@@ -32,6 +32,17 @@ Enforces open-core boundaries closed by:
 - Phase 233 WORK-05 - known dataset publication transition chokepoints must
   route through WorkflowExtension: /status/, /target-status/, and metadata
   PATCH record_status writes.
+- fix(#1438 F6/F7/F17/F24) - four import-boundary guards broadened past their
+  original scope: processing/'s app.modules.* ban now covers every domain, not
+  just catalog (test_no_processing_imports_other_domains); the private-name/
+  private-module ban covers processing/ and standards/, not just platform/
+  (test_no_private_module_imports_from_app_modules); standards/ carries a
+  frozen, shrink-only (non-zero) app.modules.* surface
+  (test_standards_module_import_surface_does_not_grow), complementing the
+  zero-tolerance app.processing guard in the sibling
+  backend/tests/test_standards_layering.py (added by #1438); and the
+  router-module import ban applies package-wide at module scope, not only
+  inside platform/ (test_no_cross_package_router_imports_at_module_scope).
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
@@ -213,6 +224,33 @@ def test_git_grep_guards_use_pcre_and_gnu_escapes_are_live() -> None:
             "not being honored — grep-based guards in this file are vacuous. "
             f"stderr: {probe.stderr}"
         )
+
+
+def _resolve_relative_import(path: Path, node: ast.ImportFrom) -> str | None:
+    """Resolve an `ImportFrom` node's target to an absolute dotted module name.
+
+    fix(#1438 codex review): `node.module` is only the absolute spelling for a
+    LEVEL-0 (non-relative) import. A relative import — ``from . import X``,
+    ``from ..pkg.mod import X`` — stores the leading dots as `node.level` and
+    `node.module` as whatever follows them (``None`` for a bare ``from .
+    import``), so a guard that reads `node.module` directly sees
+    ``"platform.jobs.router"`` (or nothing at all) for what is actually
+    ``app.platform.jobs.router`` — invisible to any check anchored on the
+    ``app.`` prefix. Climbing `node.level - 1` steps up from the FILE's own
+    package and appending `node.module` reconstructs the real target.
+    Equivalent to ``test_standards_layering.py::_absolute_module`` — kept as a
+    separate copy rather than a cross-file import, since test modules are not
+    meant to import each other's internals.
+    """
+    if node.level == 0:
+        return node.module
+    package = path.parent.relative_to(BACKEND_ROOT).parts
+    trimmed = package[: len(package) - (node.level - 1)]
+    if not trimmed:
+        # Climbs past the `app` package root — not a resolvable target.
+        return None
+    parts = [*trimmed, *(node.module.split(".") if node.module else [])]
+    return ".".join(parts)
 
 
 def _iter_backend_app_python_files() -> list[Path]:
@@ -3503,26 +3541,91 @@ _PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "tiles/router.py": {"app.modules.catalog.datasets.domain.models"},
 }
 
-_PROCESSING_DIR = REPO_ROOT / "backend" / "app" / "processing"
+# fix(#1438 codex review): built from `_backend_path()`/`BACKEND_ROOT`, not
+# `REPO_ROOT / "backend" / ...`. `_discover_repo_roots()` returns `BACKEND_ROOT
+# == REPO_ROOT / "backend"` only in the host layout; in the backend-container
+# layout it also supports, `REPO_ROOT` is `/` and `BACKEND_ROOT` is `/app`, so
+# the `REPO_ROOT`-relative spelling resolved to a nonexistent `/backend/app/
+# processing` and every guard built on it scanned zero files and passed
+# vacuously in-container. Proven both ways: constructing the analogous
+# _STANDARDS_DIR the same (wrong) way and rglob-ing it found 0 files in a
+# simulated container layout; constructing it via BACKEND_ROOT found the
+# files. `_PLATFORM_DIR` below had the identical bug.
+_PROCESSING_DIR = _backend_path("app/processing")
 
 
-def _catalog_import_edges() -> dict[str, set[str]]:
-    """Every `app.modules.catalog.*` import under processing/, at ANY scope."""
-    import ast
+def _processing_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.*` import under processing/, at ANY scope.
 
+    fix(#1438 F17): broadened from `app.modules.catalog` so a bypass into ANY
+    product domain (auth, audit, quota, embed_tokens, ...) is visible, not just
+    catalog. `_catalog_import_edges()` and `_other_domains_import_edges()` below
+    are the two ways this gets sliced — kept as separate burndowns rather than
+    one merged list because they lead to different fixes (see
+    `_other_domains_import_edges()`'s docstring).
+
+    Handles two import-syntax gaps (fix #1438 codex review): a RELATIVE import
+    (`from ...modules.auth import X`) is resolved to its absolute path via
+    `_resolve_relative_import()` before the prefix check, rather than reading
+    `node.module` as if it were always already-absolute. And `from app.modules
+    import auth` resolves `node.module` to exactly `"app.modules"` — no
+    trailing segment — which does not itself start with `"app.modules."`;
+    falling back to each imported name as a possible extension catches the
+    target this shape actually reaches (`"app.modules.auth"`) without also
+    recording the bare, non-specific `"app.modules"` for the common shape
+    where `node.module` already spells out the full target.
+    """
     edges: dict[str, set[str]] = {}
     for path in sorted(_PROCESSING_DIR.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                if resolved.startswith("app.modules."):
+                    modules = [resolved]
+                else:
+                    modules = [f"{resolved}.{alias.name}" for alias in node.names]
             elif isinstance(node, ast.Import):
                 modules = [alias.name for alias in node.names]
             else:
                 continue
             for module in modules:
-                if module.startswith("app.modules.catalog"):
+                if module.startswith("app.modules."):
                     key = str(path.relative_to(_PROCESSING_DIR))
                     edges.setdefault(key, set()).add(module)
+    return edges
+
+
+def _catalog_import_edges() -> dict[str, set[str]]:
+    """The `app.modules.catalog.*` subset of `_processing_import_edges()`."""
+    edges: dict[str, set[str]] = {}
+    for file, modules in _processing_import_edges().items():
+        catalog_modules = {m for m in modules if m.startswith("app.modules.catalog")}
+        if catalog_modules:
+            edges[file] = catalog_modules
+    return edges
+
+
+def _other_domains_import_edges() -> dict[str, set[str]]:
+    """The non-catalog subset of `_processing_import_edges()`.
+
+    fix(#1438 F17): catalog edges are governed separately, above, by
+    `test_no_processing_imports_catalog` — whose fix directs the reader at
+    ProcessingPort (`app.core.processing_port`). That is correct for catalog:
+    ProcessingPort's surface is dataset/record/map/grant methods. It has no
+    auth, audit, quota, or embed-token surface, so an edge into one of those
+    domains needs a different fix (a scoped port method, a dependency injected
+    at the router layer, or a deferred import) — folding it into the catalog
+    burndown would point the fixer at a port that cannot serve it. Kept as a
+    parallel burndown instead, so each guard's failure message stays true for
+    every edge it lists.
+    """
+    edges: dict[str, set[str]] = {}
+    for file, modules in _processing_import_edges().items():
+        other_modules = {m for m in modules if not m.startswith("app.modules.catalog")}
+        if other_modules:
+            edges[file] = other_modules
     return edges
 
 
@@ -3569,6 +3672,116 @@ def test_processing_catalog_import_allowlist_is_current() -> None:
         pytest.fail(
             "_PROCESSING_CATALOG_IMPORT_BURNDOWN lists edges that no longer exist. "
             "Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#1438 F17): burn-down list of `app.modules.*` imports inside
+# `backend/app/processing/` that reach a product domain OTHER than catalog — the
+# same PROCESS-02/04 bypass the catalog burndown above tracks, widened to every
+# domain now that the guard sees all of `app.modules.` rather than just
+# `app.modules.catalog`. See `_other_domains_import_edges()` for why this stays a
+# separate dict instead of merging into `_PROCESSING_CATALOG_IMPORT_BURNDOWN`.
+#
+# The list may SHRINK, never grow.
+_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "ai/query_router.py": {
+        "app.modules.audit.service",
+        "app.modules.auth.dependencies",
+    },
+    "ai/router.py": {
+        "app.modules.auth.dependencies",
+    },
+    "export/router.py": {
+        "app.modules.audit.service",
+        "app.modules.auth.dependencies",
+        "app.modules.auth.permissions",
+    },
+    "ingest/manifest_router.py": {
+        "app.modules.auth.dependencies",
+    },
+    "ingest/manifest_service.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/presigned.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_common.py": {
+        "app.modules.audit.service",
+    },
+    "ingest/tasks_raster.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_raster_common.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_raster_replace.py": {
+        "app.modules.audit.service",
+    },
+    "ingest/tasks_raster_swap.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_vrt.py": {
+        "app.modules.quota.service",
+    },
+    "tiles/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.embed_tokens.service",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_no_processing_imports_other_domains() -> None:
+    """Phase 225 PROCESS-02/04, broadened past catalog: processing/ reaches every
+    product domain through a port, never `app.modules.*` directly.
+
+    fix(#1438 F17): `test_no_processing_imports_catalog` held processing/ to a
+    catalog-only boundary, so an equally direct reach into auth, audit, quota, or
+    embed_tokens passed silently. processing/ has exactly one blessed
+    cross-domain seam (ProcessingPort, for catalog); every other `app.modules.*`
+    reference is the same bypass in a different domain. Walks the same
+    AST-at-any-scope collector as the catalog guard (`_processing_import_edges()`),
+    so a function-local import cannot hide from either.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_other_domains_import_edges().items()):
+        allowed = _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/processing/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "backend/app/processing/ imports app.modules.* outside the catalog "
+            "domain and outside the burn-down allowlist. Route the behavior "
+            "through a port — app.core.processing_port for catalog-shaped "
+            "access, or a scoped port method / injected dependency for auth, "
+            "audit, quota, or embed-token access — instead of adding an entry "
+            "to _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_processing_other_domains_import_allowlist_is_current() -> None:
+    """The cross-domain burn-down list must shrink as edges are migrated.
+
+    Mirrors `test_processing_catalog_import_allowlist_is_current` for the
+    non-catalog axis — a stale entry is a silent licence to reintroduce the
+    bypass later.
+    """
+    edges = _other_domains_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN lists edges that no longer "
+            "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
 
 
@@ -4200,7 +4413,11 @@ _PLATFORM_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
     },
 }
 
-_PLATFORM_DIR = REPO_ROOT / "backend" / "app" / "platform"
+# fix(#1438 codex review): see the comment on `_PROCESSING_DIR` above — this
+# constant had the identical `REPO_ROOT`-relative bug and is fixed the same
+# way (vacuous-pass in the backend-container layout `_discover_repo_roots()`
+# is meant to support).
+_PLATFORM_DIR = _backend_path("app/platform")
 
 
 def _platform_module_level_edges() -> dict[str, set[str]]:
@@ -4248,35 +4465,129 @@ def test_platform_does_not_import_modules() -> None:
         )
 
 
-@pytest.mark.architecture
-def test_platform_does_not_import_private_module_names() -> None:
-    """No `from app.modules.… import _private` anywhere in platform/, at any scope.
+# fix(#1438 F24): platform/ is not the only layer this rule protects — processing/
+# and standards/ reach into app.modules.* too, and a leading underscore is exactly
+# as fragile from either. `_STANDARDS_DIR` mirrors `_PLATFORM_DIR` / `_PROCESSING_DIR`
+# above (also reused by `_standards_module_import_edges()` further down, for the
+# F7 frozen-surface guard) — built via `_backend_path()`, not `REPO_ROOT`-relative,
+# for the same backend-container-layout reason given on `_PROCESSING_DIR`.
+_STANDARDS_DIR = _backend_path("app/standards")
+_PRIVATE_MODULE_IMPORT_ROOTS: tuple[Path, ...] = (
+    _PLATFORM_DIR,
+    _PROCESSING_DIR,
+    _STANDARDS_DIR,
+)
 
-    A leading underscore says the name can move or vanish without notice.
-    `platform/config_ops` imported the settings router's `_ENTERPRISE_ONLY_TABS`, so any
-    refactor of that router became a runtime break here.
+
+def _private_module_import_edges() -> dict[str, set[str]]:
+    """Every import reaching a `_`-prefixed segment under `app.modules.*`, at ANY
+    scope, across platform/, processing/, and standards/.
+
+    Two shapes count, because a leading underscore can sit on either side of the
+    `from X import Y` boundary. `from app.modules.X import _name` marks the NAME
+    private; `from app.modules.X._mod import name` (or `import
+    app.modules.X._mod`) marks the MODULE private, and the imported name can look
+    perfectly public while still being reached through a path that can move or
+    vanish without notice. Resolving each import to its full dotted symbol path
+    and checking every segment after `app.modules` catches both shapes with one
+    rule, rather than two independent checks that could drift apart.
+
+    A RELATIVE import is resolved to its absolute path first (fix #1438 codex
+    review): `node.module` alone is only correct for a level-0 import, so
+    `from ...modules.catalog._private import x` written deep in platform/ or
+    processing/ would otherwise read as module `"modules.catalog._private"`
+    — never reaching the `"app.modules"` prefix check at all.
     """
-    import ast
-
-    offenders: list[str] = []
-    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if not isinstance(node, ast.ImportFrom) or not node.module:
-                continue
-            if not node.module.startswith("app.modules"):
-                continue
-            for alias in node.names:
-                if alias.name.startswith("_"):
-                    rel = path.relative_to(_PLATFORM_DIR)
-                    offenders.append(
-                        f"  backend/app/platform/{rel}: {node.module}.{alias.name}"
+    offenders: dict[str, set[str]] = {}
+    for root in _PRIVATE_MODULE_IMPORT_ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                targets: list[str] = []
+                if isinstance(node, ast.ImportFrom):
+                    resolved = _resolve_relative_import(path, node)
+                    if resolved is None or not resolved.startswith("app.modules"):
+                        continue
+                    targets.extend(f"{resolved}.{alias.name}" for alias in node.names)
+                elif isinstance(node, ast.Import):
+                    targets.extend(
+                        alias.name
+                        for alias in node.names
+                        if alias.name.startswith("app.modules")
                     )
+                else:
+                    continue
+                for dotted in targets:
+                    # Segments after `app`, `modules` are the product-domain path;
+                    # any one of them starting with `_` is a private reach.
+                    if any(part.startswith("_") for part in dotted.split(".")[2:]):
+                        offenders.setdefault(_repo_style_rel(path), set()).add(dotted)
+    return offenders
+
+
+# fix(#1438 F24): kept separate from _PROCESSING_CATALOG_IMPORT_BURNDOWN even
+# though it lists the same import line (ai/router.py:320) — that dict tracks the
+# catalog-BOUNDARY crossing (fix: route through ProcessingPort); this one tracks
+# the PRIVATE-SYMBOL reach the same import happens to also make (fix: promote the
+# symbols to a public home). Two rules, one import, two reasons. When
+# _PROCESSING_CATALOG_IMPORT_BURNDOWN's "ai/router.py":
+# "app.modules.catalog.maps._router_helpers" entry is retired, this entry must be
+# retired in the same commit — the underlying import is gone either way.
+#
+# The list may SHRINK, never grow.
+_PRIVATE_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "backend/app/processing/ai/router.py": {
+        "app.modules.catalog.maps._router_helpers._can_edit_map",
+        "app.modules.catalog.maps._router_helpers._check_map_read_access",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_no_private_module_imports_from_app_modules() -> None:
+    """No `_`-prefixed name or module reached from app.modules.* outside its own
+    domain, across platform/, processing/, and standards/, at any scope.
+
+    fix(#1438 F24): broadens what was `test_platform_does_not_import_private_
+    module_names` (platform/ only, name-shape only) on two axes. Directory:
+    `platform/config_ops` importing the settings router's private
+    `_ENTERPRISE_ONLY_TABS` was never a platform-only failure mode — the same
+    fragility applies wherever backend/app/ reaches into a product module's
+    internals. Shape: `processing/ai/router.py` imports two functions through
+    `app.modules.catalog.maps._router_helpers` — a private MODULE — and a
+    name-only check cannot see that the path itself, not just the names on it,
+    is marked as liable to move or vanish without notice.
+    """
+    offenders: list[str] = []
+    for file, symbols in sorted(_private_module_import_edges().items()):
+        allowed = _PRIVATE_MODULE_IMPORT_BURNDOWN.get(file, set())
+        for symbol in sorted(symbols - allowed):
+            offenders.append(f"  {file}: {symbol}")
 
     if offenders:
         pytest.fail(
-            "platform/ imports a private name from a product module. Promote it to a "
-            "public home (core registry, port, or DTO) instead.\n"
+            "A private name or module is imported from app.modules.* outside its "
+            "own domain. Promote it to a public home (core registry, port, or "
+            "DTO) instead of adding an entry to _PRIVATE_MODULE_IMPORT_BURNDOWN.\n"
             + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_private_module_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _private_module_import_edges()
+    stale: list[str] = []
+    for file, symbols in sorted(_PRIVATE_MODULE_IMPORT_BURNDOWN.items()):
+        for symbol in sorted(symbols - edges.get(file, set())):
+            stale.append(f"  {file}: {symbol}")
+
+    if stale:
+        pytest.fail(
+            "_PRIVATE_MODULE_IMPORT_BURNDOWN lists edges that no longer exist. "
+            "Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
 
 
@@ -4368,4 +4679,340 @@ def test_platform_never_imports_processing_routers() -> None:
             "platform/ imports a processing router module. Move the needed name "
             "into a service/schema module and import that instead.\n"
             + "\n".join(offenders)
+        )
+
+
+# fix(#1438 F7): standards/ has two import-boundary guards, and this is the
+# second. `backend/tests/test_standards_layering.py` (added by #1438) holds
+# standards -> app.processing to a strict zero, mirroring the catalog rule
+# (processing-owned ORM classes, queries, and helpers must be reached through
+# CatalogPort). standards -> app.modules got no guard at all: the STAC and OGC
+# routers construct queries directly against catalog ORM classes
+# (datasets/collections/records/search), which is a live, reviewed design
+# choice — those routers exist to expose the catalog through external
+# standards, and a port indirection would not remove the coupling, only hide
+# it. So this is NOT a burn-down toward zero the way the processing guards
+# above are: it is a FROZEN surface. Today's edges are enumerated once so the
+# surface cannot grow silently; shrinking (migrating an edge through
+# CatalogPort) is welcome but not required.
+_STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
+    "dcat/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.records.localization",
+    },
+    "dcat_us/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "geodcat_ap/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "ogc/filtering.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.search.schemas",
+    },
+    "ogc/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.features.schemas",
+        "app.modules.catalog.features.service",
+    },
+    "ogc/schemas.py": {
+        "app.modules.catalog.features.schemas",
+    },
+    "stac/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.collections.models",
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.features.service",
+        "app.modules.catalog.search.service",
+    },
+    "stac/schemas.py": {
+        "app.modules.catalog.features.schemas",
+    },
+}
+
+
+def _standards_module_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.*` import under standards/, at ANY scope.
+
+    Same two shapes handled as `_processing_import_edges()` above (fix #1438
+    codex review): a relative import is resolved to its absolute path before
+    the prefix check, and `from app.modules import X` falls back to each
+    imported name as a possible extension of the bare, non-specific
+    `"app.modules"` `node.module` resolves to.
+    """
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_STANDARDS_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                if resolved.startswith("app.modules."):
+                    modules = [resolved]
+                else:
+                    modules = [f"{resolved}.{alias.name}" for alias in node.names]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if module.startswith("app.modules."):
+                    key = str(path.relative_to(_STANDARDS_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
+@pytest.mark.architecture
+def test_standards_module_import_surface_does_not_grow() -> None:
+    """standards/ -> app.modules.* is frozen at today's edges, not banned.
+
+    fix(#1438 F7): unlike the processing/platform burndowns elsewhere in this
+    file, `_STANDARDS_MODULE_IMPORT_SURFACE` is not a to-do list — STAC/OGC/DCAT
+    exist to expose the catalog to external standards, so direct ORM access is
+    the design, not debt. What this guards against is the surface growing
+    UNREVIEWED: a new file or a new edge here should be a deliberate addition to
+    the allowlist, not a silent side effect of a router growing a new route.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_standards_module_import_edges().items()):
+        allowed = _STANDARDS_MODULE_IMPORT_SURFACE.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/standards/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "backend/app/standards/ imports app.modules.* outside its reviewed "
+            "surface. If this is a deliberate, reviewed addition (mirroring the "
+            "existing STAC/OGC/DCAT catalog-ORM access), add it to "
+            "_STANDARDS_MODULE_IMPORT_SURFACE. If it is avoidable, prefer "
+            "CatalogPort (app.core.catalog_port) instead.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_standards_module_import_surface_is_current() -> None:
+    """The frozen surface must shrink (or stay flat) as edges are migrated.
+
+    A stale entry overstates today's coupling and is a silent licence to
+    reintroduce a since-removed edge later without review.
+    """
+    edges = _standards_module_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_STANDARDS_MODULE_IMPORT_SURFACE.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_STANDARDS_MODULE_IMPORT_SURFACE lists edges that no longer exist. "
+            "Delete them — the surface only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#1438 F6): widens test_platform_never_imports_processing_routers (fix #836)
+# past its original platform-only, processing-only shape. That guard stays exactly
+# as written below — it is STRICTER on its own axis (any scope, not just module
+# scope) — this one adds the coverage it never had: every package, importing a
+# router module belonging to any OTHER package.
+def _dotted_package(path: Path) -> str:
+    """The dotted `app.…` package a file lives in — its containing directory."""
+    return ".".join(path.parent.relative_to(BACKEND_ROOT).parts)
+
+
+def _module_package(dotted: str) -> str:
+    """Everything before a dotted module path's last segment — its package."""
+    return dotted.rsplit(".", 1)[0] if "." in dotted else dotted
+
+
+def _is_router_module(module: str) -> bool:
+    """True when a dotted module path's filename-equivalent leaf names a router.
+
+    Mirrors how `test_platform_never_imports_processing_routers` identifies a
+    router module (``leaf == "router"`` or ``leaf.endswith("_router")``), plus
+    the ``router_*`` prefix convention used across catalog/maps, catalog/
+    datasets/api, catalog/search, admin, and settings (router_assets.py,
+    router_export.py, router_saved.py, router_operations.py, router_public.py,
+    ...). Checked against every module in backend/app/ that actually
+    instantiates ``APIRouter(``: the three shapes below match that set exactly
+    — zero misses, zero false positives. (A private ``_router_helpers.py``
+    starts with ``_``, not ``router``, so it does not match either shape.)
+    """
+    leaf = module.rsplit(".", 1)[-1]
+    return leaf == "router" or leaf.startswith("router_") or leaf.endswith("_router")
+
+
+def _resolves_to_real_module(dotted: str) -> bool:
+    """True when a dotted `app.…` path names a real file or package under backend/.
+
+    fix(#1438 F6 codex review): distinguishes `from app.platform.jobs import
+    router` (imports the `router.py` SUBMODULE — `router` here names a real
+    file) from `from app.core.schemas import router_id_param` (imports an
+    ordinary NAME that happens to start with `router_` — no such file exists).
+    Both are the same AST shape (`ImportFrom(module=X, names=[alias(name=Y)])`);
+    only the filesystem tells them apart. Needed because `_is_router_module()`
+    is a filename heuristic — applying it to every imported NAME without this
+    check would flag the second case as a router import.
+    """
+    candidate = BACKEND_ROOT / Path(*dotted.split("."))
+    return (
+        candidate.with_suffix(".py").is_file() or (candidate / "__init__.py").is_file()
+    )
+
+
+# The aggregate composition root: app/api/router.py imports every domain's
+# router to compose api_router, and app/api/main.py imports _titiler_client
+# from app.processing.tiles.router at module scope. Both are the ONE place
+# this fan-in is supposed to happen (every other guard in this file that
+# mentions routers says the same thing: "only api/main.py composes routers").
+_ROUTER_COMPOSITION_ROOT = frozenset(
+    {"backend/app/api/router.py", "backend/app/api/main.py"}
+)
+
+
+def _cross_package_router_import_edges() -> dict[str, set[str]]:
+    """Every MODULE-SCOPE import of a router module from outside its own
+    package, across all of backend/app/.
+
+    fix(#1438 F6): importing an API-edge module runs its route registration as
+    a side effect and couples the importer to the router's whole transitive
+    import graph, just to reach one constant or helper function — the exact
+    shape fix(#836) diagnosed, but that guard could only see it for platform/
+    importing app.processing.*. The failure mode is not domain-specific: any
+    package reaching across a boundary for a name that belongs in a service or
+    schema module has the same problem.
+
+    Two import shapes reach a router submodule, and both are checked (fix
+    #1438 F6 codex review): `from app.platform.jobs.router import name` names
+    it as `node.module` directly; `from app.platform.jobs import router` names
+    it as an imported NAME, resolved against the filesystem via
+    `_resolves_to_real_module()` so an ordinary name that merely starts with
+    `router_` is not mistaken for a submodule.
+
+    Module scope only, determined by AST ancestry rather than `col_offset`
+    (fix #1438 F6 codex review): `col_offset != 0` was the established idiom
+    elsewhere in this file, but it also skips an import nested in a top-level
+    `try`/`if` block — indented, so nonzero column, but still executed at
+    module-import time. Walking function bodies to build an exclusion set
+    (mirroring `_redirect_escaping_imports()` above) excludes only imports
+    truly inside a function, which is where the D-17 deferred-import escape
+    hatch used throughout this file actually defers to — it does not run the
+    router's side effects at the importer's import time, so it does not
+    reproduce the bug this guard exists to catch.
+
+    Same-package nesting is not an edge: a domain's ``router.py`` composing
+    its own ``router_*.py`` siblings (e.g. ``catalog/maps/router.py`` including
+    ``catalog/maps/router_assets.py``) is the normal way a domain's API surface
+    is assembled, and neither file is "outside its own package" from the
+    other's perspective.
+
+    A RELATIVE import is resolved to its absolute path first (fix #1438 codex
+    review): `from ...platform.jobs.router import name`, written deep inside
+    `app/modules/catalog/collections/`, stores `node.module ==
+    "platform.jobs.router"` with `node.level == 3` — reading `node.module`
+    directly gives a string that does not start with `"app."` and is silently
+    skipped, the same equivalent-relative-syntax bypass `_resolve_relative_
+    import()` closes for the other three collectors in this file.
+    """
+    offenders: dict[str, set[str]] = {}
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        rel = _repo_style_rel(path)
+        if rel in _ROUTER_COMPOSITION_ROOT:
+            continue
+        importer_package = _dotted_package(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        inside_functions: set[ast.AST] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.walk(node):
+                    if child is not node:
+                        inside_functions.add(child)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                candidates = [resolved]
+                candidates.extend(
+                    f"{resolved}.{alias.name}"
+                    for alias in node.names
+                    if _resolves_to_real_module(f"{resolved}.{alias.name}")
+                )
+            elif isinstance(node, ast.Import):
+                candidates = [alias.name for alias in node.names]
+            else:
+                continue
+            if node in inside_functions:
+                continue
+            for module in candidates:
+                if not module.startswith("app.") or not _is_router_module(module):
+                    continue
+                if _module_package(module) == importer_package:
+                    continue
+                offenders.setdefault(rel, set()).add(module)
+    return offenders
+
+
+# fix(#1438 F6): the one edge the enumeration surfaced is flagged here rather
+# than treated as routine reviewed debt. Every OTHER burndown in this file
+# traces to a fix commit that named its tradeoff and accepted it; this edge
+# predates any guard that could see it (source outside platform/, target
+# outside app.processing/ — invisible to both axes fix(#836) checked) and was
+# added in #476 ("harden lifecycle and tenant isolation"), a PR about tenant
+# isolation with nothing suggesting this coupling was a deliberate choice.
+# Seeded so the guard is actionable on today's tree rather than failing on
+# pre-existing, unrelated code — worth a follow-up to move
+# `get_retry_capability` into a plain service module, the way `sweep.py`
+# already did for this same router's other non-route helpers (see
+# app/platform/jobs/router.py's own module docstring).
+#
+# The list may SHRINK, never grow.
+_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "backend/app/modules/admin/router.py": {"app.platform.jobs.router"},
+}
+
+
+@pytest.mark.architecture
+def test_no_cross_package_router_imports_at_module_scope() -> None:
+    """No file outside its own package imports a router module at module
+    scope, anywhere in backend/app/ — not just platform/ importing processing/.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_cross_package_router_import_edges().items()):
+        allowed = _CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  {file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "A module imports a router module from outside its own package at "
+            "module scope. Importing an API-edge module runs its route "
+            "registration as a side effect; move the needed name into a "
+            "service or schema module instead of adding an entry to "
+            "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN. If the name is only needed "
+            "inside a function, deferring the import (D-17) avoids the side "
+            "effect without needing an allowlist entry at all.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_cross_package_router_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _cross_package_router_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN lists edges that no longer "
+            "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
         )
