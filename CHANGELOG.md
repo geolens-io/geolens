@@ -7,6 +7,31 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-08-12
+
+### Added
+
+- **Coding agents can now query dataset contents through the MCP server.**
+  A hardened read-only SQL endpoint exposes the NL-to-SQL sandbox directly:
+  queries run against the caller's RBAC-scoped table allowlist with the
+  sandbox's statement validation, row, byte, and timeout caps, and the MCP
+  server surfaces it as a `query` tool alongside the existing catalog reads
+  (#1406).
+- **Chat query results can be saved as datasets from the builder.** The
+  result-preview overlay a chat query renders in the map builder now has a
+  save path that materializes the preview into a real dataset (#1403).
+- **Predicate chat queries offer a layer-filter follow-up.** When a chat
+  answer is a predicate over a layer's features, the panel offers applying
+  it as that layer's filter instead of leaving the answer stranded in the
+  transcript (#1402).
+- **Distributions can be reordered around a primary.** The dataset page's
+  distributions list gains a set-primary control, and writing a new primary
+  demotes the incumbent instead of leaving two rows both claiming it
+  (#1399, #1393).
+- **Source validation failures read as sentences.** The machine codes the
+  source validator emits are mapped to user-facing strings in all four
+  locales instead of leaking code identifiers into the UI (#1397).
+
 ### Changed
 
 - **A raster CRS override now assigns the CRS instead of reprojecting to
@@ -22,6 +47,52 @@ and releases use semantic versioning.
   ingest rather than kept as a second permanent copy. Deliberate
   reproject-at-ingest is not offered; rasters are reprojected at serve time
   and at export time (#1291).
+- **A refresh run's `origin_kind` is documented as the door it executed
+  through, not the dataset's origin.** The API description, both backend
+  vocabularies, and the Source panel's run history now state the
+  distinction explicitly; a run's kind and its dataset's origin can
+  visibly disagree (a STAC-imported raster mid-replacement shows origin
+  "stac" next to a run recorded "upload") and equality was never the
+  contract (#1422).
+
+### Fixed
+
+- **A VRT's declared composition can no longer disagree with the served
+  mosaic.** Adding or removing a VRT source stages the intended member set
+  on the generation and applies it to the catalog in the same transaction
+  that publishes the regenerated artifact. A worker death between accepting
+  the mutation and finishing the build now leaves the catalog exactly as it
+  was instead of describing sources the served VRT does not have. A
+  mid-flight deletion of a staged source fails the run whole, and rolling
+  deployments are fenced: an outdated worker refuses the staged job loudly
+  instead of silently dropping the change (#1424).
+- **VRT regeneration now invalidates tile caches.** The regeneration swap
+  rolls the dataset's tile cache version the way every other refresh door
+  already did, so a regeneration that changes the mosaic's shape stops
+  serving pre-swap tiles from the URL-keyed and in-process caches until
+  TTLs happen to expire (#1425).
+- **Raster tile metadata stops going stale across API processes.** The
+  per-process raster metadata cache keys on the tile URL's version
+  parameter, so a raster replace, VRT regeneration, or source refresh is
+  observed by every API worker immediately instead of after a
+  sixty-second window. A request naming a future version cannot
+  pre-poison the cache for the swap that later arrives (#1421).
+- **Dataset pages notice refreshes started elsewhere.** Returning focus to
+  an open dataset tab refetches the run history unconditionally, so a
+  refresh dispatched by the CLI or another editor is observed and the
+  page's caches roll instead of staying stale until remount (#1420).
+- **Interrupted presigned uploads no longer strand objects.** Storage
+  objects from presigned uploads whose tracking row never completed are
+  reconciled against the tracking table and swept (#1401).
+- **A reupload that removes geometry retires the synthetic geometry row**
+  instead of leaving the dataset claiming a spatial column it no longer
+  has (#1389).
+- **VRT validation refuses sources whose pixel geometry was never
+  measured** instead of composing them into a mosaic with undefined
+  resolution (#1388).
+- **Tenant-ownership adoption completes on the head schema.** The
+  forward-only adoption path used by operators reaches the current schema
+  without requiring an intermediate checkout (#1405).
 
 ## [1.11.1] - 2026-08-10
 
