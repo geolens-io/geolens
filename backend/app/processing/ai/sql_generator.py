@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.platform.analysis_sql import render_geodesic_buffer
 from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
+from app.processing.ai.llm_loop import noop_tool_executor
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.token_usage import record_token_usage
 from app.core.persistent_config import LLM_MODEL_LIGHT, LLM_PROVIDER
@@ -474,7 +475,7 @@ async def generate_sql(
         user_message=user_message,
         tools=[],
         # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=None,
+        tool_executor=noop_tool_executor,
         max_rounds=1,
         max_tokens=2048,
         temperature=0.0,

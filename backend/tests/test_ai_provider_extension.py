@@ -219,84 +219,25 @@ async def test_anthropic_complete_aborts_at_token_budget():
 
 
 @pytest.mark.asyncio
-async def test_anthropic_complete_without_tool_executor():
-    """tool_executor defaults to None, so the no-tools call sites
-    (sql_generator, probe, service retry/repair — all tools=[] + max_rounds=1)
-    no longer need to construct a throwaway executor."""
-    from unittest.mock import AsyncMock
+async def test_noop_tool_executor_returns_empty_dict():
+    """llm_loop.noop_tool_executor is the shared ToolExecutor for no-tools
+    calls (tools=[] + max_rounds=1). It is never actually invoked by the
+    tool loop in that shape, but it must still satisfy the ToolExecutor
+    contract (a real callable a conforming provider can call unconditionally)
+    since AIProviderExtension.complete()/stream() require a real executor."""
+    from app.processing.ai.llm_loop import noop_tool_executor
 
-    from app.core.config import settings
-    from app.platform.extensions.defaults import DefaultAnthropicProvider
-
-    text_block = MagicMock()
-    text_block.type = "text"
-    text_block.text = "ok"
-
-    response = MagicMock()
-    response.stop_reason = "end_turn"
-    response.usage.input_tokens = 10
-    response.usage.output_tokens = 5
-    response.content = [text_block]
-
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(return_value=response)
-
-    provider = DefaultAnthropicProvider()
-    original_client = DefaultAnthropicProvider._client
-    DefaultAnthropicProvider._client = fake_client
-    try:
-        with patch.object(settings, "anthropic_api_key", "test-key"):
-            result = await provider.complete(
-                model="test-model",
-                system_prompt="s",
-                user_message="u",
-                tools=[],
-                max_rounds=1,
-                max_tokens=128,
-            )
-    finally:
-        DefaultAnthropicProvider._client = original_client
-
-    assert result.text == "ok"
+    assert await noop_tool_executor("anything", {"x": 1}) == {}
 
 
-@pytest.mark.asyncio
-async def test_anthropic_complete_tool_call_without_executor_raises_clear_error():
-    """A tool_use round with no tool_executor must fail with an actionable
-    ValueError instead of ``TypeError: 'NoneType' object is not callable``."""
-    from unittest.mock import AsyncMock
+def test_noop_tool_executor_call_sites_share_one_definition():
+    """sql_generator, probe, and service's retry/repair rounds each used to
+    define an identical throwaway ``_noop_executor`` closure. They now import
+    the same llm_loop.noop_tool_executor rather than each constructing their
+    own — verifies the de-duplication, not just that each site still works."""
+    from app.processing.ai import sql_generator
+    from app.processing.ai.llm_loop import noop_tool_executor
+    from app.processing.ai.service import noop_tool_executor as service_noop
 
-    from app.core.config import settings
-    from app.platform.extensions.defaults import DefaultAnthropicProvider
-
-    tool_block = MagicMock()
-    tool_block.type = "tool_use"
-    tool_block.name = "search_datasets"
-    tool_block.input = {}
-    tool_block.id = "tool-1"
-
-    response = MagicMock()
-    response.stop_reason = "tool_use"
-    response.usage.input_tokens = 10
-    response.usage.output_tokens = 5
-    response.content = [tool_block]
-
-    fake_client = MagicMock()
-    fake_client.messages.create = AsyncMock(return_value=response)
-
-    provider = DefaultAnthropicProvider()
-    original_client = DefaultAnthropicProvider._client
-    DefaultAnthropicProvider._client = fake_client
-    try:
-        with patch.object(settings, "anthropic_api_key", "test-key"):
-            with pytest.raises(ValueError, match="tool_executor"):
-                await provider.complete(
-                    model="test-model",
-                    system_prompt="s",
-                    user_message="u",
-                    tools=[{"name": "search_datasets"}],
-                    max_rounds=1,
-                    max_tokens=128,
-                )
-    finally:
-        DefaultAnthropicProvider._client = original_client
+    assert sql_generator.noop_tool_executor is noop_tool_executor
+    assert service_noop is noop_tool_executor

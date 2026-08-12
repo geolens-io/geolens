@@ -62,7 +62,7 @@ async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
     import asyncio
 
     from app.platform.extensions import get_ai_provider
-    from app.processing.ai.llm_loop import resolve_provider
+    from app.processing.ai.llm_loop import noop_tool_executor, resolve_provider
 
     provider, model, runtime_config = await resolve_provider(db)
     # Same configured-predicate as the chat route (_check_ai_available): the
@@ -86,7 +86,7 @@ async def _probe_chat(db) -> AIProbeCheck:  # type: ignore[no-untyped-def]
                 user_message="ping",
                 tools=[],
                 # tools=[] + max_rounds=1: the loop exits before any tool call.
-                tool_executor=None,
+                tool_executor=noop_tool_executor,
                 max_rounds=1,
                 max_tokens=1,
                 temperature=0.0,

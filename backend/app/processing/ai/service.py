@@ -17,6 +17,7 @@ from app.processing.ai.constants import tool_label
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
+    noop_tool_executor,
     resolve_provider,
 )
 from app.processing.ai.schemas import LLMMapSpec, validate_paint_for_geometry
@@ -387,7 +388,7 @@ async def _retry_parse_map_spec(
         user_message=extraction_prompt,
         tools=[],
         # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=None,
+        tool_executor=noop_tool_executor,
         max_rounds=1,
         max_tokens=1024,
         base_url=runtime_config.get("base_url"),
@@ -445,7 +446,7 @@ async def _repair_map_spec(
         user_message=repair_prompt,
         tools=[],
         # max_rounds=1 exits before any tool call; executor never runs.
-        tool_executor=None,
+        tool_executor=noop_tool_executor,
         max_rounds=1,
         max_tokens=1024,
         base_url=runtime_config.get("base_url"),

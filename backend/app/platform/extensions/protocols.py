@@ -243,12 +243,6 @@ class AIProviderExtension(Protocol):
     ``ActionCollector``) live in ``app.processing.ai.llm_loop``; the
     ``TYPE_CHECKING`` import keeps the typing-only edge from becoming a
     runtime edge (mirrors the ``AuditEvent`` pattern at line 18-19).
-
-    ``tool_executor`` defaults to ``None`` so no-tools callers (``tools=[]``
-    with ``max_rounds=1``) do not need to construct a throwaway executor.
-    Implementations must guard the ``None`` case at the point they would
-    invoke it: reachable only if a caller passes non-empty ``tools`` without
-    a real executor, which is a caller bug and should raise a clear error.
     """
 
     async def complete(
@@ -258,7 +252,7 @@ class AIProviderExtension(Protocol):
         system_prompt: str,
         user_message: str,
         tools: list[dict],
-        tool_executor: "ToolExecutor | None" = None,
+        tool_executor: "ToolExecutor",
         action_collector: "ActionCollector | None" = None,
         history: "list[dict] | None" = None,
         max_rounds: int = ...,
@@ -274,7 +268,7 @@ class AIProviderExtension(Protocol):
         system_prompt: str,
         user_message: str,
         tools: list[dict],
-        tool_executor: "ToolExecutor | None" = None,
+        tool_executor: "ToolExecutor",
         action_collector: "ActionCollector | None" = None,
         history: "list[dict] | None" = None,
         max_rounds: int = ...,
