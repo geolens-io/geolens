@@ -4,7 +4,6 @@ from datetime import date, datetime
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.text import normalize_nfc as _nfc
-from app.modules.catalog.datasets.domain.schemas import DatasetResponse
 
 
 class CollectionCreate(BaseModel):
@@ -41,13 +40,6 @@ class CollectionUpdate(BaseModel):
         return _nfc(v)
 
 
-class CollectionSummary(BaseModel):
-    id: uuid.UUID
-    name: str
-
-    model_config = ConfigDict(from_attributes=True)
-
-
 class CollectionResponse(BaseModel):
     id: uuid.UUID
     name: str
@@ -74,11 +66,6 @@ class CollectionAddDatasetsRequest(BaseModel):
         max_length=100,
         description="Dataset IDs to add to the collection (1-100)",
     )
-
-
-class CollectionDatasetResponse(BaseModel):
-    datasets: list[DatasetResponse]
-    total: int
 
 
 class AddDatasetsResponse(BaseModel):

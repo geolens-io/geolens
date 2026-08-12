@@ -132,22 +132,6 @@ class CreateEmptyDatasetRequest(BaseModel):
 Visibility = Literal["private", "restricted", "internal", "public"]
 
 
-class DatasetCreate(BaseModel):
-    title: str = Field(max_length=500)
-    summary: str | None = Field(
-        default=None, max_length=5000, description="Brief abstract of the dataset"
-    )
-    visibility: Visibility = Field(
-        default="private",
-        description="Access level: private, restricted, internal, or public",
-    )
-
-    @field_validator("title", "summary", mode="before")
-    @classmethod
-    def normalize_nfc(cls, v: str | None) -> str | None:
-        return _nfc(v)
-
-
 class RasterBandInfo(BaseModel):
     index: int = Field(description="1-based band index")
     dtype: str = Field(description="Pixel data type, e.g. uint8, float32")
