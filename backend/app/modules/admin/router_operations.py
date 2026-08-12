@@ -26,7 +26,7 @@ from app.modules.admin.service import AdminService
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_mode_permission, require_permission
 from app.modules.auth.models import ApiKey, User
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.modules.auth.schemas import ApiKeyCreateResponse
 
 router = APIRouter()

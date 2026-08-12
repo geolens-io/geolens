@@ -30,7 +30,7 @@ from app.core.persistent_config import (
     get_cached_semantic_search_rate_limit,
     get_cached_basemap_proxy_rate_limit,
 )
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 
 pytestmark = pytest.mark.anyio
 

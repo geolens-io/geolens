@@ -1616,7 +1616,7 @@ async def test_each_rate_limit_dimension_fires(
 ):
     """Both limit callables are live: lower one dimension to 2/minute and the
     endpoint 429s, whichever dimension it is."""
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
     from app.processing.ai import query_router
 
     monkeypatch.setattr(query_router, attr, "2/minute")
@@ -1638,7 +1638,7 @@ async def test_rate_limited_requests_are_not_durably_audited(
     """fix(#565 codex P2): a 429 IS the limiter shedding load, so writing a
     durable audit row per throttled request would defeat the throttle. The
     successful call is audited (query.execute); the 429s add no reject rows."""
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
     from app.processing.ai import query_router
 
     owner = await _admin_id(client, admin_auth_header)

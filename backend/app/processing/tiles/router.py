@@ -64,7 +64,7 @@ from app.processing.tiles.service import (
     get_tile,
     parse_cols_param,
 )
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.processing.tiles.schemas import (
     RasterTileToken,
     TileTokenBatchRequest,

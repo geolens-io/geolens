@@ -1904,7 +1904,7 @@ async def client(tmp_path):
     structlog.contextvars.bind_contextvars(service="api")
 
     # Disable rate limiter during tests
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     limiter.enabled = False
 
@@ -2269,7 +2269,7 @@ def reset_limiter_storage() -> None:
     Called for every test function to ensure determinism under `pytest -n 4`.
     """
     try:
-        from app.modules.auth.router import limiter
+        from app.platform.ratelimit import limiter
 
         limiter._storage.reset()
     except Exception:

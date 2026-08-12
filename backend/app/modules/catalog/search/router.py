@@ -80,7 +80,7 @@ from app.core.persistent_config import (
     SEMANTIC_SEARCH_ENABLED,
     get_cached_semantic_search_rate_limit,
 )
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 
 logger = structlog.stdlib.get_logger(__name__)
 

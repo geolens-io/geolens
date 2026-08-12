@@ -21,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from app.core.identity import Identity
-from app.modules.auth.models import Role, UserRole
+from app.modules.auth.permissions import get_user_roles as _get_user_roles
 from app.platform.extensions import get_permission_extension
 
 
@@ -66,16 +66,20 @@ def apply_visibility_filter(
 
 
 async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
-    """Get the set of role names for a user.
+    """Role names for a user. The query itself lives in ``auth.permissions``.
 
-    Replaces the per-router ``_get_user_roles()`` duplicates.
+    It selects the auth-owned ``Role``/``UserRole`` tables and reads nothing
+    catalog, so auth owns it; keeping it callable from here leaves the ~40
+    catalog call sites and the ``catalog.authorization`` import path unchanged
+    while ``auth.dependencies`` stops importing catalog to get it.
+
+    A delegating def rather than a bare re-export on purpose:
+    ``test_permission_chokepoints_use_extension`` reads this file's
+    ``async def get_user_roles`` as the end of the ``apply_visibility_filter``
+    block it inspects, and tests that patch
+    ``catalog.authorization.get_user_roles`` keep working through it.
     """
-    result = await db.execute(
-        select(Role.name)
-        .join(UserRole, Role.id == UserRole.role_id)
-        .where(UserRole.user_id == user.id)
-    )
-    return {row[0] for row in result.all()}
+    return await _get_user_roles(db, user)
 
 
 async def check_dataset_access_or_anonymous(

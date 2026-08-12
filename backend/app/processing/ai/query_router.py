@@ -58,7 +58,7 @@ from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit_durable
 from app.modules.auth.dependencies import require_permission
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.platform.sandbox import SandboxError, SandboxResult, validate_and_execute
 from app.standards.ogc.errors import ERROR_RESPONSES_AUTH, RATE_LIMIT_RESPONSE
 

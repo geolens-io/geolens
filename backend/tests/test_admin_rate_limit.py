@@ -24,13 +24,13 @@ from httpx import AsyncClient
 
 
 def _toggle_limiter(enabled: bool) -> None:
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     limiter.enabled = enabled
 
 
 def _reset_storage() -> None:
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     limiter._storage.reset()
 
@@ -46,7 +46,7 @@ async def test_admin_mutation_429(client: AsyncClient, admin_auth_header: dict) 
 
     A single call after a fresh storage reset must NOT return 429.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     try:
@@ -109,7 +109,7 @@ async def test_settings_update_429(
 
     A single call after a fresh storage reset must NOT return 429.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     try:
@@ -159,7 +159,7 @@ async def test_oauth_provider_create_429(
 
     A single call after a fresh storage reset must NOT return 429.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     try:
@@ -225,7 +225,7 @@ async def test_alias_bypass_guard(client: AsyncClient, admin_auth_header: dict) 
     Strategy: exhaust the limit via the no-slash form (POST /admin/users), then
     assert that further calls to the same no-slash alias return 429.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     original_enabled = limiter.enabled
     try:

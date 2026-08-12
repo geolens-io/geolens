@@ -44,7 +44,7 @@ from app.modules.catalog.datasets.domain.service import (
 )
 from app.core.dependencies import get_db
 from app.core.persistent_config import get_cached_semantic_search_rate_limit
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.platform.extensions import get_catalog_port, get_workflow_extension
 from app.platform.extensions.defaults import DefaultWorkflowExtension
 from app.platform.extensions.protocols import WorkflowTransitionContext

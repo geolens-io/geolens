@@ -41,7 +41,7 @@ from app.modules.admin.service import (
 from app.modules.quota.service import get_user_quota_usage_bulk
 from app.modules.audit.service import AuditEvent, audit_emit, audit_emit_durable
 from app.modules.auth.dependencies import require_mode_permission, require_permission
-from app.modules.auth.router import limiter  # HARDEN-01: shared rate-limiter instance
+from app.platform.ratelimit import limiter  # HARDEN-01: shared rate-limiter instance
 from app.modules.auth.models import User
 from app.modules.auth.schemas import UserResponse
 from app.processing.export.service import safe_content_disposition

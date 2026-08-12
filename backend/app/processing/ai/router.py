@@ -69,7 +69,7 @@ from app.core.persistent_config import (
     MAX_AI_TOKENS_PER_USER_PER_DAY,
 )
 from app.processing.ai.token_usage import AITokenUsage
-from app.modules.auth.router import limiter
+from app.platform.ratelimit import limiter
 from app.platform.sandbox.validator import build_table_allowlist
 from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_AUTH
 

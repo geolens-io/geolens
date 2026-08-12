@@ -235,7 +235,7 @@ def test_health_endpoint_is_rate_limited():
     from _route_limits). After the fix it has its own generous @limiter.limit,
     so it appears in _route_limits and not in _exempt_routes.
     """
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     assert "app.api.main.health" in limiter._route_limits, (
         "/health must carry an explicit @limiter.limit (GAP-016)."

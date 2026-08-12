@@ -74,7 +74,7 @@ def _patch_limiter(monkeypatch):
     """Disable rate limiter for all tests in this module."""
     # The conftest already does this via limiter.enabled = False but
     # re-confirm it here since new endpoints also use the same limiter.
-    from app.modules.auth.router import limiter
+    from app.platform.ratelimit import limiter
 
     monkeypatch.setattr(limiter, "enabled", False)
 
