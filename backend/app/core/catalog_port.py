@@ -269,6 +269,22 @@ class CatalogPort(Protocol):
         self, session: AsyncSession, dataset_ids: list[uuid.UUID]
     ) -> dict[str, dict[str, Any]]: ...
 
+    # The same rows without the VRT assembly fields. `vrt_type` is forwarded to
+    # a record's properties when present (search/service_records.py), and the
+    # STAC item surface must not grow that property — so its reader asks for
+    # the narrower answer rather than trimming the wider one.
+    #
+    # REQUIRED, which is why EXTENSION_API_VERSION went 5 -> 6: every STAC
+    # item and item-page response calls it, so an overlay that replaces the
+    # `catalog_port` slot without it serves AttributeError instead of a page.
+    # A separate method rather than an `include_vrt` keyword on the call above
+    # because widening an existing port method's signature is a bump under the
+    # same rule (the 2 -> 3 entry), and this shape keeps the wider reading
+    # working unchanged for the callers that need `vrt_type`.
+    async def fetch_raster_meta_bulk_without_vrt(
+        self, session: AsyncSession, dataset_ids: list[uuid.UUID]
+    ) -> dict[str, dict[str, Any]]: ...
+
     # How many members ONE generation is assembling. fix(#1327): that is the
     # attempt's intended set, which for a source add/remove is not what the VRT
     # is serving until the attempt publishes — so this is a fact about the

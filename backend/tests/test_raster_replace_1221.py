@@ -3969,7 +3969,20 @@ class TestInternalAssetKeysNeverReachAnyResponse:
                 for node in ast.walk(ast.parse(src))
                 if isinstance(node, ast.Attribute)
             }
-            if not names & {"is_public_asset_key", "_build_stac_assets"}:
+            # `build_assets` is the public facade over `_build_stac_assets` and
+            # is how a module outside search/ names the delegation — it hands
+            # `stac_asset_rows` straight to the private builder and consumes
+            # them nowhere else. refactor(stac): the STAC router reached this
+            # gate only once its DatasetAsset fetch moved onto the port; before
+            # that it hand-rolled `select(DatasetAsset)` and matched neither
+            # fetch name, so the guard never looked at it. That blind spot —
+            # fetching without naming the seam — is what the docstring above
+            # calls "a fourth is a normal thing to add".
+            if not names & {
+                "is_public_asset_key",
+                "_build_stac_assets",
+                "build_assets",
+            }:
                 offenders.append(str(path))
         assert offenders == [], (
             "these modules turn dataset_assets rows into payloads without "

@@ -46,13 +46,22 @@ class TestExtensionApiVersionConstant:
         swap call it inside their write transactions whenever the modality
         they measured differs from the stored one, so an overlay that replaces
         the ``processing_port`` key without it raises AttributeError mid-write
-        instead of being refused at boot.
+        instead of being refused at boot. v6 adds the required
+        ``fetch_raster_meta_bulk_without_vrt`` method to ``CatalogPort``
+        (refactor(stac)), the same case on the sibling port: the STAC router
+        reads raster metadata through it on every item and item-page response,
+        including an empty page, so an overlay that replaces the
+        ``catalog_port`` key without it answers AttributeError instead of a
+        page. Being additive is not an exemption — the convention's
+        "new optional methods" carve-out means methods with a default no-op,
+        and a Protocol method a structural implementer must supply is
+        required.
 
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 5
+        assert EXTENSION_API_VERSION == 6
 
 
 class TestCheckExtensionApiVersion:
