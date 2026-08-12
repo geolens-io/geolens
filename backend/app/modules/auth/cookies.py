@@ -69,8 +69,8 @@ def issue_browser_session(
     request: Request,
     refresh_token: str,
     expire_days: int,
-) -> str:
-    """Attach the refresh + CSRF cookies to *response*. Returns the CSRF token.
+) -> None:
+    """Attach the refresh + CSRF cookies to *response*.
 
     ``SameSite=Lax``: the only route under the cookie's ``Path`` is a POST, and
     Lax and Strict are identical for a same-origin XHR POST (Lax's extra
@@ -102,7 +102,6 @@ def issue_browser_session(
         samesite="lax",
         path="/",
     )
-    return csrf_token
 
 
 def clear_browser_session(response: Response, request: Request) -> None:
