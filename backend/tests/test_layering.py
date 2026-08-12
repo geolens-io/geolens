@@ -1917,7 +1917,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # are read-gated (icon asset) or unauthenticated (sprite index), so the
     # router's inherited write-flavored 403 misdescribed their actual cause.
     # Cap 126 -> 132, exact.
-    # fix: +10 — the sprite-index override above only reworded the 403; the
+    # fix(#1440): +10 — the sprite-index override above only reworded the 403; the
     # sprite JSON and PNG routes take no auth at all, so no 401/403/409 can
     # occur regardless of description. FastAPI's router `responses=` merge is
     # additive along the whole include chain (an ancestor's key always shows
