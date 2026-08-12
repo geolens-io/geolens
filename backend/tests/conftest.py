@@ -948,6 +948,49 @@ async def _run_with_too_many_clients_retry(
         raise last_exc
 
 
+@pytest.fixture
+async def _init_tile_pool_for_tests(request):
+    """Initialize a real asyncpg pool pointing at the test database for tile tests.
+
+    The test client uses ASGITransport which does not run the app lifespan, so
+    tile-serving tests that reach the tile pool directly must create it
+    manually. Non-autouse — consumers opt in via
+    ``@pytest.mark.usefixtures("_init_tile_pool_for_tests")`` (applied at class
+    or module scope; a module-level ``pytestmark`` gives every test in a file
+    the fixture, mirroring what ``autouse=True`` would do for that one module).
+
+    The ``request``-based guard below exists for the module-scoped consumer
+    (test_embed_tokens.py): it skips pool creation for tests that request none
+    of the DB-facing fixtures, so unit tests in that file never pay for a live
+    asyncpg connection they don't need. For every other consumer the guard is
+    a no-op in practice — each test reached via ``usefixtures`` already
+    requests ``client`` and/or ``test_db_session``.
+    """
+    db_fixtures = {
+        "admin_auth_header",
+        "clean_tables",
+        "cleanup_data_tables",
+        "client",
+        "editor_auth_header",
+        "test_db_session",
+        "viewer_auth_header",
+    }
+    if not db_fixtures.intersection(request.fixturenames):
+        yield
+        return
+
+    import app.processing.tiles.pool as pool_module
+
+    dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
+    pool = await _run_with_too_many_clients_retry(
+        lambda: asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3, command_timeout=10)
+    )
+    pool_module._tile_pool = pool
+    yield
+    await pool.close()
+    pool_module._tile_pool = None
+
+
 # Retry budget for transient "too many clients already" contention during
 # in-test session-factory acquisition (per-request `override_get_db` ->
 # `test_session_factory()`). Distinct from `_SETUP_PHASE_RETRY_BACKOFFS`:

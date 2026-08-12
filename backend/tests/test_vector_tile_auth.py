@@ -20,7 +20,6 @@ Requirements:
 
 import uuid
 
-import asyncpg
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
@@ -28,8 +27,6 @@ from sqlalchemy import select, text
 from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-
-from tests.conftest import _run_with_too_many_clients_retry
 
 
 # ---------------------------------------------------------------------------
@@ -140,27 +137,6 @@ async def _get_auth_header(client: AsyncClient, username: str, password: str) ->
     )
     assert resp.status_code == 200, f"Login failed: {resp.text}"
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
-
-
-@pytest.fixture
-async def _init_tile_pool_for_tests():
-    """Initialize a real asyncpg pool pointing at the test database for tile tests.
-
-    The test client uses ASGITransport which does not run the app lifespan,
-    so the tile serving pool must be created manually.  Mirrors the fixture in
-    test_tiles.py.  The denial tests short-circuit at the auth gate (404) before
-    the pool is touched; the positive serving guard needs the pool live.
-    """
-    import app.processing.tiles.pool as pool_module
-
-    dsn = settings.test_database_url.replace("postgresql+asyncpg://", "postgresql://")
-    pool = await _run_with_too_many_clients_retry(
-        lambda: asyncpg.create_pool(dsn=dsn, min_size=1, max_size=3, command_timeout=10)
-    )
-    pool_module._tile_pool = pool
-    yield
-    await pool.close()
-    pool_module._tile_pool = None
 
 
 # ---------------------------------------------------------------------------
