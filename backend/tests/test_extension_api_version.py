@@ -57,11 +57,21 @@ class TestExtensionApiVersionConstant:
         and a Protocol method a structural implementer must supply is
         required.
 
+        v7 adds the required ``get_retired_table_name_orm_class`` method to
+        ``ProcessingPort`` (fix(#1443)), the same case a third time.
+        ``generate_table_name`` lives in processing/ and cannot import the
+        catalog model it now probes, so it reaches one through this accessor —
+        on every ingest, analysis output, and layer materialization. An overlay
+        that replaces the ``processing_port`` key without it raises
+        AttributeError on the first upload, and the probe it skips is the one
+        keeping a freed table name from reaching a successor that would inherit
+        its predecessor's cached authorization.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 6
+        assert EXTENSION_API_VERSION == 7
 
 
 class TestCheckExtensionApiVersion:

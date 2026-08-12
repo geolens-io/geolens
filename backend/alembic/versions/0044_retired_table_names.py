@@ -22,11 +22,12 @@ Expiring rows would re-open the window on exactly the names most likely to
 still be cached. A deployment that deletes a thousand datasets a day
 accumulates well under a megabyte a year.
 
-Not unique: one row per retirement, not per name. ``register_existing_table``
-adopts a physical table by its real name without consulting
-``generate_table_name``, so a retired name can legitimately return and be
-retired again, and a unique constraint would turn that into a failed delete.
-The probe is a set-membership test, so duplicates cost nothing.
+Not unique: one row per retirement, not per name. Nothing in the schema
+promises a name reaches this table only once — a future recording site, an
+operator insert, a restore that merges two catalogs — and a unique constraint
+would turn every one of those into a FAILED DELETE, which is the one outcome
+this table must never cause. The probe is a set-membership test, so duplicates
+cost nothing and buy an unconditional write.
 
 Revision ID: 0044_retired_table_names
 Revises: 0043_vrt_generations_staged_source_ids

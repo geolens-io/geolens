@@ -2698,7 +2698,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # probe is unscoped by tenant (it has to agree with the catalog probe
     # beside it, and over-collision only costs a suffix). Cap 1077 -> 1098,
     # exact.
-    "backend/app/processing/ingest/service.py": 1098,
+    # fix(#1444 review): +21 — the same probe repeated in
+    # register_existing_table, which is the one path that takes a table name
+    # from the caller instead of generating it. Without it the whole guarantee
+    # is bypassable through the front door: recreate a physical table under a
+    # deleted public dataset's name, register it as private, and a worker still
+    # holding the predecessor's metadata authorizes anonymously against
+    # `public` while querying the successor's rows. The comment carries why it
+    # refuses rather than renaming the caller's own table. Cap 1098 -> 1119,
+    # exact.
+    "backend/app/processing/ingest/service.py": 1119,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

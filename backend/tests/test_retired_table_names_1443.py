@@ -20,6 +20,7 @@ dataset it was cached for.
 import ast
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -253,6 +254,70 @@ class TestRecordingSites:
         assert still_there == 1
 
 
+class TestRegistrationCannotBypassRetirement:
+    """fix(#1444 review): registration takes its name from the caller.
+
+    It is the one path that does not go through generate_table_name, so the
+    probe has to be repeated there. Recreate a physical table under a deleted
+    public dataset's name, register it as private, and a worker still holding
+    the predecessor's metadata serves the successor's rows under `public` —
+    GH-1443's disclosure through the front door.
+    """
+
+    async def test_registering_a_retired_name_is_refused(
+        self, test_db_session: AsyncSession
+    ):
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        title = f"Registered {uuid.uuid4().hex[:6]}"
+        dataset, table_name = await _make_vector_dataset(test_db_session, title)
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        # The delete dropped the table; the operator recreates it themselves.
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{table_name}" (gid serial primary key)')
+        )
+        await test_db_session.commit()
+
+        identity = SimpleNamespace(id=admin_id)
+        with pytest.raises(ValueError, match="deleted dataset"):
+            await register_existing_table(
+                test_db_session,
+                RegisterRequest(table_name=table_name, title="Successor"),
+                identity,
+            )
+        await test_db_session.rollback()
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+
+    async def test_registering_an_untouched_name_still_works(
+        self, test_db_session: AsyncSession
+    ):
+        """The refusal is scoped to retired names, not to registration."""
+        from app.processing.ingest.schemas import RegisterRequest
+        from app.processing.ingest.service import register_existing_table
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        table_name = f"never_retired_{uuid.uuid4().hex[:12]}"
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{table_name}" (gid serial primary key)')
+        )
+        await test_db_session.commit()
+
+        identity = SimpleNamespace(id=admin_id)
+        dataset = await register_existing_table(
+            test_db_session,
+            RegisterRequest(table_name=table_name, title=f"Fresh {table_name}"),
+            identity,
+        )
+        assert dataset.table_name == table_name
+        await test_db_session.commit()
+
+
 class TestRecordingSiteEnumeration:
     """Exactly one site retires a name, and it is the dataset delete.
 
@@ -331,11 +396,13 @@ class TestSchema:
     async def test_the_same_name_may_be_retired_more_than_once(
         self, test_db_session: AsyncSession
     ):
-        """No unique constraint: register_existing_table can readopt a name.
+        """No unique constraint, so a repeat retirement can never fail a delete.
 
-        It adopts a physical table by its real name without asking
-        generate_table_name, so a retired name can legitimately come back. A
-        unique constraint would turn the second delete into a failed delete.
+        Nothing promises a name reaches this table once — a future recording
+        site, an operator insert, a restore that merges two catalogs. Uniqueness
+        would turn any of those into a failed delete, which is the one outcome
+        this table must not cause, and it would buy nothing: the probe is a set
+        membership test.
         """
         table_name = f"readopted_{uuid.uuid4().hex[:12]}"
         for _ in range(2):

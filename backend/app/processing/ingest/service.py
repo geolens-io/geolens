@@ -615,6 +615,27 @@ async def register_existing_table(
     if existing.scalar_one_or_none() is not None:
         raise ValueError(f"Table '{table_name}' is already registered as a dataset.")
 
+    # fix(#1444 review): registration is the one path that takes a table name
+    # from the caller instead of generate_table_name, so the retirement probe
+    # has to be repeated here or it is bypassable. Recreate a physical table
+    # under a deleted public dataset's name, register it as private, and a
+    # worker still holding the predecessor's metadata authorizes anonymously
+    # against `public` while querying the successor's rows — the disclosure
+    # GH-1443 exists to prevent, reached through the front door.
+    #
+    # Refuse rather than rename. Registration copies no data and serves from
+    # the caller's own live table, so renaming it would be this service
+    # reaching into storage it does not own to fix a name the caller chose.
+    RetiredORM = get_processing_port().get_retired_table_name_orm_class()
+    retired = await session.execute(
+        select(RetiredORM.id).where(RetiredORM.table_name == table_name).limit(1)
+    )
+    if retired.scalar_one_or_none() is not None:
+        raise ValueError(
+            f"Table '{table_name}' carries the name of a deleted dataset and "
+            "cannot be registered. Rename the table and register it again."
+        )
+
     # Check for geometry columns
     geom_result = await session.execute(
         text(

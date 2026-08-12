@@ -83,7 +83,19 @@ logger = logging.getLogger(__name__)
 # exemption here: the "do NOT bump for new optional methods" carve-out above
 # means methods with a default no-op, and a Protocol method a structural
 # implementer must supply is required by definition.
-EXTENSION_API_VERSION: int = 6
+#
+# 6 -> 7 (fix(GH-1443)): ProcessingPort gained a required
+# ``get_retired_table_name_orm_class`` method. ``generate_table_name`` lives in
+# processing/ and so cannot import the catalog model it now has to probe; the
+# accessor is how it reaches one. Every ingest, analysis output, and layer
+# materialization calls that function, so an overlay replacing the
+# ``processing_port`` slot without the accessor would load cleanly at version 6
+# and then raise AttributeError on the first upload — and the probe it skips is
+# the one keeping a freed table name from being handed to a successor that
+# inherits its predecessor's cached authorization. Same reasoning as 4 -> 5 and
+# 5 -> 6: a Protocol method a structural implementer must supply is required,
+# whatever else the addition is shaped like.
+EXTENSION_API_VERSION: int = 7
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:
