@@ -1846,7 +1846,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1314): +12 — reconcile_distributions, the seam the refresh and
         # reupload paths cross to bring auto-generated distribution rows in
         # line with a modality that changed under them. Cap 482 -> 494.
-        "backend/app/platform/extensions/defaults_processing_port.py": 494,
+        # fix(#1443): +5 — get_retired_table_name_orm_class. The retired-name
+        # probe runs inside generate_table_name, which lives in processing/ and
+        # so cannot import the catalog model it needs; this is the same
+        # ORM-class accessor shape as its five neighbours. Cap 494 -> 499,
+        # exact.
+        "backend/app/platform/extensions/defaults_processing_port.py": 499,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2023,6 +2028,13 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   tiles/router.py 2329 -> 2341. fix(#1444): +12 of comment, no code. Both
+#     docstrings that GH-1429 left stating "a freed table name is immediately
+#     redrawable" as a live precondition now say GH-1443 removed it, and each
+#     says why its own mechanism stays anyway (the eviction buys freshness; the
+#     generation key is what keeps a name safe independently of how names are
+#     generated). Leaving them was the worse option — a reader who trusts a
+#     stale precondition unwinds the wrong defence.
 _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
@@ -2677,7 +2689,46 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # registration stops landing with column_info and feature_count NULL. The
     # added lines are the comment explaining why the branch is gone.
     # Cap 1073 -> 1077, exact.
-    "backend/app/processing/ingest/service.py": 1077,
+    # fix(#1443): +21 — generate_table_name gains a third collision probe,
+    # against the retired-names table. The two it already had ask what exists
+    # NOW, and a delete clears both, so a deleted dataset's table name was
+    # handed straight to its successor while a tile worker could still be
+    # holding the predecessor's authorization snapshot under that name. Most of
+    # the added lines are the comment carrying that reasoning plus why the
+    # probe is unscoped by tenant (it has to agree with the catalog probe
+    # beside it, and over-collision only costs a suffix). Cap 1077 -> 1098,
+    # exact.
+    # fix(#1444 review): +21 — the same probe repeated in
+    # register_existing_table, which is the one path that takes a table name
+    # from the caller instead of generating it. Without it the whole guarantee
+    # is bypassable through the front door: recreate a physical table under a
+    # deleted public dataset's name, register it as private, and a worker still
+    # holding the predecessor's metadata authorizes anonymously against
+    # `public` while querying the successor's rows. The comment carries why it
+    # refuses rather than renaming the caller's own table. Cap 1098 -> 1119,
+    # exact.
+    # fix(#1444 review round 2): +47 — the suffix walk now keeps every candidate
+    # inside PostgreSQL's 63-byte identifier limit. Retired names accumulate
+    # forever, so a 60-char base genuinely reaches `_100`, which is 64 bytes;
+    # Postgres truncates that onto the same relation as `_10` while the catalog
+    # keeps both untruncated strings, putting two logical names on one table.
+    # The lines are `_with_collision_suffix`, three constants, the bound that
+    # refuses an exhausted namespace instead of emitting a truncatable name,
+    # and the probe prefix that has to be short enough to match a candidate
+    # whose base was trimmed — plus the comments tying those last two together,
+    # because they are only correct as a pair. Cap 1119 -> 1166, exact.
+    # fix(#1444 review round 3): +33 — the retirement probes are tenant-scoped,
+    # mirroring migration 0020's per-tenant uniqueness on datasets.table_name.
+    # Unscoped, one tenant's deletions cost every other tenant suffixes, and
+    # once the round-2 bound landed they could exhaust a shared budget and
+    # refuse a title outright. `_retired_tenant_scope` (own tenant plus the NULL
+    # scope, with the string->UUID coercion made explicit because a
+    # never-matching comparison reads as "nothing is retired") is applied at
+    # both probe sites. The comments carry why NULL binds everywhere: it is the
+    # single-tenant namespace, and where a row retired before a single -> multi
+    # transition sits, since nothing back-stamps this table. Cap 1166 -> 1199,
+    # exact.
+    "backend/app/processing/ingest/service.py": 1199,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -3026,7 +3077,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2329,
+    "backend/app/processing/tiles/router.py": 2341,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

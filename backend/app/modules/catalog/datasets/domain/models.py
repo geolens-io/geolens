@@ -874,3 +874,45 @@ class DatasetRelationship(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
+
+
+class RetiredTableName(Base):
+    """A physical table name that must never be handed out again.
+
+    fix(#1443). ``generate_table_name`` collides against live catalog rows
+    and live relations, both of which a delete clears — so before this table
+    existed, deleting the dataset that owned ``roads`` handed ``roads`` to the
+    next dataset with that title. The tile router caches ``table_name ->
+    dataset metadata`` and reads authorization out of that snapshot, so a
+    worker that missed the delete would authorize an anonymous caller against
+    the deleted dataset's ``public`` visibility and then serve the successor's
+    rows. Retiring the name removes the precondition: a stale entry can only
+    ever describe the dataset it was cached for.
+
+    Rows are kept forever. One name plus two ids per deleted dataset is
+    nothing, and the whole point is to outlive any cache — an expiry would
+    re-open the window on precisely the names still likely to be cached.
+    """
+
+    __tablename__ = "retired_table_names"
+    __table_args__ = (
+        Index("ix_retired_table_names_table_name", "table_name"),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    table_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    # Diagnostic breadcrumb, not a foreign key — the dataset it names is
+    # deleted in the transaction that writes this row.
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    retired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )

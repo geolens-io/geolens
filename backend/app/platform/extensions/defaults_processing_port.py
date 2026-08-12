@@ -438,6 +438,11 @@ class DefaultProcessingPort:
 
         return Dataset
 
+    def get_retired_table_name_orm_class(self):  # type: ignore[no-untyped-def]
+        from app.modules.catalog.datasets.domain.models import RetiredTableName
+
+        return RetiredTableName
+
     def get_dataset_version_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.collections.models import DatasetVersion
 

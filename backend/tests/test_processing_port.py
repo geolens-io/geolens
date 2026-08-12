@@ -263,6 +263,9 @@ class FakeProcessingPort:
     def get_dataset_orm_class(self):
         return MagicMock
 
+    def get_retired_table_name_orm_class(self):
+        return MagicMock
+
     def get_dataset_version_orm_class(self):
         return MagicMock
 

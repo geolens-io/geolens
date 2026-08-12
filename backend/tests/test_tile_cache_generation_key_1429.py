@@ -1,7 +1,7 @@
 """A reused table name must never let one dataset read another's tiles (#1429).
 
-`generate_table_name` collides only against LIVE catalog rows and LIVE
-relations, so a vector delete frees its table name for immediate reuse.
+`generate_table_name` collided only against LIVE catalog rows and LIVE
+relations, so a vector delete freed its table name for immediate reuse.
 Every tile cache key used to be that name alone, which made the cache a
 cross-dataset channel: delete private "Roads" (table ``roads``), upload a
 public "Roads" that draws ``roads`` again, and the tile endpoint authorized
@@ -17,6 +17,10 @@ space, so it cannot see the predecessor's entries whether or not the purge ran,
 whether or not it reached this process, and whether or not the TTL expired.
 Position matters — after the table segment, so `tile:{table}:*` invalidation
 still matches every key for a table.
+
+GH-1443 has since retired freed names outright, so the reuse this file is
+about can no longer happen at all. The generation key stays and stays tested:
+it is what makes a name safe independently of how names are generated.
 """
 
 import gzip

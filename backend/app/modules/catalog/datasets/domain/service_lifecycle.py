@@ -14,6 +14,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
+from app.modules.catalog.datasets.domain.models import RetiredTableName
 from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
@@ -183,25 +184,47 @@ async def delete_dataset(
             if keys:
                 await asyncio.gather(*(storage.delete(key) for key in keys))
 
+    # fix(#1443): retire the name before releasing it. This is the one site
+    # where a name a LIVE dataset row carried stops being carried by one, and
+    # that is exactly the condition under which the tile router's table_name ->
+    # metadata map could be holding an entry for it — that map is populated
+    # only from catalog.datasets. Recorded for every record type, not just the
+    # vector branch that drops a table: the raster/VRT branch drops nothing,
+    # but its dataset row goes, so the name it occupied in the catalog probe is
+    # freed just the same, and _resolve_dataset_meta does not filter on
+    # record_type before caching what it found.
+    #
+    # session.add, so it lands in the caller's transaction alongside the DROP
+    # and the record delete. A crash between them can therefore roll back the
+    # whole delete, but can never commit a freed name with no tombstone.
+    session.add(
+        RetiredTableName(
+            table_name=table_name,
+            tenant_id=dataset.tenant_id,
+            dataset_id=dataset_id,
+        )
+    )
+
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
 
     if record_type not in RASTER_FAMILY_RECORD_TYPES:
-        # fix(#1427): purge the dropped table's MVT tiles. The cache key is
+        # fix(#1427): purge the dropped table's MVT tiles. The cache key was
         # `tile:{table}:{z}:{x}:{y}` with no dataset id and no content version,
-        # and generate_table_name collides only against LIVE rows and relations
-        # — so the name freed above is immediately reusable, and whoever draws
-        # it next is authorized on its own visibility while served this
+        # and generate_table_name collided only against LIVE rows and relations
+        # — so the name freed above was immediately reusable, and whoever drew
+        # it next was authorized on its own visibility while served this
         # dataset's bytes for up to tile_cache_ttl.
         #
         # fix(#1429) made the purge no longer load-bearing for correctness —
         # tile keys now carry the dataset id, so a successor drawing this name
-        # cannot read these entries whether or not the purge lands. It stays
-        # because the orphaned entries are dead weight until their TTL, and
-        # because it is what every sibling write path does. Placed here rather
-        # than after the caller's commit so single delete, bulk delete, and
-        # future callers get it from one place. Raster/VRT are excluded — their
-        # tiles come from Titiler, and that branch drops no table to free a name.
+        # cannot read these entries whether or not the purge lands — and
+        # fix(#1444) removed the redraw itself (see the retirement above). It
+        # stays because the orphaned entries are dead weight until their TTL,
+        # and because it is what every sibling write path does. Placed here
+        # rather than after the caller's commit so single delete, bulk delete,
+        # and future callers get it from one place. Raster/VRT are excluded —
+        # their tiles come from Titiler, and that branch drops no table.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()

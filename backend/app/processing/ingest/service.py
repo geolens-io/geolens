@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
@@ -435,6 +435,47 @@ def validate_file_extension(
         raise ValueError(f"File extension {suffix!r} not allowed. Allowed: {exts}")
 
 
+# PostgreSQL truncates any identifier past NAMEDATALEN-1 = 63 bytes, silently
+# and with only a NOTICE. Slugs are ASCII-transliterated, so bytes == chars.
+_MAX_IDENTIFIER_CHARS = 63
+
+# fix(#1444 review): the collision walk refuses past this rather than emitting a
+# name Postgres would truncate. At a 60-char base, `_100` is the first candidate
+# that crosses 63 — before retirement that took 99 LIVE datasets sharing one
+# title, but retired names accumulate forever, so the walk genuinely reaches it
+# now. A truncated `{base}_100` addresses the same physical relation as
+# `{base}_10` while the catalog keeps both untruncated strings, which puts two
+# logical names on one table and hands the disclosure straight back.
+# `_with_collision_suffix` keeps every candidate inside the limit, and this
+# bound keeps the tag short enough that `_COLLISION_PROBE_CHARS` below stays a
+# prefix of all of them. The two constants have to move together.
+_MAX_COLLISION_SUFFIX = 9999
+_COLLISION_PROBE_CHARS = _MAX_IDENTIFIER_CHARS - len(f"_{_MAX_COLLISION_SUFFIX}")
+
+
+def _with_collision_suffix(base: str, suffix: int) -> str:
+    """``base`` plus ``_N``, trimming the base so the whole name fits in 63."""
+    tag = f"_{suffix}"
+    return f"{base[: _MAX_IDENTIFIER_CHARS - len(tag)]}{tag}"
+
+
+def _retired_tenant_scope(RetiredORM: Any, tenant_id: str | uuid.UUID | None) -> Any:
+    """Which retired names bind for ``tenant_id``: its own, plus the NULL ones.
+
+    ``current_tenant_var`` carries the id as a STRING, and the column is
+    ``UUID(as_uuid=True)``. The coercion is explicit rather than left to the
+    dialect because the failure direction is silent: a comparison that matches
+    nothing reads as "no name is retired" and hands one straight back.
+    """
+    scope = RetiredORM.tenant_id.is_(None)
+    if tenant_id is not None:
+        as_uuid = (
+            tenant_id if isinstance(tenant_id, uuid.UUID) else uuid.UUID(str(tenant_id))
+        )
+        scope = or_(scope, RetiredORM.tenant_id == as_uuid)
+    return scope
+
+
 async def generate_table_name(
     name: str, session: AsyncSession
 ) -> tuple[str, str | None]:
@@ -450,7 +491,11 @@ async def generate_table_name(
     - Unicode transliterated to ASCII (e.g., strassen from Straßen)
     - Truncated to 60 chars (PG limit is 63; leaves room for _N suffix)
     - Names starting with digit get underscore prefix
-    - Collision handling: _2, _3, _4, ...
+    - Collision handling: _2, _3, _4, ..., with the base trimmed further when a
+      longer suffix would push the name past PostgreSQL's 63-byte identifier
+      limit. Raises ValueError once _MAX_COLLISION_SUFFIX is exhausted, rather
+      than returning a name the database would silently truncate onto another
+      dataset's relation.
     """
     from slugify import slugify as _slugify
 
@@ -471,8 +516,19 @@ async def generate_table_name(
 
     base_slug = slug
     collision_warning: str | None = None
+    # fix(#1444 review): the LIKE prefix is the base trimmed to
+    # _COLLISION_PROBE_CHARS, not the base itself, because a candidate carrying
+    # a long suffix has a SHORTER base — `_with_collision_suffix` trims to keep
+    # the whole name inside 63 — and a probe keyed on the full base would not
+    # match it. Trimming here makes the prefix a prefix of every candidate the
+    # walk below can produce. It over-matches for slugs longer than
+    # _COLLISION_PROBE_CHARS, which costs those names a suffix they might not
+    # have needed; under-matching would cost the guarantee.
+    probe_prefix = base_slug[:_COLLISION_PROBE_CHARS]
     result = await session.execute(
-        select(DatasetORM.table_name).where(DatasetORM.table_name.like(f"{base_slug}%"))
+        select(DatasetORM.table_name).where(
+            DatasetORM.table_name.like(f"{probe_prefix}%")
+        )
     )
     existing = {row[0] for row in result.all()}
 
@@ -491,23 +547,64 @@ async def generate_table_name(
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
 
-    _schema = tenant_data_schema(
-        current_tenant_var.get() if is_multi_tenant() else None
-    )
+    _tid = current_tenant_var.get() if is_multi_tenant() else None
+    _schema = tenant_data_schema(_tid)
     info_result = await session.execute(
         text(
             "SELECT c.relname FROM pg_catalog.pg_class c"
             " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
             " WHERE n.nspname = :schema AND c.relname LIKE :pattern"
-        ).bindparams(schema=_schema, pattern=f"{base_slug}%")
+        ).bindparams(schema=_schema, pattern=f"{probe_prefix}%")
     )
     existing |= {row[0] for row in info_result.all()}
 
+    # fix(#1443): and collide against RETIRED names. Both probes above ask
+    # what exists NOW, and a delete clears both, so the name of a deleted
+    # dataset was handed straight back to the next one with that title. The
+    # tile router caches table_name -> dataset metadata and reads
+    # authorization out of that snapshot, so a worker that missed the delete
+    # authorized the caller against the DELETED dataset's visibility and then
+    # queried a table its successor owns. Treating a retired name exactly like
+    # a live collision is what makes that unreachable: the successor of a
+    # deleted `roads` gets `roads_2`, and no cached entry can outlive its
+    # dataset's exclusive claim on the name.
+    #
+    # fix(#1444 review): tenant-scoped, mirroring migration 0020's per-tenant
+    # uniqueness on catalog.datasets.table_name. Names are already per-tenant
+    # everywhere it matters — the tile metadata cache keys on {tid}:{table} and
+    # its query filters on tenant_id, and each tenant's tables live in their own
+    # data_t_{tid} schema — so one tenant's tombstone cannot be inherited by
+    # another and retiring it globally only costs unrelated tenants suffixes.
+    # With the _MAX_COLLISION_SUFFIX bound above, that stopped being cosmetic:
+    # a busy tenant's create/delete history could exhaust a shared budget and
+    # refuse a title for everyone.
+    #
+    # NULL-tenant rows count in every scope, deliberately. That is the
+    # single-tenant namespace (the uq_datasets_table_name_global half of 0020),
+    # and it is also where any row retired before a single -> multi transition
+    # sits, since nothing back-stamps this table. Over-collision on a bounded
+    # historical set is the cheap direction; missing those rows would quietly
+    # reopen the window on exactly the oldest names.
+    RetiredORM = get_processing_port().get_retired_table_name_orm_class()
+    retired_result = await session.execute(
+        select(RetiredORM.table_name).where(
+            RetiredORM.table_name.like(f"{probe_prefix}%"),
+            _retired_tenant_scope(RetiredORM, _tid),
+        )
+    )
+    existing |= {row[0] for row in retired_result.all()}
+
     if slug in existing:
         suffix = 2
-        while f"{base_slug}_{suffix}" in existing:
+        while _with_collision_suffix(base_slug, suffix) in existing:
             suffix += 1
-        slug = f"{base_slug}_{suffix}"
+            if suffix > _MAX_COLLISION_SUFFIX:
+                raise ValueError(
+                    f"Exhausted table names for '{base_slug}': "
+                    f"{_MAX_COLLISION_SUFFIX} variants are taken or retired. "
+                    "Give this dataset a more distinctive title."
+                )
+        slug = _with_collision_suffix(base_slug, suffix)
         collision_warning = f"Table name '{base_slug}' already exists, using '{slug}'"
 
     return slug, collision_warning
@@ -569,9 +666,8 @@ async def register_existing_table(
 
     # CR-03 (Phase 1209): resolve the per-tenant schema so catalog queries
     # target data_t_{tid} in multi_tenant rather than the shared 'data' schema.
-    _schema = tenant_data_schema(
-        current_tenant_var.get() if is_multi_tenant() else None
-    )
+    _tid = current_tenant_var.get() if is_multi_tenant() else None
+    _schema = tenant_data_schema(_tid)
 
     # Verify table exists in the correct schema
     result = await session.execute(
@@ -593,6 +689,32 @@ async def register_existing_table(
     )
     if existing.scalar_one_or_none() is not None:
         raise ValueError(f"Table '{table_name}' is already registered as a dataset.")
+
+    # fix(#1444 review): registration is the one path that takes a table name
+    # from the caller instead of generate_table_name, so the retirement probe
+    # has to be repeated here or it is bypassable. Recreate a physical table
+    # under a deleted public dataset's name, register it as private, and a
+    # worker still holding the predecessor's metadata authorizes anonymously
+    # against `public` while querying the successor's rows — the disclosure
+    # GH-1443 exists to prevent, reached through the front door.
+    #
+    # Refuse rather than rename. Registration copies no data and serves from
+    # the caller's own live table, so renaming it would be this service
+    # reaching into storage it does not own to fix a name the caller chose.
+    RetiredORM = get_processing_port().get_retired_table_name_orm_class()
+    retired = await session.execute(
+        select(RetiredORM.id)
+        .where(
+            RetiredORM.table_name == table_name,
+            _retired_tenant_scope(RetiredORM, _tid),
+        )
+        .limit(1)
+    )
+    if retired.scalar_one_or_none() is not None:
+        raise ValueError(
+            f"Table '{table_name}' carries the name of a deleted dataset and "
+            "cannot be registered. Rename the table and register it again."
+        )
 
     # Check for geometry columns
     geom_result = await session.execute(

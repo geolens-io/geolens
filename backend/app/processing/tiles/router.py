@@ -271,9 +271,16 @@ def _evict_dataset_meta(table_name: str) -> None:
     fix(#1429): this cache decides authorization — visibility, record_status
     and created_by are read from the snapshot rather than re-queried. Keying
     tile bytes by dataset id cannot help here, because the stale entry is what
-    picks the dataset in the first place: after a delete frees ``roads`` and a
-    new dataset draws it, a worker holding the old entry serves the NEW table's
-    rows under the DELETED dataset's visibility.
+    picks the dataset in the first place.
+
+    fix(#1444): what that used to mean is gone. A delete freed ``roads`` for
+    the next dataset to draw, so a worker holding the old entry served the NEW
+    table's rows under the DELETED dataset's visibility. GH-1443 retires a
+    freed name in ``catalog.retired_table_names`` and ``generate_table_name``
+    collides against it, so a name is never redrawn and a surviving entry can
+    only describe the dataset it was cached for. This eviction now buys
+    freshness — an entry for a table that is gone is dead weight, and every
+    sibling write path evicts — not the authorization boundary itself.
 
     Both key shapes are swept — bare ``table_name`` in single-tenant and
     ``{tid}:{table_name}`` in multi-tenant — because a process can hold entries
@@ -1839,14 +1846,19 @@ def _ensure_clusterable_dataset(meta: _DatasetMeta) -> None:
 def _generation_table_key(table_name: str, dataset_id: uuid.UUID) -> str:
     """Table segment plus the generation that makes a reused name safe.
 
-    fix(#1429): a vector delete drops the table and the catalog row, and
-    ``generate_table_name`` collides only against LIVE rows and relations, so
-    the freed name is immediately redrawable. Every tile cache key was the
+    fix(#1429): a vector delete drops the table and the catalog row, and at the
+    time ``generate_table_name`` collided only against LIVE rows and relations,
+    so the freed name was immediately redrawable. Every tile cache key was the
     table name alone, which meant the next dataset to draw ``roads`` read the
     previous one's cached bytes while being authorized on its own visibility.
     The dataset id is a UUID and is never reissued, so keying on it makes that
     read impossible rather than merely short-lived — the purge on delete, the
     TTL, and whether the purge even reached this process all stop mattering.
+
+    fix(#1444): GH-1443 has since retired freed names outright, so a redraw is
+    no longer possible either. This key stays: it is the reason a name is safe
+    regardless of what any future name-generation change does, and unwinding it
+    would put the whole guarantee back on one probe in one function.
 
     Position is load-bearing: the id goes AFTER the table segment so the
     ``tile:{table}:*`` patterns in ``invalidate_table`` still match every key

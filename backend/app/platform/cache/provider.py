@@ -135,11 +135,10 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
 # --- Table invalidation listeners (fix #1429) ---
 #
 # The tile router keeps a process-local map of table_name -> dataset metadata
-# so it does not hit the DB per tile request. That map is keyed on a name a
-# delete frees for reuse, so after a delete it can hand a successor dataset
-# the DELETED dataset's visibility and owner. Versioning the tile cache key
-# does not reach it: the stale entry is what decides authorization, before any
-# cache key is built.
+# so it does not hit the DB per tile request. That map decides authorization —
+# visibility, record_status and created_by are read from the cached snapshot
+# rather than re-queried — so versioning the tile cache key does not reach it:
+# the stale entry is what picks the dataset, before any cache key is built.
 #
 # This is the seam that lets the catalog delete path tell the tile router to
 # drop that entry without importing it — `catalog/` must not import
@@ -159,15 +158,19 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
 #     writes its result afterwards. The opportunity is only one query wide,
 #     but an entry that does land then lives the full TTL like any other — the
 #     narrow window buys a short race, not a short consequence.
-# Both are the same bounded-staleness tradeoff already documented for
-# visibility changes in processing/tiles/router.py, with one difference that
-# matters: there the stale entry describes the SAME dataset, here it can
-# describe a predecessor of a reused table name. Neither is closable by a
-# notification channel in this topology — REDIS_URL is unset by default, and
-# LISTEN/NOTIFY needs a session-pinned connection that transaction-mode
-# PgBouncer (a supported topology, see the SET LOCAL note in
-# processing/tiles/router.py) does not provide. The fix is to stop reusing
-# table names, tracked in #1443.
+# fix(#1444): both windows are now exactly the bounded-staleness tradeoff
+# already documented for visibility changes in processing/tiles/router.py —
+# the stale entry describes the SAME dataset it was cached for, and nothing
+# worse. It used to be able to describe a PREDECESSOR of a reused table name,
+# which no notification channel in this topology could have fixed (REDIS_URL is
+# unset by default, and LISTEN/NOTIFY needs a session-pinned connection that
+# transaction-mode PgBouncer — a supported topology, see the SET LOCAL note in
+# processing/tiles/router.py — does not provide). GH-1443 removed the
+# precondition instead: a table name freed by a delete is retired in
+# catalog.retired_table_names and never handed out again, so an entry cached
+# under a name cannot outlive its dataset's exclusive claim on that name.
+# Eviction is therefore an optimization here, not the thing standing between a
+# successor's rows and a predecessor's visibility.
 _table_invalidation_listeners: list[Callable[[str], None]] = []
 
 
