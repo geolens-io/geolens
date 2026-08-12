@@ -2717,7 +2717,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and the probe prefix that has to be short enough to match a candidate
     # whose base was trimmed — plus the comments tying those last two together,
     # because they are only correct as a pair. Cap 1119 -> 1166, exact.
-    "backend/app/processing/ingest/service.py": 1166,
+    # fix(#1444 review round 3): +33 — the retirement probes are tenant-scoped,
+    # mirroring migration 0020's per-tenant uniqueness on datasets.table_name.
+    # Unscoped, one tenant's deletions cost every other tenant suffixes, and
+    # once the round-2 bound landed they could exhaust a shared budget and
+    # refuse a title outright. `_retired_tenant_scope` (own tenant plus the NULL
+    # scope, with the string->UUID coercion made explicit because a
+    # never-matching comparison reads as "nothing is retired") is applied at
+    # both probe sites. The comments carry why NULL binds everywhere: it is the
+    # single-tenant namespace, and where a row retired before a single -> multi
+    # transition sits, since nothing back-stamps this table. Cap 1166 -> 1199,
+    # exact.
+    "backend/app/processing/ingest/service.py": 1199,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

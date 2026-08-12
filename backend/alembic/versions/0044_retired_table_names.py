@@ -61,11 +61,13 @@ def upgrade() -> None:
         # TSEAM-01 dormant tenant_id: nullable, no FK enforcement, no RLS
         # policy, and not in migration 0018's stamping-trigger set — the same
         # shape 0037_dataset_refresh_runs uses. Written explicitly from the
-        # deleted dataset's own column. Nothing READS it yet: the probe in
-        # generate_table_name is unscoped because the live-dataset probe
-        # beside it is unscoped, and the two must agree. The column is here so
-        # that scoping both, if it is ever wanted, is a query change rather
-        # than a backfill.
+        # deleted dataset's own column, and READ by the collision probe, which
+        # binds a name to its own tenant plus the NULL scope. That mirrors
+        # migration 0020's per-tenant uniqueness on datasets.table_name: names
+        # are already per-tenant everywhere it matters, so retiring one
+        # globally would cost unrelated tenants suffixes for nothing. Rows
+        # written before a single -> multi transition carry NULL and nothing
+        # back-stamps them, which is why NULL binds in every scope.
         sa.Column("tenant_id", postgresql.UUID(as_uuid=True), nullable=True),
         # Diagnostic only, and deliberately NOT a foreign key: the row it
         # names is deleted in the same transaction that writes this one, so an

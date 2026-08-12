@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException, UploadFile, status
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
@@ -459,6 +459,23 @@ def _with_collision_suffix(base: str, suffix: int) -> str:
     return f"{base[: _MAX_IDENTIFIER_CHARS - len(tag)]}{tag}"
 
 
+def _retired_tenant_scope(RetiredORM: Any, tenant_id: str | uuid.UUID | None) -> Any:
+    """Which retired names bind for ``tenant_id``: its own, plus the NULL ones.
+
+    ``current_tenant_var`` carries the id as a STRING, and the column is
+    ``UUID(as_uuid=True)``. The coercion is explicit rather than left to the
+    dialect because the failure direction is silent: a comparison that matches
+    nothing reads as "no name is retired" and hands one straight back.
+    """
+    scope = RetiredORM.tenant_id.is_(None)
+    if tenant_id is not None:
+        as_uuid = (
+            tenant_id if isinstance(tenant_id, uuid.UUID) else uuid.UUID(str(tenant_id))
+        )
+        scope = or_(scope, RetiredORM.tenant_id == as_uuid)
+    return scope
+
+
 async def generate_table_name(
     name: str, session: AsyncSession
 ) -> tuple[str, str | None]:
@@ -530,9 +547,8 @@ async def generate_table_name(
     from app.core.db.tenant_session import current_tenant_var
     from app.core.tenancy import is_multi_tenant
 
-    _schema = tenant_data_schema(
-        current_tenant_var.get() if is_multi_tenant() else None
-    )
+    _tid = current_tenant_var.get() if is_multi_tenant() else None
+    _schema = tenant_data_schema(_tid)
     info_result = await session.execute(
         text(
             "SELECT c.relname FROM pg_catalog.pg_class c"
@@ -553,14 +569,27 @@ async def generate_table_name(
     # deleted `roads` gets `roads_2`, and no cached entry can outlive its
     # dataset's exclusive claim on the name.
     #
-    # Unscoped by tenant, matching the catalog probe above rather than the
-    # pg_class probe. The two catalog-side probes have to agree, and this is
-    # not the change that decides tenant scoping for either — over-collision
-    # costs a suffix, under-collision costs the guarantee.
+    # fix(#1444 review): tenant-scoped, mirroring migration 0020's per-tenant
+    # uniqueness on catalog.datasets.table_name. Names are already per-tenant
+    # everywhere it matters — the tile metadata cache keys on {tid}:{table} and
+    # its query filters on tenant_id, and each tenant's tables live in their own
+    # data_t_{tid} schema — so one tenant's tombstone cannot be inherited by
+    # another and retiring it globally only costs unrelated tenants suffixes.
+    # With the _MAX_COLLISION_SUFFIX bound above, that stopped being cosmetic:
+    # a busy tenant's create/delete history could exhaust a shared budget and
+    # refuse a title for everyone.
+    #
+    # NULL-tenant rows count in every scope, deliberately. That is the
+    # single-tenant namespace (the uq_datasets_table_name_global half of 0020),
+    # and it is also where any row retired before a single -> multi transition
+    # sits, since nothing back-stamps this table. Over-collision on a bounded
+    # historical set is the cheap direction; missing those rows would quietly
+    # reopen the window on exactly the oldest names.
     RetiredORM = get_processing_port().get_retired_table_name_orm_class()
     retired_result = await session.execute(
         select(RetiredORM.table_name).where(
-            RetiredORM.table_name.like(f"{probe_prefix}%")
+            RetiredORM.table_name.like(f"{probe_prefix}%"),
+            _retired_tenant_scope(RetiredORM, _tid),
         )
     )
     existing |= {row[0] for row in retired_result.all()}
@@ -637,9 +666,8 @@ async def register_existing_table(
 
     # CR-03 (Phase 1209): resolve the per-tenant schema so catalog queries
     # target data_t_{tid} in multi_tenant rather than the shared 'data' schema.
-    _schema = tenant_data_schema(
-        current_tenant_var.get() if is_multi_tenant() else None
-    )
+    _tid = current_tenant_var.get() if is_multi_tenant() else None
+    _schema = tenant_data_schema(_tid)
 
     # Verify table exists in the correct schema
     result = await session.execute(
@@ -675,7 +703,12 @@ async def register_existing_table(
     # reaching into storage it does not own to fix a name the caller chose.
     RetiredORM = get_processing_port().get_retired_table_name_orm_class()
     retired = await session.execute(
-        select(RetiredORM.id).where(RetiredORM.table_name == table_name).limit(1)
+        select(RetiredORM.id)
+        .where(
+            RetiredORM.table_name == table_name,
+            _retired_tenant_scope(RetiredORM, _tid),
+        )
+        .limit(1)
     )
     if retired.scalar_one_or_none() is not None:
         raise ValueError(

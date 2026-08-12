@@ -334,6 +334,73 @@ class TestRecordingSites:
         assert still_there == 1
 
 
+class TestTenantScope:
+    """fix(#1444 review): a name binds for its own tenant, plus the NULL scope.
+
+    Mirrors migration 0020's per-tenant uniqueness on `datasets.table_name`.
+    Names are already per-tenant everywhere it matters — the tile metadata
+    cache keys on `{tid}:{table}` and filters its query on `tenant_id`, and
+    each tenant's tables live in their own `data_t_{tid}` schema — so one
+    tenant's tombstone cannot be inherited by another. Retiring globally would
+    only cost unrelated tenants suffixes, and with the `_MAX_COLLISION_SUFFIX`
+    bound it could exhaust a shared budget and refuse a title for everyone.
+    """
+
+    async def test_another_tenants_tombstone_does_not_bind(
+        self, test_db_session: AsyncSession
+    ):
+        from app.processing.ingest.service import generate_table_name
+
+        base = f"scoped_{uuid.uuid4().hex[:10]}"
+        test_db_session.add(RetiredTableName(table_name=base, tenant_id=uuid.uuid4()))
+        await test_db_session.commit()
+
+        name, warning = await generate_table_name(base, test_db_session)
+        assert name == base
+        assert warning is None
+
+    async def test_a_null_scope_tombstone_binds(self, test_db_session: AsyncSession):
+        """The single-tenant namespace, and where pre-transition rows sit."""
+        from app.processing.ingest.service import generate_table_name
+
+        base = f"nullscope_{uuid.uuid4().hex[:10]}"
+        test_db_session.add(RetiredTableName(table_name=base, tenant_id=None))
+        await test_db_session.commit()
+
+        name, _ = await generate_table_name(base, test_db_session)
+        assert name == f"{base}_2"
+
+    async def test_the_active_tenants_own_tombstone_binds(
+        self, test_db_session: AsyncSession, monkeypatch
+    ):
+        """And the NULL rows still bind beside it, so nothing older is lost."""
+        from app.core.db.tenant_session import current_tenant_var
+        from app.core.tenancy import is_multi_tenant as _real_is_multi_tenant
+        from app.processing.ingest import service as ingest_service
+
+        assert not _real_is_multi_tenant(), "fixture expects single_tenant default"
+        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: True)
+
+        tid = uuid.uuid4()
+        base = f"mine_{uuid.uuid4().hex[:10]}"
+        test_db_session.add(RetiredTableName(table_name=base, tenant_id=tid))
+        test_db_session.add(RetiredTableName(table_name=f"{base}_2", tenant_id=None))
+        test_db_session.add(
+            RetiredTableName(table_name=f"{base}_3", tenant_id=uuid.uuid4())
+        )
+        await test_db_session.commit()
+
+        # The ContextVar carries the id as a string, as request/job setup does.
+        token = current_tenant_var.set(str(tid))
+        try:
+            name, _ = await ingest_service.generate_table_name(base, test_db_session)
+        finally:
+            current_tenant_var.reset(token)
+
+        # _2 is the NULL row (binds), _3 is a foreign tenant's (does not).
+        assert name == f"{base}_3"
+
+
 class TestRegistrationCannotBypassRetirement:
     """fix(#1444 review): registration takes its name from the caller.
 
