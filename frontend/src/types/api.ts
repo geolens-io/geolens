@@ -71,7 +71,8 @@ export interface MapBasemapConfig {
 
 export interface TokenResponse {
   access_token: string;
-  refresh_token: string;
+  /** fix(#1302): null when the caller opted into the browser cookie flow. */
+  refresh_token: string | null;
   token_type: string;
   expires_in: number;
 }

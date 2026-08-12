@@ -35,13 +35,15 @@ function jsonResponse(data: unknown, status = 200): Response {
   } as Response;
 }
 
-// Refresh tokens rotate, so every session's token value is unique — the
-// notification latch is keyed on it.
+// fix(#1302): the latch is keyed on the ACCESS token now that the refresh token
+// is an httpOnly cookie JS cannot read. Access tokens rotate on every login and
+// every refresh (each is a fresh JWT with its own jti), so each session's value
+// is unique — which is the property the latch needs.
 let sessionCounter = 0;
 function signIn() {
   sessionCounter += 1;
   useAuthStore.setState({
-    token: 'stale-access-token',
+    token: `stale-access-token-${sessionCounter}`,
     refreshToken: `dead-refresh-token-${sessionCounter}`,
     // Far enough out that the proactive-refresh branch does not fire.
     expiresAt: Date.now() + 120_000,
@@ -123,7 +125,7 @@ describe('session-expiry notification (fix #628)', () => {
     await expect(apiFetch('/b/')).rejects.toMatchObject({ status: 401 });
     expect(handler).toHaveBeenCalledTimes(1);
 
-    // A fresh sign-in mints a NEW (rotated) refresh token; its death is a new event.
+    // A fresh sign-in mints a NEW (rotated) access token; its death is a new event.
     signIn();
     await expect(apiFetch('/c/')).rejects.toMatchObject({ status: 401 });
     expect(handler).toHaveBeenCalledTimes(2);

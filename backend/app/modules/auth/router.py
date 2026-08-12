@@ -8,6 +8,13 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.auth.cookies import (
+    clear_browser_session,
+    enforce_csrf,
+    issue_browser_session,
+    read_refresh_cookie,
+    wants_cookie_auth,
+)
 from app.modules.auth.dependencies import get_current_active_user, get_optional_user
 from app.modules.auth.models import ApiKey, User
 from app.core.identity import Identity
@@ -75,10 +82,17 @@ def _login_rate_limit(_request: Request | None = None) -> str:
 @limiter.limit(_login_rate_limit)
 async def login(
     request: Request,
+    response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
-    """Authenticate with username and password, receive a JWT token."""
+    """Authenticate with username and password, receive a JWT token.
+
+    GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+    refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+    body. Without that header the response is unchanged, which is what keeps
+    the CLI, the generated SDKs, Postman, and CI logins working.
+    """
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
@@ -195,6 +209,14 @@ async def login(
         ),
     )
     await db.commit()
+
+    if wants_cookie_auth(request):
+        issue_browser_session(response, request, refresh_token, expire_days)
+        return TokenResponse(
+            access_token=token,
+            refresh_token=None,
+            expires_in=expire_minutes * 60,
+        )
     return TokenResponse(
         access_token=token,
         refresh_token=refresh_token,
@@ -212,7 +234,8 @@ async def login(
 @limiter.limit("30/minute")
 async def refresh(
     request: Request,
-    body: RefreshRequest,
+    response: Response,
+    body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Exchange a valid refresh token for a new access + refresh token pair.
@@ -221,7 +244,36 @@ async def refresh(
     tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
     binds the database transaction from that same-origin host before the user
     row is resolved and the next tenant-bound access token is minted.
+
+    GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+    from the httpOnly cookie (falling back to the body once, so a session
+    established before the cookie flow shipped migrates on its next refresh
+    instead of being logged out), the double-submit CSRF token is enforced, and
+    the rotated token goes back out as a cookie with a null body
+    ``refresh_token``. Without the header this endpoint behaves exactly as
+    before.
     """
+    cookie_mode = wants_cookie_auth(request)
+    body_token = body.refresh_token if body is not None else None
+
+    if cookie_mode:
+        cookie_token = read_refresh_cookie(request)
+        # CSRF is enforced only when the cookie is what authenticates the call.
+        # A migrating caller presenting a body token holds a bearer-equivalent
+        # secret no cross-site page can read, so gating that path on a CSRF
+        # cookie it does not have yet would strand every pre-upgrade session.
+        if cookie_token is not None:
+            enforce_csrf(request)
+        presented_token = cookie_token or body_token
+    else:
+        presented_token = body_token
+
+    if not presented_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
     # Read token lifetimes from PersistentConfig (hot-reloadable)
     expire_minutes = await ACCESS_TOKEN_EXPIRE_MINUTES.get(db)
     expire_days = await REFRESH_TOKEN_EXPIRE_DAYS.get(db)
@@ -243,13 +295,13 @@ async def refresh(
     #   continuation for users who already authenticated via SSO.  Only the DOMAIN
     #   check (which is an authorization PERIMETER, not a method selector) belongs
     #   at refresh.
-    user = await service.get_user_from_refresh_token(body.refresh_token)
+    user = await service.get_user_from_refresh_token(presented_token)
     if user is not None:
         await enforce_email_domain_gate(db, user.email, break_glass_user=user)
 
     try:
         access_token, refresh_token = await service.rotate_refresh_token(
-            body.refresh_token,
+            presented_token,
             expire_minutes=expire_minutes,
             expire_days=expire_days,
         )
@@ -257,6 +309,14 @@ async def refresh(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
+        )
+
+    if cookie_mode:
+        issue_browser_session(response, request, refresh_token, expire_days)
+        return TokenResponse(
+            access_token=access_token,
+            refresh_token=None,
+            expires_in=expire_minutes * 60,
         )
     return TokenResponse(
         access_token=access_token,
@@ -665,7 +725,13 @@ async def logout(
         ),
     )
     await db.commit()
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    logout_response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    # GH-1302: revocation above already kills the server-side row; clearing the
+    # cookies stops the browser from replaying a dead credential (and from
+    # holding a stale CSRF value into the next session). Unconditional — a
+    # non-browser caller simply has no such cookies to clear.
+    clear_browser_session(logout_response, request)
+    return logout_response
 
 
 @router.post("/download-token/{dataset_id}", response_model=DownloadTokenResponse)

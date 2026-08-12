@@ -105,6 +105,11 @@ def sync_detailed(
 
      Authenticate with username and password, receive a JWT token.
 
+    GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+    refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+    body. Without that header the response is unchanged, which is what keeps
+    the CLI, the generated SDKs, Postman, and CI logins working.
+
     Args:
         body (BodyLoginAuthLoginPost):
 
@@ -136,6 +141,11 @@ def sync(
 
      Authenticate with username and password, receive a JWT token.
 
+    GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+    refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+    body. Without that header the response is unchanged, which is what keeps
+    the CLI, the generated SDKs, Postman, and CI logins working.
+
     Args:
         body (BodyLoginAuthLoginPost):
 
@@ -161,6 +171,11 @@ async def asyncio_detailed(
     """Login
 
      Authenticate with username and password, receive a JWT token.
+
+    GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+    refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+    body. Without that header the response is unchanged, which is what keeps
+    the CLI, the generated SDKs, Postman, and CI logins working.
 
     Args:
         body (BodyLoginAuthLoginPost):
@@ -190,6 +205,11 @@ async def asyncio(
     """Login
 
      Authenticate with username and password, receive a JWT token.
+
+    GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+    refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+    body. Without that header the response is unchanged, which is what keeps
+    the CLI, the generated SDKs, Postman, and CI logins working.
 
     Args:
         body (BodyLoginAuthLoginPost):

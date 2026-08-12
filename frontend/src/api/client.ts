@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { cookieAuthAvailable } from '@/lib/auth-transport';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import { refreshAccessToken } from './auth';
@@ -33,12 +34,16 @@ let inflightRefresh: Promise<void> | null = null;
 // is about to fail the same way (silent 403 tiles, quiet query errors, generic
 // toasts). Instead of letting each surface invent its own failure UX, clear
 // the session once and notify a single app-level handler (the signed-out
-// dialog host). The latch is keyed on the dead refresh token's value: the
-// burst of concurrent in-flight failures all captured the same token, so they
-// collapse to one notification, while the next session (refresh tokens
-// rotate, so its token is always new) notifies again.
+// dialog host). The latch is keyed on the dead session's ACCESS token: the
+// burst of concurrent in-flight failures all captured the same value, so they
+// collapse to one notification, while the next session notifies again.
+//
+// fix(#1302): this used to latch on the refresh token, which is no longer
+// visible to JS. The access token has the same two properties the latch needs —
+// stable across a failure burst, and different for every session, since it
+// rotates on each refresh.
 let sessionExpiredHandler: (() => void) | null = null;
-let lastNotifiedRefreshToken: string | null = null;
+let lastNotifiedSessionKey: string | null = null;
 
 /** Register the app-level signed-out handler. Returns an unregister fn. */
 export function onSessionExpired(handler: () => void): () => void {
@@ -48,16 +53,21 @@ export function onSessionExpired(handler: () => void): () => void {
   };
 }
 
-export function notifySessionExpired(deadRefreshToken: string): void {
-  if (deadRefreshToken === lastNotifiedRefreshToken) return;
-  lastNotifiedRefreshToken = deadRefreshToken;
+export function notifySessionExpired(deadSessionKey: string): void {
+  if (deadSessionKey === lastNotifiedSessionKey) return;
+  lastNotifiedSessionKey = deadSessionKey;
   useAuthStore.getState().logout();
   sessionExpiredHandler?.();
 }
 
 export async function tryRefresh(): Promise<boolean> {
-  const { refreshToken } = useAuthStore.getState();
-  if (!refreshToken) return false;
+  const { refreshToken, token } = useAuthStore.getState();
+  // fix(#1302): in cookie mode the credential is invisible to JS, so a stored
+  // refresh token is no longer proof a session exists — an access token is.
+  // `refreshToken` is still consulted because a pre-GH-1302 session carries one
+  // for exactly one migrating refresh, and because cross-origin deployments
+  // never leave cookie mode's starting gate.
+  if (!refreshToken && !(token && cookieAuthAvailable())) return false;
 
   if (inflightRefresh) {
     await inflightRefresh;
@@ -71,9 +81,11 @@ export async function tryRefresh(): Promise<boolean> {
   const promise = (async () => {
     try {
       const tokens = await refreshAccessToken(refreshToken);
+      // fix(#1302): null in cookie mode, which also clears the legacy
+      // localStorage token once the migrating refresh has spent it.
       useAuthStore.getState().setTokens(
         tokens.access_token,
-        tokens.refresh_token,
+        tokens.refresh_token ?? null,
         tokens.expires_in,
       );
     } catch (err) {
@@ -160,11 +172,12 @@ export async function authenticatedRawFetch(
   });
 
   if (response.status === 401) {
-    // fix(#628): only a session that existed can expire. A real session always
-    // holds a refresh token; an anonymous 401 (or the transient token-only
-    // state mid-login) must not raise the signed-out prompt. Captured BEFORE
-    // tryRefresh so every concurrent failure holds the same dead token.
-    const sessionRefreshToken = useAuthStore.getState().refreshToken;
+    // fix(#628): only a session that existed can expire; an anonymous 401 must
+    // not raise the signed-out prompt. Captured BEFORE tryRefresh so every
+    // concurrent failure holds the same dead value.
+    // fix(#1302): keyed on the access token now that the refresh token is a
+    // cookie. Every real session has one, and it is cleared on logout.
+    const deadSessionKey = useAuthStore.getState().token;
     const refreshed = await tryRefresh();
     if (refreshed) {
       const retry = await safeFetch(target, {
@@ -177,8 +190,8 @@ export async function authenticatedRawFetch(
       // a spurious logout.
       if (retry.status !== 401) return retry;
     }
-    if (sessionRefreshToken) {
-      notifySessionExpired(sessionRefreshToken);
+    if (deadSessionKey) {
+      notifySessionExpired(deadSessionKey);
     } else {
       useAuthStore.getState().logout();
     }

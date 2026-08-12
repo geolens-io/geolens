@@ -1,4 +1,5 @@
 import { API_BASE } from '@/lib/constants';
+import { cookieAuthHeaders } from '@/lib/auth-transport';
 import { apiFetch } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
@@ -11,7 +12,11 @@ export async function login(
   // preserved without a 307 redirect.
   const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    // fix(#1302): opt into the httpOnly refresh cookie. The response's
+    // refresh_token is null in that mode, so nothing token-shaped reaches
+    // localStorage.
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', ...cookieAuthHeaders() },
+    credentials: 'same-origin',
     body: new URLSearchParams({ username, password }),
   });
 
@@ -141,13 +146,26 @@ export async function resendVerification(email: string): Promise<MessageResponse
   return response.json() as Promise<MessageResponse>;
 }
 
+/**
+ * fix(#1302): in cookie mode the credential rides in the httpOnly cookie and
+ * `refreshToken` is null, so the body is omitted entirely.
+ *
+ * The one exception is the transition: a session that logged in before this
+ * shipped still holds a localStorage refresh token. Sending it once, under the
+ * cookie-mode header, lets the backend rotate it and hand back a cookie instead
+ * — the session migrates in place rather than being logged out.
+ */
 export async function refreshAccessToken(
-  refreshToken: string,
+  refreshToken: string | null,
 ): Promise<TokenResponse> {
+  const headers: Record<string, string> = { ...cookieAuthHeaders() };
+  if (refreshToken) headers['Content-Type'] = 'application/json';
+
   const response = await fetch(`${API_BASE}/auth/refresh/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refresh_token: refreshToken }),
+    headers,
+    credentials: 'same-origin',
+    ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
   });
 
   if (!response.ok) {

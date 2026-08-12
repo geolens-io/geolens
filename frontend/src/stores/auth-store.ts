@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, type PersistOptions } from 'zustand/middleware';
+import { cookieAuthAvailable } from '@/lib/auth-transport';
 import type { UserResponse } from '@/types/api';
 
 interface AuthState {
@@ -7,8 +8,13 @@ interface AuthState {
   refreshToken: string | null;
   expiresAt: number | null;
   user: UserResponse | null;
-  setAuth: (token: string, refreshToken: string, expiresIn: number, user: UserResponse) => void;
-  setTokens: (token: string, refreshToken: string, expiresIn: number) => void;
+  setAuth: (
+    token: string,
+    refreshToken: string | null,
+    expiresIn: number,
+    user: UserResponse,
+  ) => void;
+  setTokens: (token: string, refreshToken: string | null, expiresIn: number) => void;
   logout: () => void;
   isAdmin: () => boolean;
   isEditor: () => boolean;
@@ -52,17 +58,29 @@ const persistConfig: PersistOptions<AuthState> = {
     return persistedState as AuthState;
   },
   /**
-   * fix(#438): DATA-05 — persisting the JWT + refresh token in localStorage is a
-   * deliberate multi-tab trade-off: the cross-tab `storage` listener below keeps
-   * every tab converged on the latest rotated (single-use) refresh token, which
-   * an in-memory-only store could not do. `partialize` makes the persisted
-   * surface explicit — only these auth fields are written, never any transient
-   * UI state that might later be added to the store.
+   * `partialize` makes the persisted surface explicit — only these auth fields
+   * are written, never any transient UI state that might later be added.
+   *
+   * fix(#1302): the refresh token is no longer among them. It now lives in an
+   * httpOnly cookie the browser attaches to /auth/refresh/ by itself, which
+   * also subsumes what the cross-tab `storage` listener below used to do for it
+   * — every tab shares one cookie jar, so rotation converges without any
+   * JS-visible copy. `refreshToken` survives in the in-memory shape only so a
+   * pre-GH-1302 blob can be rehydrated once and handed to the migrating
+   * refresh; it is never written back.
+   *
+   * fix(#438) DATA-05 still applies to the ACCESS token, which stays in
+   * localStorage for cross-tab convergence. Moving it to memory is tracked
+   * separately in GH-1302's remaining acceptance criteria.
+   *
+   * A deployment whose API sits on a different origin cannot use the cookie
+   * (see lib/auth-transport.ts), so it keeps persisting the refresh token
+   * rather than losing its session on every reload.
    */
   partialize: (state) =>
     ({
       token: state.token,
-      refreshToken: state.refreshToken,
+      ...(cookieAuthAvailable() ? {} : { refreshToken: state.refreshToken }),
       expiresAt: state.expiresAt,
       user: state.user,
     }) as unknown as AuthState,
@@ -102,13 +120,16 @@ export const useAuthStore = create<AuthState>()(
 /**
  * Cross-tab token sync.
  *
- * Refresh tokens are single-use: the backend revokes a refresh token the moment
- * it is rotated (auth/service.py rotate_refresh_token). Without this listener,
- * a refresh in one tab leaves every OTHER tab holding the now-revoked token in
- * memory — the next request there 401s, its refresh 401s, and the tab logs out
- * (e.g. "saved a map → logged out" with two tabs open). The `storage` event
- * fires only in the tabs that did NOT make the change, so rehydrating here makes
- * all tabs converge on the latest rotated token (and propagates logout).
+ * Originally this existed because refresh tokens were single-use and lived in
+ * localStorage: a refresh in one tab left every OTHER tab holding a revoked
+ * token, and the next request there logged the tab out (e.g. "saved a map →
+ * logged out" with two tabs open). fix(#1302) moved the refresh token into a
+ * cookie, which all tabs already share, so that half is handled by the browser.
+ *
+ * The listener still earns its place for the ACCESS token, which remains in
+ * localStorage: rehydrating keeps every tab on the freshest access token and
+ * propagates logout. The `storage` event fires only in the tabs that did NOT
+ * make the change.
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {

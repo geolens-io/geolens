@@ -72,7 +72,9 @@ export function useAuth() {
       const userResponse = await getMe();
       setAuth(
         tokenResponse.access_token,
-        tokenResponse.refresh_token,
+        // fix(#1302): null in cookie mode — the refresh token arrived as an
+        // httpOnly cookie and is never held in JS.
+        tokenResponse.refresh_token ?? null,
         tokenResponse.expires_in,
         userResponse,
       );

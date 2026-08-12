@@ -261,18 +261,39 @@ describe('apiFetch', () => {
     });
   });
 
-  it('logs out and throws on 401 when no refresh token', async () => {
-    useAuthStore.setState({ token: 'expired-token', refreshToken: null });
+  // fix(#1302): with no stored refresh token the session may still be alive —
+  // the credential is an httpOnly cookie JS cannot see — so a 401 must still
+  // attempt a refresh. Only when that refresh also fails is the session dead.
+  it('still attempts a cookie refresh on 401 with no stored refresh token', async () => {
+    const { refreshAccessToken } = await import('@/api/auth');
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
+
+    useAuthStore.setState({ token: 'cookie-session-token', refreshToken: null });
+    mockFetch
+      .mockResolvedValueOnce(errorResponse(401))
+      .mockResolvedValueOnce(errorResponse(401));
+
+    await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
+    expect(refreshAccessToken).toHaveBeenCalledWith(null);
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('does not attempt a refresh on an anonymous 401', async () => {
+    const { refreshAccessToken } = await import('@/api/auth');
+
+    useAuthStore.setState({ token: null, refreshToken: null });
     mockFetch.mockResolvedValueOnce(errorResponse(401));
 
     await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
-    expect(useAuthStore.getState().token).toBeNull();
+    expect(refreshAccessToken).not.toHaveBeenCalled();
   });
 
   it('logs out and throws on 401 when refresh fails', async () => {
     const { refreshAccessToken } = await import('@/api/auth');
     vi.mocked(refreshAccessToken).mockRejectedValueOnce(new Error('refresh failed'));
 
+    // A distinct access token per test: the session-death latch dedupes on it,
+    // and real sessions never reuse one (every JWT carries a fresh jti).
     useAuthStore.setState({ token: 'expired-token', refreshToken: 'bad-refresh' });
     // First call returns 401; refresh fails but token remains, so retry also gets 401
     mockFetch

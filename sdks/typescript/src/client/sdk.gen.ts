@@ -966,6 +966,11 @@ export const createDownloadTokenEndpointAuthDownloadTokenDatasetIdPost = <ThrowO
  * Login
  *
  * Authenticate with username and password, receive a JWT token.
+ *
+ * GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+ * refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+ * body. Without that header the response is unchanged, which is what keeps
+ * the CLI, the generated SDKs, Postman, and CI logins working.
  */
 export const loginAuthLoginPost = <ThrowOnError extends boolean = false>(options: Options<LoginAuthLoginPostData, ThrowOnError>): RequestResult<LoginAuthLoginPostResponses, LoginAuthLoginPostErrors, ThrowOnError> => (options.client ?? client).post<LoginAuthLoginPostResponses, LoginAuthLoginPostErrors, ThrowOnError>({
     ...urlSearchParamsBodySerializer,
@@ -1104,13 +1109,21 @@ export const oauthLoginAuthOauthProviderSlugLoginGet = <ThrowOnError extends boo
  * tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
  * binds the database transaction from that same-origin host before the user
  * row is resolved and the next tenant-bound access token is minted.
+ *
+ * GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+ * from the httpOnly cookie (falling back to the body once, so a session
+ * established before the cookie flow shipped migrates on its next refresh
+ * instead of being logged out), the double-submit CSRF token is enforced, and
+ * the rotated token goes back out as a cookie with a null body
+ * ``refresh_token``. Without the header this endpoint behaves exactly as
+ * before.
  */
-export const refreshAuthRefreshPost = <ThrowOnError extends boolean = false>(options: Options<RefreshAuthRefreshPostData, ThrowOnError>): RequestResult<RefreshAuthRefreshPostResponses, RefreshAuthRefreshPostErrors, ThrowOnError> => (options.client ?? client).post<RefreshAuthRefreshPostResponses, RefreshAuthRefreshPostErrors, ThrowOnError>({
+export const refreshAuthRefreshPost = <ThrowOnError extends boolean = false>(options?: Options<RefreshAuthRefreshPostData, ThrowOnError>): RequestResult<RefreshAuthRefreshPostResponses, RefreshAuthRefreshPostErrors, ThrowOnError> => (options?.client ?? client).post<RefreshAuthRefreshPostResponses, RefreshAuthRefreshPostErrors, ThrowOnError>({
     url: '/auth/refresh/',
     ...options,
     headers: {
         'Content-Type': 'application/json',
-        ...options.headers
+        ...options?.headers
     }
 });
 

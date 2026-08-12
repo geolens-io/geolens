@@ -14,8 +14,15 @@ UserStatus = Literal["active", "pending", "suspended", "deactivated"]
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
-    refresh_token: str = Field(
-        description="Opaque token used to obtain a new access token"
+    refresh_token: str | None = Field(
+        default=None,
+        description=(
+            "Opaque token used to obtain a new access token. Always present for "
+            "programmatic callers (CLI, SDKs, CI). Null when the caller opted "
+            "into the browser cookie flow with 'X-GeoLens-Auth-Mode: cookie', "
+            "in which case the token is delivered as an httpOnly cookie instead "
+            "(GH-1302)."
+        ),
     )
     token_type: str = "bearer"
     expires_in: int = Field(description="Seconds until the access token expires")
@@ -198,7 +205,11 @@ class UserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str = Field(max_length=512)
+    # GH-1302: optional so a browser on the cookie flow can POST an empty body
+    # (its token rides in the httpOnly cookie). Programmatic callers keep
+    # sending it, and the handler still rejects a request that supplies
+    # neither.
+    refresh_token: str | None = Field(default=None, max_length=512)
 
 
 class PermissionsResponse(BaseModel):

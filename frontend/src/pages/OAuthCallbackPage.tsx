@@ -31,11 +31,16 @@ export function OAuthCallbackPage() {
     const token = params.get('token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
+    // fix(#1302): with auth_mode=cookie the backend delivered the refresh token
+    // as an httpOnly cookie on the redirect, so the fragment carries no
+    // refresh_token to require. The fragment is readable by any script on this
+    // page, which made it the same exfiltration surface as localStorage.
+    const cookieMode = params.get('auth_mode') === 'cookie';
 
     // Clean URL immediately (remove fragment with tokens)
     window.history.replaceState({}, '', '/oauth/callback');
 
-    if (!token || !refreshToken || !expiresIn) {
+    if (!token || !expiresIn || (!refreshToken && !cookieMode)) {
       navigate('/login', { replace: true });
       return;
     }
@@ -45,7 +50,7 @@ export function OAuthCallbackPage() {
 
     getMe()
       .then((user) => {
-        useAuthStore.getState().setAuth(token, refreshToken, parseInt(expiresIn, 10), user);
+        useAuthStore.getState().setAuth(token, refreshToken ?? null, parseInt(expiresIn, 10), user);
         const redirect = sessionStorage.getItem('geolens-login-redirect');
         sessionStorage.removeItem('geolens-login-redirect');
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
