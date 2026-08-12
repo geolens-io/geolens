@@ -156,10 +156,18 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
 #     evict another worker's map, so multi-worker deployments keep a window
 #     bounded by that map's 60s TTL.
 #   - A request whose catalog read was already in flight when the eviction ran
-#     writes its result afterwards. Bounded by one query, not by the TTL.
+#     writes its result afterwards. The opportunity is only one query wide,
+#     but an entry that does land then lives the full TTL like any other — the
+#     narrow window buys a short race, not a short consequence.
 # Both are the same bounded-staleness tradeoff already documented for
-# visibility changes in processing/tiles/router.py. Closing either for every
-# worker needs a cross-process notification channel this codebase lacks.
+# visibility changes in processing/tiles/router.py, with one difference that
+# matters: there the stale entry describes the SAME dataset, here it can
+# describe a predecessor of a reused table name. Neither is closable by a
+# notification channel in this topology — REDIS_URL is unset by default, and
+# LISTEN/NOTIFY needs a session-pinned connection that transaction-mode
+# PgBouncer (a supported topology, see the SET LOCAL note in
+# processing/tiles/router.py) does not provide. The fix is to stop reusing
+# table names, tracked in #1443.
 _table_invalidation_listeners: list[Callable[[str], None]] = []
 
 
