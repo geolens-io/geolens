@@ -35,7 +35,7 @@ dependencies = [
     "defusedxml>=0.7.1",
     "python-slugify>=8.0.4",
     "slowapi>=0.1.10",
-    "boto3>=1.43.66",
+    "boto3>=1.43.67",
     # Azure Blob Storage provider (STOR-01 / Phase 1210). fix(#836): azure-identity
     # was dropped — the provider only accepts string credentials (connection string,
     # SAS token, or account key; see platform/storage/azure.py) and nothing imports
