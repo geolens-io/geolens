@@ -435,6 +435,30 @@ def validate_file_extension(
         raise ValueError(f"File extension {suffix!r} not allowed. Allowed: {exts}")
 
 
+# PostgreSQL truncates any identifier past NAMEDATALEN-1 = 63 bytes, silently
+# and with only a NOTICE. Slugs are ASCII-transliterated, so bytes == chars.
+_MAX_IDENTIFIER_CHARS = 63
+
+# fix(#1444 review): the collision walk refuses past this rather than emitting a
+# name Postgres would truncate. At a 60-char base, `_100` is the first candidate
+# that crosses 63 — before retirement that took 99 LIVE datasets sharing one
+# title, but retired names accumulate forever, so the walk genuinely reaches it
+# now. A truncated `{base}_100` addresses the same physical relation as
+# `{base}_10` while the catalog keeps both untruncated strings, which puts two
+# logical names on one table and hands the disclosure straight back. `_with_
+# collision_suffix` keeps every candidate inside the limit and this bound keeps
+# the tag short enough that `_COLLISION_PROBE_CHARS` below is a prefix of all of
+# them. The two constants have to move together.
+_MAX_COLLISION_SUFFIX = 9999
+_COLLISION_PROBE_CHARS = _MAX_IDENTIFIER_CHARS - len(f"_{_MAX_COLLISION_SUFFIX}")
+
+
+def _with_collision_suffix(base: str, suffix: int) -> str:
+    """``base`` plus ``_N``, trimming the base so the whole name fits in 63."""
+    tag = f"_{suffix}"
+    return f"{base[: _MAX_IDENTIFIER_CHARS - len(tag)]}{tag}"
+
+
 async def generate_table_name(
     name: str, session: AsyncSession
 ) -> tuple[str, str | None]:
@@ -450,7 +474,11 @@ async def generate_table_name(
     - Unicode transliterated to ASCII (e.g., strassen from Straßen)
     - Truncated to 60 chars (PG limit is 63; leaves room for _N suffix)
     - Names starting with digit get underscore prefix
-    - Collision handling: _2, _3, _4, ...
+    - Collision handling: _2, _3, _4, ..., with the base trimmed further when a
+      longer suffix would push the name past PostgreSQL's 63-byte identifier
+      limit. Raises ValueError once _MAX_COLLISION_SUFFIX is exhausted, rather
+      than returning a name the database would silently truncate onto another
+      dataset's relation.
     """
     from slugify import slugify as _slugify
 
@@ -471,8 +499,19 @@ async def generate_table_name(
 
     base_slug = slug
     collision_warning: str | None = None
+    # fix(#1444 review): the LIKE prefix is the base trimmed to
+    # _COLLISION_PROBE_CHARS, not the base itself, because a candidate carrying
+    # a long suffix has a SHORTER base — `_with_collision_suffix` trims to keep
+    # the whole name inside 63 — and a probe keyed on the full base would not
+    # match it. Trimming here makes the prefix a prefix of every candidate the
+    # walk below can produce. It over-matches for slugs longer than
+    # _COLLISION_PROBE_CHARS, which costs those names a suffix they might not
+    # have needed; under-matching would cost the guarantee.
+    probe_prefix = base_slug[:_COLLISION_PROBE_CHARS]
     result = await session.execute(
-        select(DatasetORM.table_name).where(DatasetORM.table_name.like(f"{base_slug}%"))
+        select(DatasetORM.table_name).where(
+            DatasetORM.table_name.like(f"{probe_prefix}%")
+        )
     )
     existing = {row[0] for row in result.all()}
 
@@ -499,7 +538,7 @@ async def generate_table_name(
             "SELECT c.relname FROM pg_catalog.pg_class c"
             " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
             " WHERE n.nspname = :schema AND c.relname LIKE :pattern"
-        ).bindparams(schema=_schema, pattern=f"{base_slug}%")
+        ).bindparams(schema=_schema, pattern=f"{probe_prefix}%")
     )
     existing |= {row[0] for row in info_result.all()}
 
@@ -520,15 +559,23 @@ async def generate_table_name(
     # costs a suffix, under-collision costs the guarantee.
     RetiredORM = get_processing_port().get_retired_table_name_orm_class()
     retired_result = await session.execute(
-        select(RetiredORM.table_name).where(RetiredORM.table_name.like(f"{base_slug}%"))
+        select(RetiredORM.table_name).where(
+            RetiredORM.table_name.like(f"{probe_prefix}%")
+        )
     )
     existing |= {row[0] for row in retired_result.all()}
 
     if slug in existing:
         suffix = 2
-        while f"{base_slug}_{suffix}" in existing:
+        while _with_collision_suffix(base_slug, suffix) in existing:
             suffix += 1
-        slug = f"{base_slug}_{suffix}"
+            if suffix > _MAX_COLLISION_SUFFIX:
+                raise ValueError(
+                    f"Exhausted table names for '{base_slug}': "
+                    f"{_MAX_COLLISION_SUFFIX} variants are taken or retired. "
+                    "Give this dataset a more distinctive title."
+                )
+        slug = _with_collision_suffix(base_slug, suffix)
         collision_warning = f"Table name '{base_slug}' already exists, using '{slug}'"
 
     return slug, collision_warning

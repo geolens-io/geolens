@@ -2707,7 +2707,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `public` while querying the successor's rows. The comment carries why it
     # refuses rather than renaming the caller's own table. Cap 1098 -> 1119,
     # exact.
-    "backend/app/processing/ingest/service.py": 1119,
+    # fix(#1444 review round 2): +47 — the suffix walk now keeps every candidate
+    # inside PostgreSQL's 63-byte identifier limit. Retired names accumulate
+    # forever, so a 60-char base genuinely reaches `_100`, which is 64 bytes;
+    # Postgres truncates that onto the same relation as `_10` while the catalog
+    # keeps both untruncated strings, putting two logical names on one table.
+    # The lines are `_with_collision_suffix`, three constants, the bound that
+    # refuses an exhausted namespace instead of emitting a truncatable name,
+    # and the probe prefix that has to be short enough to match a candidate
+    # whose base was trimmed — plus the comments tying those last two together,
+    # because they are only correct as a pair. Cap 1119 -> 1166, exact.
+    "backend/app/processing/ingest/service.py": 1166,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

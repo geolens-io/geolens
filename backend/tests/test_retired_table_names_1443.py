@@ -140,6 +140,86 @@ class TestNameIsNeverRedrawn:
         assert warning is None
 
 
+class TestGeneratedNamesFitPostgresIdentifiers:
+    """fix(#1444 review): a suffix must never push a name past 63 bytes.
+
+    PostgreSQL truncates a longer identifier silently. At a 60-character base,
+    `_100` is the first candidate that crosses the limit, and a truncated
+    `{base}_100` addresses the same physical relation as `{base}_10` while the
+    catalog keeps both untruncated strings — two logical names on one table,
+    which hands back exactly the disclosure GH-1443 closes. Before retirement
+    that took 99 LIVE datasets sharing one title; retired names accumulate
+    forever, so the walk genuinely reaches it.
+    """
+
+    async def test_a_three_digit_suffix_trims_the_base_instead_of_overflowing(
+        self, test_db_session: AsyncSession
+    ):
+        from app.processing.ingest.service import (
+            _MAX_IDENTIFIER_CHARS,
+            generate_table_name,
+        )
+
+        base = f"z{uuid.uuid4().hex}{uuid.uuid4().hex}"[:60]
+        assert len(base) == 60
+        # Retire the base and its first 99 suffixes, which is the state a long
+        # enough create/delete history reaches.
+        test_db_session.add(RetiredTableName(table_name=base))
+        for n in range(2, 100):
+            test_db_session.add(RetiredTableName(table_name=f"{base}_{n}"))
+        await test_db_session.commit()
+
+        name, warning = await generate_table_name(base, test_db_session)
+
+        assert name == f"{base[:59]}_100"
+        assert len(name) == _MAX_IDENTIFIER_CHARS
+        assert warning is not None
+
+        # The real proof: Postgres stores it under the name we generated.
+        await test_db_session.execute(text(f'CREATE TABLE data."{name}" (m integer)'))
+        stored = (
+            await test_db_session.execute(
+                text(
+                    "SELECT c.relname FROM pg_catalog.pg_class c"
+                    " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+                    " WHERE n.nspname = 'data' AND c.relname = :n"
+                ),
+                {"n": name},
+            )
+        ).scalar_one_or_none()
+        await test_db_session.execute(text(f'DROP TABLE data."{name}"'))
+        await test_db_session.commit()
+        assert stored == name, "PostgreSQL truncated the generated identifier"
+
+    async def test_short_names_keep_their_untrimmed_suffix(
+        self, test_db_session: AsyncSession
+    ):
+        """The trim is length-driven; ordinary names are byte-identical."""
+        from app.processing.ingest.service import generate_table_name
+
+        base = f"short_{uuid.uuid4().hex[:8]}"
+        test_db_session.add(RetiredTableName(table_name=base))
+        await test_db_session.commit()
+
+        name, _ = await generate_table_name(base, test_db_session)
+        assert name == f"{base}_2"
+
+    async def test_an_exhausted_namespace_refuses_instead_of_truncating(
+        self, test_db_session: AsyncSession, monkeypatch
+    ):
+        """Past the bound the walk raises; it never emits a truncatable name."""
+        from app.processing.ingest import service as ingest_service
+
+        monkeypatch.setattr(ingest_service, "_MAX_COLLISION_SUFFIX", 3)
+        base = f"y{uuid.uuid4().hex}{uuid.uuid4().hex}"[:60]
+        for taken in (base, f"{base}_2", f"{base}_3", f"{base}_4"):
+            test_db_session.add(RetiredTableName(table_name=taken))
+        await test_db_session.commit()
+
+        with pytest.raises(ValueError, match="Exhausted table names"):
+            await ingest_service.generate_table_name(base, test_db_session)
+
+
 class TestRecordingSites:
     async def test_vector_delete_records_the_name(self, test_db_session: AsyncSession):
         title = f"Parcels {uuid.uuid4().hex[:6]}"
