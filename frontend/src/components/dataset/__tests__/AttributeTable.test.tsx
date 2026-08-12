@@ -26,9 +26,13 @@ import attributeTableSrc from '@/components/dataset/AttributeTable.tsx?raw';
 // ── GLUX-002 DOM render gate ─────────────────────────────────────────────────
 import { render, screen } from '@/test/test-utils';
 import { vi } from 'vitest';
-import { AttributeTable } from '@/components/dataset/AttributeTable';
+import { AttributeTable, features } from '@/components/dataset/AttributeTable';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
+
+// ── #1407 sortFn auto-detection regression lock ─────────────────────────────
+import { renderHook } from '@testing-library/react';
+import { useTable, type ColumnDef } from '@tanstack/react-table';
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetRows: vi.fn(),
@@ -155,5 +159,75 @@ describe('AttributeTable editing contracts (E-35/E-39/E-51)', () => {
     expect(attributeTableSrc).toMatch(
       /setEditingCell\(null\);\s*setEditError\(null\);\s*\}, \[cursor, activeFilters, pageSize\]\)/,
     );
+  });
+});
+
+// ── #1407 sortFn auto-detection regression lock ──────────────────────────────
+// AttributeTable builds its columns dynamically from the dataset's Postgres
+// column list and never sets a per-column sortFn, so sorting depends on
+// react-table v9's runtime auto-detection (column_getAutoSortFn, which samples
+// each column's first 10 values) resolving to a sortFn *name* that is actually
+// registered in the `features` object exported by AttributeTable.tsx. A gap
+// there doesn't fail typecheck or build — a column with an unregistered
+// auto-detected name silently falls back to the `basic` comparator (or a
+// dev-only console.warn), which is exactly the kind of regression the v8→v9
+// migration (GH-1407) needed live verification for. This exercises the real
+// useTable()/features config end-to-end against synthetic rows shaped like
+// the Postgres column families the table actually renders — no mocking of
+// react-table itself.
+describe('#1407: react-table v9 sortFn auto-detection for dynamic columns', () => {
+  function useSortedColumn(data: Array<{ value: unknown }>) {
+    const columns: ColumnDef<typeof features, { value: unknown }>[] = [
+      { accessorKey: 'value', header: 'value' },
+    ];
+    return useTable(
+      {
+        features,
+        data,
+        columns,
+        state: { sorting: [{ id: 'value', desc: false }], columnVisibility: {} },
+        onSortingChange: () => {},
+        onColumnVisibilityChange: () => {},
+      },
+      (state) => state,
+    );
+  }
+
+  it('sorts a numeric column ascending via the auto-detected basic sortFn', () => {
+    const { result } = renderHook(() =>
+      useSortedColumn([{ value: 30 }, { value: 5 }, { value: 100 }]),
+    );
+    const sorted = result.current.getSortedRowModel().rows.map((r) => r.original.value);
+    expect(sorted).toEqual([5, 30, 100]);
+  });
+
+  it('sorts a text column via the auto-detected text sortFn', () => {
+    const { result } = renderHook(() =>
+      useSortedColumn([{ value: 'cherry' }, { value: 'Apple' }, { value: 'banana' }]),
+    );
+    const sorted = result.current.getSortedRowModel().rows.map((r) => r.original.value);
+    expect(sorted).toEqual(['Apple', 'banana', 'cherry']);
+  });
+
+  // The API serializes timestamp columns as ISO-8601 strings, never real Date
+  // instances (JSON has no Date type), so column_getAutoSortFn's `[object
+  // Date]` check never matches them — they auto-detect as 'alphanumeric', not
+  // 'datetime'. That's unchanged from v8 (same heuristic). What matters here
+  // is that zero-padded same-format ISO strings still sort chronologically
+  // under the alphanumeric comparator, and that 'alphanumeric' is registered.
+  it('sorts an ISO-timestamp-string column chronologically via the auto-detected alphanumeric sortFn', () => {
+    const { result } = renderHook(() =>
+      useSortedColumn([
+        { value: '2026-03-01T00:00:00' },
+        { value: '2024-01-01T00:00:00' },
+        { value: '2025-06-15T00:00:00' },
+      ]),
+    );
+    const sorted = result.current.getSortedRowModel().rows.map((r) => r.original.value);
+    expect(sorted).toEqual([
+      '2024-01-01T00:00:00',
+      '2025-06-15T00:00:00',
+      '2026-03-01T00:00:00',
+    ]);
   });
 });
