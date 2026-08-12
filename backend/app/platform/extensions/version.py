@@ -72,7 +72,18 @@ logger = logging.getLogger(__name__)
 # comments defer "until the next EXTENSION_API_VERSION bump" are NOT removed
 # here — that removal is a separate change with its own review, and a bump
 # forced by an unrelated Protocol addition is not the occasion for it.
-EXTENSION_API_VERSION: int = 5
+#
+# 5 -> 6 (refactor(stac)): CatalogPort gained a required
+# ``fetch_raster_meta_bulk_without_vrt`` method — the raster-meta read narrowed
+# to what a STAC Item may carry, now that the STAC router reads through the
+# port instead of importing processing ORM. Every item and item-page response
+# calls it, including an empty page, so an overlay that replaces the
+# ``catalog_port`` slot without it would load cleanly at version 5 and then
+# raise AttributeError on the first STAC request. The additive shape is not an
+# exemption here: the "do NOT bump for new optional methods" carve-out above
+# means methods with a default no-op, and a Protocol method a structural
+# implementer must supply is required by definition.
+EXTENSION_API_VERSION: int = 6
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:
