@@ -51,11 +51,21 @@ def _latest_mtime(entry: Path) -> float:
     """
     latest = entry.stat().st_mtime
     if entry.is_dir():
-        for child in entry.iterdir():
+        try:
+            children = list(entry.iterdir())
+        except OSError:
+            # fix(#1435 codex round 3): a directory that cannot be listed
+            # (e.g. root-owned residue left behind by a container UID
+            # change across a deploy) must not crash sweep_orphaned_exports
+            # — both boot-time callers run this with no guard of their own,
+            # so one unreadable entry would otherwise take down startup.
+            # Fall back to the entry's own mtime.
+            return latest
+        for child in children:
             try:
                 latest = max(latest, child.stat().st_mtime)
-            except FileNotFoundError:
-                continue  # raced with a concurrent write/rename; ignore
+            except OSError:
+                continue  # unreadable, or raced with a concurrent write/rename
     return latest
 
 
@@ -77,9 +87,10 @@ def sweep_orphaned_exports(
     worker now call this one age-aware sweeper.
 
     No cross-process advisory lock. The sweep is idempotent and tolerates
-    losing a race (``ignore_errors``/``missing_ok``/``FileNotFoundError``), and the
-    age threshold — not mutual exclusion — is what protects in-flight exports. Add a
-    lock only if a sweeper ever grows a non-idempotent step.
+    losing a race or hitting unreadable residue (``ignore_errors``/
+    ``missing_ok``/``OSError``), and the age threshold — not mutual exclusion
+    — is what protects in-flight exports. Add a lock only if a sweeper ever
+    grows a non-idempotent step.
 
     Args:
         exports_dir: The ``<staging>/exports/`` directory to sweep. A missing
@@ -102,8 +113,11 @@ def sweep_orphaned_exports(
     for item in entries:
         try:
             item_mtime = _latest_mtime(item)
-        except FileNotFoundError:
-            # Raced with another process / external cleanup — treat as already-gone.
+        except OSError:
+            # fix(#1435 codex round 3): FileNotFoundError (raced with
+            # another process / external cleanup) or PermissionError
+            # (unreadable residue) — either way, skip rather than crash the
+            # sweep and take down API/worker startup with it.
             continue
         age_seconds = now_ts - item_mtime
         if age_seconds < age_threshold_seconds:

@@ -7,6 +7,7 @@ worker share one age-aware implementation; entries younger than 1 hour survive.
 import os
 import time
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import structlog
 
@@ -287,6 +288,33 @@ def test_sweep_skips_a_directory_whose_file_is_still_being_written(
     )
     assert deleted == 0
     assert skipped == 1
+
+
+def test_latest_mtime_falls_back_when_directory_cannot_be_listed() -> None:
+    """fix(#1435 codex round 3): a directory that cannot be listed (e.g.
+    root-owned residue left behind by a container UID change across a
+    deploy) must not crash the sweep. Both boot-time callers
+    (api/main.py, worker.py) invoke sweep_orphaned_exports with no
+    exception guard of their own, so one unreadable entry would otherwise
+    take down API/worker startup entirely.
+
+    Mocked rather than exercised via real chmod bits: a test process
+    running as root (common under Docker-based CI) bypasses Unix
+    permission checks entirely, which would make a chmod-based test pass
+    or fail depending on the runner's privilege level rather than on the
+    fix.
+    """
+    from app.core.runtime.staging import _latest_mtime
+
+    unreadable_dir = MagicMock()
+    unreadable_dir.stat.return_value.st_mtime = 12345.0
+    unreadable_dir.is_dir.return_value = True
+    unreadable_dir.iterdir.side_effect = PermissionError("Permission denied")
+
+    # Must not raise — falls back to the entry's own mtime, which needs no
+    # permission on the directory's *contents* to obtain (only on its
+    # parent, to reach the entry at all).
+    assert _latest_mtime(unreadable_dir) == 12345.0
 
 
 def test_periodic_sweep_still_catches_long_abandoned_residue(tmp_path: Path) -> None:
