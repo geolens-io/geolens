@@ -250,14 +250,29 @@ class AuthService:
             raise ValueError("User account is not active")
 
         # Re-read the presented row now that the lock is held. A new statement
-        # takes a new snapshot, so a revocation that committed while we waited
-        # is visible here and cannot be rotated past. This must run BEFORE the
+        # takes a new snapshot, so anything that committed while we waited is
+        # visible here and cannot be rotated past. This must run BEFORE the
         # retire/revoke below: that write autoflushes, and the re-check would
         # then read back our own pending mutation and reject a valid token.
+        #
+        # fix(#1446): re-check liveness, not just revocation. Waiting on the
+        # lock is unbounded, so the token can lapse in the meantime — either by
+        # simply reaching its own expiry, or because the rotation we were
+        # queued behind shortened it to the grace cutoff. Checking `revoked`
+        # alone would happily rotate an expired token into a fresh session.
+        # A token still inside the grace window has a future expires_at and is
+        # deliberately still accepted (fix(#621)).
         recheck = await self.db.execute(
-            select(RefreshToken.revoked).where(RefreshToken.id == stored.id)
+            select(RefreshToken.revoked, RefreshToken.expires_at).where(
+                RefreshToken.id == stored.id
+            )
         )
-        if recheck.scalar_one_or_none() is not False:
+        current = recheck.one_or_none()
+        if (
+            current is None
+            or current.revoked
+            or current.expires_at <= datetime.now(UTC)
+        ):
             raise ValueError("Invalid or expired refresh token")
 
         # fix(#621): rotation grace window. Instant revocation stranded the
