@@ -32,6 +32,17 @@ Enforces open-core boundaries closed by:
 - Phase 233 WORK-05 - known dataset publication transition chokepoints must
   route through WorkflowExtension: /status/, /target-status/, and metadata
   PATCH record_status writes.
+- fix(#1438 F6/F7/F17/F24) - four import-boundary guards broadened past their
+  original scope: processing/'s app.modules.* ban now covers every domain, not
+  just catalog (test_no_processing_imports_other_domains); the private-name/
+  private-module ban covers processing/ and standards/, not just platform/
+  (test_no_private_module_imports_from_app_modules); standards/ carries a
+  frozen, shrink-only (non-zero) app.modules.* surface
+  (test_standards_module_import_surface_does_not_grow), complementing the
+  zero-tolerance app.processing guard in the sibling
+  backend/tests/test_standards_layering.py (added by #1438); and the
+  router-module import ban applies package-wide at module scope, not only
+  inside platform/ (test_no_cross_package_router_imports_at_module_scope).
 
 If a test in this file fails, a forbidden import was reintroduced - the failure
 message names the offending lines for fix-forward.
