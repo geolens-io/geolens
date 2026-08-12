@@ -32,7 +32,16 @@ export async function login(
     throw new Error(translateApiErrorDetail(detail, response.status));
   }
 
-  return response.json() as Promise<TokenResponse>;
+  try {
+    return (await response.json()) as TokenResponse;
+  } catch (err) {
+    // fix(#1446): the response was 2xx, so the browser has already applied the
+    // refresh and CSRF cookies. Failing here without revoking would report a
+    // failed sign-in over a live server-side session. The bearer token was
+    // never stored, but the freshly-set cookie authenticates the revocation.
+    void logoutSession().catch(() => {});
+    throw err;
+  }
 }
 
 export async function getMe(): Promise<UserResponse> {

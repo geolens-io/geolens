@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist, type PersistOptions } from 'zustand/middleware';
-import { cookieAuthAvailable } from '@/lib/auth-transport';
 import type { UserResponse } from '@/types/api';
 
 interface AuthState {
@@ -73,26 +72,32 @@ const persistConfig: PersistOptions<AuthState> = {
    * `partialize` makes the persisted surface explicit — only these auth fields
    * are written, never any transient UI state that might later be added.
    *
-   * fix(#1302): the refresh token is no longer among them. It now lives in an
-   * httpOnly cookie the browser attaches to /auth/refresh/ by itself, which
-   * also subsumes what the cross-tab `storage` listener below used to do for it
-   * — every tab shares one cookie jar, so rotation converges without any
-   * JS-visible copy. `refreshToken` survives in the in-memory shape only so a
-   * pre-GH-1302 blob can be rehydrated once and handed to the migrating
-   * refresh; it is never written back.
+   * fix(#1302): the refresh token is no longer among them for a cookie-mode
+   * session. It lives in an httpOnly cookie the browser attaches to /auth by
+   * itself, which also subsumes what the cross-tab `storage` listener below
+   * used to do for it — every tab shares one cookie jar, so rotation converges
+   * without any JS-visible copy.
+   *
+   * fix(#1446): the condition is "is there a token in memory", not "is cookie
+   * mode available". Two sessions legitimately still hold one, and stripping it
+   * from storage before it is spent loses the session on the next reload:
+   *   - a cross-origin deployment, which cannot use the cookie at all (see
+   *     lib/auth-transport.ts) and keeps using body tokens indefinitely;
+   *   - a pre-GH-1302 session mid-migration, whose legacy token is what the
+   *     next refresh trades for a cookie. Zustand writes the persisted blob on
+   *     its own after migrating a version-0 shape, so a tab closed before that
+   *     refresh ran would otherwise come back with neither credential.
+   * Once the migrating refresh spends it, `setTokens` stores null and it stops
+   * being persisted for good.
    *
    * fix(#438) DATA-05 still applies to the ACCESS token, which stays in
    * localStorage for cross-tab convergence. Moving it to memory is tracked
    * separately in GH-1302's remaining acceptance criteria.
-   *
-   * A deployment whose API sits on a different origin cannot use the cookie
-   * (see lib/auth-transport.ts), so it keeps persisting the refresh token
-   * rather than losing its session on every reload.
    */
   partialize: (state) =>
     ({
       token: state.token,
-      ...(cookieAuthAvailable() ? {} : { refreshToken: state.refreshToken }),
+      ...(state.refreshToken ? { refreshToken: state.refreshToken } : {}),
       expiresAt: state.expiresAt,
       user: state.user,
     }) as unknown as AuthState,

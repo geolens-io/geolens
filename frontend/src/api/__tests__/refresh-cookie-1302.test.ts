@@ -115,6 +115,41 @@ describe('browser refresh transport', () => {
     });
   });
 
+  // fix(#1446): a 2xx whose body fails to parse still installed the cookies,
+  // so bailing out without revoking reports a failed sign-in over a live
+  // server-side session.
+  it('revokes when a successful login response fails to parse', async () => {
+    document.cookie = 'geolens_csrf=csrf-abc; path=/';
+    useAuthStore.setState({ token: null });
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+        headers: new Headers(),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 204,
+        statusText: 'No Content',
+        json: () => Promise.reject(new Error('no body')),
+        headers: new Headers(),
+      } as Response);
+
+    await expect(login('someone', 'secret')).rejects.toThrow(SyntaxError);
+
+    const logoutCall = mockFetch.mock.calls.find(
+      ([url]) => (url as string) === '/api/auth/logout/',
+    );
+    expect(logoutCall).toBeDefined();
+    // The freshly-set cookie is what authenticates it — no bearer token was
+    // ever stored.
+    expect((logoutCall?.[1] as RequestInit).headers).toMatchObject({
+      'X-CSRF-Token': 'csrf-abc',
+    });
+  });
+
   it('opts login into the cookie flow', async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
@@ -237,12 +272,25 @@ describe('persisted auth state', () => {
   });
 
   it('drops a legacy refresh token from storage once the migrating refresh spends it', () => {
-    // Pre-GH-1302 shape: rehydrated into memory, but never written back.
+    // Pre-GH-1302 shape: rehydrated into memory, kept until spent.
     useAuthStore.setState({ refreshToken: 'legacy-refresh-token' });
     useAuthStore.getState().setTokens('access-2', null, 900);
 
     const raw = window.localStorage.getItem('geolens-auth');
     expect(raw).not.toContain('legacy-refresh-token');
     expect(useAuthStore.getState().refreshToken).toBeNull();
+  });
+
+  // fix(#1446): zustand writes the persisted blob on its own after migrating a
+  // version-0 shape. Stripping the legacy token on that write would strand a
+  // tab closed before the migrating refresh ran — no body token on the next
+  // load, and no cookie either, so an otherwise-valid session dies at expiry.
+  it('keeps an unspent legacy refresh token across a store write', () => {
+    useAuthStore.setState({ token: 'access-1', refreshToken: 'legacy-refresh-token' });
+    // Any unrelated write, as zustand performs post-migration.
+    useAuthStore.setState({ expiresAt: Date.now() + 900_000 });
+
+    const raw = window.localStorage.getItem('geolens-auth') ?? '';
+    expect(JSON.parse(raw).state.refreshToken).toBe('legacy-refresh-token');
   });
 });
