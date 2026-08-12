@@ -258,6 +258,40 @@ def test_delete_evicts_cached_dataset_meta_for_the_freed_name():
             tiles_router._dataset_cache.update(before)
 
 
+async def test_meta_eviction_happens_after_commit_not_inside_delete_dataset():
+    """`delete_dataset` must NOT evict; the endpoints must, after they commit.
+
+    The map is built from `catalog.datasets`, which the DROP does not lock, so
+    an eviction inside the still-open transaction is undone by any concurrent
+    tile request — it reads the not-yet-deleted row and re-caches it. This
+    pins the placement, since the ordering is invisible in a single-threaded
+    test and only shows up under concurrency.
+    """
+    import inspect
+
+    from app.modules.catalog.datasets.api import router as datasets_router
+    from app.modules.catalog.datasets.domain import service_lifecycle
+
+    assert "notify_table_invalidated(" not in inspect.getsource(
+        service_lifecycle.delete_dataset
+    ), (
+        "delete_dataset does not commit, so evicting there races any concurrent "
+        "tile request; the endpoints evict after their commit instead"
+    )
+
+    for handler in (
+        datasets_router.delete_dataset_endpoint,
+        datasets_router.bulk_delete_datasets_endpoint,
+    ):
+        source = inspect.getsource(handler)
+        assert "notify_table_invalidated(" in source, (
+            f"{handler.__name__} must evict the tile router's metadata map"
+        )
+        assert source.index("await db.commit()") < source.index(
+            "notify_table_invalidated("
+        ), f"{handler.__name__} must evict AFTER its commit, not before"
+
+
 def test_notify_table_invalidated_never_raises():
     """A listener failure must not fail the delete that triggered it."""
     from app.platform.cache import provider as cache_provider

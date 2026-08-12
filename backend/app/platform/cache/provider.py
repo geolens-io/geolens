@@ -146,12 +146,20 @@ def get_tile_cache() -> "TileCacheProvider | InMemoryTileCacheProvider | None":
 # `app.processing.*` (test_layering.py::test_no_catalog_imports_processing),
 # but both sides may import `platform/`.
 #
-# Scope, stated plainly: listeners are in-process. A delete handled by one
-# uvicorn worker cannot evict another worker's map, so multi-worker
-# deployments keep a bounded window equal to the map's 60s TTL. That is the
-# same bounded-staleness tradeoff already documented for visibility changes in
-# processing/tiles/router.py. Closing it for every worker needs a cross-process
-# notification channel, which this codebase does not have.
+# Call this AFTER the triggering transaction commits. The map is populated
+# from `catalog.datasets`, which a dataset delete does not lock, so a notify
+# from inside the open transaction is undone by any concurrent tile request:
+# it still reads the not-yet-deleted row and re-caches what was just evicted.
+#
+# Scope, stated plainly, because two windows survive even post-commit:
+#   - Listeners are in-process. A delete handled by one uvicorn worker cannot
+#     evict another worker's map, so multi-worker deployments keep a window
+#     bounded by that map's 60s TTL.
+#   - A request whose catalog read was already in flight when the eviction ran
+#     writes its result afterwards. Bounded by one query, not by the TTL.
+# Both are the same bounded-staleness tradeoff already documented for
+# visibility changes in processing/tiles/router.py. Closing either for every
+# worker needs a cross-process notification channel this codebase lacks.
 _table_invalidation_listeners: list[Callable[[str], None]] = []
 
 

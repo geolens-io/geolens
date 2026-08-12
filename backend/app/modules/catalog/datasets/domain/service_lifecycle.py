@@ -202,22 +202,18 @@ async def delete_dataset(
         # than after the caller's commit so single delete, bulk delete, and
         # future callers get it from one place. Raster/VRT are excluded — their
         # tiles come from Titiler, and that branch drops no table to free a name.
-        from app.platform.cache.provider import (
-            get_tile_cache,
-            notify_table_invalidated,
-        )
+        from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()
         if tile_cache is not None:
             await tile_cache.invalidate_table(table_name)
 
-        # fix(#1429): the tile router's process-local table_name -> metadata map
-        # decides authorization, so it must forget this name before a successor
-        # can inherit the deleted dataset's visibility. Cannot be called
-        # directly — `catalog/` must not import `app.processing.*` — so it goes
-        # through the platform listener seam. In-process only; see the note on
-        # notify_table_invalidated for what that leaves open.
-        notify_table_invalidated(table_name)
+    # fix(#1429): the matching eviction of the tile router's table_name ->
+    # metadata map is NOT here, it is at the two delete endpoints after their
+    # commit. That map is populated from `catalog.datasets`, which the DROP
+    # above does not lock, so a concurrent tile request inside this still-open
+    # transaction reads the not-yet-deleted row and re-caches the dataset we
+    # just evicted. Only a commit makes the delete visible to that reader.
 
     # Audit trail for an irreversible operation (DROP TABLE for vector,
     # storage cleanup for raster/VRT). The DB-side row deletion is logged
