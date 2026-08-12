@@ -2846,7 +2846,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # visibility for the whole page (one query, mirroring PERF-5's
     # spatial_extent_geojson) instead of one round trip per item at limit=200.
     # Cap 1843 -> 1870, still exact.
-    # fix(stac limit/bbox conformance): -15 — the two inline bbox parsers and
+    # fix(#1432): -15 — the two inline bbox parsers and
     # _require_finite_bbox collapse onto the shared parse_bbox, which now takes
     # the POST list as well as the GET string. Cap 1870 -> 1855, still exact.
     "backend/app/standards/stac/router.py": 1855,
