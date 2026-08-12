@@ -2846,7 +2846,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # visibility for the whole page (one query, mirroring PERF-5's
     # spatial_extent_geojson) instead of one round trip per item at limit=200.
     # Cap 1843 -> 1870, still exact.
-    "backend/app/standards/stac/router.py": 1870,
+    # fix(stac limit/bbox conformance): -15 — the two inline bbox parsers and
+    # _require_finite_bbox collapse onto the shared parse_bbox, which now takes
+    # the POST list as well as the GET string. Cap 1870 -> 1855, still exact.
+    "backend/app/standards/stac/router.py": 1855,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.

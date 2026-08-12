@@ -299,12 +299,13 @@ class TestExportValidation:
     async def test_export_invalid_bbox_bounds(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Request with bbox=10,10,5,5 (miny >= maxy) returns 400.
+        """Request with bbox=10,10,5,5 (miny > maxy) returns 400.
 
         The rejected pair is the LATITUDE one. ``parse_bbox``
         (app/modules/catalog/features/service.py) deliberately allows
         minx > maxx, which is how an antimeridian-crossing bbox is spelled
-        (170,-45,-170,-30); only ``values[1] >= values[3]`` raises.
+        (170,-45,-170,-30); only ``values[1] > values[3]`` raises. Equality is
+        allowed — a degenerate box is legal under OGC API Features and STAC.
         """
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset(
