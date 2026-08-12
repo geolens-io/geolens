@@ -38,6 +38,23 @@ export async function getMe(): Promise<UserResponse> {
   return apiFetch<UserResponse>('/auth/me/');
 }
 
+/**
+ * fix(#1446): end the session on the server, not just in this tab.
+ *
+ * The endpoint has always revoked the refresh-token rows and bumped
+ * token_version, but nothing in the SPA ever called it — clearing localStorage
+ * was enough to strand the browser. fix(#1302) removed that property: the
+ * refresh credential is now an httpOnly cookie JS cannot touch, so a purely
+ * client-side logout would leave a live cookie (and its server row) behind for
+ * the remainder of its lifetime. Only the server's `Set-Cookie` can clear it.
+ *
+ * Routed through apiFetch deliberately: if the access token has aged out, the
+ * 401 path refreshes from the cookie and retries, so logout still lands.
+ */
+export async function logoutSession(): Promise<void> {
+  await apiFetch<void>('/auth/logout/', { method: 'POST' });
+}
+
 export async function registerUser(data: {
   username: string;
   password: string;

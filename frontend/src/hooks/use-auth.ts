@@ -3,7 +3,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
-import { login as apiLogin, getMe } from '@/api/auth';
+import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
 import { tryRefresh } from '@/api/client';
 
 export function useAuth() {
@@ -82,7 +82,18 @@ export function useAuth() {
     [setAuth, queryClient],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // fix(#1446): revoke server-side BEFORE tearing down local state. The
+    // request needs the bearer token that storeLogout is about to clear, and
+    // since fix(#1302) the refresh cookie can only be removed by the server's
+    // Set-Cookie. A failure here (offline, or a session already dead) must not
+    // trap the user in a session they asked to leave, so the local teardown
+    // runs either way.
+    try {
+      await logoutSession();
+    } catch {
+      // Intentionally swallowed — see above.
+    }
     // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
     // does not see the previous user's cached identity.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });

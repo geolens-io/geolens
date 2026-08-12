@@ -20,11 +20,13 @@ vi.mock('react-router', async () => {
 const mockLogin = vi.fn<(u: string, p: string) => Promise<TokenResponse>>();
 const mockGetMe = vi.fn<() => Promise<UserResponse>>();
 const mockRefresh = vi.fn();
+const mockLogoutSession = vi.fn<() => Promise<void>>();
 
 vi.mock('@/api/auth', () => ({
   login: (...args: unknown[]) => mockLogin(...(args as [string, string])),
   getMe: () => mockGetMe(),
   refreshAccessToken: (...args: unknown[]) => mockRefresh(...args),
+  logoutSession: () => mockLogoutSession(),
 }));
 
 function mockUser(overrides?: Partial<UserResponse>): UserResponse {
@@ -45,6 +47,7 @@ describe('useAuth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetMe.mockResolvedValue(mockUser());
+    mockLogoutSession.mockResolvedValue(undefined);
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
   });
 
@@ -94,17 +97,51 @@ describe('useAuth', () => {
     ).rejects.toThrow('Invalid credentials');
   });
 
-  it('logout clears store and navigates to /login', () => {
+  it('logout clears store and navigates to /login', async () => {
     useAuthStore.setState({ token: 'abc', refreshToken: 'ref', expiresAt: 999, user: mockUser() });
 
     const { result } = renderHook(() => useAuth());
 
-    act(() => {
-      result.current.logout();
+    await act(async () => {
+      await result.current.logout();
     });
 
     expect(useAuthStore.getState().token).toBeNull();
     expect(useAuthStore.getState().user).toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith('/login');
+  });
+
+  // fix(#1446): the refresh credential is an httpOnly cookie since fix(#1302),
+  // so only the server can end the session. A logout that just clears the store
+  // would leave a live cookie behind.
+  it('logout revokes the session server-side before clearing local state', async () => {
+    useAuthStore.setState({ token: 'abc', refreshToken: null, expiresAt: 999, user: mockUser() });
+    let tokenAtRequestTime: string | null = null;
+    mockLogoutSession.mockImplementation(async () => {
+      tokenAtRequestTime = useAuthStore.getState().token;
+    });
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    // The bearer token must still be present when the request goes out.
+    expect(tokenAtRequestTime).toBe('abc');
+    expect(useAuthStore.getState().token).toBeNull();
+  });
+
+  it('logout still clears local state when the server call fails', async () => {
+    useAuthStore.setState({ token: 'abc', refreshToken: null, expiresAt: 999, user: mockUser() });
+    mockLogoutSession.mockRejectedValueOnce(new Error('offline'));
+
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.logout();
+    });
+
+    expect(useAuthStore.getState().token).toBeNull();
     expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
 
@@ -204,8 +241,8 @@ describe('useAuth', () => {
 
       const { result } = renderWithQueryClient(queryClient);
 
-      act(() => {
-        result.current.logout();
+      await act(async () => {
+        await result.current.logout();
       });
 
       // Cache for ['auth','me'] must be gone after logout
