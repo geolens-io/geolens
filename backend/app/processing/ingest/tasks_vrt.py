@@ -110,6 +110,90 @@ def built_from_map(ordered_assets) -> dict:
     return {str(a.dataset_id): a.asset_uri for a in ordered_assets}
 
 
+def staged_source_ids_or_none(generation) -> list[uuid.UUID] | None:
+    """The generation's staged member set as UUIDs, or None when it stages none.
+
+    fix(#1327). NULL means "this generation changes no membership" — a plain
+    regenerate, or any generation queued before ``staged_source_ids`` existed.
+    Both build from the live link rows and apply nothing, so the caller gets one
+    fallback with two producers rather than a version check.
+
+    A JSONB column also reads back Python ``None`` when it holds the JSON scalar
+    ``null`` (SQLAlchemy's plain JSONB serializes an assigned ``None`` that way
+    rather than as SQL NULL — the same trap #1322 hit in SQL), and a non-list
+    value cannot be a member set either. Both fall to the same None answer as a
+    genuinely absent one.
+
+    Everything else about the value is checked HERE, at claim time, before a
+    single byte is built: an empty set, an unparseable id or a repeated id is a
+    staged intent that cannot be published, and failing on it now costs a job
+    instead of a GDAL build plus an obscure ON CONFLICT error at apply time.
+    """
+    staged = getattr(generation, "staged_source_ids", None)
+    if not isinstance(staged, list):
+        return None
+    source_ids = [
+        value if isinstance(value, uuid.UUID) else uuid.UUID(str(value))
+        for value in staged
+    ]
+    if not source_ids:
+        raise ValueError("Staged VRT source set is empty")
+    if len(set(source_ids)) != len(source_ids):
+        raise ValueError("Staged VRT source set repeats a source dataset")
+    return source_ids
+
+
+async def apply_staged_source_links(session, vrt_dataset_id, source_ids) -> None:
+    """Make ``vrt_source_links`` equal ``source_ids``, positions from order.
+
+    fix(#1327). Called only from the publish transaction — the same one that
+    swaps ``asset_uri`` and writes ``built_from`` — so the catalog's declared
+    composition becomes visible at the instant the artifact built from it does,
+    and never before.
+
+    A replace, not a diff: an upsert over the whole staged set followed by a
+    delete of everything else for this VRT. Re-running it is a no-op, which is
+    what makes a retry safe, and it needs no knowledge of what the links held
+    when the set was staged. The upsert (rather than delete-then-insert)
+    preserves ``created_at`` on rows that survive the change, so a member's
+    "linked since" is not reset by an unrelated add or remove.
+
+    The empty guard is a precondition, not a second validation: the caller
+    already refuses an empty staged set at claim time. Here it stops an empty
+    list from compiling into ``NOT IN ()`` and deleting every link a VRT has.
+    """
+    from sqlalchemy import delete
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.processing.raster.models import VrtSourceLink
+
+    if not source_ids:
+        raise ValueError(f"VRT {vrt_dataset_id} staged an empty source set")
+
+    stmt = pg_insert(VrtSourceLink).values(
+        [
+            {
+                "vrt_dataset_id": vrt_dataset_id,
+                "source_dataset_id": source_id,
+                "position": position,
+            }
+            for position, source_id in enumerate(source_ids)
+        ]
+    )
+    await session.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_vsl_vrt_source",
+            set_={"position": stmt.excluded.position},
+        )
+    )
+    await session.execute(
+        delete(VrtSourceLink).where(
+            VrtSourceLink.vrt_dataset_id == vrt_dataset_id,
+            VrtSourceLink.source_dataset_id.notin_(source_ids),
+        )
+    )
+
+
 async def create_vrt_dataset(
     session,
     *,
@@ -599,10 +683,18 @@ async def regenerate_vrt(
     keys. The RasterAsset pointer changes only in the same transaction that verifies
     the job attempt and generation ownership, then prior objects are reaped.
 
+    Composition source (fix(#1327)): the generation's ``staged_source_ids``
+    when it carries one — ``add_vrt_source``/``remove_vrt_source`` record the
+    intended post-mutation member set there instead of writing it into
+    ``vrt_source_links`` up front — otherwise the live link rows. The staged set
+    is applied to ``vrt_source_links`` in step 12, inside the publish
+    transaction, so the catalog's declared composition and the artifact built
+    from it become visible in the same commit.
+
     Full pipeline:
     1. Mark job running
     2. Load VRT RasterAsset
-    3. Load vrt_source_links ordered by position -> source dataset IDs
+    3. Load the member set: staged set if any, else vrt_source_links by position
     4. Load source RasterAsset rows, resolve paths
     5. Build new VRT to temp path
     6. Post-validate via rasterio
@@ -611,7 +703,8 @@ async def regenerate_vrt(
     9. Generate quicklooks (non-fatal)
     10. Write immutable generation storage keys
     11. Update RasterAsset metadata fields
-    12. Set status='ready', last_regenerated_at, clear current_generation_id
+    12. Set status='ready', last_regenerated_at, built_from, clear
+        current_generation_id, apply the staged member set to vrt_source_links
     13. Update dataset footprint geometry
     14. Mark job complete
     15. Invalidate cache, defer embedding
@@ -652,6 +745,10 @@ async def regenerate_vrt(
     vrt_id = uuid.UUID(vrt_dataset_id)
     tmp_dir: str | None = None
     generation_uuid: uuid.UUID | None = None
+    # fix(#1327): the member set this attempt is publishing, when its
+    # generation staged one. Set in phase 1 (and used for the build there),
+    # applied to vrt_source_links in phase 2's publish transaction.
+    staged_source_ids: list[uuid.UUID] | None = None
     vrt_asset_snapshot = None
     heartbeat_task: asyncio.Task[None] | None = None
     generation_heartbeat_task: asyncio.Task[None] | None = None
@@ -697,7 +794,14 @@ async def regenerate_vrt(
                 raise ValueError(f"VRT dataset {vrt_dataset_id} not found")
             vrt_asset_snapshot = vrt_asset_row
 
-            # 3. Load vrt_source_links ordered by position
+            # 3. Load vrt_source_links ordered by position — the composition
+            # currently being SERVED. fix(#1327): still read first and still
+            # required to be non-empty, for both paths. It is the default
+            # member set (step 3c may replace it with the generation's staged
+            # one), and a VRT with no links at all is a broken row either way:
+            # nothing legitimately creates one, and building "whatever the
+            # staged set says" over it would quietly repair a state worth
+            # failing on.
             links_result = await session.execute(
                 text(
                     "SELECT source_dataset_id FROM catalog.vrt_source_links "
@@ -778,6 +882,20 @@ async def regenerate_vrt(
                 if vrt_asset_row.current_generation_id != generation_uuid:
                     raise ValueError("VRT generation ownership changed before claim")
 
+            # 3c. fix(#1327): build from the STAGED member set when this
+            # generation carries one. add_vrt_source / remove_vrt_source no
+            # longer touch vrt_source_links — they record the FULL intended
+            # post-mutation set here — so the live link rows read above still
+            # describe the VRT currently being served, not the one this attempt
+            # is being asked to publish. Building from the links would rebuild
+            # the existing composition and then apply a set the artifact does
+            # not contain, which is the exact drift this pattern removes.
+            # A generation that stages nothing (plain regenerate, or one queued
+            # before the column existed) keeps the live links.
+            staged_source_ids = staged_source_ids_or_none(generation)
+            if staged_source_ids is not None:
+                source_ids = staged_source_ids
+
             await session.commit()
             generation_heartbeat_task = asyncio.create_task(
                 maintain_vrt_generation_heartbeat(generation_uuid)
@@ -787,6 +905,22 @@ async def regenerate_vrt(
             snapshot_at, ordered_assets = await snapshot_member_sources(
                 session, source_ids, raster_asset_cls=RasterAsset, dataset_cls=Dataset
             )
+            # fix(#1327): every member of the set being built must still be
+            # loadable, or the build silently publishes a mosaic missing a
+            # member it claims (snapshot_member_sources drops what it cannot
+            # find). A LIVE link cannot vanish — vrt_source_links pins its
+            # source with ON DELETE RESTRICT — but a STAGED id is not a link
+            # row yet, so the window between staging and applying is the one
+            # place a member can disappear underneath an attempt. Failing here
+            # leaves the links untouched and the served VRT intact; the caller
+            # re-issues the add or remove against the set that survived.
+            if len(ordered_assets) != len(source_ids):
+                found = {asset.dataset_id for asset in ordered_assets}
+                missing = [str(sid) for sid in source_ids if sid not in found]
+                raise ValueError(
+                    f"VRT {vrt_dataset_id} member sources are no longer "
+                    f"available: {', '.join(missing)}"
+                )
             from app.core.db.tenant_session import current_tenant_var
 
             source_paths = [
@@ -989,6 +1123,22 @@ async def regenerate_vrt(
                     )
                     vrt_asset_snapshot.current_generation_id = None
 
+                # 12a. fix(#1327): the staged member set lands HERE, in the
+                # transaction that publishes the artifact built from it and
+                # writes built_from — never at request time. That is the whole
+                # invariant: vrt_source_links can never describe a composition
+                # the served bytes do not have, because both become visible in
+                # one commit. Death anywhere upstream leaves the links alone.
+                #
+                # Applies the SAME list phase 1 built from, not a re-read of
+                # the generation row — the link set and the artifact then
+                # cannot disagree even in principle, exactly as built_from is
+                # derived from the ordered_assets the build used. Fenced by the
+                # current_generation_id check above: a zombie worker whose
+                # attempt the sweep already reconciled cannot reach this line.
+                if staged_source_ids is not None:
+                    await apply_staged_source_links(session, vrt_id, staged_source_ids)
+
                 # 12b. Update generation record
                 generation.status = "completed"
                 generation.completed_at = datetime.now(timezone.utc)
@@ -1148,3 +1298,47 @@ async def regenerate_vrt(
             )
 
             await _cleanup_orphaned_storage_keys(written_storage_keys, job_id=job_id)
+
+
+# fix(#1327 codex P1): a SECOND registered name for the SAME regeneration, used
+# only by the staged mutations (add source / remove source).
+#
+# The skew it closes: during a rolling upgrade the API can be new while a worker
+# is still pre-#1327. The new API records the membership change only in
+# `staged_source_ids`; a pre-#1327 worker does not know that column, rebuilds
+# from the live links, and marks the generation COMPLETE. An accepted add or
+# remove is silently lost, with every state machine reporting success.
+#
+# Why the name and not a marker kwarg. The pre-#1327 task signature ends in
+# `**kwargs`, and so does `tenant_task`'s wrapper, so an unknown keyword is
+# swallowed rather than raising TypeError: a kwarg cannot fence a consumer that
+# accepts anything. The task NAME can. Procrastinate resolves the name against
+# the worker's own registry, and a worker without it raises TaskNotFound, which
+# fails the job. Measured against the pinned procrastinate in
+# tests/test_vrt_staged_task_skew.py: status 'failed', attempts 1, no retry
+# scheduled (TaskNotFound never consults a retry strategy, because there is no
+# task object to ask one for).
+#
+# What that failure leaves behind is deliberately a state the existing
+# machinery already handles rather than a new one: the task never ran, so
+# vrt_source_links is untouched, the generation stays 'pending' with a NULL
+# heartbeat, and the asset stays 'regenerating' until `sweep_stale_vrt_assets`
+# reconciles it. Composition is preserved, which is the whole point of staging,
+# so the sweep restores 'ready' and the VRT keeps serving what it was serving.
+# The mutation is refused rather than half-applied, and the caller re-issues it
+# once the roll finishes.
+#
+# Plain regeneration deliberately keeps the legacy name: it changes no
+# membership, so a pre-#1327 worker executes it correctly and those deliveries
+# keep flowing during the roll.
+@task_app.task(queue="raster", retry=0)
+async def regenerate_vrt_staged(**kwargs) -> None:
+    """Regenerate a VRT whose generation carries a staged member set.
+
+    Byte-identical work to ``regenerate_vrt``: one implementation, two
+    registered names, and the staged set is read from the generation row on
+    either path. The name gates WHICH WORKERS may run it, nothing else.
+    ``regenerate_vrt.func`` is the ``tenant_task``-wrapped body, so the tenant
+    kwarg is popped and bound exactly once, here at the forward.
+    """
+    await regenerate_vrt.func(**kwargs)

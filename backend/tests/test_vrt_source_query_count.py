@@ -153,3 +153,61 @@ async def test_list_vrt_sources_query_count_is_flat(test_db_session) -> None:
         f"query count scales with source count: {q_small} for 1 source, "
         f"{q_large} for 8 — the per-row get_dataset N+1 is back"
     )
+
+
+async def test_record_source_count_reports_the_served_member_set(
+    test_db_session,
+) -> None:
+    """fix(#1327): every surface counts the same members.
+
+    The OGC record item used to take its ``source_count`` from the in-flight
+    VrtGeneration. That was the post-mutation number back when add/remove wrote
+    the link row up front; now that the link write happens at the artifact
+    swap, reading the generation would make this the one surface claiming a
+    member set the VRT is not serving.
+    """
+    from datetime import datetime, timezone
+
+    from app.modules.catalog.search.router import _build_raster_assets
+    from app.processing.raster.models import VrtGeneration
+
+    admin = await _admin(test_db_session)
+    vrt_id = await _make_vrt_with_sources(test_db_session, created_by=admin.id, n=2)
+    pending_member = await _make_raster_source(test_db_session, created_by=admin.id)
+
+    linked_ids = [
+        row.source_dataset_id
+        for row in (
+            await test_db_session.execute(
+                text(
+                    "SELECT source_dataset_id FROM catalog.vrt_source_links "
+                    "WHERE vrt_dataset_id = :id ORDER BY position"
+                ),
+                {"id": str(vrt_id)},
+            )
+        ).fetchall()
+    ]
+    generation = VrtGeneration(
+        vrt_dataset_id=vrt_id,
+        status="running",
+        started_at=datetime.now(timezone.utc),
+        source_count=3,
+        staged_source_ids=[str(sid) for sid in [*linked_ids, pending_member]],
+    )
+    test_db_session.add(generation)
+    await test_db_session.flush()
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.raster_assets SET status = 'regenerating', "
+            "current_generation_id = :gen WHERE dataset_id = :id"
+        ),
+        {"gen": str(generation.id), "id": str(vrt_id)},
+    )
+    await test_db_session.commit()
+
+    meta = await _build_raster_assets(test_db_session, vrt_id)
+
+    assert meta is not None
+    assert meta["source_count"] == 2, (
+        "an in-flight add must not be reported as a member of the served VRT"
+    )

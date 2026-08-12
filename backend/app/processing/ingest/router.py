@@ -97,7 +97,7 @@ from app.processing.ingest.presigned import (
     should_assemble_multipart,
     sign_url_with_deadline,
 )
-from app.processing.ingest.tasks import regenerate_vrt
+from app.processing.ingest.tasks import regenerate_vrt_staged
 from app.processing.ingest.validation import validate_file_content
 from app.platform.jobs.defer_guard import defer_with_orphan_guard
 from app.core.persistent_config import (
@@ -1170,6 +1170,12 @@ async def add_vrt_source(
     Returns 409 if the VRT is currently regenerating (SRC-05) or source already linked.
     Returns 422 if the source is incompatible with existing sources.
     """
+    # fix(#1327): the resulting member set is STAGED on the VrtGeneration row;
+    # vrt_source_links is written by the regeneration task in the same
+    # transaction that publishes the artifact containing it. Deliberately a
+    # comment and not a docstring line: FastAPI publishes the docstring as this
+    # operation's OpenAPI description, so editing it would churn
+    # backend/openapi.json and every generated SDK for an internal note.
     from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset, VrtGeneration
     from sqlalchemy import text
@@ -1285,34 +1291,25 @@ async def add_vrt_source(
             detail=[e.model_dump() for e in errors],
         )
 
-    # 6. Get max position for new link. COALESCE(..., -1) guarantees non-null
-    # in SQL but mypy sees Any|None — default to -1 so the arithmetic is safe.
-    max_pos_result = await db.execute(
-        text(
-            "SELECT COALESCE(MAX(position), -1) FROM catalog.vrt_source_links "
-            "WHERE vrt_dataset_id = :vrt_id"
-        ),
-        {"vrt_id": dataset_id},
-    )
-    max_position = max_pos_result.scalar()
-    if max_position is None:
-        max_position = -1
+    # 6. fix(#1327): STAGE the intended post-mutation member set on the
+    # generation instead of writing it into vrt_source_links here. The link
+    # table is the catalog's statement about what the served VRT contains, and
+    # this request has not produced that artifact yet — regenerate_vrt applies
+    # the staged set in the same transaction that swaps the artifact and writes
+    # built_from, so a death anywhere before that swap leaves the links exactly
+    # where the served bytes are. The full set is staged (not "add this id"),
+    # so applying it is a replace: idempotent, and independent of whatever the
+    # links happen to hold when it lands.
+    #
+    # Order IS the position: existing links were read ORDER BY position above,
+    # and the new source appends, which is what the MAX(position)+1 insert this
+    # replaces computed. Applying the set renumbers positions 0..n-1, closing
+    # any gaps a previous removal left behind.
+    staged_source_ids = [str(sid) for sid in existing_source_ids] + [
+        str(request.source_dataset_id)
+    ]
 
-    # 7. Insert new source link
-    new_link_position = max_position + 1
-    await db.execute(
-        text(
-            "INSERT INTO catalog.vrt_source_links(vrt_dataset_id, source_dataset_id, position) "
-            "VALUES (:vrt_id, :src_id, :pos)"
-        ),
-        {
-            "vrt_id": dataset_id,
-            "src_id": request.source_dataset_id,
-            "pos": new_link_position,
-        },
-    )
-
-    # 8. Set VRT status to regenerating — capture pre-mutation values so
+    # 7. Set VRT status to regenerating — capture pre-mutation values so
     # the orphan-guard rollback (Theme H) can restore them if Procrastinate
     # is unreachable.
     previous_status = vrt_asset.status
@@ -1321,7 +1318,8 @@ async def add_vrt_source(
         vrt_dataset_id=dataset_id,
         status="pending",
         started_at=datetime.now(timezone.utc),
-        source_count=len(existing_source_ids) + 1,
+        source_count=len(staged_source_ids),
+        staged_source_ids=staged_source_ids,
         triggered_by=str(user.id),
     )
     db.add(generation)
@@ -1329,24 +1327,26 @@ async def add_vrt_source(
     vrt_asset.status = "regenerating"
     vrt_asset.current_generation_id = generation.id
 
-    # 9. Create IngestJob
+    # 8. Create IngestJob
     job = await create_ingest_job(db, "vrt_regenerate", "", user.id)
     job.dataset_id = dataset_id
 
-    # 10. Commit + dispatch.
-    # Unlike IngestJob orphans (rescued by 60-minute stale-cleanup), there
-    # is NO sweep for VRT assets stuck in ``status="regenerating"``. If
-    # Procrastinate is unreachable, the rollback below reverts the VRT
-    # asset state, deletes the inserted source link, and marks the job
-    # failed before re-raising as HTTP 503 — otherwise the VRT would be
-    # permanently stuck until an operator manually intervenes.
+    # 9. Commit + dispatch.
+    # If Procrastinate is unreachable the rollback below reverts the VRT
+    # asset state and marks the job failed before re-raising as HTTP 503 —
+    # otherwise the VRT would sit in ``status="regenerating"`` until
+    # ``sweep_stale_vrt_assets`` (GAP-002 / feat(#1267)) reconciled it a
+    # timeout later, 409-ing every mutation in between.
     await db.commit()
 
-    inserted_source_id = request.source_dataset_id
-
     async def _defer() -> None:
+        # fix(#1327 codex P1): the STAGED task name, not the legacy one. A
+        # pre-#1327 worker does not have this task registered and fails the job
+        # loudly (procrastinate TaskNotFound) instead of rebuilding from the
+        # live links and reporting success, which would drop this add on the
+        # floor during a rolling upgrade. See tasks_vrt.regenerate_vrt_staged.
         await defer_async_with_tenant(
-            regenerate_vrt,
+            regenerate_vrt_staged,
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),
@@ -1355,21 +1355,19 @@ async def add_vrt_source(
         )
 
     async def _rollback(defer_exc: BaseException) -> None:
-        # Revert VRT asset state to what it was before step 8.
+        # Revert VRT asset state to what it was before step 7.
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id
         generation.status = "failed"
         generation.completed_at = datetime.now(timezone.utc)
         generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        # Delete the source link we just inserted so the VRT matches
-        # its pre-mutation source set.
-        await db.execute(
-            text(
-                "DELETE FROM catalog.vrt_source_links "
-                "WHERE vrt_dataset_id = :vrt_id AND source_dataset_id = :src_id"
-            ),
-            {"vrt_id": dataset_id, "src_id": inserted_source_id},
-        )
+        # fix(#1327): no link surgery here any more. This used to DELETE the
+        # row it had just inserted; with the member set staged on the
+        # generation, an undispatched request never touched vrt_source_links,
+        # so there is nothing to put back. The staged set stays on the failed
+        # generation row as the record of what was asked for — it can only be
+        # applied by a task that still owns the asset pointer, which this
+        # rollback has just handed back.
         # Mark the IngestJob failed so /jobs listings reflect reality.
         job.status = "failed"
         job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
@@ -1377,8 +1375,11 @@ async def add_vrt_source(
 
     await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
 
+    # fix(#1327): "queued", not "added". The catalog's source list still
+    # describes the VRT being served; the addition becomes part of it when the
+    # regeneration publishes the artifact that contains it.
     return VrtMutationResponse(
-        job_id=job.id, message="Source added, VRT regeneration started"
+        job_id=job.id, message="Source add queued, VRT regeneration started"
     )
 
 
@@ -1400,6 +1401,10 @@ async def remove_vrt_source(
     Returns 422 if removing would leave fewer than 2 sources.
     Returns 404 if the source is not linked to the VRT.
     """
+    # fix(#1327): the post-removal member set is STAGED on the VrtGeneration
+    # row; vrt_source_links is written by the regeneration task in the same
+    # transaction that publishes the artifact without the removed member. Kept
+    # out of the docstring — see the note on add_vrt_source.
     from app.platform.extensions import get_processing_port
     from app.processing.raster.models import RasterAsset, VrtGeneration
     from sqlalchemy import text
@@ -1437,47 +1442,44 @@ async def remove_vrt_source(
             detail="VRT is currently regenerating. Try again after the current operation completes.",
         )
 
-    # 3. Check minimum source count guard. COUNT(*) is non-null but mypy
-    # sees Any|None from scalar() — default to 0 so the comparison is safe.
-    count_result = await db.execute(
+    # 3. Read the current member set ONCE, in order. fix(#1327): the count
+    # guard, the "is it linked" guard and the staged post-removal set are three
+    # questions about one set — a single ordered read answers all three and
+    # leaves them unable to disagree (this replaced a COUNT(*) and a separate
+    # per-link position lookup).
+    links_result = await db.execute(
         text(
-            "SELECT COUNT(*) FROM catalog.vrt_source_links WHERE vrt_dataset_id = :vrt_id"
+            "SELECT source_dataset_id FROM catalog.vrt_source_links "
+            "WHERE vrt_dataset_id = :vrt_id ORDER BY position ASC"
         ),
         {"vrt_id": dataset_id},
     )
-    source_count = count_result.scalar() or 0
-    if source_count <= 2:
+    existing_source_ids = [row.source_dataset_id for row in links_result.fetchall()]
+
+    # Minimum source count guard, evaluated before membership so an
+    # under-populated VRT reports the real reason it cannot shrink further.
+    if len(existing_source_ids) <= 2:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Removing this source would leave fewer than 2 sources. A VRT requires at least 2 sources.",
         )
 
-    # 4. Check source link exists — also capture its position so the
-    # orphan-guard rollback (Theme H) can re-insert it with the original
-    # ordering if the defer fails.
-    link_result = await db.execute(
-        text(
-            "SELECT position FROM catalog.vrt_source_links "
-            "WHERE vrt_dataset_id = :vrt_id AND source_dataset_id = :src_id"
-        ),
-        {"vrt_id": dataset_id, "src_id": source_dataset_id},
-    )
-    link_row = link_result.fetchone()
-    if link_row is None:
+    # 4. Check the source is actually linked.
+    if source_dataset_id not in existing_source_ids:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Source not linked to this VRT",
         )
-    deleted_link_position = link_row.position
 
-    # 5. Delete the source link
-    await db.execute(
-        text(
-            "DELETE FROM catalog.vrt_source_links "
-            "WHERE vrt_dataset_id = :vrt_id AND source_dataset_id = :src_id"
-        ),
-        {"vrt_id": dataset_id, "src_id": source_dataset_id},
-    )
+    # 5. fix(#1327): STAGE the post-removal member set on the generation rather
+    # than deleting the link row now. The link table keeps describing the VRT
+    # that is actually being served until regenerate_vrt publishes the artifact
+    # this set describes, and applies the set in that same transaction. The
+    # surviving order is preserved; applying renumbers positions 0..n-1 so the
+    # removal leaves no gap.
+    staged_source_ids = [
+        str(sid) for sid in existing_source_ids if sid != source_dataset_id
+    ]
 
     # 6. Set VRT status to regenerating — capture pre-mutation values.
     previous_status = vrt_asset.status
@@ -1486,7 +1488,8 @@ async def remove_vrt_source(
         vrt_dataset_id=dataset_id,
         status="pending",
         started_at=datetime.now(timezone.utc),
-        source_count=source_count - 1,
+        source_count=len(staged_source_ids),
+        staged_source_ids=staged_source_ids,
         triggered_by=str(user.id),
     )
     db.add(generation)
@@ -1499,16 +1502,18 @@ async def remove_vrt_source(
     job.dataset_id = dataset_id
 
     # 8. Commit + dispatch with orphan guard (Theme H).
-    # No stale-cleanup sweep exists for VRT ``status="regenerating"``, so
-    # a Procrastinate outage would leave the VRT permanently stuck and
-    # the deleted source link gone until manual operator intervention.
-    # The rollback below re-inserts the link with its original position,
-    # reverts the VRT asset state, and marks the job failed.
+    # A Procrastinate outage would otherwise leave the VRT in
+    # ``status="regenerating"`` until ``sweep_stale_vrt_assets`` reconciled
+    # it a timeout later, 409-ing every mutation in between. The rollback
+    # below reverts the VRT asset state and marks the job failed.
     await db.commit()
 
     async def _defer() -> None:
+        # fix(#1327 codex P1): staged task name, same reasoning as the add
+        # endpoint — a pre-#1327 worker must refuse this delivery rather than
+        # rebuild the composition it cannot see.
         await defer_async_with_tenant(
-            regenerate_vrt,
+            regenerate_vrt_staged,
             job_id=str(job.id),
             attempt_id=str(job.attempt_id),
             vrt_dataset_id=str(dataset_id),
@@ -1517,19 +1522,10 @@ async def remove_vrt_source(
         )
 
     async def _rollback(defer_exc: BaseException) -> None:
-        # Re-insert the deleted source link with its original position.
-        await db.execute(
-            text(
-                "INSERT INTO catalog.vrt_source_links("
-                "vrt_dataset_id, source_dataset_id, position) "
-                "VALUES (:vrt_id, :src_id, :pos)"
-            ),
-            {
-                "vrt_id": dataset_id,
-                "src_id": source_dataset_id,
-                "pos": deleted_link_position,
-            },
-        )
+        # fix(#1327): nothing to re-insert. The link row was never deleted —
+        # the post-removal set is staged on the generation and only applied at
+        # the artifact swap, so an undispatched request leaves the catalog's
+        # member set untouched.
         # Revert VRT asset state.
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id
@@ -1543,6 +1539,7 @@ async def remove_vrt_source(
 
     await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
 
+    # fix(#1327): "queued", not "removed" — see the add endpoint's tail.
     return VrtMutationResponse(
-        job_id=job.id, message="Source removed, VRT regeneration started"
+        job_id=job.id, message="Source removal queued, VRT regeneration started"
     )

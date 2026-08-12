@@ -52,6 +52,7 @@ from app.processing.ingest.tasks_vrt import (  # noqa: F401
     create_vrt_dataset,
     ingest_vrt,
     regenerate_vrt,
+    regenerate_vrt_staged,
 )
 
 # -- File and service re-upload tasks --

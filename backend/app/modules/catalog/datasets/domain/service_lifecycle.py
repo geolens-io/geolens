@@ -87,7 +87,29 @@ async def delete_dataset(
         from app.platform.storage.provider import get_storage
 
         if record_type == "raster_dataset":
-            # Guard: prevent deletion if any VRT still references this COG
+            # Guard: prevent deletion if any VRT still references this COG.
+            #
+            # fix(#1327): a reference is now either committed or in flight. An
+            # add staged by add_vrt_source has no vrt_source_links row until
+            # its regeneration publishes the artifact, so the link half of this
+            # guard alone would let a source be deleted out from under an
+            # in-flight attempt — a hole staging would otherwise open in a
+            # guarantee this repo already made. The second branch closes it by
+            # asking the same question of the not-yet-applied set. The
+            # regeneration task independently refuses to publish a set whose
+            # members it cannot load, so a delete that slips past this guard
+            # (deleted between this check and the build) fails the attempt
+            # instead of half-applying it.
+            #
+            # Membership is asked with `@>` rather than by expanding the array
+            # with jsonb_array_elements_text. Containment is TOTAL over jsonb:
+            # a column holding the JSON scalar `null` (which is what SQLAlchemy
+            # writes for an explicitly-assigned None — #1322's lesson) answers
+            # false instead of raising, and SQL NULL drops the row. An
+            # expansion would need a jsonb_typeof guard beside it in the same
+            # AND, and nothing obliges the planner to evaluate that guard
+            # first. Only 'pending'/'running' generations count — a terminal
+            # one will never apply its set.
             refs_result = await session.execute(
                 text(
                     """
@@ -96,8 +118,15 @@ async def delete_dataset(
                     JOIN catalog.datasets d ON d.id = vsl.vrt_dataset_id
                     JOIN catalog.records r ON r.id = d.record_id
                     WHERE vsl.source_dataset_id = :dataset_id
+                    UNION
+                    SELECT d.id, r.title
+                    FROM catalog.vrt_generations g
+                    JOIN catalog.datasets d ON d.id = g.vrt_dataset_id
+                    JOIN catalog.records r ON r.id = d.record_id
+                    WHERE g.status IN ('pending', 'running')
+                      AND g.staged_source_ids @> to_jsonb(CAST(:dataset_id_text AS text))
                     """
-                ).bindparams(dataset_id=dataset_id)
+                ).bindparams(dataset_id=dataset_id, dataset_id_text=str(dataset_id))
             )
             refs = refs_result.all()
             if refs:
