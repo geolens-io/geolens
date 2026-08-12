@@ -197,11 +197,6 @@ class UserResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class LoginRequest(BaseModel):
-    username: str = Field(max_length=150, json_schema_extra={"example": "admin"})
-    password: str = Field(max_length=256, json_schema_extra={"example": "changeme"})
-
-
 class RefreshRequest(BaseModel):
     refresh_token: str = Field(max_length=512)
 

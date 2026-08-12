@@ -237,15 +237,6 @@ async def apply_tenant_data_schema_from_engine(tenant_id: str) -> None:
         await apply_tenant_data_schema(conn, tenant_id)
 
 
-async def deprovision_tenant_data_schema_from_engine(tenant_id: str) -> None:
-    """Deprovision an already-deleted tenant using the global engine."""
-    # fix(#909): façade import — see the note in rls.py.
-    from app.core.db import engine
-
-    async with engine.begin() as conn:
-        await deprovision_tenant_data_schema(conn, tenant_id)
-
-
 def tenant_shard_id(tenant_id: str | None) -> str | None:
     """Look up the shard routing key for a tenant (Phase-1214 routing primitive).
 

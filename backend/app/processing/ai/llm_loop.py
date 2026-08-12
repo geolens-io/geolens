@@ -120,6 +120,21 @@ ToolExecutor = Callable[[str, dict], Awaitable[dict]]
 ActionCollector = Callable[[str, dict, dict], dict | None]
 
 
+async def noop_tool_executor(name: str, args: dict) -> dict:
+    """Shared ToolExecutor for no-tools calls (``tools=[]`` + ``max_rounds=1``).
+
+    The tool loop only reaches a tool_use/tool_calls branch when the model was
+    offered tools, so with ``tools=[]`` this is never actually invoked — it
+    exists to satisfy AIProviderExtension.complete()/stream(), which requires
+    a real callable. A registered provider (community default or overlay) is
+    entitled to treat ``tool_executor`` as an always-callable value, so the
+    no-tools call sites (sql_generator.generate_sql, the admin AI probe,
+    service's map-spec retry/repair rounds) share this one definition instead
+    of each constructing their own throwaway closure.
+    """
+    return {}
+
+
 class ToolLoopExhaustedError(Exception):
     """Raised when the tool-calling loop exceeds the maximum number of rounds."""
 

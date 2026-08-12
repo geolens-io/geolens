@@ -189,3 +189,28 @@ async def test_anthropic_complete_aborts_at_token_budget():
 
     # Round 1 ran (and reported the runaway usage); round 2 was refused.
     assert fake_client.messages.create.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_noop_tool_executor_returns_empty_dict():
+    """llm_loop.noop_tool_executor is the shared ToolExecutor for no-tools
+    calls (tools=[] + max_rounds=1). It is never actually invoked by the
+    tool loop in that shape, but it must still satisfy the ToolExecutor
+    contract (a real callable a conforming provider can call unconditionally)
+    since AIProviderExtension.complete()/stream() require a real executor."""
+    from app.processing.ai.llm_loop import noop_tool_executor
+
+    assert await noop_tool_executor("anything", {"x": 1}) == {}
+
+
+def test_noop_tool_executor_call_sites_share_one_definition():
+    """sql_generator, probe, and service's retry/repair rounds each used to
+    define an identical throwaway ``_noop_executor`` closure. They now import
+    the same llm_loop.noop_tool_executor rather than each constructing their
+    own — verifies the de-duplication, not just that each site still works."""
+    from app.processing.ai import sql_generator
+    from app.processing.ai.llm_loop import noop_tool_executor
+    from app.processing.ai.service import noop_tool_executor as service_noop
+
+    assert sql_generator.noop_tool_executor is noop_tool_executor
+    assert service_noop is noop_tool_executor

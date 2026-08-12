@@ -17,6 +17,7 @@ from app.processing.ai.constants import tool_label
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
     ToolLoopExhaustedError,
+    noop_tool_executor,
     resolve_provider,
 )
 from app.processing.ai.schemas import LLMMapSpec, validate_paint_for_geometry
@@ -381,16 +382,13 @@ async def _retry_parse_map_spec(
     # covers the no-tools single-round retry case naturally.
     provider_ext = get_ai_provider(provider)
 
-    async def _noop_executor(name: str, args: dict) -> dict:
-        # max_rounds=1 exits before any tool call; executor never runs.
-        return {}
-
     result = await provider_ext.complete(
         model=model,
         system_prompt="",
         user_message=extraction_prompt,
         tools=[],
-        tool_executor=_noop_executor,
+        # max_rounds=1 exits before any tool call; executor never runs.
+        tool_executor=noop_tool_executor,
         max_rounds=1,
         max_tokens=1024,
         base_url=runtime_config.get("base_url"),
@@ -442,16 +440,13 @@ async def _repair_map_spec(
     )
     provider_ext = get_ai_provider(provider)
 
-    async def _noop_executor(name: str, args: dict) -> dict:
-        # max_rounds=1 exits before any tool call; executor never runs.
-        return {}
-
     result = await provider_ext.complete(
         model=model,
         system_prompt="",
         user_message=repair_prompt,
         tools=[],
-        tool_executor=_noop_executor,
+        # max_rounds=1 exits before any tool call; executor never runs.
+        tool_executor=noop_tool_executor,
         max_rounds=1,
         max_tokens=1024,
         base_url=runtime_config.get("base_url"),

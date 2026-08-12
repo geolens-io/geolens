@@ -181,13 +181,6 @@ class ProbeResponse(BaseModel):
     )
 
 
-class ProbeError(BaseModel):
-    detail: str = Field(description="Human-readable error message.")
-    error_type: str = Field(
-        description="Machine-parseable error type: 'ssrf_blocked', 'timeout', 'auth_required', 'unrecognized', or 'unreachable'."
-    )
-
-
 class ServicePreviewRequest(BaseModel):
     url: str = Field(
         min_length=1,

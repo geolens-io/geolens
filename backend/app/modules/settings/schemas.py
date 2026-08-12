@@ -69,12 +69,6 @@ class BasemapPublicResponse(BaseModel):
     )
 
 
-class BasemapsUpdate(BaseModel):
-    basemaps: list[BasemapEntry] = Field(
-        description="Complete list of basemaps. Replaces the existing list — entries not included are removed."
-    )
-
-
 class MapDefaultsUpdate(BaseModel):
     center_lat: float = Field(
         description="Initial map center latitude in WGS84. Clamped to [-90, 90]."

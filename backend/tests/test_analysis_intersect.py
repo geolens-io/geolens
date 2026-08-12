@@ -511,9 +511,7 @@ class TestPreview:
     ):
         """The window is computed before the row cap, so the total is the real
         one even when the feature list is truncated."""
-        from app.modules.catalog.datasets.domain.service_analysis import (
-            PREVIEW_FEATURE_CAP,
-        )
+        from app.modules.catalog.datasets.domain.service import PREVIEW_FEATURE_CAP
 
         admin_id = await get_user_id(test_db_session, "admin")
         # 600 zones in a row; the bar crosses the first three, so widen it.

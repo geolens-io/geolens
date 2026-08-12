@@ -2717,7 +2717,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # replace run is recorded 'upload' while the dataset's origin stays
     # 'stac' until the swap succeeds — reworded to drop the equality claim
     # entirely and name that case. Cap 1466 -> 1468, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1468,
+    # -16 — dead-code sweep: DatasetCreate deleted. The request schema had
+    # zero references across backend/cli/mcp/sdks/frontend — creation uses
+    # CreateEmptyDatasetRequest instead. Cap 1468 -> 1452, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1452,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch
