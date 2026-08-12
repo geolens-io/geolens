@@ -39,7 +39,7 @@ require_config_operator = require_mode_permission(
 )
 
 router = APIRouter(
-    prefix="/config-ops", tags=["config-ops"], responses=ERROR_RESPONSES_AUTH
+    prefix="/config-ops", tags=["Config Ops"], responses=ERROR_RESPONSES_AUTH
 )
 
 

@@ -37,7 +37,7 @@ from app.core.dependencies import get_db
 from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.modules.catalog.sources.origin_probe import remote_asset_exists
 from app.platform.storage.titiler_url import resolve_storage_key
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 router = APIRouter(
     prefix="/datasets", tags=["Datasets - VRT"], responses=ERROR_RESPONSES_WRITE
@@ -73,7 +73,11 @@ async def _load_source_datasets(
     return {dataset.id: dataset for dataset in result.scalars().unique().all()}
 
 
-@router.get("/{dataset_id}/vrt-sources/", response_model=VrtSourceListResponse)
+@router.get(
+    "/{dataset_id}/vrt-sources/",
+    response_model=VrtSourceListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_vrt_sources(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -141,7 +145,11 @@ async def list_vrt_sources(
     return VrtSourceListResponse(sources=sources)
 
 
-@router.get("/{dataset_id}/vrt/status/", response_model=VrtStatusResponse)
+@router.get(
+    "/{dataset_id}/vrt/status/",
+    response_model=VrtStatusResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_vrt_status(
     dataset_id: uuid.UUID,
     user: Identity = Depends(get_current_active_user),
@@ -338,7 +346,11 @@ async def get_vrt_status(
     )
 
 
-@router.get("/{dataset_id}/vrt/generations/", response_model=VrtGenerationListResponse)
+@router.get(
+    "/{dataset_id}/vrt/generations/",
+    response_model=VrtGenerationListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_vrt_generations(
     dataset_id: uuid.UUID,
     limit: int = Query(20, ge=1, le=100),

@@ -63,7 +63,7 @@ from app.modules.catalog.records.service import (
     update_contact,
     update_distribution,
 )
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 logger = structlog.get_logger()
 
@@ -250,7 +250,11 @@ async def _check_record_ownership(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{record_id}/translations/", response_model=TranslationListResponse)
+@router.get(
+    "/{record_id}/translations/",
+    response_model=TranslationListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_translations_endpoint(
     record_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
@@ -352,7 +356,11 @@ async def delete_translation_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{record_id}/contacts/", response_model=ContactListResponse)
+@router.get(
+    "/{record_id}/contacts/",
+    response_model=ContactListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_contacts_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -500,7 +508,11 @@ async def delete_contact_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{record_id}/keywords/", response_model=KeywordListResponse)
+@router.get(
+    "/{record_id}/keywords/",
+    response_model=KeywordListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_keywords_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),
@@ -671,7 +683,11 @@ async def delete_keyword_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{record_id}/distributions/", response_model=DistributionListResponse)
+@router.get(
+    "/{record_id}/distributions/",
+    response_model=DistributionListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_distributions_endpoint(
     record_id: uuid.UUID,
     skip: int = Query(0, ge=0),

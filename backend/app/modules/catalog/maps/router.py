@@ -83,7 +83,11 @@ from app.modules.embed_tokens.service import (
 from app.platform.storage.titiler_url import (
     resolve_current_storage_key as _map_asset_storage_key,
 )
-from app.standards.ogc.errors import BAD_GATEWAY_RESPONSE, ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
+    ERROR_RESPONSES_WRITE,
+    FORBIDDEN_RESPONSE,
+)
 from app.modules.catalog.maps._router_helpers import (
     _build_layer_response,
     _build_map_response,
@@ -174,8 +178,19 @@ async def create_map_endpoint(
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see POST /maps above.
-@router.get("", response_model=MapListResponse, include_in_schema=False)
-@router.get("/", response_model=MapListResponse)
+@router.get(
+    "",
+    response_model=MapListResponse,
+    include_in_schema=False,
+    responses={403: FORBIDDEN_RESPONSE},
+)
+@router.get(
+    "/",
+    response_model=MapListResponse,
+    # fix(getgeolens.com#86 review): read-gated (visibility filtering inside
+    # list_maps), not write-gated — see get_map_endpoint below.
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_maps_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -336,7 +351,15 @@ async def import_map_style_endpoint(
     )
 
 
-@router.get("/{map_id}", response_model=MapResponse)
+@router.get(
+    "/{map_id}",
+    response_model=MapResponse,
+    # fix(getgeolens.com#86 review): read-gated (_check_map_read_access below),
+    # not write-gated, so the router's default 403 ("caller lacks write
+    # access") misdescribes this route's actual 403 cause. Same override on
+    # every other read-gated GET in this file (access, thumbnail, og-image).
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_map_endpoint(
     map_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
@@ -363,7 +386,11 @@ async def get_map_endpoint(
     )
 
 
-@router.get("/{map_id}/access/", response_model=MapAccessResponse)
+@router.get(
+    "/{map_id}/access/",
+    response_model=MapAccessResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_map_access_endpoint(
     map_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
@@ -1004,7 +1031,11 @@ async def upload_thumbnail(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{map_id}/thumbnail/", response_class=Response)
+@router.get(
+    "/{map_id}/thumbnail/",
+    response_class=Response,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_thumbnail(
     map_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
@@ -1137,7 +1168,11 @@ async def upload_og_image(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{map_id}/og-image/", response_class=Response)
+@router.get(
+    "/{map_id}/og-image/",
+    response_class=Response,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_og_image(
     map_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),

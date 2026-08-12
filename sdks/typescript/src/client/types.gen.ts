@@ -14301,7 +14301,7 @@ export type ListCollectionsEndpointCatalogCollectionsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -14482,7 +14482,7 @@ export type GetCollectionEndpointCatalogCollectionsCollectionIdGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -14615,7 +14615,7 @@ export type GetCollectionDatasetsEndpointCatalogCollectionsCollectionIdDatasetsG
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -15828,7 +15828,7 @@ export type ListAllDatasetsDatasetsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -16654,7 +16654,7 @@ export type ListAttributesEndpointDatasetsDatasetIdAttributesGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -16720,7 +16720,7 @@ export type GetAttributeEndpointDatasetsDatasetIdAttributesAttributeIdGetErrors 
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -16918,7 +16918,7 @@ export type GetColumnStatsEndpointDatasetsDatasetIdColumnsColumnNameStatsGetErro
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -16989,7 +16989,7 @@ export type GetColumnValuesDatasetsDatasetIdColumnsColumnNameValuesGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18116,7 +18116,7 @@ export type GetFeatureRelatedRecordsDatasetsDatasetIdFeaturesGidRelatedRelations
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18346,7 +18346,7 @@ export type DatasetMapsDatasetsDatasetIdMapsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18611,7 +18611,7 @@ export type ListRelatedDatasetsDatasetsDatasetIdRelatedGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -18686,7 +18686,7 @@ export type ListDatasetRelationshipsDatasetsDatasetIdRelationshipsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -19230,7 +19230,7 @@ export type GetDatasetRowsEndpointDatasetsDatasetIdRowsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -19556,7 +19556,7 @@ export type GetDatasetVersionsEndpointDatasetsDatasetIdVersionsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -19618,7 +19618,7 @@ export type ListVrtSourcesDatasetsDatasetIdVrtSourcesGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -19699,7 +19699,7 @@ export type ListVrtGenerationsDatasetsDatasetIdVrtGenerationsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -19823,7 +19823,7 @@ export type GetVrtStatusDatasetsDatasetIdVrtStatusGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -20404,7 +20404,7 @@ export type GetUploadConfigIngestUploadConfigGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -21422,7 +21422,7 @@ export type ListMapsEndpointMapsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -21655,7 +21655,7 @@ export type GetMapIconAssetEndpointMapsIconsIconIdAssetGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -21780,7 +21780,7 @@ export type GetSharedMapEndpointMapsSharedTokenGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -21841,7 +21841,7 @@ export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -21880,7 +21880,7 @@ export type GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponses = {
      */
     200: {
         [key: string]: {
-            [key: string]: number | number;
+            [key: string]: number | number | boolean;
         };
     };
 };
@@ -22026,7 +22026,7 @@ export type GetMapEndpointMapsMapIdGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -22150,7 +22150,7 @@ export type GetMapAccessEndpointMapsMapIdAccessGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -22853,7 +22853,7 @@ export type GetOgImageMapsMapIdOgImageGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -23232,7 +23232,7 @@ export type ExportMapStyleEndpointMapsMapIdStyleJsonGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -23292,7 +23292,7 @@ export type GetThumbnailMapsMapIdThumbnailGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -23542,7 +23542,7 @@ export type ListContactsEndpointRecordsRecordIdContactsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -23807,7 +23807,7 @@ export type ListDistributionsEndpointRecordsRecordIdDistributionsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -24084,7 +24084,7 @@ export type ListKeywordsEndpointRecordsRecordIdKeywordsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**
@@ -24274,7 +24274,7 @@ export type ListTranslationsEndpointRecordsRecordIdTranslationsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Forbidden — caller lacks write access
+     * Forbidden — caller lacks access to this resource
      */
     403: ProblemDetail;
     /**

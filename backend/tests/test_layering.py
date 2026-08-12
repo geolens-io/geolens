@@ -1896,7 +1896,12 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_json.py": 1620,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
-    "backend/app/modules/catalog/maps/router_assets.py": 126,
+    # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
+    # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they
+    # are read-gated (icon asset) or unauthenticated (sprite index), so the
+    # router's inherited write-flavored 403 misdescribed their actual cause.
+    # Cap 126 -> 132, exact.
+    "backend/app/modules/catalog/maps/router_assets.py": 132,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
     "backend/app/modules/catalog/maps/router_sharing.py": 387,
@@ -2155,7 +2160,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # commit, per the no-headroom rule. Cap 1548 -> 1537, exact.
     # fix(#1327 codex P1): +8 — both staged dispatch sites say why they defer
     # the staged task name rather than the legacy one. Cap 1537 -> 1545, exact.
-    "backend/app/processing/ingest/router.py": 1545,
+    # fix(getgeolens.com#86 review): +5 — get_upload_config gained a per-route
+    # `responses={403: FORBIDDEN_RESPONSE}` override; it only requires
+    # authentication, not the router's write-flavored default. Cap 1545 ->
+    # 1550, exact.
+    "backend/app/processing/ingest/router.py": 1550,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2793,7 +2802,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#941): +8 — the reworded add-layer history summary carries the reason
     # the immediate-POST and save-diff writers say different things, so a later
     # refactor does not collapse them. Ratchet stays exact.
-    "backend/app/modules/catalog/maps/router.py": 1425,
+    # fix(getgeolens.com#86 review): +35 — five read-gated GETs (list, single
+    # map, access, thumbnail, og-image) gained per-route
+    # `responses={403: FORBIDDEN_RESPONSE}` overrides; get_map_history_endpoint
+    # keeps the router's write-flavored default since it genuinely requires
+    # edit_metadata + ownership. Cap 1425 -> 1460, exact.
+    "backend/app/modules/catalog/maps/router.py": 1460,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

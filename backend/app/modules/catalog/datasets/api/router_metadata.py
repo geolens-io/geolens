@@ -46,7 +46,7 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset_versions,
 )
 from app.core.dependencies import get_db
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 router = APIRouter(
     prefix="/datasets", tags=["Datasets - Metadata"], responses=ERROR_RESPONSES_WRITE
@@ -61,6 +61,9 @@ router = APIRouter(
 @router.get(
     "/{dataset_id}/versions/",
     response_model=DatasetVersionListResponse,
+    # fix(getgeolens.com#86 review): read-gated (check_dataset_access_or_anonymous
+    # below), not write-gated — see datasets/api/router.py:get_single_dataset.
+    responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_dataset_versions_endpoint(
     dataset_id: uuid.UUID,
@@ -117,7 +120,11 @@ async def get_dataset_versions_endpoint(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{dataset_id}/attributes/", response_model=AttributeMetadataListResponse)
+@router.get(
+    "/{dataset_id}/attributes/",
+    response_model=AttributeMetadataListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_attributes_endpoint(
     dataset_id: uuid.UUID,
     include_removed: bool = Query(False),
@@ -141,7 +148,9 @@ async def list_attributes_endpoint(
 
 
 @router.get(
-    "/{dataset_id}/attributes/{attribute_id}/", response_model=AttributeMetadataResponse
+    "/{dataset_id}/attributes/{attribute_id}/",
+    response_model=AttributeMetadataResponse,
+    responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_attribute_endpoint(
     dataset_id: uuid.UUID,
@@ -289,7 +298,9 @@ async def reset_attribute_endpoint(
 
 
 @router.get(
-    "/{dataset_id}/columns/{column_name}/values/", response_model=ColumnValuesResponse
+    "/{dataset_id}/columns/{column_name}/values/",
+    response_model=ColumnValuesResponse,
+    responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_column_values(
     dataset_id: uuid.UUID,
@@ -344,7 +355,9 @@ async def get_column_values(
 
 
 @router.get(
-    "/{dataset_id}/columns/{column_name}/stats/", response_model=ColumnStatsResponse
+    "/{dataset_id}/columns/{column_name}/stats/",
+    response_model=ColumnStatsResponse,
+    responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_column_stats_endpoint(
     dataset_id: uuid.UUID,
@@ -384,6 +397,7 @@ async def get_column_stats_endpoint(
 @router.get(
     "/{dataset_id}/relationships/",
     response_model=DatasetRelationshipListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
 )
 async def list_dataset_relationships(
     dataset_id: uuid.UUID,
@@ -533,6 +547,7 @@ async def delete_dataset_relationship(
 @router.get(
     "/{dataset_id}/features/{gid}/related/{relationship_id}/",
     response_model=DatasetRowsResponse,
+    responses={403: FORBIDDEN_RESPONSE},
 )
 async def get_feature_related_records(
     dataset_id: uuid.UUID,

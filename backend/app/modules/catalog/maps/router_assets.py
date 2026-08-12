@@ -14,12 +14,14 @@ from app.core.identity import Identity
 from app.modules.auth.dependencies import require_mode_permission, require_permission
 from app.modules.catalog.maps.schemas import MapIconListResponse, MapIconResponse
 from app.modules.catalog.maps.sprites import (
+    SpriteIndex,
     build_sprite_index,
     build_sprite_png,
     create_icon_asset,
     get_icon_content,
     list_icons,
 )
+from app.standards.ogc.errors import FORBIDDEN_RESPONSE
 
 router = APIRouter()
 
@@ -62,7 +64,7 @@ async def upload_map_icon_endpoint(
     return next(icon for icon in await list_icons(db) if icon.id == str(asset.id))
 
 
-@router.get("/icons/{icon_id}/asset")
+@router.get("/icons/{icon_id}/asset", responses={403: FORBIDDEN_RESPONSE})
 async def get_map_icon_asset_endpoint(
     icon_id: str,
     db: AsyncSession = Depends(get_db),
@@ -86,18 +88,22 @@ async def get_map_icon_asset_endpoint(
     return Response(content=content, media_type=media_type, headers=headers)
 
 
-@router.get("/sprites/geolens.json")
+@router.get("/sprites/geolens.json", responses={403: FORBIDDEN_RESPONSE})
 async def get_geolens_sprite_index_endpoint(
     db: AsyncSession = Depends(get_db),
-) -> dict[str, dict[str, int | float]]:
+) -> SpriteIndex:
     """Serve the stable GeoLens sprite JSON index."""
     return await build_sprite_index(db)
 
 
-@router.get("/sprites/geolens@2x.json", include_in_schema=False)
+@router.get(
+    "/sprites/geolens@2x.json",
+    include_in_schema=False,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_geolens_sprite_index_2x_endpoint(
     db: AsyncSession = Depends(get_db),
-) -> dict[str, dict[str, int | float]]:
+) -> SpriteIndex:
     """Serve the GeoLens sprite index for high-DPI MapLibre sprite requests."""
     return await build_sprite_index(db)
 

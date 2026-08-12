@@ -401,6 +401,46 @@ def test_openapi_has_no_dangling_local_ref_pointers() -> None:
     assert dangling == []
 
 
+def test_read_gated_gets_do_not_publish_the_write_403_description() -> None:
+    """F19: a GET gated by visibility/read access must not claim its 403 is
+    about lacking write access — that description belongs to mutation
+    endpoints on the same router (``ERROR_RESPONSES_WRITE`` is the router
+    default and is only correct for those).
+    """
+    spec = _openapi()
+    write_403 = "Forbidden — caller lacks write access"
+
+    for path, method in (
+        ("/datasets/", "get"),
+        ("/maps/{map_id}", "get"),
+        ("/datasets/{dataset_id}/versions/", "get"),
+        ("/records/{record_id}/contacts/", "get"),
+        ("/catalog/collections/{collection_id}", "get"),
+        ("/datasets/{dataset_id}/vrt-sources/", "get"),
+    ):
+        description = spec["paths"][path][method]["responses"]["403"]["description"]
+        assert description != write_403, (
+            f"{method.upper()} {path} still publishes the write-flavored 403"
+        )
+
+    # A GET genuinely gated by write/ownership access keeps the accurate
+    # write-flavored description — the override is per-route, not blanket.
+    history = spec["paths"]["/maps/{map_id}/history"]["get"]
+    assert history["responses"]["403"]["description"] == write_403
+
+
+def test_config_ops_and_source_health_tags_are_title_case() -> None:
+    """F31: every OpenAPI tag in the published spec matches Title Case."""
+    spec = _openapi()
+
+    assert "config-ops" not in spec["paths"]["/config-ops/export/"]["get"]["tags"]
+    assert "Config Ops" in spec["paths"]["/config-ops/export/"]["get"]["tags"]
+
+    health_op = spec["paths"]["/datasets/{dataset_id}/source-health/"]["post"]
+    assert "Datasets - Source health" not in health_op["tags"]
+    assert "Datasets - Source Health" in health_op["tags"]
+
+
 def test_inline_json_schema_rejects_recursive_model() -> None:
     """fix(#569): a self-referential model must fail fast, not loop forever."""
     import pytest

@@ -81,8 +81,19 @@ _CATALOG_CACHE_TTL = 60  # seconds
 # no-trailing-slash variants register against the same handler. Slash form
 # stays canonical (already in OpenAPI); no-slash is a hidden alias closing
 # the 404 regression introduced by redirect_slashes=False (api/main.py).
-@router.get("", response_model=DatasetListResponse, include_in_schema=False)
-@router.get("/", response_model=DatasetListResponse)
+@router.get(
+    "",
+    response_model=DatasetListResponse,
+    include_in_schema=False,
+    responses={403: FORBIDDEN_RESPONSE},
+)
+@router.get(
+    "/",
+    response_model=DatasetListResponse,
+    # fix(getgeolens.com#86 review): read-gated (visibility filtering inside
+    # get_datasets_list), not write-gated — see get_single_dataset above.
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_all_datasets(
     request: Request,
     skip: int = Query(0, ge=0),

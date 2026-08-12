@@ -44,7 +44,7 @@ from app.modules.catalog.collections.service import (
 from app.modules.catalog.datasets.domain.helpers import dataset_to_response
 from app.modules.catalog.datasets.domain.schemas import DatasetListResponse
 from app.core.dependencies import get_db
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 router = APIRouter(
     prefix="/catalog/collections", tags=["Datasets"], responses=ERROR_RESPONSES_WRITE
@@ -131,8 +131,17 @@ _CATALOG_CACHE_TTL = 60  # seconds
 
 
 # ROUTE-01 (Phase 1092): dual-shape decorator — see POST above.
-@router.get("", response_model=CollectionListResponse, include_in_schema=False)
-@router.get("/", response_model=CollectionListResponse)
+@router.get(
+    "",
+    response_model=CollectionListResponse,
+    include_in_schema=False,
+    responses={403: FORBIDDEN_RESPONSE},
+)
+@router.get(
+    "/",
+    response_model=CollectionListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def list_collections_endpoint(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
@@ -180,7 +189,11 @@ async def list_collections_endpoint(
     return response
 
 
-@router.get("/{collection_id}", response_model=CollectionResponse)
+@router.get(
+    "/{collection_id}",
+    response_model=CollectionResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_collection_endpoint(
     collection_id: uuid.UUID,
     user: Identity | None = Depends(get_optional_user),
@@ -403,7 +416,11 @@ async def remove_dataset_endpoint(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.get("/{collection_id}/datasets/", response_model=DatasetListResponse)
+@router.get(
+    "/{collection_id}/datasets/",
+    response_model=DatasetListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_collection_datasets_endpoint(
     collection_id: uuid.UUID,
     skip: int = Query(0, ge=0),

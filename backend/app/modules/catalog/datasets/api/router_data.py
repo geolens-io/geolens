@@ -53,7 +53,7 @@ from app.modules.catalog.validation.schemas import (
     ValidationResultResponse,
 )
 from app.modules.catalog.validation.service import validate_record as run_validation
-from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
+from app.standards.ogc.errors import ERROR_RESPONSES_WRITE, FORBIDDEN_RESPONSE
 
 router = APIRouter(
     prefix="/datasets", tags=["Datasets - Data"], responses=ERROR_RESPONSES_WRITE
@@ -65,7 +65,11 @@ def _semantic_search_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_semantic_search_rate_limit()}/minute"
 
 
-@router.get("/{dataset_id}/related/", response_model=RelatedDatasetsResponse)
+@router.get(
+    "/{dataset_id}/related/",
+    response_model=RelatedDatasetsResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 @limiter.limit(_semantic_search_rate_limit)
 async def list_related_datasets(
     request: Request,
@@ -90,7 +94,11 @@ async def list_related_datasets(
     return RelatedDatasetsResponse(items=items, total=len(items))
 
 
-@router.get("/{dataset_id}/rows/", response_model=DatasetRowsResponse)
+@router.get(
+    "/{dataset_id}/rows/",
+    response_model=DatasetRowsResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def get_dataset_rows_endpoint(
     request: Request,
     dataset_id: uuid.UUID,
@@ -224,7 +232,11 @@ async def validate_dataset(
 # ---------------------------------------------------------------------------
 
 
-@router.get("/{dataset_id}/maps/", response_model=MapListResponse)
+@router.get(
+    "/{dataset_id}/maps/",
+    response_model=MapListResponse,
+    responses={403: FORBIDDEN_RESPONSE},
+)
 async def dataset_maps(
     dataset_id: uuid.UUID,
     skip: int = Query(0, ge=0),

@@ -570,7 +570,7 @@ _OPENAPI_TAGS = [
         "description": "Saved map configurations, layers, AI styling, and sharing.",
     },
     {
-        "name": "config-ops",
+        "name": "Config Ops",
         "description": "Configuration export, import, dry-run, and connectivity validation.",
     },
     {

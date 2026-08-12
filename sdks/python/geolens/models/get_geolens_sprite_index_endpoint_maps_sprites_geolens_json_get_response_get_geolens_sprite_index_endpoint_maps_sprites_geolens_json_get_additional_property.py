@@ -20,7 +20,7 @@ T = TypeVar(
 class GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetAdditionalProperty:
     """ """
 
-    additional_properties: dict[str, float | int] = _attrs_field(
+    additional_properties: dict[str, bool | float | int] = _attrs_field(
         init=False, factory=dict
     )
 
@@ -40,8 +40,8 @@ class GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSp
         additional_properties = {}
         for prop_name, prop_dict in d.items():
 
-            def _parse_additional_property(data: object) -> float | int:
-                return cast(float | int, data)
+            def _parse_additional_property(data: object) -> bool | float | int:
+                return cast(bool | float | int, data)
 
             additional_property = _parse_additional_property(prop_dict)
 
@@ -54,10 +54,10 @@ class GetGeolensSpriteIndexEndpointMapsSpritesGeolensJsonGetResponseGetGeolensSp
     def additional_keys(self) -> list[str]:
         return list(self.additional_properties.keys())
 
-    def __getitem__(self, key: str) -> float | int:
+    def __getitem__(self, key: str) -> bool | float | int:
         return self.additional_properties[key]
 
-    def __setitem__(self, key: str, value: float | int) -> None:
+    def __setitem__(self, key: str, value: bool | float | int) -> None:
         self.additional_properties[key] = value
 
     def __delitem__(self, key: str) -> None:

@@ -5,6 +5,7 @@ import uuid
 
 from PIL import Image
 import pytest
+from httpx import AsyncClient
 
 from app.modules.catalog.maps.models import MapIconAsset
 from app.modules.catalog.maps.sprites import (
@@ -204,6 +205,20 @@ async def test_sprite_index_and_png_are_stable(monkeypatch):
     }
     assert png.startswith(b"\x89PNG\r\n\x1a\n")
     assert len(png) > 100
+
+
+@pytest.mark.anyio
+async def test_sprite_index_endpoint_serves_sdf_as_json_boolean(client: AsyncClient):
+    """F3: the served index must keep sdf a JSON boolean, not coerce it to 1.
+
+    The route's return type previously narrowed to
+    dict[str, dict[str, int | float]], which Pydantic uses to validate the
+    response; bool is a subclass of int, so it silently coerced True to the
+    JSON integer 1. MapLibre's sprite spec defines sdf as boolean.
+    """
+    resp = await client.get("/maps/sprites/geolens.json")
+    assert resp.status_code == 200
+    assert resp.json()["arrow-right"]["sdf"] is True
 
 
 @pytest.mark.anyio
