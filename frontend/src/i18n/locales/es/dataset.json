@@ -834,6 +834,8 @@
         "empty": "Todavía no hay actualizaciones.",
         "featureDelta": "{{before}} → {{after}} entidades",
         "triggeredBy": "Iniciado por {{username}}",
+        "mechanismLabel": "Método: {{mechanism}}",
+        "mechanismTooltip": "Cómo se ejecutó esta actualización, no el origen del conjunto de datos",
         "status": {
           "pending": "En cola",
           "running": "En curso",

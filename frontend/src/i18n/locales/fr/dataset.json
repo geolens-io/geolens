@@ -834,6 +834,8 @@
         "empty": "Aucune actualisation pour le moment.",
         "featureDelta": "{{before}} → {{after}} entités",
         "triggeredBy": "Démarré par {{username}}",
+        "mechanismLabel": "Méthode : {{mechanism}}",
+        "mechanismTooltip": "Comment cette exécution s'est déroulée, et non l'origine du jeu de données",
         "status": {
           "pending": "En file d'attente",
           "running": "En cours",

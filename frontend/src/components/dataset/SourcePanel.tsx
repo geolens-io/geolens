@@ -299,7 +299,20 @@ function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
                 <Badge variant="outline" className={refreshRunStatusColors[run.status] ?? ''}>
                   {t(`sourcePanel.refresh.history.status.${run.status}`, { defaultValue: run.status })}
                 </Badge>
-                <Badge variant="secondary">{run.origin_kind}</Badge>
+                {/* fix(#1325): run.origin_kind is the run's execution door,
+                    not the dataset's origin shown by the OriginBadge above —
+                    the two can visibly disagree while work is in flight (see
+                    the CHECK constraint comment in refresh/models.py for a
+                    concrete case). The label reads "Method: <value>" and the
+                    tooltip spells out that it is not the dataset's origin,
+                    so this row never reads as a second, competing origin
+                    claim. */}
+                <Badge
+                  variant="secondary"
+                  title={t('sourcePanel.refresh.history.mechanismTooltip')}
+                >
+                  {t('sourcePanel.refresh.history.mechanismLabel', { mechanism: run.origin_kind })}
+                </Badge>
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {formatDateTimeSmart(run.started_at)}

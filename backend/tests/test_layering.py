@@ -2639,7 +2639,25 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # claimed it shared ALL of VrtSourceHealth.status's values, which stopped
     # being true when fix(#1221) added VrtSourceHealth's VRT-specific `stale`
     # value without updating this cross-reference. Cap 1454 -> 1458, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1458,
+    # fix(#1325): +7 — DatasetRefreshRunResponse.origin_kind's description now
+    # states the door-vs-origin distinction inline (a raster-replace run's
+    # door has no ORIGIN_KINDS counterpart), matching the CHECK constraint
+    # comment in platform/refresh/models.py and the ORIGIN_KINDS docstring in
+    # platform/dataset_origin.py. Cap 1458 -> 1465, exact.
+    # fix(#1325 review): +1 — codex caught the description overclaiming
+    # 'raster' as live behavior ("is the raster-replace door") when
+    # refresh/models.py's own comment on the same constraint says reserved,
+    # not live. Reworded to match: 'raster' is reserved for a future door
+    # label, today's raster-replace runs are still recorded 'upload'. Cap
+    # 1465 -> 1466, exact.
+    # fix(#1325 review round 3): +2 — codex found a second, live divergence
+    # the first reword still implied away: it said raster-replace 'upload'
+    # runs "match the dataset's origin", true only when the dataset's origin
+    # was already 'upload'. A STAC-imported raster's pending or failed
+    # replace run is recorded 'upload' while the dataset's origin stays
+    # 'stac' until the swap succeeds — reworded to drop the equality claim
+    # entirely and name that case. Cap 1466 -> 1468, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1468,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

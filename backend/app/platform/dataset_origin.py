@@ -45,6 +45,36 @@ SERVICE_SOURCE_FORMATS: frozenset[str] = frozenset(
 # fetched from anywhere. Both classify as None so the type badge speaks alone.
 _ORIGINLESS_RECORD_TYPES: frozenset[str] = frozenset({"collection", "vrt_dataset"})
 
+# fix(#1325): this is the dataset's ORIGIN — how its data entered the
+# catalog. It is DERIVED, not stored: classify_origin() recomputes it from
+# the dataset's CURRENT source_format/record_type every time a response is
+# built (datasets/domain/helpers.py:192). It changes only when a mutation
+# crosses one of classify_origin()'s category boundaries, e.g. a successful
+# raster replace reclassifying 'stac' to 'upload' by setting
+# source_format='geotiff'; a same-category reupload such as GeoJSON to CSV
+# (both classify to 'upload', per _apply_reupload_swap in tasks_common.py)
+# leaves it unchanged. It is a DIFFERENT vocabulary from
+# DatasetRefreshRun.origin_kind, the CHECK constraint in
+# platform/refresh/models.py: that column is the run's
+# execution DOOR, written once by create_pending_run at commit time and
+# never updated afterward (platform/refresh/service.py has no other writer)
+# — the immutable side of a comparison whose other side, the dataset's
+# origin, is not. Do NOT read the ledger's origin_kind as "this dataset's
+# origin, restated at the run level": a run's door and its dataset's CURRENT
+# origin can visibly disagree, because the door was fixed once, at commit
+# time, while the origin keeps answering for whatever source_format says
+# right now. Concretely: a STAC-imported raster (dataset.origin == 'stac')
+# that gets replaced has its run row stamped origin_kind='upload' at commit
+# time (router_reupload.py), while the dataset's origin only moves to
+# 'upload' once a SUCCESSFUL swap rebinds source_format to 'geotiff'
+# (tasks_raster_swap.py:_write_swapped_fields). While that run is pending,
+# and permanently if it fails, the run still says 'upload' and the dataset
+# still says 'stac'. 'created' is here but has no ledger counterpart,
+# because a dataset drawn in the app has nothing to refresh from. The
+# ledger's 'raster' has no ORIGIN_KINDS counterpart at all: it is RESERVED
+# for a future, distinct raster-replace door label; today every
+# raster-replace run's door is 'upload', independent of the dataset's own
+# origin.
 ORIGIN_KINDS: frozenset[str] = frozenset(
     {"upload", "postgis", "service", "stac", "created"}
 )

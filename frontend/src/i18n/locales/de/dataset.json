@@ -834,6 +834,8 @@
         "empty": "Noch keine Aktualisierungen.",
         "featureDelta": "{{before}} → {{after}} Features",
         "triggeredBy": "Gestartet von {{username}}",
+        "mechanismLabel": "Methode: {{mechanism}}",
+        "mechanismTooltip": "Wie dieser Lauf ausgeführt wurde, nicht die Herkunft des Datensatzes",
         "status": {
           "pending": "In Warteschlange",
           "running": "Läuft",
