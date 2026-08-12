@@ -10,8 +10,11 @@ from __future__ import annotations
 import copy
 from typing import Any
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.identity import Identity
+from app.modules.auth.models import Role, UserRole
 from app.core.permissions import (
     ALL_CAPABILITIES,
     CREATE_LAYERS,
@@ -39,6 +42,7 @@ __all__ = [
     "UPLOAD",
     "USE_AI_CHAT",
     "get_effective_permissions",
+    "get_user_roles",
     "user_has_capability",
     "validate_permission_matrix",
 ]
@@ -109,6 +113,28 @@ def validate_permission_matrix(matrix: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Role resolution
+# ---------------------------------------------------------------------------
+
+
+async def get_user_roles(db: AsyncSession, user: Identity) -> set[str]:
+    """Get the set of role names for a user.
+
+    Replaces the per-router ``_get_user_roles()`` duplicates. Lives here rather
+    than in ``catalog.authorization`` (its home until this move) because the
+    query reads the auth-owned ``Role``/``UserRole`` tables and touches nothing
+    catalog; ``catalog.authorization`` re-exports it so its callers are
+    unaffected.
+    """
+    result = await db.execute(
+        select(Role.name)
+        .join(UserRole, Role.id == UserRole.role_id)
+        .where(UserRole.user_id == user.id)
+    )
+    return {row[0] for row in result.all()}
+
+
+# ---------------------------------------------------------------------------
 # Effective permissions (DB override merged with defaults)
 # ---------------------------------------------------------------------------
 
@@ -117,9 +143,9 @@ async def user_has_capability(db: AsyncSession, user: Any, capability: str) -> b
     """Return True if *user* holds *capability* via any of their assigned roles.
 
     Used for break-glass exemptions (e.g. DOMAIN-04 manage_settings bypass).
-    Resolves roles via get_user_roles (catalog.authorization) and checks the
-    effective permission matrix; does NOT add DB code to domain_validation.py
-    (that module is DB-free by contract, T-1235 purity gate).
+    Resolves roles via get_user_roles above and checks the effective permission
+    matrix; does NOT add DB code to domain_validation.py (that module is DB-free
+    by contract, T-1235 purity gate).
 
     Args:
         db:         Async DB session.
@@ -129,10 +155,6 @@ async def user_has_capability(db: AsyncSession, user: Any, capability: str) -> b
     Returns:
         True if any of the user's roles grant the requested capability.
     """
-    from app.modules.catalog.authorization import (
-        get_user_roles,
-    )  # LAZY — avoids circular
-
     roles = await get_user_roles(db, user)
     matrix = await get_effective_permissions(db)
     return any(matrix.get(role, {}).get(capability, False) for role in roles)

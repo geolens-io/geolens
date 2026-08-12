@@ -17,7 +17,7 @@ from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.identity import Identity
 from app.modules.auth.models import ApiKey, User
-from app.modules.catalog.authorization import get_user_roles
+from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
