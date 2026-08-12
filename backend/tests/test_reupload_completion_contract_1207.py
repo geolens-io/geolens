@@ -22,9 +22,10 @@ from sqlalchemy import select
 
 from app.core.config import settings
 from app.modules.catalog.datasets.api import router_reupload
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
 
+from tests.factories import create_dataset
 
 pytestmark = pytest.mark.anyio
 
@@ -83,30 +84,17 @@ class _FakeS3Storage:
 
 async def _create_dataset(session, *, created_by: uuid.UUID) -> Dataset:
     """Insert a Record + Dataset pair. Mirrors test_reupload.py's helper."""
-    record = Record(
-        title="Reupload Contract Dataset",
-        summary="#1207",
-        visibility="public",
-        record_status="published",
-        record_type="vector_dataset",
+    return await create_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=f"ds_{uuid.uuid4().hex[:12]}",
-        srid=4326,
-        geometry_type="MultiPolygon",
+        name="Reupload Contract Dataset",
+        description="#1207",
+        theme_category=[],
+        record_type="vector_dataset",
         feature_count=1,
-        source_format="geojson",
         source_filename="original.geojson",
         column_info=[{"name": "name", "type": "String"}],
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 @pytest.fixture

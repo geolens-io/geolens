@@ -16,12 +16,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.api import router_analysis
-from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
 from app.modules.catalog.datasets.domain.service import build_preview_sql
 from app.platform.sandbox.schemas import SandboxError
 
-from tests.factories import create_dataset, get_user_id
+from tests.factories import create_dataset, create_raster_dataset, get_user_id
 
 SQUARE = "POLYGON((0 0, 0 1, 1 1, 1 0, 0 0))"
 FAR_SQUARE = "POLYGON((10 10, 10 11, 11 11, 11 10, 10 10))"
@@ -208,41 +207,23 @@ async def _create_raster_dataset(
     ``table_name`` backed by no physical table, ``source_format='geotiff'``,
     and a RasterAsset carrying ``is_dem``.
     """
-    from app.processing.raster.models import RasterAsset
-
-    record = Record(
-        title=f"Raster {uuid.uuid4().hex[:6]}",
-        record_type="raster_dataset",
-        visibility=visibility,
-        record_status="published",
+    return await create_raster_dataset(
+        session,
         created_by=created_by,
+        name=f"Raster {uuid.uuid4().hex[:6]}",
         theme_category=["test"],
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=f"raster_{record.id.hex[:16]}",
-        source_format="geotiff",
-        source_filename="elevation.tif",
+        visibility=visibility,
+        table_name=f"raster_{uuid.uuid4().hex[:16]}",
         srid=3857,
-    )
-    session.add(dataset)
-    await session.flush()
-    session.add(
-        RasterAsset(
-            dataset_id=dataset.id,
-            asset_uri=f"rasters/{dataset.id}/cog.tif",
-            storage_backend="local",
+        source_filename="elevation.tif",
+        create_raster_asset=True,
+        raster_asset_kwargs=dict(
             driver="GTiff",
             band_count=1,
             dtype="float32",
             is_dem=is_dem,
-        )
+        ),
     )
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 async def _create_mask_dataset(

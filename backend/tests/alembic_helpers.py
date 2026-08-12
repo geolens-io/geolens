@@ -211,3 +211,27 @@ def run_alembic(
         env=env,
         cwd=str(_BACKEND_DIR),
     )
+
+
+async def fresh_query(query: str, params: dict | None = None):
+    """Run a query on a fresh AUTOCOMMIT connection, bypassing the test transaction.
+
+    The ``test_db_session`` fixture holds an open transaction around each
+    test. DDL/DML committed by subprocess alembic (which commits outside that
+    transaction) is invisible to the session due to transaction snapshot
+    isolation. A separate connection with AUTOCOMMIT isolation is needed to
+    observe committed changes.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import settings
+
+    engine = create_async_engine(
+        settings.test_database_url, isolation_level="AUTOCOMMIT"
+    )
+    try:
+        async with engine.connect() as conn:
+            result = await conn.execute(sqlalchemy.text(query), params or {})
+            return result.fetchall() if result.returns_rows else None
+    finally:
+        await engine.dispose()

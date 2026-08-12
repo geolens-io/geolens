@@ -14,9 +14,9 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select, text
 
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -38,38 +38,24 @@ async def _create_dataset(
     column_info: list[dict] | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
-    if table_name is None:
-        table_name = f"ds_{uuid.uuid4().hex[:12]}"
     if column_info is None:
         column_info = [
             {"name": "gid", "type": "integer"},
             {"name": "name", "type": "text"},
             {"name": "pop", "type": "integer"},
         ]
-    record = Record(
-        title=name,
-        summary=description,
-        theme_category=["test"],
-        visibility=visibility,
-        record_status="published",
+    return await create_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
+        name=name,
         table_name=table_name,
+        visibility=visibility,
         srid=srid,
         geometry_type=geometry_type,
         feature_count=feature_count,
+        description=description,
         column_info=column_info,
-        source_format="geojson",
-        source_filename="test.geojson",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

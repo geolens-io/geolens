@@ -15,12 +15,11 @@ import uuid
 from datetime import date
 
 import pytest
-from geoalchemy2 import WKTElement
 from httpx import AsyncClient
-from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.search.router import _COLLECTION_META_CACHE
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 @pytest.fixture(autouse=True)
@@ -73,40 +72,20 @@ async def _create_dataset(
     data_vintage_end: date | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair for collection metadata tests."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test dataset: {name}",
-        theme_category=["test"],
-        visibility=visibility,
-        record_status="published",
+    return await create_dataset(
+        session,
         created_by=created_by,
-        temporal_start=data_vintage_start,
-        temporal_end=data_vintage_end,
-    )
-    if wkt_extent is not None:
-        record.spatial_extent = WKTElement(wkt_extent, srid=4326)
-    session.add(record)
-    await session.flush()
-    if keywords:
-        for kw in keywords:
-            session.add(
-                RecordKeyword(record_id=record.id, keyword=kw, keyword_type="theme")
-            )
-        await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
+        name=name,
+        description=f"Test dataset: {name}",
+        visibility=visibility,
         srid=srid,
         geometry_type=geometry_type,
         feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
+        temporal_start=data_vintage_start,
+        temporal_end=data_vintage_end,
+        spatial_extent_wkt=wkt_extent,
+        keywords=keywords,
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # WKT extent constants

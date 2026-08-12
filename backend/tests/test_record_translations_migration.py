@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-import sqlalchemy as sa
 
 from tests.repo_paths import repo_root
 from tests.alembic_helpers import (
     enterprise_migrations_present,
+    fresh_query as _fresh_query,
     run_alembic as _run_alembic,
 )
 
@@ -23,23 +23,6 @@ _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
     enterprise_migrations_present(),
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
-
-
-async def _fresh_query(query: str, params: dict | None = None):
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url,
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with engine.connect() as connection:
-            result = await connection.execute(sa.text(query), params or {})
-            return result.fetchall() if result.returns_rows else None
-    finally:
-        await engine.dispose()
 
 
 async def _cleanup_test_objects() -> None:

@@ -33,6 +33,7 @@ import pytest
 import sqlalchemy as sa
 from tests.alembic_helpers import (
     enterprise_migrations_present,
+    fresh_query as _fresh_query,
     run_alembic as _run_alembic,
 )
 
@@ -51,36 +52,6 @@ _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
         "runs in the no-overlay Pytest Parallel Isolation job instead."
     ),
 )
-
-
-async def _fresh_query(query: str, params: dict | None = None):
-    """Run a SELECT query on a fresh autocommit connection.
-
-    The ``test_db_session`` fixture holds an open transaction around each test.
-    Schema changes made by subprocess alembic (which commit outside that
-    transaction) are invisible to the session due to transaction snapshot
-    isolation.  We need a separate connection with ``AUTOCOMMIT`` isolation
-    to observe committed DDL changes.
-
-    For DML statements (INSERT/DELETE) use ``_fresh_execute`` instead.
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url,
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with engine.connect() as conn:
-            if params:
-                result = await conn.execute(sa.text(query), params)
-            else:
-                result = await conn.execute(sa.text(query))
-            return result.fetchall()
-    finally:
-        await engine.dispose()
 
 
 async def _fresh_execute(query: str, params: dict | None = None) -> None:

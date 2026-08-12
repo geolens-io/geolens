@@ -38,6 +38,7 @@ import pytest
 import sqlalchemy as sa
 from tests.alembic_helpers import (
     enterprise_migrations_present,
+    fresh_query as _fresh_query,
     run_alembic as _run_alembic,
 )
 
@@ -49,25 +50,6 @@ _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
 
 _PRE_TYPED_REVISION = "0011_allow_generic_geometry_type"
-
-
-async def _fresh_query(query: str):
-    """Run a query on a fresh AUTOCOMMIT connection, bypassing the test
-    transaction, so DDL committed by subprocess alembic is visible."""
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url,
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with engine.connect() as conn:
-            result = await conn.execute(sa.text(query))
-            return result.fetchall() if result.returns_rows else None
-    finally:
-        await engine.dispose()
 
 
 async def _embedding_column_type() -> str:

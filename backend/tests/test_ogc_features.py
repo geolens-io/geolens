@@ -18,7 +18,7 @@ from sqlalchemy import text
 
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 
-from tests.factories import get_user_id
+from tests.factories import create_raster_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -110,29 +110,16 @@ async def _create_raster_dataset(
     is ever created — this is exactly the (#315) bug-trigger condition.
     """
     table_name = f"test_ogc_raster_{uuid.uuid4().hex[:8]}"
-    record = Record(
-        title=f"OGC Test Raster {table_name}",
-        summary="Test raster dataset for OGC Features hardening",
+    return await create_raster_dataset(
+        session,
+        created_by=created_by,
+        name=f"OGC Test Raster {table_name}",
+        description="Test raster dataset for OGC Features hardening",
         theme_category=["test"],
         visibility=visibility,
-        record_status="published",
         record_type=record_type,
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
         table_name=table_name,
-        srid=4326,
-        geometry_type=None,
-        feature_count=None,
-        source_format="geotiff",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 async def _create_missing_table_vector_dataset(

@@ -34,6 +34,7 @@ import pytest
 import sqlalchemy as sa
 from tests.alembic_helpers import (
     enterprise_migrations_present,
+    fresh_query as _fresh_query,
     run_alembic as _run_alembic,
 )
 
@@ -117,34 +118,6 @@ class TestMigrationRoundTripExitCodes:
 # ---------------------------------------------------------------------------
 # Tests B + C: DB state after downgrade and re-upgrade
 # ---------------------------------------------------------------------------
-
-
-async def _fresh_query(query: str, params: dict | None = None):
-    """Run a query on a fresh autocommit connection, bypassing test transaction.
-
-    The ``test_db_session`` fixture holds an open transaction around each test.
-    Schema changes made by subprocess alembic (which commit outside that
-    transaction) are invisible to the session due to transaction snapshot
-    isolation.  We need a separate connection with ``AUTOCOMMIT`` isolation
-    to observe committed DDL changes.
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url,
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with engine.connect() as conn:
-            if params:
-                result = await conn.execute(sa.text(query), params)
-            else:
-                result = await conn.execute(sa.text(query))
-            return result.fetchall()
-    finally:
-        await engine.dispose()
 
 
 async def _fresh_execute(query: str, params: dict | None = None) -> None:

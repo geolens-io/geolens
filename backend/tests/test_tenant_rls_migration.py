@@ -35,6 +35,7 @@ import pytest
 import sqlalchemy as sa
 from tests.alembic_helpers import (
     enterprise_migrations_present,
+    fresh_query as _fresh_query,
     run_alembic as _run_alembic,
 )
 
@@ -65,31 +66,6 @@ _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
     reason="OSS migration drift gate; multi-head under enterprise overlay — "
     "runs in the no-overlay Pytest Parallel Isolation job instead.",
 )
-
-
-async def _fresh_query(query: str, params: dict | None = None):
-    """Run a query on a fresh AUTOCOMMIT connection, bypassing test transaction.
-
-    DDL committed by subprocess alembic is invisible to in-flight transactions
-    (snapshot isolation).  AUTOCOMMIT ensures we observe committed schema state.
-    """
-    from sqlalchemy.ext.asyncio import create_async_engine
-
-    from app.core.config import settings
-
-    engine = create_async_engine(
-        settings.test_database_url,
-        isolation_level="AUTOCOMMIT",
-    )
-    try:
-        async with engine.connect() as conn:
-            if params:
-                result = await conn.execute(sa.text(query), params)
-            else:
-                result = await conn.execute(sa.text(query))
-            return result.fetchall()
-    finally:
-        await engine.dispose()
 
 
 async def _get_rls_state() -> dict[str, dict[str, bool]]:

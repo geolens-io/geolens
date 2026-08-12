@@ -16,10 +16,10 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
-from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.datasets.domain.models import Dataset
 from app.processing.export.ogr import FORMAT_MAP
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -42,38 +42,26 @@ async def _create_dataset(
     record_type: str = "vector_dataset",
 ) -> Dataset:
     """Insert a Record + Dataset pair directly into the DB."""
-    if table_name is None:
-        table_name = f"ds_{uuid.uuid4().hex[:12]}"
     if column_info is None:
         column_info = [
             {"name": "gid", "type": "integer"},
             {"name": "name", "type": "text"},
             {"name": "pop", "type": "integer"},
         ]
-    record = Record(
-        title=name,
-        summary=description,
-        visibility=visibility,
-        record_status="published",
-        record_type=record_type,
+    return await create_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
+        name=name,
         table_name=table_name,
+        theme_category=[],
+        visibility=visibility,
         srid=srid,
         geometry_type=geometry_type,
         feature_count=feature_count,
+        description=description,
+        record_type=record_type,
         column_info=column_info,
-        source_format="geojson",
-        source_filename="test.geojson",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

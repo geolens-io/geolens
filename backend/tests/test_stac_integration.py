@@ -11,10 +11,9 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
-from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.standards.stac.router import STAC_UNASSIGNED_COLLECTION_ID
 
-from tests.factories import get_user_id
+from tests.factories import create_raster_dataset, get_user_id
 
 
 def _find_link(links: list[dict], rel: str) -> dict | None:
@@ -33,28 +32,14 @@ async def _create_raster_dataset(
     visibility: str = "public",
 ):
     """Create a raster dataset — STAC only serves raster_dataset/vrt_dataset records."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test raster dataset for STAC: {name}",
-        visibility=visibility,
-        record_status="published",
-        record_type="raster_dataset",
+    return await create_raster_dataset(
+        session,
         created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
-        srid=4326,
-        source_format="geotiff",
+        name=name,
+        description=f"Test raster dataset for STAC: {name}",
+        visibility=visibility,
         source_filename="test.tif",
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 # ---------------------------------------------------------------------------

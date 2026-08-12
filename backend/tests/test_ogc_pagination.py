@@ -15,9 +15,9 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from httpx import AsyncClient
-from app.modules.catalog.datasets.domain.models import Dataset, Record, RecordKeyword
+from app.modules.catalog.datasets.domain.models import Dataset
 
-from tests.factories import get_user_id
+from tests.factories import create_dataset, get_user_id
 
 
 # ---------------------------------------------------------------------------
@@ -37,36 +37,18 @@ async def _create_dataset(
     keywords: list[str] | None = None,
 ) -> Dataset:
     """Insert a Record + Dataset pair for pagination tests."""
-    table_name = f"ds_{uuid.uuid4().hex[:12]}"
-    record = Record(
-        title=name,
-        summary=f"Test dataset: {name}",
+    return await create_dataset(
+        session,
+        created_by=created_by,
+        name=name,
+        description=f"Test dataset: {name}",
         theme_category=theme_category or ["test"],
         visibility=visibility,
-        record_status="published",
-        created_by=created_by,
-    )
-    session.add(record)
-    await session.flush()
-    if keywords:
-        for kw in keywords:
-            session.add(
-                RecordKeyword(record_id=record.id, keyword=kw, keyword_type="theme")
-            )
-        await session.flush()
-    dataset = Dataset(
-        record_id=record.id,
-        table_name=table_name,
         srid=srid,
         geometry_type=geometry_type,
         feature_count=10,
-        source_format="geojson",
-        source_filename="test.geojson",
+        keywords=keywords,
     )
-    session.add(dataset)
-    await session.commit()
-    await session.refresh(dataset)
-    return dataset
 
 
 def _find_link(links: list[dict], rel: str) -> dict | None:
