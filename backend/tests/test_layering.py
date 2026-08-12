@@ -4721,3 +4721,154 @@ def test_standards_module_import_surface_is_current() -> None:
             "_STANDARDS_MODULE_IMPORT_SURFACE lists edges that no longer exist. "
             "Delete them — the surface only shrinks.\n" + "\n".join(stale)
         )
+
+
+# fix(#1438 F6): widens test_platform_never_imports_processing_routers (fix #836)
+# past its original platform-only, processing-only shape. That guard stays exactly
+# as written below — it is STRICTER on its own axis (any scope, not just module
+# scope) — this one adds the coverage it never had: every package, importing a
+# router module belonging to any OTHER package.
+def _dotted_package(path: Path) -> str:
+    """The dotted `app.…` package a file lives in — its containing directory."""
+    return ".".join(path.parent.relative_to(BACKEND_ROOT).parts)
+
+
+def _module_package(dotted: str) -> str:
+    """Everything before a dotted module path's last segment — its package."""
+    return dotted.rsplit(".", 1)[0] if "." in dotted else dotted
+
+
+def _is_router_module(module: str) -> bool:
+    """True when a dotted module path's filename-equivalent leaf names a router.
+
+    Mirrors how `test_platform_never_imports_processing_routers` identifies a
+    router module (``leaf == "router"`` or ``leaf.endswith("_router")``), plus
+    the ``router_*`` prefix convention used across catalog/maps, catalog/
+    datasets/api, catalog/search, admin, and settings (router_assets.py,
+    router_export.py, router_saved.py, router_operations.py, router_public.py,
+    ...). Checked against every module in backend/app/ that actually
+    instantiates ``APIRouter(``: the three shapes below match that set exactly
+    — zero misses, zero false positives. (A private ``_router_helpers.py``
+    starts with ``_``, not ``router``, so it does not match either shape.)
+    """
+    leaf = module.rsplit(".", 1)[-1]
+    return leaf == "router" or leaf.startswith("router_") or leaf.endswith("_router")
+
+
+# The aggregate composition root: app/api/router.py imports every domain's
+# router to compose api_router, and app/api/main.py imports _titiler_client
+# from app.processing.tiles.router at module scope. Both are the ONE place
+# this fan-in is supposed to happen (every other guard in this file that
+# mentions routers says the same thing: "only api/main.py composes routers").
+_ROUTER_COMPOSITION_ROOT = frozenset(
+    {"backend/app/api/router.py", "backend/app/api/main.py"}
+)
+
+
+def _cross_package_router_import_edges() -> dict[str, set[str]]:
+    """Every MODULE-SCOPE import of a router module from outside its own
+    package, across all of backend/app/.
+
+    fix(#1438 F6): importing an API-edge module runs its route registration as
+    a side effect and couples the importer to the router's whole transitive
+    import graph, just to reach one constant or helper function — the exact
+    shape fix(#836) diagnosed, but that guard could only see it for platform/
+    importing app.processing.*. The failure mode is not domain-specific: any
+    package reaching across a boundary for a name that belongs in a service or
+    schema module has the same problem.
+
+    Module scope only (``col_offset == 0``): a function-local import stays the
+    sanctioned D-17 deferred-import escape hatch used throughout this file
+    (see the platform->modules and platform->processing guards above) — it
+    does not run the router's side effects at the importer's import time, so
+    it does not reproduce the bug this guard exists to catch.
+
+    Same-package nesting is not an edge: a domain's ``router.py`` composing
+    its own ``router_*.py`` siblings (e.g. ``catalog/maps/router.py`` including
+    ``catalog/maps/router_assets.py``) is the normal way a domain's API surface
+    is assembled, and neither file is "outside its own package" from the
+    other's perspective.
+    """
+    offenders: dict[str, set[str]] = {}
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        rel = _repo_style_rel(path)
+        if rel in _ROUTER_COMPOSITION_ROOT:
+            continue
+        importer_package = _dotted_package(path)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            if node.col_offset != 0:
+                continue
+            for module in modules:
+                if not module.startswith("app.") or not _is_router_module(module):
+                    continue
+                if _module_package(module) == importer_package:
+                    continue
+                offenders.setdefault(rel, set()).add(module)
+    return offenders
+
+
+# fix(#1438 F6): the one edge the enumeration surfaced is flagged here rather
+# than treated as routine reviewed debt. Every OTHER burndown in this file
+# traces to a fix commit that named its tradeoff and accepted it; this edge
+# predates any guard that could see it (source outside platform/, target
+# outside app.processing/ — invisible to both axes fix(#836) checked) and was
+# added in #476 ("harden lifecycle and tenant isolation"), a PR about tenant
+# isolation with nothing suggesting this coupling was a deliberate choice.
+# Seeded so the guard is actionable on today's tree rather than failing on
+# pre-existing, unrelated code — worth a follow-up to move
+# `get_retry_capability` into a plain service module, the way `sweep.py`
+# already did for this same router's other non-route helpers (see
+# app/platform/jobs/router.py's own module docstring).
+#
+# The list may SHRINK, never grow.
+_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "backend/app/modules/admin/router.py": {"app.platform.jobs.router"},
+}
+
+
+@pytest.mark.architecture
+def test_no_cross_package_router_imports_at_module_scope() -> None:
+    """No file outside its own package imports a router module at module
+    scope, anywhere in backend/app/ — not just platform/ importing processing/.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_cross_package_router_import_edges().items()):
+        allowed = _CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  {file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "A module imports a router module from outside its own package at "
+            "module scope. Importing an API-edge module runs its route "
+            "registration as a side effect; move the needed name into a "
+            "service or schema module instead of adding an entry to "
+            "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN. If the name is only needed "
+            "inside a function, deferring the import (D-17) avoids the side "
+            "effect without needing an allowlist entry at all.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_cross_package_router_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _cross_package_router_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN lists edges that no longer "
+            "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
