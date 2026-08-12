@@ -2833,8 +2833,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pre-swap href for a TTL. Most of it is the note recording WHY it is the
     # request's `v` and not the row's: the row's version arrives through the
     # same cached snapshot, so it is exactly as stale as the href it would be
-    # guarding. Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2255,
+    # guarding.
+    # fix(#1329 codex P1): +13 — the lookup key is the request's `v` but the
+    # STORE key is the resolved row's, so no caller can name the entry it
+    # writes and a predictable future `v` can no longer park a pre-swap
+    # snapshot on the key the swap is about to make legitimate.
+    # Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2268,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

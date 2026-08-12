@@ -697,35 +697,29 @@ async def _resolve_raster_meta(
     has no raster asset.
     """
     tenant_id = _require_tile_tenant_context()
-    cache_key = (
-        f"{tenant_id}:{dataset_id}" if tenant_id is not None else str(dataset_id)
-    )
-    # fix(#1329): the key carries the REQUEST's `v`, not the row's
+    base_key = f"{tenant_id}:{dataset_id}" if tenant_id is not None else str(dataset_id)
+    # fix(#1329): LOOK UP under the REQUEST's `v`, not the row's
     # `tile_cache_version`. Three paths swap a raster's pointer in place
     # (reupload #1290, VRT regeneration, STAC moved-asset refresh #1326) and all
     # three bump the version in the same transaction — but the row's version
     # reaches this function only through the snapshot below, so it is exactly as
-    # stale as the `asset_uri` it would be guarding and folding it in would buy
-    # nothing. The request's `v` is independent: it comes from the dataset/map
-    # metadata the client fetched, so the first tile request after a swap
-    # carries the new value, misses in EVERY api process, and re-reads the href
-    # and band shape once. Requests still carrying the old `v` keep hitting the
-    # old entry — stale but well-formed, bounded by the TTL and self-healing,
+    # stale as the `asset_uri` it would be guarding and looking up by it would
+    # buy nothing. The request's `v` is independent: it comes from the
+    # dataset/map metadata the client fetched, so the first tile request after a
+    # swap carries the new value, misses in EVERY api process, and re-reads the
+    # href and band shape once. Requests still carrying the old `v` read their
+    # own entry — stale but well-formed, bounded by the TTL and self-healing,
     # which is the tradeoff #1329 accepts.
     #
-    # This partitions the per-process cache exactly the way nginx's
-    # `proxy_cache_key` `$arg_v` segment partitions the shared tile cache
-    # (frontend/nginx.conf), so an entry written under `v=N` can only ever be
-    # served to a request carrying `v=N`. The #1372 pre-warm defense is
-    # untouched: cacheability is still decided against the SNAPSHOT's own
-    # version, so priming a future `v` yields a `private, no-store` response and
-    # never populates the shared cache. Memory stays bounded by the LRU, and a
-    # caller varying `v` to evict entries costs at most one extra indexed read
-    # per request — the same order as the uncached miss an unknown dataset id
-    # already produces.
+    # The lookup is under the request's value, but the STORE is under the row's
+    # (see the write site below) — the request never names the entry it writes.
+    # Memory stays bounded by the LRU, and a caller varying `v` to evict entries
+    # costs at most one extra indexed read per request — the same order as the
+    # uncached miss an unknown dataset id already produces.
     version_segment = _meta_cache_version_segment(requested_version)
-    if version_segment is not None:
-        cache_key = f"{cache_key}:v{version_segment}"
+    cache_key = (
+        f"{base_key}:v{version_segment}" if version_segment is not None else base_key
+    )
     now = time.monotonic()
     with _raster_meta_cache_lock:
         cached_entry = _raster_meta_cache.get(cache_key)
@@ -795,8 +789,27 @@ async def _resolve_raster_meta(
         nodata=row["nodata"],
         tile_cache_version=row["tile_cache_version"] or 1,
     )
+    # fix(#1329 codex P1): entries must be stamped with the version they
+    # correspond to, or a predictable future `v` pre-warms stale metadata past
+    # the swap. Storing under the REQUESTED value let any caller name an entry:
+    # asking for `v=N+1` while the row still reads N stored the CURRENT snapshot
+    # under the next version's key, and the swap that bumps the row to N+1 then
+    # found that key already occupied, so genuine `v=N+1` requests kept the
+    # pre-swap href for a full TTL. Refusing to mark such a response cacheable
+    # (#1372) does not help — that defends nginx, and the poisoned entry is
+    # process-local. Deriving the write key from the snapshot's OWN version
+    # makes it structurally impossible: key and content always agree, a
+    # mismatched request resolves fresh and writes only its dataset's real
+    # version, and the first post-swap request at the new version finds nothing
+    # and reads the new pointer. The cost is that mismatched-`v` requests are
+    # permanent misses, one indexed read each.
+    store_key = (
+        f"{base_key}:v{meta.tile_cache_version}"
+        if version_segment is not None
+        else base_key
+    )
     with _raster_meta_cache_lock:
-        _raster_meta_cache[cache_key] = (now, meta)
+        _raster_meta_cache[store_key] = (now, meta)
     return meta
 
 

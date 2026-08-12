@@ -251,10 +251,10 @@ class TestRasterMetaCacheVersionKey:
         dataset = await _create_public_raster(test_db_session, created_by=admin_id)
 
         bare_key = str(dataset.id)
-        versioned_key = f"{dataset.id}:v7"
+        versioned_key = f"{dataset.id}:v1"
         _forget(bare_key, versioned_key)
 
-        meta = await _resolve_raster_meta(test_db_session, dataset.id, "7")
+        meta = await _resolve_raster_meta(test_db_session, dataset.id, "1")
 
         assert isinstance(meta, _RasterMeta)
         with _raster_meta_cache_lock:
@@ -369,3 +369,51 @@ class TestRasterMetaCacheVersionKey:
         # The #1372 shared-cache guard still passes on the new key: `v` matches
         # the version of the snapshot the bytes are built from.
         assert fresh.headers["X-GeoLens-Cache-Status"] == "public"
+
+    async def test_future_version_request_cannot_pre_warm_the_next_key(
+        self, client, test_db_session
+    ):
+        """fix(#1329 codex P1): a predictable future `v` cannot poison a swap.
+
+        The counter is public and increments by one, so an anonymous caller on
+        a public raster can ask for the version the next swap will produce. If
+        the entry were filed under the value the request asked for, that call
+        would park the CURRENT snapshot on the key the swap is about to make
+        legitimate, and the swap would land on an occupied key. Filing it under
+        the snapshot's own version is what makes that impossible.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_public_raster(test_db_session, created_by=admin_id)
+        dataset_id = dataset.id
+        _forget(str(dataset_id), f"{dataset_id}:v1", f"{dataset_id}:v2")
+
+        # The row is at version 1; ask anonymously for the NEXT one.
+        primed = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset_id), "v": "2"},
+        )
+        assert primed.status_code == 200, primed.text
+        pre_swap_path = primed.headers["X-GeoLens-Asset-OpenPath"]
+        # The mismatched request is still served, and never as shared-cacheable
+        # (#1372) — which defends nginx only, hence the key rule below.
+        assert primed.headers["X-GeoLens-Cache-Status"] == "private"
+
+        # It was filed under the row's own version, so the key the swap is
+        # about to make legitimate is still empty.
+        with _raster_meta_cache_lock:
+            assert f"{dataset_id}:v1" in _raster_meta_cache
+            assert f"{dataset_id}:v2" not in _raster_meta_cache
+
+        new_uri = await _swap_raster_pointer(test_db_session, dataset_id)
+
+        # The first genuine v=2 request resolves fresh rather than inheriting
+        # the pre-swap snapshot.
+        after = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset_id), "v": "2"},
+        )
+        assert after.status_code == 200, after.text
+        after_path = after.headers["X-GeoLens-Asset-OpenPath"]
+        assert new_uri in after_path
+        assert after_path != pre_swap_path
+        assert after.headers["X-GeoLens-Cache-Status"] == "public"
