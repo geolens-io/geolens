@@ -1,5 +1,6 @@
 """Tests for map sprite and icon helper behavior."""
 
+import asyncio
 from io import BytesIO
 import struct
 import threading
@@ -16,6 +17,7 @@ from app.modules.catalog.maps.models import MapIconAsset
 from app.modules.catalog.maps.sprites import (
     MAX_ICON_BYTES,
     SPRITE_CELL_SIZE,
+    _SPRITE_RENDER_BATCH,
     _path_points,
     _placeholder_icon,
     _render_icon,
@@ -75,6 +77,8 @@ class FakeStorage:
     def __init__(self):
         self.objects = {}
         self.get_count = 0
+        self.in_flight = 0
+        self.max_in_flight = 0
 
     async def put(self, key, data):
         self.objects[key] = data if isinstance(data, bytes) else data.read()
@@ -82,6 +86,11 @@ class FakeStorage:
 
     async def get(self, key):
         self.get_count += 1
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        # yield, so concurrent callers actually overlap and are counted
+        await asyncio.sleep(0)
+        self.in_flight -= 1
         return self.objects[key]
 
 
@@ -487,18 +496,52 @@ async def test_sprite_png_composites_off_the_event_loop(monkeypatch):
             _asset(slug="bus", media_type="image/png", storage_key="maps/icons/bus.png")
         ]
     )
-    composite_threads = []
-    original = sprites._compose_sprite_png
+    render_threads = []
 
-    def _record(*args):
-        composite_threads.append(threading.current_thread())
-        return original(*args)
+    def _recorded(name):
+        original = getattr(sprites, name)
 
-    monkeypatch.setattr(sprites, "_compose_sprite_png", _record)
+        def _record(*args):
+            render_threads.append(threading.current_thread())
+            return original(*args)
+
+        return _record
+
+    for name in ("_paste_icon_cells", "_encode_sprite_png"):
+        monkeypatch.setattr(sprites, name, _recorded(name))
 
     await build_sprite_png(session)
 
-    assert composite_threads and threading.main_thread() not in composite_threads
+    # both the per-cell render and the sheet encode, off the main thread
+    assert len(render_threads) == 2
+    assert threading.main_thread() not in render_threads
+
+
+@pytest.mark.anyio
+async def test_sprite_png_bounds_icon_reads_in_flight(monkeypatch):
+    """A large catalog must not fan out one storage read per icon at once.
+
+    fix(#1428 codex r1): the reads and the icon bytes they return are both held
+    a batch at a time — an unbounded gather retained up to MAX_ICON_BYTES per
+    uploaded icon before the first cell was drawn.
+    """
+    storage = FakeStorage()
+    rows = []
+    for index in range(_SPRITE_RENDER_BATCH * 3):
+        key = f"maps/icons/icon-{index}.png"
+        storage.objects[key] = _png_bytes()
+        rows.append(
+            _asset(slug=f"icon-{index}", media_type="image/png", storage_key=key)
+        )
+    monkeypatch.setattr("app.modules.catalog.maps.sprites.get_storage", lambda: storage)
+    session = FakeSession(rows=rows)
+
+    await build_sprite_png(session)
+
+    assert storage.get_count == _SPRITE_RENDER_BATCH * 3
+    assert storage.max_in_flight <= _SPRITE_RENDER_BATCH
+    # still a fan-out, not a serial read
+    assert storage.max_in_flight > 1
 
 
 @pytest.mark.anyio

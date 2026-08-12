@@ -61,6 +61,12 @@ _PATH_TOKEN_RE = re.compile(
     r"[MmZzLlHhVvCcQqSsTtAa]|[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?"
 )
 SPRITE_CELL_SIZE = 24
+# fix(#1428 codex r1): how many icons the sheet render holds in flight at once —
+# it bounds both the concurrent storage reads and the icon bytes resident while
+# they are composited. The catalog has no size limit, so this cannot be "all of
+# them": 8 icons at MAX_ICON_BYTES is 4 MiB, and still 8x the serial read it
+# replaced.
+_SPRITE_RENDER_BATCH = 8
 
 
 @dataclass(frozen=True)
@@ -647,17 +653,15 @@ async def build_sprite_png(session: AsyncSession) -> bytes:
         return png
 
 
-async def _load_icon_payloads(
+async def _uploaded_icon_assets(
     session: AsyncSession, icons: list[MapIconResponse]
-) -> IconPayloads:
-    """Resolve every icon's bytes and media type, ordered to match ``icons``.
+) -> dict[str, MapIconAsset]:
+    """The rows behind the uploaded icons, keyed by response id, in one query.
 
-    fix(#1428): all of the render's I/O happens here, because the composite that
-    consumes the result runs in a worker thread and an ``AsyncSession`` cannot be
-    used from one. Uploaded rows come back in a single query and their stored
-    objects are fetched concurrently, replacing a per-icon round trip.
+    fix(#1428): every DB read the render needs happens here, before any of it
+    reaches a worker thread — an ``AsyncSession`` cannot be used from one. It
+    also replaces the per-icon ``session.get`` the serial loop issued.
     """
-    builtin_icons = {icon.slug: icon for icon in DEFAULT_ICONS}
     asset_ids: list[uuid.UUID] = []
     for icon in icons:
         if icon.builtin:
@@ -666,14 +670,19 @@ async def _load_icon_payloads(
             asset_ids.append(uuid.UUID(icon.id))
         except ValueError:
             continue
+    if not asset_ids:
+        return {}
+    result = await session.execute(
+        select(MapIconAsset).where(MapIconAsset.id.in_(asset_ids))
+    )
+    return {str(asset.id): asset for asset in result.scalars().all()}
 
-    assets: dict[str, MapIconAsset] = {}
-    if asset_ids:
-        result = await session.execute(
-            select(MapIconAsset).where(MapIconAsset.id.in_(asset_ids))
-        )
-        assets = {str(asset.id): asset for asset in result.scalars().all()}
 
+async def _load_icon_payloads(
+    icons: list[MapIconResponse], assets: dict[str, MapIconAsset]
+) -> IconPayloads:
+    """Read one batch of icons' bytes, fetching the stored ones concurrently."""
+    builtin_icons = {icon.slug: icon for icon in DEFAULT_ICONS}
     payloads: IconPayloads = [None] * len(icons)
     stored: list[tuple[int, MapIconAsset]] = []
     for position, icon in enumerate(icons):
@@ -701,18 +710,22 @@ async def _load_icon_payloads(
     return payloads
 
 
-def _compose_sprite_png(icons: list[MapIconResponse], payloads: IconPayloads) -> bytes:
-    sheet = Image.new(
-        "RGBA",
-        (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),
-        (0, 0, 0, 0),
-    )
-    for index, (icon, payload) in enumerate(zip(icons, payloads)):
+def _paste_icon_cells(
+    sheet: Image.Image,
+    start: int,
+    icons: list[MapIconResponse],
+    payloads: IconPayloads,
+) -> None:
+    """Render one batch of icons into their cells, ``start`` cells in."""
+    for offset, (icon, payload) in enumerate(zip(icons, payloads)):
         if payload is None:
             image = _placeholder_icon(icon.sprite_id)
         else:
             image = _render_icon(payload[0], payload[1], icon.sprite_id)
-        sheet.alpha_composite(image, (index * SPRITE_CELL_SIZE, 0))
+        sheet.alpha_composite(image, ((start + offset) * SPRITE_CELL_SIZE, 0))
+
+
+def _encode_sprite_png(sheet: Image.Image) -> bytes:
     out = BytesIO()
     sheet.save(out, format="PNG")
     return out.getvalue()
@@ -723,8 +736,21 @@ async def _render_sprite_png(
 ) -> bytes:
     if not icons:
         return _blank_png(SPRITE_CELL_SIZE)
-    payloads = await _load_icon_payloads(session, icons)
-    # fix(#1428): decode, resample and re-encode are CPU-bound and scale with the
-    # stored icons' pixel count, on a route that takes no auth. Off the loop, so
-    # one large icon stalls a thread instead of every other request in flight.
-    return await run_in_thread_draining(_compose_sprite_png, icons, payloads)
+    assets = await _uploaded_icon_assets(session, icons)
+    sheet = Image.new(
+        "RGBA",
+        (len(icons) * SPRITE_CELL_SIZE, SPRITE_CELL_SIZE),
+        (0, 0, 0, 0),
+    )
+    # fix(#1428 codex r1): a batch at a time, so neither the read fan-out nor the
+    # bytes held at once scale with the catalog. The whole-catalog gather this
+    # replaced retained every blob until the last one landed — up to
+    # MAX_ICON_BYTES per uploaded icon, on a route that takes no auth.
+    for start in range(0, len(icons), _SPRITE_RENDER_BATCH):
+        batch = icons[start : start + _SPRITE_RENDER_BATCH]
+        payloads = await _load_icon_payloads(batch, assets)
+        # fix(#1428): decode and resample are CPU-bound and scale with the stored
+        # icons' pixel count. Off the loop, so one large icon stalls a thread
+        # instead of every other request in flight.
+        await run_in_thread_draining(_paste_icon_cells, sheet, start, batch, payloads)
+    return await run_in_thread_draining(_encode_sprite_png, sheet)
