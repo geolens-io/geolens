@@ -3541,7 +3541,17 @@ _PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
     "tiles/router.py": {"app.modules.catalog.datasets.domain.models"},
 }
 
-_PROCESSING_DIR = REPO_ROOT / "backend" / "app" / "processing"
+# fix(#1438 codex review): built from `_backend_path()`/`BACKEND_ROOT`, not
+# `REPO_ROOT / "backend" / ...`. `_discover_repo_roots()` returns `BACKEND_ROOT
+# == REPO_ROOT / "backend"` only in the host layout; in the backend-container
+# layout it also supports, `REPO_ROOT` is `/` and `BACKEND_ROOT` is `/app`, so
+# the `REPO_ROOT`-relative spelling resolved to a nonexistent `/backend/app/
+# processing` and every guard built on it scanned zero files and passed
+# vacuously in-container. Proven both ways: constructing the analogous
+# _STANDARDS_DIR the same (wrong) way and rglob-ing it found 0 files in a
+# simulated container layout; constructing it via BACKEND_ROOT found the
+# files. `_PLATFORM_DIR` below had the identical bug.
+_PROCESSING_DIR = _backend_path("app/processing")
 
 
 def _processing_import_edges() -> dict[str, set[str]]:
@@ -4403,7 +4413,11 @@ _PLATFORM_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
     },
 }
 
-_PLATFORM_DIR = REPO_ROOT / "backend" / "app" / "platform"
+# fix(#1438 codex review): see the comment on `_PROCESSING_DIR` above — this
+# constant had the identical `REPO_ROOT`-relative bug and is fixed the same
+# way (vacuous-pass in the backend-container layout `_discover_repo_roots()`
+# is meant to support).
+_PLATFORM_DIR = _backend_path("app/platform")
 
 
 def _platform_module_level_edges() -> dict[str, set[str]]:
@@ -4454,8 +4468,10 @@ def test_platform_does_not_import_modules() -> None:
 # fix(#1438 F24): platform/ is not the only layer this rule protects — processing/
 # and standards/ reach into app.modules.* too, and a leading underscore is exactly
 # as fragile from either. `_STANDARDS_DIR` mirrors `_PLATFORM_DIR` / `_PROCESSING_DIR`
-# above; scoped here because this guard is its only reader.
-_STANDARDS_DIR = REPO_ROOT / "backend" / "app" / "standards"
+# above (also reused by `_standards_module_import_edges()` further down, for the
+# F7 frozen-surface guard) — built via `_backend_path()`, not `REPO_ROOT`-relative,
+# for the same backend-container-layout reason given on `_PROCESSING_DIR`.
+_STANDARDS_DIR = _backend_path("app/standards")
 _PRIVATE_MODULE_IMPORT_ROOTS: tuple[Path, ...] = (
     _PLATFORM_DIR,
     _PROCESSING_DIR,
