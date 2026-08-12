@@ -128,6 +128,8 @@ async def _cleanup_uncommitted_reupload_source(
         return
     try:
         await get_storage().delete(resolve_current_storage_key(saved_path))
+    except asyncio.CancelledError:
+        raise
     except BaseException:
         logger.warning(
             "reupload_source_cleanup_failed",

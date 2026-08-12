@@ -2465,7 +2465,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the third admission point and still creation-shaped, so an owner at the
     # dataset-count cap passed the request-time door, uploaded the bytes, and
     # was refused at completion. Cap 1143 -> 1149, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1149,
+    # +2 — the uncommitted-source cleanup helper re-raises CancelledError
+    # instead of swallowing it, mirroring the re-raise convention already used
+    # by the other three CancelledError checks in this file. Cap 1149 -> 1151,
+    # exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1151,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

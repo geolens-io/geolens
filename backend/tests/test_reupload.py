@@ -9,6 +9,7 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import asyncio
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -75,6 +76,46 @@ async def test_reupload_commit_failure_cleans_owned_staged_file(tmp_path):
             )
 
     cleanup.assert_awaited_once_with(staged, job_id=job.id)
+
+
+@pytest.mark.anyio
+async def test_cleanup_uncommitted_reupload_source_reraises_cancellation():
+    """F14: a client disconnect during the storage delete must unwind the
+    caller, not be absorbed into a best-effort warning log.
+
+    `_cleanup_uncommitted_reupload_source` is called both from the upload
+    rollback path (a disconnect during validation) and, unguarded, right
+    before the presigned-completion door returns success — swallowing
+    CancelledError there let a cancelled request return 200 anyway.
+    """
+    job_id = uuid.uuid4()
+    storage_key = f"reupload-staging/{job_id}/replacement.geojson"
+
+    mock_storage = MagicMock()
+    mock_storage.delete = AsyncMock(side_effect=asyncio.CancelledError())
+
+    with patch.object(router_reupload, "get_storage", return_value=mock_storage):
+        with pytest.raises(asyncio.CancelledError):
+            await router_reupload._cleanup_uncommitted_reupload_source(
+                storage_key, job_id=job_id
+            )
+
+
+@pytest.mark.anyio
+async def test_cleanup_uncommitted_reupload_source_still_swallows_storage_errors():
+    """Regression guard: the best-effort swallow for genuine storage errors
+    (fix #1207) must survive alongside the CancelledError re-raise above."""
+    job_id = uuid.uuid4()
+    storage_key = f"reupload-staging/{job_id}/replacement.geojson"
+
+    mock_storage = MagicMock()
+    mock_storage.delete = AsyncMock(side_effect=RuntimeError("storage unavailable"))
+
+    with patch.object(router_reupload, "get_storage", return_value=mock_storage):
+        # Must not raise — the pre-existing best-effort contract.
+        await router_reupload._cleanup_uncommitted_reupload_source(
+            storage_key, job_id=job_id
+        )
 
 
 # ---------------------------------------------------------------------------
