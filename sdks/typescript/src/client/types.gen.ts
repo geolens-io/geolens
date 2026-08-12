@@ -26480,6 +26480,8 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetData = {
         datetime?: string | null;
         /**
          * Limit
+         *
+         * Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation.
          */
         limit?: number;
         /**

@@ -122,7 +122,8 @@ def sync_detailed(
         collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
@@ -166,7 +167,8 @@ def sync(
         collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
@@ -205,7 +207,8 @@ async def asyncio_detailed(
         collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 
@@ -247,7 +250,8 @@ async def asyncio(
         collection_id (str):
         bbox (None | str | Unset): Bounding box: west,south,east,north
         datetime_ (None | str | Unset): OGC datetime interval
-        limit (int | Unset):  Default: 10.
+        limit (int | Unset): Maximum number of items returned. Values above 200 are clamped to
+            200, per the STAC Item Search spec's clamp-don't-reject recommendation. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Phase 269 H-24 lowered the max limit
             to 200 and recommends keyset cursors via the rel=next link for deep paging. Default: 0.
 

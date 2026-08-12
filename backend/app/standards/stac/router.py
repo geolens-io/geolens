@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import re
 import uuid
 from collections.abc import Sequence
@@ -47,6 +46,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
     RecordKeyword,
 )
+from app.modules.catalog.features.service import parse_bbox
 from app.core.dependencies import get_db
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.processing.raster.models import DatasetAsset, RasterAsset
@@ -86,6 +86,12 @@ class GeoJSONResponse(JSONResponse):
 
 # Record types eligible for STAC
 _STAC_RECORD_TYPES = RASTER_FAMILY_RECORD_TYPES
+
+# Page-size ceiling shared by every item-returning STAC handler (H-24 lowered it
+# from 1000 to bound deep-paging cost). An over-maximum limit is CLAMPED, never
+# rejected: the STAC Item Search spec requires it and stac-api-validator
+# enforces it. One constant so a future ceiling change cannot miss a handler.
+_STAC_MAX_LIMIT = 200
 
 # STAC Items must be collection-scoped to remain browsable by machine clients.
 # This virtual collection does not create or mutate a catalog Collection; it is
@@ -369,24 +375,6 @@ async def _visible_derived_from_id(
     )
     found = (await db.execute(stmt)).scalars().first()
     return str(source_id) if found is not None else None
-
-
-def _require_finite_bbox(values: list[float]) -> None:
-    """Reject NaN/Inf bbox coordinates before ST_MakeEnvelope.
-
-    fix(#430 BA-12): mirrors the OGC ``parse_bbox`` SEC-FU-06 guard, which STAC's
-    inline bbox parsing was missing.
-    """
-    for i, v in enumerate(values):
-        if not math.isfinite(v):
-            raise ValueError(f"bbox coordinate at index {i} is non-finite ({v!r})")
-    # South > north is always invalid; longitude order is NOT checked because
-    # west > east legitimately means an antimeridian-crossing box.
-    south, north = (
-        (values[1], values[3]) if len(values) == 4 else (values[1], values[4])
-    )
-    if south > north:
-        raise ValueError("bbox south latitude is greater than north latitude")
 
 
 # RFC 3339 date-time as required by the STAC API spec: full date + time with a
@@ -1003,18 +991,29 @@ async def get_collection_items(
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
     ),
-    limit: int = Query(10, ge=1, le=200),
+    limit: int = Query(
+        10,
+        ge=1,
+        description=(
+            f"Maximum number of items returned. Values above {_STAC_MAX_LIMIT} "
+            f"are clamped to {_STAC_MAX_LIMIT}, per the STAC Item Search spec's "
+            "clamp-don't-reject recommendation."
+        ),
+    ),
     offset: int = Query(
         0,
         ge=0,
         description=(
             "Legacy offset-based pagination. Phase 269 H-24 lowered the "
-            "max limit to 200 and recommends keyset cursors via the rel=next "
-            "link for deep paging."
+            f"max limit to {_STAC_MAX_LIMIT} and recommends keyset cursors via "
+            "the rel=next link for deep paging."
         ),
     ),
 ) -> JSONResponse:
     """List STAC Items within a collection."""
+    # Clamp before the page links are built so rel=next/prev advertise the
+    # limit actually served.
+    limit = min(limit, _STAC_MAX_LIMIT)
     stac_api_url, public_api_url = await _resolve_urls(db, request)
     # fix(#315 follow-up): raster_tiles assets are served at the public APP origin.
     public_app_url = await get_public_app_url(db, request=request)
@@ -1030,13 +1029,7 @@ async def get_collection_items(
     # Filter by bbox (antimeridian-aware)
     if bbox:
         try:
-            parts = bbox.split(",")
-            if len(parts) not in (4, 6):
-                raise ValueError("need 4 or 6 values")
-            bbox_vals = [float(p) for p in parts]
-            _require_finite_bbox(bbox_vals)
-            if len(bbox_vals) == 6:
-                bbox_vals = [bbox_vals[0], bbox_vals[1], bbox_vals[3], bbox_vals[4]]
+            bbox_vals = parse_bbox(bbox)
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1388,20 +1381,10 @@ def _build_search_filters(
         filters.append(Record.spatial_extent.op("&&")(func.ST_Envelope(_geom)))
         filters.append(func.ST_Intersects(Record.spatial_extent, _geom))
     elif bbox:
-        # Filter by bbox (only if intersects not provided) — accept string or list
+        # Filter by bbox (only if intersects not provided). parse_bbox takes the
+        # GET string and the POST list, so both spellings validate identically.
         try:
-            if isinstance(bbox, str):
-                parts = bbox.split(",")
-                if len(parts) not in (4, 6):
-                    raise ValueError("need 4 or 6 values")
-                bbox_vals = [float(p) for p in parts]
-            else:
-                bbox_vals = [float(v) for v in bbox]
-                if len(bbox_vals) not in (4, 6):
-                    raise ValueError("need 4 or 6 values")
-            _require_finite_bbox(bbox_vals)
-            if len(bbox_vals) == 6:
-                bbox_vals = [bbox_vals[0], bbox_vals[1], bbox_vals[3], bbox_vals[4]]
+            bbox_vals = parse_bbox(bbox)
         except (ValueError, TypeError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1677,9 +1660,9 @@ async def search_get(
         10,
         ge=1,
         description=(
-            "Maximum number of items returned. Values above 200 are clamped "
-            "to 200, per the STAC Item Search spec's clamp-don't-reject "
-            "recommendation."
+            f"Maximum number of items returned. Values above {_STAC_MAX_LIMIT} "
+            f"are clamped to {_STAC_MAX_LIMIT}, per the STAC Item Search spec's "
+            "clamp-don't-reject recommendation."
         ),
     ),
     offset: int = Query(
@@ -1687,7 +1670,7 @@ async def search_get(
         ge=0,
         description=(
             "Legacy offset-based pagination. Phase 269 H-24 lowered the "
-            "max limit to 200 from 1000 to bound deep-paging cost."
+            f"max limit to {_STAC_MAX_LIMIT} from 1000 to bound deep-paging cost."
         ),
     ),
 ) -> JSONResponse:
@@ -1709,7 +1692,7 @@ async def search_get(
         intersects=intersects,
         # STAC Item Search: limits above the server maximum are clamped, not
         # rejected (stac-api-validator enforces this).
-        limit=min(limit, 200),
+        limit=min(limit, _STAC_MAX_LIMIT),
         offset=offset,
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),
@@ -1740,11 +1723,13 @@ class StacSearchBody(BaseModel):
         default=10,
         ge=1,
         # WR-01 (Phase 1071 review) aligned GET/POST ceilings at le=200; the
-        # STAC hardening pass replaces the hard bound with clamping on both
-        # handlers — the Item Search spec (and stac-api-validator) requires
-        # over-limit values to be clamped to the server maximum, not rejected.
+        # STAC hardening pass replaces the hard bound with clamping on all three
+        # item-returning handlers — the Item Search spec (and stac-api-validator)
+        # requires over-limit values to be clamped to the server maximum, not
+        # rejected.
         description=(
-            "Maximum number of items returned. Values above 200 are clamped to 200."
+            f"Maximum number of items returned. Values above {_STAC_MAX_LIMIT} "
+            f"are clamped to {_STAC_MAX_LIMIT}."
         ),
     )
     offset: int = Field(
@@ -1799,9 +1784,9 @@ async def search_post(
         collections=body.collections,
         ids=body.ids,
         intersects=body.intersects,
-        # Over-limit values clamp to the 200-item operational ceiling (H-24),
-        # required by the Item Search spec instead of a le=200 rejection.
-        limit=max(1, min(body.limit, 200)),
+        # Over-limit values clamp to the operational ceiling (H-24), required by
+        # the Item Search spec instead of a le=200 rejection.
+        limit=max(1, min(body.limit, _STAC_MAX_LIMIT)),
         offset=max(0, body.offset),
         public_app_url=public_app_url,
         preferred_languages=parse_accept_languages(request),

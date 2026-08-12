@@ -5,6 +5,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.modules.catalog.features.service import parse_bbox
+
 
 class SearchParams(BaseModel):
     """Query parameters for dataset search."""
@@ -51,17 +53,11 @@ class SearchParams(BaseModel):
     @field_validator("bbox")
     @classmethod
     def validate_bbox(cls, v: str | None) -> str | None:
+        # Validate through the shared parser rather than a third copy of the
+        # split/collapse/compare logic: the copies drifted before, and the one
+        # here was also missing the SEC-FU-06 non-finite guard.
         if v is not None:
-            parts = v.split(",")
-            if len(parts) not in (4, 6):
-                raise ValueError("bbox must have 4 or 6 comma-separated values")
-            floats = [float(p) for p in parts]
-            # For 6-element (3D) bbox, validate the 2D envelope
-            miny = floats[1]
-            maxy = floats[3] if len(floats) == 4 else floats[4]
-            # Allow antimeridian-crossing bboxes (minx > maxx)
-            if miny >= maxy:
-                raise ValueError("bbox miny must be less than maxy")
+            parse_bbox(v)
         return v
 
 

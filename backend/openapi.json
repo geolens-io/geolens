@@ -55396,12 +55396,13 @@
             }
           },
           {
+            "description": "Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 10,
-              "maximum": 200,
+              "description": "Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation.",
               "minimum": 1,
               "title": "Limit",
               "type": "integer"

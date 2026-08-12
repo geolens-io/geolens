@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from shapely.errors import GEOSException
@@ -93,8 +94,13 @@ def _geom_write_exprs(
     return base, base
 
 
-def parse_bbox(bbox_str: str) -> list[float]:
-    """Parse a comma-separated bbox string into a 4- or 6-element list.
+def parse_bbox(bbox: str | Sequence[float]) -> list[float]:
+    """Parse a bbox into a 4-element ``[minx, miny, maxx, maxy]`` list.
+
+    Accepts either a comma-separated string (the query-parameter spelling) or
+    an already-split sequence of numbers (the JSON request-body spelling, e.g.
+    STAC Item Search POST), so every GeoLens surface answers a given bbox the
+    same way.
 
     Accepts:
       - 4 values: minx, miny, maxx, maxy (2D)
@@ -102,15 +108,26 @@ def parse_bbox(bbox_str: str) -> list[float]:
         accepted but ignored for spatial queries)
 
     Allows antimeridian-crossing bboxes where minx > maxx (e.g. 170,-45,-170,-30).
+    Allows degenerate boxes where miny == maxy: OGC API Features and STAC both
+    define bbox bounds as lower <= upper, so a zero-height (line) or zero-area
+    (point) box is a legal filter.
     Raises ValueError if not 4 or 6 values, or latitude bounds are invalid.
     """
-    parts = bbox_str.split(",")
-    if len(parts) not in (4, 6):
-        raise ValueError("bbox must have 4 or 6 comma-separated values")
-    values = [float(p) for p in parts]
+    if isinstance(bbox, str):
+        parts = bbox.split(",")
+        if len(parts) not in (4, 6):
+            raise ValueError("bbox must have 4 or 6 comma-separated values")
+        values = [float(p) for p in parts]
+    else:
+        values = [float(v) for v in bbox]
+        if len(values) not in (4, 6):
+            raise ValueError("bbox must have 4 or 6 values")
     # SEC-FU-06 (sec-audit-20260519.md): reject NaN/Inf coordinates. Python's float() accepts
-    # "nan", "inf", "-inf" — PostGIS handles these inconsistently and they can produce
-    # malformed geometries with downstream null-pointer or sequential-scan amplification.
+    # "nan", "inf", "-inf" (and JSON 1e400 parses to +Inf) — PostGIS handles these
+    # inconsistently and they can produce malformed geometries with downstream
+    # null-pointer or sequential-scan amplification. This is the single home for the
+    # guard: STAC once carried its own copy and the guard had to be re-applied there
+    # (#430 BA-12) because the copy existed.
     for i, v in enumerate(values):
         if not math.isfinite(v):
             raise ValueError(
@@ -120,9 +137,10 @@ def parse_bbox(bbox_str: str) -> list[float]:
     if len(values) == 6:
         # 3D bbox: extract 2D envelope (minx, miny, maxx, maxy)
         values = [values[0], values[1], values[3], values[4]]
-    # Only validate latitude (lon wraps at antimeridian)
-    if values[1] >= values[3]:
-        raise ValueError("bbox miny must be less than maxy")
+    # Only validate latitude (lon wraps at antimeridian). Equality passes: the
+    # spec bound is lower <= upper, and a degenerate box is a legal filter.
+    if values[1] > values[3]:
+        raise ValueError("bbox miny must be less than or equal to maxy")
     return values
 
 
