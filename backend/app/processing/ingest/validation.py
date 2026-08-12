@@ -40,7 +40,6 @@ EXTENSION_CONTENT_MAP: dict[str, set[str]] = {
 # Maximum uploaded VRT XML size. User-provided VRTs are control-plane XML, not
 # raster payloads; fail closed instead of partially scanning a prefix.
 VRT_BODY_MAX_BYTES = 2 * 1024 * 1024
-VRT_BODY_SCAN_LIMIT = VRT_BODY_MAX_BYTES  # backward-compatible exported name
 
 _URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
