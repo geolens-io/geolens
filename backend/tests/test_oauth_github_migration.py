@@ -27,8 +27,6 @@ Notes
             uv run pytest tests/test_oauth_github_migration.py -x -q
 """
 
-from pathlib import Path
-
 import pytest
 import sqlalchemy as sa
 from tests.alembic_helpers import (
@@ -40,10 +38,6 @@ from tests.alembic_helpers import (
 # ---------------------------------------------------------------------------
 # Helpers (self-contained copies — mirrors test_email_verification_migration.py)
 # ---------------------------------------------------------------------------
-
-_BACKEND_DIR = Path(__file__).parent.parent.resolve()
-_ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
-
 
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
     enterprise_migrations_present(),
