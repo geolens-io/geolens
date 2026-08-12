@@ -1,6 +1,7 @@
 # ruff: noqa: E402
 import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import structlog
 
@@ -264,6 +265,19 @@ async def sweep_stale_jobs_once(
     return pending_total, running_total
 
 
+def _sweep_orphaned_exports_and_log(exports_dir: Path, log) -> None:
+    """Sweep exports/ and log only when something was actually removed —
+    mirrors the pending_failed/running_failed and renewed-credentials
+    branches in ``_stale_jobs_sweeper``, which stay quiet on a no-op cycle.
+
+    Split out of that loop body so this one extra branch does not push
+    ``lifespan``'s McCabe complexity over its gate.
+    """
+    deleted, _ = sweep_orphaned_exports(exports_dir)
+    if deleted:
+        log.info("Swept orphaned exports", deleted=deleted)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from app.core.db import engine  # fix(#909): late-bind for tests
@@ -383,6 +397,12 @@ async def lifespan(app: FastAPI):
                 renewed = await renew_queued_credentials_once()
                 if renewed:
                     sweeper_log.debug("Renewed queued credentials", count=renewed)
+                # exports/ residue from a hard process death (SIGKILL, OOM) used
+                # to sit until the next restart — sweep_orphaned_exports only
+                # ran once at boot (above) and once at worker boot (worker.py).
+                # It is idempotent and age-thresholded, so it is safe to run on
+                # every sweeper cycle too.
+                _sweep_orphaned_exports_and_log(exports_dir, sweeper_log)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # broad: sweeper-loop must survive any DB/transient error to keep running

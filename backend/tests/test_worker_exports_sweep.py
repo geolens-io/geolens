@@ -150,3 +150,49 @@ def test_api_and_worker_share_one_sweeper() -> None:
 
     assert api_main.sweep_orphaned_exports is staging.sweep_orphaned_exports
     assert worker_main.sweep_orphaned_exports is staging.sweep_orphaned_exports
+
+
+def test_stale_jobs_sweeper_also_sweeps_orphaned_exports() -> None:
+    """The periodic sweeper loop must sweep exports on every cycle, not just
+    at process boot.
+
+    Pre-fix, ``sweep_orphaned_exports`` only ran once at API startup and once
+    at worker startup, so export residue from a hard process death (SIGKILL,
+    OOM — not a clean restart) sat until the next boot. The sweep is
+    idempotent and age-thresholded (see the module docstring above), so it is
+    safe on every ``_stale_jobs_sweeper`` cycle too.
+
+    Structural, because the alternative is waiting on the sweeper's real
+    interval. Mirrors the `inspect.getsource(main.lifespan)` pattern used
+    elsewhere to pin behavior inside this same nested closure (e.g.
+    `test_enterprise_overlay_startup_check.py`,
+    `test_service_refresh_1220.py`). Slices out just the
+    `_stale_jobs_sweeper` function body rather than searching the whole
+    `lifespan` source, because a call to the sweep already appears once in
+    `lifespan` for the boot call — a whole-function search would pass even
+    without this fix.
+
+    The actual sweep + conditional log call is factored into the top-level
+    `_sweep_orphaned_exports_and_log` helper (kept out of the nested closure
+    so the extra branch does not push `lifespan`'s McCabe complexity over its
+    gate), so this pins both halves: the loop calls the helper, and the
+    helper calls `sweep_orphaned_exports`.
+    """
+    import inspect
+
+    from app.api import main
+
+    source = inspect.getsource(main.lifespan)
+    sweeper_start = source.index("async def _stale_jobs_sweeper")
+    sweeper_end = source.index("stale_jobs_task = asyncio.create_task", sweeper_start)
+    sweeper_body = source[sweeper_start:sweeper_end]
+
+    assert "_sweep_orphaned_exports_and_log(exports_dir" in sweeper_body, (
+        "the periodic sweeper loop must call the export-sweep helper so export "
+        "residue from a hard process death does not wait for the next restart"
+    )
+
+    helper_source = inspect.getsource(main._sweep_orphaned_exports_and_log)
+    assert "sweep_orphaned_exports(exports_dir)" in helper_source, (
+        "_sweep_orphaned_exports_and_log must actually call sweep_orphaned_exports"
+    )
