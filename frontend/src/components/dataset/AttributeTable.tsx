@@ -6,7 +6,12 @@ import {
   rowSortingFeature,
   columnVisibilityFeature,
   createSortedRowModel,
-  sortFns,
+  sortFn_alphanumeric,
+  sortFn_alphanumericCaseSensitive,
+  sortFn_basic,
+  sortFn_datetime,
+  sortFn_text,
+  sortFn_textCaseSensitive,
   type ColumnDef,
   type SortingState,
   type ColumnVisibilityState,
@@ -37,13 +42,23 @@ import { Loader2, ArrowUpDown, Settings2, Pencil } from 'lucide-react';
 // explicitly (v8 wired getSortedRowModel() as a table option and auto-detected
 // sortingFns). Columns here are built dynamically from the dataset's Postgres
 // column list with no per-column sortFn set, so all six built-ins must be
-// registered — the auto-detected sortFn (alphanumeric/text/datetime/basic)
-// still resolves by data type, but only if it's present in this map.
-const features = tableFeatures({
+// registered by name — the auto-detected sortFn (alphanumeric/text/datetime/
+// basic) still resolves by sampling each column's data, but only if its name
+// is present in this map. Registered individually rather than via the
+// library's bundled `sortFns` export, which is deprecated in favor of
+// importing only the functions actually used.
+export const features = tableFeatures({
   rowSortingFeature,
   columnVisibilityFeature,
   sortedRowModel: createSortedRowModel(),
-  sortFns,
+  sortFns: {
+    alphanumeric: sortFn_alphanumeric,
+    alphanumericCaseSensitive: sortFn_alphanumericCaseSensitive,
+    basic: sortFn_basic,
+    datetime: sortFn_datetime,
+    text: sortFn_text,
+    textCaseSensitive: sortFn_textCaseSensitive,
+  },
 });
 
 /** Columns that are not user-editable */
