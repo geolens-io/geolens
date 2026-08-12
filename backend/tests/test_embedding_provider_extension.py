@@ -13,36 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-def _reset_registry():
-    """Reset extension registry state between tests (RESEARCH.md Pitfall 2).
-
-    Mirrors test_extensions.py:10-15 verbatim. Replicated inline rather than
-    imported to avoid inter-test-file import coupling (Phase 226 RESEARCH.md
-    Pitfall 6).
-    """
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Isolate registry from environment-discovered entry points.
-
-    The enterprise overlay is editable-installable in the backend test venv;
-    that install adds ``geolens.extensions`` entry points which would
-    otherwise pollute the registry whenever a test calls ``load_extensions()``.
-    Patch ``entry_points`` to default-empty so each test starts from a
-    known-empty discovery surface and can opt in to its own mock entry
-    points via ``with patch(...)`` (Phase 226 RESEARCH.md Pitfall 6,
-    Phase 231 RESEARCH.md Pitfall 2).
-    """
-    _reset_registry()
-    with patch("app.platform.extensions.entry_points", return_value=[]):
-        yield
-    _reset_registry()
+pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 def test_default_embedding_provider_registered():

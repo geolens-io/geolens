@@ -6,6 +6,7 @@ import uuid
 import tempfile
 import warnings
 from contextlib import asynccontextmanager, contextmanager
+from unittest.mock import patch
 
 import asyncpg.exceptions
 import pytest
@@ -2324,3 +2325,52 @@ def reset_limiter_storage() -> None:
             "reset_limiter_storage: could not reset limiter storage"
         )
     yield
+
+
+# ---------------------------------------------------------------------------
+# Extension registry reset (app.platform.extensions)
+# ---------------------------------------------------------------------------
+
+
+def _reset_registry() -> None:
+    """Clear all four extension-registry globals between tests.
+
+    ``app.platform.extensions`` tracks loaded overlay state in four module
+    globals: ``_extensions``, ``_routers``, ``_loaded``, ``_slot_owners``.
+    Per-file copies of this reset used to clear only the subset that file's
+    own tests happened to populate (``_extensions``/``_loaded`` alone in
+    most files; some also cleared ``_slot_owners``; the worker-bootstrap
+    files cleared all four). Clearing all four unconditionally is a
+    superset — globals a given file's tests never touch are a no-op to
+    clear — and it closes the latent cross-test pollution a partial reset
+    invites the moment a file starts exercising a slot its own copy-pasted
+    subset didn't anticipate.
+    """
+    import app.platform.extensions as ext_mod
+
+    ext_mod._extensions.clear()
+    ext_mod._routers.clear()
+    ext_mod._loaded = False
+    ext_mod._slot_owners.clear()
+
+
+@pytest.fixture
+def _clean_registry():
+    """Reset the extension registry AND isolate from discovered entry points.
+
+    Non-autouse — consumers opt in via
+    ``@pytest.mark.usefixtures("_clean_registry")`` (module-level
+    ``pytestmark`` in files that want it for every test, mirroring what
+    ``autouse=True`` would do for that one module).
+
+    The enterprise overlay is editable-installable in the backend test venv;
+    that install adds ``geolens.extensions`` entry points which would
+    otherwise pollute the registry whenever a test calls
+    ``load_extensions()``. Patching ``entry_points`` to default-empty gives
+    each test a known-empty discovery surface; a test can still opt in to
+    its own mock entry points via ``with patch(...)``.
+    """
+    _reset_registry()
+    with patch("app.platform.extensions.entry_points", return_value=[]):
+        yield
+    _reset_registry()

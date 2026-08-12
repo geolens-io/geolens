@@ -9,22 +9,7 @@ import uuid
 from fastapi import HTTPException
 import pytest
 
-
-def _reset_registry():
-    """Reset extension registry state between tests."""
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Isolate tests from environment-discovered extension entry points."""
-    _reset_registry()
-    with patch("app.platform.extensions.entry_points", return_value=[]):
-        yield
-    _reset_registry()
+pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 async def _noop_check_dataset_access(db, dataset, dataset_id, user, **kwargs):

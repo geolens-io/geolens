@@ -21,14 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-
-def _reset_registry():
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._routers.clear()
-    ext_mod._loaded = False
-    ext_mod._slot_owners.clear()
+from tests.conftest import _reset_registry
 
 
 def _reset_edition():

@@ -6,33 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
-def _reset_registry():
-    """Reset extension registry state between tests."""
-    import app.platform.extensions as ext_mod
-
-    ext_mod._extensions.clear()
-    ext_mod._loaded = False
-    ext_mod._slot_owners.clear()
-
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Reset registry AND isolate from environment-discovered entry points.
-
-    The enterprise overlay is editable-installable in the backend test
-    venv (so the enterprise migration adding overlay-only columns
-    auto-runs at session setup). That install adds the
-    ``geolens.extensions`` entry
-    point, which would otherwise pollute the registry whenever a test
-    calls ``load_extensions()``. We patch ``entry_points`` to default-empty
-    so each test starts from a known-empty discovery surface and can opt
-    in to its own mock entry points via ``with patch(...)``.
-    """
-    _reset_registry()
-    with patch("app.platform.extensions.entry_points", return_value=[]):
-        yield
-    _reset_registry()
+pytestmark = pytest.mark.usefixtures("_clean_registry")
 
 
 class TestLoadExtensions:
