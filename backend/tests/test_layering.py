@@ -226,6 +226,33 @@ def test_git_grep_guards_use_pcre_and_gnu_escapes_are_live() -> None:
         )
 
 
+def _resolve_relative_import(path: Path, node: ast.ImportFrom) -> str | None:
+    """Resolve an `ImportFrom` node's target to an absolute dotted module name.
+
+    fix(#1438 codex review): `node.module` is only the absolute spelling for a
+    LEVEL-0 (non-relative) import. A relative import — ``from . import X``,
+    ``from ..pkg.mod import X`` — stores the leading dots as `node.level` and
+    `node.module` as whatever follows them (``None`` for a bare ``from .
+    import``), so a guard that reads `node.module` directly sees
+    ``"platform.jobs.router"`` (or nothing at all) for what is actually
+    ``app.platform.jobs.router`` — invisible to any check anchored on the
+    ``app.`` prefix. Climbing `node.level - 1` steps up from the FILE's own
+    package and appending `node.module` reconstructs the real target.
+    Equivalent to ``test_standards_layering.py::_absolute_module`` — kept as a
+    separate copy rather than a cross-file import, since test modules are not
+    meant to import each other's internals.
+    """
+    if node.level == 0:
+        return node.module
+    package = path.parent.relative_to(BACKEND_ROOT).parts
+    trimmed = package[: len(package) - (node.level - 1)]
+    if not trimmed:
+        # Climbs past the `app` package root — not a resolvable target.
+        return None
+    parts = [*trimmed, *(node.module.split(".") if node.module else [])]
+    return ".".join(parts)
+
+
 def _iter_backend_app_python_files() -> list[Path]:
     return sorted((BACKEND_ROOT / "app").rglob("*.py"))
 
@@ -3526,12 +3553,29 @@ def _processing_import_edges() -> dict[str, set[str]]:
     are the two ways this gets sliced — kept as separate burndowns rather than
     one merged list because they lead to different fixes (see
     `_other_domains_import_edges()`'s docstring).
+
+    Handles two import-syntax gaps (fix #1438 codex review): a RELATIVE import
+    (`from ...modules.auth import X`) is resolved to its absolute path via
+    `_resolve_relative_import()` before the prefix check, rather than reading
+    `node.module` as if it were always already-absolute. And `from app.modules
+    import auth` resolves `node.module` to exactly `"app.modules"` — no
+    trailing segment — which does not itself start with `"app.modules."`;
+    falling back to each imported name as a possible extension catches the
+    target this shape actually reaches (`"app.modules.auth"`) without also
+    recording the bare, non-specific `"app.modules"` for the common shape
+    where `node.module` already spells out the full target.
     """
     edges: dict[str, set[str]] = {}
     for path in sorted(_PROCESSING_DIR.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                if resolved.startswith("app.modules."):
+                    modules = [resolved]
+                else:
+                    modules = [f"{resolved}.{alias.name}" for alias in node.names]
             elif isinstance(node, ast.Import):
                 modules = [alias.name for alias in node.names]
             else:
@@ -4431,18 +4475,23 @@ def _private_module_import_edges() -> dict[str, set[str]]:
     vanish without notice. Resolving each import to its full dotted symbol path
     and checking every segment after `app.modules` catches both shapes with one
     rule, rather than two independent checks that could drift apart.
+
+    A RELATIVE import is resolved to its absolute path first (fix #1438 codex
+    review): `node.module` alone is only correct for a level-0 import, so
+    `from ...modules.catalog._private import x` written deep in platform/ or
+    processing/ would otherwise read as module `"modules.catalog._private"`
+    — never reaching the `"app.modules"` prefix check at all.
     """
     offenders: dict[str, set[str]] = {}
     for root in _PRIVATE_MODULE_IMPORT_ROOTS:
         for path in sorted(root.rglob("*.py")):
             for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
                 targets: list[str] = []
-                if isinstance(node, ast.ImportFrom) and node.module:
-                    if not node.module.startswith("app.modules"):
+                if isinstance(node, ast.ImportFrom):
+                    resolved = _resolve_relative_import(path, node)
+                    if resolved is None or not resolved.startswith("app.modules"):
                         continue
-                    targets.extend(
-                        f"{node.module}.{alias.name}" for alias in node.names
-                    )
+                    targets.extend(f"{resolved}.{alias.name}" for alias in node.names)
                 elif isinstance(node, ast.Import):
                     targets.extend(
                         alias.name
@@ -4670,12 +4719,25 @@ _STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
 
 
 def _standards_module_import_edges() -> dict[str, set[str]]:
-    """Every `app.modules.*` import under standards/, at ANY scope."""
+    """Every `app.modules.*` import under standards/, at ANY scope.
+
+    Same two shapes handled as `_processing_import_edges()` above (fix #1438
+    codex review): a relative import is resolved to its absolute path before
+    the prefix check, and `from app.modules import X` falls back to each
+    imported name as a possible extension of the bare, non-specific
+    `"app.modules"` `node.module` resolves to.
+    """
     edges: dict[str, set[str]] = {}
     for path in sorted(_STANDARDS_DIR.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                if resolved.startswith("app.modules."):
+                    modules = [resolved]
+                else:
+                    modules = [f"{resolved}.{alias.name}" for alias in node.names]
             elif isinstance(node, ast.Import):
                 modules = [alias.name for alias in node.names]
             else:
@@ -4829,6 +4891,14 @@ def _cross_package_router_import_edges() -> dict[str, set[str]]:
     ``catalog/maps/router_assets.py``) is the normal way a domain's API surface
     is assembled, and neither file is "outside its own package" from the
     other's perspective.
+
+    A RELATIVE import is resolved to its absolute path first (fix #1438 codex
+    review): `from ...platform.jobs.router import name`, written deep inside
+    `app/modules/catalog/collections/`, stores `node.module ==
+    "platform.jobs.router"` with `node.level == 3` — reading `node.module`
+    directly gives a string that does not start with `"app."` and is silently
+    skipped, the same equivalent-relative-syntax bypass `_resolve_relative_
+    import()` closes for the other three collectors in this file.
     """
     offenders: dict[str, set[str]] = {}
     for path in sorted(_backend_path("app").rglob("*.py")):
@@ -4846,12 +4916,15 @@ def _cross_package_router_import_edges() -> dict[str, set[str]]:
                         inside_functions.add(child)
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.ImportFrom) and node.module:
-                candidates = [node.module]
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                candidates = [resolved]
                 candidates.extend(
-                    f"{node.module}.{alias.name}"
+                    f"{resolved}.{alias.name}"
                     for alias in node.names
-                    if _resolves_to_real_module(f"{node.module}.{alias.name}")
+                    if _resolves_to_real_module(f"{resolved}.{alias.name}")
                 )
             elif isinstance(node, ast.Import):
                 candidates = [alias.name for alias in node.names]
