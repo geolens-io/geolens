@@ -36,7 +36,10 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from tests.alembic_helpers import run_alembic as _run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    run_alembic as _run_alembic,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -96,24 +99,8 @@ async def _hnsw_index_is_valid() -> bool:
     return bool(rows and rows[0][0])
 
 
-def _enterprise_migrations_present() -> bool:
-    """Multi-head under the enterprise overlay; see
-    test_dormant_tenancy_migration_roundtrip.py for the full rationale."""
-    import pathlib
-    from importlib.metadata import entry_points
-
-    for ep in entry_points(group="geolens.migrations"):
-        try:
-            fn = ep.load()
-            if callable(fn) and any(pathlib.Path(p).is_dir() for p in fn()):
-                return True
-        except Exception:
-            pass
-    return False
-
-
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration test; multi-head under enterprise overlay — "
     "runs in the no-overlay Pytest Parallel Isolation job instead.",
 )

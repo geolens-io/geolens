@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from importlib.metadata import entry_points
-from pathlib import Path
-
 import pytest
 import sqlalchemy as sa
 
 from tests.repo_paths import repo_root
-from tests.alembic_helpers import run_alembic as _run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    run_alembic as _run_alembic,
+)
 
 _REPO_ROOT = repo_root(__file__)
 _BACKEND_DIR = _REPO_ROOT / "backend"
@@ -19,19 +19,8 @@ _PRE_TRANSLATIONS_REVISION = "0013_backfill_geoparquet_distributions"
 _TITLE_PREFIX = "migration-0014-lock-test-"
 
 
-def _enterprise_migrations_present() -> bool:
-    for entry_point in entry_points(group="geolens.migrations"):
-        try:
-            provider = entry_point.load()
-            if callable(provider) and any(Path(path).is_dir() for path in provider()):
-                return True
-        except Exception:
-            pass
-    return False
-
-
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 

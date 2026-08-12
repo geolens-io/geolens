@@ -32,12 +32,36 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from importlib.metadata import entry_points
 from pathlib import Path
 
 import sqlalchemy
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _ALEMBIC_INI = _BACKEND_DIR / "alembic.ini"
+
+
+def enterprise_migrations_present() -> bool:
+    """True when an enterprise/overlay migrations entry-point is installed.
+
+    conftest then migrates the per-worker test DB to the enterprise head (e.g.
+    e002_add_saml_columns), making the alembic environment MULTI-HEAD. The
+    core-only ``alembic`` subprocess these OSS-drift-gate roundtrip/check tests
+    shell out to can neither locate the enterprise revision nor disambiguate
+    ``head`` / ``-1`` across branches — so they are skipped under the overlay.
+    They still run (and gate drift) in the no-overlay Pytest Parallel Isolation
+    job. Core registers no ``geolens.migrations`` entry-point, so this is False
+    for community/OSS runs.
+    """
+    for ep in entry_points(group="geolens.migrations"):
+        try:
+            fn = ep.load()
+            if callable(fn) and any(Path(p).is_dir() for p in fn()):
+                return True
+        except Exception:
+            pass
+    return False
+
 
 # The remediation SQL that 0030's own error message prescribes. Collapsing a
 # two-ring seam extent to its envelope LOSES the antimeridian-crossing shape

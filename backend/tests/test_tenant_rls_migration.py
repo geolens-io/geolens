@@ -33,7 +33,10 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
-from tests.alembic_helpers import run_alembic as _run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    run_alembic as _run_alembic,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,33 +60,8 @@ _RLS_TABLES = [
 _POLICY_NAMES = [f"tenant_isolation_{t}" for t in _RLS_TABLES]
 
 
-def _enterprise_migrations_present() -> bool:
-    """True when an enterprise/overlay migrations entry-point is installed.
-
-    conftest then migrates the per-worker test DB to the enterprise head (e.g.
-    e002_add_saml_columns), making the alembic environment MULTI-HEAD. The
-    core-only ``alembic`` subprocess these OSS-drift-gate roundtrip/check tests
-    shell out to can neither locate the enterprise revision nor disambiguate
-    ``head`` / ``-1`` across branches — so they are skipped under the overlay.
-    They still run (and gate drift) in the no-overlay Pytest Parallel Isolation
-    job. Core registers no ``geolens.migrations`` entry-point, so this is False
-    for community/OSS runs.
-    """
-    import pathlib
-    from importlib.metadata import entry_points
-
-    for ep in entry_points(group="geolens.migrations"):
-        try:
-            fn = ep.load()
-            if callable(fn) and any(pathlib.Path(p).is_dir() for p in fn()):
-                return True
-        except Exception:
-            pass
-    return False
-
-
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration drift gate; multi-head under enterprise overlay — "
     "runs in the no-overlay Pytest Parallel Isolation job instead.",
 )

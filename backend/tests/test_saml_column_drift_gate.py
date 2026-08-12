@@ -15,22 +15,18 @@ from pathlib import Path
 import pytest
 import sqlalchemy
 from sqlalchemy import text
-from tests.alembic_helpers import run_alembic as _run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    run_alembic as _run_alembic,
+)
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 SAML_COLUMNS = ("idp_entity_id", "idp_sso_url", "idp_certificate", "sp_entity_id")
 
 
-def _enterprise_migrations_present() -> bool:
-    from alembic.config import Config
-
-    cfg = Config(str(_BACKEND_DIR / "alembic.ini"))
-    return " " in (cfg.get_main_option("version_locations") or "").strip()
-
-
 _SKIP_UNDER_OVERLAY = pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration drift gate; multi-head under the enterprise overlay",
 )
 

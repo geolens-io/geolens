@@ -17,13 +17,15 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from importlib.metadata import entry_points
-from pathlib import Path
 
 import pytest
 from sqlalchemy import text
 
-from tests.alembic_helpers import normalize_seam_extents, run_alembic
+from tests.alembic_helpers import (
+    enterprise_migrations_present,
+    normalize_seam_extents,
+    run_alembic,
+)
 from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -33,21 +35,8 @@ pytestmark = pytest.mark.anyio
 _PRE_API_KEY_HARDENING = "0028_oauth_email_verified_backfill"
 
 
-def _enterprise_migrations_present() -> bool:
-    """Mirror the migration files' overlay skip: multi-head alembic cannot
-    disambiguate head / -1, so roundtrips run in the no-overlay job only."""
-    for entry_point in entry_points(group="geolens.migrations"):
-        try:
-            provider = entry_point.load()
-            if callable(provider) and any(Path(path).is_dir() for path in provider()):
-                return True
-        except Exception:
-            pass
-    return False
-
-
 @pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_seam_extent_no_longer_breaks_downgrade_past_0030(test_db_session):
@@ -125,7 +114,7 @@ async def _seed_expiring_key(session, *, epoch_bump: bool) -> None:
 
 
 @pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_downgrade_past_0029_refuses_while_key_state_exists(test_db_session):
@@ -162,7 +151,7 @@ async def test_downgrade_past_0029_refuses_while_key_state_exists(test_db_sessio
 
 
 @pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_key_state_no_longer_breaks_downgrade_past_0029(test_db_session):
@@ -190,7 +179,7 @@ async def test_key_state_no_longer_breaks_downgrade_past_0029(test_db_session):
 
 
 @pytest.mark.skipif(
-    _enterprise_migrations_present(),
+    enterprise_migrations_present(),
     reason="OSS migration round-trip runs in the no-overlay migration job",
 )
 async def test_clean_database_still_downgrades_past_0029(test_db_session):
