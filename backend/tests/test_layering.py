@@ -4604,3 +4604,120 @@ def test_platform_never_imports_processing_routers() -> None:
             "into a service/schema module and import that instead.\n"
             + "\n".join(offenders)
         )
+
+
+# fix(#1438 F7): standards/ has two import-boundary guards, and this is the
+# second. `backend/tests/test_standards_layering.py` (added by #1438) holds
+# standards -> app.processing to a strict zero, mirroring the catalog rule
+# (processing-owned ORM classes, queries, and helpers must be reached through
+# CatalogPort). standards -> app.modules got no guard at all: the STAC and OGC
+# routers construct queries directly against catalog ORM classes
+# (datasets/collections/records/search), which is a live, reviewed design
+# choice — those routers exist to expose the catalog through external
+# standards, and a port indirection would not remove the coupling, only hide
+# it. So this is NOT a burn-down toward zero the way the processing guards
+# above are: it is a FROZEN surface. Today's edges are enumerated once so the
+# surface cannot grow silently; shrinking (migrating an edge through
+# CatalogPort) is welcome but not required.
+_STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
+    "dcat/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.records.localization",
+    },
+    "dcat_us/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "geodcat_ap/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "ogc/filtering.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.search.schemas",
+    },
+    "ogc/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.features.schemas",
+        "app.modules.catalog.features.service",
+    },
+    "ogc/schemas.py": {
+        "app.modules.catalog.features.schemas",
+    },
+    "stac/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.collections.models",
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.features.service",
+        "app.modules.catalog.search.service",
+    },
+    "stac/schemas.py": {
+        "app.modules.catalog.features.schemas",
+    },
+}
+
+
+def _standards_module_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.*` import under standards/, at ANY scope."""
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_STANDARDS_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if module.startswith("app.modules."):
+                    key = str(path.relative_to(_STANDARDS_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
+@pytest.mark.architecture
+def test_standards_module_import_surface_does_not_grow() -> None:
+    """standards/ -> app.modules.* is frozen at today's edges, not banned.
+
+    fix(#1438 F7): unlike the processing/platform burndowns elsewhere in this
+    file, `_STANDARDS_MODULE_IMPORT_SURFACE` is not a to-do list — STAC/OGC/DCAT
+    exist to expose the catalog to external standards, so direct ORM access is
+    the design, not debt. What this guards against is the surface growing
+    UNREVIEWED: a new file or a new edge here should be a deliberate addition to
+    the allowlist, not a silent side effect of a router growing a new route.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_standards_module_import_edges().items()):
+        allowed = _STANDARDS_MODULE_IMPORT_SURFACE.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/standards/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "backend/app/standards/ imports app.modules.* outside its reviewed "
+            "surface. If this is a deliberate, reviewed addition (mirroring the "
+            "existing STAC/OGC/DCAT catalog-ORM access), add it to "
+            "_STANDARDS_MODULE_IMPORT_SURFACE. If it is avoidable, prefer "
+            "CatalogPort (app.core.catalog_port) instead.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_standards_module_import_surface_is_current() -> None:
+    """The frozen surface must shrink (or stay flat) as edges are migrated.
+
+    A stale entry overstates today's coupling and is a silent licence to
+    reintroduce a since-removed edge later without review.
+    """
+    edges = _standards_module_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_STANDARDS_MODULE_IMPORT_SURFACE.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_STANDARDS_MODULE_IMPORT_SURFACE lists edges that no longer exist. "
+            "Delete them — the surface only shrinks.\n" + "\n".join(stale)
+        )
