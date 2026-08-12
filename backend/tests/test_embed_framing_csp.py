@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.maps.models import Map, MapShareToken
 from app.modules.embed_tokens.models import EmbedToken
+from app.modules.embed_tokens.sharing import get_active_allowed_origins
 
 from tests.factories import get_user_id
 
@@ -348,6 +349,56 @@ async def test_shared_map_csp_header_drops_wildcard_origin(
     assert "*" not in csp, (
         f"CSP MUST NOT contain '*' — _build_frame_ancestors failed to drop wildcard, got: {csp!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The embed-tokens seam the CSP path reads through
+# ---------------------------------------------------------------------------
+
+
+async def test_active_allowed_origins_seam_ignores_inactive_tokens(
+    test_db_session: AsyncSession,
+):
+    """``get_active_allowed_origins`` returns the ACTIVE token's origins only.
+
+    The origins above reach the CSP header through this helper rather than
+    through an inline ``select(EmbedToken...)`` in the maps service, so the
+    is_active predicate is pinned here where it lives. Revoked tokens are kept
+    (soft-revoke sets is_active=False), and a revoked partner origin coming
+    back would re-grant framing to a partner whose access was withdrawn.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_public_map(test_db_session, created_by=admin_id)
+    # Revoked first: uq_embed_tokens_one_active_per_map allows only one ACTIVE
+    # token per map, so this is the shape a re-issued token actually leaves.
+    await _create_embed_token(
+        test_db_session,
+        map_id=map_obj.id,
+        created_by=admin_id,
+        allowed_origins=["https://revoked.example"],
+        is_active=False,
+    )
+    await _create_embed_token(
+        test_db_session,
+        map_id=map_obj.id,
+        created_by=admin_id,
+        allowed_origins=["https://current.example"],
+    )
+    await test_db_session.commit()
+
+    origins = await get_active_allowed_origins(test_db_session, map_obj.id)
+    assert origins == ["https://current.example"]
+
+
+async def test_active_allowed_origins_seam_returns_none_without_a_token(
+    test_db_session: AsyncSession,
+):
+    """No active token is ``None``, not ``[]`` — the caller renders them apart."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_public_map(test_db_session, created_by=admin_id)
+    await test_db_session.commit()
+
+    assert await get_active_allowed_origins(test_db_session, map_obj.id) is None
 
 
 def test_e2e_sec_audit_s08_skips_when_no_share_token():

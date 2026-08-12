@@ -26,8 +26,11 @@ from app.modules.catalog.maps.service_shared import (
     _apply_map_visibility_filter,
     _extract_dem_vertical_units,
 )
-from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import resolve_embed_scope_for_map
+from app.modules.embed_tokens.sharing import (
+    active_embed_count_subquery,
+    get_active_allowed_origins,
+)
 from app.platform.extensions import (
     DefaultPermissionExtension,
     RecordAudience,
@@ -514,33 +517,12 @@ async def get_shared_map(
             session, embed_token, token_obj.map_id, request
         )
 
-    # SEC-S08 (Phase 1062-05): query the active EmbedToken for this map to
-    # surface allowed_origins. The router uses this to emit a per-token
-    # frame-ancestors CSP header. ShareToken and EmbedToken are distinct
-    # primitives — a map may have one without the other.
-    #
-    # CR-04 (Phase 1062 review): include non-expiring tokens (expires_at IS NULL)
-    # in the query. In PostgreSQL, NULL > now() evaluates to NULL (falsy), so
-    # the original `expires_at > func.now()` predicate silently excluded
-    # non-expiring EmbedTokens, causing the CSP header to fall back to
-    # "frame-ancestors 'self'" and breaking embed framing for community-edition
-    # tokens (which default to no expiry).
-    embed_stmt = (
-        select(EmbedToken.allowed_origins)
-        .where(
-            EmbedToken.map_id == token_obj.map_id,
-            EmbedToken.is_active == True,  # noqa: E712
-            or_(
-                EmbedToken.expires_at.is_(None),
-                EmbedToken.expires_at > func.now(),
-            ),
-        )
-        .order_by(EmbedToken.created_at.desc())
-        .limit(1)
+    # SEC-S08 (Phase 1062-05): the router emits a per-token frame-ancestors CSP
+    # header from these origins. The query (including why non-expiring tokens
+    # need an explicit NULL branch) lives behind the embed-tokens seam.
+    allowed_origins: list[str] | None = await get_active_allowed_origins(
+        session, token_obj.map_id
     )
-    allowed_origins: list[str] | None = (
-        await session.execute(embed_stmt)
-    ).scalar_one_or_none()
 
     RasterAsset = get_catalog_port().raster_asset_orm_class()
 
@@ -766,8 +748,6 @@ async def list_share_tokens(
     from sqlalchemy.orm import aliased
     from sqlalchemy.sql import ColumnElement
 
-    from app.modules.embed_tokens.models import EmbedToken
-
     # Most-recent share token per map (DISTINCT ON map_id, preferring an active
     # token, then newest). map_id has no unique constraint, so a map may have
     # several historical tokens — collapse to one row per map.
@@ -783,15 +763,7 @@ async def list_share_tokens(
     )
     share = aliased(MapShareToken, latest_token_sub)
 
-    embed_count_sub = (
-        select(
-            EmbedToken.map_id,
-            func.count().label("embed_count"),
-        )
-        .where(EmbedToken.is_active.is_(True))
-        .group_by(EmbedToken.map_id)
-        .subquery()
-    )
+    embed_count_sub = active_embed_count_subquery()
     # Built once and used for both the SELECT list and (when sorted on) the
     # ORDER BY, so the number the row displays and the number it is ordered by
     # cannot drift apart.
