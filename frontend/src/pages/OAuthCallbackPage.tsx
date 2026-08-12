@@ -56,12 +56,13 @@ export function OAuthCallbackPage() {
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
-      .catch(async () => {
+      .catch(() => {
         // fix(#1446): the backend already installed the refresh cookie before
         // redirecting here, so clearing the store alone would strand a
-        // replayable credential the UI claims is gone. Best-effort server
-        // revocation first, while the temporary bearer token is still set.
-        await logoutSession().catch(() => {});
+        // replayable credential the UI claims is gone. logoutSession captures
+        // the temporary bearer token synchronously, so dispatching it here
+        // sends a fully-formed request before the store is cleared below.
+        void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         navigate('/login', { replace: true });
       });

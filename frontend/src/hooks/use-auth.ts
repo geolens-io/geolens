@@ -6,9 +6,6 @@ import { useAuthStore } from '@/stores/auth-store';
 import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
 import { tryRefresh } from '@/api/client';
 
-/** Longest the UI waits on server-side revocation before tearing down locally. */
-const LOGOUT_MAX_WAIT_MS = 3_000;
-
 export function useAuth() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -79,7 +76,8 @@ export function useAuth() {
         // fix(#1446): login already installed the refresh cookie. Bailing out
         // with only a store reset would leave that credential live while the
         // UI reports a failed sign-in, so revoke it before surfacing the error.
-        await logoutSession().catch(() => {});
+        // Dispatched, not awaited — same reasoning as logout below.
+        void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         throw err;
       }
@@ -102,18 +100,15 @@ export function useAuth() {
     // Set-Cookie. A failure here (offline, or a session already dead) must not
     // trap the user in a session they asked to leave, so the local teardown
     // runs either way.
-    // fix(#1446): bound the WAIT, not just the request. logoutSession's own
-    // timeout covers its fetch, but a 401 there detours through tryRefresh,
-    // whose request carries a separate deadline this signal cannot reach.
-    // Racing a timer caps how long the user stares at an authenticated screen
-    // regardless of which leg stalls. The request keeps running and may still
-    // revoke; we simply stop waiting on it.
-    await Promise.race([
-      logoutSession().catch(() => {
-        // Offline, or a session already dead. Local teardown proceeds.
-      }),
-      new Promise<void>((resolve) => setTimeout(resolve, LOGOUT_MAX_WAIT_MS)),
-    ]);
+    // fix(#1446): dispatch, do not await. logoutSession reads the bearer token
+    // synchronously and issues a plain fetch, so the request is already in
+    // flight with its credential attached by the time this returns — teardown
+    // below cannot affect it. Waiting would only buy a confirmation we never
+    // act on, at the cost of holding the user on an authenticated screen for
+    // as long as the network stalls.
+    void logoutSession().catch(() => {
+      // Offline, or a session already dead. Local teardown proceeds regardless.
+    });
     // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
     // does not see the previous user's cached identity.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });

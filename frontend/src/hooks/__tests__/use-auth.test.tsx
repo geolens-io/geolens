@@ -159,34 +159,23 @@ describe('useAuth', () => {
     expect(useAuthStore.getState().token).toBeNull();
   });
 
-  // fix(#1446): the bound is on the WAIT, not just the request — a 401 inside
-  // logoutSession detours through tryRefresh, whose own fetch carries a
-  // separate deadline the logout signal cannot reach.
-  it('logout stops waiting on a stalled server call and tears down anyway', async () => {
-    vi.useFakeTimers();
-    try {
-      useAuthStore.setState({ token: 'abc', refreshToken: null, expiresAt: 999, user: mockUser() });
-      // Never settles, mimicking a stalled refresh detour.
-      mockLogoutSession.mockImplementation(() => new Promise<void>(() => {}));
+  // fix(#1446): revocation is DISPATCHED, never awaited. logoutSession forms
+  // its request with a synchronously-captured bearer token, so teardown cannot
+  // strip its credential, and a stalled network cannot hold the user on an
+  // authenticated screen.
+  it('logout tears down immediately without waiting on the server call', async () => {
+    useAuthStore.setState({ token: 'abc', refreshToken: null, expiresAt: 999, user: mockUser() });
+    // Never settles, mimicking a blackholed connection.
+    mockLogoutSession.mockImplementation(() => new Promise<void>(() => {}));
 
-      const { result } = renderHook(() => useAuth());
-      let done = false;
-      const pending = result.current.logout().then(() => {
-        done = true;
-      });
+    const { result } = renderHook(() => useAuth());
+    await act(async () => {
+      await result.current.logout();
+    });
 
-      expect(done).toBe(false);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(3_000);
-      });
-      await pending;
-
-      expect(done).toBe(true);
-      expect(useAuthStore.getState().token).toBeNull();
-      expect(mockNavigate).toHaveBeenCalledWith('/login');
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().token).toBeNull();
+    expect(mockNavigate).toHaveBeenCalledWith('/login');
   });
 
   it('logout still clears local state when the server call fails', async () => {

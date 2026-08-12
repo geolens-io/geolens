@@ -1,4 +1,4 @@
-import { login, refreshAccessToken } from '@/api/auth';
+import { login, logoutSession, refreshAccessToken } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
 
 // fix(#1302): AC — after login the persisted `geolens-auth` value holds no
@@ -58,6 +58,36 @@ describe('browser refresh transport', () => {
       refresh_token: 'legacy-refresh-token',
     });
     expect(init.headers).toMatchObject({ 'X-GeoLens-Auth-Mode': 'cookie' });
+  });
+
+  // fix(#1446): the request must be fully formed before the caller tears down
+  // local state. Routing it through apiFetch would await a proactive refresh
+  // first when the token is near expiry, and a caller that stopped waiting
+  // during that window got a logout POST with no Authorization header — while
+  // the refresh had already installed a rotated cookie.
+  it('logout captures the bearer token synchronously and sends it', async () => {
+    useAuthStore.setState({ token: 'live-access', expiresAt: Date.now() + 1_000 });
+    mockFetch.mockImplementationOnce(() => {
+      // Mid-flight teardown must not affect the request already dispatched.
+      useAuthStore.getState().logout();
+      return Promise.resolve({
+        ok: true,
+        status: 204,
+        statusText: 'No Content',
+        json: () => Promise.reject(new Error('no body')),
+        headers: new Headers(),
+      } as Response);
+    });
+
+    await logoutSession();
+
+    const [url, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/auth/logout/');
+    expect(init.method).toBe('POST');
+    expect(init.headers).toEqual({ Authorization: 'Bearer live-access' });
+    expect(init.credentials).toBe('same-origin');
+    // Exactly one request: no proactive-refresh detour.
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it('opts login into the cookie flow', async () => {

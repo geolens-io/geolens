@@ -1,6 +1,7 @@
 import { API_BASE } from '@/lib/constants';
 import { cookieAuthHeaders } from '@/lib/auth-transport';
-import { apiFetch } from './client';
+import { useAuthStore } from '@/stores/auth-store';
+import { apiFetch, safeFetch } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import type { TokenResponse, UserResponse, AuthConfigResponse, MessageResponse, SignupResponse, MyApiKeyResponse, ApiKeyCreateResponse, ApiKeyScope, OAuthProviderPublic, UserQuotaUsage } from '@/types/api';
 
@@ -38,6 +39,8 @@ export async function getMe(): Promise<UserResponse> {
   return apiFetch<UserResponse>('/auth/me/');
 }
 
+const LOGOUT_TIMEOUT_MS = 3_000;
+
 /**
  * fix(#1446): end the session on the server, not just in this tab.
  *
@@ -48,18 +51,24 @@ export async function getMe(): Promise<UserResponse> {
  * client-side logout would leave a live cookie (and its server row) behind for
  * the remainder of its lifetime. Only the server's `Set-Cookie` can clear it.
  *
- * Routed through apiFetch deliberately: if the access token has aged out, the
- * 401 path refreshes from the cookie and retries, so logout still lands.
- *
- * fix(#1446): bounded well below apiFetch's 30s default. The caller blocks on
- * this before tearing down local state, so a blackholed connection would
- * otherwise leave someone looking signed-in for half a minute after clicking
- * Logout.
+ * Deliberately a plain fetch rather than `apiFetch`, reading the bearer token
+ * synchronously so the request is fully formed and in flight before the caller
+ * tears down local state. Routing it through `apiFetch` looked appealing (its
+ * 401 path can refresh from the cookie and retry) but is wrong here: when the
+ * access token sits inside the proactive-refresh window, `apiFetch` awaits a
+ * refresh BEFORE dispatching. If the caller stopped waiting during that
+ * window, the refresh still installed a rotated cookie while the logout POST
+ * then went out with no Authorization header at all — leaving exactly the live
+ * credential this call exists to revoke.
  */
-const LOGOUT_TIMEOUT_MS = 3_000;
-
 export async function logoutSession(): Promise<void> {
-  await apiFetch<void>('/auth/logout/', { method: 'POST', timeoutMs: LOGOUT_TIMEOUT_MS });
+  const token = useAuthStore.getState().token;
+  await safeFetch(`${API_BASE}/auth/logout/`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'same-origin',
+    signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+  });
 }
 
 export async function registerUser(data: {
