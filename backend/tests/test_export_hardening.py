@@ -131,6 +131,38 @@ class TestExportEndpointCapabilityGate:
         )
 
 
+class TestExportFileTouchedBeforeStreaming:
+    def test_export_endpoint_touches_the_file_before_filereponse(self):
+        """fix(#1435 codex round 2): the periodic and boot-time export sweeps
+        both read an export's mtime as its "last activity" signal. ogr2ogr's
+        writes keep the file fresh while it is being generated, but the
+        mtime freezes the moment ogr2ogr closes it — including for the rest
+        of a (possibly long, possibly slow-client) download. Refreshing the
+        file's mtime right before handing it to FileResponse restarts that
+        clock at "streaming is about to begin" instead of "generation
+        finished sometime earlier," closing the gap where a still-downloading
+        export could be swept out from under a client mid-stream.
+
+        Source-inspection, matching the sibling capability-gate test above:
+        standing up a full dataset + ogr2ogr run to exercise this one-line
+        os.utime call would not cover anything this check does not already
+        pin more directly, and the behavioral effect (mtime freshness) is
+        exercised by test_worker_exports_sweep.py's sweep-algorithm tests.
+        """
+        import inspect
+
+        from app.processing.export.router import export_dataset_endpoint
+
+        src = inspect.getsource(export_dataset_endpoint)
+        assert "os.utime(file_path, None)" in src, (
+            "export_dataset_endpoint must refresh file_path's mtime before "
+            "streaming it, so the sweep's age clock restarts at download time"
+        )
+        assert src.index("os.utime(file_path, None)") < src.index(
+            "return FileResponse("
+        ), "the mtime touch must run BEFORE FileResponse is constructed, not after"
+
+
 # ---------------------------------------------------------------------------
 # KNOWN-05 (Phase 1071): live 403-for-revoked-viewer parity with v1014 SEC-S04
 # ---------------------------------------------------------------------------

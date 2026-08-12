@@ -403,6 +403,17 @@ async def export_dataset_endpoint(
         raise
 
     # 9. Return file with background cleanup
+    # fix(#1435 codex round 2): touch the file's mtime right before handing it
+    # to FileResponse. sweep_orphaned_exports (periodic + boot) reads it as
+    # "most recent activity" — ogr2ogr's writes already keep it fresh while
+    # the file is being generated, but once ogr2ogr closes it the mtime
+    # freezes for the rest of a (possibly long, possibly slow-client)
+    # download. This resets the age-threshold clock to "streaming is about to
+    # begin" instead of "generation finished sometime earlier."
+    try:
+        os.utime(file_path, None)
+    except OSError:
+        pass  # best-effort freshness signal; a failure here must not block the download
     return FileResponse(
         path=file_path,
         filename=filename,

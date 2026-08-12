@@ -2038,7 +2038,33 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # bootstrap(). The lifespan owning a second copy is how the API and the
     # worker ended up with different tile-cache states in the first place.
     # Cap 1332 -> 1330, exact.
-    "backend/app/api/main.py": 1330,
+    # +20 — the periodic _stale_jobs_sweeper loop now also sweeps exports/ on
+    # every cycle, not just once at boot: export residue from a hard process
+    # death (SIGKILL, OOM) used to sit until the next restart. The sweep +
+    # conditional log live in a small top-level _sweep_orphaned_exports_and_log
+    # helper (with the Path import it needs) rather than inline in the loop,
+    # so the extra branch does not push lifespan's McCabe complexity past its
+    # gate. Cap 1330 -> 1350, exact.
+    # fix(#1435 codex round 1): +12 — the periodic sweep runs continuously
+    # rather than only at a restart, so it needs a wider age threshold than
+    # the boot-time callers (a directory's mtime does not advance while
+    # ogr2ogr keeps writing the file inside it or a client keeps streaming it
+    # out) — otherwise any export whose total lifetime exceeds 1 hour gets
+    # deleted out from under it on the next 5-minute cycle, guaranteed.
+    # Cap 1350 -> 1362, exact.
+    # fix(#1435 codex round 5): +24 — sweep_orphaned_exports does synchronous
+    # directory traversal + shutil.rmtree; unlike the boot-time callers,
+    # which run before the event loop serves traffic, the periodic caller
+    # runs on a live server every few minutes and was calling it inline,
+    # stalling request handling for the duration. Now runs via
+    # run_in_thread_draining through a small positional-only wrapper
+    # (age_threshold_seconds is keyword-only on sweep_orphaned_exports, and
+    # the helper only forwards *args). Cap 1362 -> 1386, exact.
+    # +3 — one-line comment at the periodic call site stating why the two
+    # boot-time callers deliberately stay synchronous, so a future review
+    # round reads the asymmetry as intentional rather than a missed sibling.
+    # Cap 1386 -> 1389, exact.
+    "backend/app/api/main.py": 1389,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -2180,7 +2206,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `responses={403: FORBIDDEN_RESPONSE}` override; it only requires
     # authentication, not the router's write-flavored default. Cap 1545 ->
     # 1550, exact.
-    "backend/app/processing/ingest/router.py": 1550,
+    # Collapsed the add/remove VRT-source defer-rollback closures onto the
+    # shared make_vrt_regeneration_failed_rollback factory in defer_guard.py
+    # instead of hand-rolling the same eight-field revert twice with only
+    # comment/statement-order differences between them (-7 net). Landed
+    # concurrently with the responses={403:...} addition above; recounted
+    # after merge rather than picking either side's number. Cap 1550 ->
+    # 1543, exact.
+    "backend/app/processing/ingest/router.py": 1543,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2481,7 +2514,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the third admission point and still creation-shaped, so an owner at the
     # dataset-count cap passed the request-time door, uploaded the bytes, and
     # was refused at completion. Cap 1143 -> 1149, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1149,
+    # +2 — the uncommitted-source cleanup helper re-raises CancelledError
+    # instead of swallowing it, mirroring the re-raise convention already used
+    # by the other three CancelledError checks in this file. Cap 1149 -> 1151,
+    # exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1151,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

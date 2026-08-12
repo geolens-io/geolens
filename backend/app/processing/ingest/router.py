@@ -99,7 +99,10 @@ from app.processing.ingest.presigned import (
 )
 from app.processing.ingest.tasks import regenerate_vrt_staged
 from app.processing.ingest.validation import validate_file_content
-from app.platform.jobs.defer_guard import defer_with_orphan_guard
+from app.platform.jobs.defer_guard import (
+    defer_with_orphan_guard,
+    make_vrt_regeneration_failed_rollback,
+)
 from app.core.persistent_config import (
     UPLOAD_ALLOWED_EXTENSIONS,
     UPLOAD_MAX_SIZE_MB,
@@ -1359,26 +1362,21 @@ async def add_vrt_source(
             triggered_by=str(user.id),
         )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        # Revert VRT asset state to what it was before step 7.
-        vrt_asset.status = previous_status
-        vrt_asset.current_generation_id = previous_generation_id
-        generation.status = "failed"
-        generation.completed_at = datetime.now(timezone.utc)
-        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        # fix(#1327): no link surgery here any more. This used to DELETE the
-        # row it had just inserted; with the member set staged on the
-        # generation, an undispatched request never touched vrt_source_links,
-        # so there is nothing to put back. The staged set stays on the failed
-        # generation row as the record of what was asked for — it can only be
-        # applied by a task that still owns the asset pointer, which this
-        # rollback has just handed back.
-        # Mark the IngestJob failed so /jobs listings reflect reality.
-        job.status = "failed"
-        job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        job.completed_at = datetime.now(timezone.utc)
-
-    await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
+    # fix(#1327): no link-table rollback needed here. This used to DELETE the
+    # row it had just inserted; with the member set staged on the generation,
+    # an undispatched request never touched vrt_source_links, so there is
+    # nothing to put back. The staged set stays on the failed generation row
+    # as the record of what was asked for — it can only be applied by a task
+    # that still owns the asset pointer, which this rollback has just handed
+    # back.
+    rollback = make_vrt_regeneration_failed_rollback(
+        vrt_asset,
+        generation,
+        job,
+        previous_status=previous_status,
+        previous_generation_id=previous_generation_id,
+    )
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
 
     # fix(#1327): "queued", not "added". The catalog's source list still
     # describes the VRT being served; the addition becomes part of it when the
@@ -1526,23 +1524,18 @@ async def remove_vrt_source(
             triggered_by=str(user.id),
         )
 
-    async def _rollback(defer_exc: BaseException) -> None:
-        # fix(#1327): nothing to re-insert. The link row was never deleted —
-        # the post-removal set is staged on the generation and only applied at
-        # the artifact swap, so an undispatched request leaves the catalog's
-        # member set untouched.
-        # Revert VRT asset state.
-        vrt_asset.status = previous_status
-        vrt_asset.current_generation_id = previous_generation_id
-        generation.status = "failed"
-        generation.completed_at = datetime.now(timezone.utc)
-        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        # Mark the IngestJob failed.
-        job.status = "failed"
-        job.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        job.completed_at = datetime.now(timezone.utc)
-
-    await defer_with_orphan_guard(_defer, rollback=_rollback, db=db)
+    # fix(#1327): nothing to re-insert. The link row was never deleted — the
+    # post-removal set is staged on the generation and only applied at the
+    # artifact swap, so an undispatched request leaves the catalog's member
+    # set untouched.
+    rollback = make_vrt_regeneration_failed_rollback(
+        vrt_asset,
+        generation,
+        job,
+        previous_status=previous_status,
+        previous_generation_id=previous_generation_id,
+    )
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
 
     # fix(#1327): "queued", not "removed" — see the add endpoint's tail.
     return VrtMutationResponse(

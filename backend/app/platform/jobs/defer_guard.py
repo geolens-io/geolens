@@ -32,14 +32,23 @@ ingest service module.
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.jobs.models import IngestJob
+
+if TYPE_CHECKING:
+    # Typing-only edge: `platform/` must not import `processing/` at module
+    # scope (test_layering.py's _PLATFORM_PROCESSING_IMPORT_BURNDOWN "may
+    # shrink, never grow"), but the VRT factory below needs these two names
+    # for its signature. Mirrors the `AuditEvent`/`Identity` TYPE_CHECKING
+    # pattern in `platform/extensions/protocols.py`.
+    from app.processing.raster.models import RasterAsset, VrtGeneration
 
 logger = structlog.get_logger()
 
@@ -127,5 +136,40 @@ def make_ingest_job_failed_rollback(
         job.status = "failed"
         job.error_message = f"{message_prefix}: {defer_exc}"
         job.completed_at = datetime.now(timezone.utc)
+
+    return _rollback
+
+
+def make_vrt_regeneration_failed_rollback(
+    vrt_asset: RasterAsset,
+    generation: VrtGeneration,
+    job: IngestJob,
+    *,
+    previous_status: str,
+    previous_generation_id: uuid.UUID | None,
+) -> RollbackCallable:
+    """Build a rollback closure for a VRT regeneration defer failure.
+
+    Convenience for the three VRT regeneration endpoints (add-source,
+    remove-source, refresh) that each commit the same three pieces of state
+    before dispatch: ``vrt_asset.status`` / ``current_generation_id``
+    (reverted here to the pre-mutation values the caller captured before
+    committing), the new ``VrtGeneration`` row (marked failed here), and the
+    ``IngestJob`` row (marked failed via `make_ingest_job_failed_rollback`,
+    reused rather than duplicated — same message prefix as before, so
+    ``job.error_message`` still reads ``"Failed to queue VRT regeneration:
+    <exc>"``).
+    """
+    job_rollback = make_ingest_job_failed_rollback(
+        job, message_prefix="Failed to queue VRT regeneration"
+    )
+
+    async def _rollback(defer_exc: BaseException) -> None:
+        vrt_asset.status = previous_status
+        vrt_asset.current_generation_id = previous_generation_id
+        generation.status = "failed"
+        generation.completed_at = datetime.now(timezone.utc)
+        generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
+        await job_rollback(defer_exc)
 
     return _rollback

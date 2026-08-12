@@ -144,6 +144,60 @@ class TestDeferWithOrphanGuard:
 
         asyncio.run(_check())
 
+    def test_make_vrt_regeneration_failed_rollback_reverts_all_eight_fields(self):
+        """fix(#1435): the factory the three VRT regeneration endpoints (add-source,
+        remove-source, refresh) now share must revert every field their old
+        hand-rolled closures did: vrt_asset.status/current_generation_id,
+        generation.status/completed_at/error_message, and
+        job.status/error_message/completed_at (the last three via
+        `make_ingest_job_failed_rollback`, reused rather than duplicated).
+
+        No single one of the three endpoint-level tests below asserts all
+        eight together — this is the one place that does.
+        """
+
+        async def _check():
+            from app.platform.jobs.defer_guard import (
+                make_vrt_regeneration_failed_rollback,
+            )
+
+            vrt_asset = MagicMock()
+            vrt_asset.status = "regenerating"
+            vrt_asset.current_generation_id = uuid.uuid4()
+            previous_status = "ready"
+            previous_generation_id = uuid.uuid4()
+
+            generation = MagicMock()
+            generation.status = "pending"
+            generation.completed_at = None
+            generation.error_message = None
+
+            job = MagicMock()
+            job.status = "pending"
+            job.error_message = None
+            job.completed_at = None
+
+            rollback = make_vrt_regeneration_failed_rollback(
+                vrt_asset,
+                generation,
+                job,
+                previous_status=previous_status,
+                previous_generation_id=previous_generation_id,
+            )
+            exc = RuntimeError("procrastinate unreachable")
+            await rollback(exc)
+
+            assert vrt_asset.status == previous_status
+            assert vrt_asset.current_generation_id == previous_generation_id
+            assert generation.status == "failed"
+            assert generation.completed_at is not None
+            assert "procrastinate unreachable" in generation.error_message
+            assert job.status == "failed"
+            assert job.completed_at is not None
+            assert "procrastinate unreachable" in job.error_message
+
+        asyncio.run(_check())
+
 
 # ---------------------------------------------------------------------------
 # Reupload router — 3 defer sites

@@ -21,6 +21,53 @@ log = structlog.get_logger()
 # a rolling restart at the job layer also keeps its on-disk staging artifact.
 EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
 
+# fix(#1435 codex round 1): the API's periodic sweeper (inside
+# _stale_jobs_sweeper) calls this sweep on a short, continuous cadence (every
+# few minutes) rather than only at a restart/deploy, unlike the two boot-time
+# callers above. A directory's mtime is set once when the export is created
+# and never advances again while ogr2ogr keeps writing the file inside it or a
+# client keeps streaming it out — only an entry ADD/removal in the directory
+# bumps it, not writes to an existing file's contents. Reusing
+# EXPORTS_SWEEP_AGE_SECONDS there would turn "an in-flight export survives A
+# restart" into "any export whose ogr2ogr run plus zip plus client-download
+# time exceeds 1 hour gets deleted out from under it on the very next cycle" —
+# guaranteed, not just an unlucky restart coincidence. A wider margin keeps
+# the periodic pass catching only residue from a process that is truly gone.
+EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
+
+
+def _latest_mtime(entry: Path) -> float:
+    """The most recent mtime of ``entry`` itself, or (one level deep) any
+    file directly inside it.
+
+    fix(#1435 codex round 2): a directory's own mtime is bumped only by an
+    entry being added, removed, or renamed inside it — NOT by writes to an
+    already-created file's contents. ogr2ogr opens its output file once and
+    then writes to it for the rest of the run, so the export directory's own
+    mtime freezes at file-creation time while ogr2ogr is still actively
+    writing. Checking the contained file(s) too means a still-growing export
+    keeps reading as fresh for as long as ogr2ogr keeps writing, regardless
+    of the age threshold in force.
+    """
+    latest = entry.stat().st_mtime
+    if entry.is_dir():
+        try:
+            children = list(entry.iterdir())
+        except OSError:
+            # fix(#1435 codex round 3): a directory that cannot be listed
+            # (e.g. root-owned residue left behind by a container UID
+            # change across a deploy) must not crash sweep_orphaned_exports
+            # — both boot-time callers run this with no guard of their own,
+            # so one unreadable entry would otherwise take down startup.
+            # Fall back to the entry's own mtime.
+            return latest
+        for child in children:
+            try:
+                latest = max(latest, child.stat().st_mtime)
+            except OSError:
+                continue  # unreadable, or raced with a concurrent write/rename
+    return latest
+
 
 def sweep_orphaned_exports(
     exports_dir: Path,
@@ -40,9 +87,10 @@ def sweep_orphaned_exports(
     worker now call this one age-aware sweeper.
 
     No cross-process advisory lock. The sweep is idempotent and tolerates
-    losing a race (``ignore_errors``/``missing_ok``/``FileNotFoundError``), and the
-    age threshold — not mutual exclusion — is what protects in-flight exports. Add a
-    lock only if a sweeper ever grows a non-idempotent step.
+    losing a race or hitting unreadable residue (``ignore_errors``/
+    ``missing_ok``/``OSError``), and the age threshold — not mutual exclusion
+    — is what protects in-flight exports. Add a lock only if a sweeper ever
+    grows a non-idempotent step.
 
     Args:
         exports_dir: The ``<staging>/exports/`` directory to sweep. A missing
@@ -64,9 +112,12 @@ def sweep_orphaned_exports(
     skipped_count = 0
     for item in entries:
         try:
-            item_mtime = item.stat().st_mtime
-        except FileNotFoundError:
-            # Raced with another process / external cleanup — treat as already-gone.
+            item_mtime = _latest_mtime(item)
+        except OSError:
+            # fix(#1435 codex round 3): FileNotFoundError (raced with
+            # another process / external cleanup) or PermissionError
+            # (unreadable residue) — either way, skip rather than crash the
+            # sweep and take down API/worker startup with it.
             continue
         age_seconds = now_ts - item_mtime
         if age_seconds < age_threshold_seconds:
