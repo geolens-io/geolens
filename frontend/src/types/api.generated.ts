@@ -38335,6 +38335,7 @@ export interface operations {
                 bbox?: string | null;
                 /** @description OGC datetime interval */
                 datetime?: string | null;
+                /** @description Maximum number of items returned. Values above 200 are clamped to 200, per the STAC Item Search spec's clamp-don't-reject recommendation. */
                 limit?: number;
                 /** @description Legacy offset-based pagination. Phase 269 H-24 lowered the max limit to 200 and recommends keyset cursors via the rel=next link for deep paging. */
                 offset?: number;
