@@ -154,6 +154,28 @@ OGR2OGR_FILE_TIMEOUT_SECONDS = 3600  # 1 hour — large files legitimately take 
 OGR2OGR_SERVICE_TIMEOUT_SECONDS = 1800  # 30 min — existing value, now a named constant
 
 
+async def _kill_and_reap_subprocess(proc: asyncio.subprocess.Process) -> None:
+    """Best-effort kill + reap for a subprocess whose ``communicate()`` ended
+    abnormally. Shared by both ``_communicate_with_timeout`` branches below
+    so the kill/terminate/wait sequence has one implementation.
+    """
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+    except (
+        Exception
+    ):  # broad: kill() can fail with permission/state errors; fall back to terminate()
+        try:
+            proc.terminate()
+        except Exception:  # broad: terminate() best-effort cleanup; give up if subprocess is already gone
+            pass
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=5)
+    except (asyncio.TimeoutError, ProcessLookupError):
+        pass
+
+
 async def _communicate_with_timeout(
     proc: asyncio.subprocess.Process,
     timeout: float,
@@ -165,26 +187,27 @@ async def _communicate_with_timeout(
     On timeout, attempts ``proc.kill()``, then ``proc.terminate()``, then
     gives up — in all cases raises IngestionError so the caller surfaces a
     meaningful error instead of hanging the worker.
+
+    On cancellation — a client disconnect cancels the request task, or
+    Procrastinate cancels a worker job during graceful shutdown —
+    ``asyncio.wait_for`` re-raises ``CancelledError`` from the outer task
+    without touching the child process. Without the branch below, the
+    ogr2ogr child is left running with nothing left to await it: a caller
+    that then deletes its output directory (export cleanup) races a process
+    that may still hold the file open. Runs the same kill/terminate/wait
+    sequence as the timeout branch, then re-raises so cancellation still
+    propagates.
     """
     try:
         return await asyncio.wait_for(proc.communicate(), timeout=timeout)
     except asyncio.TimeoutError:
-        try:
-            proc.kill()
-        except ProcessLookupError:
-            pass
-        except Exception:  # broad: kill() can fail with permission/state errors; fall back to terminate()
-            try:
-                proc.terminate()
-            except Exception:  # broad: terminate() best-effort cleanup; give up if subprocess is already gone
-                pass
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=5)
-        except (asyncio.TimeoutError, ProcessLookupError):
-            pass
+        await _kill_and_reap_subprocess(proc)
         raise IngestionError(
             f"{tool_name} timed out after {int(timeout)}s — the file or upstream service is too slow"
         )
+    except asyncio.CancelledError:
+        await _kill_and_reap_subprocess(proc)
+        raise
 
 
 # ---------------------------------------------------------------------------
