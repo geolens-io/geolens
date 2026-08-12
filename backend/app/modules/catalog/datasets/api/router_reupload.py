@@ -55,7 +55,7 @@ from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
-from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (

@@ -201,7 +201,7 @@ async def _fetch_arcgis_import_page_info(
         fetch_arcgis_feature_count,
         fetch_arcgis_pagination_info,
     )
-    from app.modules.catalog.sources.security import make_safe_client
+    from app.platform.security import make_safe_client
     from app.processing.ingest.ogr import IngestionError
 
     try:
@@ -760,7 +760,7 @@ async def ingest_service(
     survive across a long asyncio subprocess.
     """
     _bind_task_log_context(task_name="ingest_service", job_id=job_id)
-    from app.modules.catalog.sources.security import (
+    from app.platform.security import (
         SSRFError,
         validate_url_for_ssrf,
     )

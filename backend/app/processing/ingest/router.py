@@ -860,7 +860,7 @@ async def commit_import(
     # `make_safe_client()`), which closes the redirect-chain TOCTOU;
     # this closes the FIRST-hop TOCTOU on the recorded source_url.
     if job.source_url and not job.file_path:
-        from app.modules.catalog.sources.security import (
+        from app.platform.security import (
             SSRFError,
             validate_url_for_ssrf,
         )

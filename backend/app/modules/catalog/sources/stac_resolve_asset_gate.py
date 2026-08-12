@@ -30,7 +30,7 @@ from app.modules.catalog.sources.origin_probe import (
     fetch_json_document,
     probe_remote_uri,
 )
-from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve_identity import (
     _contradicts_stored_identity,
     _standard_item_path,

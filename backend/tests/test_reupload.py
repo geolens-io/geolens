@@ -24,7 +24,7 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.service import compute_schema_diff
 from app.modules.catalog.datasets.api import router_reupload
 from app.platform.jobs.models import IngestJob
-from app.modules.catalog.sources.security import SSRFError
+from app.platform.security import SSRFError
 
 from tests.factories import get_user_id
 
@@ -1456,7 +1456,7 @@ class TestFailedServiceReuploadDatesTheContact:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(return_value=None),
             ),
             patch(
@@ -1530,7 +1530,7 @@ class TestFailedServiceReuploadDatesTheContact:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(return_value=None),
             ),
             patch(
@@ -1585,7 +1585,7 @@ class TestFailedServiceReuploadDatesTheContact:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(return_value=None),
             ),
             patch(
@@ -1646,7 +1646,7 @@ class TestFailedServiceReuploadDatesTheContact:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(return_value=None),
             ),
             patch(
@@ -1706,7 +1706,7 @@ class TestFailedServiceReuploadDatesTheContact:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(return_value=None),
             ),
             patch(
@@ -1735,7 +1735,7 @@ class TestWorkerSsrfRefusalFinalizesTheRun:
         the admission index then refused every further refresh for the
         dataset until the stale sweep, an hour of lockout for a URL that was
         never going to be fetched."""
-        from app.modules.catalog.sources.security import SSRFError
+        from app.platform.security import SSRFError
         from app.platform.refresh.service import create_pending_run
         from app.processing.ingest.tasks_reupload import reupload_service
 
@@ -1774,7 +1774,7 @@ class TestWorkerSsrfRefusalFinalizesTheRun:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(side_effect=_refuse),
             ),
             pytest.raises(RuntimeError, match="safety check at worker fetch time"),

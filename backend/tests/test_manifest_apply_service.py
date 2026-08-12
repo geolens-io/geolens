@@ -242,7 +242,7 @@ class TestManifestApplyHelpers:
             )
         ).datasets[0]
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             prepared = await classify_manifest_source(dataset.sources[0])
@@ -470,11 +470,11 @@ class TestManifestApplyHelpers:
         client = AsyncClient(transport=MockTransport(handler))
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(
-                "app.modules.catalog.sources.security.make_safe_client",
+                "app.platform.security.make_safe_client",
                 return_value=client,
             ),
             patch(
@@ -531,11 +531,11 @@ class TestManifestApplyHelpers:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(
-                "app.modules.catalog.sources.security.make_safe_client",
+                "app.platform.security.make_safe_client",
                 return_value=client,
             ),
             patch(
@@ -820,7 +820,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(
@@ -871,7 +871,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(
@@ -926,7 +926,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(
@@ -991,7 +991,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(
@@ -1079,7 +1079,7 @@ class TestManifestApplyService:
 
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(

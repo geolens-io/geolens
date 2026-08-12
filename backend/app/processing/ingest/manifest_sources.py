@@ -182,7 +182,7 @@ async def classify_manifest_source(
     file_type = "raster" if source.type == "raster_cog" else None
 
     if parsed.scheme in {"http", "https"}:
-        from app.modules.catalog.sources import security as source_security
+        from app.platform import security as source_security
 
         try:
             await source_security.validate_url_for_ssrf(source.uri)

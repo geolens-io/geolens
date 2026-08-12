@@ -10,10 +10,10 @@ repos:
   - repo: local
     hooks:
       - id: ssrf-safe-client
-        name: "SSRF Rule 2 — httpx.AsyncClient(follow_redirects=True) outside sources/security.py"
+        name: "SSRF Rule 2 — httpx.AsyncClient(follow_redirects=True) outside platform/security.py"
         description: >
           Any httpx.AsyncClient with follow_redirects=True must be constructed
-          via make_safe_client() from backend/app/modules/catalog/sources/security.py.
+          via make_safe_client() from backend/app/platform/security.py.
           The factory installs the per-hop _revalidate_redirect event hook.
           See AGENTS.md Security pre-commit checklist Rule 2.
           Uses a system bash hook (not pygrep) so multi-line AsyncClient
@@ -36,7 +36,7 @@ repos:
               # sites are handled by exclude: below.
               if grep -qE "httpx\.AsyncClient\(" "$f"; then
                 echo "FAIL: $f constructs httpx.AsyncClient( with follow_redirects=True"
-                echo "  Use make_safe_client() from backend/app/modules/catalog/sources/security.py"
+                echo "  Use make_safe_client() from backend/app/platform/security.py"
                 echo "  See AGENTS.md Security pre-commit checklist Rule 2."
                 exit 1
               fi
@@ -46,13 +46,13 @@ repos:
         types: [python]
         files: '^backend/app/.*\.py$'
         # Excluded files have legitimate follow_redirects=True usage:
-        # - security.py: the canonical factory; defines make_safe_client() itself.
+        # - platform/security.py: the canonical factory; defines make_safe_client() itself.
         # - tiles/router.py: fixed internal URL (http://titiler:8000) — not user-controlled,
         #   no SSRF risk. Excluded explicitly because its multi-line AsyncClient declaration
         #   (lines 51-54) is the exact shape the pygrep hook could not catch.
         #   If the URL source ever changes to user-controlled, remove this exclusion and
         #   wrap the client in make_safe_client().
-        exclude: '^backend/app/modules/catalog/sources/security\.py$|^backend/app/processing/tiles/router\.py$'
+        exclude: '^backend/app/platform/security\.py$|^backend/app/processing/tiles/router\.py$'
 
       - id: visibility-filter-coverage
         name: "Visibility Rule 1 — route files calling get_dataset must reference check_dataset_access or apply_visibility_filter"

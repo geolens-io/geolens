@@ -34,7 +34,7 @@ import httpx
 import structlog
 
 from app.modules.catalog.sources.classify import classify_layer_kind
-from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, validate_url_for_ssrf
 
 logger = structlog.stdlib.get_logger(__name__)
 

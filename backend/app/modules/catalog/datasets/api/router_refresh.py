@@ -58,7 +58,7 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetRefreshResponse,
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
-from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
 from app.platform.dataset_origin import classify_origin
 from app.platform.extensions import get_catalog_port

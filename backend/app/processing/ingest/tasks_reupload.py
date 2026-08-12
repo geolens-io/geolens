@@ -705,7 +705,7 @@ async def reupload_service(
         task_name="reupload_service", job_id=job_id, dataset_id=dataset_id
     )
     from app.core.db import async_session
-    from app.modules.catalog.sources.security import (
+    from app.platform.security import (
         SSRFError,
         validate_url_for_ssrf,
     )

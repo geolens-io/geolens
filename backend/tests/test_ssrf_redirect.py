@@ -11,7 +11,7 @@ httpx.Response objects — no real HTTP required.
 import httpx
 import pytest
 
-from app.modules.catalog.sources.security import (
+from app.platform.security import (
     SSRFError,
     _revalidate_redirect,
 )
