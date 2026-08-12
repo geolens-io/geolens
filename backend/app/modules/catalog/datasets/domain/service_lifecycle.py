@@ -194,13 +194,16 @@ async def delete_dataset(
         # it next is authorized on its own visibility while served this
         # dataset's bytes for up to tile_cache_ttl.
         #
-        # Purging here rather than after the caller's commit is safe because
-        # the DROP above already holds ACCESS EXCLUSIVE on the table: a tile
-        # query that could re-cache pre-delete rows is blocked on that lock
-        # until this transaction ends, and finds no relation once it commits.
-        # Doing it here also covers single delete, bulk delete, and any future
-        # caller from one place. Raster/VRT are excluded — their tiles come
-        # from Titiler, and that branch drops no table to free a name.
+        # This closes the durable window, not the whole class: an in-flight
+        # tile request that already released its DB transaction can still write
+        # pre-delete bytes back after this runs, and with REDIS_URL unset each
+        # API worker holds its own LRU that a purge from one worker cannot
+        # reach. Both need a generation dimension in the cache key — #1429.
+        # Placed here rather than after the caller's commit because that
+        # ordering does not change either residual, and here it covers single
+        # delete, bulk delete, and future callers from one place. Raster/VRT
+        # are excluded — their tiles come from Titiler, and that branch drops
+        # no table to free a name.
         from app.platform.cache.provider import get_tile_cache
 
         tile_cache = get_tile_cache()

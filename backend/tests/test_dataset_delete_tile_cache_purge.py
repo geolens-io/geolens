@@ -14,6 +14,11 @@ Every other write path that changes what a table's tiles should show
 already purges: metadata edits (``datasets/api/router.py``), feature edits
 (``features/router.py``), reupload and PostGIS refresh
 (``processing/ingest/``). Delete was the gap.
+
+The purge closes the durable window only. An in-flight tile request can
+still write pre-delete bytes back after it, and a per-worker in-memory
+cache is out of its reach; both need a generation dimension in the cache
+key (#1429) and are deliberately not asserted here.
 """
 
 import gzip
