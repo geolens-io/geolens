@@ -880,7 +880,7 @@ class TestSearchEnrichmentVrt:
 
 
 class TestDatasetDetailSessionIsolation:
-    """F12: get_dataset_detail's raster/VRT/asset fetches run on the caller's session.
+    """fix(#1436): get_dataset_detail's raster/VRT/asset fetches run on the caller's session.
 
     Regression guard, revised after codex review. The raster asset,
     VRT source-count, and dataset-asset fetches were originally gathered via

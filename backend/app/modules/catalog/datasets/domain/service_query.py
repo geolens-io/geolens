@@ -223,9 +223,9 @@ async def get_dataset_detail(
     # checkout while the caller's own connection is held for the rest of this
     # request: under the default (non-external-pooler) pool of 10 + 3
     # connections, ~13 concurrent raster/VRT detail requests exhaust it
-    # (codex review). These are three fast, single-row/point lookups, so the
-    # wall-clock cost of running them in sequence on the connection this
-    # request already holds is negligible next to that risk.
+    # (fix(#1436) codex review). These are three fast, single-row/point
+    # lookups, so the wall-clock cost of running them in sequence on the
+    # connection this request already holds is negligible next to that risk.
     record_type = getattr(dataset.record, "record_type", None)
     needs_raster = record_type in RASTER_FAMILY_RECORD_TYPES
     needs_vrt_count = record_type == "vrt_dataset"
