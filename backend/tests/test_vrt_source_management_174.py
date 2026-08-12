@@ -6,8 +6,13 @@ Covers:
 - TestMutationSerialization: 409 when VRT is regenerating (SRC-05)
 - TestRegenerateVrtTask: regenerate_vrt task logic (build, swap, metadata update, error handling)
 - TestStatusField: GET /datasets/{id} response includes raster.status (SRC-06)
+- TestStagedMutationOverHttp: fix(#1327) — the staged member set survives the
+  full request path, and vrt_source_links does not move
 
-All tests are pure unit tests -- no DB, no real files, no network.
+Pure unit tests -- no DB, no real files, no network -- except the last class,
+which is database-backed on purpose: the staged set is a JSONB column written
+by a real session, and a mocked db cannot show that a request wrote one column
+and left a table alone.
 """
 
 import asyncio
@@ -77,6 +82,24 @@ def _make_mock_asset(
     asset.epsg = epsg
     asset.dataset_id = uuid.uuid4()
     return asset
+
+
+def _added_generation(mock_db: AsyncMock):
+    """The single VrtGeneration the endpoint under test handed to ``db.add``.
+
+    fix(#1327): the staged member set is the endpoint's whole output now, and
+    it lives on that row — these doubles never reach a database, so the object
+    passed to ``db.add`` is the only place to read it back from.
+    """
+    from app.processing.raster.models import VrtGeneration
+
+    added = [
+        call.args[0]
+        for call in mock_db.add.call_args_list
+        if isinstance(call.args[0], VrtGeneration)
+    ]
+    assert len(added) == 1, f"expected exactly one VrtGeneration, got {len(added)}"
+    return added[0]
 
 
 def _make_mock_source_asset(band_count: int = 1, epsg: int = 4326) -> MagicMock:
@@ -289,6 +312,18 @@ class TestAddSource:
                     await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
 
             assert exc_info.value.status_code == 422
+            # fix(#1327): a rejected request stages nothing. Validation still
+            # runs synchronously and still runs BEFORE the generation exists,
+            # so an incompatible source leaves no intent behind for a task to
+            # pick up later.
+            from app.processing.raster.models import VrtGeneration
+
+            assert not [
+                call
+                for call in mock_db.add.call_args_list
+                if isinstance(call.args[0], VrtGeneration)
+            ]
+            mock_db.commit.assert_not_awaited()
 
         asyncio.run(_check())
 
@@ -307,7 +342,7 @@ class TestAddSource:
             dataset_id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id, mock_create_ingest_job = (
+            mock_db, expected_job_id, mock_create_ingest_job, _existing = (
                 _build_mock_db_success_add(mock_asset, dataset_id)
             )
             monkeypatch.setattr(
@@ -325,6 +360,111 @@ class TestAddSource:
 
             assert result.job_id == expected_job_id
             assert result.status == "accepted"
+
+        asyncio.run(_check())
+
+    def test_stages_post_add_set_and_leaves_links_untouched(self, monkeypatch):
+        """fix(#1327): the addition is STAGED on the generation, not applied.
+
+        The endpoint issues no write against vrt_source_links, and the
+        generation it creates carries the full post-add member set with the new
+        source last — the position the MAX(position)+1 INSERT used to give it.
+        """
+
+        async def _check():
+            from app.processing.ingest.router import add_vrt_source
+            import app.processing.ingest.router as ingest_router
+
+            source_id = uuid.uuid4()
+            mock_request = MagicMock()
+            mock_request.source_dataset_id = source_id
+            mock_user = MagicMock()
+            mock_user.id = uuid.uuid4()
+            dataset_id = uuid.uuid4()
+
+            mock_asset = _make_mock_asset(status="ready")
+            mock_db, _job_id, mock_create_ingest_job, existing_ids = (
+                _build_mock_db_success_add(mock_asset, dataset_id)
+            )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
+            )
+
+            with (
+                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch("app.processing.ingest.router.regenerate_vrt") as mock_task,
+            ):
+                mock_task.defer_async = AsyncMock()
+                await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
+
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_db.execute.await_args_list
+            )
+            assert "INSERT INTO catalog.vrt_source_links" not in statements
+            assert "DELETE FROM catalog.vrt_source_links" not in statements
+
+            generation = _added_generation(mock_db)
+            assert generation.staged_source_ids == [
+                *[str(sid) for sid in existing_ids],
+                str(source_id),
+            ]
+            assert generation.source_count == len(existing_ids) + 1
+            assert mock_asset.status == "regenerating"
+
+        asyncio.run(_check())
+
+    def test_rollback_on_defer_failure_leaves_links_untouched(self, monkeypatch):
+        """fix(#1327): the orphan-guard rollback no longer deletes a link row.
+
+        There is nothing to compensate — the add was never applied — so the
+        rollback restores only the asset state it flipped.
+        """
+
+        async def _check():
+            from fastapi import HTTPException
+
+            from app.processing.ingest.router import add_vrt_source
+            import app.processing.ingest.router as ingest_router
+
+            source_id = uuid.uuid4()
+            mock_request = MagicMock()
+            mock_request.source_dataset_id = source_id
+            mock_user = MagicMock()
+            mock_user.id = uuid.uuid4()
+            dataset_id = uuid.uuid4()
+
+            mock_asset = _make_mock_asset(status="ready")
+            mock_asset.current_generation_id = None
+            mock_db, _job_id, mock_create_ingest_job, _existing = (
+                _build_mock_db_success_add(mock_asset, dataset_id)
+            )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
+            )
+
+            with (
+                patch("app.processing.ingest.router.validate_sources", return_value=[]),
+                patch(
+                    "app.processing.ingest.router.defer_async_with_tenant",
+                    new=AsyncMock(side_effect=RuntimeError("procrastinate down")),
+                ),
+            ):
+                with pytest.raises(HTTPException) as exc_info:
+                    await add_vrt_source(dataset_id, mock_request, mock_user, mock_db)
+
+            assert exc_info.value.status_code == 503
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_db.execute.await_args_list
+            )
+            assert "DELETE FROM catalog.vrt_source_links" not in statements
+            assert "INSERT INTO catalog.vrt_source_links" not in statements
+            assert mock_asset.status == "ready"
+            assert mock_asset.current_generation_id is None
+            generation = _added_generation(mock_db)
+            assert generation.status == "failed"
+            # The intent survives on the failed row; only a task that owns the
+            # asset pointer could ever apply it, and this rollback gave it back.
+            assert generation.staged_source_ids is not None
 
         asyncio.run(_check())
 
@@ -447,8 +587,13 @@ class TestRemoveSource:
             mock_user.id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, expected_job_id, mock_create_ingest_job = (
-                _build_mock_db_success_remove(mock_asset, dataset_id, source_count=3)
+            mock_db, expected_job_id, mock_create_ingest_job, _remaining = (
+                _build_mock_db_success_remove(
+                    mock_asset,
+                    dataset_id,
+                    source_count=3,
+                    source_dataset_id=source_dataset_id,
+                )
             )
             monkeypatch.setattr(
                 ingest_router, "create_ingest_job", mock_create_ingest_job
@@ -462,6 +607,110 @@ class TestRemoveSource:
 
             assert result.job_id == expected_job_id
             assert result.status == "accepted"
+
+        asyncio.run(_check())
+
+    def test_stages_post_removal_set_and_leaves_links_untouched(self, monkeypatch):
+        """fix(#1327): the removal is STAGED on the generation, not applied.
+
+        Two properties in one place, because they are the same property: the
+        endpoint issues no write against vrt_source_links, and the generation
+        it creates carries the full post-removal member set in position order.
+        """
+
+        async def _check():
+            from app.processing.ingest.router import remove_vrt_source
+            import app.processing.ingest.router as ingest_router
+
+            dataset_id = uuid.uuid4()
+            source_dataset_id = uuid.uuid4()
+            mock_user = MagicMock()
+            mock_user.id = uuid.uuid4()
+
+            mock_asset = _make_mock_asset(status="ready")
+            mock_db, _job_id, mock_create_ingest_job, remaining_ids = (
+                _build_mock_db_success_remove(
+                    mock_asset,
+                    dataset_id,
+                    source_count=3,
+                    source_dataset_id=source_dataset_id,
+                )
+            )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
+            )
+
+            with patch("app.processing.ingest.router.regenerate_vrt") as mock_task:
+                mock_task.defer_async = AsyncMock()
+                await remove_vrt_source(
+                    dataset_id, source_dataset_id, mock_user, mock_db
+                )
+
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_db.execute.await_args_list
+            )
+            assert "DELETE FROM catalog.vrt_source_links" not in statements
+            assert "INSERT INTO catalog.vrt_source_links" not in statements
+
+            generation = _added_generation(mock_db)
+            assert generation.staged_source_ids == [str(sid) for sid in remaining_ids]
+            assert generation.source_count == len(remaining_ids)
+
+        asyncio.run(_check())
+
+    def test_rollback_on_defer_failure_leaves_links_untouched(self, monkeypatch):
+        """fix(#1327): the orphan-guard rollback has no link surgery left to do.
+
+        It used to re-INSERT the row it had just deleted. Nothing was deleted,
+        so the compensation is gone — and the asset state it DOES restore is
+        still restored.
+        """
+
+        async def _check():
+            from fastapi import HTTPException
+
+            from app.processing.ingest.router import remove_vrt_source
+            import app.processing.ingest.router as ingest_router
+
+            dataset_id = uuid.uuid4()
+            source_dataset_id = uuid.uuid4()
+            mock_user = MagicMock()
+            mock_user.id = uuid.uuid4()
+
+            mock_asset = _make_mock_asset(status="ready")
+            mock_asset.current_generation_id = None
+            mock_db, _job_id, mock_create_ingest_job, _remaining = (
+                _build_mock_db_success_remove(
+                    mock_asset,
+                    dataset_id,
+                    source_count=3,
+                    source_dataset_id=source_dataset_id,
+                )
+            )
+            monkeypatch.setattr(
+                ingest_router, "create_ingest_job", mock_create_ingest_job
+            )
+
+            with patch(
+                "app.processing.ingest.router.defer_async_with_tenant",
+                new=AsyncMock(side_effect=RuntimeError("procrastinate down")),
+            ):
+                with pytest.raises(HTTPException) as exc_info:
+                    await remove_vrt_source(
+                        dataset_id, source_dataset_id, mock_user, mock_db
+                    )
+
+            assert exc_info.value.status_code == 503
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_db.execute.await_args_list
+            )
+            assert "vrt_source_links" not in statements.replace(
+                "SELECT source_dataset_id FROM catalog.vrt_source_links", ""
+            )
+            assert mock_asset.status == "ready"
+            assert mock_asset.current_generation_id is None
+            generation = _added_generation(mock_db)
+            assert generation.status == "failed"
 
         asyncio.run(_check())
 
@@ -531,7 +780,7 @@ class TestMutationSerialization:
             dataset_id = uuid.uuid4()
 
             mock_asset = _make_mock_asset(status="ready")
-            mock_db, _, mock_create_ingest_job = _build_mock_db_success_add(
+            mock_db, _, mock_create_ingest_job, _existing = _build_mock_db_success_add(
                 mock_asset, dataset_id
             )
             monkeypatch.setattr(
@@ -1156,6 +1405,199 @@ class TestStatusField:
 
 
 # ---------------------------------------------------------------------------
+# TestStagedSourceSetReading — fix(#1327)
+# ---------------------------------------------------------------------------
+
+
+class TestStagedSourceSetReading:
+    """What the task accepts as a staged member set, and what it refuses."""
+
+    def test_absent_and_json_null_both_mean_no_membership_change(self):
+        """The NULL fallback has to survive both shapes the column can hold.
+
+        A column never written reads back None; one written from an explicitly
+        assigned Python None holds the JSON scalar `null` and ALSO reads back
+        None (measured against Postgres — the #1322 trap). Neither is a member
+        set, and both must mean "build from the live links, apply nothing"
+        rather than an error.
+        """
+        from app.processing.ingest.tasks_vrt import staged_source_ids_or_none
+
+        assert staged_source_ids_or_none(MagicMock(staged_source_ids=None)) is None
+        # A JSONB scalar that is not an array cannot be a member set either.
+        assert staged_source_ids_or_none(MagicMock(staged_source_ids="null")) is None
+        assert staged_source_ids_or_none(MagicMock(staged_source_ids={})) is None
+
+    def test_returns_uuids_in_staged_order(self):
+        from app.processing.ingest.tasks_vrt import staged_source_ids_or_none
+
+        staged = [uuid.uuid4() for _ in range(3)]
+        generation = MagicMock(staged_source_ids=[str(sid) for sid in staged])
+        assert staged_source_ids_or_none(generation) == staged
+
+    def test_rejects_an_empty_set(self):
+        """A VRT with no members is not a publishable intent."""
+        from app.processing.ingest.tasks_vrt import staged_source_ids_or_none
+
+        with pytest.raises(ValueError, match="empty"):
+            staged_source_ids_or_none(MagicMock(staged_source_ids=[]))
+
+    def test_rejects_a_repeated_member(self):
+        """Caught here, before the build, rather than as an ON CONFLICT error
+        from the apply after a GDAL run has already been paid for."""
+        from app.processing.ingest.tasks_vrt import staged_source_ids_or_none
+
+        repeated = str(uuid.uuid4())
+        with pytest.raises(ValueError, match="repeats"):
+            staged_source_ids_or_none(
+                MagicMock(staged_source_ids=[repeated, str(uuid.uuid4()), repeated])
+            )
+
+
+# ---------------------------------------------------------------------------
+# TestStagedMutationOverHttp — fix(#1327), database-backed
+# ---------------------------------------------------------------------------
+
+
+async def _vrt_link_ids(session, vrt_id) -> list[uuid.UUID]:
+    from sqlalchemy import text
+
+    result = await session.execute(
+        text(
+            "SELECT source_dataset_id FROM catalog.vrt_source_links "
+            "WHERE vrt_dataset_id = :id ORDER BY position ASC"
+        ),
+        {"id": str(vrt_id)},
+    )
+    return [row.source_dataset_id for row in result.fetchall()]
+
+
+async def _only_generation(session, vrt_id):
+    from sqlalchemy import select as sa_select
+
+    from app.processing.raster.models import VrtGeneration
+
+    result = await session.execute(
+        sa_select(VrtGeneration).where(VrtGeneration.vrt_dataset_id == vrt_id)
+    )
+    return result.scalar_one()
+
+
+class TestStagedMutationOverHttp:
+    """The full request path: what the endpoint writes, and what it leaves."""
+
+    async def test_add_source_stages_the_set_and_leaves_links_alone(
+        self, client, admin_auth_header, test_db_session
+    ):
+        from tests.test_vrt_source_authz_1172 import (
+            _create_raster_dataset,
+            _create_vrt_dataset,
+            _get_admin_id,
+            _link_source,
+            _patch_defer,
+        )
+
+        admin_id = await _get_admin_id(test_db_session)
+        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+        first = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        second = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        incoming = await _create_raster_dataset(test_db_session, created_by=admin_id)
+        await _link_source(test_db_session, vrt_id, first, 0)
+        await _link_source(test_db_session, vrt_id, second, 1)
+
+        p_create, p_regen = _patch_defer()
+        with p_create, p_regen:
+            resp = await client.post(
+                f"/ingest/vrt/{vrt_id}/sources/",
+                json={"source_dataset_id": str(incoming)},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 202, resp.text
+        assert await _vrt_link_ids(test_db_session, vrt_id) == [first, second]
+        generation = await _only_generation(test_db_session, vrt_id)
+        assert generation.staged_source_ids == [
+            str(first),
+            str(second),
+            str(incoming),
+        ]
+        assert generation.status == "pending"
+
+    async def test_remove_source_stages_the_set_and_leaves_links_alone(
+        self, client, admin_auth_header, test_db_session
+    ):
+        from tests.test_vrt_source_authz_1172 import (
+            _create_raster_dataset,
+            _create_vrt_dataset,
+            _get_admin_id,
+            _link_source,
+            _patch_defer,
+        )
+
+        admin_id = await _get_admin_id(test_db_session)
+        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+        linked = [
+            await _create_raster_dataset(test_db_session, created_by=admin_id)
+            for _ in range(3)
+        ]
+        for position, source_id in enumerate(linked):
+            await _link_source(test_db_session, vrt_id, source_id, position)
+
+        p_create, p_regen = _patch_defer()
+        with p_create, p_regen:
+            resp = await client.delete(
+                f"/ingest/vrt/{vrt_id}/sources/{linked[1]}/",
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 202, resp.text
+        assert await _vrt_link_ids(test_db_session, vrt_id) == linked
+        generation = await _only_generation(test_db_session, vrt_id)
+        assert generation.staged_source_ids == [str(linked[0]), str(linked[2])]
+
+    async def test_remove_source_404s_without_staging_anything(
+        self, client, admin_auth_header, test_db_session
+    ):
+        """A rejected request leaves no intent behind — the 404 path included."""
+        from sqlalchemy import func, select as sa_select
+
+        from app.processing.raster.models import VrtGeneration
+        from tests.test_vrt_source_authz_1172 import (
+            _create_raster_dataset,
+            _create_vrt_dataset,
+            _get_admin_id,
+            _link_source,
+            _patch_defer,
+        )
+
+        admin_id = await _get_admin_id(test_db_session)
+        vrt_id = await _create_vrt_dataset(test_db_session, created_by=admin_id)
+        linked = [
+            await _create_raster_dataset(test_db_session, created_by=admin_id)
+            for _ in range(3)
+        ]
+        for position, source_id in enumerate(linked):
+            await _link_source(test_db_session, vrt_id, source_id, position)
+        stranger = await _create_raster_dataset(test_db_session, created_by=admin_id)
+
+        p_create, p_regen = _patch_defer()
+        with p_create, p_regen:
+            resp = await client.delete(
+                f"/ingest/vrt/{vrt_id}/sources/{stranger}/",
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 404, resp.text
+        assert await _vrt_link_ids(test_db_session, vrt_id) == linked
+        generations = await test_db_session.execute(
+            sa_select(func.count())
+            .select_from(VrtGeneration)
+            .where(VrtGeneration.vrt_dataset_id == vrt_id)
+        )
+        assert generations.scalar() == 0
+
+
+# ---------------------------------------------------------------------------
 # Mock DB helpers
 # ---------------------------------------------------------------------------
 # These build the AsyncMock db objects needed by endpoint tests.
@@ -1264,16 +1706,21 @@ def _build_mock_db_for_validation_failure(mock_asset: MagicMock) -> AsyncMock:
     return mock_db
 
 
-def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
+def _build_mock_db_success_add(
+    mock_asset: MagicMock, dataset_id: uuid.UUID, existing_count: int = 2
+):
     """DB: Full success path for add_vrt_source.
 
-    Returns (mock_db, expected_job_id, mock_create_ingest_job).
+    Returns (mock_db, expected_job_id, mock_create_ingest_job, existing_ids) —
+    ``existing_ids`` in position order, so a caller can assert the staged set
+    is exactly those plus the new source (fix(#1327)).
     """
     mock_db = AsyncMock()
     call_count = [0]
 
     source_asset = _make_mock_source_asset()
-    existing_source = _make_mock_source_asset()
+    existing_assets = [_make_mock_source_asset() for _ in range(existing_count)]
+    existing_ids = [asset.dataset_id for asset in existing_assets]
     job_id = uuid.uuid4()
 
     mock_job = MagicMock()
@@ -1294,16 +1741,16 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
             # Duplicate check -- not found
             result_mock.fetchone.return_value = None
         elif n == 4:
-            # Existing source links
+            # Existing source links, in position order
             result_mock.fetchall.return_value = [
-                MagicMock(source_dataset_id=uuid.uuid4())
+                MagicMock(source_dataset_id=source_id) for source_id in existing_ids
             ]
         elif n == 5:
             # Load existing source assets
-            result_mock.scalars.return_value.all.return_value = [existing_source]
-        elif n == 6:
-            # Max position query
-            result_mock.scalar.return_value = 0
+            result_mock.scalars.return_value.all.return_value = existing_assets
+        # fix(#1327): there is no 6th query. The MAX(position) lookup and the
+        # link INSERT that followed it are gone — order in the staged set is
+        # the position.
         return result_mock
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -1312,15 +1759,27 @@ def _build_mock_db_success_add(mock_asset: MagicMock, dataset_id: uuid.UUID):
     async def mock_create_ingest_job(db, *args, **kwargs):
         return mock_job
 
-    return mock_db, job_id, mock_create_ingest_job
+    return mock_db, job_id, mock_create_ingest_job, existing_ids
+
+
+def _link_rows(source_ids: list[uuid.UUID]) -> list[MagicMock]:
+    """Rows as the ordered vrt_source_links SELECT returns them.
+
+    fix(#1327): remove_vrt_source reads the member set ONCE, in position order,
+    and answers the count guard, the "is it linked" guard and the staged
+    post-removal set from that single read — so these doubles supply link rows
+    where they used to supply a COUNT(*) scalar and a separate position row.
+    """
+    return [MagicMock(source_dataset_id=sid) for sid in source_ids]
 
 
 def _build_mock_db_remove_min_guard(
     mock_asset: MagicMock, source_count: int
 ) -> AsyncMock:
-    """DB: VRT found (ready), source count check returns <= 2."""
+    """DB: VRT found (ready), member set has <= 2 sources."""
     mock_db = AsyncMock()
     call_count = [0]
+    rows = _link_rows([uuid.uuid4() for _ in range(source_count)])
 
     def execute_side_effect(query, params=None):
         call_count[0] += 1
@@ -1329,8 +1788,7 @@ def _build_mock_db_remove_min_guard(
         if n == 1:
             result_mock.scalar_one_or_none.return_value = mock_asset
         elif n == 2:
-            # Source count
-            result_mock.scalar.return_value = source_count
+            result_mock.fetchall.return_value = rows
         return result_mock
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -1341,9 +1799,10 @@ def _build_mock_db_remove_min_guard(
 def _build_mock_db_remove_source_not_linked(
     mock_asset: MagicMock, source_count: int
 ) -> AsyncMock:
-    """DB: VRT found, source count > 2, but source link not found."""
+    """DB: VRT found with > 2 sources, none of them the requested one."""
     mock_db = AsyncMock()
     call_count = [0]
+    rows = _link_rows([uuid.uuid4() for _ in range(source_count)])
 
     def execute_side_effect(query, params=None):
         call_count[0] += 1
@@ -1352,11 +1811,7 @@ def _build_mock_db_remove_source_not_linked(
         if n == 1:
             result_mock.scalar_one_or_none.return_value = mock_asset
         elif n == 2:
-            # Source count: > 2
-            result_mock.scalar.return_value = source_count
-        elif n == 3:
-            # Link existence check -- not found
-            result_mock.fetchone.return_value = None
+            result_mock.fetchall.return_value = rows
         return result_mock
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -1365,11 +1820,17 @@ def _build_mock_db_remove_source_not_linked(
 
 
 def _build_mock_db_success_remove(
-    mock_asset: MagicMock, dataset_id: uuid.UUID, source_count: int
+    mock_asset: MagicMock,
+    dataset_id: uuid.UUID,
+    source_count: int,
+    source_dataset_id: uuid.UUID,
 ):
     """DB: Full success path for remove_vrt_source.
 
-    Returns (mock_db, expected_job_id, mock_create_ingest_job).
+    ``source_dataset_id`` is the member being removed and IS present in the
+    link rows the ordered read returns — otherwise the endpoint 404s.
+
+    Returns (mock_db, expected_job_id, mock_create_ingest_job, remaining_ids).
     """
     mock_db = AsyncMock()
     call_count = [0]
@@ -1379,6 +1840,11 @@ def _build_mock_db_success_remove(
     mock_job.id = job_id
     mock_job.dataset_id = None
 
+    remaining_ids = [uuid.uuid4() for _ in range(source_count - 1)]
+    # Removed member sits in the middle so the staged set proves order is kept.
+    linked_ids = [remaining_ids[0], source_dataset_id, *remaining_ids[1:]]
+    rows = _link_rows(linked_ids)
+
     def execute_side_effect(query, params=None):
         call_count[0] += 1
         result_mock = MagicMock()
@@ -1386,12 +1852,7 @@ def _build_mock_db_success_remove(
         if n == 1:
             result_mock.scalar_one_or_none.return_value = mock_asset
         elif n == 2:
-            # Source count: > 2
-            result_mock.scalar.return_value = source_count
-        elif n == 3:
-            # Link existence check -- found
-            result_mock.fetchone.return_value = MagicMock()
-        # n == 4: DELETE (no return needed)
+            result_mock.fetchall.return_value = rows
         return result_mock
 
     mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -1400,7 +1861,7 @@ def _build_mock_db_success_remove(
     async def mock_create_ingest_job(db, *args, **kwargs):
         return mock_job
 
-    return mock_db, job_id, mock_create_ingest_job
+    return mock_db, job_id, mock_create_ingest_job, remaining_ids
 
 
 # ---------------------------------------------------------------------------

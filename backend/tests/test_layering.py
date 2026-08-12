@@ -2145,7 +2145,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1235 review r9): +8 — the single-PUT branch re-raises HTTPException
     # so the in-thread lifetime refusal stays a 409 there too, as it already
     # did on the other three signing paths.
-    "backend/app/processing/ingest/router.py": 1548,
+    # fix(#1327): -15 — add_vrt_source/remove_vrt_source stage their intended
+    # member set on the VrtGeneration row instead of writing vrt_source_links,
+    # so the MAX(position) lookup, both link INSERT/DELETE statements, the
+    # separate COUNT(*) and position reads, and the two compensating rollback
+    # statements are all gone; the endpoints gained the fix(#1327) notes that
+    # say where the member set now lives, kept out of the docstrings because
+    # FastAPI publishes those into openapi.json. Ratchet DOWN in the same
+    # commit, per the no-headroom rule. Cap 1548 -> 1537, exact.
+    "backend/app/processing/ingest/router.py": 1537,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2370,7 +2378,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # post-expiry sweep is finished with a key, and a copy of the string in
     # each module is one rename away from a row that shields an object
     # forever. Cap 1379 -> 1380, exact.
-    "backend/app/platform/jobs/sweep.py": 1380,
+    # fix(#1327): +23 — the composition-drift branch keeps its code and gains
+    # the rationale for why it is now near-unreachable: source add/remove stage
+    # their member set and apply it at the artifact swap, so the drift this
+    # branch discriminates is no longer produced by live traffic. The comment
+    # says what the branch still guards (pre-#1327 rows, any future writer of
+    # the link table) so the next reader does not delete a check whose FALSE
+    # side went quiet. Cap 1380 -> 1403, exact.
+    "backend/app/platform/jobs/sweep.py": 1403,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -2471,7 +2486,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT instead of the creation-time floor forever. Most of the lines are
     # the comment recording why it reuses generation.completed_at rather than
     # a fresh now() call. Cap 1140 -> 1150, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1150,
+    # fix(#1327): +150 — the compensable-links pattern lives here: two helpers
+    # (staged_source_ids_or_none, apply_staged_source_links) plus the phase-1
+    # switch to the staged member set, the member-still-exists check that fails
+    # a run whose staged source vanished, and the apply inside the publish
+    # transaction. Most of the lines are the reasoning: why NULL means "changes
+    # no membership", why apply is an upsert rather than delete-and-insert, and
+    # why the applied list is the one the build read. Cap 1150 -> 1300, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1300,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
@@ -2764,7 +2786,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # filename to every viewer. Cap 1440 -> 1450, exact.
     # fix(#1372 codex r2): +5 — the collections-list raster tiles link carries
     # ?v=<tile_cache_version> like every rendered raster template.
-    "backend/app/modules/catalog/search/router.py": 1455,
+    # fix(#1327): +13 — the OGC record item counts the VRT's live member links
+    # instead of reading the in-flight generation's intended count, so this
+    # surface reports the composition being SERVED like every other one. Most
+    # of the lines are the comment explaining why the generation's own count is
+    # a fact about the attempt, not about the dataset. Cap 1455 -> 1468, exact.
+    "backend/app/modules/catalog/search/router.py": 1468,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

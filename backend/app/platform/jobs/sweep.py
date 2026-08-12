@@ -625,6 +625,20 @@ async def _reap_stale_generation_storage(keys: tuple[str, ...]) -> None:
 # fragment, not a full statement, so it can be embedded as-is in one UPDATE's
 # WHERE and wrapped in NOT(...) for its mirror — see sweep_stale_vrt_assets.
 #
+# fix(#1327): this check is now near-unreachable in the FALSE direction, and
+# that is the point. add_vrt_source/remove_vrt_source no longer mutate
+# vrt_source_links at request time — they stage the intended member set on the
+# VrtGeneration row, and regenerate_vrt applies it in the same transaction that
+# publishes the artifact and writes built_from. A composition-changing attempt
+# that dies before that swap now leaves the links exactly as built_from
+# describes them, so it takes the honest restore branch like any other dead
+# attempt. The check stays because it is the guard, not the mechanism: rows
+# written before #1327, a generation staged by future code that forgets to
+# apply it, or any path that mutates the link table outside a publish
+# transaction all still produce real drift, and the sweep must keep refusing to
+# call that 'ready'. A check whose FALSE branch has become rare is the outcome
+# of fixing the cause; deleting it would only make the next cause invisible.
+#
 # Count-match + one-directional subset (every built_from key has a live
 # link) proves full set equality: a JSONB object cannot repeat a key, and
 # uq_vsl_vrt_source forbids vrt_source_links from repeating a
@@ -814,15 +828,19 @@ async def sweep_stale_vrt_assets(
     reasons:
 
     1. Nothing about the dataset's declared MEMBERSHIP may have changed
-       underneath the attempt. ``add_vrt_source``/``remove_vrt_source``
-       commit their ``vrt_source_links`` mutation in the same transaction
-       that flips the asset to ``'regenerating'``, BEFORE the regeneration
-       itself ever runs, so a dead attempt of THAT kind leaves the
-       catalog's stated composition already ahead of the served bytes.
-       Restoring ``'ready'`` there would erase the only visible signal of
-       that drift — the status endpoint reads the link set, not the served
-       VRT, and would report a reduced (or expanded) source list as fully
-       healthy while stale composition keeps being served.
+       underneath the attempt. Restoring ``'ready'`` over such a change
+       would erase the only visible signal of it — the status endpoint
+       reads the link set, not the served VRT, and would report a reduced
+       (or expanded) source list as fully healthy while stale composition
+       keeps being served. fix(#1327) removed the path that used to
+       produce this state routinely: ``add_vrt_source``/``remove_vrt_
+       source`` stage their intended member set on the ``VrtGeneration``
+       row and ``regenerate_vrt`` applies it in the same transaction as
+       the artifact swap, so a dead composition-changing attempt now
+       leaves the links untouched and takes the restore branch. The check
+       remains as the guard for what it cannot see: rows written before
+       #1327, and any future path that mutates the link table outside a
+       publish transaction.
     2. The asset must have actually BEEN ``'ready'`` — not ``'failed'`` —
        the instant this attempt was allowed to start. ``regenerate_vrt_
        endpoint``'s guard rejects only ``'regenerating'``, so a caller may
@@ -967,15 +985,20 @@ async def sweep_stale_vrt_assets(
     # tasks_vrt.regenerate_vrt.
     #
     # fix(#1322 review round 3): 'ready' is only honest for a COMPOSITION-
-    # PRESERVING attempt. add_vrt_source / remove_vrt_source commit their
-    # vrt_source_links mutation in the SAME transaction that flips the asset
-    # to 'regenerating' — BEFORE the regeneration itself ever runs. If that
-    # attempt then dies, the catalog's link set already reflects the NEW
-    # composition while the published asset_uri (untouched by the dead
-    # attempt) still serves the OLD one. Restoring 'ready' would erase the
-    # only visible signal of that drift: the status endpoint reads the link
-    # set, not the served bytes, and would report the new (reduced) source
-    # list as fully healthy while stale data keeps being served.
+    # PRESERVING attempt. If the catalog's link set reflects a NEW composition
+    # while the published asset_uri (untouched by the dead attempt) still
+    # serves the OLD one, restoring 'ready' would erase the only visible signal
+    # of that drift: the status endpoint reads the link set, not the served
+    # bytes, and would report the new (reduced) source list as fully healthy
+    # while stale data keeps being served.
+    #
+    # fix(#1327): the routine producer of that drift is gone — add_vrt_source /
+    # remove_vrt_source stage their member set on the generation and
+    # regenerate_vrt applies it in the publish transaction, so a dead
+    # composition-changing attempt leaves the links matching built_from and
+    # lands in the restore branch below. What remains for this check is what it
+    # was always the guard against rather than the mechanism for: pre-#1327
+    # rows and any unforeseen writer of the link table.
     #
     # There is no stored "attempt type" to key off — VrtGeneration.
     # triggered_by holds a user id on every call site, not a kind, and

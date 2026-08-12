@@ -190,6 +190,21 @@ class VrtGeneration(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     source_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     triggered_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # fix(#1327): the FULL post-mutation member set this generation intends to
+    # publish, as an ordered JSON array of source dataset ids (position implied
+    # by order). `add_vrt_source`/`remove_vrt_source` stage it here instead of
+    # mutating `vrt_source_links` up front, and the regeneration task applies it
+    # to the link table in the SAME transaction as the artifact swap. A dead
+    # attempt therefore leaves the catalog's declared composition exactly where
+    # the served bytes are, with nothing to compensate.
+    #
+    # A full set, not a delta: apply is then a replace, which is idempotent on
+    # retry and needs no knowledge of what the links held when it was staged.
+    # NULL means "this generation changes no membership" — a plain regenerate,
+    # or any generation queued before this column existed. Both build from the
+    # live links and apply nothing, so the fallback is one behavior with two
+    # producers rather than a special case.
+    staged_source_ids: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

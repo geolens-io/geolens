@@ -4,7 +4,10 @@ Covers:
 - TestDeleteGuard: DELETE /datasets/{id} returns 409 when COG referenced by VRTs
 - TestVrtDeletion: Deleting VRT cleans only rasters/ prefix, not originals/ or source COG storage
 
-All tests are pure unit tests -- no DB, no real files, no network.
+Pure unit tests -- no DB, no real files, no network -- with two exceptions
+added by fix(#1327): the guard now also refuses to delete a source a
+still-in-flight VRT generation has STAGED (it has no link row yet), and that
+branch is SQL a mocked session cannot exercise.
 """
 
 import uuid
@@ -153,6 +156,99 @@ class TestDeleteGuard:
         assert "Mosaic A" in returned_titles
         assert "Mosaic B" in returned_titles
         assert "Mosaic C" in returned_titles
+
+    async def test_delete_cog_staged_by_an_in_flight_generation_raises_error(
+        self, test_db_session
+    ):
+        """fix(#1327): a staged member is still a dependency.
+
+        Database-backed on purpose. add_vrt_source no longer writes a
+        vrt_source_links row up front, so a source can be a declared member of
+        an in-flight VRT generation with no link row to find it by — and the
+        link half of this guard alone would have let it be deleted out from
+        under the attempt, weakening a guarantee this repo already made. The
+        guard's second branch reads the staged set, and only real SQL can show
+        it does.
+        """
+        from datetime import datetime, timezone
+
+        from app.modules.catalog.datasets.domain.service import delete_dataset
+        from app.processing.raster.models import VrtGeneration
+        from tests.factories import create_dataset, get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(test_db_session, created_by=admin_id)
+        vrt = await create_dataset(test_db_session, created_by=admin_id)
+        vrt.record.record_type = "vrt_dataset"
+        source.record.record_type = "raster_dataset"
+        test_db_session.add(
+            VrtGeneration(
+                vrt_dataset_id=vrt.id,
+                status="pending",
+                started_at=datetime.now(timezone.utc),
+                source_count=1,
+                staged_source_ids=[str(source.id)],
+            )
+        )
+        await test_db_session.commit()
+
+        with pytest.raises(DependentVrtError) as exc_info:
+            await delete_dataset(test_db_session, source.id, source.record.title)
+
+        assert exc_info.value.dependents[0]["vrt_dataset_id"] == str(vrt.id)
+
+    async def test_delete_cog_staged_by_a_finished_generation_proceeds(
+        self, test_db_session
+    ):
+        """The mirror: a terminal generation's staged set is not a dependency.
+
+        It will never be applied — its attempt is over — so treating it as a
+        live reference would make every past add or remove a permanent block on
+        deleting a source that is not a member of anything.
+
+        The live generation beside it stages nothing and is the #1322 shape
+        that has to be survivable rather than merely absent: an explicitly
+        assigned None lands in JSONB as the scalar `null`, which a membership
+        test written as an array expansion would raise on. Containment answers
+        false, so the delete proceeds instead of 500-ing.
+        """
+        from datetime import datetime, timezone
+
+        from app.modules.catalog.datasets.domain.service import delete_dataset
+        from app.processing.raster.models import VrtGeneration
+        from tests.factories import create_dataset, get_user_id
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        source = await create_dataset(test_db_session, created_by=admin_id)
+        vrt = await create_dataset(test_db_session, created_by=admin_id)
+        vrt.record.record_type = "vrt_dataset"
+        source.record.record_type = "raster_dataset"
+        test_db_session.add(
+            VrtGeneration(
+                vrt_dataset_id=vrt.id,
+                status="failed",
+                started_at=datetime.now(timezone.utc),
+                source_count=1,
+                staged_source_ids=[str(source.id)],
+            )
+        )
+        test_db_session.add(
+            VrtGeneration(
+                vrt_dataset_id=vrt.id,
+                status="running",
+                started_at=datetime.now(timezone.utc),
+                source_count=2,
+                staged_source_ids=None,
+            )
+        )
+        await test_db_session.commit()
+
+        mock_storage = AsyncMock()
+        mock_storage.list = AsyncMock(return_value=[])
+        with patch(
+            "app.platform.storage.provider.get_storage", return_value=mock_storage
+        ):
+            await delete_dataset(test_db_session, source.id, source.record.title)
 
     def test_router_returns_409_for_dependent_vrt_error(self):
         """Router converts DependentVrtError to HTTP 409 with dependent VRT details."""

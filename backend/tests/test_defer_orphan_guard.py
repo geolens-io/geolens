@@ -425,8 +425,15 @@ class TestVrtSourceOrphanGuard:
             yield
 
     def test_add_vrt_source_defer_failure_reverts_state_and_raises_503(self):
-        """VRT add_source defer crash must revert ``vrt_asset.status``, delete
-        the inserted source link, mark the IngestJob failed, and raise 503."""
+        """VRT add_source defer crash must revert ``vrt_asset.status``, mark the
+        IngestJob failed, and raise 503.
+
+        fix(#1327): it must also NOT delete a source link, because it never
+        inserted one — the member set is staged on the VrtGeneration row and
+        applied only when the regeneration publishes. What used to be the
+        rollback's compensating DELETE is now nothing to compensate, and this
+        test pins that direction: no statement against vrt_source_links other
+        than the ordered read the endpoint does up front."""
 
         async def _check():
             from app.processing.ingest.router import add_vrt_source
@@ -480,11 +487,9 @@ class TestVrtSourceOrphanGuard:
                     result_mock.scalars.return_value.all.return_value = [
                         existing_source_asset
                     ]
-                elif n == 6:
-                    # 6. Max position
-                    result_mock.scalar.return_value = 0
-                # n == 7: INSERT (no return needed)
-                # n == 8: DELETE (rollback re-deletes)
+                # fix(#1327): there is no 6th query. The MAX(position) lookup,
+                # the link INSERT and the rollback's compensating DELETE are
+                # all gone with the staged member set.
                 return result_mock
 
             mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -515,16 +520,24 @@ class TestVrtSourceOrphanGuard:
             # IngestJob marked failed
             assert mock_job.status == "failed"
             assert "vrt add_source queue dead" in mock_job.error_message
-            # At least one DELETE must have been issued for the inserted link
-            # (call index 8 onwards corresponds to the rollback DELETE).
-            assert call_count[0] >= 8
+            # fix(#1327): the link table was only READ. No INSERT to undo, so
+            # no DELETE to issue — the compensation the rollback used to owe.
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_db.execute.await_args_list
+            )
+            assert "INSERT INTO catalog.vrt_source_links" not in statements
+            assert "DELETE FROM catalog.vrt_source_links" not in statements
 
         asyncio.run(_check())
 
     def test_remove_vrt_source_defer_failure_reverts_state_and_raises_503(self):
-        """VRT remove_source defer crash must revert state, re-insert the
-        deleted source link with its original position, mark the job failed,
-        and raise 503."""
+        """VRT remove_source defer crash must revert state, mark the job
+        failed, and raise 503.
+
+        fix(#1327): the rollback used to re-INSERT the link it had deleted, at
+        the position it had captured. Nothing is deleted now — the post-removal
+        set is staged on the generation — so the compensation is gone and the
+        member set is untouched throughout."""
 
         async def _check():
             from app.processing.ingest.router import remove_vrt_source
@@ -549,7 +562,7 @@ class TestVrtSourceOrphanGuard:
             mock_db.commit = AsyncMock()
 
             call_count = [0]
-            rollback_insert_params: dict = {}
+            other_member_ids = [uuid.uuid4(), uuid.uuid4()]
 
             def execute_side_effect(query, params=None):
                 call_count[0] += 1
@@ -559,19 +572,16 @@ class TestVrtSourceOrphanGuard:
                     # 1. Load VRT RasterAsset
                     result_mock.scalar_one_or_none.return_value = vrt_asset
                 elif n == 2:
-                    # 3. Source count
-                    result_mock.scalar.return_value = 3
-                elif n == 3:
-                    # 4. Link existence check — found with position=5
-                    link_row = MagicMock()
-                    link_row.position = 5
-                    result_mock.fetchone.return_value = link_row
-                elif n == 4:
-                    # 5. DELETE link
-                    pass
-                elif n == 5:
-                    # Rollback: INSERT link
-                    rollback_insert_params.update(params or {})
+                    # fix(#1327): 3. ONE ordered read of the member set — it
+                    # answers the count guard, the "is it linked" guard and the
+                    # staged post-removal set. The separate COUNT(*), the
+                    # position lookup, the DELETE and the rollback's re-INSERT
+                    # are all gone.
+                    result_mock.fetchall.return_value = [
+                        MagicMock(source_dataset_id=other_member_ids[0]),
+                        MagicMock(source_dataset_id=source_dataset_id),
+                        MagicMock(source_dataset_id=other_member_ids[1]),
+                    ]
                 return result_mock
 
             mock_db.execute = AsyncMock(side_effect=execute_side_effect)
@@ -603,9 +613,22 @@ class TestVrtSourceOrphanGuard:
             # IngestJob marked failed
             assert mock_job.status == "failed"
             assert "vrt remove_source queue dead" in mock_job.error_message
-            # Rollback re-inserted the link with the captured position=5
-            assert rollback_insert_params.get("pos") == 5
-            assert rollback_insert_params.get("src_id") == source_dataset_id
+            # fix(#1327): the member set was only READ — the removal lived on
+            # the generation and died with it.
+            statements = "\n".join(
+                str(call.args[0]) for call in mock_db.execute.await_args_list
+            )
+            assert "DELETE FROM catalog.vrt_source_links" not in statements
+            assert "INSERT INTO catalog.vrt_source_links" not in statements
+            from app.processing.raster.models import VrtGeneration
+
+            staged = [
+                call.args[0]
+                for call in mock_db.add.call_args_list
+                if isinstance(call.args[0], VrtGeneration)
+            ]
+            assert len(staged) == 1
+            assert staged[0].staged_source_ids == [str(sid) for sid in other_member_ids]
 
         asyncio.run(_check())
 

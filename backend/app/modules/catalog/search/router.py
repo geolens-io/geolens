@@ -125,24 +125,37 @@ async def _build_raster_assets(
     """Fetch raster metadata for a single dataset (column list lives in
     app/processing/raster/queries.py — KISS-6).
 
-    For VRT datasets, also looks up source_count from VrtGeneration.
+    For VRT datasets, also counts the source rasters the served VRT is made of.
     """
+    from sqlalchemy import text
+
     meta = await get_catalog_port().fetch_raster_meta_one(db, dataset_id)
     if meta is None:
         return None
 
-    # Fetch source_count for VRT datasets (only this site needs it)
-    if (
-        meta.get("vrt_type") is not None
-        and meta.get("current_generation_id") is not None
-    ):
-        source_count = await get_catalog_port().get_vrt_generation_source_count(
-            db, meta["current_generation_id"]
+    # fix(#1327): count the LIVE member links, the same source the dataset
+    # detail and list surfaces count (datasets/domain/service_query.py). This
+    # used to read the in-flight VrtGeneration's source_count instead, which
+    # was the post-mutation number a source add/remove had already written into
+    # the link table. Now that the link write happens at the artifact swap, the
+    # generation's count describes a composition that is not being served yet,
+    # so projecting it here would leave this one surface claiming a member set
+    # the VRT does not have — the exact drift #1327 removes. The generation's
+    # own count still belongs to the generation, and is reported per attempt by
+    # the VRT generations endpoint.
+    if meta.get("vrt_type") is not None:
+        count_result = await db.execute(
+            text(
+                "SELECT COUNT(*) FROM catalog.vrt_source_links "
+                "WHERE vrt_dataset_id = :id"
+            ),
+            {"id": str(dataset_id)},
         )
-        if source_count is not None:
-            meta["source_count"] = source_count
+        meta["source_count"] = count_result.scalar() or 0
 
-    # Drop the internal generation_id from the public response (kept only for the join above).
+    # Drop the internal generation_id from the public response. fix(#1327): no
+    # longer read here at all — the raster-meta query still selects it, and it
+    # still must not reach a caller.
     meta.pop("current_generation_id", None)
     return meta
 

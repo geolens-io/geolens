@@ -269,6 +269,11 @@ class CatalogPort(Protocol):
         self, session: AsyncSession, dataset_ids: list[uuid.UUID]
     ) -> dict[str, dict[str, Any]]: ...
 
+    # How many members ONE generation is assembling. fix(#1327): that is the
+    # attempt's intended set, which for a source add/remove is not what the VRT
+    # is serving until the attempt publishes — so this is a fact about the
+    # generation and must not be projected as a dataset's `source_count`. Count
+    # `catalog.vrt_source_links` for that, as every catalog surface now does.
     async def get_vrt_generation_source_count(
         self, session: AsyncSession, generation_id: uuid.UUID
     ) -> int | None: ...

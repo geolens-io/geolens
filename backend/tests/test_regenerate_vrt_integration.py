@@ -17,7 +17,9 @@ invalidation / embedding deferral calls.
 
 import hashlib
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import rasterio
@@ -439,3 +441,419 @@ async def test_regenerate_vrt_happy_path_end_to_end(
         # At least one pixel of extent
         assert bounds.right > bounds.left
         assert bounds.top > bounds.bottom
+
+    # [17] fix(#1327): this delivery staged no member set (the legacy shape
+    # this test exercises carries none), so the task built from the live links
+    # and applied nothing to them.
+    assert generation.staged_source_ids is None
+    assert await _linked_source_ids(session, vrt_db_state["vrt_dataset_id"]) == list(
+        vrt_db_state["source_dataset_ids"]
+    )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1327): staged source-link mutation.
+#
+# add_vrt_source/remove_vrt_source record the intended member set on the
+# VrtGeneration row and leave vrt_source_links alone; regenerate_vrt builds
+# from that set and applies it in the same transaction as the artifact swap.
+# The invariant these tests pin: vrt_source_links never describes a composition
+# the served VRT does not have.
+# ---------------------------------------------------------------------------
+
+
+async def _linked_source_ids(session, vrt_dataset_id) -> list[uuid.UUID]:
+    """The VRT's member set as the catalog states it, in position order."""
+    result = await session.execute(
+        text(
+            "SELECT source_dataset_id FROM catalog.vrt_source_links "
+            "WHERE vrt_dataset_id = :vrt_id ORDER BY position ASC"
+        ),
+        {"vrt_id": str(vrt_dataset_id)},
+    )
+    return [row.source_dataset_id for row in result.fetchall()]
+
+
+def _clone_source_tif(source_tifs: dict, tmp_path: Path, name: str) -> str:
+    """A THIRD TIF on disk, byte-identical to the fixture's first.
+
+    Its own key, not a second reference to an existing one: a build handed the
+    same path twice could legitimately collapse it, and these tests count
+    sources in the stored VRT to prove which member set the build read.
+    """
+    origin = next(iter(source_tifs.values()))
+    asset_uri = f"rasters/{name}/source.cog.tif"
+    dest = tmp_path / "storage" / asset_uri
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(origin.read_bytes())
+    return asset_uri
+
+
+async def _add_extra_source(session, asset_uri: str) -> uuid.UUID:
+    """Another ready raster source, NOT linked to any VRT.
+
+    Reuses the fixture's pixel content: these tests are about which members a
+    build and an apply agree on, not about pixel values.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.processing.raster.models import RasterAsset
+
+    record = Record(
+        title=f"Staged source {uuid.uuid4().hex[:6]}",
+        record_type="raster_dataset",
+        record_status="published",
+        visibility="private",
+    )
+    session.add(record)
+    await session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=f"raster_src_{record.id.hex[:16]}",
+        source_format="geotiff",
+        srid=4326,
+    )
+    session.add(dataset)
+    await session.flush()
+    session.add(
+        RasterAsset(
+            dataset_id=dataset.id,
+            asset_uri=asset_uri,
+            storage_backend="local",
+            status="ready",
+            band_count=1,
+            epsg=4326,
+            width=64,
+            height=64,
+            dtype="uint8",
+        )
+    )
+    await session.flush()
+    return dataset.id
+
+
+async def _stage_generation(
+    session, vrt_db_state: dict, staged_source_ids
+) -> uuid.UUID:
+    """A pending generation carrying a staged member set, owned by the asset.
+
+    Mirrors exactly what add_vrt_source/remove_vrt_source commit: the staged
+    set on the generation, the asset pointing at it, and vrt_source_links
+    untouched.
+    """
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    generation = VrtGeneration(
+        vrt_dataset_id=uuid.UUID(vrt_db_state["vrt_dataset_id"]),
+        status="pending",
+        started_at=datetime.now(timezone.utc),
+        source_count=len(staged_source_ids),
+        staged_source_ids=[str(sid) for sid in staged_source_ids],
+        triggered_by="test",
+    )
+    session.add(generation)
+    await session.flush()
+
+    asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    asset.status = "regenerating"
+    asset.current_generation_id = generation.id
+    await session.commit()
+    return generation.id
+
+
+async def test_staged_set_lands_with_the_artifact_it_describes(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    tmp_path: Path,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """A successful run applies the staged set, and the VRT contains it.
+
+    Three properties that only mean something together: the build read the
+    STAGED members (3 sources in the stored XML, not the 2 still linked), the
+    link table now equals the staged set in staged order, and built_from — the
+    published statement of what the artifact holds — agrees with both.
+    """
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+    original_ids = list(vrt_db_state["source_dataset_ids"])
+
+    added_id = await _add_extra_source(
+        session, _clone_source_tif(source_tifs, tmp_path, "src-3")
+    )
+    staged = [*original_ids, added_id]
+    generation_id = await _stage_generation(session, vrt_db_state, staged)
+
+    # Pre-state: the catalog still describes the VRT actually being served.
+    assert await _linked_source_ids(session, vrt_id) == original_ids
+
+    await regenerate_vrt.func(
+        job_id=vrt_db_state["job_id"],
+        attempt_id=vrt_db_state["attempt_id"],
+        vrt_dataset_id=vrt_id,
+        generation_id=str(generation_id),
+    )
+
+    assert await _linked_source_ids(session, vrt_id) == staged
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert vrt_asset.status == "ready"
+    assert set(vrt_asset.built_from) == {str(sid) for sid in staged}
+
+    generation = (
+        await session.execute(
+            select(VrtGeneration).where(VrtGeneration.id == generation_id)
+        )
+    ).scalar_one()
+    await session.refresh(generation)
+    assert generation.status == "completed"
+
+    # The bytes themselves: the stored VRT references one source per staged
+    # member, which is what proves the BUILD used the staged set rather than
+    # the links it was about to overwrite.
+    vrt_xml = (await local_storage.get(vrt_asset.asset_uri)).decode()
+    assert vrt_xml.count("<SourceFilename") == len(staged)
+
+
+async def test_death_before_swap_leaves_source_links_untouched(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    tmp_path: Path,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The whole point of #1327: an attempt that dies changes no membership.
+
+    The build blows up after the generation is claimed — the window that used
+    to leave the catalog permanently ahead of the served bytes. Nothing about
+    the VRT's stated composition moves.
+    """
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+    original_ids = list(vrt_db_state["source_dataset_ids"])
+
+    added_id = await _add_extra_source(
+        session, _clone_source_tif(source_tifs, tmp_path, "src-3")
+    )
+    staged = [*original_ids, added_id]
+    generation_id = await _stage_generation(session, vrt_db_state, staged)
+
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_vrt.build_vrt",
+        MagicMock(side_effect=RuntimeError("gdalbuildvrt died mid-attempt")),
+    )
+
+    with pytest.raises(RuntimeError):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_id,
+            generation_id=str(generation_id),
+        )
+
+    assert await _linked_source_ids(session, vrt_id) == original_ids
+
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert vrt_asset.status == "failed"
+    assert vrt_asset.current_generation_id is None
+    # Nothing was published, so nothing claims the added member.
+    assert vrt_asset.built_from is None
+
+    generation = (
+        await session.execute(
+            select(VrtGeneration).where(VrtGeneration.id == generation_id)
+        )
+    ).scalar_one()
+    await session.refresh(generation)
+    assert generation.status == "failed"
+    # The intent survives for diagnosis; only a task owning the asset pointer
+    # could apply it, and this one no longer does.
+    assert generation.staged_source_ids == [str(sid) for sid in staged]
+
+
+async def test_staged_source_deleted_mid_flight_fails_the_run_cleanly(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    tmp_path: Path,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """Set drift in the other direction: a staged member disappears.
+
+    A LIVE link pins its source (ON DELETE RESTRICT); a staged id does not,
+    so the stage->apply window is the one place a member can vanish. The run
+    must fail whole rather than publish a mosaic missing a member it claims.
+    """
+    from app.modules.catalog.datasets.domain.models import Record
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+    original_ids = list(vrt_db_state["source_dataset_ids"])
+
+    added_id = await _add_extra_source(
+        session, _clone_source_tif(source_tifs, tmp_path, "src-3")
+    )
+    staged = [*original_ids, added_id]
+    generation_id = await _stage_generation(session, vrt_db_state, staged)
+
+    # The staged source goes away before the attempt runs.
+    await session.execute(
+        text(
+            "DELETE FROM catalog.records WHERE id = "
+            "(SELECT record_id FROM catalog.datasets WHERE id = :id)"
+        ),
+        {"id": str(added_id)},
+    )
+    await session.commit()
+    assert (
+        await session.execute(select(Record).where(Record.id == added_id))
+    ).scalar_one_or_none() is None
+
+    with pytest.raises(ValueError, match="no longer available"):
+        await regenerate_vrt.func(
+            job_id=vrt_db_state["job_id"],
+            attempt_id=vrt_db_state["attempt_id"],
+            vrt_dataset_id=vrt_id,
+            generation_id=str(generation_id),
+        )
+
+    assert await _linked_source_ids(session, vrt_id) == original_ids
+    vrt_asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    await session.refresh(vrt_asset)
+    assert vrt_asset.status == "failed"
+
+
+async def test_null_staged_set_builds_from_live_links_and_applies_nothing(
+    test_db_session,
+    vrt_db_state: dict,
+    source_tifs: dict,
+    tmp_path: Path,
+    local_storage,
+    quicklook_stub,
+    clean_tables,
+):
+    """Backfill semantics: a generation that stages nothing changes nothing.
+
+    A plain regenerate, and every generation queued before the column existed,
+    take this path — build from the live links, apply no link change — with an
+    unlinked raster sitting right there to prove the build did not wander.
+    """
+    from app.processing.ingest.tasks import regenerate_vrt
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    session = test_db_session
+    vrt_id = vrt_db_state["vrt_dataset_id"]
+    original_ids = list(vrt_db_state["source_dataset_ids"])
+
+    unlinked_id = await _add_extra_source(
+        session, _clone_source_tif(source_tifs, tmp_path, "src-3")
+    )
+
+    generation = VrtGeneration(
+        vrt_dataset_id=uuid.UUID(vrt_id),
+        status="pending",
+        started_at=datetime.now(timezone.utc),
+        source_count=len(original_ids),
+        triggered_by="test",
+    )
+    session.add(generation)
+    await session.flush()
+    asset = (
+        await session.execute(
+            select(RasterAsset).where(RasterAsset.id == vrt_db_state["vrt_asset_id"])
+        )
+    ).scalar_one()
+    asset.current_generation_id = generation.id
+    await session.commit()
+    generation_id = generation.id
+
+    await regenerate_vrt.func(
+        job_id=vrt_db_state["job_id"],
+        attempt_id=vrt_db_state["attempt_id"],
+        vrt_dataset_id=vrt_id,
+        generation_id=str(generation_id),
+    )
+
+    assert await _linked_source_ids(session, vrt_id) == original_ids
+    await session.refresh(asset)
+    assert asset.status == "ready"
+    assert set(asset.built_from) == {str(sid) for sid in original_ids}
+    assert str(unlinked_id) not in asset.built_from
+
+
+async def test_applying_a_staged_set_is_idempotent(test_db_session, vrt_db_state: dict):
+    """Re-applying the same set is a no-op — what makes a retry safe.
+
+    Also pins the reason apply is an upsert rather than a delete-and-insert:
+    a member that survives the change keeps its ``created_at``, so "linked
+    since" is not reset by an unrelated add or removal.
+    """
+    from app.processing.ingest.tasks_vrt import apply_staged_source_links
+    from app.processing.raster.models import VrtSourceLink
+
+    session = test_db_session
+    vrt_id = uuid.UUID(vrt_db_state["vrt_dataset_id"])
+    kept_id, dropped_id = vrt_db_state["source_dataset_ids"]
+    added_id = await _add_extra_source(session, "rasters/src-1/source.cog.tif")
+    staged = [added_id, kept_id]
+
+    async def _rows():
+        result = await session.execute(
+            select(VrtSourceLink)
+            .where(VrtSourceLink.vrt_dataset_id == vrt_id)
+            .order_by(VrtSourceLink.position)
+        )
+        return list(result.scalars().all())
+
+    before = {row.source_dataset_id: row.created_at for row in await _rows()}
+
+    await apply_staged_source_links(session, vrt_id, staged)
+    await session.commit()
+    first = await _rows()
+    assert [row.source_dataset_id for row in first] == staged
+    assert [row.position for row in first] == [0, 1]
+    assert dropped_id not in {row.source_dataset_id for row in first}
+    kept_row = next(row for row in first if row.source_dataset_id == kept_id)
+    assert kept_row.created_at == before[kept_id], (
+        "a surviving member must keep its link identity across an apply"
+    )
+
+    await apply_staged_source_links(session, vrt_id, staged)
+    await session.commit()
+    second = await _rows()
+    assert [(row.id, row.source_dataset_id, row.position) for row in second] == [
+        (row.id, row.source_dataset_id, row.position) for row in first
+    ]

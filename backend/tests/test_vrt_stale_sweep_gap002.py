@@ -901,6 +901,16 @@ async def test_sweep_stale_vrt_assets_storage_failure_never_masks_reconciliation
 # (built_from vs the live vrt_source_links set), not a timing heuristic —
 # these run against a real Postgres database so the actual
 # _COMPOSITION_PRESERVED_SQL executes, not a mock standing in for it.
+#
+# fix(#1327) changed which of these branches real traffic reaches. Source
+# add/remove now STAGE their member set on the VrtGeneration row and apply it
+# only in the publish transaction, so a dead composition-changing attempt
+# leaves vrt_source_links matching built_from and takes the restore branch —
+# proven by test_sweep_restores_ready_for_a_dead_staged_mutation below. The
+# drift cases that follow it did not go away, they changed owner: they are now
+# the shapes the sweep must still refuse to call 'ready' — a row written before
+# #1327, or any future writer of the link table outside a publish transaction.
+# Keeping them is the point of a guard.
 # ---------------------------------------------------------------------------
 
 
@@ -911,10 +921,16 @@ async def _make_vrt_with_generation(
     built_from_dataset_ids,
     linked_dataset_ids,
     started_hours_ago: float = 2,
+    staged_source_ids=None,
 ):
     """A VRT dataset with a dead 'regenerating' generation, whose published
     built_from and live vrt_source_links can be set independently — the
-    exact fork the composition-preserving check has to tell apart."""
+    exact fork the composition-preserving check has to tell apart.
+
+    fix(#1327): ``staged_source_ids`` models a dead attempt of the staged
+    kind — the member set the attempt intended to publish, recorded on the
+    generation, with the link rows still describing what is being served.
+    """
     from app.processing.raster.models import RasterAsset, VrtGeneration, VrtSourceLink
     from tests.factories import create_dataset
 
@@ -924,6 +940,11 @@ async def _make_vrt_with_generation(
         status="running",
         started_at=datetime.now(timezone.utc) - timedelta(hours=started_hours_ago),
         heartbeat_at=datetime.now(timezone.utc) - timedelta(hours=started_hours_ago),
+        staged_source_ids=(
+            None
+            if staged_source_ids is None
+            else [str(sid) for sid in staged_source_ids]
+        ),
     )
     test_db_session.add(generation)
     await test_db_session.flush()
@@ -979,12 +1000,60 @@ async def test_sweep_restores_ready_when_composition_unchanged(test_db_session):
     assert generation.status == "failed"
 
 
+async def test_sweep_restores_ready_for_a_dead_staged_mutation(test_db_session):
+    """fix(#1327): the converted case — a dead source add/remove.
+
+    This is the scenario test_sweep_keeps_failed_when_source_was_added used to
+    describe for live traffic: an add whose regeneration died before
+    publishing. Staging moved the link write into the publish transaction, so
+    the dead attempt left vrt_source_links exactly as built_from describes it
+    and there is nothing to be honest ABOUT — the sweep restores 'ready' and
+    the VRT keeps serving the composition it always had, with the requested
+    addition simply not applied. The generation's staged set survives on the
+    failed row; only a task owning the asset pointer could apply it, and this
+    sweep just cleared that pointer.
+    """
+    from app.platform.jobs.router import sweep_stale_vrt_assets
+    from tests.factories import create_dataset, get_user_id
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    original = await create_dataset(test_db_session, created_by=admin_id)
+    requested = await create_dataset(test_db_session, created_by=admin_id)
+    _vrt_dataset, generation, asset = await _make_vrt_with_generation(
+        test_db_session,
+        admin_id=admin_id,
+        built_from_dataset_ids=[original.id],  # published VRT: one member
+        linked_dataset_ids=[original.id],  # catalog says the same thing
+        staged_source_ids=[original.id, requested.id],  # the intent, unapplied
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
+    assets_recovered, gens_failed, _keys = await sweep_stale_vrt_assets(
+        test_db_session, cutoff
+    )
+    await test_db_session.commit()
+
+    assert (assets_recovered, gens_failed) == (1, 1)
+    await test_db_session.refresh(asset)
+    await test_db_session.refresh(generation)
+    assert asset.status == "ready"
+    assert asset.current_generation_id is None
+    assert generation.status == "failed"
+    assert generation.staged_source_ids == [str(original.id), str(requested.id)]
+
+
 async def test_sweep_keeps_failed_when_source_was_removed(test_db_session):
-    """fix(#1322 review round 3): remove_vrt_source deletes the link and
-    commits BEFORE the (now-dead) regeneration ever runs. built_from still
-    names the removed source — the published VRT still contains it — so
-    restoring 'ready' would hide that the catalog's stated composition (1
-    source) no longer matches what is actually being served (2 sources)."""
+    """fix(#1322 review round 3): a link set that shrank without the artifact
+    following it. built_from still names the removed source — the published
+    VRT still contains it — so restoring 'ready' would hide that the catalog's
+    stated composition (1 source) no longer matches what is actually being
+    served (2 sources).
+
+    fix(#1327): remove_vrt_source no longer produces this state (it stages the
+    post-removal set instead of deleting the link up front), so what this pins
+    now is the guard, not the mechanism: a row left drifted by pre-#1327 code
+    or any unforeseen writer of the link table still must not be called
+    'ready'."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
     from tests.factories import create_dataset, get_user_id
 
@@ -1016,10 +1085,12 @@ async def test_sweep_keeps_failed_when_source_was_removed(test_db_session):
 
 
 async def test_sweep_keeps_failed_when_source_was_added(test_db_session):
-    """The mirror case: add_vrt_source's link INSERT already committed, so
-    the catalog claims 2 sources while the published VRT (built_from) was
-    only ever assembled from 1. Same drift, opposite direction — still not
-    safe to call 'ready'."""
+    """The mirror case: the catalog claims 2 sources while the published VRT
+    (built_from) was only ever assembled from 1. Same drift, opposite
+    direction — still not safe to call 'ready'.
+
+    fix(#1327): also no longer produced by add_vrt_source; kept for the same
+    reason as its sibling above."""
     from app.platform.jobs.router import sweep_stale_vrt_assets
     from tests.factories import create_dataset, get_user_id
 
