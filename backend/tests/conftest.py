@@ -23,6 +23,8 @@ from app.modules.auth.providers.local import hash_password
 from app.platform.cache import init_cache
 from app.core.config import settings
 
+from tests.factories import create_user
+
 # Register the multi_tenant_rls fixture so Plan 04 and Phase 1209 can request it
 # from any test file without an explicit import. The fixture lives in
 # tests/fixtures/multi_tenant_harness.py and is surfaced here via pytest_plugins.
@@ -2062,24 +2064,10 @@ async def get_auth_header(
     return {"Authorization": f"Bearer {token}"}
 
 
-async def _create_test_user(
-    client: AsyncClient,
-    admin_headers: dict,
-    role: str,
-) -> tuple[dict[str, str], str]:
-    """Create a test user with the given role and return (auth_header, user_id)."""
-    unique = uuid.uuid4().hex[:8]
-    username = f"{role}_{unique}"
-    password = "TestPass1234!"  # SEC-S16: meets 12-char + 3-class policy
-    resp = await client.post(
-        "/admin/users/",
-        json={"username": username, "password": password, "role": role},
-        headers=admin_headers,
-    )
-    assert resp.status_code == 201, f"Create {role} failed: {resp.text}"
-    user_id = resp.json()["id"]
-    headers = await get_auth_header(client, username, password)
-    return headers, user_id
+# Re-exported so the ~25 `from tests.conftest import _create_test_user` sites
+# across the suite keep working unchanged; the implementation lives in
+# tests/factories.py as create_user.
+_create_test_user = create_user
 
 
 @pytest.fixture

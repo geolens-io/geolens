@@ -37,6 +37,35 @@ async def get_user_id(session: AsyncSession, username: str) -> uuid.UUID:
     return user.id
 
 
+async def create_user(
+    client: AsyncClient,
+    admin_headers: dict,
+    role: str,
+) -> tuple[dict[str, str], str]:
+    """Create a test user with the given role and return (auth_header, user_id).
+
+    Logs in inline rather than via conftest's ``get_auth_header`` — this
+    module must not import from conftest, which imports ``create_user`` from
+    here to keep ``tests.conftest._create_test_user`` importable.
+    """
+    unique = uuid.uuid4().hex[:8]
+    username = f"{role}_{unique}"
+    password = "TestPass1234!"  # SEC-S16: meets 12-char + 3-class policy
+    resp = await client.post(
+        "/admin/users/",
+        json={"username": username, "password": password, "role": role},
+        headers=admin_headers,
+    )
+    assert resp.status_code == 201, f"Create {role} failed: {resp.text}"
+    user_id = resp.json()["id"]
+    login = await client.post(
+        "/auth/login", data={"username": username, "password": password}
+    )
+    assert login.status_code == 200, f"Login failed for {username}: {login.text}"
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+    return headers, user_id
+
+
 async def create_dataset(
     session: AsyncSession,
     *,
