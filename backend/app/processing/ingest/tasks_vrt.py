@@ -1164,6 +1164,16 @@ async def regenerate_vrt(
                     # now() — one swap, one timestamp, no clock skew between
                     # the two records of it.
                     vrt_dataset.last_refreshed_at = generation.completed_at
+                    # fix(#1329 follow-up): the VRT swap is the third
+                    # pointer-swap door and never rolled the version the way
+                    # raster replace does (tasks_raster_swap). Without the
+                    # bump, pre-swap tiles stay valid in every version-keyed
+                    # cache (the nginx tile cache via the URL `v=`, the
+                    # per-process raster meta cache) until their TTLs, so a
+                    # regeneration that changes band shape can render wrong
+                    # until they expire. Same transaction as the pointer swap,
+                    # same as every other door.
+                    vrt_dataset.bump_tile_cache_version()
                     if meta.get("bbox_wkt"):
                         vrt_dataset.record.spatial_extent = func.ST_GeomFromText(
                             meta["bbox_wkt"], 4326
