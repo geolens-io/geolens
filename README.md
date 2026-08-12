@@ -421,6 +421,7 @@ see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions): questions, ideas, show and tell
 - [Support](SUPPORT.md): where to ask for help and how problems get routed
 - [Contributing Guide](.github/CONTRIBUTING.md): development setup, code style, and PR guidelines
+- [The Spatial Net](https://thespatial.net): a free, ad-free community site I also run, with open pay data for geospatial roles, a jobs board, and community events on a map. Different project, same people.
 
 ## Known limitations
 

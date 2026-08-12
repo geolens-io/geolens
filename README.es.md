@@ -359,6 +359,7 @@ La API y el worker exportan métricas Prometheus de serie (tasa/latencia/errores
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions): preguntas, ideas y demostraciones
 - [Soporte](SUPPORT.md): dónde pedir ayuda y cómo se canalizan los problemas
 - [Guía de contribución](.github/CONTRIBUTING.md): configuración de desarrollo, estilo de código y directrices para PRs
+- [The Spatial Net](https://thespatial.net): un sitio comunitario gratuito y sin anuncios que también mantengo, con datos salariales abiertos para perfiles geoespaciales, un tablón de empleo y eventos de la comunidad en un mapa. Proyecto distinto, la misma gente.
 
 ## Limitaciones conocidas
 

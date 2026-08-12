@@ -358,6 +358,7 @@ L’API et le worker exportent nativement des métriques Prometheus (taux/latenc
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions) : questions, idées et présentations
 - [Assistance](SUPPORT.md) : où demander de l’aide et comment les problèmes sont orientés
 - [Guide de contribution](.github/CONTRIBUTING.md) : environnement de développement, style et règles de PR
+- [The Spatial Net](https://thespatial.net) : un site communautaire gratuit et sans publicité que je maintiens également, avec des données de rémunération ouvertes pour les métiers du géospatial, un tableau d’offres d’emploi et les événements de la communauté sur une carte. Projet différent, les mêmes personnes.
 
 ## Limitations connues
 

@@ -358,6 +358,7 @@ API und Worker exportieren sofort Prometheus-Metriken (HTTP-Rate/Latenz/Fehler, 
 - [GitHub Discussions](https://github.com/geolens-io/geolens/discussions): Fragen, Ideen und Präsentationen
 - [Support](SUPPORT.md): Hilfe und Weiterleitung von Problemen
 - [Beitragsleitfaden](.github/CONTRIBUTING.md): Entwicklungsumgebung, Codestil und PR-Richtlinien
+- [The Spatial Net](https://thespatial.net): eine kostenlose, werbefreie Community-Website, die ich ebenfalls betreibe, mit offenen Gehaltsdaten für Geo-Berufe, einer Jobbörse und Community-Events auf einer Karte. Anderes Projekt, dieselben Leute.
 
 ## Bekannte Einschränkungen
 
