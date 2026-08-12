@@ -874,6 +874,146 @@ class TestSearchEnrichmentVrt:
         assert properties["source_count"] == 2
 
 
+# ---------------------------------------------------------------------------
+# TestDatasetDetailSessionIsolation
+# ---------------------------------------------------------------------------
+
+
+class TestDatasetDetailSessionIsolation:
+    """fix(#1436): get_dataset_detail's raster/VRT/asset fetches run on the caller's session.
+
+    Regression guard, revised after codex review. The raster asset,
+    VRT source-count, and dataset-asset fetches were originally gathered via
+    ``asyncio.gather`` against the caller's ``db`` while a comment claimed
+    they ran "in parallel" — false (AsyncSession is not safe for concurrent
+    use, so asyncpg's per-connection execute lock silently serialized them
+    anyway). The first fix gave each branch its own short-lived
+    ``async_session()``, matching the pattern search/router.py and
+    stac/router.py use for their gather sites — but codex review flagged that
+    pattern here as a nested pool checkout while the caller's own connection
+    is held for the rest of the request, which the default (non-external-
+    pooler) connection pool cannot absorb under moderate concurrency. The
+    fetches now run sequentially on the caller's own session instead: no
+    extra checkout, no false "parallel" claim, no shared-session concurrency.
+    """
+
+    @pytest.mark.anyio
+    async def test_fetches_run_sequentially_on_callers_session(self, monkeypatch):
+        from app.modules.catalog.datasets.domain import service_query
+
+        # vrt_dataset is in RASTER_FAMILY_RECORD_TYPES, so this scenario
+        # exercises all three fetches: raster asset, VRT source count, and
+        # dataset assets.
+        dataset = _make_mock_dataset("vrt_dataset", "My VRT")
+        dataset.record.created_by = None
+        dataset.record.updated_by = None
+        dataset.source_format = "cog"
+
+        class CallerSession:
+            async def execute(self, *args, **kwargs):
+                result = MagicMock()
+                result.scalar.return_value = 2
+                return result
+
+        caller_db = CallerSession()
+
+        opened_sessions: list[object] = []
+
+        class FakeInnerSession:
+            def __init__(self):
+                opened_sessions.append(self)
+
+            async def execute(self, *args, **kwargs):
+                raise AssertionError(
+                    "get_dataset_detail opened a fresh session instead of "
+                    "reusing the caller's db"
+                )
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+        def _fake_async_session(*args, **kwargs):
+            return FakeInnerSession()
+
+        import app.core.db as _db_module
+
+        monkeypatch.setattr(_db_module, "async_session", _fake_async_session)
+
+        raster_asset_sessions: list[object] = []
+        dataset_asset_sessions: list[object] = []
+        fake_raster_asset = MagicMock()
+
+        async def _fake_get_raster_asset(session, _dataset_id):
+            raster_asset_sessions.append(session)
+            return fake_raster_asset
+
+        async def _fake_get_dataset_assets(session, _dataset_id):
+            dataset_asset_sessions.append(session)
+            return []
+
+        port = MagicMock()
+        port.get_raster_asset = _fake_get_raster_asset
+        port.get_dataset_assets = _fake_get_dataset_assets
+        monkeypatch.setattr(service_query, "get_catalog_port", lambda: port)
+
+        # Downstream response building is irrelevant to session reuse —
+        # stub it so the test stays focused on the fetches themselves.
+        monkeypatch.setattr(
+            "app.modules.catalog.datasets.domain.helpers.dataset_to_response",
+            lambda *args, **kwargs: MagicMock(),
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.authorization.visible_derived_from",
+            AsyncMock(return_value=None),
+        )
+        monkeypatch.setattr(
+            "app.modules.catalog.authorization.visible_lineage_summary",
+            AsyncMock(return_value=None),
+        )
+
+        result = await service_query.get_dataset_detail(
+            caller_db,
+            dataset.id,
+            user=None,
+            dataset=dataset,
+            user_roles=set(),
+        )
+
+        assert result is not None
+        # No extra pool checkout: async_session() is never called.
+        assert opened_sessions == []
+        # Both port fetches ran on the caller's own session.
+        assert raster_asset_sessions == [caller_db]
+        assert dataset_asset_sessions == [caller_db]
+
+    def test_no_asyncio_gather_over_the_dataset_fetches(self):
+        """Structural pin: the false-"parallel" gather must not come back.
+
+        A per-branch ``async_session()`` re-adds a nested pool checkout under
+        the caller's own held connection (the exact codex finding this
+        revision fixed), so service_query.py must not import the ``asyncio``
+        module at all — there is nothing left in it that needs to.
+        (The prose above, explaining the history, is exempt: it names
+        "asyncio.gather" as what USED to be here.)
+        """
+        import ast
+        import inspect
+
+        from app.modules.catalog.datasets.domain import service_query
+
+        tree = ast.parse(inspect.getsource(service_query))
+        imported_names = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        assert "asyncio" not in imported_names
+
+
 def test_search_enrichment_vrt_no_longer_uses_source_introspection():
     source = Path(__file__).read_text()
 

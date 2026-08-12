@@ -14,6 +14,7 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import asyncio
 import hashlib
 import uuid
 from collections.abc import Iterator
@@ -965,6 +966,23 @@ class TestTileDomainLocking:
 # ---------------------------------------------------------------------------
 
 
+async def _drain_embed_token_usage_bump_tasks() -> None:
+    """Wait for any in-flight fire-and-forget usage-bump tasks to finish.
+
+    fix(#1436) codex review: validate_embed_token_access no longer awaits its
+    use_count/last_used_at bump -- it fires it via asyncio.create_task so a
+    slow pool checkout can never delay authorization. A test asserting on the
+    bumped value right after the call would otherwise race that background
+    task; draining app.modules.embed_tokens.service._usage_bump_tasks makes
+    the wait deterministic instead of timing-dependent.
+    """
+    from app.modules.embed_tokens import service as embed_token_service
+
+    pending = list(embed_token_service._usage_bump_tasks)
+    if pending:
+        await asyncio.gather(*pending)
+
+
 class TestUsageTracking:
     """OBS-01: use_count and last_used_at tracking on cache miss."""
 
@@ -1004,6 +1022,7 @@ class TestUsageTracking:
                 headers={"X-Embed-Token": raw_token},
             )
             assert tile_resp.status_code in (200, 204)
+            await _drain_embed_token_usage_bump_tasks()
 
             # Verify use_count and last_used_at in DB
             test_db_session.expire_all()
@@ -1058,6 +1077,7 @@ class TestUsageTracking:
                 headers={"X-Embed-Token": raw_token},
             )
             assert tile_resp2.status_code in (200, 204)
+            await _drain_embed_token_usage_bump_tasks()
 
             # Expire the session cache to get fresh DB read
             test_db_session.expire_all()
@@ -1068,6 +1088,104 @@ class TestUsageTracking:
             assert token.use_count == 1  # Only 1 from cache miss, not 2
         finally:
             await _cleanup_data_table(test_db_session, table_name)
+
+    async def test_bump_does_not_commit_callers_pending_state(self, test_db_session):
+        """fix(#1436): the usage bump must not commit the caller's own pending writes.
+
+        ``validate_embed_token_access`` previously bumped use_count/
+        last_used_at via ``async with db.begin_nested(): ...`` then
+        ``await db.commit()`` on the CALLER's session. A read-path
+        authorization helper committing the caller's transaction silently
+        flushes whatever else that transaction was carrying -- simulated
+        here as a pending map rename the caller never asked to persist.
+        """
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset = await _create_private_dataset(test_db_session, created_by=user_id)
+        map_obj = Map(
+            name=f"Embed Bump Test Map {uuid.uuid4().hex[:6]}",
+            description="test",
+            created_by=user_id,
+        )
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+        test_db_session.add(
+            MapLayer(map_id=map_obj.id, dataset_id=dataset.id, sort_order=0)
+        )
+        await test_db_session.commit()
+
+        _token, raw = await create_embed_token(test_db_session, map_obj.id, user_id)
+        await test_db_session.commit()
+
+        token_hash = hashlib.sha256(raw.encode()).hexdigest()
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")  # force the DB cache-miss path
+
+        # Seed pending, uncommitted state on the caller's OWN session -- the
+        # same session a route handler's request-scoped `db` would carry
+        # ahead of its own commit decision.
+        await test_db_session.execute(
+            update(Map)
+            .where(Map.id == map_obj.id)
+            .values(name="PENDING-UNCOMMITTED-RENAME")
+        )
+
+        assert (
+            await validate_embed_token_access(raw, dataset.id, test_db_session) is True
+        )
+
+        # A fresh connection must NOT see the pending rename: if the helper
+        # had committed `db`, this read would come back with the pending name.
+        from app.core.db import async_session
+
+        async with async_session() as fresh:
+            result = await fresh.execute(select(Map.name).where(Map.id == map_obj.id))
+            assert result.scalar_one() != "PENDING-UNCOMMITTED-RENAME"
+
+        # Drain the detached bump task before the test's event loop closes —
+        # not needed for the assertion above, but leaving it in flight would
+        # dangle a task across pytest-asyncio's function-scoped loop boundary.
+        await _drain_embed_token_usage_bump_tasks()
+        await test_db_session.rollback()
+
+    async def test_bump_persists_via_its_own_session(self, test_db_session):
+        """fix(#1436): moving the bump off the caller's session must not lose it."""
+        user_id = await get_user_id(test_db_session, settings.geolens_admin_username)
+        dataset = await _create_private_dataset(test_db_session, created_by=user_id)
+        map_obj = Map(
+            name=f"Embed Bump Test Map {uuid.uuid4().hex[:6]}",
+            description="test",
+            created_by=user_id,
+        )
+        test_db_session.add(map_obj)
+        await test_db_session.flush()
+        test_db_session.add(
+            MapLayer(map_id=map_obj.id, dataset_id=dataset.id, sort_order=0)
+        )
+        await test_db_session.commit()
+
+        token, raw = await create_embed_token(test_db_session, map_obj.id, user_id)
+        await test_db_session.commit()
+
+        token_hash = hashlib.sha256(raw.encode()).hexdigest()
+        cache = get_cache()
+        await cache.delete(f"embed_token:{token_hash}")
+
+        assert (
+            await validate_embed_token_access(raw, dataset.id, test_db_session) is True
+        )
+        await _drain_embed_token_usage_bump_tasks()
+
+        from app.core.db import async_session
+
+        async with async_session() as fresh:
+            result = await fresh.execute(
+                select(EmbedToken.use_count, EmbedToken.last_used_at).where(
+                    EmbedToken.id == token.id
+                )
+            )
+            use_count, last_used_at = result.one()
+            assert use_count == 1
+            assert last_used_at is not None
 
 
 # ---------------------------------------------------------------------------

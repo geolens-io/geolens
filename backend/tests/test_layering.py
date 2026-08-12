@@ -1713,7 +1713,18 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # can_view_dataset_provenance(record, user, user_roles) and pass it
         # into dataset_to_response, so origin_uri/origin_ref are nulled for
         # every reader but the owner or an admin. Cap 426 -> 438, exact.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 438,
+        # fix(#1436): +5 — the raster asset, VRT source-count, and dataset-asset
+        # fetches each open their own async_session() instead of gathering on
+        # the shared `db` (which asyncpg silently serialized despite the old
+        # "in parallel" comment). Cap 438 -> 443, exact.
+        # fix(#1436 codex r1): -14 — reverted to sequential fetches on the
+        # caller's own session. Per-branch async_session() traded the
+        # serialization bug for a nested pool checkout while the caller's own
+        # connection is held for the rest of the request; per codex, ~13
+        # concurrent raster/VRT detail requests exhaust the default (10 + 3)
+        # pool this way. Three fast point lookups aren't worth that risk.
+        # Cap 443 -> 429, exact.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 429,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

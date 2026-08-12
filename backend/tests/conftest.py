@@ -252,6 +252,21 @@ _CONFIG_SHARED_ENGINE_MODULES = {
 _DISPOSE_SHARED_ENGINE_MODULES = {
     "test_worker",
     "test_schema_skew_guard",
+    # fix(#1436): validate_embed_token_access's usage-bump now opens its own side
+    # session via app.core.db.async_session (the shared pooled engine)
+    # instead of committing the caller's session. TestEmbedTokenTenantPinning
+    # exercises that cache-miss path from tests that otherwise stay entirely
+    # on their own raw, per-test create_async_engine(...NullPool...)
+    # instances (deliberately, for tenant-RLS isolation) — so this module now
+    # ALSO binds a shared-engine connection to a test-scoped event loop, the
+    # same hazard the two modules above guard against. The BEFORE-dispose on
+    # test_embed_token_expiry_cache (the observed victim, downstream of
+    # WHICHEVER embed-token suite ran before it in file order) is the
+    # general-purpose half of the same fix: every embed-token test module
+    # now calls the cache-miss bump path routinely, so pollution is no
+    # longer traceable to one deterministic source module.
+    "test_embed_tokens",
+    "test_embed_token_expiry_cache",
 }
 
 

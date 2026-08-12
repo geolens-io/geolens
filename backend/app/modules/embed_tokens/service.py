@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import secrets
 import uuid
@@ -609,18 +610,65 @@ async def validate_embed_token_access(
         return False
 
     if token is not None:
-        async with db.begin_nested():
-            await db.execute(
-                sa_update(EmbedToken)
-                .where(EmbedToken.id == token.id)
-                .values(
-                    use_count=EmbedToken.use_count + 1,
-                    last_used_at=datetime.now(timezone.utc),
-                )
-            )
-        await db.commit()
+        # Use a separate session so we don't commit the caller's request-scoped
+        # `db` from inside this authorization helper — mirrors _resolve_api_key's
+        # last_used_at bump in auth/dependencies.py. An early commit on `db`
+        # would persist whatever uncommitted state the caller's transaction was
+        # carrying before it decided to commit, and every caller today is a
+        # read path (features/router.py, tiles/router.py), but that would stop
+        # being true the moment a write endpoint gates on an embed token.
+        #
+        # fix(#1436 codex review): fired detached (asyncio.create_task), not
+        # awaited. Authorization is already decided by this point, so the
+        # bump is pure telemetry — it must never delay or fail an
+        # already-valid access. A side session needs its own pool checkout
+        # while the caller's connection is still held for the rest of this
+        # request, and a burst of simultaneous cache-miss bumps (e.g. right
+        # after a cache flush) could contend for the pool; even bounded with
+        # a timeout, AWAITING that checkout here would still stall every
+        # cache-miss authorization for up to the timeout. _usage_bump_tasks
+        # holds a strong reference so asyncio cannot garbage-collect the task
+        # mid-flight; its done-callback discards the reference once finished.
+        task = asyncio.create_task(_bump_embed_token_usage_detached(token.id))
+        _usage_bump_tasks.add(task)
+        task.add_done_callback(_usage_bump_tasks.discard)
 
     return True
+
+
+# fix(#1436 codex review): strong references for detached usage-bump tasks —
+# see the comment in validate_embed_token_access for why they're fired this
+# way instead of awaited.
+_usage_bump_tasks: set[asyncio.Task] = set()
+
+
+async def _bump_embed_token_usage_detached(token_id: uuid.UUID) -> None:
+    """Best-effort use_count/last_used_at bump, isolated from the caller.
+
+    Bounded with a timeout so a starved pool doesn't leave the task running
+    indefinitely; any failure (pool contention or otherwise) is logged and
+    swallowed rather than propagated — there is no caller left to catch it.
+    """
+    try:
+        await asyncio.wait_for(_bump_embed_token_usage(token_id), timeout=3.0)
+    except Exception:  # broad: detached telemetry task must never raise
+        logger.warning("embed_token_usage_bump_failed", token_id=str(token_id))
+
+
+async def _bump_embed_token_usage(token_id: uuid.UUID) -> None:
+    """Increment use_count/last_used_at on a dedicated side session."""
+    from app.core.db import async_session
+
+    async with async_session() as side_session:
+        await side_session.execute(
+            sa_update(EmbedToken)
+            .where(EmbedToken.id == token_id)
+            .values(
+                use_count=EmbedToken.use_count + 1,
+                last_used_at=datetime.now(timezone.utc),
+            )
+        )
+        await side_session.commit()
 
 
 async def list_admin_embed_tokens(
