@@ -230,7 +230,7 @@ async def _run_failing_refresh(job, dataset, *, token=None, credential_ref=None)
             side_effect=_capture_emit,
         ),
         patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             AsyncMock(),
         ),
     ):

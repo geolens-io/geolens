@@ -37,7 +37,7 @@ from app.modules.catalog.sources.adapters.stac import (
     search_stac_items,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
-from app.modules.catalog.sources.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, validate_url_for_ssrf
 
 
 logger = structlog.stdlib.get_logger(__name__)

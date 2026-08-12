@@ -16,7 +16,7 @@ import socket
 import httpx
 import pytest
 
-from app.modules.catalog.sources import security as sec
+from app.platform import security as sec
 
 
 def _addrinfo(ip: str, port: int | None):

@@ -42,7 +42,7 @@ from app.modules.catalog.sources.schemas import (
     ServicePreviewRequest,
     ServicePreviewResponse,
 )
-from app.modules.catalog.sources.security import (
+from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
     make_safe_client,

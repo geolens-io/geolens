@@ -179,7 +179,7 @@ async def _download_http_source(
     # revalidation applies to manifest HTTP source downloads. Lazy import
     # to preserve the Phase 225 PROCESS-02/04 layering invariant — `processing/`
     # cannot have a module-level import from `app.modules.catalog.*`.
-    from app.modules.catalog.sources.security import make_safe_client
+    from app.platform.security import make_safe_client
 
     try:
         async with make_safe_client(timeout=60.0) as client:

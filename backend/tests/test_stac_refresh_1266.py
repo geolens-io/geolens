@@ -41,7 +41,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.sources import stac_resolve
 from app.modules.catalog.sources.adapters.stac import pick_data_asset
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
-from app.modules.catalog.sources.security import SSRFError, SSRFResolutionError
+from app.platform.security import SSRFError, SSRFResolutionError
 from app.modules.catalog.sources.stac_resolve import resolve_stac_binding
 from app.platform.dataset_origin import SOURCE_HEALTH_VALUES, build_origin_ref
 from app.platform.jobs.models import IngestJob

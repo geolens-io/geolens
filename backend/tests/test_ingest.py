@@ -1516,7 +1516,7 @@ class TestCommitImportDispatch:
         # Phase 1066 feat IA-P0-03 (commit f8c91297) added a commit-time
         # SSRF re-validation of ``job.source_url`` in ``commit_import``
         # (router.py:640-652) via a LAZY import:
-        #     from app.modules.catalog.sources.security import validate_url_for_ssrf
+        #     from app.platform.security import validate_url_for_ssrf
         # The lazy from-import re-binds the symbol on every call, so the
         # patch target MUST be the function's defining module (NOT the
         # router's namespace). The test URL ``example.arcgis.com`` fails
@@ -1524,7 +1524,7 @@ class TestCommitImportDispatch:
         # test's contract (job-discriminator + token-kwarg dispatch), so
         # we no-op the gate via AsyncMock.
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             resp = await client.post(

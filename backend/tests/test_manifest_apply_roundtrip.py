@@ -406,7 +406,7 @@ class TestManifestApplyEndpointRoundTrip:
             test_db_session, created_by=owner.id, name="Owner Original"
         )
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             await _create_completed_manifest_job(
@@ -426,7 +426,7 @@ class TestManifestApplyEndpointRoundTrip:
                     new=AsyncMock(),
                 ) as queue,
                 patch(
-                    "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                    "app.platform.security.validate_url_for_ssrf",
                     new=AsyncMock(),
                 ),
             ):
@@ -482,7 +482,7 @@ class TestManifestApplyEndpointRoundTrip:
             test_db_session, created_by=owner.id, name="Owner Original"
         )
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             await _create_completed_manifest_job(
@@ -506,7 +506,7 @@ class TestManifestApplyEndpointRoundTrip:
         # returns the skip entry WITH ids (the new skip gates only bite
         # non-owners).
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             skip_response = await client.post(
@@ -546,7 +546,7 @@ class TestManifestApplyEndpointRoundTrip:
             test_db_session, created_by=owner.id, name="Victim Complete"
         )
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             await _create_completed_manifest_job(
@@ -567,7 +567,7 @@ class TestManifestApplyEndpointRoundTrip:
         )
         inflight_ds = inflight_request.datasets[0]
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ):
             prepared = await classify_manifest_source(inflight_ds.sources[0])
@@ -589,7 +589,7 @@ class TestManifestApplyEndpointRoundTrip:
 
         for dry_run in (True, False):
             with patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ):
                 response = await client.post(

@@ -205,7 +205,7 @@ async def test_arcgis_service_import_lands_every_attribute_column(
         return None
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         _validate_url_noop,
     )
     monkeypatch.setattr(
@@ -349,7 +349,7 @@ async def test_service_refresh_repopulates_wrong_stored_column_info(
     try:
         with (
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=AsyncMock(),
             ),
             patch(

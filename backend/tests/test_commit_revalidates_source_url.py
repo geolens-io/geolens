@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import HTTPException
 
-from app.modules.catalog.sources.security import SSRFError
+from app.platform.security import SSRFError
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +51,7 @@ class TestCommitImportRevalidatesSourceUrl:
                 new=AsyncMock(return_value=job),
             ),
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 side_effect=_ssrf_raise,
             ),
         ):
@@ -88,7 +88,7 @@ class TestCommitImportRevalidatesSourceUrl:
                 new=AsyncMock(return_value=job),
             ),
             patch(
-                "app.modules.catalog.sources.security.validate_url_for_ssrf",
+                "app.platform.security.validate_url_for_ssrf",
                 new=ssrf_mock,
             ),
             patch(
@@ -136,7 +136,7 @@ class TestIngestServiceWorkerRevalidatesSourceUrl:
             raise SSRFError(f"rebinding at fetch: {url}")
 
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             side_effect=_ssrf_raise,
         ):
             with pytest.raises(RuntimeError) as exc:
@@ -168,7 +168,7 @@ class TestReuploadServiceWorkerRevalidatesSourceUrl:
             raise SSRFError(f"rebinding at reupload fetch: {url}")
 
         with patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             side_effect=_ssrf_raise,
         ):
             with pytest.raises(RuntimeError) as exc:

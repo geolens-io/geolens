@@ -923,7 +923,7 @@ async def download_cog(
         # immediately before redirecting to defeat DNS-rebinding TOCTOU.
         # If the hostname now resolves to a private IP (cloud metadata,
         # internal network), refuse the redirect with 403.
-        from app.modules.catalog.sources.security import (
+        from app.platform.security import (
             SSRFError,
             validate_url_for_ssrf,
         )

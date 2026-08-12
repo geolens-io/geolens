@@ -1142,7 +1142,7 @@ async def check_oidc_endpoint(provider: Any) -> None:
 
     Raises on failure so the _probe wrapper captures the error.
     """
-    from app.modules.catalog.sources.security import (
+    from app.platform.security import (
         make_safe_client,
         validate_url_for_ssrf,
     )

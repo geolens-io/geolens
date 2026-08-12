@@ -258,7 +258,7 @@ class TestStacConnect:
         with patch(
             "app.modules.catalog.sources.stac_router.validate_url_for_ssrf",
             side_effect=__import__(
-                "app.modules.catalog.sources.security", fromlist=["SSRFError"]
+                "app.platform.security", fromlist=["SSRFError"]
             ).SSRFError("URLs targeting private/internal networks are not allowed"),
         ):
             resp = await client.post(
@@ -1031,7 +1031,7 @@ class TestStacImport:
         admin_auth_header: dict,
     ):
         """Asset URLs pointing to internal networks are rejected per-item."""
-        from app.modules.catalog.sources.security import SSRFError
+        from app.platform.security import SSRFError
 
         with patch(
             "app.modules.catalog.sources.stac_router.validate_url_for_ssrf",

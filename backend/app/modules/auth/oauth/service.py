@@ -303,7 +303,7 @@ def normalize_provider_update(
 
 async def validate_provider_server_endpoints(provider: OAuthProvider) -> None:
     """Resolve and validate every configured URL before OAuth credentials are used."""
-    from app.modules.catalog.sources.security import validate_url_for_ssrf
+    from app.platform.security import validate_url_for_ssrf
 
     values = _provider_endpoint_values(provider)
     for field in _OAUTH_ENDPOINT_FIELDS:
@@ -604,7 +604,7 @@ async def _resolve_github_identity(
     # The provider URL is admin-configured. Use the shared IP-pinning transport
     # and disable redirects for bearer-token requests so neither DNS rebinding
     # nor a redirect can retarget the token to another authority.
-    from app.modules.catalog.sources.security import make_safe_client
+    from app.platform.security import make_safe_client
 
     async with make_safe_client() as client:
         # Fetch basic user profile for id, login, name.

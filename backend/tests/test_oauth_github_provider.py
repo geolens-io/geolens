@@ -254,9 +254,7 @@ class TestResolveGithubIdentity:
         token = {"access_token": "ghs_test_token"}
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
-        with patch(
-            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
-        ):
+        with patch("app.platform.security.make_safe_client", return_value=mock):
             result = await _resolve_github_identity(token)
 
         assert result["email"] == "octocat@github.com"
@@ -273,9 +271,7 @@ class TestResolveGithubIdentity:
         mock = self._mock_client(self._USER_PAYLOAD, emails)
         ghe_user_url = "https://ghe.example.com/api/v3/user"
 
-        with patch(
-            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
-        ):
+        with patch("app.platform.security.make_safe_client", return_value=mock):
             result = await _resolve_github_identity(token, userinfo_url=ghe_user_url)
 
         assert result["email"] == "dev@ghe.example.com"
@@ -300,9 +296,7 @@ class TestResolveGithubIdentity:
         token = {"access_token": "ghs_test_token"}
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
-        with patch(
-            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
-        ):
+        with patch("app.platform.security.make_safe_client", return_value=mock):
             with pytest.raises(ValueError, match=r"no primary\+verified email"):
                 await _resolve_github_identity(token)
 
@@ -314,9 +308,7 @@ class TestResolveGithubIdentity:
         token = {"access_token": "ghs_test_token"}
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
-        with patch(
-            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
-        ):
+        with patch("app.platform.security.make_safe_client", return_value=mock):
             with pytest.raises(ValueError, match=r"no primary\+verified email"):
                 await _resolve_github_identity(token)
 
@@ -326,9 +318,7 @@ class TestResolveGithubIdentity:
         token = {"access_token": "ghs_test_token"}
         mock = self._mock_client(self._USER_PAYLOAD, emails)
 
-        with patch(
-            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
-        ):
+        with patch("app.platform.security.make_safe_client", return_value=mock):
             with pytest.raises(ValueError, match=r"no primary\+verified email"):
                 await _resolve_github_identity(token)
 
@@ -339,9 +329,7 @@ class TestResolveGithubIdentity:
         token = {"access_token": "ghs_test_token"}
         mock = self._mock_client(user_no_name, emails)
 
-        with patch(
-            "app.modules.catalog.sources.security.make_safe_client", return_value=mock
-        ):
+        with patch("app.platform.security.make_safe_client", return_value=mock):
             result = await _resolve_github_identity(token)
 
         assert result["name"] == "octocat"  # login fallback

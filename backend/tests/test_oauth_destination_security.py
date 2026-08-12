@@ -497,7 +497,7 @@ async def test_runtime_validation_checks_all_server_endpoints(
     provider = await _make_oidc_provider(test_db_session)
 
     with patch(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         new=AsyncMock(),
     ) as validate:
         await validate_provider_server_endpoints(provider)
@@ -531,7 +531,7 @@ async def test_authlib_sessions_receive_fresh_safe_transports(
             new=AsyncMock(),
         ),
         patch(
-            "app.modules.catalog.sources.security.make_safe_transport",
+            "app.platform.security.make_safe_transport",
             side_effect=make_transport,
         ),
     ):

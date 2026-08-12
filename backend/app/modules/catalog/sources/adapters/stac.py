@@ -19,7 +19,7 @@ import structlog
 from pydantic import HttpUrl
 
 from app.core.url_redaction import has_url_credentials
-from app.modules.catalog.sources.security import make_safe_client
+from app.platform.security import make_safe_client
 
 logger = structlog.stdlib.get_logger(__name__)
 

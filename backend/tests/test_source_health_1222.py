@@ -58,7 +58,7 @@ from app.modules.catalog.sources.origin_probe import (
     probe_remote_uri,
     remote_asset_exists,
 )
-from app.modules.catalog.sources.security import SSRFError, SSRFResolutionError
+from app.platform.security import SSRFError, SSRFResolutionError
 from app.platform.dataset_origin import build_origin_ref
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
@@ -441,7 +441,7 @@ class TestPinnedUrlRestoration:
     failure), into resp.url, and into any item_href derived from it."""
 
     async def test_pinned_url_is_restored_after_the_hop(self, monkeypatch) -> None:
-        from app.modules.catalog.sources import security
+        from app.platform import security
 
         async def fake_resolve(host: str, port) -> str:
             return "93.184.216.34"
@@ -472,7 +472,7 @@ class TestPinnedUrlRestoration:
     async def test_url_is_restored_even_when_the_connect_fails(
         self, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources import security
+        from app.platform import security
 
         async def fake_resolve(host: str, port) -> str:
             return "93.184.216.34"

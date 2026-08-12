@@ -15,7 +15,7 @@ import socket
 import httpx
 import pytest
 
-from app.modules.catalog.sources import security as sec
+from app.platform import security as sec
 
 
 pytestmark = pytest.mark.anyio

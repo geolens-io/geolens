@@ -17,7 +17,7 @@ from httpx import AsyncClient
 
 from app.modules.catalog.sources.probe import ServiceNotRecognized
 from app.modules.catalog.sources.schemas import LayerInfo, ProbeResponse
-from app.modules.catalog.sources.security import SSRFError
+from app.platform.security import SSRFError
 
 
 # ---------------------------------------------------------------------------
@@ -788,7 +788,7 @@ class TestSSRFValidation:
     @pytest.mark.asyncio
     async def test_ssrf_rejects_private_ip(self):
         """Private IPs (10.x, 172.16.x, 192.168.x) are blocked."""
-        from app.modules.catalog.sources.security import validate_url_for_ssrf
+        from app.platform.security import validate_url_for_ssrf
 
         for url in [
             "http://10.0.0.1/wfs",
@@ -801,7 +801,7 @@ class TestSSRFValidation:
     @pytest.mark.asyncio
     async def test_ssrf_rejects_localhost(self):
         """Localhost and 127.x addresses are blocked."""
-        from app.modules.catalog.sources.security import validate_url_for_ssrf
+        from app.platform.security import validate_url_for_ssrf
 
         with pytest.raises(SSRFError):
             await validate_url_for_ssrf("http://127.0.0.1/wfs")
@@ -809,7 +809,7 @@ class TestSSRFValidation:
     @pytest.mark.asyncio
     async def test_ssrf_rejects_bad_scheme(self):
         """Non-http(s) schemes are blocked."""
-        from app.modules.catalog.sources.security import validate_url_for_ssrf
+        from app.platform.security import validate_url_for_ssrf
 
         for url in ["ftp://example.com/data", "file:///etc/passwd"]:
             with pytest.raises(SSRFError):
@@ -818,7 +818,7 @@ class TestSSRFValidation:
     @pytest.mark.asyncio
     async def test_ssrf_rejects_no_hostname(self):
         """URLs without a hostname are blocked."""
-        from app.modules.catalog.sources.security import validate_url_for_ssrf
+        from app.platform.security import validate_url_for_ssrf
 
         with pytest.raises(SSRFError):
             await validate_url_for_ssrf("http:///path")

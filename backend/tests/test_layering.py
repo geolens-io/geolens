@@ -3403,22 +3403,16 @@ _PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
     },
     "ingest/manifest_service.py": {
         "app.modules.catalog.authorization",
-        # Rule 2 (AGENTS.md): SSRF redirect revalidation must use make_safe_client.
-        "app.modules.catalog.sources.security",
     },
-    "ingest/manifest_sources.py": {"app.modules.catalog.sources"},
     "ingest/router.py": {
         "app.modules.catalog.authorization",
         "app.modules.catalog.datasets.domain.service",
-        "app.modules.catalog.sources.security",
     },
     "ingest/service.py": {
         "app.modules.catalog.authorization",
     },
-    "ingest/tasks_reupload.py": {"app.modules.catalog.sources.security"},
     "ingest/tasks_vector.py": {
         "app.modules.catalog.sources.adapters.arcgis",
-        "app.modules.catalog.sources.security",
     },
     "tiles/router.py": {"app.modules.catalog.datasets.domain.models"},
 }

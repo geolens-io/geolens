@@ -53,7 +53,7 @@ from typing import Any
 
 import httpx
 
-from app.modules.catalog.sources.security import (
+from app.platform.security import (
     SSRFError,
     SSRFResolutionError,
     make_safe_client,

@@ -320,7 +320,7 @@ async def test_service_worker_advances_ogr2ogr_progress_while_remote_import_is_r
         raise IngestionError("simulated remote service import stop")
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         _validate_url_noop,
     )
     monkeypatch.setattr(
@@ -497,7 +497,7 @@ async def test_service_worker_chunks_large_arcgis_imports(test_db_session, monke
         return None
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         _validate_url_noop,
     )
     monkeypatch.setattr(
@@ -679,7 +679,7 @@ async def test_service_worker_skips_arcgis_chunking_without_pagination_support(
         return None
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         _validate_url_noop,
     )
     monkeypatch.setattr(
@@ -819,7 +819,7 @@ async def test_service_worker_skips_arcgis_chunking_without_order_field(
         return None
 
     monkeypatch.setattr(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         _validate_url_noop,
     )
     monkeypatch.setattr(

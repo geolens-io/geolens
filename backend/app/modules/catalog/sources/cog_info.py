@@ -195,7 +195,7 @@ async def fetch_cog_info(url: str) -> dict | None:
     is an SSRF regression:
 
     Gate 1 (caller-side): EVERY caller of _fetch_cog_info MUST first call
-    app.modules.catalog.sources.security.validate_url_for_ssrf(url) before
+    app.platform.security.validate_url_for_ssrf(url) before
     passing the URL here. The import-flow call at line 454 satisfies this;
     any new caller MUST add the same pre-validation.
 

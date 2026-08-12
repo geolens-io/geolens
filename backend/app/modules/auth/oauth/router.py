@@ -40,7 +40,7 @@ class _SSRFSafeOAuth2App(StarletteOAuth2App):
     """Create a fresh IP-pinning transport for each Authlib HTTP session."""
 
     def _get_session(self):
-        from app.modules.catalog.sources.security import make_safe_transport
+        from app.platform.security import make_safe_transport
 
         client_kwargs = {**self.client_kwargs, "transport": make_safe_transport()}
         session = self.client_cls(**client_kwargs)

@@ -296,7 +296,7 @@ async def _execute_service(task_kwargs: dict, *, expected_token: str | None) -> 
 
     with (
         patch(
-            "app.modules.catalog.sources.security.validate_url_for_ssrf",
+            "app.platform.security.validate_url_for_ssrf",
             new=AsyncMock(),
         ),
         patch(

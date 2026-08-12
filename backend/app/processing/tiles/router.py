@@ -223,7 +223,7 @@ router = APIRouter(prefix="/tiles", tags=["Tiles"], responses=ERROR_RESPONSES_PU
 #
 # If a future change EXPOSES Titiler externally, OR routes user-controlled
 # URLs through this client without prior validate_url_for_ssrf(), this
-# construction MUST move to app.modules.catalog.sources.security.make_safe_client
+# construction MUST move to app.platform.security.make_safe_client
 # -- which adds per-hop redirect SSRF revalidation. Grep this comment when
 # auditing future Titiler-exposure changes.
 _titiler_client = httpx.AsyncClient(

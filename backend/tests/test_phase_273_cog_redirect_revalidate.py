@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.modules.auth.models import User
 from app.core.config import settings
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.modules.catalog.sources.security import SSRFError
+from app.platform.security import SSRFError
 from app.processing.raster.models import RasterAsset
 
 
@@ -131,10 +131,10 @@ async def test_remote_redirect_blocked_when_ssrf_fails(
     )
 
     # Patch the validator at the SSRF source module — the new code does a
-    # function-scope `from app.modules.catalog.sources.security import ...`
+    # function-scope `from app.platform.security import ...`
     # so we patch at the source.
     with patch(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         new=AsyncMock(
             side_effect=SSRFError(
                 "URLs targeting private/internal networks are not allowed"
@@ -162,7 +162,7 @@ async def test_remote_redirect_allowed_when_ssrf_passes(
     )
 
     with patch(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         new=AsyncMock(return_value=None),  # passes
     ):
         resp = await client.get(
@@ -187,7 +187,7 @@ async def test_remote_redirect_blocked_for_disallowed_scheme(
     )
 
     with patch(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         new=AsyncMock(side_effect=SSRFError("Only http and https URLs are allowed")),
     ):
         resp = await client.get(
@@ -209,7 +209,7 @@ async def test_local_storage_unaffected_by_ssrf_revalidation(
 
     mock_ssrf = AsyncMock()
     with patch(
-        "app.modules.catalog.sources.security.validate_url_for_ssrf",
+        "app.platform.security.validate_url_for_ssrf",
         new=mock_ssrf,
     ):
         resp = await client.get(

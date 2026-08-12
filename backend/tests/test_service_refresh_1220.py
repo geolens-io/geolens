@@ -478,7 +478,7 @@ class TestRefreshRefusals:
         The URL was a client's when ingest stored it, and DNS moves — a host
         that resolved publicly at import can resolve to link-local today.
         """
-        from app.modules.catalog.sources.security import SSRFError
+        from app.platform.security import SSRFError
 
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
