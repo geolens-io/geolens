@@ -13688,7 +13688,10 @@ export type LoginAuthLoginPostResponses = {
 export type LoginAuthLoginPostResponse = LoginAuthLoginPostResponses[keyof LoginAuthLoginPostResponses];
 
 export type LogoutAuthLogoutPostData = {
-    body?: never;
+    /**
+     * Body
+     */
+    body?: RefreshRequest | null;
     path?: never;
     query?: never;
     url: '/auth/logout/';

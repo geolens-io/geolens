@@ -4,19 +4,33 @@ from typing import Any, cast
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
+from ...models.refresh_request import RefreshRequest
+from ...types import Unset
 
 
-def _get_kwargs() -> dict[str, Any]:
+def _get_kwargs(
+    *,
+    body: None | RefreshRequest | Unset = UNSET,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
 
     _kwargs: dict[str, Any] = {
         "method": "post",
         "url": "/auth/logout/",
     }
 
+    if isinstance(body, RefreshRequest):
+        _kwargs["json"] = body.to_dict()
+    elif not isinstance(body, Unset):
+        _kwargs["json"] = body
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -87,6 +101,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     r"""Logout
 
@@ -108,6 +123,9 @@ def sync_detailed(
     the session survived it. CSRF is enforced on that path exactly as it is for
     /auth/refresh, since the cookie is then the credential.
 
+    Args:
+        body (None | RefreshRequest | Unset):
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -116,7 +134,9 @@ def sync_detailed(
         Response[Any | ProblemDetail]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        body=body,
+    )
 
     response = client.get_httpx_client().request(
         **kwargs,
@@ -128,6 +148,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     r"""Logout
 
@@ -149,6 +170,9 @@ def sync(
     the session survived it. CSRF is enforced on that path exactly as it is for
     /auth/refresh, since the cookie is then the credential.
 
+    Args:
+        body (None | RefreshRequest | Unset):
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -159,12 +183,14 @@ def sync(
 
     return sync_detailed(
         client=client,
+        body=body,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     r"""Logout
 
@@ -186,6 +212,9 @@ async def asyncio_detailed(
     the session survived it. CSRF is enforced on that path exactly as it is for
     /auth/refresh, since the cookie is then the credential.
 
+    Args:
+        body (None | RefreshRequest | Unset):
+
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
@@ -194,7 +223,9 @@ async def asyncio_detailed(
         Response[Any | ProblemDetail]
     """
 
-    kwargs = _get_kwargs()
+    kwargs = _get_kwargs(
+        body=body,
+    )
 
     response = await client.get_async_httpx_client().request(**kwargs)
 
@@ -204,6 +235,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     r"""Logout
 
@@ -224,6 +256,9 @@ async def asyncio(
     multi-day refresh cookie stayed valid — the UI reported a clean logout and
     the session survived it. CSRF is enforced on that path exactly as it is for
     /auth/refresh, since the cookie is then the credential.
+
+    Args:
+        body (None | RefreshRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -236,5 +271,6 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
+            body=body,
         )
     ).parsed

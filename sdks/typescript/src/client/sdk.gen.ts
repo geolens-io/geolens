@@ -1014,7 +1014,11 @@ export const logoutAuthLogoutPost = <ThrowOnError extends boolean = false>(optio
         }
     ],
     url: '/auth/logout/',
-    ...options
+    ...options,
+    headers: {
+        'Content-Type': 'application/json',
+        ...options?.headers
+    }
 });
 
 /**

@@ -368,6 +368,32 @@ class TestLogoutClearsCookies:
         resp = await client.post("/auth/logout/")
         assert resp.status_code == 401
 
+    # fix(#1446): a split-origin deployment has no usable cookie and keeps its
+    # refresh token in the store. Without a body transport, an expired access
+    # token there means logout 401s and the session outlives it.
+    async def test_a_body_refresh_token_can_authenticate_logout(
+        self, client: AsyncClient
+    ):
+        refresh_token = (await _login(client, cookie_mode=False)).json()[
+            "refresh_token"
+        ]
+        client.cookies.clear()
+
+        resp = await client.post("/auth/logout/", json={"refresh_token": refresh_token})
+        assert resp.status_code == 204, resp.text
+
+        after = await client.post(
+            "/auth/refresh/", json={"refresh_token": refresh_token}
+        )
+        assert after.status_code == 401
+
+    async def test_a_bogus_body_refresh_token_is_401(self, client: AsyncClient):
+        client.cookies.clear()
+        resp = await client.post(
+            "/auth/logout/", json={"refresh_token": "not-a-real-token"}
+        )
+        assert resp.status_code == 401
+
     async def test_logout_revokes_the_cookie_token_server_side(
         self, client: AsyncClient
     ):
@@ -387,6 +413,93 @@ class TestLogoutClearsCookies:
             headers={**COOKIE_MODE, "X-CSRF-Token": csrf_value},
         )
         assert resp.status_code == 401
+
+
+class TestRotationRevocationRace:
+    """fix(#1446): a rotation that read its row before a concurrent logout must
+    not commit a still-active replacement afterwards. Client-side guards cannot
+    help here — the browser applies the late Set-Cookie and the row is already
+    in the database — so rotation and revocation serialize on the owner row."""
+
+    async def test_a_rotation_racing_logout_never_leaves_a_live_session(
+        self, client: AsyncClient, monkeypatch
+    ):
+        import anyio
+
+        from app.modules.auth.service import AuthService
+
+        # Force the interleaving instead of hoping for it. Firing both requests
+        # and hoping to land in the window passes with or without the fix, which
+        # would make this test decorative. Stalling rotation right after it has
+        # read its row and taken the owner lock puts logout squarely inside the
+        # danger window: unserialized, logout commits its revocation first and
+        # rotation then inserts a live successor; serialized, logout blocks on
+        # the lock and its revocation sees the successor.
+        original_create_access_token = AuthService.create_access_token
+
+        async def _stalled_create_access_token(self, *args, **kwargs):
+            await anyio.sleep(0.75)
+            return await original_create_access_token(self, *args, **kwargs)
+
+        login = await _login(client, cookie_mode=True)
+        refresh_value = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        csrf_value = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        access = login.json()["access_token"]
+
+        results: dict[str, int] = {}
+
+        async def _refresh() -> None:
+            resp = await client.post(
+                "/auth/refresh/",
+                headers={
+                    **COOKIE_MODE,
+                    "X-CSRF-Token": csrf_value,
+                    "Cookie": (
+                        f"{REFRESH_COOKIE_NAME}={refresh_value}; "
+                        f"{CSRF_COOKIE_NAME}={csrf_value}"
+                    ),
+                },
+            )
+            results["refresh"] = resp.status_code
+            if resp.status_code == 200:
+                results["rotated"] = 1
+                attrs = _cookie_attrs(resp, REFRESH_COOKIE_NAME)
+                results["rotated_value"] = attrs["value"]  # type: ignore[assignment]
+
+        async def _logout() -> None:
+            # Let rotation reach the stall (and take the lock) first.
+            await anyio.sleep(0.2)
+            resp = await client.post(
+                "/auth/logout/", headers={"Authorization": f"Bearer {access}"}
+            )
+            results["logout"] = resp.status_code
+
+        client.cookies.clear()
+        monkeypatch.setattr(
+            AuthService, "create_access_token", _stalled_create_access_token
+        )
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_refresh)
+            tg.start_soon(_logout)
+        monkeypatch.undo()
+
+        assert results["logout"] == 204
+
+        # Whatever the interleaving, no refresh credential may survive: neither
+        # the original nor any replacement the rotation managed to mint.
+        client.cookies.clear()
+        original = await client.post(
+            "/auth/refresh/", json={"refresh_token": refresh_value}
+        )
+        assert original.status_code == 401, "original token outlived logout"
+
+        rotated_value = results.get("rotated_value")
+        if rotated_value:
+            client.cookies.clear()
+            rotated = await client.post(
+                "/auth/refresh/", json={"refresh_token": rotated_value}
+            )
+            assert rotated.status_code == 401, "rotated token outlived logout"
 
 
 class TestOriginComparison:

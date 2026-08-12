@@ -25162,6 +25162,23 @@
       "post": {
         "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.\n\nfix(#1446): the refresh COOKIE can authenticate this call when the access\ntoken has aged out. Requiring a live bearer token meant a user returning\nafter their 15-minute access token expired got a 401 here while their\nmulti-day refresh cookie stayed valid \u2014 the UI reported a clean logout and\nthe session survived it. CSRF is enforced on that path exactly as it is for\n/auth/refresh, since the cookie is then the credential.",
         "operationId": "logout_auth_logout__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Successful Response"

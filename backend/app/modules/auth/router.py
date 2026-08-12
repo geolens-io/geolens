@@ -692,6 +692,7 @@ async def resend_verification(
 async def logout(
     request: Request,
     identity: Identity | None = Depends(get_optional_user),
+    body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Revoke all refresh tokens and bump token_version for the current user.
@@ -720,12 +721,26 @@ async def logout(
     service = AuthService(db)
     user_id: uuid.UUID | None = identity.id if identity is not None else None
     if user_id is None:
-        cookie_token = read_refresh_cookie(request)
-        if cookie_token is not None:
+        # fix(#1446): fall back to a presented refresh token when the access
+        # token has aged out — otherwise logout 401s while a multi-day refresh
+        # credential stays valid, and the UI reports a clean sign-out.
+        #
+        # Two transports, because the deployment topology decides which one a
+        # browser has: the cookie (same-origin installs), and the body token
+        # (split-origin installs, which keep the pre-GH-1302 flow — see
+        # lib/auth-transport.ts). CSRF is enforced only for the cookie: it is
+        # the transport a cross-site page can cause the browser to attach. A
+        # body token is bearer-equivalent and unreadable cross-site, the same
+        # reasoning /auth/refresh applies.
+        presented = read_refresh_cookie(request)
+        if presented is not None:
             enforce_csrf(request)
-            cookie_user = await service.get_user_from_refresh_token(cookie_token)
-            if cookie_user is not None:
-                user_id = cookie_user.id
+        elif body is not None:
+            presented = body.refresh_token
+        if presented is not None:
+            token_user = await service.get_user_from_refresh_token(presented)
+            if token_user is not None:
+                user_id = token_user.id
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

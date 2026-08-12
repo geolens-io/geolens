@@ -1,5 +1,5 @@
 import { API_BASE } from '@/lib/constants';
-import { cookieAuthHeaders } from '@/lib/auth-transport';
+import { cookieAuthAvailable, cookieAuthHeaders } from '@/lib/auth-transport';
 import { useAuthStore } from '@/stores/auth-store';
 import { apiFetch, safeFetch } from './client';
 import { translateApiErrorDetail } from '@/lib/error-map';
@@ -62,18 +62,27 @@ const LOGOUT_TIMEOUT_MS = 3_000;
  * credential this call exists to revoke.
  */
 export async function logoutSession(): Promise<void> {
-  const token = useAuthStore.getState().token;
+  const { token, refreshToken } = useAuthStore.getState();
   // fix(#1446): carry the cookie-mode headers too. When the access token has
-  // aged out, the refresh cookie authenticates this call server-side, and that
-  // path requires the double-submit CSRF token.
+  // aged out, the refresh credential authenticates this call server-side, and
+  // the cookie transport requires the double-submit CSRF token.
   const headers: Record<string, string> = { ...cookieAuthHeaders() };
   if (token) headers.Authorization = `Bearer ${token}`;
+
+  // A split-origin deployment has no usable cookie and keeps its refresh token
+  // in the store, so present that instead — otherwise an expired access token
+  // means logout 401s and the session outlives it there.
+  const body = !cookieAuthAvailable() && refreshToken
+    ? JSON.stringify({ refresh_token: refreshToken })
+    : undefined;
+  if (body) headers['Content-Type'] = 'application/json';
 
   await safeFetch(`${API_BASE}/auth/logout/`, {
     method: 'POST',
     headers,
     credentials: 'same-origin',
     signal: AbortSignal.timeout(LOGOUT_TIMEOUT_MS),
+    ...(body ? { body } : {}),
   });
 }
 
