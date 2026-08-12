@@ -41,20 +41,28 @@ def wants_cookie_auth(request: Request) -> bool:
 
 
 def refresh_cookie_path(request: Request) -> str:
-    """Externally-visible path of the refresh route, for ``Path=`` scoping.
+    """Externally-visible ``Path=`` scope for the refresh cookie.
 
     The app runs with ``root_path="/api"`` behind both the dev Vite proxy and
     the production nginx ``location /api/`` block, and neither forwards the
     prefix upstream. Deriving the path from ``root_path`` keeps the cookie
     correctly scoped under any mount point instead of hardcoding ``/api``.
 
-    Scoping to the refresh route (rather than ``/``) keeps the cookie off
-    catalog, tile, and upload traffic entirely: it cannot leak through access
+    Scoping to ``/auth`` (rather than ``/``) keeps the cookie off catalog,
+    tile, upload, and export traffic entirely: it cannot leak through access
     logs or intermediary proxies on the hot path, and it cannot be replayed
-    against any other endpoint.
+    against any endpoint outside this router.
+
+    fix(#1446): this was ``/auth/refresh``, which was too tight. RFC 6265
+    path-matching meant the browser never sent the cookie to ``/auth/logout``,
+    so the cookie-authenticated logout path — the one that revokes a session
+    whose access token has already expired — could not fire at all in a real
+    browser. Widening to the auth router is the trade: the cookie now rides
+    same-origin ``/auth/*`` requests (login, me, config, api-keys) instead of
+    the refresh route alone, and still never touches the data plane.
     """
     root_path = request.scope.get("root_path", "").rstrip("/")
-    return f"{root_path}/auth/refresh"
+    return f"{root_path}/auth"
 
 
 def _secure_cookies() -> bool:

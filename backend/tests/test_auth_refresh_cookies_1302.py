@@ -55,6 +55,23 @@ def _cookie_attrs(resp, name: str) -> dict[str, str]:
     )
 
 
+def _path_matches(request_path: str, cookie_path: str) -> bool:
+    """RFC 6265 5.1.4 path-match, so tests reason the way a browser does.
+
+    fix(#1446): `_arm_cookies` loads the jar with an UNSCOPED cookie, which is
+    convenient for exercising handlers but structurally blind to `Path=` being
+    wrong. The cookie-authenticated logout route was unreachable in a real
+    browser while its handler test passed. Assert the scope explicitly.
+    """
+    if request_path == cookie_path:
+        return True
+    if not request_path.startswith(cookie_path):
+        return False
+    if cookie_path.endswith("/"):
+        return True
+    return request_path[len(cookie_path)] == "/"
+
+
 def _arm_cookies(client: AsyncClient, refresh: str | None, csrf: str | None) -> None:
     """Load the jar as a browser would, replacing anything already there.
 
@@ -118,9 +135,30 @@ class TestBrowserCookieFlow:
         assert resp.json()["refresh_token"] is None
         refresh = _cookie_attrs(resp, REFRESH_COOKIE_NAME)
         assert "httponly" in refresh
-        assert refresh["path"] == "/api/auth/refresh"
+        assert refresh["path"] == "/api/auth"
         assert refresh["samesite"].lower() == "lax"
         assert refresh["value"]
+
+    async def test_cookie_scope_reaches_refresh_and_logout_but_not_the_data_plane(
+        self, client: AsyncClient
+    ):
+        """The Path must cover BOTH routes that consume the cookie. Scoped to
+        /auth/refresh alone, a browser never sent it to /auth/logout and the
+        cookie-authenticated logout path could not fire (fix(#1446))."""
+        resp = await _login(client, cookie_mode=True)
+        cookie_path = _cookie_attrs(resp, REFRESH_COOKIE_NAME)["path"]
+
+        assert _path_matches("/api/auth/refresh/", cookie_path)
+        assert _path_matches("/api/auth/logout/", cookie_path)
+        # Still off the data plane: no catalog, tile, upload, or export traffic
+        # ever carries the refresh credential.
+        for hot_path in (
+            "/api/datasets/",
+            "/api/maps/",
+            "/api/tiles/1/2/3.pbf",
+            "/api/collections/",
+        ):
+            assert not _path_matches(hot_path, cookie_path)
 
     async def test_csrf_cookie_is_readable_and_not_a_credential(
         self, client: AsyncClient
@@ -276,7 +314,7 @@ class TestLogoutClearsCookies:
         assert resp.status_code == 204
 
         for name, path in (
-            (REFRESH_COOKIE_NAME, "/api/auth/refresh"),
+            (REFRESH_COOKIE_NAME, "/api/auth"),
             (CSRF_COOKIE_NAME, "/"),
         ):
             cleared = _cookie_attrs(resp, name)

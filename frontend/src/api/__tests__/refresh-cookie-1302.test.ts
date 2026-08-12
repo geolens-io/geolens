@@ -161,6 +161,40 @@ describe('late refresh after logout', () => {
     expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
   });
 
+  // fix(#1446): sessionEpoch is per-tab, so a logout in ANOTHER tab cannot
+  // reach it through the persisted blob. The storage listener bumps it on the
+  // present->absent transition; without that, this tab's in-flight refresh
+  // writes its rotated tokens back and re-persists the session for every tab.
+  it('discards rotated tokens when another tab logged out', async () => {
+    let resolveRefresh: (value: unknown) => void = () => {};
+    vi.doMock('@/api/auth', () => ({
+      refreshAccessToken: vi.fn(
+        () => new Promise((resolve) => { resolveRefresh = resolve; }),
+      ),
+    }));
+
+    const { tryRefresh } = await import('@/api/client');
+    const { useAuthStore: store } = await import('@/stores/auth-store');
+
+    store.setState({ token: 'live-access', refreshToken: null, expiresAt: Date.now() + 60_000 });
+    const pending = tryRefresh();
+
+    // Tab A logged out: it wrote a token-less blob, and this tab's `storage`
+    // listener rehydrates from it.
+    window.localStorage.setItem(
+      'geolens-auth',
+      JSON.stringify({ state: { token: null, expiresAt: null, user: null }, version: 1 }),
+    );
+    window.dispatchEvent(new StorageEvent('storage', { key: 'geolens-auth' }));
+    await vi.waitFor(() => expect(store.getState().token).toBeNull());
+
+    resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
+    await pending;
+
+    expect(store.getState().token).toBeNull();
+    expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
+  });
+
   it('still applies rotated tokens when no logout intervened', async () => {
     let resolveRefresh: (value: unknown) => void = () => {};
     vi.doMock('@/api/auth', () => ({

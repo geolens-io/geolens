@@ -16,6 +16,8 @@ interface AuthState {
    *
    * In-memory and per-tab: deliberately absent from `partialize`, since it
    * orders events within one tab's lifetime and means nothing across reloads.
+   * Cross-tab logout therefore cannot propagate through the persisted blob —
+   * the `storage` listener below bumps it explicitly instead.
    */
   sessionEpoch: number;
   setAuth: (
@@ -160,6 +162,13 @@ if (typeof window !== 'undefined') {
       // it to /login. Skip if already on a public auth route so we don't loop.
       const stillLoggedIn = !!useAuthStore.getState().token;
       if (hadToken && !stillLoggedIn) {
+        // fix(#1446): another tab logged out. Rehydration clears this tab's
+        // token but cannot touch its epoch, which is per-tab — so a refresh
+        // already in flight here would still see a matching epoch and write
+        // its rotated tokens back, resurrecting the session the other tab just
+        // ended (and re-persisting it for every tab). Bump on the
+        // present->absent transition so that write is refused.
+        useAuthStore.setState((s) => ({ sessionEpoch: s.sessionEpoch + 1 }));
         const path = window.location.pathname;
         if (path !== '/login' && path !== '/register') {
           window.location.assign('/login');
