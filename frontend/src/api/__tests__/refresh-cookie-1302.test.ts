@@ -204,10 +204,13 @@ describe('late refresh after logout', () => {
   // writes its rotated tokens back and re-persists the session for every tab.
   it('discards rotated tokens when another tab logged out', async () => {
     let resolveRefresh: (value: unknown) => void = () => {};
+    let capturedSignal: AbortSignal | undefined;
     vi.doMock('@/api/auth', () => ({
-      refreshAccessToken: vi.fn(
-        () => new Promise((resolve) => { resolveRefresh = resolve; }),
-      ),
+      refreshAccessToken: vi.fn((_token: string | null, signal?: AbortSignal) => {
+        capturedSignal = signal;
+        return new Promise((resolve) => { resolveRefresh = resolve; });
+      }),
+      logoutSession: vi.fn(() => Promise.resolve()),
     }));
 
     const { tryRefresh } = await import('@/api/client');
@@ -224,6 +227,13 @@ describe('late refresh after logout', () => {
     );
     window.dispatchEvent(new StorageEvent('storage', { key: 'geolens-auth' }));
     await vi.waitFor(() => expect(store.getState().token).toBeNull());
+
+    // fix(#1446): the request is abandoned too, not just its store write — a
+    // response the browser never processes cannot apply a stale Set-Cookie
+    // over a cookie a later login issued. Waited for rather than asserted
+    // directly: the token clears inside rehydrate(), which resolves before the
+    // listener's continuation runs the abort.
+    await vi.waitFor(() => expect(capturedSignal?.aborted).toBe(true));
 
     resolveRefresh({ access_token: 'rotated', refresh_token: null, expires_in: 900 });
     await pending;

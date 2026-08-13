@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import { persist, type PersistOptions } from 'zustand/middleware';
+// Cyclic with '@/api/client' (it imports this store), which is safe here:
+// neither module touches the other at import time, and a hoisted function
+// declaration is initialized before either body runs.
+import { abortInflightRefresh } from '@/api/client';
 import type { UserResponse } from '@/types/api';
 
 interface AuthState {
@@ -174,6 +178,11 @@ if (typeof window !== 'undefined') {
         // ended (and re-persisting it for every tab). Bump on the
         // present->absent transition so that write is refused.
         useAuthStore.setState((s) => ({ sessionEpoch: s.sessionEpoch + 1 }));
+        // The epoch only blocks the store write. Abort the request too, so the
+        // browser never processes a response whose Set-Cookie could later
+        // overwrite a cookie issued by a subsequent login — the same reason
+        // the in-tab logout path aborts.
+        abortInflightRefresh();
         const path = window.location.pathname;
         if (path !== '/login' && path !== '/register') {
           window.location.assign('/login');
