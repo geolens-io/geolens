@@ -913,6 +913,74 @@ class RetiredTableName(Base):
     dataset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
+    # fix(#1456): the identity of the relation whose name this row freed, and
+    # the id of the user who owned the dataset that held it. Both are captured
+    # inside the delete transaction because both sources die in it. Nothing
+    # READS them yet — they exist so a later ownership-aware re-registration
+    # can tell "the table I detached" from "a new table wearing its name".
+    #
+    # BIGINT because a pg_class oid is unsigned 32-bit. It identifies the
+    # relation only within one cluster lifetime: pg_dump/pg_restore does not
+    # preserve oids, so a restored catalog carries oids that match nothing.
+    # previous_owner_id is the durable half.
+    relation_oid: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Not a foreign key, for the reason dataset_id above is not one plus a
+    # sharper one: this table is retain-forever, so a CASCADE would erase
+    # tombstones when a user is deleted and re-arm GH-1443 for every name
+    # their datasets freed.
+    previous_owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     retired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class DetachedRelation(Base):
+    """A relation GeoLens released its claim on while it was still standing.
+
+    fix(#1456 review round 1). :class:`RetiredTableName` covers every delete
+    that FREES a name. The case GH-1456's window 1 is about is the one that
+    frees nothing: a detach that leaves the operator's table standing writes no
+    tombstone, so the relation's identity and its owner were probed and thrown
+    away. If the operator drops that relation after the delete commits, the
+    name goes free with nothing recorded anywhere.
+
+    A separate table rather than a flagged row on ``retired_table_names``,
+    because that table's whole API is set membership — a name in it is never
+    handed out again. A relation still holding its name is not a prohibition,
+    and mixing the two would make every future reader responsible for a
+    predicate whose failure direction is silent. Nothing reads this table yet;
+    it exists so a later change can tell "the table I detached" from "a new
+    table wearing its name" without having to invent history it cannot have.
+    """
+
+    __tablename__ = "detached_relations"
+    __table_args__ = (
+        Index("ix_detached_relations_table_name", "table_name"),
+        {"schema": "catalog"},
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        primary_key=True, server_default=func.gen_random_uuid()
+    )
+    table_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # TSEAM-01 (Phase 1207): dormant tenant_id — nullable, no FK enforcement.
+    tenant_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    # Neither id is a foreign key, for the reasons the sibling table gives: the
+    # dataset is deleted in the transaction that writes this row, and an FK to
+    # catalog.users would let a retain-forever row block a user deletion.
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    # Nullable although the only write site reaches it with a non-null oid: a
+    # NOT NULL here could turn a surprise into a failed DELETE.
+    relation_oid: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    previous_owner_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    detached_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

@@ -1772,7 +1772,22 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # makes with the reasoning behind them: drop-vs-detach, and the
         # GH-1443 retirement that follows the relation rather than the
         # dataset. Cap 350 -> 415, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 415,
+        # fix(#1456): +36 — the tombstone now carries the freed relation's oid
+        # and the dataset's prior owner. _relation_exists became _relation_oid
+        # (same one probe, now returning the identity), the probe moved ahead
+        # of the drop-vs-detach branch so the DROP path can capture an oid
+        # before the relation is gone, and the two new tombstone fields carry
+        # the reasoning for why they are captured here and nowhere else
+        # (both sources die in this transaction) plus the oid's
+        # one-cluster-lifetime caveat. Cap 415 -> 451, exact.
+        # fix(#1456 codex round 1): +32 — the identity was being collected
+        # everywhere EXCEPT the surviving-detach path, which is the one
+        # GH-1456's window 1 is about. That path now writes a DetachedRelation
+        # instead of discarding what it probed, in a sibling table rather than
+        # the retirement set (whose whole API is set membership), with the
+        # reasoning for the split and for the belt-and-braces oid guard.
+        # Cap 451 -> 483, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 483,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

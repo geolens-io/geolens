@@ -520,6 +520,12 @@ class TestSchema:
             "tenant_id": "YES",
             "dataset_id": "YES",
             "retired_at": "NO",
+            # fix(#1456): the freed relation's oid and the prior owner's id.
+            # Nullable, and not optionally so: every row written before that
+            # migration carries NULL in both and no backfill is possible, since
+            # both sources were already gone when those rows were written.
+            "relation_oid": "YES",
+            "previous_owner_id": "YES",
         }
 
         index_names = (
