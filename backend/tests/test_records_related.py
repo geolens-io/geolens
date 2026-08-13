@@ -766,6 +766,43 @@ class TestDistributions:
                 f"Distribution URL should contain dataset_id {dataset_id_str}: {d['url']}"
             )
 
+    async def test_vector_tiles_distribution_is_labeled_xyz(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session: AsyncSession,
+    ):
+        """fix(#1463): the tile template is XYZ, and says so.
+
+        The URL is ``/tiles/data.{table}/{z}/{x}/{y}.pbf`` — no capabilities
+        document, no TileMatrixSet negotiation. It carried ``OGC:WMTS``, which
+        sent a conforming client down a path the endpoint cannot serve, so the
+        assertion that matters is the negative one: whatever the value is, it
+        must not name a service GeoLens does not speak.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset_with_distributions(
+            test_db_session, created_by=admin_id
+        )
+        resp = await client.get(
+            f"/records/{ds.record_id}/distributions/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200
+        tiles = [
+            d
+            for d in resp.json()["distributions"]
+            if d["distribution_type"] == "vector_tiles"
+        ]
+        assert len(tiles) == 1
+        assert tiles[0]["protocol"] == "XYZ"
+        assert tiles[0]["media_type"] == "application/vnd.mapbox-vector-tile"
+
+        # No generated row may advertise a service with no server behind it.
+        # GeoLens serves neither WMTS nor WMS anywhere (#1461 is where real
+        # WMTS would land, with its own capabilities distribution).
+        for d in resp.json()["distributions"]:
+            assert d["protocol"] not in ("OGC:WMTS", "OGC:WMS"), d
+
     async def test_create_manual_distribution(
         self,
         client: AsyncClient,

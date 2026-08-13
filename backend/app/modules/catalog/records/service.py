@@ -628,6 +628,21 @@ _DISTRIBUTION_TEMPLATES = [
 # generated set, so reconcile has to see it.
 _VECTOR_TILES_PAIR = ("vector_tiles", "pbf")
 
+# fix(#1463): this used to read ``OGC:WMTS``, which the endpoint below does not
+# speak — ``/tiles/data.{table}/{z}/{x}/{y}.pbf`` is a plain XYZ template with
+# no capabilities document and no TileMatrixSet negotiation, so a client that
+# believed the label failed against a working instance. ``XYZ`` is what the
+# scheme is actually called everywhere it is consumed (QGIS's connection type,
+# GDAL's driver, MapLibre's source), and it claims no OGC standard, because
+# there is none to claim. The payload semantics are carried precisely by
+# ``format='pbf'`` and ``media_type='application/vnd.mapbox-vector-tile'``.
+# Bare rather than prefixed to match ``HTTP`` in the templates above, which is
+# this vocabulary's form for a transport that is not an OGC service.
+#
+# Migration 0048 rewrites the rows generated before this change; the WHERE
+# there matches this exact value, so the two have to move together.
+_VECTOR_TILES_PROTOCOL = "XYZ"
+
 # The four-column unique constraint on ``record_distributions``
 # (record_id, distribution_type, format, url) — see RecordDistribution's
 # ``__table_args__``. Named here because the generated-row insert has to be
@@ -791,7 +806,7 @@ async def generate_distributions(
                 "format": "pbf",
                 "url": f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
                 "title": "Vector Tiles",
-                "protocol": "OGC:WMTS",
+                "protocol": _VECTOR_TILES_PROTOCOL,
                 "media_type": "application/vnd.mapbox-vector-tile",
                 "is_primary": False,
                 "auto_generated": True,
