@@ -55,6 +55,24 @@ export function deleteDetachesTable(dataset: DatasetResponse): boolean {
   return dataset.origin_ref?.managed !== true;
 }
 
+/**
+ * Which description this delete gets.
+ *
+ * fix(#1452 review round 2): a registered dataset whose table has already
+ * been dropped carries `source_health: 'missing'` — the PostGIS refresh maps
+ * SQLSTATE 42P01 to it — and the backend detects that absent relation and
+ * retires the name instead of preserving anything. Promising that its data
+ * stays intact would be the one wrong thing to tell someone in that state.
+ * The wording says "last saw" because the stored verdict is a past probe, not
+ * a live check: the operator may have recreated the table since.
+ */
+export function deleteDescriptionKey(dataset: DatasetResponse): string {
+  if (!deleteDetachesTable(dataset)) return 'deleteDialog.description';
+  return dataset.source_health === 'missing'
+    ? 'deleteDialog.descriptionRegisteredMissing'
+    : 'deleteDialog.descriptionRegistered';
+}
+
 interface DatasetDeleteDialogProps {
   dataset: DatasetResponse;
   open: boolean;
@@ -95,12 +113,7 @@ export function DatasetDeleteDialog({ dataset, open, onOpenChange }: DatasetDele
         <AlertDialogHeader>
           <AlertDialogTitle>{t('deleteDialog.title')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t(
-              deleteDetachesTable(dataset)
-                ? 'deleteDialog.descriptionRegistered'
-                : 'deleteDialog.description',
-              { name: dataset.title },
-            )}
+            {t(deleteDescriptionKey(dataset), { name: dataset.title })}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

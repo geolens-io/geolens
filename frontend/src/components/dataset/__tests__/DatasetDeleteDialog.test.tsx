@@ -1,6 +1,10 @@
 import { render, screen } from '@/test/test-utils';
 import type { DatasetResponse } from '@/types/api';
-import { DatasetDeleteDialog, deleteDetachesTable } from '../DatasetDeleteDialog';
+import {
+  DatasetDeleteDialog,
+  deleteDescriptionKey,
+  deleteDetachesTable,
+} from '../DatasetDeleteDialog';
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
@@ -43,6 +47,36 @@ describe('deleteDetachesTable', () => {
   });
 });
 
+describe('deleteDescriptionKey', () => {
+  it('promises survival for a healthy registered table', () => {
+    const dataset = makeDataset({ origin: 'postgis', source_health: 'healthy' });
+    expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.descriptionRegistered');
+  });
+
+  it('drops the survival promise when the source table is missing', () => {
+    // The backend detects the absent relation and retires the name instead
+    // of preserving anything, so there is nothing to promise.
+    const dataset = makeDataset({ origin: 'postgis', source_health: 'missing' });
+    expect(deleteDescriptionKey(dataset)).toBe(
+      'deleteDialog.descriptionRegisteredMissing',
+    );
+  });
+
+  it.each(['unknown', 'inaccessible'] as const)(
+    'keeps the survival promise when health is %s',
+    (source_health) => {
+      // Neither says the relation is gone; only `missing` does.
+      const dataset = makeDataset({ origin: 'postgis', source_health });
+      expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.descriptionRegistered');
+    },
+  );
+
+  it('ignores health entirely for a dataset GeoLens owns', () => {
+    const dataset = makeDataset({ origin: 'upload', source_health: 'missing' });
+    expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.description');
+  });
+});
+
 describe('DatasetDeleteDialog copy', () => {
   it('promises the table survives for a registered dataset', () => {
     render(
@@ -55,6 +89,37 @@ describe('DatasetDeleteDialog copy', () => {
 
     expect(screen.getByText(/stays in the database/i)).toBeInTheDocument();
     expect(screen.queryByText(/including all spatial data/i)).not.toBeInTheDocument();
+  });
+
+  it('says the surviving table can be registered again', () => {
+    // fix(#1452 review round 2): a detached table goes back to being an
+    // unregistered table in the data schema, which /ingest/discover/ lists
+    // and any upload-permission user can register — the same exposure it had
+    // before its owner registered it. Silence about that is the part the
+    // owner cannot act on.
+    render(
+      <DatasetDeleteDialog
+        dataset={makeDataset({ origin: 'postgis' })}
+        open
+        onOpenChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/register it again/i)).toBeInTheDocument();
+    expect(screen.getByText(/drop the table yourself/i)).toBeInTheDocument();
+  });
+
+  it('does not promise intact data when the source table is missing', () => {
+    render(
+      <DatasetDeleteDialog
+        dataset={makeDataset({ origin: 'postgis', source_health: 'missing' })}
+        open
+        onOpenChange={() => {}}
+      />,
+    );
+
+    expect(screen.getByText(/nothing left to remove/i)).toBeInTheDocument();
+    expect(screen.queryByText(/data intact/i)).not.toBeInTheDocument();
   });
 
   it('still warns that the data goes for an uploaded dataset', () => {
