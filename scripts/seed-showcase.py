@@ -446,13 +446,13 @@ MAP_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
-# Dataset summaries for the two quake bindings, defined once because they are
-# written TWICE: at creation, and again by the enrichment pass on every seed.
-# The second write is the load-bearing one. A summary is otherwise create-time
-# only, so an instance seeded before the service conversion would keep telling
-# visitors these are M4.5+ downloads forever - which is what the heatmap
-# dataset's entry in SHOWCASE_METADATA has always guarded against, and what the
-# circles dataset had no guard for at all.
+# Dataset summaries for the two quake bindings. Written by exactly ONE thing,
+# the origin-gated enrichment pass, and never at creation - a summary describing
+# a live service must not exist before the binding does. A fresh dataset is
+# committed with _SERVICE_STUB_SUMMARY, which claims nothing, and these arrive
+# once origin proves the conversion landed. That also repairs an instance seeded
+# before the service conversion, which would otherwise keep telling visitors
+# these are M4.5+ downloads forever.
 QUAKE_SUMMARIES: dict[str, str] = {
     QUAKES_TITLE: (
         "Earthquakes of magnitude 2.5 and above from the last 30 days, read "
@@ -1171,10 +1171,22 @@ _SERVICE_STUB_FC = {
     ],
 }
 
+# The summary a stub is COMMITTED with, and it claims nothing on purpose.
+# Same class as the gated metadata and the gated map wording, on the one path
+# neither of those covers: creation. A summary written here lands BEFORE the
+# conversion that would make a live-service claim true, and the origin gates in
+# enrich_showcase_metadata only decide whether to OVERWRITE a summary later -
+# they cannot un-write one already committed. So a transient conversion failure
+# on a fresh seed would leave a public dataset describing a live USGS service
+# over a single placeholder point at Null Island. This text is true at the
+# moment it is written and stays true if the binding never completes; the real
+# description arrives from QUAKE_SUMMARIES once origin proves the binding.
+_SERVICE_STUB_SUMMARY = (
+    "Earthquake data; binding to the live USGS Recent Earthquakes service."
+)
 
-def ingest_service(
-    api: Api, service_url: str, title: str, summary: str, timeout: int = 900
-) -> str:
+
+def ingest_service(api: Api, service_url: str, title: str, timeout: int = 900) -> str:
     """Create a NEW dataset bound to a live service layer, by CONVERSION.
 
     The obvious door is POST /services/preview/, and it cannot be used here.
@@ -1186,9 +1198,19 @@ def ingest_service(
     conversion door carries no such guard; both behaviours were verified live.
 
     So a new dataset is created as a one-point stub and immediately converted.
-    The stub is never seen: title and summary are the real ones from the first
-    write, and the conversion swaps every row before the dataset is layered
-    onto a map.
+    The title is the real one from the first write, since it is the idempotency
+    key every later lookup depends on, and the conversion swaps every row before
+    the dataset is layered onto a map.
+
+    The SUMMARY is not, and this function takes no summary parameter at all. The
+    one it would be handed describes a live service, and it would be committed a
+    step before that became true - so a transient conversion failure would leave
+    a public dataset making a claim nothing downstream can retract, because the
+    origin gates in enrich_showcase_metadata choose whether to overwrite a
+    summary and cannot un-write one. Making the caller unable to pass a summary
+    removes the mistake instead of trusting every future caller to avoid it. The
+    real description arrives from the origin-gated enrichment pass later in the
+    same run.
 
     Both datasets go through this, rather than importing the first properly and
     converting only the second. Any "the first one imports" rule breaks as soon
@@ -1201,7 +1223,7 @@ def ingest_service(
         "service_stub.geojson",
         json.dumps(_SERVICE_STUB_FC).encode(),
         title,
-        summary,
+        _SERVICE_STUB_SUMMARY,
         timeout=timeout,
     )
     convert_to_service(api, dataset_id, service_url, title, timeout=timeout)
@@ -1817,7 +1839,7 @@ def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
     ):
         ds, under_legacy = _find_under_either_title(by_title, title, legacy)
         if ds is None:
-            ds = ingest_service(api, USGS_QUAKES_SERVICE, title, QUAKE_SUMMARIES[title])
+            ds = ingest_service(api, USGS_QUAKES_SERVICE, title)
             by_title[title] = ds
         else:
             # Convert BEFORE renaming. If this raises, the dataset keeps its old
