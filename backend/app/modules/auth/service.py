@@ -400,12 +400,17 @@ class AuthService:
         #    happens to ignore NULLs, but the SQL standard propagates them, and
         #    this must not depend on which behavior we get.
         #
-        #    The token_version bump is retained, not replaced. iat comes from
+        #    The token_version bump below is retained, not replaced, and the
+        #    access-JWT half of #1455 DEPENDS on it in two ways. iat comes from
         #    the API process clock and the horizon from the DB clock, so an API
         #    clock running ahead could mint a pre-logout token whose iat clears
-        #    the horizon — the bump is what still kills it. That is what makes
-        #    this change purely additive: no credential rejected today becomes
-        #    acceptable.
+        #    the horizon — the bump is what still kills it. And because iat is
+        #    whole seconds, the same-second region is covered by the bump
+        #    ALONE: _predates_revocation_horizon in auth/dependencies.py rounds
+        #    toward accepting on exactly that basis. Removing or weakening this
+        #    bump requires tightening that rounding in the same change.
+        #    Together they are what makes this purely additive: no credential
+        #    rejected today becomes acceptable.
         values: dict = {
             "token_version": User.token_version + 1,
             "sessions_revoked_at": func.greatest(

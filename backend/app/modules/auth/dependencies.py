@@ -32,31 +32,38 @@ def _predates_revocation_horizon(payload: Mapping, user: User) -> bool:
     sites. One helper rather than the pair of inline copies, so the two
     dependencies cannot drift apart on a security predicate.
 
+    CONSTRAINT: the rounding below is only safe while ``revoke_all_tokens``
+    bumps ``token_version`` in the SAME UPDATE that stamps the horizon. Anyone
+    who removes or weakens that bump must tighten this back to
+    ``issued_at <= int(...)`` in the same change.
+
+    Why the coupling exists. ``iat`` is whole seconds (PyJWT truncates), so it
+    names the interval ``[iat, iat+1)`` rather than an instant, and this
+    rejects only when that WHOLE interval precedes the horizon — which leaves
+    the same-second region covered by nothing on this line. The bump is what
+    covers it: the horizon is the revoking transaction's ``now()``, so a token
+    minted before that UPDATE commits necessarily read the pre-bump version
+    under READ COMMITTED and dies on the version check, while one minted after
+    it commits carries the new version and legitimately lives. The same
+    composition covers API-vs-DB clock skew, where an API clock running ahead
+    could lift a pre-revocation ``iat`` past the horizon: the bump still
+    rejects it. This check is therefore added ALONGSIDE the version check and
+    never replaces it.
+
+    Rounding the other way is not free, which is why the constraint is worth
+    keeping rather than pre-emptively tightening: it kills any token minted in
+    the same second as a revocation, which breaks logging out and immediately
+    logging back in, and it made
+    ``test_a_rotation_racing_logout_never_leaves_a_live_session`` fail
+    intermittently (``iat=1786618628`` against a horizon of ``1786618628.02``,
+    a token minted AFTER the revocation and refused).
+
     A missing (or non-numeric) ``iat`` is treated as 0, which precedes every
     horizon and is therefore always rejected once one exists. That mirrors the
     missing-``token_version``-is-0 convention at the call sites. Coercing
     rather than comparing directly matters because PyJWT validates ``iat`` by
     casting a COPY, leaving a numeric STRING in the payload, and ``"1" < 1``
     raises rather than rejecting.
-
-    ``iat`` is whole seconds (PyJWT truncates), so it does not name an instant,
-    it names the interval ``[iat, iat+1)``. Rounding has to go one way or the
-    other, and this rejects only when that WHOLE interval precedes the horizon.
-    The other rounding kills any token minted in the same second as the
-    revocation, which is not a theoretical cost: it breaks logging out and
-    immediately logging back in, and it made
-    ``test_a_rotation_racing_logout_never_leaves_a_live_session`` fail
-    intermittently (observed: ``iat=1786618628`` against a horizon of
-    ``1786618628.02``, a token minted AFTER the revocation and refused).
-
-    Rounding this way gives up nothing, because the sub-second region is
-    already covered by the ``token_version`` bump that the same UPDATE makes.
-    A token minted before that UPDATE commits reads the pre-bump version under
-    READ COMMITTED and is rejected on the version check; one minted after it
-    commits genuinely postdates the horizon. The same composition is what
-    covers API-vs-DB clock skew, where an API clock running ahead could lift a
-    pre-revocation ``iat`` past the horizon: the bump still rejects it. This
-    check is therefore added ALONGSIDE the version check and never replaces it.
     """
     if user.sessions_revoked_at is None:
         return False
