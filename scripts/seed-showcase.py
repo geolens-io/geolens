@@ -2229,9 +2229,6 @@ def build_restless_earth(
         applies (DEM-flagged rasters render terrainrgb and ignore colormaps).
     """
     name = "Restless Earth"
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
     print("\n[restless] Restless Earth (quakes + volcanoes + plates + relief)")
     by_title = api.datasets_by_title()
 
@@ -2239,7 +2236,19 @@ def build_restless_earth(
     # Both read from the LIVE USGS service. GeoLens renders one MapLibre layer
     # per dataset, so the graduated-circle layer and the heatmap layer need the
     # same geometry bound twice - each binding refreshes independently.
+    #
+    # Bound BEFORE the map-exists skip below, exactly the way build_meteorites
+    # heals its dataset ahead of its own skip, and for a sharper reason. Every
+    # instance that matters already HAS this map, so a conversion sitting after
+    # the skip would run on a fresh instance and never on the live demo - the
+    # one place the upgrade is for. It would also deadlock the escape hatch:
+    # --refresh-quakes refuses an upload-origin dataset and tells the operator
+    # to run a normal seed, and that seed would take the early return.
     quakes_ds, heat_ds = ensure_quake_datasets(api, by_title)
+
+    if not force and _map_exists(api, name):
+        print(f"  [skip] {name} map already exists (quake bindings brought current)")
+        return "(skipped)"
 
     # --- plate boundaries ------------------------------------------------------
     plates_title = "Tectonic Plate Boundaries (PB2002)"
@@ -4853,8 +4862,16 @@ def _restyle_layer(
     and a full POST either lands whole or fails whole. The body is the layer's
     own state read back from the server, so nothing is invented and nothing is
     dropped - only the keys in the delta differ.
+
+    There is a window between the DELETE and the POST, and the caller swallows
+    exceptions so one bad map cannot fail a seed. Without the restore below,
+    a timeout in that window would silently cost a showcase map one of its
+    layers and the seed would still report success. So a failed replacement
+    puts the ORIGINAL body back and re-raises: worst case the styling delta
+    does not land, which is what the caller's warning already means.
     """
-    body = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
+    original = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
+    body = dict(original)
     if paint:
         body["paint"] = {**(body.get("paint") or {}), **paint}
     if builder:
@@ -4862,7 +4879,26 @@ def _restyle_layer(
         style_config["builder"] = {**(style_config.get("builder") or {}), **builder}
         body["style_config"] = style_config
     api.delete_layer(map_id, layer["id"])
-    api.add_layer(map_id, body)
+    try:
+        api.add_layer(map_id, body)
+    except Exception:
+        # Best effort, and deliberately not narrowed: whatever stopped the
+        # replacement, losing the layer outright is the worse outcome. If the
+        # restore fails too the original error still propagates.
+        try:
+            api.add_layer(map_id, original)
+            print(
+                f"  ! restyle failed; restored the original layer "
+                f"{layer.get('display_name')!r}",
+                file=sys.stderr,
+            )
+        except (httpx.HTTPStatusError, httpx.TimeoutException):
+            print(
+                f"  !! restyle failed AND the layer "
+                f"{layer.get('display_name')!r} could not be restored",
+                file=sys.stderr,
+            )
+        raise
 
 
 def _basin_context_layer_body(regions_ds: str) -> dict:
