@@ -266,7 +266,7 @@ Consulta la [guía de la CLI](https://docs.getgeolens.com/guides/cli/) para ver 
 
 ### Datos de muestra
 
-`scripts/seed-showcase.py` construye siete mapas de muestra a partir de datos abiertos públicos: una historia tectónica global sobre el relieve real del fondo oceánico, el horizonte 3D de Manhattan coloreado por época de construcción (la imagen principal anterior), 75 años de trayectorias de huracanes del Atlántico, caídas de meteoritos agrupadas, el Matterhorn como terreno 3D de lidar a 2 m, imágenes Sentinel-2 de Nueva York por referencia y un mapa de exposición a huracanes calculado sobre las propias trayectorias con área de influencia, intersección y disolución:
+`scripts/seed-showcase.py` construye siete mapas de muestra a partir de datos abiertos públicos: una historia tectónica global sobre el relieve real del fondo oceánico, el horizonte 3D de Manhattan coloreado por época de construcción (la imagen principal anterior), trayectorias de huracanes del Atlántico desde 1950, caídas de meteoritos agrupadas, el Matterhorn como terreno 3D de lidar a 2 m, imágenes Sentinel-2 de Nueva York por referencia y un mapa de exposición a huracanes calculado sobre las propias trayectorias con área de influencia, intersección y disolución:
 
 ```bash
 pip install httpx
