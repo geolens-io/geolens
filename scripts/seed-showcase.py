@@ -426,6 +426,40 @@ HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
 HURDAT2_TRACKS_TITLE = "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)"
 HURDAT2_LEGS_TITLE = "Major Hurricane Tracks (Cat 3+ legs, one per storm)"
 
+# --- the quake layers' service vocabulary --------------------------------------
+# Defined once because TWO places write them: build_restless_earth when it
+# creates the map, and the styling pass when it repairs a map that already
+# exists. An instance seeded before the service conversion carries layers whose
+# popup still lists depth_km and time_utc - columns the service does not have
+# and a refresh will never bring back - so the stored styles have to be
+# migrated, not just written correctly for new maps. Two copies of these values
+# would drift the moment one was edited.
+QUAKE_POPUP_FIELDS = [
+    "depth_num",
+    "event_time_utc_date_fmt",
+    "felt",
+    "tsunami",
+    "sig",
+]
+QUAKE_POPUP_CONFIG = {
+    "enabled": True,
+    "expression": "M{mag} - {place}",
+    "visible_fields": QUAKE_POPUP_FIELDS,
+}
+# Ramp from 2.5, the floor of the live service's feed. It used to start at 4,
+# the floor of the old M4.5+ download; left there, every quake in the 2.5-4
+# band - most of the ~2,300 - pins to the same minimum weight and the surface
+# grades by density alone instead of by magnitude.
+QUAKE_HEATMAP_WEIGHT = [
+    "interpolate",
+    ["linear"],
+    ["to-number", ["get", "mag"], 0],
+    2.5,
+    0.05,
+    8,
+    1,
+]
+
 # --- externally pinned content -------------------------------------------------
 # These three are referenced from OUTSIDE this repo by UUID or by the table name
 # their title derives (the subway lines dataset backs `data.nyc_subway_lines_mta`).
@@ -2519,17 +2553,7 @@ def build_restless_earth(
             # Service column vocabulary, not the old seeder-derived one: every
             # refresh rebuilds column_info from the service, so depth_km and
             # time_utc are gone for good and these names are permanent.
-            "popup_config": {
-                "enabled": True,
-                "expression": "M{mag} - {place}",
-                "visible_fields": [
-                    "depth_num",
-                    "event_time_utc_date_fmt",
-                    "felt",
-                    "tsunami",
-                    "sig",
-                ],
-            },
+            "popup_config": QUAKE_POPUP_CONFIG,
         },
     )
     # Volcanoes: white-hot vents with an ember ring, sized by VEI. The layer
@@ -2814,20 +2838,7 @@ def build_restless_earth(
                     6,
                     50,
                 ],
-                # Ramp from 2.5, the floor of the live service's feed. It used
-                # to start at 4, which was the floor of the old M4.5+ download;
-                # left there, every quake in the 2.5-4 band - most of the ~2,300
-                # - would pin to the same minimum weight and the surface would
-                # grade by density alone instead of by magnitude.
-                "heatmap-weight": [
-                    "interpolate",
-                    ["linear"],
-                    ["to-number", ["get", "mag"], 0],
-                    2.5,
-                    0.05,
-                    8,
-                    1,
-                ],
+                "heatmap-weight": QUAKE_HEATMAP_WEIGHT,
                 "heatmap-intensity": [
                     "interpolate",
                     ["linear"],
@@ -4427,6 +4438,15 @@ def build_collections(api: Api, force: bool = False) -> str:
 #   data_vintage_start   temporal coverage, ISO dates, and set ONLY where the
 #   data_vintage_end     source states one. A guessed vintage is worse than an
 #                        absent one: it is indistinguishable from a real one.
+#                        The HURDAT2 datasets carry a START and no END for that
+#                        reason. 1950 is a floor this script imposes itself
+#                        (min_year), so it is true of whatever release is
+#                        loaded. The end is NOT knowable here: a plain seed
+#                        reuses the existing datasets by title and never
+#                        downloads, so an instance seeded before the 2025 bump
+#                        still holds 2024 data while this pass runs. Stamping
+#                        2025 would advertise a season the data does not have
+#                        until --refresh-hurdat2 has actually run.
 #   theme_category       ISO 19115 MD_TopicCategoryCode values, which drive the
 #                        theme facet and the DCAT theme export.
 SHOWCASE_METADATA: dict[str, dict] = {
@@ -4577,7 +4597,6 @@ SHOWCASE_METADATA: dict[str, dict] = {
         # NHC cuts one best-track revision per year, after the season closes.
         "update_frequency": "annually",
         "data_vintage_start": "1950-01-01",
-        "data_vintage_end": "2025-12-31",
         "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
     HURDAT2_LEGS_TITLE: {
@@ -4593,7 +4612,6 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "source_url": "https://www.nhc.noaa.gov/data/#hurdat",
         "update_frequency": "annually",
         "data_vintage_start": "1950-01-01",
-        "data_vintage_end": "2025-12-31",
         "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
     "Atlantic Basin Regions (Natural Earth admin-1)": {
@@ -4625,7 +4643,6 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "license": "Derived in GeoLens from NOAA NHC HURDAT2 (US public domain)",
         "keywords": ["hurricanes", "buffer", "analysis", "derived", "corridor"],
         "data_vintage_start": "1950-01-01",
-        "data_vintage_end": "2025-12-31",
         "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
     "Coastal Regions Inside a Major Hurricane Corridor": {
@@ -4635,7 +4652,6 @@ SHOWCASE_METADATA: dict[str, dict] = {
         ),
         "keywords": ["hurricanes", "intersect", "analysis", "derived", "exposure"],
         "data_vintage_start": "1950-01-01",
-        "data_vintage_end": "2025-12-31",
         "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
     },
     "Hurricane Exposure by Coastal Region": {
@@ -4652,7 +4668,6 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "coastal",
         ],
         "data_vintage_start": "1950-01-01",
-        "data_vintage_end": "2025-12-31",
         "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
     },
     "Meteorite Landings (Meteoritical Society)": {
@@ -4834,10 +4849,14 @@ MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
     ),
     HURRICANE_MAP: (
         "Saffir-Simpson category",
+        # No season named here on purpose: this note is written on every seed,
+        # including on an instance whose tracks have not been refreshed to the
+        # newest HURDAT2 release yet, and the map would then claim a season it
+        # does not contain.
         "Every Atlantic storm since 1950 that reached Category 3, drawn as "
         "six-hourly segments coloured by its intensity at that leg. Arrows "
         "mark direction of motion on Category 5 legs only. Source: NOAA NHC "
-        "HURDAT2, through the 2025 season.",
+        "HURDAT2 best-track data.",
     ),
     "Everything That Fell From the Sky": (
         "Recovery type",
@@ -4893,6 +4912,27 @@ MAP_PITCH_ALIGNED_CIRCLES: dict[str, tuple[str, ...]] = {
     "Everything That Fell From the Sky": ("Meteorites (amber = seen falling)",),
 }
 
+# Stored layer settings that went WRONG when the quakes moved to the live
+# service, keyed by map and layer display name. This is a repair table, not a
+# style preference: an instance seeded before the conversion has a popup listing
+# depth_km and time_utc, columns the service does not have and no refresh will
+# restore, so the popup renders blank rows on the live demo. build_restless_earth
+# writes the correct values on a NEW map and then returns early on an existing
+# one, which is exactly the case this covers.
+#
+# Values come from the shared constants, so the builder and this repair cannot
+# disagree about what "correct" is.
+MAP_LAYER_STYLE_FIXES: dict[str, dict[str, dict]] = {
+    "Restless Earth": {
+        "Earthquakes (last 30 days, by magnitude)": {
+            "fields": {"popup_config": QUAKE_POPUP_CONFIG},
+        },
+        "Quake intensity (heatmap)": {
+            "paint": {"heatmap-weight": QUAKE_HEATMAP_WEIGHT},
+        },
+    },
+}
+
 # The writable half of a layer response - what POST /maps/{id}/layers accepts.
 # `id` and every dataset_*/is_*/tile_version field on the response is read-only.
 _LAYER_WRITABLE_FIELDS = (
@@ -4913,7 +4953,7 @@ _LAYER_WRITABLE_FIELDS = (
 
 
 def _restyle_layer(
-    api: "Api", map_id: str, layer: dict, paint=None, builder=None
+    api: "Api", map_id: str, layer: dict, paint=None, builder=None, fields=None
 ) -> None:
     """Apply a style delta to an EXISTING layer by re-creating it.
 
@@ -4932,6 +4972,10 @@ def _restyle_layer(
     """
     original = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
     body = dict(original)
+    if fields:
+        # Whole-value replacement, not a merge: these are settings like
+        # popup_config whose old contents are the thing being corrected.
+        body.update(fields)
     if paint:
         body["paint"] = {**(body.get("paint") or {}), **paint}
     if builder:
@@ -5006,6 +5050,51 @@ def _ensure_basin_context_layer(api: "Api", map_id: str, layers: list) -> bool:
     return True
 
 
+def _layer_style_delta(
+    layer: dict, groups: dict, pitch_aligned: tuple, style_fixes: dict
+) -> tuple[dict, dict, dict, list]:
+    """What needs to change on one layer, and why.
+
+    Every branch compares against the layer's CURRENT value first, so a layer
+    already carrying the right settings produces an empty delta and is never
+    rewritten. That is what makes the whole styling pass free to re-run: with
+    no comparison here it would delete and re-add every listed layer on every
+    seed. Returns (paint, builder, fields, reasons); an empty `reasons` means
+    do nothing.
+    """
+    display = layer.get("display_name")
+    builder_now = ((layer.get("style_config") or {}).get("builder")) or {}
+    paint_now = layer.get("paint") or {}
+    paint_delta: dict = {}
+    builder_delta: dict = {}
+    field_delta: dict = {}
+    reasons: list[str] = []
+
+    group = groups.get(display)
+    if group and builder_now.get("folder_group_id") != group[0]:
+        builder_delta = {
+            "folder_group_id": group[0],
+            "folder_group_name": group[1],
+            "folder_group_expanded": True,
+        }
+        reasons.append("group")
+    if display in pitch_aligned and paint_now.get("circle-pitch-alignment") != "map":
+        paint_delta["circle-pitch-alignment"] = "map"
+        reasons.append("pitch")
+
+    # Repair a stored style that predates the service conversion.
+    fix = style_fixes.get(display, {})
+    for key, value in (fix.get("paint") or {}).items():
+        if paint_now.get(key) != value:
+            paint_delta[key] = value
+            reasons.append(f"paint.{key}")
+    for key, value in (fix.get("fields") or {}).items():
+        if layer.get(key) != value:
+            field_delta[key] = value
+            reasons.append(key)
+    return paint_delta, builder_delta, field_delta, reasons
+
+
 def apply_showcase_styling(api: "Api") -> None:
     """Legend titles, notes, folder groups, pitch-aligned circles and the
     exposure map's context layer - applied to whatever showcase maps exist.
@@ -5045,33 +5134,23 @@ def apply_showcase_styling(api: "Api") -> None:
 
             groups = MAP_FOLDER_GROUPS.get(name, {})
             pitch_aligned = MAP_PITCH_ALIGNED_CIRCLES.get(name, ())
+            style_fixes = MAP_LAYER_STYLE_FIXES.get(name, {})
             for layer in layers:
-                display = layer.get("display_name")
-                builder_now = ((layer.get("style_config") or {}).get("builder")) or {}
-                paint_now = layer.get("paint") or {}
-                builder_delta, paint_delta = {}, {}
-
-                group = groups.get(display)
-                if group and builder_now.get("folder_group_id") != group[0]:
-                    builder_delta = {
-                        "folder_group_id": group[0],
-                        "folder_group_name": group[1],
-                        "folder_group_expanded": True,
-                    }
-                if (
-                    display in pitch_aligned
-                    and paint_now.get("circle-pitch-alignment") != "map"
-                ):
-                    paint_delta = {"circle-pitch-alignment": "map"}
-
-                if builder_delta or paint_delta:
+                paint_delta, builder_delta, field_delta, reasons = _layer_style_delta(
+                    layer, groups, pitch_aligned, style_fixes
+                )
+                if reasons:
                     _restyle_layer(
-                        api, map_id, layer, paint=paint_delta, builder=builder_delta
+                        api,
+                        map_id,
+                        layer,
+                        paint=paint_delta,
+                        builder=builder_delta,
+                        fields=field_delta,
                     )
-                    changed = "group" if builder_delta else ""
-                    changed += "+" if builder_delta and paint_delta else ""
-                    changed += "pitch" if paint_delta else ""
-                    print(f"  {changed}: {name} / {display}")
+                    print(
+                        f"  {'+'.join(reasons)}: {name} / {layer.get('display_name')}"
+                    )
         except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
             print(f"  WARNING: could not style {name!r}: {e}", file=sys.stderr)
 
