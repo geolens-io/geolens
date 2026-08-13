@@ -135,8 +135,8 @@ async def delete_dataset(
     # fix(#1452): registration copies no data — it points the catalog at a
     # table the operator built and keeps writing to. Deleting the dataset
     # therefore has to detach, not drop, or the delete destroys the original
-    # rather than a GeoLens-managed copy. Resolved once here because the DROP
-    # and the name retirement below are two effects of this one answer.
+    # rather than a GeoLens-managed copy. This answer decides the DROP alone;
+    # the name retirement asks the separate question below.
     owns_table = geolens_owns_table(
         dataset.source_format, record_type, dataset.origin_ref
     )
