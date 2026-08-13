@@ -6,7 +6,7 @@ import gzip
 import json
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -21,6 +21,21 @@ def _clean_registry():
     _reset_registry()
     yield
     _reset_registry()
+
+
+def _session_answering_liveness_probe() -> AsyncMock:
+    """A session double whose only job is the #1451 catalog liveness probe.
+
+    The DB-miss tile path re-checks that the cached authorization still has a
+    catalog row behind it before reading the relation. These tests are about the
+    hosted serving contract for datasets that ARE registered, so the double
+    answers with a row rather than the probe being patched out.
+    """
+    db = AsyncMock()
+    db.execute.return_value = MagicMock(
+        scalar_one_or_none=MagicMock(return_value=uuid.uuid4())
+    )
+    return db
 
 
 @pytest.mark.asyncio
@@ -218,6 +233,11 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     with pytest.raises(HTTPException) as exc_info:
         await tile_router._acquire_and_serve_tile(
             request=request,
+            # fix(#1451): the liveness probe runs ahead of the limiter so a dead
+            # dataset takes no permit. Answering it with a row keeps this test
+            # about the rejection path it is named for.
+            db=_session_answering_liveness_probe(),
+            dataset_id=uuid.uuid4(),
             table_name="roads",
             z=0,
             x=0,
@@ -305,7 +325,10 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
 
     app = FastAPI()
     app.include_router(tile_router.router)
-    app.dependency_overrides[get_db] = lambda: None
+    # fix(#1451): the DB-miss path now re-checks the catalog before reading the
+    # relation, so `None` no longer stands in for a session the endpoint never
+    # touched.
+    app.dependency_overrides[get_db] = lambda: _session_answering_liveness_probe()
     app.dependency_overrides[get_optional_user] = lambda: None
     transport = ASGITransport(app=app)
     path = (

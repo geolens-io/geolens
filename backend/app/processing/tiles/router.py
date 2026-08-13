@@ -1756,6 +1756,82 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
     return meta
 
 
+async def _assert_dataset_still_registered(
+    db: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    table_name: str,
+    tid: Any,
+) -> None:
+    """Refuse a cached authorization the catalog no longer backs (#1451).
+
+    ``_resolve_dataset_meta`` answers a cache hit without touching the database,
+    so for up to ``_DATASET_CACHE_TTL`` seconds a worker keeps authorizing
+    against a dataset row that may already be deleted. GH-1443 stopped the
+    product from redrawing a freed table name, but nothing stops someone holding
+    a database session from running ``CREATE TABLE data.roads`` directly, and
+    ``ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO
+    geolens_reader`` (scripts/lib/configure-runtime-db-role.sh) makes that
+    relation readable by the role the tile path binds without
+    ``grant_reader_access`` ever running. The deleted dataset's cached ``public``
+    visibility would then carry a stranger's rows to anonymous callers.
+
+    The ``_evict_dataset_meta`` listener (#1441) cannot close this alone: it is
+    process-local, and with REDIS_URL unset every uvicorn worker holds a private
+    LRU, so a delete only evicts in the worker that served it. No process-local
+    cache can answer for the others, so the check has to reach the database.
+
+    The cost is bounded by WHERE this runs: the caller is the pool path, reached
+    only after both tile caches have missed and immediately before the relation
+    is read. A served-from-cache tile still costs zero round-trips, which is the
+    whole point of ``_dataset_cache`` (PERF-006 / PERF-002).
+
+    Pinning id AND table_name together is what makes it a liveness check rather
+    than an existence check: a surviving row that has since been repointed at a
+    different relation must not authorize a read of the old name either.
+
+    It runs unconditionally, including right after a ``_dataset_cache`` MISS has
+    just read the same row. Skipping it there would mean threading "was this a
+    cache hit" out of the resolver and into a security check, which buys one PK
+    lookup on the path that already pays a joinedload, in exchange for a caller
+    that can silently skip the check by getting the flag wrong.
+
+    Scope is every caller that reads a ``data``-schema relation off cached
+    authorization, which is the vector and cluster endpoints — one call site,
+    since both reach the relation through ``_acquire_and_serve_tile``. The raster
+    proxy caches authorization the same way (``_raster_meta_cache``) and is
+    deliberately NOT covered: it is addressed by dataset id rather than by table
+    name, and it resolves to an object-storage asset, so there is no relation for
+    an out-of-band ``CREATE TABLE`` to substitute. Its bounded staleness is the
+    tradeoff written down at ``_RASTER_META_CACHE_TTL``, not this bug.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
+    stmt = select(DatasetORM.id).where(
+        DatasetORM.id == dataset_id,
+        DatasetORM.table_name == table_name,
+    )
+    if is_multi_tenant() and tid is not None:
+        # Mirrors the _resolve_dataset_meta filter so the probe cannot be
+        # satisfied by another tenant's row carrying the same table_name.
+        stmt = stmt.where(DatasetORM.tenant_id == tid)
+
+    if (await db.execute(stmt)).scalar_one_or_none() is not None:
+        return
+
+    # Drop the entry that got us here so the next request re-resolves and 404s
+    # in _resolve_dataset_meta, rather than re-paying this probe for the TTL.
+    _evict_dataset_meta(table_name)
+    logger.warning(
+        "Tile refused: cached dataset metadata outlived its catalog row",
+        table_name=table_name,
+        dataset_id=str(dataset_id),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+    )
+
+
 async def _authorize_vector_tile_request(
     request: Request,
     meta: _DatasetMeta,
@@ -1886,6 +1962,8 @@ def _cluster_cache_table_key(
 async def _acquire_and_serve_tile(
     *,
     request: Request,
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
     table_name: str,
     z: int,
     x: int,
@@ -1918,6 +1996,21 @@ async def _acquire_and_serve_tile(
     Callers keep their own cache-hit short-circuit and COLD-02 cold-rehydrate seam,
     which differ between the two paths.
     """
+    # fix(#1451): every read of a `data`-schema relation off cached authorization
+    # funnels through here, so this is the one place the catalog has to agree
+    # before the relation is queried. Both tile caches have already missed by the
+    # time control reaches this line — a cache hit returns in the caller and pays
+    # nothing, which is the round-trip `_dataset_cache` exists to avoid.
+    #
+    # Ordered ahead of the FAIR-01 semaphore rather than behind it: a dead dataset
+    # then costs no permit and no pool slot, and the refusal needs no release path
+    # of its own. The cost of that choice is one indexed lookup on a request the
+    # limiter is about to reject — which is not a new class, since a metadata
+    # cache miss and an embed-token check both already query before this point.
+    await _assert_dataset_still_registered(
+        db, dataset_id=dataset_id, table_name=table_name, tid=tid
+    )
+
     try:
         pool = get_tile_pool()
     except RuntimeError as exc:
@@ -2145,6 +2238,8 @@ async def cluster_tile_endpoint(
     # The same tenant concurrency budget governs vector and cluster DB reads.
     return await _acquire_and_serve_tile(
         request=request,
+        db=db,
+        dataset_id=meta.dataset_id,
         table_name=table_name,
         z=z,
         x=x,
@@ -2319,6 +2414,8 @@ async def tile_endpoint(
     # FAIR-01 per-tenant semaphore (cloud only) is threaded through tenant_sem.
     return await _acquire_and_serve_tile(
         request=request,
+        db=db,
+        dataset_id=meta.dataset_id,
         table_name=table_name,
         z=z,
         x=x,
