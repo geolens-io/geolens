@@ -1780,7 +1780,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the reasoning for why they are captured here and nowhere else
         # (both sources die in this transaction) plus the oid's
         # one-cluster-lifetime caveat. Cap 415 -> 451, exact.
-        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 451,
+        # fix(#1456 codex round 1): +32 — the identity was being collected
+        # everywhere EXCEPT the surviving-detach path, which is the one
+        # GH-1456's window 1 is about. That path now writes a DetachedRelation
+        # instead of discarding what it probed, in a sibling table rather than
+        # the retirement set (whose whole API is set membership), with the
+        # reasoning for the split and for the belt-and-braces oid guard.
+        # Cap 451 -> 483, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 483,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

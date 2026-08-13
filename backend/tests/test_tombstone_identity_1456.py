@@ -14,17 +14,24 @@ here as hard as the new fields, because the whole claim of the change is that
 it altered no behaviour on the way in.
 """
 
+import ast
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.catalog.datasets.domain.models import RetiredTableName
+from app.modules.catalog.datasets.domain.models import (
+    DetachedRelation,
+    RetiredTableName,
+)
 from app.processing.ingest.schemas import RegisterRequest
 from app.processing.ingest.service import register_existing_table
 from tests.factories import create_dataset
+
+BACKEND_ROOT = Path(__file__).resolve().parent.parent
 
 
 class _MockStorage:
@@ -57,6 +64,15 @@ async def _one_tombstone(session: AsyncSession, table_name: str) -> RetiredTable
     rows = await _tombstones(session, table_name)
     assert len(rows) == 1, f"expected exactly one tombstone for {table_name}: {rows}"
     return rows[0]
+
+
+async def _detach_records(
+    session: AsyncSession, table_name: str
+) -> list[DetachedRelation]:
+    result = await session.execute(
+        select(DetachedRelation).where(DetachedRelation.table_name == table_name)
+    )
+    return list(result.scalars().all())
 
 
 async def _live_oid(session: AsyncSession, table_name: str) -> int | None:
@@ -218,6 +234,129 @@ class TestADetachWhoseTableAlreadyVanished:
             "an oid was recorded for a relation that was already gone — the "
             "column would then be asserting an identity nothing verified"
         )
+
+    async def test_no_detach_record_is_written_when_nothing_survived(
+        self, test_db_session: AsyncSession
+    ):
+        """A detach record claims a relation is still standing. None is."""
+        owner = await _make_user(test_db_session)
+        table_name = await _operator_table(test_db_session)
+        title = f"Vanished {uuid.uuid4().hex[:6]}"
+        dataset = await _register(test_db_session, table_name, title, owner)
+
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        assert await _detach_records(test_db_session, table_name) == []
+
+
+class TestASurvivingDetachRecordsWhatItReleased:
+    """fix(#1456 codex round 1): the path GH-1456's window 1 actually lives on.
+
+    A detach that leaves the operator's table standing frees no name, so it
+    writes no tombstone. Before this, that meant the probed oid and the owner
+    were read and thrown away on the one path where the residual exists: if the
+    operator drops that relation after the delete commits, the name goes free
+    with nothing recorded anywhere, and neither value can be recovered.
+    """
+
+    async def test_the_released_relation_is_recorded_with_its_live_oid(
+        self, test_db_session: AsyncSession
+    ):
+        owner = await _make_user(test_db_session)
+        table_name = await _operator_table(test_db_session)
+        title = f"Released {uuid.uuid4().hex[:6]}"
+        dataset = await _register(test_db_session, table_name, title, owner)
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        records = await _detach_records(test_db_session, table_name)
+        assert len(records) == 1
+        assert records[0].relation_oid == await _live_oid(test_db_session, table_name)
+        assert records[0].previous_owner_id == owner
+        assert records[0].dataset_id == dataset.id
+
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+
+    async def test_the_record_does_not_retire_the_name(
+        self, test_db_session: AsyncSession
+    ):
+        """The reason it is a sibling table and not a flag on the tombstone.
+
+        The retirement set's whole API is membership: a name in it is never
+        handed out again, and ``register_existing_table`` refuses it outright.
+        The operator's table is still theirs to re-register, so this record has
+        to be invisible to both of those readers, which it is by construction
+        rather than by anyone remembering a predicate.
+        """
+        from app.processing.ingest.service import generate_table_name
+
+        owner = await _make_user(test_db_session)
+        table_name = await _operator_table(test_db_session)
+        title = f"Readopt {uuid.uuid4().hex[:6]}"
+        dataset = await _register(test_db_session, table_name, title, owner)
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+        assert len(await _detach_records(test_db_session, table_name)) == 1
+
+        # Registration must still accept the operator's own surviving table.
+        readopted = await _register(
+            test_db_session, table_name, f"Readopted {uuid.uuid4().hex[:6]}", owner
+        )
+        assert readopted.table_name == table_name
+
+        # And the collision walk must refuse it for the reason it always did —
+        # a live relation occupies it — not because a record retired it.
+        redrawn, _ = await generate_table_name(table_name, test_db_session)
+        assert redrawn == f"{table_name}_2"
+
+        await _delete(test_db_session, readopted.id, readopted.record.title)
+        await test_db_session.commit()
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+
+    async def test_a_dropped_table_writes_no_detach_record(
+        self, test_db_session: AsyncSession
+    ):
+        """The owning path releases nothing: it destroys the relation."""
+        owner = await _make_user(test_db_session)
+        title = f"Ingested {uuid.uuid4().hex[:6]}"
+        dataset, table_name = await _ingested_dataset(test_db_session, title, owner)
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        assert await _detach_records(test_db_session, table_name) == []
+        assert len(await _tombstones(test_db_session, table_name)) == 1
+
+    def test_only_delete_dataset_constructs_a_detach_record(self):
+        """One write site, matching the tombstone's own enumeration.
+
+        A second one would mean something other than a dataset delete claims
+        GeoLens released a relation, which is not a claim any other path is in
+        a position to make.
+        """
+        sites: list[str] = []
+        for path in sorted((BACKEND_ROOT / "app").rglob("*.py")):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "DetachedRelation"
+                ):
+                    sites.append(f"{path.relative_to(BACKEND_ROOT)}:{node.lineno}")
+
+        assert len(sites) == 1, sites
+        assert sites[0].startswith(
+            "app/modules/catalog/datasets/domain/service_lifecycle.py"
+        ), sites
 
 
 class TestNothingElseChanged:

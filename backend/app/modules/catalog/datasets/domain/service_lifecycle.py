@@ -14,7 +14,10 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
-from app.modules.catalog.datasets.domain.models import RetiredTableName
+from app.modules.catalog.datasets.domain.models import (
+    DetachedRelation,
+    RetiredTableName,
+)
 from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
@@ -343,22 +346,51 @@ async def delete_dataset(
     # above is unchanged and still keyed on `name_is_freed`; nothing reads
     # `relation_oid` or `previous_owner_id` yet. The exposure is still an
     # operator dropping their own table inside the same 60s window in which a
-    # new ingest must also draw the name — what changed is that the data a
+    # new ingest must also draw the name. What changed is that the data a
     # future closure needs now exists, and it could not be reconstructed later
     # because both of its sources die in this transaction.
+    #
+    # fix(#1456 codex round 1): which is why the ELSE branch below exists. The
+    # residual above lives on the path that writes NO tombstone, so recording
+    # identity only alongside a retirement would collect it for every case but
+    # the one it was collected for.
     if name_is_freed:
         session.add(
             RetiredTableName(
                 table_name=table_name,
                 tenant_id=dataset.tenant_id,
                 dataset_id=dataset_id,
-                # fix(#1456): captured while their sources are alive — the oid
-                # before the DROP above, created_by before the record delete
-                # below. The oid identifies the relation for ONE cluster
+                # fix(#1456): captured while their sources are alive. The oid
+                # was read before the DROP above, created_by before the record
+                # delete below. The oid identifies the relation for ONE cluster
                 # lifetime only: pg_dump/pg_restore does not preserve oids, so
                 # after a RUNBOOK restore every stored oid matches nothing and
                 # a consumer must treat it as unknown rather than as a
                 # mismatch. The owner id is the durable half.
+                relation_oid=relation_oid,
+                previous_owner_id=dataset.record.created_by,
+            )
+        )
+    elif relation_oid is not None:
+        # fix(#1456 codex round 1): the detach left the operator's table
+        # standing, so no name was released and nothing may go in the
+        # retirement set — a name in there is never handed out again, and this
+        # one is still the operator's to re-register. The identity still has to
+        # be recorded HERE or never: created_by dies with the record row three
+        # lines down, and the oid dies with the relation whenever the operator
+        # drops it, which is the exact event this row exists to make detectable.
+        #
+        # A sibling table rather than a flagged tombstone, so no reader of the
+        # retirement set has to remember a predicate to stay correct. Nothing
+        # reads this one yet. The `is not None` guard is belt-and-braces: on
+        # this branch name_is_freed is False precisely because the probe found
+        # a relation, so a None here would mean the two answers disagreed, and
+        # a row asserting an identity nothing verified is worse than no row.
+        session.add(
+            DetachedRelation(
+                table_name=table_name,
+                tenant_id=dataset.tenant_id,
+                dataset_id=dataset_id,
                 relation_oid=relation_oid,
                 previous_owner_id=dataset.record.created_by,
             )
