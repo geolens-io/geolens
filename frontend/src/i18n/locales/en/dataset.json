@@ -239,6 +239,7 @@
   "deleteDialog": {
     "title": "Delete Dataset",
     "description": "This will permanently delete dataset \"{{name}}\" including all spatial data. This action cannot be undone.",
+    "descriptionRegistered": "This will permanently delete the catalog entry for \"{{name}}\". The PostgreSQL table it was registered from stays in the database with its data intact. This action cannot be undone.",
     "confirmPrompt": "Type the dataset name to confirm:",
     "deleting": "Deleting...",
     "deleteDataset": "Delete Dataset",

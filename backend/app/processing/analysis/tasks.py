@@ -1283,6 +1283,13 @@ async def _materialize(
                     table_name=out_table, title=title, visibility="private"
                 ),
                 requester,
+                # fix(#1452): this output table was CTAS'd a few lines up, so
+                # it is GeoLens's to drop when the dataset is deleted. Without
+                # this it would be indistinguishable from a table an operator
+                # registered — same postgis origin, same null source_format —
+                # and the detach that protects the operator's table would leak
+                # one of these on every delete.
+                managed=True,
             )
             # feat(#765): provenance before the completing commit, so a
             # registered output can never be visible without its lineage.

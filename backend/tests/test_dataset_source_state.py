@@ -205,11 +205,23 @@ class TestOriginRefAllowlist:
         with pytest.raises(ValueError, match="rejects key"):
             build_origin_ref("postgis", **{key: "db.internal"})
 
-    def test_postgis_ref_holds_only_the_table_name(self) -> None:
-        assert ORIGIN_REF_KEYS["postgis"] == frozenset({"table_name"})
+    def test_postgis_ref_holds_the_table_name_and_who_owns_it(self) -> None:
+        """fix(#1452): `managed` joined `table_name`, and nothing else did.
+
+        It says whether GeoLens created the table the pointer already names,
+        which is what delete needs to know before it drops one. That is an
+        ownership fact about the same relation, not a second address, so gate
+        2 is untouched — the connection-detail rejections above still hold.
+        """
+        assert ORIGIN_REF_KEYS["postgis"] == frozenset({"table_name", "managed"})
         assert build_origin_ref("postgis", table_name="data.parcels") == {
             "kind": "postgis",
             "table_name": "data.parcels",
+        }
+        assert build_origin_ref("postgis", table_name="data.buf", managed=True) == {
+            "kind": "postgis",
+            "table_name": "data.buf",
+            "managed": True,
         }
 
     def test_absent_values_are_omitted_not_stored_as_null(self) -> None:

@@ -32,6 +32,29 @@ function parseDependentVrts(error: Error): DependentVrt[] | null {
   return null;
 }
 
+/**
+ * Whether this delete leaves the operator's PostgreSQL table behind.
+ *
+ * fix(#1452): registering an existing table copies no data, so deleting the
+ * dataset detaches instead of dropping. Both served facts come from the
+ * server — `origin` is computed there (#1218) and `origin_ref.managed` is
+ * stamped at registration — and `geolens_owns_table` in the backend's
+ * platform/dataset_origin.py is the authority this mirrors for copy only.
+ *
+ * `managed` marks the one postgis-origin dataset GeoLens DID create: an
+ * analysis output, CTAS'd and then registered through the same helper. That
+ * table is dropped, so it must not get the reassuring wording.
+ *
+ * `origin_ref` is owner-or-admin only, which is exactly who can delete
+ * (`check_dataset_write_access` is the same predicate as
+ * `can_view_dataset_provenance`), so it is never redacted from a reader who
+ * can act on this dialog.
+ */
+export function deleteDetachesTable(dataset: DatasetResponse): boolean {
+  if (dataset.origin !== 'postgis') return false;
+  return dataset.origin_ref?.managed !== true;
+}
+
 interface DatasetDeleteDialogProps {
   dataset: DatasetResponse;
   open: boolean;
@@ -72,7 +95,12 @@ export function DatasetDeleteDialog({ dataset, open, onOpenChange }: DatasetDele
         <AlertDialogHeader>
           <AlertDialogTitle>{t('deleteDialog.title')}</AlertDialogTitle>
           <AlertDialogDescription>
-            {t('deleteDialog.description', { name: dataset.title })}
+            {t(
+              deleteDetachesTable(dataset)
+                ? 'deleteDialog.descriptionRegistered'
+                : 'deleteDialog.description',
+              { name: dataset.title },
+            )}
           </AlertDialogDescription>
         </AlertDialogHeader>
 

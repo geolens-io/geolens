@@ -19,6 +19,7 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.tenancy import is_multi_tenant
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.platform.dataset_origin import geolens_owns_table
 from app.platform.storage.titiler_url import resolve_storage_key
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -40,6 +41,24 @@ class DatasetTitleMismatchError(ValueError):
     public-safe case apart from other ValueErrors (e.g. a malformed
     persisted table name) can do so by type rather than by message content.
     """
+
+
+async def _reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
+    """Delete every object under GeoLens-managed prefixes for one dataset.
+
+    Extracted from ``delete_dataset``'s two branches (which reaped identically
+    from different prefix lists) when fix(#1452) added a branch of its own and
+    pushed the function past ruff's complexity ceiling. The import stays
+    function-local so tests keep patching the provider attribute.
+    """
+    from app.platform.storage.provider import get_storage
+
+    storage = get_storage()
+    for prefix in prefixes:
+        physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
+        keys = await storage.list(physical_prefix)
+        if keys:
+            await asyncio.gather(*(storage.delete(key) for key in keys))
 
 
 class DependentVrtError(Exception):
@@ -64,6 +83,12 @@ async def delete_dataset(
     Raises ValueError if dataset not found, name mismatch, or invalid table name.
     For raster datasets, storage cleanup happens before DB deletion so that a
     storage failure prevents any DB changes (no orphaned records).
+
+    fix(#1452): a dataset registered from an existing PostGIS table is DETACHED
+    rather than dropped — the catalog row, its grants, its tiles and its search
+    and embedding rows go, and the operator's table survives with its rows,
+    exactly as registration left it. See
+    :func:`app.platform.dataset_origin.geolens_owns_table`.
     """
     # Function-local import via the service.py façade is intentional — it lets
     # tests mock `service.get_dataset` to inject fixture datasets without DB.
@@ -84,9 +109,16 @@ async def delete_dataset(
 
     record_type = dataset.record.record_type
 
-    if record_type in RASTER_FAMILY_RECORD_TYPES:
-        from app.platform.storage.provider import get_storage
+    # fix(#1452): registration copies no data — it points the catalog at a
+    # table the operator built and keeps writing to. Deleting the dataset
+    # therefore has to detach, not drop, or the delete destroys the original
+    # rather than a GeoLens-managed copy. Resolved once here because the DROP
+    # and the name retirement below are two effects of this one answer.
+    owns_table = geolens_owns_table(
+        dataset.source_format, record_type, dataset.origin_ref
+    )
 
+    if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
             # Guard: prevent deletion if any VRT still references this COG.
             #
@@ -147,63 +179,92 @@ async def delete_dataset(
         # Clean up managed storage artifacts before touching the DB.
         # If any storage delete fails the exception propagates and the
         # caller's transaction rolls back, leaving the DB record intact.
-        storage = get_storage()
         tenant_id = current_tenant_var.get()
         if is_multi_tenant() and tenant_id is None:
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
-        for prefix in prefixes:
-            physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
-            keys = await storage.list(physical_prefix)
-            if keys:
-                await asyncio.gather(*(storage.delete(key) for key in keys))
+        await _reap_managed_storage(prefixes, tenant_id)
     else:
         # Vector datasets: drop the PostGIS data table AND clean managed storage.
         # fix(#430 BA-17): vector ingest persists originals/{id}/ (archived source) and
         # vectors/{id}/quicklook_256.png; the old vector branch only dropped the
         # table, orphaning both objects forever (no reaper).
-        from app.platform.storage.provider import get_storage
-
         tenant_id = current_tenant_var.get()
         if is_multi_tenant() and tenant_id is None:
             raise RuntimeError(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
         data_schema = tenant_data_schema(tenant_id)
-        await session.execute(
-            text(
-                f"DROP TABLE IF EXISTS "
-                f"{_safe_table_ref(table_name, schema=data_schema)}"
+        if owns_table:
+            await session.execute(
+                text(
+                    f"DROP TABLE IF EXISTS "
+                    f"{_safe_table_ref(table_name, schema=data_schema)}"
+                )
             )
+        # The storage reap below runs either way: `originals/` and `vectors/`
+        # hold GeoLens-produced artifacts keyed by dataset id (an archived
+        # source, a quicklook), never the operator's table. A detached dataset
+        # has no claim on them once its row is gone.
+        #
+        # Detach leaves the table as REGISTRATION left it, which is not the
+        # same as untouched: register_existing_table may have added a
+        # geom_4326 column and its GIST index, granted SELECT to the reader
+        # role, and linearized an existing geom_4326 in place. None of that is
+        # undone here, deliberately.
+        #
+        # Undoing it would be this path writing to a relation GeoLens does not
+        # own, and each undo is worse than the state it removes: dropping a
+        # column rewrites the operator's table under a lock to delete a
+        # harmless one, revoking the grant removes a privilege that reaches
+        # nothing (every read resolves a table through `catalog.datasets`, and
+        # the row is going), and the linearization is not reversible at all
+        # since the pre-linear geometries are gone. Re-registering the table
+        # re-applies all three idempotently.
+        await _reap_managed_storage(
+            [f"originals/{dataset_id}/", f"vectors/{dataset_id}/"], tenant_id
         )
-        storage = get_storage()
-        for prefix in (f"originals/{dataset_id}/", f"vectors/{dataset_id}/"):
-            physical_prefix = resolve_storage_key(prefix, tenant_id=tenant_id)
-            keys = await storage.list(physical_prefix)
-            if keys:
-                await asyncio.gather(*(storage.delete(key) for key in keys))
 
     # fix(#1443): retire the name before releasing it. This is the one site
     # where a name a LIVE dataset row carried stops being carried by one, and
     # that is exactly the condition under which the tile router's table_name ->
     # metadata map could be holding an entry for it — that map is populated
-    # only from catalog.datasets. Recorded for every record type, not just the
-    # vector branch that drops a table: the raster/VRT branch drops nothing,
-    # but its dataset row goes, so the name it occupied in the catalog probe is
-    # freed just the same, and _resolve_dataset_meta does not filter on
-    # record_type before caching what it found.
+    # only from catalog.datasets. Record TYPE does not gate it — the raster/VRT
+    # branch drops nothing, but its dataset row goes, so the name it occupied in
+    # the catalog probe is freed just the same, and _resolve_dataset_meta does
+    # not filter on record_type before caching what it found. Ownership does
+    # gate it, which is the #1452 paragraph below.
     #
     # session.add, so it lands in the caller's transaction alongside the DROP
     # and the record delete. A crash between them can therefore roll back the
     # whole delete, but can never commit a freed name with no tombstone.
-    session.add(
-        RetiredTableName(
-            table_name=table_name,
-            tenant_id=dataset.tenant_id,
-            dataset_id=dataset_id,
+    #
+    # fix(#1452): except when the delete detached instead of dropping. The
+    # recording rule is "retire a name iff a catalog.datasets row pointed at it
+    # when it was freed", and a detach frees nothing — the relation is still
+    # there, still holding the operator's rows, still occupying the name.
+    # Retiring it anyway would make the operator's own table permanently
+    # unregisterable, since register_existing_table refuses a retired name and
+    # deliberately refuses rather than renames.
+    #
+    # What that costs is bounded and is not GH-1443's hazard. A successor can
+    # only be the SAME physical table re-registered by whoever can still see
+    # it: the surviving relation makes the name collide in generate_table_name's
+    # pg_class probe, so no ingest can draw it. A tile worker holding the
+    # predecessor's metadata past the delete therefore serves the same rows it
+    # was cached for, under a visibility that can be up to the 60s meta-cache
+    # TTL stale — the bounded-staleness tradeoff processing/tiles/router.py
+    # already documents for any visibility change, not a predecessor's
+    # visibility over a different dataset's rows.
+    if owns_table:
+        session.add(
+            RetiredTableName(
+                table_name=table_name,
+                tenant_id=dataset.tenant_id,
+                dataset_id=dataset_id,
+            )
         )
-    )
 
     # Delete the record (CASCADE handles dataset deletion)
     await session.delete(dataset.record)
@@ -247,6 +308,12 @@ async def delete_dataset(
         table_name=table_name,
         record_type=record_type,
         title=confirm_title,
+        # fix(#1452): here rather than in the router's audit_emit details,
+        # following the split the paragraph above states — this log line
+        # covers the PHYSICAL artifact, audit_emit covers the DB row. It is
+        # also the only place the answer survives: the dataset row that
+        # decided it is deleted a few lines up.
+        table_detached=not owns_table,
     )
 
     return table_name

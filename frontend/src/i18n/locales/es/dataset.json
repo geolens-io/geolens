@@ -288,6 +288,7 @@
   "deleteDialog": {
     "title": "Eliminar conjunto de datos",
     "description": "Se eliminará permanentemente el conjunto de datos \"{{name}}\" incluyendo todos los datos espaciales. Esta acción no se puede deshacer.",
+    "descriptionRegistered": "Se eliminará permanentemente la entrada del catálogo de \"{{name}}\". La tabla PostgreSQL desde la que se registró permanece en la base de datos con sus datos intactos. Esta acción no se puede deshacer.",
     "confirmPrompt": "Escriba el nombre del conjunto de datos para confirmar:",
     "deleting": "Eliminando...",
     "deleteDataset": "Eliminar conjunto de datos",

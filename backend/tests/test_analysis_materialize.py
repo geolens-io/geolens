@@ -1274,7 +1274,7 @@ class TestMaterializeWorker:
         real_register = ingest_service.register_existing_table
         out_tables: list[str] = []
 
-        async def sweeping_register(session, request, user):
+        async def sweeping_register(session, request, user, **kwargs):
             # The sweep lands between the build commit and the terminal
             # write: fail the row out from under the worker on its own
             # session, exactly as the platform's stale-job sweep does.
@@ -1289,7 +1289,7 @@ class TestMaterializeWorker:
                     )
                 )
                 await sweeper.commit()
-            return await real_register(session, request, user)
+            return await real_register(session, request, user, **kwargs)
 
         with patch.object(ingest_service, "register_existing_table", sweeping_register):
             await _materialize(
@@ -1342,7 +1342,7 @@ class TestMaterializeWorker:
 
         out_tables: list[str] = []
 
-        async def sweeping_register(session, request, user):
+        async def sweeping_register(session, request, user, **kwargs):
             out_tables.append(request.table_name)
             async with core_db.async_session() as sweeper:
                 await sweeper.execute(

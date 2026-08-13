@@ -632,6 +632,8 @@ async def register_existing_table(
     session: AsyncSession,
     request: RegisterRequest,
     user: Identity,
+    *,
+    managed: bool = False,
 ) -> "Any":
     """Register an existing data-schema table into the dataset catalog.
 
@@ -650,6 +652,16 @@ async def register_existing_table(
     and analysis for that dataset only; other datasets are unaffected.
     STORED GENERATED ``geom_4326`` columns fall under the same
     contract -- their generation expression must produce linear output.
+
+    fix(#1452): ``managed`` declares that the CALLER created the table it is
+    handing over, so deleting the resulting dataset may drop it again. It
+    defaults to False because the two register endpoints take a table name
+    from an operator and GeoLens has no claim on what it names; the analysis
+    materialize path, which CTAS's its own output and registers it through
+    this same function, is the one caller that passes True. Getting this
+    wrong in the True direction drops a table GeoLens does not own, which is
+    the bug GH-1452 exists to fix -- so it is an explicit argument at the one
+    call site that can answer it, never a guess made from the table's shape.
     """
     table_name = request.table_name
 
@@ -814,7 +826,7 @@ async def register_existing_table(
     # fills it in the database, so the ORM attribute never sees the real
     # value. _schema comes from the active tenant context and already fails
     # closed in multi-tenant mode when that context is missing.
-    set_postgis_origin(dataset, table_name, schema=_schema)
+    set_postgis_origin(dataset, table_name, schema=_schema, managed=managed)
 
     return dataset
 
