@@ -89,9 +89,10 @@ export function deleteDetachesTable(dataset: DatasetResponse): boolean {
  * `_relation_exists` probe would find nothing and retire the name.
  *
  * That is a contract on the STRING, in all four locales, and no gate can
- * check it (round 6 caught the English being corrected while es/fr/de still
- * said the contents remain intact). When editing `descriptionRegistered`,
- * describe what GeoLens does to the table and never what the table holds.
+ * check it: fix(#1452 review round 6) caught the English being corrected
+ * while es/fr/de still said the contents remain intact. When editing
+ * `descriptionRegistered`, describe what GeoLens does to the table and never
+ * what the table holds.
  *
  * fix(#1452 review round 2): the `missing` variant remains, because when the
  * refresh has actually seen the table gone (tasks_postgis_refresh maps
