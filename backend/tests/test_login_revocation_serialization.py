@@ -41,7 +41,7 @@ import uuid
 
 import anyio
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import RefreshToken
@@ -121,8 +121,12 @@ class TestLoginIsSerializedAgainstRevocation:
         # End: the stall must not expire on a timer either, or a login delayed
         # past it (CI contention) arrives after the commit, legitimately reads
         # post-revocation state, and passes for the wrong reason. So the
-        # revocation is held uncommitted until the login has actually reached
-        # issuance.
+        # revocation is held uncommitted until the login's write is OBSERVED
+        # waiting on the lock, in pg_stat_activity, over a third connection.
+        # Entering issuance is not sufficient evidence on its own: it proves
+        # the version read was about to happen, not that it is blocked, and any
+        # fixed margin bridging that gap fails under pool contention in exactly
+        # the case the margin exists to catch.
         lock_held = anyio.Event()
         login_reached_issuance = anyio.Event()
         original_create_access_token = AuthService.create_access_token
@@ -135,17 +139,40 @@ class TestLoginIsSerializedAgainstRevocation:
             login_reached_issuance.set()
             return await original_create_access_token(self, *args, **kwargs)
 
-        async def _stalled_emit(*args, **kwargs):
-            result = await original_emit(*args, **kwargs)
+        async def _login_write_is_waiting_on_the_lock() -> bool:
+            """True once a backend is blocked on a lock running the flushed UPDATE.
+
+            Read over ``test_db_session``, a connection belonging to neither
+            transaction in the race, because both of theirs are occupied.
+            ``pg_stat_activity`` reports live shared state rather than an MVCC
+            snapshot, so an open transaction here does not hide the waiter.
+            """
+            waiting = await test_db_session.execute(
+                text(
+                    "SELECT count(*) FROM pg_stat_activity "
+                    "WHERE datname = current_database() "
+                    "AND pid <> pg_backend_pid() "
+                    "AND state = 'active' "
+                    "AND wait_event_type = 'Lock' "
+                    "AND query ILIKE '%last_login_at%'"
+                )
+            )
+            return waiting.scalar_one() > 0
+
+        async def _stalled_emit(db, event, *args, **kwargs):
+            result = await original_emit(db, event, *args, **kwargs)
+            # Only the logout's call holds the lock. The racing login emits its
+            # own user.login.success audit through this same patched symbol,
+            # and stalling that one waits for a lock waiter that has already
+            # come and gone, so the login hangs until fail_after fires. A
+            # sleep-based stall hid this by merely delaying the login.
+            if getattr(event, "action", None) != "user.logout":
+                return result
             lock_held.set()
             with anyio.fail_after(30):
                 await login_reached_issuance.wait()
-            # A margin AFTER a deterministic sync point, not a substitute for
-            # one. Its only job is to let a login that is NOT serialized finish
-            # its version read while the revocation is still uncommitted, so
-            # removing the serialization fails this test loudly instead of
-            # racing the commit. The serialized path does not depend on it.
-            await anyio.sleep(0.25)
+                while not await _login_write_is_waiting_on_the_lock():
+                    await anyio.sleep(0.05)
             return result
 
         monkeypatch.setattr(audit_mod, "audit_emit", _stalled_emit)
