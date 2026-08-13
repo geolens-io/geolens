@@ -7,6 +7,64 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-08-13
+
+### Security
+
+- **Browser sessions now authenticate refresh with HttpOnly cookies and CSRF
+  protection.** Refresh tokens move out of localStorage into an HttpOnly
+  cookie scoped to the auth routes, with double-submit CSRF enforcement on
+  the two routes where the cookie authenticates. The cookie flow is an
+  explicit opt-in header, so CLI, SDK, and direct API consumers keep the
+  byte-identical body-token contract. Logout is now a real server-side
+  security event that revokes every refresh token and invalidates
+  outstanding access JWTs (#1446, #1302).
+- **Revocation gains a time-scoped horizon.** Refresh-token lookups and
+  access-JWT validation refuse any credential issued at or before the
+  user's last full revocation, an ordering-independent backstop layered on
+  the existing `token_version` machinery. Logout, password change, and
+  SAML-to-local conversion all stamp it (#1458, #1455).
+- **The login/revocation serialization the horizon backstops is pinned by a
+  deterministic test.** A login racing a logout either commits first and is
+  revoked or completes wholly after it as a clean successor; the test
+  forces the interleaving on observed lock state, never timers, so it
+  cannot pass vacuously (#1460, #1459).
+- **Tile serving refuses cached authorization for datasets that no longer
+  exist.** The tile path re-checks dataset liveness before honoring a
+  cached authorization decision (#1454, #1451).
+- **Ingest can no longer resurrect a deleted dataset's tile cache by name.**
+  Freed table names are retired in a persistent tombstone set consulted at
+  registration and name generation (#1444, #1443).
+
+### Changed
+
+- **Deleting a registered dataset detaches it instead of dropping the
+  table.** The catalog row, grants, tiles, and caches are removed while the
+  operator's physical table survives; datasets GeoLens ingested itself are
+  still dropped in full. The delete dialog says which will happen (#1453,
+  #1452).
+- **Tombstones now record what was freed.** Retirements carry the freed
+  relation's oid and the prior owner; detaches that leave the table
+  standing are recorded in a sibling `detached_relations` table, so future
+  ownership-aware re-registration has the identity it needs (#1457, #1456).
+- **The extension API version is now 7.** Overlay packages built against
+  earlier versions must be rebuilt before deploying this release (#1444).
+- **The admin data table is on react-table v9** (#1445, #1407).
+- Dependency updates across the backend and frontend (#1447, #1448, #1449,
+  #1450).
+
+### Fixed
+
+- **Raster tiles now send CORS headers.** External map clients that fetch
+  tiles (MapLibre GL, the ArcGIS Maps SDK for JavaScript, OpenLayers) can
+  consume GeoLens raster tiles cross-origin; out-of-extent empty tiles
+  carry the same header, and the value is a static wildcard so tile caches
+  can never replay a per-origin decision (#1465, #1464).
+- **Auto-generated vector-tile distributions no longer claim OGC:WMTS.**
+  The XYZ template is labeled `XYZ`, with payload semantics in `format`
+  and `media_type`; a migration relabels existing auto-generated rows and
+  leaves user-authored distributions untouched (#1466, #1463).
+
 ## [1.12.0] - 2026-08-12
 
 ### Added
@@ -2069,7 +2127,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.12.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/geolens-io/geolens/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/geolens-io/geolens/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/geolens-io/geolens/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/geolens-io/geolens/compare/v1.10.0...v1.11.0
