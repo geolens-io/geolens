@@ -737,15 +737,21 @@ async def generate_distributions(
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
 
     # fix(#1463, codex round 2): repair a surviving row the OLD template wrote.
-    # Migration 0048 is one-shot and `scripts/upgrade.sh` migrates while the
-    # previous app containers still serve (step 6 migrates, step 7 replaces the
-    # app), so a dataset created in that window is stamped `OGC:WMTS` after the
-    # UPDATE commits — and the pair-existence skip below means the template
+    # Migration 0048 is one-shot and the scripted upgrade migrates while the
+    # previous app containers still serve (it migrates first, replaces the app
+    # after), so a dataset created in that window is stamped `OGC:WMTS` after
+    # the UPDATE commits — and the pair-existence skip below means the template
     # never rewrites it. Scoped like the migration's WHERE plus this record;
-    # a user's own row is not visible to this function at all. Reaches anything
-    # later refreshed, reuploaded or reconciled. A dataset created in the window
-    # and never touched again keeps the wrong label: the general ordering
-    # problem is #1467.
+    # a user's own row is not visible to this function at all.
+    #
+    # fix(#1463, codex round 4): this is a partial mitigation, not a closer, and
+    # the earlier comment here overstated it. Both refresh callers gate
+    # `reconcile_distributions` on a modality FLIP (`tasks_postgis_refresh` and
+    # `tasks_common`, each deliberately, so an unchanged refresh cannot
+    # renormalize `is_primary`), and creation cannot meet a stale row. So the
+    # reach is: a dataset that gains or loses geometry, plus any future caller
+    # that regenerates. Everything else created in the window keeps the wrong
+    # label until #1467 removes the window itself, which is the actual fix.
     if _VECTOR_TILES_PAIR in existing_set:
         await session.execute(
             update(RecordDistribution)

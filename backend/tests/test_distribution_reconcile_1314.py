@@ -820,8 +820,13 @@ class TestTheStaleProtocolRepair:
     in ``generate_distributions`` means the template never rewrites a pair it
     already owns, so without the repair below the row stays wrong for good.
 
-    The general upgrade-ordering problem is #1467; this covers the one row
-    class that ships in the same release as the migration.
+    fix(#1463, codex round 4): what this does NOT do. Both refresh callers gate
+    ``reconcile_distributions`` on a modality flip, so an ordinary refresh of an
+    unchanged dataset never arrives here and the repair is a partial mitigation
+    rather than a closer. The reach is a dataset that gains or loses geometry,
+    plus any future caller that regenerates. Removing the window itself is
+    #1467. These tests pin the repair's behaviour where it does run; they are
+    not evidence that every stranded row gets fixed.
     """
 
     async def _stale(self, session: AsyncSession, record_id: uuid.UUID) -> None:
@@ -854,7 +859,7 @@ class TestTheStaleProtocolRepair:
     async def test_reconcile_repairs_it_too(
         self, test_db_session: AsyncSession
     ) -> None:
-        """Refresh, reupload and modality changes all arrive through here."""
+        """The modality-flip path, which is the one that reaches this in prod."""
         dataset = await _spatial_dataset(test_db_session)
         await self._stale(test_db_session, dataset.record_id)
 
