@@ -61,6 +61,29 @@ async def _reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> N
             await asyncio.gather(*(storage.delete(key) for key in keys))
 
 
+async def _relation_exists(
+    session: AsyncSession, table_name: str, *, schema: str
+) -> bool:
+    """Whether a relation of this name currently exists in ``schema``.
+
+    pg_catalog rather than information_schema, for the reason
+    ``generate_table_name``'s collision probe gives: the SQL standard filters
+    information_schema to relations the current role holds a privilege on, so
+    a role that does not own the relation can be blind to exactly the one
+    being asked about. pg_class is visible to every role and covers every
+    relation kind that can hold the name.
+    """
+    result = await session.execute(
+        text(
+            "SELECT EXISTS ("
+            " SELECT 1 FROM pg_catalog.pg_class c"
+            " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
+            " WHERE n.nspname = :schema AND c.relname = :table_name)"
+        ).bindparams(schema=schema, table_name=table_name)
+    )
+    return bool(result.scalar())
+
+
 class DependentVrtError(Exception):
     """Raised when attempting to delete a COG referenced by VRT datasets."""
 
@@ -117,6 +140,22 @@ async def delete_dataset(
     owns_table = geolens_owns_table(
         dataset.source_format, record_type, dataset.origin_ref
     )
+
+    # fix(#1452 review round 1): whether this delete FREES the name is a
+    # separate question from whether GeoLens owns the table, and the tombstone
+    # below follows this one. A detach frees nothing only while the relation is
+    # still there to occupy the name. A registered dataset whose table the
+    # operator already dropped frees it exactly the way an ingested delete
+    # does, and skipping the tombstone there would reopen GH-1443: nothing
+    # would stop generate_table_name handing the name to the next ingest while
+    # a worker that missed this delete still authorizes against the dataset
+    # being deleted here.
+    #
+    # True by default so every path that does not lower it retires the name.
+    # The two mistakes are not symmetric: a missing tombstone is the
+    # disclosure GH-1443 exists to prevent, while an extra one costs an
+    # operator a rename before they can re-register.
+    name_is_freed = True
 
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
@@ -203,6 +242,15 @@ async def delete_dataset(
                     f"{_safe_table_ref(table_name, schema=data_schema)}"
                 )
             )
+        else:
+            # The name stays taken only if the relation is still there. Asked
+            # inside this transaction, so a concurrent DROP either committed
+            # before this read (answers False, name retired) or lands after
+            # it. The latter is the residual noted in the retirement comment
+            # below.
+            name_is_freed = not await _relation_exists(
+                session, table_name, schema=data_schema
+            )
         # The storage reap below runs either way: `originals/` and `vectors/`
         # hold GeoLens-produced artifacts keyed by dataset id (an archived
         # source, a quicklook), never the operator's table. A detached dataset
@@ -240,24 +288,38 @@ async def delete_dataset(
     # and the record delete. A crash between them can therefore roll back the
     # whole delete, but can never commit a freed name with no tombstone.
     #
-    # fix(#1452): except when the delete detached instead of dropping. The
-    # recording rule is "retire a name iff a catalog.datasets row pointed at it
-    # when it was freed", and a detach frees nothing — the relation is still
-    # there, still holding the operator's rows, still occupying the name.
-    # Retiring it anyway would make the operator's own table permanently
-    # unregisterable, since register_existing_table refuses a retired name and
-    # deliberately refuses rather than renames.
+    # fix(#1452): except when the delete detached AND left the relation behind.
+    # The recording rule is "retire a name iff a catalog.datasets row pointed at
+    # it when it was freed", and freed is a fact about the RELATION: a surviving
+    # detached table still holds its rows and still occupies its name, so
+    # nothing was released. Retiring it anyway would make the operator's own
+    # table permanently unregisterable, since register_existing_table refuses a
+    # retired name and deliberately refuses rather than renames.
     #
-    # What that costs is bounded and is not GH-1443's hazard. A successor can
-    # only be the SAME physical table re-registered by whoever can still see
-    # it: the surviving relation makes the name collide in generate_table_name's
-    # pg_class probe, so no ingest can draw it. A tile worker holding the
-    # predecessor's metadata past the delete therefore serves the same rows it
-    # was cached for, under a visibility that can be up to the 60s meta-cache
-    # TTL stale — the bounded-staleness tradeoff processing/tiles/router.py
-    # already documents for any visibility change, not a predecessor's
-    # visibility over a different dataset's rows.
-    if owns_table:
+    # fix(#1452 review round 1) is why this reads `name_is_freed` and not
+    # `owns_table`: a registered dataset whose table was ALREADY gone frees the
+    # name outright, and skipping its tombstone reopened GH-1443 through the
+    # ingest door. That case is now probed and retired like any other.
+    #
+    # What the surviving-relation case costs is bounded and is not GH-1443's
+    # hazard. generate_table_name collides against live relations, so the table
+    # standing there keeps every ingest off the name; the only successor is that
+    # same table, re-registered by whoever can still see it. A tile worker
+    # holding the predecessor's metadata past the delete therefore serves the
+    # same rows it was cached for, under a visibility that can be up to the 60s
+    # meta-cache TTL stale — the bounded-staleness tradeoff
+    # processing/tiles/router.py already documents for any visibility change,
+    # not a predecessor's visibility over a different dataset's rows.
+    #
+    # ONE residual remains, and closing it needs a schema change this fix does
+    # not make: if the operator drops that relation AFTER this transaction
+    # reads it, the name goes free with no tombstone. Telling "the table I
+    # detached" from "a new table wearing its name" needs the relation's
+    # identity stored on the tombstone (pg_class.oid), so registration could
+    # accept the first and refuse the second while generate_table_name refuses
+    # both. Until then the exposure is an operator dropping their own table
+    # inside the same 60s window in which a new ingest must also draw the name.
+    if name_is_freed:
         session.add(
             RetiredTableName(
                 table_name=table_name,
@@ -312,8 +374,11 @@ async def delete_dataset(
         # following the split the paragraph above states — this log line
         # covers the PHYSICAL artifact, audit_emit covers the DB row. It is
         # also the only place the answer survives: the dataset row that
-        # decided it is deleted a few lines up.
+        # decided it is deleted a few lines up. Both flags are recorded
+        # because they disagree in the one case worth reading about later: a
+        # detach whose table was already gone retires the name.
         table_detached=not owns_table,
+        name_retired=name_is_freed,
     )
 
     return table_name

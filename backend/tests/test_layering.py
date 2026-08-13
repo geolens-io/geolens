@@ -1763,6 +1763,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # pool this way. Three fast point lookups aren't worth that risk.
         # Cap 443 -> 429, exact.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 429,
+        # fix(#1452): first explicit cap for this module — it sat under the
+        # 350 default until the detach landed. +65 over the pre-change 350:
+        # _reap_managed_storage (the reap loop both branches had inline,
+        # extracted when the new conditional pushed delete_dataset past
+        # ruff C901), _relation_exists (the pg_class probe that decides
+        # whether a detach freed the name), and the two decisions delete now
+        # makes with the reasoning behind them: drop-vs-detach, and the
+        # GH-1443 retirement that follows the relation rather than the
+        # dataset. Cap 350 -> 415, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 415,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.

@@ -234,6 +234,85 @@ class TestRegisteredDeleteDetaches:
         await test_db_session.commit()
 
 
+class TestDetachOfAnAlreadyMissingTableStillRetires:
+    """fix(#1452 review round 1): a detach only frees nothing while the
+    relation is there to occupy the name.
+
+    A registered dataset whose table the operator already dropped frees its
+    name outright. Skipping the tombstone for it reopened GH-1443 through the
+    ingest door: nothing kept generate_table_name from handing the name to a
+    new dataset while a worker that missed the delete still authorized against
+    the deleted one.
+    """
+
+    async def test_a_vanished_table_frees_the_name_and_it_is_retired(
+        self, test_db_session: AsyncSession
+    ):
+        table_name = await _operator_table(test_db_session)
+        title = f"Vanished {uuid.uuid4().hex[:6]}"
+        dataset = await _register(test_db_session, table_name, title)
+
+        # The operator drops their own table behind GeoLens's back.
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        assert await _retired_count(test_db_session, table_name) == 1, (
+            "the name was released with no tombstone — generate_table_name "
+            "would hand it to the next ingest while a stale tile worker still "
+            "authorizes against the deleted dataset"
+        )
+
+    async def test_the_freed_name_is_not_handed_to_a_new_ingest(
+        self, test_db_session: AsyncSession
+    ):
+        """The retirement's actual job, asked through generate_table_name."""
+        from app.processing.ingest.service import generate_table_name
+
+        table_name = await _operator_table(test_db_session)
+        title = f"Vanished {uuid.uuid4().hex[:6]}"
+        dataset = await _register(test_db_session, table_name, title)
+
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        redrawn, _ = await generate_table_name(table_name, test_db_session)
+        assert redrawn == f"{table_name}_2", (
+            f"the freed name {table_name} was handed straight back to a new "
+            "ingest (GH-1443)"
+        )
+
+    async def test_a_surviving_table_keeps_its_name_off_new_ingests(
+        self, test_db_session: AsyncSession
+    ):
+        """The other half: the relation itself is what holds the name.
+
+        This is why the detach case can skip the tombstone at all. The name is
+        unavailable to ingest either way; only the reason differs.
+        """
+        from app.processing.ingest.service import generate_table_name
+
+        table_name = await _operator_table(test_db_session)
+        title = f"Surviving {uuid.uuid4().hex[:6]}"
+        dataset = await _register(test_db_session, table_name, title)
+
+        await _delete(test_db_session, dataset.id, title)
+        await test_db_session.commit()
+
+        assert await _retired_count(test_db_session, table_name) == 0
+        redrawn, _ = await generate_table_name(table_name, test_db_session)
+        assert redrawn == f"{table_name}_2", (
+            "generate_table_name drew a name a live relation still occupies"
+        )
+
+        await test_db_session.execute(text(f'DROP TABLE data."{table_name}"'))
+        await test_db_session.commit()
+
+
 class TestIngestedDeleteStillDrops:
     """#1444 must not regress: an ingested table is still dropped and retired."""
 
