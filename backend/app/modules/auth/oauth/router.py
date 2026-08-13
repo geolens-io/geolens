@@ -10,6 +10,11 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.auth.cookies import (
+    api_path_is_cookie_scoped,
+    is_same_origin,
+    issue_browser_session,
+)
 from app.modules.auth.oauth.encryption import decrypt_secret
 from app.modules.auth.oauth.schemas import OAuthProviderPublic
 from app.modules.auth.oauth.service import (
@@ -326,25 +331,40 @@ async def oauth_callback(
         )
         await db.commit()
 
+        # GH-1302: when the SPA shares this request's origin, the refresh token
+        # is delivered as an httpOnly cookie and never enters the fragment —
+        # the fragment is readable by any script on the landing page and was
+        # the same exfiltration surface as localStorage. The `auth_mode=cookie`
+        # marker tells the callback page not to expect a body token. A
+        # cross-origin SPA cannot send that cookie back, so it keeps the
+        # pre-GH-1302 fragment delivery.
+        api_url = await get_public_api_url(db, request=request, for_external_use=True)
+        cookie_mode = is_same_origin(
+            frontend_url, api_url
+        ) and api_path_is_cookie_scoped(request, api_url)
         redirect_url = (
             f"{frontend_url}/oauth/callback"
             f"#token={access_token}"
-            f"&refresh_token={refresh_token}"
-            f"&expires_in={expire_minutes * 60}"
+            + ("" if cookie_mode else f"&refresh_token={refresh_token}")
+            + f"&expires_in={expire_minutes * 60}"
+            + ("&auth_mode=cookie" if cookie_mode else "")
         )
-        # SEC-13 / L-67: the redirect URL carries access_token + refresh_token
-        # in the fragment (#token=...&refresh_token=...). Without
+        # SEC-13 / L-67: the redirect URL carries the access_token (and, on the
+        # cross-origin fallback, the refresh_token) in the fragment. Without
         # `Referrer-Policy: no-referrer`, the browser may include the FULL
         # callback URL (which contains the IdP's `code=` query param) in
         # subsequent Referer headers to third-party assets loaded by the
         # post-redirect page — leaking the auth code. Per-redirect override of
         # the global `strict-origin-when-cross-origin` from
         # SecurityHeadersMiddleware.
-        return RedirectResponse(
+        redirect = RedirectResponse(
             url=redirect_url,
             status_code=302,
             headers={"Referrer-Policy": "no-referrer"},
         )
+        if cookie_mode:
+            issue_browser_session(redirect, request, refresh_token, expire_days)
+        return redirect
 
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through

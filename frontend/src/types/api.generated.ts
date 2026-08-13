@@ -864,6 +864,11 @@ export interface paths {
         /**
          * Login
          * @description Authenticate with username and password, receive a JWT token.
+         *
+         *     GH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the
+         *     refresh token as an httpOnly cookie and a null ``refresh_token`` in the
+         *     body. Without that header the response is unchanged, which is what keeps
+         *     the CLI, the generated SDKs, Postman, and CI logins working.
          */
         post: operations["login_auth_login_post"];
         delete?: never;
@@ -893,6 +898,13 @@ export interface paths {
          *     fix(#821): logout deliberately does NOT bump key_epoch — API keys exist to
          *     outlive browser sessions (CI, MCP servers, tile URLs), so session hygiene
          *     must not revoke them. Security events (password change, role change) do.
+         *
+         *     fix(#1446): the refresh COOKIE can authenticate this call when the access
+         *     token has aged out. Requiring a live bearer token meant a user returning
+         *     after their 15-minute access token expired got a 401 here while their
+         *     multi-day refresh cookie stayed valid — the UI reported a clean logout and
+         *     the session survived it. CSRF is enforced on that path exactly as it is for
+         *     /auth/refresh, since the cookie is then the credential.
          */
         post: operations["logout_auth_logout__post"];
         delete?: never;
@@ -1050,6 +1062,14 @@ export interface paths {
          *     tokens are opaque and carry no bearer ``tid`` claim, so tenant middleware
          *     binds the database transaction from that same-origin host before the user
          *     row is resolved and the next tenant-bound access token is minted.
+         *
+         *     GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+         *     from the httpOnly cookie (falling back to the body once, so a session
+         *     established before the cookie flow shipped migrates on its next refresh
+         *     instead of being logged out), the double-submit CSRF token is enforced, and
+         *     the rotated token goes back out as a cookie with a null body
+         *     ``refresh_token``. Without the header this endpoint behaves exactly as
+         *     before.
          */
         post: operations["refresh_auth_refresh__post"];
         delete?: never;
@@ -12821,9 +12841,9 @@ export interface components {
             access_token: string;
             /**
              * Refresh Token
-             * @description Opaque token used to obtain a new access token
+             * @description Opaque token used to obtain a new access token. Always present for programmatic callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-Auth-Mode: cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).
              */
-            refresh_token: string;
+            refresh_token: string | null;
             /**
              * Token Type
              * @default bearer
@@ -17784,7 +17804,11 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["RefreshRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             204: {
@@ -18440,9 +18464,9 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody: {
+        requestBody?: {
             content: {
-                "application/json": components["schemas"]["RefreshRequest"];
+                "application/json": components["schemas"]["RefreshRequest"] | null;
             };
         };
         responses: {

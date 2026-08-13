@@ -7,6 +7,10 @@ refresh tokens from the geolens-auth localStorage key. These assert the SPA HTML
 now ships a script-src/default-src CSP and that the FOUC script is externalized
 (so no inline <script> exists for script-src 'self' to block). Fail on main.
 
+fix(#1302): the refresh token has since moved out of localStorage into an
+httpOnly cookie, so the exfil surface described above is now the access token
+alone. The CSP assertions here are unchanged and still load-bearing.
+
 The CSP was verified live against the production build: the app, login, and the
 MapLibre map builder (external basemap tiles, web workers, inline styles) all
 render with zero CSP violations.

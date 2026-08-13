@@ -77,7 +77,9 @@ describe('BUG-035: streamGenerateMap is refresh-aware', () => {
 
     await drain(streamGenerateMap({ prompt: 'p' }));
 
-    expect(mockRefresh).toHaveBeenCalledWith('r');
+    // fix(#1446): the second arg is the abort signal that lets a logout
+    // abandon an in-flight refresh before its Set-Cookie can land.
+    expect(mockRefresh).toHaveBeenCalledWith('r', expect.any(AbortSignal));
     // The stream request carried the refreshed token, not the stale one.
     const headers: Headers = mockFetch.mock.calls[0][1].headers;
     expect(headers.get('Authorization')).toBe('Bearer fresh-token');

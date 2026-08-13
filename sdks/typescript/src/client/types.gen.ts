@@ -10267,9 +10267,9 @@ export type TokenResponse = {
     /**
      * Refresh Token
      *
-     * Opaque token used to obtain a new access token
+     * Opaque token used to obtain a new access token. Always present for programmatic callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-Auth-Mode: cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).
      */
-    refresh_token: string;
+    refresh_token: string | null;
     /**
      * Token Type
      */
@@ -13688,7 +13688,10 @@ export type LoginAuthLoginPostResponses = {
 export type LoginAuthLoginPostResponse = LoginAuthLoginPostResponses[keyof LoginAuthLoginPostResponses];
 
 export type LogoutAuthLogoutPostData = {
-    body?: never;
+    /**
+     * Body
+     */
+    body?: RefreshRequest | null;
     path?: never;
     query?: never;
     url: '/auth/logout/';
@@ -14060,7 +14063,10 @@ export type OauthLoginAuthOauthProviderSlugLoginGetErrors = {
 export type OauthLoginAuthOauthProviderSlugLoginGetError = OauthLoginAuthOauthProviderSlugLoginGetErrors[keyof OauthLoginAuthOauthProviderSlugLoginGetErrors];
 
 export type RefreshAuthRefreshPostData = {
-    body: RefreshRequest;
+    /**
+     * Body
+     */
+    body?: RefreshRequest | null;
     path?: never;
     query?: never;
     url: '/auth/refresh/';

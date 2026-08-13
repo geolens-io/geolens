@@ -14,8 +14,19 @@ UserStatus = Literal["active", "pending", "suspended", "deactivated"]
 
 class TokenResponse(BaseModel):
     access_token: str = Field(description="JWT access token for Authorization header")
-    refresh_token: str = Field(
-        description="Opaque token used to obtain a new access token"
+    # fix(#1446): required-but-nullable, NOT optional. Every login/refresh
+    # response serializes this key (as a string, or null in cookie mode), so
+    # omitting `default=` keeps it in OpenAPI's `required` list and stops the
+    # generated SDKs from exposing an `Unset`/absent shape the server never
+    # emits.
+    refresh_token: str | None = Field(
+        description=(
+            "Opaque token used to obtain a new access token. Always present for "
+            "programmatic callers (CLI, SDKs, CI). Null when the caller opted "
+            "into the browser cookie flow with 'X-GeoLens-Auth-Mode: cookie', "
+            "in which case the token is delivered as an httpOnly cookie instead "
+            "(GH-1302)."
+        ),
     )
     token_type: str = "bearer"
     expires_in: int = Field(description="Seconds until the access token expires")
@@ -198,6 +209,11 @@ class UserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    # fix(#1446): stays REQUIRED. Only the body as a whole is optional (the
+    # route signature is `RefreshRequest | None = None`) so a browser on the
+    # cookie flow can POST nothing at all. Defaulting the field would instead
+    # declare `{}` a valid body, which the server can do nothing with — it
+    # would only reach the handler and 401.
     refresh_token: str = Field(max_length=512)
 
 

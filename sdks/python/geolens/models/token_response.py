@@ -8,6 +8,8 @@ from attrs import field as _attrs_field
 
 from ..types import UNSET, Unset
 
+from typing import cast
+
 
 T = TypeVar("T", bound="TokenResponse")
 
@@ -17,13 +19,15 @@ class TokenResponse:
     """
     Attributes:
         access_token (str): JWT access token for Authorization header
-        refresh_token (str): Opaque token used to obtain a new access token
+        refresh_token (None | str): Opaque token used to obtain a new access token. Always present for programmatic
+            callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-Auth-Mode:
+            cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).
         expires_in (int): Seconds until the access token expires
         token_type (str | Unset):  Default: 'bearer'.
     """
 
     access_token: str
-    refresh_token: str
+    refresh_token: None | str
     expires_in: int
     token_type: str | Unset = "bearer"
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -31,6 +35,7 @@ class TokenResponse:
     def to_dict(self) -> dict[str, Any]:
         access_token = self.access_token
 
+        refresh_token: None | str
         refresh_token = self.refresh_token
 
         expires_in = self.expires_in
@@ -56,7 +61,12 @@ class TokenResponse:
         d = dict(src_dict)
         access_token = d.pop("access_token")
 
-        refresh_token = d.pop("refresh_token")
+        def _parse_refresh_token(data: object) -> None | str:
+            if data is None:
+                return data
+            return cast(None | str, data)
+
+        refresh_token = _parse_refresh_token(d.pop("refresh_token"))
 
         expires_in = d.pop("expires_in")
 

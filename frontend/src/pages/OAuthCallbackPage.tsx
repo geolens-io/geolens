@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { getMe } from '@/api/auth';
+import { getMe, logoutSession } from '@/api/auth';
 import { Loader2 } from 'lucide-react';
 
 export function OAuthCallbackPage() {
@@ -31,11 +31,24 @@ export function OAuthCallbackPage() {
     const token = params.get('token');
     const refreshToken = params.get('refresh_token');
     const expiresIn = params.get('expires_in');
+    // fix(#1302): with auth_mode=cookie the backend delivered the refresh token
+    // as an httpOnly cookie on the redirect, so the fragment carries no
+    // refresh_token to require. The fragment is readable by any script on this
+    // page, which made it the same exfiltration surface as localStorage.
+    const cookieMode = params.get('auth_mode') === 'cookie';
 
     // Clean URL immediately (remove fragment with tokens)
     window.history.replaceState({}, '', '/oauth/callback');
 
-    if (!token || !refreshToken || !expiresIn) {
+    if (!token || !expiresIn || (!refreshToken && !cookieMode)) {
+      // fix(#1446): a truncated or malformed fragment still arrived on a
+      // response that installed the cookies, so bailing out here without
+      // revoking leaves a live credential behind a UI reporting failure. The
+      // freshly-set CSRF cookie authenticates it; there is no bearer token to
+      // send. Unconditional — on the legacy fragment path there is no cookie,
+      // so the call simply 401s and costs nothing.
+      void logoutSession().catch(() => {});
+      useAuthStore.getState().logout();
       navigate('/login', { replace: true });
       return;
     }
@@ -45,13 +58,19 @@ export function OAuthCallbackPage() {
 
     getMe()
       .then((user) => {
-        useAuthStore.getState().setAuth(token, refreshToken, parseInt(expiresIn, 10), user);
+        useAuthStore.getState().setAuth(token, refreshToken ?? null, parseInt(expiresIn, 10), user);
         const redirect = sessionStorage.getItem('geolens-login-redirect');
         sessionStorage.removeItem('geolens-login-redirect');
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })
       .catch(() => {
+        // fix(#1446): the backend already installed the refresh cookie before
+        // redirecting here, so clearing the store alone would strand a
+        // replayable credential the UI claims is gone. logoutSession captures
+        // the temporary bearer token synchronously, so dispatching it here
+        // sends a fully-formed request before the store is cleared below.
+        void logoutSession().catch(() => {});
         useAuthStore.getState().logout();
         navigate('/login', { replace: true });
       });

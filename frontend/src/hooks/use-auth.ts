@@ -3,8 +3,8 @@ import { queryKeys } from '@/lib/query-keys';
 import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
-import { login as apiLogin, getMe } from '@/api/auth';
-import { tryRefresh } from '@/api/client';
+import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
+import { abortInflightRefresh, tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -69,10 +69,23 @@ export function useAuth() {
       // stale capabilities. Remove (not invalidate) so capability gates fail
       // closed until the new user's permissions are fetched.
       queryClient.removeQueries({ queryKey: queryKeys.auth.permissions });
-      const userResponse = await getMe();
+      let userResponse;
+      try {
+        userResponse = await getMe();
+      } catch (err) {
+        // fix(#1446): login already installed the refresh cookie. Bailing out
+        // with only a store reset would leave that credential live while the
+        // UI reports a failed sign-in, so revoke it before surfacing the error.
+        // Dispatched, not awaited — same reasoning as logout below.
+        void logoutSession().catch(() => {});
+        useAuthStore.getState().logout();
+        throw err;
+      }
       setAuth(
         tokenResponse.access_token,
-        tokenResponse.refresh_token,
+        // fix(#1302): null in cookie mode — the refresh token arrived as an
+        // httpOnly cookie and is never held in JS.
+        tokenResponse.refresh_token ?? null,
         tokenResponse.expires_in,
         userResponse,
       );
@@ -80,7 +93,27 @@ export function useAuth() {
     [setAuth, queryClient],
   );
 
-  const logout = useCallback(() => {
+  const logout = useCallback(async () => {
+    // fix(#1446): revoke server-side BEFORE tearing down local state. The
+    // request needs the bearer token that storeLogout is about to clear, and
+    // since fix(#1302) the refresh cookie can only be removed by the server's
+    // Set-Cookie. A failure here (offline, or a session already dead) must not
+    // trap the user in a session they asked to leave, so the local teardown
+    // runs either way.
+    // fix(#1446): dispatch, do not await. logoutSession reads the bearer token
+    // synchronously and issues a plain fetch, so the request is already in
+    // flight with its credential attached by the time this returns — teardown
+    // below cannot affect it. Waiting would only buy a confirmation we never
+    // act on, at the cost of holding the user on an authenticated screen for
+    // as long as the network stalls.
+    // fix(#1446): abandon any refresh still in flight first. Its response
+    // carries a Set-Cookie the browser would apply on arrival, and if the user
+    // signs in again before it lands it would overwrite the new session's
+    // cookie with the token this logout is about to revoke.
+    abortInflightRefresh();
+    void logoutSession().catch(() => {
+      // Offline, or a session already dead. Local teardown proceeds regardless.
+    });
     // BUG-021: clear the ['auth','me'] cache on logout so a subsequent login
     // does not see the previous user's cached identity.
     queryClient.removeQueries({ queryKey: queryKeys.auth.me });

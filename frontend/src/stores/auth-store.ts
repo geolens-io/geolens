@@ -1,5 +1,9 @@
 import { create } from 'zustand';
 import { persist, type PersistOptions } from 'zustand/middleware';
+// Cyclic with '@/api/client' (it imports this store), which is safe here:
+// neither module touches the other at import time, and a hoisted function
+// declaration is initialized before either body runs.
+import { abortInflightRefresh } from '@/api/client';
 import type { UserResponse } from '@/types/api';
 
 interface AuthState {
@@ -7,8 +11,25 @@ interface AuthState {
   refreshToken: string | null;
   expiresAt: number | null;
   user: UserResponse | null;
-  setAuth: (token: string, refreshToken: string, expiresIn: number, user: UserResponse) => void;
-  setTokens: (token: string, refreshToken: string, expiresIn: number) => void;
+  /**
+   * fix(#1446): bumped on every logout so a refresh that was already in flight
+   * can tell its session ended and decline to write rotated tokens back. Without
+   * it, a slow refresh resolving after teardown re-populates the store (and
+   * localStorage), signing the browser back in on the login page.
+   *
+   * In-memory and per-tab: deliberately absent from `partialize`, since it
+   * orders events within one tab's lifetime and means nothing across reloads.
+   * Cross-tab logout therefore cannot propagate through the persisted blob —
+   * the `storage` listener below bumps it explicitly instead.
+   */
+  sessionEpoch: number;
+  setAuth: (
+    token: string,
+    refreshToken: string | null,
+    expiresIn: number,
+    user: UserResponse,
+  ) => void;
+  setTokens: (token: string, refreshToken: string | null, expiresIn: number) => void;
   logout: () => void;
   isAdmin: () => boolean;
   isEditor: () => boolean;
@@ -52,17 +73,35 @@ const persistConfig: PersistOptions<AuthState> = {
     return persistedState as AuthState;
   },
   /**
-   * fix(#438): DATA-05 — persisting the JWT + refresh token in localStorage is a
-   * deliberate multi-tab trade-off: the cross-tab `storage` listener below keeps
-   * every tab converged on the latest rotated (single-use) refresh token, which
-   * an in-memory-only store could not do. `partialize` makes the persisted
-   * surface explicit — only these auth fields are written, never any transient
-   * UI state that might later be added to the store.
+   * `partialize` makes the persisted surface explicit — only these auth fields
+   * are written, never any transient UI state that might later be added.
+   *
+   * fix(#1302): the refresh token is no longer among them for a cookie-mode
+   * session. It lives in an httpOnly cookie the browser attaches to /auth by
+   * itself, which also subsumes what the cross-tab `storage` listener below
+   * used to do for it — every tab shares one cookie jar, so rotation converges
+   * without any JS-visible copy.
+   *
+   * fix(#1446): the condition is "is there a token in memory", not "is cookie
+   * mode available". Two sessions legitimately still hold one, and stripping it
+   * from storage before it is spent loses the session on the next reload:
+   *   - a cross-origin deployment, which cannot use the cookie at all (see
+   *     lib/auth-transport.ts) and keeps using body tokens indefinitely;
+   *   - a pre-GH-1302 session mid-migration, whose legacy token is what the
+   *     next refresh trades for a cookie. Zustand writes the persisted blob on
+   *     its own after migrating a version-0 shape, so a tab closed before that
+   *     refresh ran would otherwise come back with neither credential.
+   * Once the migrating refresh spends it, `setTokens` stores null and it stops
+   * being persisted for good.
+   *
+   * fix(#438) DATA-05 still applies to the ACCESS token, which stays in
+   * localStorage for cross-tab convergence. Moving it to memory is tracked
+   * separately in GH-1302's remaining acceptance criteria.
    */
   partialize: (state) =>
     ({
       token: state.token,
-      refreshToken: state.refreshToken,
+      ...(state.refreshToken ? { refreshToken: state.refreshToken } : {}),
       expiresAt: state.expiresAt,
       user: state.user,
     }) as unknown as AuthState,
@@ -75,6 +114,7 @@ export const useAuthStore = create<AuthState>()(
       refreshToken: null,
       expiresAt: null,
       user: null,
+      sessionEpoch: 0,
       setAuth: (token, refreshToken, expiresIn, user) =>
         set({
           token,
@@ -88,7 +128,14 @@ export const useAuthStore = create<AuthState>()(
           refreshToken,
           expiresAt: Date.now() + expiresIn * 1000,
         }),
-      logout: () => set({ token: null, refreshToken: null, expiresAt: null, user: null }),
+      logout: () =>
+        set((state) => ({
+          token: null,
+          refreshToken: null,
+          expiresAt: null,
+          user: null,
+          sessionEpoch: state.sessionEpoch + 1,
+        })),
       isAdmin: () => get().user?.roles.includes('admin') ?? false,
       isEditor: () => {
         const roles = get().user?.roles ?? [];
@@ -102,13 +149,16 @@ export const useAuthStore = create<AuthState>()(
 /**
  * Cross-tab token sync.
  *
- * Refresh tokens are single-use: the backend revokes a refresh token the moment
- * it is rotated (auth/service.py rotate_refresh_token). Without this listener,
- * a refresh in one tab leaves every OTHER tab holding the now-revoked token in
- * memory — the next request there 401s, its refresh 401s, and the tab logs out
- * (e.g. "saved a map → logged out" with two tabs open). The `storage` event
- * fires only in the tabs that did NOT make the change, so rehydrating here makes
- * all tabs converge on the latest rotated token (and propagates logout).
+ * Originally this existed because refresh tokens were single-use and lived in
+ * localStorage: a refresh in one tab left every OTHER tab holding a revoked
+ * token, and the next request there logged the tab out (e.g. "saved a map →
+ * logged out" with two tabs open). fix(#1302) moved the refresh token into a
+ * cookie, which all tabs already share, so that half is handled by the browser.
+ *
+ * The listener still earns its place for the ACCESS token, which remains in
+ * localStorage: rehydrating keeps every tab on the freshest access token and
+ * propagates logout. The `storage` event fires only in the tabs that did NOT
+ * make the change.
  */
 if (typeof window !== 'undefined') {
   window.addEventListener('storage', (e) => {
@@ -121,6 +171,18 @@ if (typeof window !== 'undefined') {
       // it to /login. Skip if already on a public auth route so we don't loop.
       const stillLoggedIn = !!useAuthStore.getState().token;
       if (hadToken && !stillLoggedIn) {
+        // fix(#1446): another tab logged out. Rehydration clears this tab's
+        // token but cannot touch its epoch, which is per-tab — so a refresh
+        // already in flight here would still see a matching epoch and write
+        // its rotated tokens back, resurrecting the session the other tab just
+        // ended (and re-persisting it for every tab). Bump on the
+        // present->absent transition so that write is refused.
+        useAuthStore.setState((s) => ({ sessionEpoch: s.sessionEpoch + 1 }));
+        // The epoch only blocks the store write. Abort the request too, so the
+        // browser never processes a response whose Set-Cookie could later
+        // overwrite a cookie issued by a subsequent login — the same reason
+        // the in-tab logout path aborts.
+        abortInflightRefresh();
         const path = window.location.pathname;
         if (path !== '/login' && path !== '/register') {
           window.location.assign('/login');

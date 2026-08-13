@@ -229,6 +229,52 @@ class AuthService:
         if stored is None:
             raise ValueError("Invalid or expired refresh token")
 
+        # fix(#1446): serialize against revoke_all_tokens on the OWNER row.
+        # Both paths now take this lock first, which is what makes the two
+        # interleavings safe:
+        #   - rotate wins the lock: it inserts its replacement and commits;
+        #     revoke then runs its UPDATE afterwards, and because that
+        #     statement takes a fresh snapshot it sees and revokes the new row.
+        #   - revoke wins: it revokes and commits; rotate acquires the lock and
+        #     the re-check below sees revoked=True, so it raises instead of
+        #     minting a successor.
+        # Without it, a rotation that read its row before a concurrent logout
+        # could commit a still-active replacement afterwards — and since
+        # fix(#1302) that also reinstalls the cookies the logout just deleted,
+        # reviving a session the user ended.
+        user_result = await self.db.execute(
+            select(User).where(User.id == stored.user_id).with_for_update()
+        )
+        user = user_result.scalar_one_or_none()
+        if user is None or not user.is_active or user.status != "active":
+            raise ValueError("User account is not active")
+
+        # Re-read the presented row now that the lock is held. A new statement
+        # takes a new snapshot, so anything that committed while we waited is
+        # visible here and cannot be rotated past. This must run BEFORE the
+        # retire/revoke below: that write autoflushes, and the re-check would
+        # then read back our own pending mutation and reject a valid token.
+        #
+        # fix(#1446): re-check liveness, not just revocation. Waiting on the
+        # lock is unbounded, so the token can lapse in the meantime — either by
+        # simply reaching its own expiry, or because the rotation we were
+        # queued behind shortened it to the grace cutoff. Checking `revoked`
+        # alone would happily rotate an expired token into a fresh session.
+        # A token still inside the grace window has a future expires_at and is
+        # deliberately still accepted (fix(#621)).
+        recheck = await self.db.execute(
+            select(RefreshToken.revoked, RefreshToken.expires_at).where(
+                RefreshToken.id == stored.id
+            )
+        )
+        current = recheck.one_or_none()
+        if (
+            current is None
+            or current.revoked
+            or current.expires_at <= datetime.now(UTC)
+        ):
+            raise ValueError("Invalid or expired refresh token")
+
         # fix(#621): rotation grace window. Instant revocation stranded the
         # losers of a multi-tab refresh race: every tab presents the same
         # rotating token, one caller wins, and the rest were left holding a
@@ -241,21 +287,21 @@ class AuthService:
         # Explicit revocation (logout / revoke_all_tokens) still sets
         # revoked=True on every active row — in-grace ones included — so a
         # hard logout remains instant. grace=0 restores single-use revocation.
+        #
+        # fix(#1446): compare against the POST-LOCK expiry (`current`), not the
+        # `stored` ORM object read before the lock. When several refreshes read
+        # the same long-lived token and then queue here, every queued caller
+        # still holds the original multi-day expiry on `stored`, so each would
+        # find it later than its own cutoff and push the retirement further
+        # out — ratcheting the window open instead of closing it, which is the
+        # opposite of "never EXTEND".
         grace = settings.refresh_rotation_grace_seconds
         if grace > 0:
             grace_cutoff = datetime.now(UTC) + timedelta(seconds=grace)
-            if stored.expires_at > grace_cutoff:
+            if current.expires_at > grace_cutoff:
                 stored.expires_at = grace_cutoff
         else:
             stored.revoked = True
-
-        # Load user and verify active status
-        user_result = await self.db.execute(
-            select(User).where(User.id == stored.user_id)
-        )
-        user = user_result.scalar_one_or_none()
-        if user is None or not user.is_active or user.status != "active":
-            raise ValueError("User account is not active")
 
         # Issue new pair
         identity = AuthenticatedIdentity(user_id=user.id, username=user.username)
@@ -300,6 +346,15 @@ class AuthService:
 
         Returns the new token_version value.
         """
+        # fix(#1446): take the owner-row lock BEFORE revoking, matching
+        # rotate_refresh_token. Ordering is the whole point — a concurrent
+        # rotation must either finish before this revocation's UPDATE takes its
+        # snapshot (so its replacement row is seen and revoked) or block here
+        # and find its own row already revoked.
+        await self.db.execute(
+            select(User.id).where(User.id == user_id).with_for_update()
+        )
+
         # 1. Revoke all active refresh tokens for the user.
         await self.db.execute(
             update(RefreshToken)

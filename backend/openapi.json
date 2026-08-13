@@ -17295,9 +17295,16 @@
             "type": "string"
           },
           "refresh_token": {
-            "description": "Opaque token used to obtain a new access token",
-            "title": "Refresh Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Opaque token used to obtain a new access token. Always present for programmatic callers (CLI, SDKs, CI). Null when the caller opted into the browser cookie flow with 'X-GeoLens-Auth-Mode: cookie', in which case the token is delivered as an httpOnly cookie instead (GH-1302).",
+            "title": "Refresh Token"
           },
           "token_type": {
             "default": "bearer",
@@ -25032,7 +25039,7 @@
     },
     "/auth/login": {
       "post": {
-        "description": "Authenticate with username and password, receive a JWT token.",
+        "description": "Authenticate with username and password, receive a JWT token.\n\nGH-1302: a caller sending ``X-GeoLens-Auth-Mode: cookie`` receives the\nrefresh token as an httpOnly cookie and a null ``refresh_token`` in the\nbody. Without that header the response is unchanged, which is what keeps\nthe CLI, the generated SDKs, Postman, and CI logins working.",
         "operationId": "login_auth_login_post",
         "requestBody": {
           "content": {
@@ -25153,8 +25160,25 @@
     },
     "/auth/logout/": {
       "post": {
-        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.",
+        "description": "Revoke all refresh tokens and bump token_version for the current user.\n\nSEC-S15 (Phase 1062-01): revoke_all_tokens bumps User.token_version so the\naccess JWT used for this logout call (and any other outstanding access JWTs)\nare rejected on the next authenticated request \u2014 closing the\n\"logout doesn't invalidate the access JWT\" gap.\n\nfix(#821): logout deliberately does NOT bump key_epoch \u2014 API keys exist to\noutlive browser sessions (CI, MCP servers, tile URLs), so session hygiene\nmust not revoke them. Security events (password change, role change) do.\n\nfix(#1446): the refresh COOKIE can authenticate this call when the access\ntoken has aged out. Requiring a live bearer token meant a user returning\nafter their 15-minute access token expired got a 401 here while their\nmulti-day refresh cookie stayed valid \u2014 the UI reported a clean logout and\nthe session survived it. CSRF is enforced on that path exactly as it is for\n/auth/refresh, since the cookie is then the credential.",
         "operationId": "logout_auth_logout__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Successful Response"
@@ -25250,6 +25274,7 @@
           }
         },
         "security": [
+          {},
           {
             "OAuth2PasswordBearer": []
           },
@@ -25979,17 +26004,24 @@
     },
     "/auth/refresh/": {
       "post": {
-        "description": "Exchange a valid refresh token for a new access + refresh token pair.\n\nMulti-tenant clients must call this endpoint on their tenant host. Refresh\ntokens are opaque and carry no bearer ``tid`` claim, so tenant middleware\nbinds the database transaction from that same-origin host before the user\nrow is resolved and the next tenant-bound access token is minted.",
+        "description": "Exchange a valid refresh token for a new access + refresh token pair.\n\nMulti-tenant clients must call this endpoint on their tenant host. Refresh\ntokens are opaque and carry no bearer ``tid`` claim, so tenant middleware\nbinds the database transaction from that same-origin host before the user\nrow is resolved and the next tenant-bound access token is minted.\n\nGH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read\nfrom the httpOnly cookie (falling back to the body once, so a session\nestablished before the cookie flow shipped migrates on its next refresh\ninstead of being logged out), the double-submit CSRF token is enforced, and\nthe rotated token goes back out as a cookie with a null body\n``refresh_token``. Without the header this endpoint behaves exactly as\nbefore.",
         "operationId": "refresh_auth_refresh__post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RefreshRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RefreshRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "200": {

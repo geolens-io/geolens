@@ -1,6 +1,6 @@
 import { apiFetch, ApiError, onSessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
-import { refreshAccessToken } from '@/api/auth';
+import { refreshAccessToken, logoutSession } from '@/api/auth';
 
 // fix(#628): the fetch core must treat "401 + the follow-up refresh is also
 // dead" as a single session-death event: clear the persisted auth state and
@@ -10,6 +10,7 @@ import { refreshAccessToken } from '@/api/auth';
 
 vi.mock('@/api/auth', () => ({
   refreshAccessToken: vi.fn(),
+  logoutSession: vi.fn(() => Promise.resolve()),
 }));
 
 const mockFetch = vi.fn();
@@ -35,13 +36,15 @@ function jsonResponse(data: unknown, status = 200): Response {
   } as Response;
 }
 
-// Refresh tokens rotate, so every session's token value is unique — the
-// notification latch is keyed on it.
+// fix(#1302): the latch is keyed on the ACCESS token now that the refresh token
+// is an httpOnly cookie JS cannot read. Access tokens rotate on every login and
+// every refresh (each is a fresh JWT with its own jti), so each session's value
+// is unique — which is the property the latch needs.
 let sessionCounter = 0;
 function signIn() {
   sessionCounter += 1;
   useAuthStore.setState({
-    token: 'stale-access-token',
+    token: `stale-access-token-${sessionCounter}`,
     refreshToken: `dead-refresh-token-${sessionCounter}`,
     // Far enough out that the proactive-refresh branch does not fire.
     expiresAt: Date.now() + 120_000,
@@ -61,6 +64,22 @@ describe('session-expiry notification (fix #628)', () => {
   afterEach(() => {
     unregister();
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null });
+  });
+
+  // fix(#1446): the refresh may have failed transiently (429, 5xx, dropped
+  // connection), leaving a perfectly valid httpOnly refresh cookie behind a UI
+  // that says "signed out". Clearing the store cannot reach that credential,
+  // so revocation is dispatched on the way out.
+  it('revokes server-side when the refresh failed transiently rather than definitively', async () => {
+    signIn();
+    mockFetch.mockResolvedValue(errorResponse(401));
+    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
+
+    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401 });
+
+    expect(logoutSession).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState().token).toBeNull();
   });
 
   it('401 + dead refresh: clears the store and invokes the handler exactly once across N concurrent requests', async () => {
@@ -123,7 +142,7 @@ describe('session-expiry notification (fix #628)', () => {
     await expect(apiFetch('/b/')).rejects.toMatchObject({ status: 401 });
     expect(handler).toHaveBeenCalledTimes(1);
 
-    // A fresh sign-in mints a NEW (rotated) refresh token; its death is a new event.
+    // A fresh sign-in mints a NEW (rotated) access token; its death is a new event.
     signIn();
     await expect(apiFetch('/c/')).rejects.toMatchObject({ status: 401 });
     expect(handler).toHaveBeenCalledTimes(2);

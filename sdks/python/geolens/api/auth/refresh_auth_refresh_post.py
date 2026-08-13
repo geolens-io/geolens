@@ -4,17 +4,18 @@ from typing import Any
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.problem_detail import ProblemDetail
 from ...models.refresh_request import RefreshRequest
 from ...models.token_response import TokenResponse
+from ...types import Unset
 
 
 def _get_kwargs(
     *,
-    body: RefreshRequest,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
 
@@ -23,7 +24,10 @@ def _get_kwargs(
         "url": "/auth/refresh/",
     }
 
-    _kwargs["json"] = body.to_dict()
+    if isinstance(body, RefreshRequest):
+        _kwargs["json"] = body.to_dict()
+    elif not isinstance(body, Unset):
+        _kwargs["json"] = body
 
     headers["Content-Type"] = "application/json"
 
@@ -99,7 +103,7 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: RefreshRequest,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
     """Refresh
 
@@ -110,8 +114,16 @@ def sync_detailed(
     binds the database transaction from that same-origin host before the user
     row is resolved and the next tenant-bound access token is minted.
 
+    GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+    from the httpOnly cookie (falling back to the body once, so a session
+    established before the cookie flow shipped migrates on its next refresh
+    instead of being logged out), the double-submit CSRF token is enforced, and
+    the rotated token goes back out as a cookie with a null body
+    ``refresh_token``. Without the header this endpoint behaves exactly as
+    before.
+
     Args:
-        body (RefreshRequest):
+        body (None | RefreshRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -135,7 +147,7 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient | Client,
-    body: RefreshRequest,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
     """Refresh
 
@@ -146,8 +158,16 @@ def sync(
     binds the database transaction from that same-origin host before the user
     row is resolved and the next tenant-bound access token is minted.
 
+    GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+    from the httpOnly cookie (falling back to the body once, so a session
+    established before the cookie flow shipped migrates on its next refresh
+    instead of being logged out), the double-submit CSRF token is enforced, and
+    the rotated token goes back out as a cookie with a null body
+    ``refresh_token``. Without the header this endpoint behaves exactly as
+    before.
+
     Args:
-        body (RefreshRequest):
+        body (None | RefreshRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -166,7 +186,7 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
-    body: RefreshRequest,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
     """Refresh
 
@@ -177,8 +197,16 @@ async def asyncio_detailed(
     binds the database transaction from that same-origin host before the user
     row is resolved and the next tenant-bound access token is minted.
 
+    GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+    from the httpOnly cookie (falling back to the body once, so a session
+    established before the cookie flow shipped migrates on its next refresh
+    instead of being logged out), the double-submit CSRF token is enforced, and
+    the rotated token goes back out as a cookie with a null body
+    ``refresh_token``. Without the header this endpoint behaves exactly as
+    before.
+
     Args:
-        body (RefreshRequest):
+        body (None | RefreshRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -200,7 +228,7 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient | Client,
-    body: RefreshRequest,
+    body: None | RefreshRequest | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
     """Refresh
 
@@ -211,8 +239,16 @@ async def asyncio(
     binds the database transaction from that same-origin host before the user
     row is resolved and the next tenant-bound access token is minted.
 
+    GH-1302: with ``X-GeoLens-Auth-Mode: cookie`` the presented token is read
+    from the httpOnly cookie (falling back to the body once, so a session
+    established before the cookie flow shipped migrates on its next refresh
+    instead of being logged out), the double-submit CSRF token is enforced, and
+    the rotated token goes back out as a cookie with a null body
+    ``refresh_token``. Without the header this endpoint behaves exactly as
+    before.
+
     Args:
-        body (RefreshRequest):
+        body (None | RefreshRequest | Unset):
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

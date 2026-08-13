@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { getOAuthProviders } from '@/api/auth';
+import { awaitPendingLogout, getOAuthProviders } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
 import { Button } from '@/components/ui/button';
 import { API_BASE } from '@/lib/constants';
@@ -142,7 +142,13 @@ export function OAuthButtons({ showDivider = true }: { showDivider?: boolean } =
               className="h-10 w-full"
               title={compact ? label : undefined}
               aria-label={compact ? label : undefined}
-              onClick={() => {
+              onClick={async () => {
+                // fix(#1446): OAuth is a second sign-in entry point and needs
+                // the same guard password login has. A logout dispatched
+                // moments earlier revokes every refresh token and deletes the
+                // cookies, so a fast callback could install the new session
+                // only for the older logout to revoke it.
+                await awaitPendingLogout();
                 window.location.href = `${API_BASE}/auth/oauth/${provider.slug}/login`;
               }}
             >
