@@ -288,7 +288,7 @@
   "deleteDialog": {
     "title": "Supprimer le jeu de données",
     "description": "Cela supprimera définitivement le jeu de données \"{{name}}\" y compris toutes les données spatiales. Cette action est irréversible.",
-    "descriptionRegistered": "L'entrée du catalogue pour « {{name}} » sera définitivement supprimée. La table PostgreSQL à partir de laquelle il a été enregistré reste dans la base de données, avec ses données intactes, et toute personne autorisée à importer des données peut l'enregistrer à nouveau. Pour supprimer les données, supprimez la table vous-même. Cette action est irréversible.",
+    "descriptionRegistered": "L'entrée du catalogue pour « {{name}} » sera définitivement supprimée. GeoLens ne supprimera pas la table PostgreSQL à partir de laquelle il a été enregistré : son contenu reste intact et toute personne autorisée à importer des données peut l'enregistrer à nouveau. Pour supprimer les données, supprimez la table vous-même. Cette action est irréversible.",
     "descriptionRegisteredMissing": "L'entrée du catalogue pour « {{name}} » sera définitivement supprimée. Lors de la dernière vérification, GeoLens n'a pas trouvé sa table source : il ne reste peut-être rien à supprimer. Cette action est irréversible.",
     "confirmPrompt": "Saisissez le nom du jeu de données pour confirmer :",
     "deleting": "Suppression...",

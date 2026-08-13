@@ -80,13 +80,20 @@ export function deleteDetachesTable(dataset: DatasetResponse): boolean {
 /**
  * Which description this delete gets.
  *
- * fix(#1452 review round 2): a registered dataset whose table has already
- * been dropped carries `source_health: 'missing'` — the PostGIS refresh maps
- * SQLSTATE 42P01 to it — and the backend detects that absent relation and
- * retires the name instead of preserving anything. Promising that its data
- * stays intact would be the one wrong thing to tell someone in that state.
- * The wording says "last saw" because the stored verdict is a past probe, not
- * a live check: the operator may have recreated the table since.
+ * fix(#1452 review round 5): the registered copy states what GEOLENS will do
+ * — it will not drop the table — rather than what the world contains. Only
+ * the first is ours to promise. `source_health` is a past observation, so a
+ * table dropped since the last probe still reads `healthy`, and one never
+ * probed reads `unknown`; a copy that asserted the relation and its rows
+ * still exist would be wrong in both cases, and the backend's live
+ * `_relation_exists` probe would find nothing and retire the name.
+ *
+ * fix(#1452 review round 2): the `missing` variant remains, because when the
+ * refresh has actually seen the table gone (tasks_postgis_refresh maps
+ * SQLSTATE 42P01 to that verdict) "we will not drop it" is a strange thing to
+ * say about a table that is not there. It is now a courtesy rather than the
+ * thing standing between the reader and a false promise. Its wording says
+ * "last saw" for the same reason the main copy avoids world-state claims.
  */
 export function deleteDescriptionKey(dataset: DatasetResponse): string {
   if (!deleteDetachesTable(dataset)) return 'deleteDialog.description';

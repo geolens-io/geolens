@@ -288,7 +288,7 @@
   "deleteDialog": {
     "title": "Eliminar conjunto de datos",
     "description": "Se eliminará permanentemente el conjunto de datos \"{{name}}\" incluyendo todos los datos espaciales. Esta acción no se puede deshacer.",
-    "descriptionRegistered": "Se eliminará permanentemente la entrada del catálogo de \"{{name}}\". La tabla PostgreSQL desde la que se registró permanece en la base de datos con sus datos intactos, y cualquier persona que pueda subir datos puede volver a registrarla. Para eliminar los datos, borre la tabla usted mismo. Esta acción no se puede deshacer.",
+    "descriptionRegistered": "Se eliminará permanentemente la entrada del catálogo de \"{{name}}\". GeoLens no borrará la tabla PostgreSQL desde la que se registró, así que su contenido queda intacto y cualquier persona que pueda subir datos puede volver a registrarla. Para eliminar los datos, borre la tabla usted mismo. Esta acción no se puede deshacer.",
     "descriptionRegisteredMissing": "Se eliminará permanentemente la entrada del catálogo de \"{{name}}\". La última vez que GeoLens la consultó, su tabla de origen no existía, por lo que puede que no quede nada que eliminar. Esta acción no se puede deshacer.",
     "confirmPrompt": "Escriba el nombre del conjunto de datos para confirmar:",
     "deleting": "Eliminando...",

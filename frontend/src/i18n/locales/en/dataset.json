@@ -239,7 +239,7 @@
   "deleteDialog": {
     "title": "Delete Dataset",
     "description": "This will permanently delete dataset \"{{name}}\" including all spatial data. This action cannot be undone.",
-    "descriptionRegistered": "This will permanently delete the catalog entry for \"{{name}}\". The PostgreSQL table it was registered from stays in the database with its data intact, and anyone who can upload data can register it again. To remove the data, drop the table yourself. This action cannot be undone.",
+    "descriptionRegistered": "This will permanently delete the catalog entry for \"{{name}}\". GeoLens will not drop the PostgreSQL table it was registered from, so whatever it holds is left alone and anyone who can upload can register it again. To remove the data, drop the table yourself. This action cannot be undone.",
     "descriptionRegisteredMissing": "This will permanently delete the catalog entry for \"{{name}}\". GeoLens last saw its source table as missing, so there may be nothing left to remove. This action cannot be undone.",
     "confirmPrompt": "Type the dataset name to confirm:",
     "deleting": "Deleting...",

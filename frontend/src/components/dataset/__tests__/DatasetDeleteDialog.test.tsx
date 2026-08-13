@@ -133,7 +133,7 @@ describe('DatasetDeleteDialog copy', () => {
       />,
     );
 
-    expect(screen.getByText(/stays in the database/i)).toBeInTheDocument();
+    expect(screen.getByText(/will not drop the postgresql table/i)).toBeInTheDocument();
     expect(screen.queryByText(/including all spatial data/i)).not.toBeInTheDocument();
   });
 
@@ -165,7 +165,9 @@ describe('DatasetDeleteDialog copy', () => {
     );
 
     expect(screen.getByText(/nothing left to remove/i)).toBeInTheDocument();
-    expect(screen.queryByText(/data intact/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/will not drop the postgresql table/i),
+    ).not.toBeInTheDocument();
   });
 
   it('still warns that the data goes for an uploaded dataset', () => {
@@ -178,6 +180,8 @@ describe('DatasetDeleteDialog copy', () => {
     );
 
     expect(screen.getByText(/including all spatial data/i)).toBeInTheDocument();
-    expect(screen.queryByText(/stays in the database/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/will not drop the postgresql table/i),
+    ).not.toBeInTheDocument();
   });
 });

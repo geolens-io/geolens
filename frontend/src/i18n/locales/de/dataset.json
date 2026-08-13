@@ -288,7 +288,7 @@
   "deleteDialog": {
     "title": "Datensatz löschen",
     "description": "Der Datensatz \"{{name}}\" einschließlich aller Geodaten wird dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.",
-    "descriptionRegistered": "Der Katalogeintrag für \"{{name}}\" wird dauerhaft gelöscht. Die PostgreSQL-Tabelle, aus der er registriert wurde, bleibt mit ihren Daten in der Datenbank erhalten, und alle Personen mit Upload-Berechtigung können sie erneut registrieren. Löschen Sie die Tabelle selbst, wenn die Daten entfernt werden sollen. Diese Aktion kann nicht rückgängig gemacht werden.",
+    "descriptionRegistered": "Der Katalogeintrag für \"{{name}}\" wird dauerhaft gelöscht. GeoLens löscht die PostgreSQL-Tabelle, aus der er registriert wurde, nicht. Ihr Inhalt bleibt unverändert, und alle Personen mit Upload-Berechtigung können sie erneut registrieren. Löschen Sie die Tabelle selbst, wenn die Daten entfernt werden sollen. Diese Aktion kann nicht rückgängig gemacht werden.",
     "descriptionRegisteredMissing": "Der Katalogeintrag für \"{{name}}\" wird dauerhaft gelöscht. Bei der letzten Prüfung war die Quelltabelle nicht auffindbar, daher ist möglicherweise nichts mehr zu entfernen. Diese Aktion kann nicht rückgängig gemacht werden.",
     "confirmPrompt": "Geben Sie den Datensatznamen zur Bestätigung ein:",
     "deleting": "Wird gelöscht...",
