@@ -246,6 +246,38 @@ async def test_head_stays_off_non_standards_routes(client):
     assert "HEAD" not in response.headers.get("allow", "")
 
 
+async def test_standards_405_allow_header_reports_head(client):
+    """A 405 must enumerate what the surface answers, HEAD included.
+
+    HEAD is registered as a separate route (see
+    ``_register_standards_head_routes``), and starlette builds ``Allow`` from
+    the first partial match — the GET-only canonical route — so the header
+    understated the surface until the standards error handler restated it.
+    """
+    for path in ("/conformance", "/collections", "/stac"):
+        response = await client.request("PUT", path)
+        assert response.status_code == 405, path
+        methods = {m.strip() for m in response.headers["allow"].split(",")}
+        assert methods == {"GET", "HEAD"}, path
+
+    # Scoped: a native route's 405 keeps the methods it actually serves.
+    native = await client.request("PUT", "/datasets/")
+    assert native.status_code == 405
+    assert "HEAD" not in native.headers.get("allow", "")
+
+
+async def test_standards_router_errors_keep_problem_details(client):
+    """The 405 handler binds starlette's base class, not fastapi's subclass.
+
+    Routers raise fastapi's ``HTTPException``, which must keep resolving to
+    the problem+json handler — registering a base-class handler beside it
+    would be a silent contract change if MRO lookup preferred the general one.
+    """
+    response = await client.get("/collections/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
 # --- Conformance endpoint tests ---
 
 

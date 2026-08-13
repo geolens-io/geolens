@@ -4,10 +4,14 @@ import json
 from typing import Any
 
 import structlog
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import (
+    http_exception_handler as default_http_exception_handler,
+)
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.url_redaction import redact_query_credentials
 from app.standards.ogc.utils import standards_api_path
@@ -185,6 +189,40 @@ def _is_standards_path(request: Request) -> bool:
     )
 
 
+def _allow_header_with_head(headers: dict[str, str] | None) -> dict[str, str] | None:
+    """Add HEAD to a 405's ``Allow`` header when GET is already listed.
+
+    fix(#1470): ``_register_standards_head_routes`` serves HEAD beside every
+    standards GET, but as a SEPARATE route. It has to be separate — FastAPI
+    derives a route's operation id from its name and path rather than its
+    method, so one route carrying ``{GET, HEAD}`` emits duplicate operation
+    ids and 48 phantom operations into ``openapi.json`` (measured, not
+    assumed). The cost of that separation is that starlette builds a 405's
+    ``Allow`` from the FIRST partial match, which is the GET-only canonical
+    route, so the header understated what the surface answers.
+
+    Restated here rather than in the route table because this is where the
+    standards error contract already lives, and because the rule is an
+    invariant of that surface rather than of any one route: HEAD is
+    registered for every standards GET, so GET being allowed means HEAD is
+    too. Keyed off GET for exactly that reason — a standards route that
+    allows only POST (``/stac/search``) gains nothing here.
+    """
+    if not headers:
+        return headers
+    allow_key = next((key for key in headers if key.lower() == "allow"), None)
+    if allow_key is None:
+        return headers
+    methods = [
+        value.strip() for value in headers[allow_key].split(",") if value.strip()
+    ]
+    if "GET" not in methods or "HEAD" in methods:
+        return headers
+    updated = dict(headers)
+    updated[allow_key] = ", ".join([*methods, "HEAD"])
+    return updated
+
+
 def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
     async def http_exception_handler(
@@ -207,6 +245,27 @@ def register_error_handlers(app: FastAPI) -> None:
             media_type="application/problem+json",
             headers=exc.headers,
         )
+
+    @app.exception_handler(StarletteHTTPException)
+    async def framework_http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ) -> Response:
+        """Correct the ``Allow`` header on a framework-raised standards 405.
+
+        Registered on starlette's base class specifically: the handler above
+        is bound to fastapi's SUBCLASS, which routers raise explicitly, while
+        the 405 comes from ``fastapi.routing`` (which imports HTTPException
+        from ``starlette.exceptions``) and so never reached it. Handler
+        lookup walks the MRO and prefers the most specific registration, so
+        the problem-detail contract for router-raised errors is untouched.
+
+        Everything else is delegated to fastapi's own default, unchanged --
+        this deliberately does NOT convert framework 405/404 bodies to
+        problem+json, which would be a separate contract change.
+        """
+        if exc.status_code == 405 and _is_standards_path(request):
+            exc.headers = _allow_header_with_head(exc.headers)
+        return await default_http_exception_handler(request, exc)
 
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(
