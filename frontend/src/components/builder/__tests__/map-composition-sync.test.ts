@@ -221,6 +221,57 @@ describe('map composition sync', () => {
     );
   });
 
+  it('layers the atmosphere over a style-provided sky and restores it (fix(#1474))', () => {
+    const styleSky = { 'sky-color': '#0b1026', 'horizon-color': '#7ba0c0' };
+    let stored: unknown = styleSky;
+    const setSky = vi.fn((sky: unknown) => { stored = sky; });
+    const getSky = vi.fn(() => stored);
+    const target = {
+      isStyleLoaded: vi.fn(() => true), setProjection: vi.fn(), setSky, getSky,
+    } as unknown as MaplibreMap;
+    const globe = { projection: 'globe' } as MapBasemapConfig;
+    const atmosphere = ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0];
+
+    applyMapBasemapAppearance({ map: target, basemapConfig: globe });
+    expect(setSky).toHaveBeenLastCalledWith({ ...styleSky, 'atmosphere-blend': atmosphere });
+
+    // Mercator hands the basemap its own sky back instead of clearing it.
+    applyMapBasemapAppearance({ map: target, basemapConfig: null });
+    expect(setSky).toHaveBeenLastCalledWith(styleSky);
+
+    // A basemap swap brings a different sky; that one becomes what we preserve.
+    stored = { 'sky-color': '#222222' };
+    applyMapBasemapAppearance({ map: target, basemapConfig: globe });
+    expect(setSky).toHaveBeenLastCalledWith({ 'sky-color': '#222222', 'atmosphere-blend': atmosphere });
+    applyMapBasemapAppearance({ map: target, basemapConfig: null });
+    expect(setSky).toHaveBeenLastCalledWith({ 'sky-color': '#222222' });
+  });
+
+  it('still resets after maplibre drops a no-op sky write (fix(#1474))', () => {
+    // maplibre skips the assignment when the spec you pass changes nothing, so
+    // what we believe is on the map has to be read back rather than assumed.
+    let stored: Record<string, unknown> | undefined;
+    const setSky = vi.fn((sky?: Record<string, unknown>) => {
+      const unchanged = sky && stored
+        && Object.keys(sky).every((k) => JSON.stringify(sky[k]) === JSON.stringify(stored?.[k]));
+      if (!unchanged) stored = sky;
+    });
+    const target = {
+      isStyleLoaded: vi.fn(() => true),
+      setProjection: vi.fn(),
+      setSky,
+      getSky: vi.fn(() => stored),
+    } as unknown as MaplibreMap;
+    const globe = { projection: 'globe' } as MapBasemapConfig;
+
+    applyMapBasemapAppearance({ map: target, basemapConfig: globe });
+    applyMapBasemapAppearance({ map: target, basemapConfig: globe });
+    applyMapBasemapAppearance({ map: target, basemapConfig: null });
+
+    expect(setSky).toHaveBeenLastCalledWith(undefined);
+    expect(stored).toBeUndefined();
+  });
+
   it('retries the globe sky on style.load with the projection (feat(#1473))', () => {
     // The projection throws first on an unparsed style, so the sky never runs
     // until the retry — proving it rides the same deferral.

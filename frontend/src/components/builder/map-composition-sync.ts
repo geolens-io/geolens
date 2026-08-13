@@ -40,6 +40,34 @@ const GLOBE_SKY: SkySpecification = {
   'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0],
 };
 
+// fix(#1474 Codex P2 round 1): a remote basemap style may ship its own `sky`
+// block, and sanitizeMaplibreStyle() passes root properties through untouched.
+// So the atmosphere is layered OVER whatever sky the style brought rather than
+// replacing it, and mercator restores that sky instead of clearing it.
+//
+// `base` is the style's own sky and `applied` is what we last handed to
+// setSky, read back from the map because maplibre skips the assignment when
+// the new spec makes no difference. If the map is no longer holding `applied`,
+// the style was reloaded underneath us and whatever it holds now is the new
+// base to preserve.
+type SkyState = { applied: SkySpecification | undefined; base: SkySpecification | undefined };
+const skyStates = new WeakMap<MaplibreMap, SkyState>();
+
+function applySky(map: MaplibreMap, isGlobe: boolean) {
+  if (!map.setSky) return;
+  const current = map.getSky?.();
+  const tracked = skyStates.get(map);
+  const base = tracked && current === tracked.applied ? tracked.base : current;
+  const next = isGlobe ? { ...base, ...GLOBE_SKY } : base;
+  // Passing `undefined` is the branch maplibre reads as "no sky at all", which
+  // is the correct reset for a style that never had one. An empty object is a
+  // silent no-op instead, because the diff it runs only walks the keys of the
+  // spec you hand it. Map.setSky types the argument as required even though
+  // the Style method behind it declares it optional, hence the cast.
+  map.setSky(next as SkySpecification);
+  skyStates.set(map, { applied: map.getSky?.(), base });
+}
+
 function sourcePrefixFor(idPrefix: string | undefined) {
   return idPrefix ? `${idPrefix}source-` : 'source-';
 }
@@ -99,13 +127,8 @@ export function applyMapBasemapAppearance({
     try {
       map.setProjection?.({ type: projection });
       // feat(#1473): sky shares setProjection's parsed-style precondition, so
-      // it rides the same retry and survives style/basemap reloads. Resetting
-      // means passing `undefined` — that is the branch MapLibre reads as "no
-      // sky", restoring the untouched default. An empty object instead is a
-      // silent no-op that would strand the globe sky on a mercator map.
-      // Map.setSky types the argument as required even though the Style method
-      // it forwards to declares it optional, hence the cast.
-      map.setSky?.((projection === 'globe' ? GLOBE_SKY : undefined) as SkySpecification);
+      // it rides the same retry and survives style/basemap reloads.
+      applySky(map, projection === 'globe');
     } catch {
       // Style not parsed yet — re-attempt as soon as it is. Partial map
       // mocks in tests lack `once`, hence the optional call.
