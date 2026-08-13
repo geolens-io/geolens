@@ -3190,7 +3190,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1463): crossed the inclusion threshold at 1001. The growth is the
     # vector-tile protocol constants and the stale-label repair in
     # generate_distributions, plus the comment recording why the repair has to
-    # exist at all: migration 0048 is one-shot and scripts/upgrade.sh runs it
+    # exist at all: migration 0048 is one-shot and the scripted upgrade runs it
     # while the previous release is still writing rows (#1467), so the template
     # is not the only place that has to know the old value. Cap at the exact
     # size; the module is otherwise a stable set of CRUD helpers over the

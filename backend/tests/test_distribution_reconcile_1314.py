@@ -813,8 +813,8 @@ class TestTheStaleProtocolRepair:
     """fix(#1463, codex round 2): the pair-existence skip can strand a bad row.
 
     Migration 0048 relabels the auto-generated vector-tile rows from
-    ``OGC:WMTS`` to ``XYZ``. It runs once, and ``scripts/upgrade.sh`` applies
-    migrations while the previous app containers are still serving, so a
+    ``OGC:WMTS`` to ``XYZ``. It runs once, and the scripted upgrade path
+    applies migrations while the previous app containers are still serving, so a
     dataset created in that window is written by the OLD template AFTER the
     UPDATE has committed. Alembic will not repeat the revision, and the skip
     in ``generate_distributions`` means the template never rewrites a pair it
