@@ -59,7 +59,7 @@ from app.modules.catalog.datasets.domain.service import get_dataset
 from app.core.dependencies import get_db
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
-from app.core.public_urls import get_public_api_url
+from app.core.public_urls import get_public_urls
 from app.platform.extensions import get_catalog_port
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_storage_key
@@ -307,11 +307,12 @@ async def get_dcat_catalog(
     """DCAT 3 JSON-LD catalog feed. Respects dataset visibility."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     preferred_languages = parse_accept_languages(request)
     catalog = catalog_to_dcat(
         datasets,
         base_url,
+        app_base_url=app_base_url,
         preferred_languages=preferred_languages,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
@@ -345,10 +346,11 @@ async def validate_dcat3_catalog(
     """Validate the visible W3C DCAT 3 catalog feed."""
     datasets = await _get_visible_dcat_datasets(db, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     catalog = catalog_to_dcat(
         datasets,
         base_url,
+        app_base_url=app_base_url,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
     report = validate_dcat3(catalog, "Catalog")
@@ -380,10 +382,11 @@ async def get_dcat_us3_catalog(
     """DCAT-US Schema v3.0 catalog feed. Respects dataset visibility."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     catalog = catalog_to_dcat_us3(
         datasets,
         base_url,
+        app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
@@ -418,10 +421,11 @@ async def validate_dcat_us3_catalog(
     """Validate the visible DCAT-US Schema v3.0 catalog feed."""
     datasets = await _get_visible_dcat_datasets(db, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     catalog = catalog_to_dcat_us3(
         datasets,
         base_url,
+        app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
@@ -447,10 +451,11 @@ async def get_geodcat_ap_catalog(
     """GeoDCAT-AP 2.0.0 catalog feed. Respects dataset visibility."""
     datasets = await _get_visible_dcat_datasets(db, user, limit=limit, offset=offset)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     catalog = catalog_to_geodcat_ap(
         datasets,
         base_url,
+        app_base_url=app_base_url,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
     completeness = _catalog_completeness(
@@ -481,10 +486,11 @@ async def validate_geodcat_ap_catalog(
     """Validate the visible GeoDCAT-AP 2.0.0 catalog feed."""
     datasets = await _get_visible_dcat_datasets(db, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     catalog = catalog_to_geodcat_ap(
         datasets,
         base_url,
+        app_base_url=app_base_url,
         lineage_by_record_id=await _visible_lineage(db, datasets, user),
     )
     report = validate_geodcat_ap(catalog, "Catalog")
@@ -515,10 +521,11 @@ async def validate_dcat3_record(
     """Validate a single dataset as W3C DCAT 3."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     dcat = record_to_dcat(
         dataset,
         base_url,
+        app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
     report = validate_dcat3(dcat, "Dataset")
@@ -543,11 +550,12 @@ async def get_dcat_record(
     """DCAT 3 JSON-LD for a single dataset."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     preferred_languages = parse_accept_languages(request)
     dcat = record_to_dcat(
         dataset,
         base_url,
+        app_base_url=app_base_url,
         preferred_languages=preferred_languages,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
@@ -577,10 +585,11 @@ async def validate_dcat_us3_record(
     """Validate a single dataset as DCAT-US Schema v3.0."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     dcat = record_to_dcat_us3(
         dataset,
         base_url,
+        app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
@@ -613,10 +622,11 @@ async def get_dcat_us3_record(
     """DCAT-US Schema v3.0 JSON-LD for a single dataset."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     dcat = record_to_dcat_us3(
         dataset,
         base_url,
+        app_base_url=app_base_url,
         catalog_contact_email=settings.dcat_contact_email,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
@@ -648,10 +658,11 @@ async def validate_geodcat_ap_record(
     """Validate a single dataset as GeoDCAT-AP 2.0.0."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     geodcat = record_to_geodcat_ap(
         dataset,
         base_url,
+        app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
     report = validate_geodcat_ap(geodcat, "Dataset")
@@ -679,10 +690,11 @@ async def get_geodcat_ap_record(
     """GeoDCAT-AP 2.0.0 JSON-LD for a single dataset."""
     dataset = await _get_dcat_dataset_for_export(db, dataset_id, user)
 
-    base_url = await get_public_api_url(db, request=request)
+    app_base_url, base_url = await get_public_urls(db, request=request)
     geodcat = record_to_geodcat_ap(
         dataset,
         base_url,
+        app_base_url=app_base_url,
         lineage_summary=await _visible_record_lineage(db, dataset, user),
     )
     fallback_fields = geodcat_ap_fallback_fields(dataset)

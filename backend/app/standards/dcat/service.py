@@ -13,6 +13,10 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from app.modules.catalog.records.localization import select_localized_record_text
+from app.standards.distributions import (
+    PublishedDistribution,
+    published_distributions,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -21,7 +25,6 @@ if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
         RecordContact,
-        RecordDistribution,
     )
 _LANG_URI_BASE = "http://publications.europa.eu/resource/authority/language/"
 
@@ -246,6 +249,7 @@ def record_to_dcat(
     dataset: Dataset,
     base_url: str,
     *,
+    app_base_url: str,
     include_context: bool = True,
     preferred_languages: Sequence[str] | None = None,
     lineage_summary: str | None = None,
@@ -255,6 +259,9 @@ def record_to_dcat(
     Args:
         dataset: Dataset ORM object with record relationship eager-loaded.
         base_url: Absolute base URL (e.g. ``http://localhost:8000``).
+        app_base_url: Absolute public APP base URL. fix(#1469): the raster
+            tile template is served there, not under the API base — see
+            ``app.standards.distributions``.
         include_context: Include ``@context`` in output. Set to False for
             individual entries within a catalog feed to avoid duplication.
         lineage_summary: ``dcterms:provenance``, already access-checked by the
@@ -343,10 +350,11 @@ def record_to_dcat(
     if record.contacts:
         result["dcat:contactPoint"] = [_contact_to_dcat(c) for c in record.contacts]
 
-    if record.distributions:
-        result["dcat:distribution"] = [
-            _distribution_to_dcat(d, base_url) for d in record.distributions
-        ]
+    distributions = published_distributions(
+        dataset, api_base_url=base_url, app_base_url=app_base_url
+    )
+    if distributions:
+        result["dcat:distribution"] = [_distribution_to_dcat(d) for d in distributions]
 
     # Temporal extent
     if record.temporal_start or record.temporal_end:
@@ -411,17 +419,12 @@ def _contact_to_dcat(contact: RecordContact) -> dict:
     return {k: v for k, v in result.items() if v is not None}
 
 
-def _distribution_to_dcat(dist: RecordDistribution, base_url: str) -> dict:
-    """Serialize a RecordDistribution to a dcat:Distribution dict."""
-    # Resolve relative URLs to absolute
-    url = dist.url
-    if url.startswith("/"):
-        url = base_url + url
-
+def _distribution_to_dcat(dist: PublishedDistribution) -> dict:
+    """Serialize a published distribution to a dcat:Distribution dict."""
     result: dict = {"@type": "dcat:Distribution"}
     if dist.title is not None:
         result["dcterms:title"] = dist.title
-    result["dcat:accessURL"] = url
+    result["dcat:accessURL"] = dist.url
     if dist.media_type is not None:
         result["dcat:mediaType"] = dist.media_type
     if dist.format is not None:
@@ -433,6 +436,7 @@ def catalog_to_dcat(
     datasets: list[Dataset],
     base_url: str,
     *,
+    app_base_url: str,
     preferred_languages: Sequence[str] | None = None,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
 ) -> dict:
@@ -454,6 +458,7 @@ def catalog_to_dcat(
         record_to_dcat(
             ds,
             base_url,
+            app_base_url=app_base_url,
             include_context=False,
             preferred_languages=preferred_languages,
             lineage_summary=lineage.get(ds.record_id),
