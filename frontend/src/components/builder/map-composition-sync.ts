@@ -1,4 +1,5 @@
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import { latest as styleSpec } from '@maplibre/maplibre-gl-style-spec';
+import type { Map as MaplibreMap, SkySpecification } from 'maplibre-gl';
 import type { TileToken } from '@/api/tiles';
 import type { MapBasemapConfig } from '@/types/api';
 import { applySublayerOverrides } from '@/lib/builder/basemap-style-mutation';
@@ -14,9 +15,72 @@ import {
 
 type RefBox<T> = { current: T };
 
-// feat(#845): one pending projection idle-retry per map instance, so a newer
-// appearance application can cancel a stale one (Codex P2 on #848).
-const pendingProjectionRetries = new WeakMap<MaplibreMap, () => void>();
+// feat(#845): one pending root-style idle-retry per map instance, so a newer
+// appearance application can cancel a stale one (Codex P2 on #848). Covers
+// projection and, since feat(#1473), sky — both are root style state with the
+// same "needs a parsed style" precondition.
+const pendingRootStyleRetries = new WeakMap<MaplibreMap, () => void>();
+
+// feat(#1473): atmosphere for globe maps, so the sphere reads as a planet
+// instead of a flat disc. `atmosphere-blend` is the only sky property a globe
+// actually shows: MapLibre draws the limb halo in a separate atmosphere pass
+// scaled by this value, while the sky pass that consumes sky-color /
+// horizon-color / sky-horizon-blend is multiplied out to fully transparent for
+// as long as the projection is a globe.
+//
+// So the colors stay at their MapLibre defaults on purpose. A globe map zoomed
+// past MapLibre's automatic globe-to-mercator handoff turns the sky pass back
+// on, and a near-black sky-color would land there as a black band above the
+// horizon on pitched views — the one place it is visible is the one place it
+// would look wrong.
+//
+// The zoom ramp is upstream's own curve from their globe-with-atmosphere
+// example: a full halo at world view, held through continental zoom, gone by
+// the time the limb has left the frame.
+const GLOBE_SKY: SkySpecification = {
+  'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0],
+};
+
+// fix(#1474 Codex P2 round 1): a remote basemap style may ship its own `sky`
+// block, and sanitizeMaplibreStyle() passes root properties through untouched.
+// So the atmosphere is layered OVER whatever sky the style brought rather than
+// replacing it, and mercator restores that sky instead of clearing it.
+//
+// `base` is the style's own sky and `applied` is what we last handed to
+// setSky, read back from the map because maplibre skips the assignment when
+// the new spec makes no difference. If the map is no longer holding `applied`,
+// the style was reloaded underneath us and whatever it holds now is the new
+// base to preserve.
+type SkyState = { applied: SkySpecification | undefined; base: SkySpecification | undefined };
+const skyStates = new WeakMap<MaplibreMap, SkyState>();
+
+// fix(#1474 Codex P2 round 2): handing back a `base` that never mentioned
+// atmosphere-blend does not remove ours. setSky's diff walks only the keys of
+// the spec you pass, so every key would compare equal and the write would be
+// dropped with our override still in the live style. Naming the property
+// explicitly forces the write. The value is what a fresh load of `base` would
+// evaluate the property to, read off the style spec so it cannot drift.
+const DEFAULT_ATMOSPHERE_BLEND = styleSpec.sky['atmosphere-blend'].default as number;
+
+function restoreSky(base: SkySpecification | undefined) {
+  if (!base || base['atmosphere-blend'] !== undefined) return base;
+  return { ...base, 'atmosphere-blend': DEFAULT_ATMOSPHERE_BLEND };
+}
+
+function applySky(map: MaplibreMap, isGlobe: boolean) {
+  if (!map.setSky) return;
+  const current = map.getSky?.();
+  const tracked = skyStates.get(map);
+  const base = tracked && current === tracked.applied ? tracked.base : current;
+  const next = isGlobe ? { ...base, ...GLOBE_SKY } : restoreSky(base);
+  // Passing `undefined` is the branch maplibre reads as "no sky at all", which
+  // is the correct reset for a style that never had one. An empty object is a
+  // silent no-op instead, because the diff it runs only walks the keys of the
+  // spec you hand it. Map.setSky types the argument as required even though
+  // the Style method behind it declares it optional, hence the cast.
+  map.setSky(next as SkySpecification);
+  skyStates.set(map, { applied: map.getSky?.(), base });
+}
 
 function sourcePrefixFor(idPrefix: string | undefined) {
   return idPrefix ? `${idPrefix}source-` : 'source-';
@@ -66,23 +130,27 @@ export function applyMapBasemapAppearance({
   // is not parsed yet the call throws; retry once on `style.load`, and
   // cancel any stale retry first so a projection change during the load
   // window can't be reverted by an old callback (Codex P2 round 1 on #848).
-  const staleRetry = pendingProjectionRetries.get(map);
+  const staleRetry = pendingRootStyleRetries.get(map);
   if (staleRetry) {
     map.off?.('style.load', staleRetry);
-    pendingProjectionRetries.delete(map);
+    pendingRootStyleRetries.delete(map);
   }
-  const applyProjection = () => {
-    pendingProjectionRetries.delete(map);
+  const projection = basemapConfig?.projection ?? 'mercator';
+  const applyRootStyle = () => {
+    pendingRootStyleRetries.delete(map);
     try {
-      map.setProjection?.({ type: basemapConfig?.projection ?? 'mercator' });
+      map.setProjection?.({ type: projection });
+      // feat(#1473): sky shares setProjection's parsed-style precondition, so
+      // it rides the same retry and survives style/basemap reloads.
+      applySky(map, projection === 'globe');
     } catch {
       // Style not parsed yet — re-attempt as soon as it is. Partial map
       // mocks in tests lack `once`, hence the optional call.
-      pendingProjectionRetries.set(map, applyProjection);
-      map.once?.('style.load', applyProjection);
+      pendingRootStyleRetries.set(map, applyRootStyle);
+      map.once?.('style.load', applyRootStyle);
     }
   };
-  applyProjection();
+  applyRootStyle();
 
   if (!map.isStyleLoaded()) {
     applySublayerOverrides(map, basemapConfig?.sublayer_overrides ?? null, sourcePrefix, masterOpacity);
