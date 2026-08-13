@@ -45,10 +45,20 @@ function parseDependentVrts(error: Error): DependentVrt[] | null {
  * analysis output, CTAS'd and then registered through the same helper. That
  * table is dropped, so it must not get the reassuring wording.
  *
- * `origin_ref` is owner-or-admin only, which is exactly who can delete
- * (`check_dataset_write_access` is the same predicate as
- * `can_view_dataset_provenance`), so it is never redacted from a reader who
- * can act on this dialog.
+ * fix(#1452 review round 4): a readable `origin_ref` is REQUIRED before this
+ * promises anything. `origin_ref` is owner-or-admin only, and while that is
+ * the same predicate as `check_dataset_write_access`, the response carrying
+ * it is cached under `['dataset', id]` with no identity in the key and a 60s
+ * staleTime, and login invalidates only the auth caches. So an owner can be
+ * handed the redacted response a non-owner or anonymous reader populated
+ * moments earlier, in which case `origin_ref` is null for a reason that has
+ * nothing to do with ownership. Null is also what migration 0036's backfill
+ * leaves on the rows it could not resolve. Reading either as "not managed"
+ * would promise that an analysis output's table survives a delete that drops
+ * it — the one direction this dialog must never be wrong in. Absent evidence
+ * therefore falls back to the copy that warns the data is destroyed: this
+ * over-warns for a registered table whose provenance we cannot read, and a
+ * spurious warning costs nothing that a false assurance does not cost more.
  */
 export function deleteDetachesTable(dataset: DatasetResponse): boolean {
   // fix(#1452 review round 3): the raster-family override comes FIRST, exactly
@@ -62,7 +72,9 @@ export function deleteDetachesTable(dataset: DatasetResponse): boolean {
     return false;
   }
   if (dataset.origin !== 'postgis') return false;
-  return dataset.origin_ref?.managed !== true;
+  const ref = dataset.origin_ref;
+  if (!ref || typeof ref !== 'object') return false;
+  return ref.managed !== true;
 }
 
 /**

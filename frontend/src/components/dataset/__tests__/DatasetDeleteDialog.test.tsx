@@ -16,9 +16,41 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
   } as DatasetResponse;
 }
 
+/** A registered dataset whose provenance the caller can read. */
+function registeredDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
+  return makeDataset({
+    origin: 'postgis',
+    origin_ref: { kind: 'postgis', table_name: 'data.parcels' },
+    ...overrides,
+  });
+}
+
 describe('deleteDetachesTable', () => {
   it('detaches a registered PostGIS table', () => {
-    expect(deleteDetachesTable(makeDataset({ origin: 'postgis' }))).toBe(true);
+    const dataset = makeDataset({
+      origin: 'postgis',
+      origin_ref: { kind: 'postgis', table_name: 'data.parcels' },
+    });
+    expect(deleteDetachesTable(dataset)).toBe(true);
+  });
+
+  it.each([
+    ['redacted or absent', undefined],
+    ['explicitly null', null],
+    ['not an object', 'data.parcels'],
+  ] as const)('promises nothing when origin_ref is %s', (_label, origin_ref) => {
+    // fix(#1452 review round 4): `origin_ref` is owner-or-admin only, and the
+    // dataset response is cached under ['dataset', id] with no identity in the
+    // key, so an owner can be handed a non-owner's redacted copy. Null is also
+    // what migration 0036's backfill leaves on rows it could not resolve.
+    // Reading either as "not managed" would promise an analysis output's table
+    // survives a delete that drops it.
+    const dataset = makeDataset({
+      origin: 'postgis',
+      origin_ref: origin_ref as never,
+    });
+    expect(deleteDetachesTable(dataset)).toBe(false);
+    expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.description');
   });
 
   it.each(['upload', 'service', 'stac', 'created'] as const)(
@@ -45,7 +77,7 @@ describe('deleteDetachesTable', () => {
       // 'postgis'. geolens_owns_table overrides on record type before it
       // consults the origin, and this must agree: the delete reaps that
       // dataset's storage and retires its name.
-      const dataset = makeDataset({ record_type, origin: 'postgis' });
+      const dataset = registeredDataset({ record_type });
       expect(deleteDetachesTable(dataset)).toBe(false);
       expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.description');
     },
@@ -63,14 +95,14 @@ describe('deleteDetachesTable', () => {
 
 describe('deleteDescriptionKey', () => {
   it('promises survival for a healthy registered table', () => {
-    const dataset = makeDataset({ origin: 'postgis', source_health: 'healthy' });
+    const dataset = registeredDataset({ source_health: 'healthy' });
     expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.descriptionRegistered');
   });
 
   it('drops the survival promise when the source table is missing', () => {
     // The backend detects the absent relation and retires the name instead
     // of preserving anything, so there is nothing to promise.
-    const dataset = makeDataset({ origin: 'postgis', source_health: 'missing' });
+    const dataset = registeredDataset({ source_health: 'missing' });
     expect(deleteDescriptionKey(dataset)).toBe(
       'deleteDialog.descriptionRegisteredMissing',
     );
@@ -80,7 +112,7 @@ describe('deleteDescriptionKey', () => {
     'keeps the survival promise when health is %s',
     (source_health) => {
       // Neither says the relation is gone; only `missing` does.
-      const dataset = makeDataset({ origin: 'postgis', source_health });
+      const dataset = registeredDataset({ source_health });
       expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.descriptionRegistered');
     },
   );
@@ -95,7 +127,7 @@ describe('DatasetDeleteDialog copy', () => {
   it('promises the table survives for a registered dataset', () => {
     render(
       <DatasetDeleteDialog
-        dataset={makeDataset({ origin: 'postgis' })}
+        dataset={registeredDataset()}
         open
         onOpenChange={() => {}}
       />,
@@ -113,7 +145,7 @@ describe('DatasetDeleteDialog copy', () => {
     // owner cannot act on.
     render(
       <DatasetDeleteDialog
-        dataset={makeDataset({ origin: 'postgis' })}
+        dataset={registeredDataset()}
         open
         onOpenChange={() => {}}
       />,
@@ -126,7 +158,7 @@ describe('DatasetDeleteDialog copy', () => {
   it('does not promise intact data when the source table is missing', () => {
     render(
       <DatasetDeleteDialog
-        dataset={makeDataset({ origin: 'postgis', source_health: 'missing' })}
+        dataset={registeredDataset({ source_health: 'missing' })}
         open
         onOpenChange={() => {}}
       />,
