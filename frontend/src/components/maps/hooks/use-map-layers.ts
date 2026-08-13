@@ -29,6 +29,11 @@ interface UseMapLayersOptions {
   mapRef: React.RefObject<MaplibreMap | null>;
   /** Column name containing height/elevation data for 3D extrusion (polygon datasets only) */
   elevationColumn?: string | null;
+  /** fix(#1472 review): the dataset's required credit line. Applied as the
+   *  MapLibre source `attribution`, which the map's default attribution control
+   *  reads off whichever sources are live — the preview map has no explicit
+   *  control to pass `customAttribution` to. */
+  attribution?: string | null;
 }
 
 export function useMapLayers({
@@ -42,6 +47,7 @@ export function useMapLayers({
   mvtSourceLayerReady = true,
   mapRef,
   elevationColumn,
+  attribution,
 }: UseMapLayersOptions) {
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
@@ -62,6 +68,7 @@ export function useMapLayers({
           tiles: [buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion)],
           minzoom: 1,
           maxzoom: 22,
+          ...(attribution ? { attribution } : {}),
         });
 
         const upperType = geometryType.toUpperCase();
@@ -201,7 +208,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
-    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn],
+    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn, attribution],
   );
 
   // DatasetMap's load event can precede the settings request. Re-run the
@@ -241,6 +248,7 @@ export function useMapLayers({
           tileSize: 256,
           minzoom: 0,
           maxzoom: 22,
+          ...(attribution ? { attribution } : {}),
         });
         map.addLayer({
           id: 'raster-layer',
@@ -253,7 +261,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
-    [rasterTileUrl, tileVersion],
+    [rasterTileUrl, tileVersion, attribution],
   );
 
   const addOverlaySource = useCallback((map: MaplibreMap) => {

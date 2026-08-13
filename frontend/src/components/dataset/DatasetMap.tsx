@@ -102,6 +102,9 @@ interface DatasetMapProps {
   onTileError?: () => void;
   /** Callback for read-only (non-editing) feature clicks, receives the gid */
   onFeatureClick?: (gid: number) => void;
+  /** fix(#1472 review): the dataset's required credit line, rendered in the
+   *  preview's attribution control alongside the basemap's. */
+  attribution?: string | null;
 }
 
 export const DatasetMap = memo(function DatasetMap({
@@ -119,6 +122,7 @@ export const DatasetMap = memo(function DatasetMap({
   onMapReady,
   onTileError,
   onFeatureClick,
+  attribution,
 }: DatasetMapProps) {
   const { t } = useTranslation(['dataset', 'common']);
   const { resolvedTheme } = useTheme();
@@ -235,6 +239,7 @@ export const DatasetMap = memo(function DatasetMap({
     mvtSourceLayerReady: tileConfigReady,
     mapRef,
     elevationColumn,
+    attribution,
   });
 
   const [isFullscreen, setIsFullscreen] = useState(false);

@@ -152,7 +152,7 @@ export const rasterAdapter: LayerAdapter = {
   type: 'raster',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
+    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds, attribution } = input;
     // builder-audit #338 ADAPT-10: source construction reads input.tileUrl directly. The
     // colormap/stretch query params are applied by buildColormapTileUrl (exported from
     // THIS module) — but the call site lives in map-sync.syncRasterLayer, which mutates
@@ -171,6 +171,9 @@ export const rasterAdapter: LayerAdapter = {
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
         ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
+        // fix(#1472 review): the dataset's required credit line, read by
+        // MapLibre's attribution control off the source it renders from.
+        ...(attribution ? { attribution } : {}),
       });
     }
     if (map.getLayer(layerId)) return;

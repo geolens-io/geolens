@@ -121,7 +121,7 @@ export const hillshadeAdapter: LayerAdapter = {
   type: 'hillshade',
 
   addLayers(map: MaplibreMap, input: AdapterLayerInput): void {
-    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds } = input;
+    const { layerId, sourceId, tileUrl, tileSize, minzoom, maxzoom, visible, bounds, attribution } = input;
     if (!map.getSource(sourceId)) {
       // builder-audit #338 ADAPT-01: shared normalizeRasterBounds, computed once instead
       // of the prior double-call inside the spread ternary.
@@ -133,6 +133,9 @@ export const hillshadeAdapter: LayerAdapter = {
         minzoom: minzoom ?? 0,
         maxzoom: maxzoom ?? 18,
         ...(normalizedBounds ? { bounds: normalizedBounds } : {}),
+        // fix(#1472 review): the dataset's required credit line, read by
+        // MapLibre's attribution control off the source it renders from.
+        ...(attribution ? { attribution } : {}),
         encoding: 'mapbox',
       });
     }

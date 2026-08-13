@@ -243,6 +243,18 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     // fix(#394) VT-02 (codex P2): without this the builder's `_v=` read below
     // always saw undefined — the cache-buster only flowed on the viewer path.
     tile_version: layer.tile_version,
+    // fix(#1472 review): the builder's half of the attribution feature. It has
+    // no explicit <AttributionControl> to hand `customAttribution` to (and
+    // react-maplibre reads the <Map attributionControl> option once at mount),
+    // so the builder credits through MapLibre's native source-level mechanism —
+    // the field MVT-05 built here and left unfed. MapLibre recomputes the
+    // control from sources whose `used` flag is live, so hiding every layer on
+    // a source drops its credit without any code of ours running.
+    //
+    // Deliberately NOT mirrored in toViewerSyncInput: the viewer owns an
+    // explicit control and passes customAttribution, and feeding both would be
+    // two mechanisms answering one question.
+    attribution: layer.dataset_attribution ?? null,
     // MVT-06: surface the dataset spatial extent so the vector source can bound
     // tile fetching to the data footprint (the raster path already passes bounds).
     // fix(#1112): this is the RFC 7946 spec form now — `west > east` on an
@@ -1238,6 +1250,8 @@ export function syncLayersToMap(
         sourceLayer,
         tileUrl: '',
         style_config: layer.style_config ?? null,
+        // fix(#1472 review): reaches the raster / raster-dem source specs.
+        attribution: layer.attribution ?? null,
       };
 
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);

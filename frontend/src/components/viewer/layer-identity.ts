@@ -73,6 +73,22 @@ export function isTerrainBackingLiveVisible<
  * a substring of another and merges the result with the basemap's own credits,
  * so this returns the raw distinct set rather than trying to pre-compose it.
  */
+/**
+ * React `key` for the viewer's AttributionControl, derived from the credit set.
+ *
+ * react-maplibre's `useControl` builds the control once with `useMemo(…, [])`,
+ * so a changed `customAttribution` prop never reaches MapLibre; remounting on a
+ * changed key is what makes the prop live. That makes this function's
+ * injectivity load-bearing: any two distinct credit sets that collide here are
+ * two sets a toggle can move between without the control updating.
+ *
+ * fix(#1472 review): `JSON.stringify`, not a `join`. A credit containing the
+ * separator collided — `['A|B']` and `['A', 'B']` both yielded `A|B`.
+ */
+export function attributionControlKey(credits: string[]): string {
+  return `attribution-${JSON.stringify(credits)}`;
+}
+
 export function collectLayerAttributions<
   T extends ViewerLayerIdentityInput & { dataset_attribution?: string | null },
 >(layers: T[] | undefined, visibleLayers: Set<string>): string[] {

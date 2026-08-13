@@ -40,6 +40,7 @@ import { applyMapBasemapAppearance, syncMapComposition } from '@/components/buil
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
 import {
+  attributionControlKey,
   collectLayerAttributions,
   createViewerLayerEntries,
   isTerrainBackingLiveVisible,
@@ -1072,9 +1073,11 @@ export const ViewerMap = memo(function ViewerMap({
             useControl builds the control once with `useMemo(…, [])`, so a
             changed `customAttribution` prop never reaches MapLibre. Keying on
             the credit set remounts the control (removeControl + addControl)
-            exactly when that set changes, and not on any other render. */}
+            exactly when that set changes, and not on any other render.
+            attributionControlKey owns the derivation so its injectivity can be
+            tested directly — see the note there. */}
         <AttributionControl
-          key={`attribution-${layerAttributions.join('|')}`}
+          key={attributionControlKey(layerAttributions)}
           position="bottom-right"
           compact={true}
           customAttribution={

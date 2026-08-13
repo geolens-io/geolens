@@ -39,6 +39,11 @@ export interface AdapterLayerInput {
   minzoom?: number;
   maxzoom?: number;
   bounds?: number[] | null;
+  /** fix(#1472 review): the dataset's required credit line, for the raster and
+   *  raster-dem source specs. The vector path sets the same MapLibre source
+   *  property directly in map-sync; without it here a raster or DEM layer was
+   *  the one builder layer kind that rendered uncredited. */
+  attribution?: string | null;
 }
 
 export interface LayerAdapter {

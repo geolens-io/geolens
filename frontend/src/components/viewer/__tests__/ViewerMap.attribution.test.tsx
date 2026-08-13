@@ -11,7 +11,7 @@ import type { ReactNode } from 'react';
 import { render, screen } from '@/test/test-utils';
 import { describe, it, expect, vi } from 'vitest';
 import type { SharedLayerResponse } from '@/types/api';
-import { collectLayerAttributions } from '../layer-identity';
+import { attributionControlKey, collectLayerAttributions } from '../layer-identity';
 
 /* ── Mock @vis.gl/react-maplibre. AttributionControl is deliberately NOT
       null-mocked (as it is in the sibling viewer suites) — this suite exists to
@@ -154,6 +154,31 @@ describe('collectLayerAttributions', () => {
 
   it('handles an undefined layer list', () => {
     expect(collectLayerAttributions(undefined, new Set())).toEqual([]);
+  });
+});
+
+describe('attributionControlKey', () => {
+  // The key is what makes `customAttribution` live: react-maplibre builds the
+  // control once, so two distinct credit sets that share a key are two sets a
+  // toggle can move between with the control never updating.
+  it('separates credit sets that a delimiter join would collide', () => {
+    expect(attributionControlKey(['A|B'])).not.toBe(
+      attributionControlKey(['A', 'B']),
+    );
+  });
+
+  it('separates the same credits in a different order', () => {
+    expect(attributionControlKey([SWISSTOPO, NOAA])).not.toBe(
+      attributionControlKey([NOAA, SWISSTOPO]),
+    );
+  });
+
+  it('is stable for an unchanged credit set', () => {
+    expect(attributionControlKey([SWISSTOPO])).toBe(attributionControlKey([SWISSTOPO]));
+  });
+
+  it('separates the empty set from a single empty-string credit', () => {
+    expect(attributionControlKey([])).not.toBe(attributionControlKey(['']));
   });
 });
 
