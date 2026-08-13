@@ -62,18 +62,32 @@ From your install directory:
 
 `scripts/upgrade.sh` performs, in order:
 
-1. **Pre-upgrade backup** — `pg_dump -Fc` to
-   `backups/pre-upgrade/<db>_pre_<old>_to_<new>_<timestamp>.dump`. The upgrade
-   **aborts** if the dump is missing or empty (nothing else is touched).
-2. **Pins** the new `GEOLENS_VERSION` in `.env`.
-3. **Pulls** the prebuilt images (`docker compose pull --ignore-buildable`).
-4. **Runs migrations** — the one-shot `migrate` service (fail-closed). A failed
-   migration **aborts before the app is started**.
+1. **Syncs and pulls** — checks the release files out at the target tag and
+   pulls the prebuilt images (`docker compose pull --ignore-buildable`). The app
+   keeps serving throughout, so the download costs no downtime.
+2. **Stops `api` and `worker`**, then takes the **pre-upgrade backup** —
+   `pg_dump -Fc` to
+   `backups/pre-upgrade/<db>_pre_<old>_to_<new>_<timestamp>.dump`, verified by
+   reading it back end to end. The upgrade **aborts** and restarts the previous
+   version if the dump is missing, empty, or unreadable.
+3. **Runs migrations** — the one-shot `migrate` service (fail-closed). With the
+   app stopped, a data migration sees the final state of the old data instead of
+   racing writes from the release being replaced.
+4. **Pins** the new `GEOLENS_VERSION` in `.env`, once the migrations have
+   committed.
 5. **Starts** the stack and waits for every service to report healthy.
+
+Steps 2 through 5 are an **outage**: the instance takes no writes and answers no
+API traffic until the new version is healthy.
+[RUNBOOK.md § 10](RUNBOOK.md#10-routine-version-upgrade-outage-and-rollback)
+covers how long that lasts, what keeps serving, and what to do if the script
+dies mid-way.
 
 On success it prints the rollback recipe for reference and keeps the
 pre-upgrade dump. On **any** failure it stops, leaves your data in the dump, and
-prints the same rollback recipe.
+prints the same rollback recipe. If it fails while the app is stopped for the
+migration, it brings the **previous** version back up first and checks that it
+stayed up, so a failed upgrade does not quietly leave the instance down.
 
 > Re-running `scripts/install.sh` in an existing install also **detects** a newer
 > release: it prints a notice (non-interactive) or offers to upgrade
@@ -85,26 +99,42 @@ prints the same rollback recipe.
 If you prefer to drive it by hand (same steps as the script):
 
 ```bash
-# 1. Back up first (custom-format dump — the format restore.sh expects).
+# 1. Pull the new images first. The app keeps serving while this runs. Select
+#    the target for compose without editing .env yet (replace 1.2.4).
+export GEOLENS_VERSION=1.2.4
+docker compose -f docker-compose.prod.yml pull --ignore-buildable
+
+# 2. Stop the writers, THEN back up (custom-format dump — the format restore.sh
+#    expects). Stopping api+worker first is what makes the dump a snapshot with
+#    no lost writes, and what keeps step 3's migrations from racing writes from
+#    the release you are replacing. The outage starts here.
+docker compose -f docker-compose.prod.yml stop api worker
 mkdir -p backups/pre-upgrade
 docker compose -f docker-compose.prod.yml exec -T db \
   pg_dump -U geolens -d geolens -Fc --no-owner --no-acl \
   > "backups/pre-upgrade/geolens_$(date +%Y%m%d_%H%M%S).dump"
 
-# 2. Pin the new version in .env (replace 1.2.4 with your target).
-#    Edit the GEOLENS_VERSION= line, e.g.:
-#    GEOLENS_VERSION=1.2.4
-
-# 3. Pull the new prebuilt images.
-docker compose -f docker-compose.prod.yml pull --ignore-buildable
-
-# 4. Run migrations (fail-closed one-shot) BEFORE starting the app.
+# 3. Run migrations (fail-closed one-shot) BEFORE starting the app.
 docker compose -f docker-compose.prod.yml up -d --no-deps migrate
 docker compose -f docker-compose.prod.yml logs migrate   # confirm it exited 0
 
-# 5. Bring the stack up and verify health.
+# 4. Pin the new version in .env now that the migrations have committed.
+#    Edit the GEOLENS_VERSION= line, e.g.:
+#    GEOLENS_VERSION=1.2.4
+
+# 5. Bring the stack up and verify health. The outage ends here.
 docker compose -f docker-compose.prod.yml up -d
 docker compose -f docker-compose.prod.yml ps
+```
+
+If step 3 fails, put the previous release back rather than leaving the instance
+down. `--no-deps` is required here: `api` depends on the `migrate` one-shot
+completing successfully, so a plain `up -d` re-runs the migration that just
+failed.
+
+```bash
+GEOLENS_VERSION=1.2.3 docker compose -f docker-compose.prod.yml \
+  up -d --no-deps api worker      # replace 1.2.3 with the version you were on
 ```
 
 ---
@@ -117,24 +147,30 @@ running — it does **not** modify a source install. Upgrade by updating the
 checkout and rebuilding:
 
 ```bash
-# 1. Back up first.
+# 1. Stop the writers FIRST. The outage starts here. Unlike the prebuilt flow,
+#    the build cannot happen while the app serves: this compose file
+#    bind-mounts ./backend/app into the api container, so checking out the new
+#    tag in step 3 swaps the running app's code the moment it lands.
+docker compose -f docker-compose.yml stop api worker
+
+# 2. Back up (custom-format dump — the format restore.sh expects). With the
+#    writers stopped, the dump loses no acknowledged writes and step 4's
+#    migrations cannot race the release you are replacing.
 mkdir -p backups/pre-upgrade
 docker compose -f docker-compose.yml exec -T db \
   pg_dump -U geolens -d geolens -Fc --no-owner --no-acl \
   > "backups/pre-upgrade/geolens_$(date +%Y%m%d_%H%M%S).dump"
 
-# 2. Update the checkout to the new release tag.
+# 3. Update the checkout to the new release tag and rebuild.
 git fetch --tags origin
 git checkout v1.2.4            # replace with your target tag
-
-# 3. Rebuild the images from the new source.
 docker compose -f docker-compose.yml build
 
 # 4. Run migrations (fail-closed) BEFORE starting the app.
-docker compose -f docker-compose.yml up -d migrate
+docker compose -f docker-compose.yml up -d --no-deps migrate
 docker compose -f docker-compose.yml logs migrate   # confirm it exited 0
 
-# 5. Bring the stack up and verify health.
+# 5. Bring the stack up and verify health. The outage ends here.
 docker compose -f docker-compose.yml up -d
 docker compose -f docker-compose.yml ps
 ```

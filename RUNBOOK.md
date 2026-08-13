@@ -22,6 +22,7 @@ documentation.
 7. [Schema rollback](#7-schema-rollback)
 8. [Audit log retention](#8-audit-log-retention)
 9. [Uploaded source-file retention](#9-uploaded-source-file-retention)
+10. [Routine version upgrade: outage and rollback](#10-routine-version-upgrade-outage-and-rollback)
 
 ---
 
@@ -2142,3 +2143,167 @@ case where the COG carries the same samples anyway. Retained originals are
 recoverable on a local install, so if you are restoring one and need the
 pre-conversion files back, extract the staging archive as §2 describes and the
 `originals/` tree comes with it.
+
+---
+
+## 10. Routine version upgrade: outage and rollback
+
+[UPGRADING.md](UPGRADING.md) has the command. This section is the operator
+reference for the part that matters on a running instance: `scripts/upgrade.sh`
+takes the app down for a stretch of its run, and what it does when something
+fails depends on where it failed.
+
+### What stops, and for how long
+
+The upgrade stops `api` and `worker` before it dumps the database, and starts
+them again on the new version at the end. Between those two points the instance
+takes no writes and answers no API traffic.
+
+That outage is deliberate. Data migrations backfill and rewrite existing rows,
+and a one-shot backfill that runs while the previous release is still accepting
+writes silently misses every row written behind it. Alembic will not re-run the
+revision, so nothing repairs those rows later (#1467). Stopping the writers is
+also what makes the pre-upgrade dump a snapshot with no lost writes: `pg_dump`
+does not block writers, so anything acknowledged while it runs would be missing
+from the file you would restore from.
+
+Three services stay up for the whole upgrade:
+
+| Service | During the outage |
+| --- | --- |
+| `db` | Up. The dump and the migrations both need it. |
+| `frontend` | Up, still serving the previous release's UI shell. |
+| `titiler` | Up, but it is only reachable through `api`, so raster tiles stop with it. |
+
+In practice, a browser pointed at the instance still loads the page, and every
+request behind that page fails until the new `api` is healthy.
+
+The window is dump, then migrations, then the container swap:
+
+- The **dump** dominates on a large catalog. It is a `pg_dump -Fc` of the whole
+  database followed by a full read-back verification, so it takes longer than a
+  plain `pg_dump`. If you need a number before announcing a maintenance window,
+  time a `pg_dump -Fc` against a quiet instance and roughly double it.
+- **Migrations** are usually seconds. A release that backfills a large table is
+  the exception, and the release notes call those out.
+- The **container swap** plus the health gate is seconds to a couple of minutes.
+
+The image download is not in the window. The script syncs the release files and
+runs `docker compose pull` while the previous release is still serving, and
+stops the app only once the images are on disk. On a slow link that download is
+otherwise the largest part of an upgrade.
+
+### What it does when it fails
+
+| Failure | State it leaves behind |
+| --- | --- |
+| Release-file sync or image pull | Nothing stopped, nothing migrated, `.env` unchanged. Fix and re-run. |
+| Cannot stop `api`/`worker` | Aborts before the dump instead of dumping under live writers, and restarts whatever it managed to stop. Database untouched. |
+| Dump fails, is empty, or does not read back | Discards the unusable dump, restarts `api`/`worker` on the previous version, aborts. Database untouched. |
+| Migrations fail | Restarts `api`/`worker` on the previous version, waits to see whether they stay up, prints the rollback recipe, exits non-zero. |
+| New version starts but never becomes healthy | Leaves the new version running and prints the rollback recipe. It does not put the old containers back. |
+
+Two consequences are worth knowing before you meet them.
+
+**A failed migration leaves the previous release running against a database that
+may already hold part of the new release's schema.** The script restarts the old
+`api` and `worker` because an instance that is down is worse than one running
+old code, but old code on a partly-migrated schema is not a state to settle
+into. Read `docker compose logs migrate`, then either fix the cause and re-run
+the upgrade, or restore the pre-upgrade dump the script just took. Its path is
+in the rollback recipe the script prints.
+
+That restart can also fail to hold, and the script says so when it does rather
+than reporting a recovery it did not get. The api image runs
+`alembic upgrade heads` on boot, so if the failed migration committed a revision
+the previous image has never seen, that image refuses to start and the restart
+policy loops it. When you see that message, the dump is the way back.
+
+**The `GEOLENS_VERSION` pin in `.env` moves only after the migrations succeed.**
+A failed upgrade leaves the file naming the version you are still running, so
+re-running `scripts/upgrade.sh` retries the upgrade rather than deciding there
+is nothing to do.
+
+The last row of the table is the one case where the script deliberately does not
+act. Once migrations have committed, starting the previous release's containers
+is not a rollback; it is old code on a new schema. Rolling back from there means
+restoring the dump (§2) and then re-pinning the previous version.
+
+### If the script itself dies mid-way
+
+A closed terminal, a dropped SSH session, or a host reboot can leave the upgrade
+half-finished. The automatic restore lives in the script's own shell, so when
+that shell is gone, put the instance back by hand.
+
+Find out where it got to first:
+
+```bash
+# Which containers are running, and on which image tag?
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml images api worker
+
+# What does .env still pin? It only moves once migrations have committed.
+grep '^GEOLENS_VERSION=' .env
+
+# Did the migrate one-shot run, and how did it end?
+docker compose -f docker-compose.prod.yml ps -a migrate
+docker compose -f docker-compose.prod.yml logs --tail 50 migrate
+```
+
+Then take the case that matches.
+
+**`api`/`worker` are stopped and migrate never ran.** Nothing irreversible
+happened. Start the previous release again and re-run the upgrade when you are
+ready:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d --no-deps api worker
+```
+
+`--no-deps` is not optional here. `api` declares a dependency on the `migrate`
+one-shot completing successfully, so a plain `up -d` re-runs the migration you
+may be trying to stay clear of.
+
+**`api`/`worker` are stopped and migrate exited non-zero.** Do not assume the
+database is untouched. Alembic runs the batch in a transaction, but a revision
+that does its own commits (anything creating an index `CONCURRENTLY`, for
+instance) can leave both schema changes and an advanced `alembic_version` behind
+when a later revision fails. Read the migrate logs and decide which way to go:
+
+- If the cause is fixable (a full disk, a lock timeout), fix it and re-run
+  `scripts/upgrade.sh`. `alembic upgrade heads` is idempotent, so it resumes.
+- Otherwise restore the pre-upgrade dump, below. Starting the previous release
+  is not a safe substitute: the api image runs `alembic upgrade heads` on boot,
+  so if the failed migration committed a revision the old image does not know,
+  it refuses to start and the restart policy loops it. A stopped instance is the
+  visible symptom; old code silently reading a half-migrated schema is the worse
+  one.
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT * FROM alembic_version'
+```
+
+If that revision is not in the release you were running, the dump is the only
+way back.
+
+**`api`/`worker` are stopped and migrate exited 0.** The schema is already on
+the new release, so finish the upgrade rather than reverting it. Edit the
+`GEOLENS_VERSION=` line in `.env` to the version you were upgrading to, then:
+
+```bash
+docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml ps
+```
+
+**You want out.** Restore the pre-upgrade dump. The script writes it to
+`./backups/pre-upgrade/<db>_pre_<old>_to_<new>_<timestamp>.dump` and nothing
+prunes that directory, so the newest file there belongs to this attempt:
+
+```bash
+ls -t ./backups/pre-upgrade/*.dump | head -1
+```
+
+Re-pin the previous `GEOLENS_VERSION` in `.env`, restore that dump with
+`scripts/restore.sh` (§2), and bring the stack up. `alembic downgrade` is not a
+supported rollback; see §7 for why.

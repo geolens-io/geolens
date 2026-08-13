@@ -13,15 +13,23 @@ set -eu
 #   2. Determine the TARGET version (arg $1, else newest remote release tag).
 #   2.5 Refuse to cross a PostgreSQL major (chore(#704)) — abort before any
 #      change with a pointer to RUNBOOK section 6.
-#   3. PRE-UPGRADE BACKUP — pg_dump -Fc to a timestamped file. Abort if it is
-#      missing/empty. (Backup BEFORE we touch images or schema.)
-#   4. Bump GEOLENS_VERSION (export + persist via update_env_value).
+#   3. Export GEOLENS_VERSION=<target> for compose (NOT written to .env yet).
+#   4. Sync the on-disk release files to the target tag.
 #   5. compose pull --ignore-buildable.
-#   6. Run the one-shot migrate (fail-closed since phase 1216) — abort on non-zero
+#   6. OUTAGE STARTS — stop api + worker, then PRE-UPGRADE BACKUP (pg_dump -Fc
+#      to a timestamped file). Abort if it is missing/empty/unreadable.
+#   7. Run the one-shot migrate (fail-closed since phase 1216) — abort on non-zero
 #      BEFORE bringing the app up.
-#   7. compose up -d, then wait_for_healthy.
-#   8. Success: print the ROLLBACK recipe for reference. Any failure: stop, print
-#      the same rollback recipe, exit non-zero.
+#   8. Persist GEOLENS_VERSION to .env, compose up -d, wait_for_healthy — OUTAGE
+#      ENDS.
+#   9. Success: print the ROLLBACK recipe for reference. Any failure: print the
+#      same rollback recipe and exit non-zero — and while the app is still
+#      deliberately stopped, put the PREVIOUS release back first.
+#
+# fix(#1467): steps 3-5 all run before the stop, so the outage is stop -> dump ->
+# migrate -> start and never includes the download. Everything from step 6 on
+# runs with no application writers, so a data migration may assume it sees the
+# final state of the old data.
 #
 # Shared helpers (compose / wait_for_healthy / update_env_value / tag resolution)
 # live in scripts/lib/common.sh. install.sh inlines its own copies (curl|sh
@@ -65,17 +73,28 @@ if [ "$COMPOSE_FILE" != "docker-compose.prod.yml" ]; then
   say "scripts/upgrade.sh upgrades PREBUILT-IMAGE installs only. To upgrade a"
   say "source-build install, update the checkout and rebuild:"
   say ""
+  say "  docker compose -f docker-compose.yml stop api worker          # outage starts"
   say "  git fetch --tags origin"
   say "  git checkout <new-tag>          # e.g. v1.2.4"
   say "  docker compose -f docker-compose.yml build"
-  say "  docker compose -f docker-compose.yml up -d migrate   # run migrations"
-  say "  docker compose -f docker-compose.yml up -d"
+  say "  docker compose -f docker-compose.yml up -d --no-deps migrate  # run migrations"
+  say "  docker compose -f docker-compose.yml up -d                    # outage ends"
   say ""
-  say "Take a backup first (see UPGRADING.md). No changes were made."
+  # fix(#1467): the stop leads, and it is part of the recipe rather than an
+  # optimisation. Migrations that backfill existing rows must not run while the
+  # old release is still writing, and this compose file bind-mounts
+  # ./backend/app into the api container, so checking out the new tag under a
+  # running app swaps its code immediately.
+  say "Take the backup with api + worker already stopped (see UPGRADING.md)."
+  say "No changes were made."
   exit 0
 fi
 
 export GEOLENS_VERSION="${CURRENT_VERSION:-latest}"
+# What every failure path rolls back TO. An install with no GEOLENS_VERSION line
+# is already running whatever `latest` resolved to, which is also what compose
+# falls back to, so the two spellings are the same instance.
+PREVIOUS_VERSION="${CURRENT_VERSION:-latest}"
 
 # --- Step 2: determine target version ---------------------------------------
 if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
@@ -210,93 +229,15 @@ if [ -n "$target_pg_major" ] && [ -n "$current_pg_major" ] \
 fi
 say ""
 
-# --- Step 3: pre-upgrade backup ---------------------------------------------
-
-BACKUP_DIR="$PROJECT_ROOT/backups/pre-upgrade"
-mkdir -p "$BACKUP_DIR"
-STAMP="$(date '+%Y%m%d_%H%M%S')"
-BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
-
-# Quiesce the app's DB writers (api + worker) BEFORE the dump (Codex P1). pg_dump
-# is a snapshot taken when it BEGINS and does NOT block writers, so an acknowledged
-# write during/after the dump would be absent from the backup and lost if a failed
-# migration later triggers the restore recipe. Stopping api/worker first makes the
-# dump a consistent, no-lost-writes snapshot, and keeps the schema migration below
-# from running concurrently with old-version handling. db stays up (the dump +
-# migrate need it). If we abort before the app is brought back up, restart_writers
-# brings them back so a failure never leaves the app down; the success path's final
-# `compose up -d` (and a failed upgrade's rollback recipe) restart them too.
-restart_writers() { compose up -d api worker >/dev/null 2>&1 || true; }
-say "Stopping api + worker to quiesce writers before the backup + migration"
-# Hard precondition (Codex P1): if the stop fails, a writer may still be running,
-# so the no-writers guarantee is NOT established — taking the rollback dump now
-# could miss acknowledged writes. Restart whatever we stopped and abort BEFORE the
-# backup (nothing irreversible has happened yet; this is before the rollback trap).
-if ! compose stop api worker >/dev/null 2>&1; then
-  restart_writers
-  fail "Could not stop api/worker to quiesce writers. Aborting before any changes were made (refusing to dump under active writers)."
-fi
-
-say "Step 1/5: pre-upgrade database backup -> $BACKUP_FILE"
-# -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
-# to the host file via `exec -T` so the dump lands outside the container.
-if ! compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -Fc --no-owner --no-acl > "$BACKUP_FILE"; then
-  rm -f "$BACKUP_FILE"
-  restart_writers
-  fail "Pre-upgrade backup failed (pg_dump). Aborting before any changes were made."
-fi
-if [ ! -s "$BACKUP_FILE" ]; then
-  rm -f "$BACKUP_FILE"
-  restart_writers
-  fail "Pre-upgrade backup is empty. Aborting before any changes were made."
-fi
-# Read the archive back end-to-end before trusting it as the rollback artifact
-# (fix(#714), same check backup.sh got in #710). A dump truncated by a disk that
-# filled mid-write is non-empty and still passes `--list`, because the -Fc table
-# of contents sits at the front — the damage is only visible once every data
-# block is read. Do it here, while the pre-upgrade cluster is still intact and
-# a re-dump is free; the next steps migrate the schema, after which this file is
-# the only way back.
-if ! compose exec -T db pg_restore -f /dev/null < "$BACKUP_FILE" >/dev/null 2>&1; then
-  rm -f "$BACKUP_FILE"
-  restart_writers
-  fail "Pre-upgrade backup did not read back cleanly (truncated or corrupt). Aborting before any changes were made."
-fi
-say "  backup OK ($(du -h "$BACKUP_FILE" 2>/dev/null | cut -f1) ) — restore with: scripts/restore.sh \"$BACKUP_FILE\""
-say ""
-
-# From here on, a failure has (potentially) changed images/schema, so every
-# failure path must print the rollback recipe.
-print_rollback() {
-  say ""
-  say "=============================== ROLLBACK ==============================="
-  say "1. Re-pin the previous version in .env:"
-  say "     GEOLENS_VERSION=${CURRENT_VERSION:-<previous-version>}"
-  say "2. Restore the pre-upgrade database dump:"
-  say "     scripts/restore.sh \"$BACKUP_FILE\""
-  say "3. Bring the previous version back up:"
-  say "     docker compose -f $COMPOSE_FILE up -d"
-  say ""
-  say "Note: 'alembic downgrade' is NOT a supported rollback — restore the dump."
-  say "======================================================================="
-}
-rollback_trap() {
-  rc=$?
-  if [ "$rc" -ne 0 ]; then
-    warn "Upgrade FAILED (exit $rc). Your data is safe in $BACKUP_FILE."
-    print_rollback
-  fi
-}
-trap rollback_trap EXIT
-
-# --- Step 4: bump the version pin -------------------------------------------
-say "Step 2/5: pinning GEOLENS_VERSION=$TARGET_VERSION in .env"
+# --- Step 3: select the target version for compose ---------------------------
+# Export only — the .env pin is deliberately NOT written yet. Compose reads the
+# environment ahead of .env, so this is all the sync, pull and migrate steps
+# below need in order to resolve the target release's images, while .env keeps
+# naming the version that is actually installed until Step 8 says otherwise
+# (fix(#1467)).
 export GEOLENS_VERSION="$TARGET_VERSION"
-update_env_value GEOLENS_VERSION "$TARGET_VERSION"
-say ""
 
-# --- Step 4.5: sync the on-disk release files to the target tag --------------
+# --- Step 4: sync the on-disk release files to the target tag ----------------
 # UPG (Codex P2): `compose pull` refreshes IMAGES only. Without this, the operator
 # would keep the OLD checkout's compose file + container-mounted helper scripts, so
 # a release that changed compose (a new service, mount, or env wiring) would boot
@@ -307,7 +248,7 @@ say ""
 # (gitignored). Best-effort: a non-git install or any git failure warns and
 # continues with the current files (the pre-v1043 pull-only behaviour) rather than
 # aborting the upgrade. Local edits to the tracked files above are replaced.
-say "Step 3/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
+say "Step 1/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt images"
 DB_CONF="db/postgresql.conf"
 DB_CONF_CHANGED=0
 DB_CONF_AT_TARGET=0
@@ -394,15 +335,170 @@ if [ "$DB_CONF_AT_TARGET" = "1" ] && [ -f "$DB_CONF" ]; then
 fi
 say ""
 
-# --- Step 5: pull the new images --------------------------------------------
-compose pull --ignore-buildable || fail "Could not pull prebuilt images for $TARGET_VERSION."
+# --- Step 5: pull the new images (the last step before any downtime) ---------
+compose pull --ignore-buildable \
+  || fail "Could not pull prebuilt images for $TARGET_VERSION. Nothing was stopped, .env still pins ${PREVIOUS_VERSION}, and the database is untouched."
 say ""
+
+# --- Step 6: stop the app, then take the pre-upgrade backup ------------------
+# fix(#1467): this line is the boundary. Everything ABOVE it — the release-file
+# sync and the image pull — runs with the previous release still serving, which
+# is where the download belongs: on a self-hosted link it is the longest part of
+# an upgrade and it does not need the app to be down. Everything BELOW it runs
+# with api + worker stopped, so a data migration may assume it sees the final
+# state of the old data with no concurrent application writes behind it. A
+# one-shot backfill that ran while the old code was still accepting writes would
+# silently miss every row written in the window, and Alembic never re-runs the
+# revision to repair them (#1467).
+#
+# Stopping the writers is also what makes the dump a consistent, no-lost-writes
+# snapshot (Codex P1): pg_dump snapshots when it BEGINS and does NOT block
+# writers, so a write acknowledged during the dump would be absent from the
+# backup and lost if a failed migration later triggered the restore recipe.
+#
+# api and worker are the only services that write the catalog schema. db stays
+# up (the dump and the migration both need it); frontend and titiler stay up and
+# keep answering, though the frontend can only return errors for API calls until
+# the new api is running.
+BACKUP_DIR="$PROJECT_ROOT/backups/pre-upgrade"
+mkdir -p "$BACKUP_DIR"
+STAMP="$(date '+%Y%m%d_%H%M%S')"
+BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
+
+# Put the instance back the way we found it. `--no-deps` is load-bearing: the
+# prod compose gives api a `depends_on: migrate: service_completed_successfully`
+# edge, so a plain `up -d api worker` re-runs the one-shot — which on the
+# migrate-failure path is the very thing that just failed, so the app would stay
+# down. db is up throughout, so skipping deps costs nothing. GEOLENS_VERSION goes
+# back to the previous release in the environment, which is what selects the old
+# images; .env still names it (the pin does not move until Step 8).
+APP_DOWN=0
+restore_previous_app() {
+  export GEOLENS_VERSION="$PREVIOUS_VERSION"
+  compose up -d --no-deps api worker >/dev/null 2>&1
+}
+
+# `compose up -d` returns as soon as the containers are CREATED, which is not
+# the same as the previous release serving again (codex P1 round 2 on #1476).
+# The api image runs `alembic upgrade heads` on boot unless
+# GEOLENS_API_RUN_MIGRATIONS=false, and refuses to start when it fails. So if a
+# failed migration already committed a revision the OLD graph has never heard
+# of, the restored api exits and the restart policy loops it. Watch it settle
+# instead of reporting a restore that did not happen. An unreadable state fails
+# open, like this script's other best-effort probes.
+previous_app_settled() {
+  _cid="$(compose ps -q api 2>/dev/null | head -n 1)"
+  [ -n "$_cid" ] || return 1
+  _i=0
+  _state=""
+  while [ "$_i" -lt 6 ]; do
+    _i=$((_i + 1))
+    _state="$(docker inspect --format '{{.State.Status}}' "$_cid" 2>/dev/null || printf '')"
+    case "$_state" in
+      restarting|exited|dead) return 1 ;;
+      "") return 0 ;;
+    esac
+    sleep 5
+  done
+  [ "$_state" = "running" ]
+}
+
+report_restore() {
+  if ! restore_previous_app; then
+    warn "Could not start api + worker on GeoLens ${PREVIOUS_VERSION} — this instance is DOWN."
+    warn "  docker compose -f $COMPOSE_FILE logs api"
+    return 0
+  fi
+  if previous_app_settled; then
+    say "Restored GeoLens ${PREVIOUS_VERSION}: api + worker are running again."
+    return 0
+  fi
+  warn "GeoLens ${PREVIOUS_VERSION}'s api did not stay up — this instance is DOWN."
+  warn "If the migration got far enough to commit a revision, the previous release"
+  warn "cannot start against it: its own boot-time 'alembic upgrade heads' does not"
+  warn "know that revision. Check with:"
+  warn "  docker compose -f $COMPOSE_FILE logs api"
+  warn "If that is what happened, going back means restoring the pre-upgrade dump"
+  warn "(step 2 below), not restarting containers."
+}
+
+say "Step 2/5: stopping api + worker — the upgrade outage starts here"
+# Hard precondition (Codex P1): if the stop fails, a writer may still be running,
+# so the no-writers guarantee is NOT established — taking the rollback dump now
+# could miss acknowledged writes, and the migration below could run underneath a
+# live old app. Restart whatever we stopped and abort BEFORE the backup (the
+# database is still untouched; this is before the rollback trap).
+if ! compose stop api worker >/dev/null 2>&1; then
+  report_restore
+  fail "Could not stop api/worker to quiesce writers. The database was not touched (refusing to dump or migrate under active writers)."
+fi
+APP_DOWN=1
+
+say "  pre-upgrade database backup -> $BACKUP_FILE"
+# -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
+# to the host file via `exec -T` so the dump lands outside the container.
+if ! compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -Fc --no-owner --no-acl > "$BACKUP_FILE"; then
+  rm -f "$BACKUP_FILE"
+  report_restore
+  fail "Pre-upgrade backup failed (pg_dump). Aborting before the database was changed."
+fi
+if [ ! -s "$BACKUP_FILE" ]; then
+  rm -f "$BACKUP_FILE"
+  report_restore
+  fail "Pre-upgrade backup is empty. Aborting before the database was changed."
+fi
+# Read the archive back end-to-end before trusting it as the rollback artifact
+# (fix(#714), same check backup.sh got in #710). A dump truncated by a disk that
+# filled mid-write is non-empty and still passes `--list`, because the -Fc table
+# of contents sits at the front — the damage is only visible once every data
+# block is read. Do it here, while the pre-upgrade cluster is still intact and
+# a re-dump is free; the next steps migrate the schema, after which this file is
+# the only way back.
+if ! compose exec -T db pg_restore -f /dev/null < "$BACKUP_FILE" >/dev/null 2>&1; then
+  rm -f "$BACKUP_FILE"
+  report_restore
+  fail "Pre-upgrade backup did not read back cleanly (truncated or corrupt). Aborting before the database was changed."
+fi
+say "  backup OK ($(du -h "$BACKUP_FILE" 2>/dev/null | cut -f1) ) — restore with: scripts/restore.sh \"$BACKUP_FILE\""
+say ""
+
+# From here on, a failure has (potentially) changed the schema, so every failure
+# path must print the rollback recipe. fix(#1467): while the app is still
+# deliberately stopped, it must also put the previous release back — a failed
+# upgrade never leaves the instance down. Doing it in the trap covers every way
+# out, including a `set -e` abort nobody wrote a message for.
+print_rollback() {
+  say ""
+  say "=============================== ROLLBACK ==============================="
+  say "1. Re-pin the previous version in .env:"
+  say "     GEOLENS_VERSION=${CURRENT_VERSION:-<previous-version>}"
+  say "2. Restore the pre-upgrade database dump:"
+  say "     scripts/restore.sh \"$BACKUP_FILE\""
+  say "3. Bring the previous version back up:"
+  say "     docker compose -f $COMPOSE_FILE up -d"
+  say ""
+  say "Note: 'alembic downgrade' is NOT a supported rollback — restore the dump."
+  say "======================================================================="
+}
+rollback_trap() {
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    warn "Upgrade FAILED (exit $rc). Your data is safe in $BACKUP_FILE."
+    if [ "$APP_DOWN" = "1" ]; then
+      warn "Bringing the previous version back up so the app is not left stopped."
+      report_restore
+    fi
+    print_rollback
+  fi
+}
+trap rollback_trap EXIT
 
 # fix(#959): the release's db/postgresql.conf needs the container RECREATED,
 # not restarted or reloaded — `git checkout` writes a new inode and a
 # single-file bind mount keeps resolving the one the container started with.
-# Do it before the migrate step, while the old app containers are still the
-# ones about to be replaced anyway, and wait for the healthcheck.
+# Do it before the migrate step, while the app is already stopped and the dump
+# is already taken, and wait for the healthcheck.
 if [ "$DB_CONF_CHANGED" = "1" ]; then
   say "Applying ${DB_CONF} (recreating the db container)"
   compose up -d --force-recreate --no-deps --wait db \
@@ -410,13 +506,16 @@ if [ "$DB_CONF_CHANGED" = "1" ]; then
   say ""
 fi
 
-# --- Step 6: run migrations (fail-closed) BEFORE bringing the app up ---------
-say "Step 4/5: running database migrations (fail-closed)"
+# --- Step 7: run migrations (fail-closed) BEFORE bringing the app up ---------
+say "Step 3/5: running database migrations (fail-closed)"
 # The prod compose migrate service is a one-shot. `up -d migrate` waits on db
 # health and runs alembic upgrade heads; since phase 1216 it is fail-closed, so
 # we trust its exit code. Use --exit-code-from to surface the migrate result.
+# fix(#1467): api + worker are stopped for the whole of this step, so a data
+# migration here sees the final state of the old data — no application write can
+# land behind a one-shot backfill that has already passed the row.
 if ! compose up -d --no-deps migrate; then
-  fail "Migration step failed to start. App was NOT brought up to $TARGET_VERSION."
+  fail "Migration step failed to start. $TARGET_VERSION was NOT started and the version pin in .env still reads ${PREVIOUS_VERSION}."
 fi
 # Confirm the one-shot exited 0 before proceeding to the app.
 migrate_cid="$(compose ps -aq migrate 2>/dev/null | head -n 1)"
@@ -431,14 +530,36 @@ if [ -n "$migrate_cid" ]; then
   if [ "$m_exit" != "0" ]; then
     warn "migrate one-shot exit=$m_exit. Last 30 log lines:"
     compose logs --tail 30 migrate 2>&1 | sed 's/^/  /' >&2
-    fail "Migrations did NOT complete. App was NOT brought up to $TARGET_VERSION."
+    fail "Migrations did NOT complete. The database may already hold part of ${TARGET_VERSION}'s migrations, and $TARGET_VERSION was NOT started. The version pin in .env still reads ${PREVIOUS_VERSION}."
   fi
 fi
 say "  migrations applied."
+# Committed forward. The schema is the new release's, so the trap must not put
+# the previous release's containers back on top of it, and the rollback recipe
+# (restore the dump, then re-pin) becomes the only correct answer.
+#
+# This has to be the FIRST thing after the migration succeeds, ahead of anything
+# that can fail (codex P1 on #1476). Pinning .env below is fallible — an
+# unwritable file, a full disk — and under `set -e` that abort reaches the EXIT
+# trap. With the flag still armed, the trap would start ${PREVIOUS_VERSION}
+# against a fully migrated schema, which is the state this flag exists to
+# prevent. The app is then left stopped, which the printed rollback recipe
+# covers; old code on a new schema is the worse of the two.
+APP_DOWN=0
 say ""
 
-# --- Step 7: bring the app up + health gate ---------------------------------
-say "Step 5/5: starting GeoLens $TARGET_VERSION"
+# --- Step 8: pin the new version, bring the app up, health gate --------------
+# fix(#1467): the .env pin moves HERE, once the migrations have committed, not
+# before them. While it moved first, a failed upgrade left .env naming a version
+# whose migrations had not run — and re-running this script then read that pin as
+# the installed version, decided there was nothing to upgrade, and exited 0 with
+# the app still stopped.
+say "Step 4/5: pinning GEOLENS_VERSION=$TARGET_VERSION in .env"
+export GEOLENS_VERSION="$TARGET_VERSION"
+update_env_value GEOLENS_VERSION "$TARGET_VERSION"
+say ""
+
+say "Step 5/5: starting GeoLens $TARGET_VERSION — the outage ends here"
 compose up -d || fail "compose up failed for $TARGET_VERSION."
 if ! wait_for_healthy; then
   fail "GeoLens $TARGET_VERSION did not come up cleanly. See the failing service output above."
