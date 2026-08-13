@@ -3187,6 +3187,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # PostgreSQL-valid reference is not false-404'd. Most of the added lines are
     # that rationale. Cap at the exact size.
     "backend/app/platform/sandbox/validator.py": 1871,
+    # fix(#1463): crossed the inclusion threshold at 1001. The growth is the
+    # vector-tile protocol constants and the stale-label repair in
+    # generate_distributions, plus the comment recording why the repair has to
+    # exist at all: migration 0048 is one-shot and scripts/upgrade.sh runs it
+    # while the previous release is still writing rows (#1467), so the template
+    # is not the only place that has to know the old value. Cap at the exact
+    # size; the module is otherwise a stable set of CRUD helpers over the
+    # record's related tables and is not where new domains should land.
+    "backend/app/modules/catalog/records/service.py": 1001,
 }
 
 

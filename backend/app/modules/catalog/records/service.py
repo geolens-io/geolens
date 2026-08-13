@@ -628,20 +628,14 @@ _DISTRIBUTION_TEMPLATES = [
 # generated set, so reconcile has to see it.
 _VECTOR_TILES_PAIR = ("vector_tiles", "pbf")
 
-# fix(#1463): this used to read ``OGC:WMTS``, which the endpoint below does not
-# speak — ``/tiles/data.{table}/{z}/{x}/{y}.pbf`` is a plain XYZ template with
-# no capabilities document and no TileMatrixSet negotiation, so a client that
-# believed the label failed against a working instance. ``XYZ`` is what the
-# scheme is actually called everywhere it is consumed (QGIS's connection type,
-# GDAL's driver, MapLibre's source), and it claims no OGC standard, because
-# there is none to claim. The payload semantics are carried precisely by
-# ``format='pbf'`` and ``media_type='application/vnd.mapbox-vector-tile'``.
-# Bare rather than prefixed to match ``HTTP`` in the templates above, which is
-# this vocabulary's form for a transport that is not an OGC service.
-#
-# Migration 0048 rewrites the rows generated before this change; the WHERE
-# there matches this exact value, so the two have to move together.
+# fix(#1463): this read ``OGC:WMTS``, which the tile URL does not speak — it is
+# a plain XYZ template, no capabilities document and no TileMatrixSet. Bare, to
+# match ``HTTP`` above: this vocabulary prefixes ``OGC:`` only for real OGC
+# services, and there is no OGC XYZ standard to claim. Payload semantics stay
+# in ``format`` and ``media_type``. Migration 0048's WHERE matches both values
+# below, so the three move together.
 _VECTOR_TILES_PROTOCOL = "XYZ"
+_STALE_VECTOR_TILES_PROTOCOL = "OGC:WMTS"
 
 # The four-column unique constraint on ``record_distributions``
 # (record_id, distribution_type, format, url) — see RecordDistribution's
@@ -741,6 +735,29 @@ async def generate_distributions(
         )
     )
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
+
+    # fix(#1463, codex round 2): repair a surviving row the OLD template wrote.
+    # Migration 0048 is one-shot and `scripts/upgrade.sh` migrates while the
+    # previous app containers still serve (step 6 migrates, step 7 replaces the
+    # app), so a dataset created in that window is stamped `OGC:WMTS` after the
+    # UPDATE commits — and the pair-existence skip below means the template
+    # never rewrites it. Scoped like the migration's WHERE plus this record;
+    # a user's own row is not visible to this function at all. Reaches anything
+    # later refreshed, reuploaded or reconciled. A dataset created in the window
+    # and never touched again keeps the wrong label: the general ordering
+    # problem is #1467.
+    if _VECTOR_TILES_PAIR in existing_set:
+        await session.execute(
+            update(RecordDistribution)
+            .where(
+                RecordDistribution.record_id == record_id,
+                RecordDistribution.auto_generated.is_(True),
+                RecordDistribution.distribution_type == _VECTOR_TILES_PAIR[0],
+                RecordDistribution.format == _VECTOR_TILES_PAIR[1],
+                RecordDistribution.protocol == _STALE_VECTOR_TILES_PROTOCOL,
+            )
+            .values(protocol=_VECTOR_TILES_PROTOCOL)
+        )
 
     # fix(#1383): the template's primary flag yields to whoever already holds
     # it. At dataset creation nothing does and the GeoPackage (or CSV) row
