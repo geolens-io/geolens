@@ -1253,7 +1253,16 @@ def refresh_and_report(
     ) as e:
         print(f"  ! refresh FAILED for {label}: {e}", file=sys.stderr)
         return False
-    n = api.dataset_feature_count(dataset_id)
+    # The refresh SUCCEEDED at this point. The count is decoration on the log
+    # line, so it gets its own guard: letting a transient failure here escape
+    # would report a completed refresh as failed, and worse, this helper is
+    # called from refresh_sentinel2_scenes outside main()'s builder isolation,
+    # where an exception would abort an otherwise finished seed and skip every
+    # remaining scene.
+    try:
+        n = api.dataset_feature_count(dataset_id)
+    except (httpx.HTTPStatusError, httpx.TimeoutException):
+        n = "?"
     print(f"  refreshed {label} from its {run['origin_kind']} origin ({n} features)")
     return True
 
@@ -1744,23 +1753,40 @@ def _rename_map_if_needed(api: Api, name: str, legacy: str) -> None:
         print(f"  renamed map {legacy!r} -> {name!r}")
 
 
-def _resolve_renamed(api: Api, by_title: dict, title: str, legacy: str) -> str | None:
-    """Find a dataset under its CURRENT title, or adopt the legacy one.
+def _find_under_either_title(
+    by_title: dict, title: str, legacy: str | None
+) -> tuple[str | None, bool]:
+    """Locate a dataset under its current title or the one it used to have.
 
-    A live instance was seeded under the old title, and a plain lookup on the
-    new title would miss it and ingest a duplicate alongside it. Finding the
-    legacy title and PATCHing it forward migrates the instance in one run;
-    every run after that hits the first branch and does nothing.
+    Finding and RENAMING are deliberately separate steps. A live instance was
+    seeded under the old title and a plain lookup on the new one would miss it
+    and ingest a duplicate alongside - but the rename must not happen until
+    whatever the new title CLAIMS is actually true. See _adopt_title.
+
+    Returns (dataset_id, found_under_legacy_title).
     """
     if title in by_title:
-        return by_title[title]
-    if legacy in by_title:
-        ds = by_title[legacy]
-        api.patch_dataset(ds, title=title)
-        by_title[title] = ds
-        print(f"  retitled {legacy!r} -> {title!r}")
-        return ds
-    return None
+        return by_title[title], False
+    if legacy and legacy in by_title:
+        return by_title[legacy], True
+    return None, False
+
+
+def _adopt_title(api: Api, by_title: dict, dataset_id: str, title: str, legacy: str):
+    """Move a dataset onto its new title, once the new title is true of it.
+
+    Called only AFTER the work the title describes has succeeded. The title is
+    not cosmetic here: it is the key SHOWCASE_METADATA is looked up by, so
+    renaming first would have the enrichment pass write "read LIVE from the
+    USGS service, M2.5+" over a dataset still holding the old M4.5 upload if
+    the conversion between the two failed. The builders are isolated so one
+    failure cannot kill a seed, which means the passes downstream run either
+    way - so the rename has to be the last step, not the first.
+    """
+    api.patch_dataset(dataset_id, title=title)
+    by_title[title] = dataset_id
+    by_title.pop(legacy, None)
+    print(f"  retitled {legacy!r} -> {title!r}")
 
 
 def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
@@ -1789,16 +1815,19 @@ def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
         (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
         (QUAKES_HEAT_TITLE, None),
     ):
-        ds = (
-            _resolve_renamed(api, by_title, title, legacy)
-            if legacy
-            else by_title.get(title)
-        )
+        ds, under_legacy = _find_under_either_title(by_title, title, legacy)
         if ds is None:
             ds = ingest_service(api, USGS_QUAKES_SERVICE, title, QUAKE_SUMMARIES[title])
             by_title[title] = ds
         else:
+            # Convert BEFORE renaming. If this raises, the dataset keeps its old
+            # title, so the enrichment and styling passes downstream - which run
+            # regardless, because builders are isolated - find no entry for it
+            # and leave its M4.5 summary alone rather than advertising a live
+            # M2.5 service over unconverted uploaded data.
             convert_to_service(api, ds, USGS_QUAKES_SERVICE, title)
+            if under_legacy:
+                _adopt_title(api, by_title, ds, title, legacy)
         out.append(ds)
     return out[0], out[1]
 
@@ -1909,11 +1938,7 @@ def refresh_quakes(api: Api) -> int:
         (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
         (QUAKES_HEAT_TITLE, None),
     ):
-        ds = (
-            _resolve_renamed(api, by_title, title, legacy)
-            if legacy
-            else by_title.get(title)
-        )
+        ds, under_legacy = _find_under_either_title(by_title, title, legacy)
         if ds is None:
             # A failure, not a skip. This is the demo's cron entry point, so a
             # zero exit means "the quakes are current" to whatever is watching
@@ -1931,7 +1956,9 @@ def refresh_quakes(api: Api) -> int:
         if origin != "service":
             # Refusing beats "refreshing" an upload-origin dataset into a 409:
             # this instance predates the service conversion and needs a seed run
-            # (which converts in place) before a refresh means anything.
+            # (which converts in place) before a refresh means anything. No
+            # rename either - the new title would claim a live service this
+            # dataset is not yet reading from.
             print(
                 f"  ! {title!r} still has origin {origin!r}, not 'service' - "
                 "run a normal seed first to convert it",
@@ -1939,6 +1966,11 @@ def refresh_quakes(api: Api) -> int:
             )
             failed += 1
             continue
+        # Origin proves the conversion already landed, so the new title is true
+        # of this dataset now. A seed whose rename step failed after converting
+        # is finished here rather than left half-migrated.
+        if under_legacy:
+            _adopt_title(api, by_title, ds, title, legacy)
         if not refresh_and_report(api, ds, title):
             failed += 1
     return 1 if failed else 0
@@ -5148,23 +5180,41 @@ def _restyle_layer(
             raise
         if survived:
             raise
+    display = layer.get("display_name")
     try:
         api.add_layer(map_id, body)
     except Exception:
-        # Best effort, and deliberately not narrowed: whatever stopped the
-        # replacement, losing the layer outright is the worse outcome. If the
-        # restore fails too the original error still propagates.
+        # The POST is ambiguous exactly like the DELETE above: a lost response
+        # can follow a layer the server already created. Layer creation is not
+        # idempotent, so restoring blindly would leave the map with BOTH the
+        # replacement and a copy - and a duplicate survives every later pass,
+        # which restyles both, so it never resolves itself.
+        try:
+            committed = any(
+                x.get("display_name") == display
+                for x in (api.get_map(map_id).get("layers") or [])
+            )
+        except (httpx.HTTPStatusError, httpx.TimeoutException):
+            # Cannot tell. Restore, because a map missing a layer is a visible
+            # hole while a duplicate merely draws twice, and only one of those
+            # is recoverable by an operator who can see it.
+            committed = False
+        if committed:
+            print(
+                f"  ! restyle POST reported failure but {display!r} is present; "
+                "leaving it rather than adding a duplicate",
+                file=sys.stderr,
+            )
+            raise
         try:
             api.add_layer(map_id, original)
             print(
-                f"  ! restyle failed; restored the original layer "
-                f"{layer.get('display_name')!r}",
+                f"  ! restyle failed; restored the original layer {display!r}",
                 file=sys.stderr,
             )
         except (httpx.HTTPStatusError, httpx.TimeoutException):
             print(
-                f"  !! restyle failed AND the layer "
-                f"{layer.get('display_name')!r} could not be restored",
+                f"  !! restyle failed AND the layer {display!r} could not be restored",
                 file=sys.stderr,
             )
         raise
