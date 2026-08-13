@@ -50,9 +50,9 @@ test.describe('Authentication Flow', () => {
         role: 'viewer',
       }),
     });
-    // 400 "Username already taken" = leftover from an interrupted run. The
+    // 409 "Username already taken" = leftover from an interrupted run. The
     // password is deterministic, so the login below still proves it usable.
-    if (!res.ok && res.status !== 400) {
+    if (!res.ok && res.status !== 409) {
       throw new Error(
         `Could not create logout probe user: ${res.status} ${await res.text()}`,
       );
