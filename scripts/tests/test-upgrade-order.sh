@@ -190,7 +190,16 @@ if [ "$1" = "inspect" ]; then
       eval "st=\${DOCKER_STARTED_${svc}:-}"
       [ -n "$hc" ] && echo "${st:-unset-started} $hc"
       exit 0 ;;
-    *State.Status*)   echo "exited" ; exit 0 ;;
+    *State.Status*)
+      # The migrate one-shot is `exited` by design. The restored api answers
+      # DOCKER_API_STATE (running by default) so the post-restore settle probe
+      # can be driven both ways (codex P1 round 2 on #1476).
+      for a in "$@"; do cid="$a"; done
+      case "$cid" in
+        cid-api) printf '%s\n' "${DOCKER_API_STATE:-running}" ;;
+        *)       echo "exited" ;;
+      esac
+      exit 0 ;;
     *State.ExitCode*) [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0 ; exit 0 ;;
   esac
   exit 0
@@ -284,7 +293,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_STARTED_backup="${STARTED_BACKUP:-}" \
       DOCKER_STARTED_api="${STARTED_API:-}" \
       DOCKER_STARTED_frontend="${STARTED_FRONTEND:-}" \
-      DOCKER_SEAL_DIR="${SEAL_DIR:-}" \
+      DOCKER_SEAL_DIR="${SEAL_DIR:-}" DOCKER_API_STATE="${API_STATE:-running}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
@@ -484,6 +493,37 @@ if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ] && [ -n 
   ok "re-running after a failed migrate retries the upgrade (not a no-op)"
 else
   bad "re-run after a failed migrate did not retry (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# ============================================================================
+# CASE 2c — codex P1 round 2 on #1476: the restored api does not stay up. The
+# api image runs `alembic upgrade heads` on boot, so a failed migration that
+# already committed a revision leaves the OLD image unable to start, and
+# `compose up -d` still exits 0 because the container was created. The script
+# must not claim a restore that did not hold.
+# ============================================================================
+seed_prod_env
+API_STATE=restarting
+run_upgrade fail 1.2.4
+API_STATE=running
+
+if [ -n "$(pos_of restore_app)" ]; then
+  ok "a crash-looping previous release is still attempted"
+else
+  bad "no restore was attempted: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if grep -q 'did not stay up' "$WORK/out.txt" \
+   && ! grep -q 'api + worker are running again' "$WORK/out.txt"; then
+  ok "a restored api that does not stay up is reported DOWN, not restored"
+else
+  bad "the script claimed a restore that did not hold"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'restoring the pre-upgrade dump' "$WORK/out.txt"; then
+  ok "an unbootable previous release points at the dump restore, not a restart"
+else
+  bad "no dump-restore fallback for an unbootable previous release"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 

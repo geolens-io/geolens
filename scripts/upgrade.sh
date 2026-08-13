@@ -377,13 +377,49 @@ restore_previous_app() {
   export GEOLENS_VERSION="$PREVIOUS_VERSION"
   compose up -d --no-deps api worker >/dev/null 2>&1
 }
+
+# `compose up -d` returns as soon as the containers are CREATED, which is not
+# the same as the previous release serving again (codex P1 round 2 on #1476).
+# The api image runs `alembic upgrade heads` on boot unless
+# GEOLENS_API_RUN_MIGRATIONS=false, and refuses to start when it fails. So if a
+# failed migration already committed a revision the OLD graph has never heard
+# of, the restored api exits and the restart policy loops it. Watch it settle
+# instead of reporting a restore that did not happen. An unreadable state fails
+# open, like this script's other best-effort probes.
+previous_app_settled() {
+  _cid="$(compose ps -q api 2>/dev/null | head -n 1)"
+  [ -n "$_cid" ] || return 1
+  _i=0
+  _state=""
+  while [ "$_i" -lt 6 ]; do
+    _i=$((_i + 1))
+    _state="$(docker inspect --format '{{.State.Status}}' "$_cid" 2>/dev/null || printf '')"
+    case "$_state" in
+      restarting|exited|dead) return 1 ;;
+      "") return 0 ;;
+    esac
+    sleep 5
+  done
+  [ "$_state" = "running" ]
+}
+
 report_restore() {
-  if restore_previous_app; then
-    say "Restored GeoLens ${PREVIOUS_VERSION}: api + worker are running again."
-  else
-    warn "Could not restart api + worker — this instance is DOWN. Start it with:"
-    warn "  docker compose -f $COMPOSE_FILE up -d"
+  if ! restore_previous_app; then
+    warn "Could not start api + worker on GeoLens ${PREVIOUS_VERSION} — this instance is DOWN."
+    warn "  docker compose -f $COMPOSE_FILE logs api"
+    return 0
   fi
+  if previous_app_settled; then
+    say "Restored GeoLens ${PREVIOUS_VERSION}: api + worker are running again."
+    return 0
+  fi
+  warn "GeoLens ${PREVIOUS_VERSION}'s api did not stay up — this instance is DOWN."
+  warn "If the migration got far enough to commit a revision, the previous release"
+  warn "cannot start against it: its own boot-time 'alembic upgrade heads' does not"
+  warn "know that revision. Check with:"
+  warn "  docker compose -f $COMPOSE_FILE logs api"
+  warn "If that is what happened, going back means restoring the pre-upgrade dump"
+  warn "(step 2 below), not restarting containers."
 }
 
 say "Step 2/5: stopping api + worker — the upgrade outage starts here"

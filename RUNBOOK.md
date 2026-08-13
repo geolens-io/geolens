@@ -2200,7 +2200,7 @@ otherwise the largest part of an upgrade.
 | Release-file sync or image pull | Nothing stopped, nothing migrated, `.env` unchanged. Fix and re-run. |
 | Cannot stop `api`/`worker` | Aborts before the dump instead of dumping under live writers, and restarts whatever it managed to stop. Database untouched. |
 | Dump fails, is empty, or does not read back | Discards the unusable dump, restarts `api`/`worker` on the previous version, aborts. Database untouched. |
-| Migrations fail | Restarts `api`/`worker` on the previous version, prints the rollback recipe, exits non-zero. |
+| Migrations fail | Restarts `api`/`worker` on the previous version, waits to see whether they stay up, prints the rollback recipe, exits non-zero. |
 | New version starts but never becomes healthy | Leaves the new version running and prints the rollback recipe. It does not put the old containers back. |
 
 Two consequences are worth knowing before you meet them.
@@ -2212,6 +2212,12 @@ old code, but old code on a partly-migrated schema is not a state to settle
 into. Read `docker compose logs migrate`, then either fix the cause and re-run
 the upgrade, or restore the pre-upgrade dump the script just took. Its path is
 in the rollback recipe the script prints.
+
+That restart can also fail to hold, and the script says so when it does rather
+than reporting a recovery it did not get. The api image runs
+`alembic upgrade heads` on boot, so if the failed migration committed a revision
+the previous image has never seen, that image refuses to start and the restart
+policy loops it. When you see that message, the dump is the way back.
 
 **The `GEOLENS_VERSION` pin in `.env` moves only after the migrations succeed.**
 A failed upgrade leaves the file naming the version you are still running, so
@@ -2246,9 +2252,9 @@ docker compose -f docker-compose.prod.yml logs --tail 50 migrate
 
 Then take the case that matches.
 
-**`api`/`worker` are stopped and migrate never ran, or exited non-zero.**
-Nothing irreversible happened. Start the previous release again and re-run the
-upgrade when you are ready:
+**`api`/`worker` are stopped and migrate never ran.** Nothing irreversible
+happened. Start the previous release again and re-run the upgrade when you are
+ready:
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --no-deps api worker
@@ -2257,6 +2263,29 @@ docker compose -f docker-compose.prod.yml up -d --no-deps api worker
 `--no-deps` is not optional here. `api` declares a dependency on the `migrate`
 one-shot completing successfully, so a plain `up -d` re-runs the migration you
 may be trying to stay clear of.
+
+**`api`/`worker` are stopped and migrate exited non-zero.** Do not assume the
+database is untouched. Alembic runs the batch in a transaction, but a revision
+that does its own commits (anything creating an index `CONCURRENTLY`, for
+instance) can leave both schema changes and an advanced `alembic_version` behind
+when a later revision fails. Read the migrate logs and decide which way to go:
+
+- If the cause is fixable (a full disk, a lock timeout), fix it and re-run
+  `scripts/upgrade.sh`. `alembic upgrade heads` is idempotent, so it resumes.
+- Otherwise restore the pre-upgrade dump, below. Starting the previous release
+  is not a safe substitute: the api image runs `alembic upgrade heads` on boot,
+  so if the failed migration committed a revision the old image does not know,
+  it refuses to start and the restart policy loops it. A stopped instance is the
+  visible symptom; old code silently reading a half-migrated schema is the worse
+  one.
+
+```bash
+docker compose -f docker-compose.prod.yml exec -T db \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c 'SELECT * FROM alembic_version'
+```
+
+If that revision is not in the release you were running, the dump is the only
+way back.
 
 **`api`/`worker` are stopped and migrate exited 0.** The schema is already on
 the new release, so finish the upgrade rather than reverting it. Edit the

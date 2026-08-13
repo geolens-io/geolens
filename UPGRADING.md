@@ -86,8 +86,8 @@ dies mid-way.
 On success it prints the rollback recipe for reference and keeps the
 pre-upgrade dump. On **any** failure it stops, leaves your data in the dump, and
 prints the same rollback recipe. If it fails while the app is stopped for the
-migration, it brings the **previous** version back up first, so a failed upgrade
-never leaves the instance down.
+migration, it brings the **previous** version back up first and checks that it
+stayed up, so a failed upgrade does not quietly leave the instance down.
 
 > Re-running `scripts/install.sh` in an existing install also **detects** a newer
 > release: it prints a notice (non-interactive) or offers to upgrade
