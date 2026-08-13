@@ -216,11 +216,6 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     limiter = _RejectingLimiter()
     pool = _FakeTilePool()
     query = AsyncMock(return_value=b"unreachable")
-    # fix(#1451): the DB-miss path asks the catalog before requesting a permit,
-    # so a request the limiter is about to reject does pay one indexed lookup.
-    # What it must NOT do is still be holding that connection when it waits, and
-    # a rejected request must not take a permit it never releases.
-    catalog_session = _session_answering_liveness_probe()
     monkeypatch.setattr(tile_router, "get_tile_pool", lambda: pool)
 
     request = Request(
@@ -238,8 +233,6 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     with pytest.raises(HTTPException) as exc_info:
         await tile_router._acquire_and_serve_tile(
             request=request,
-            db=catalog_session,
-            dataset_id=uuid.uuid4(),
             table_name="roads",
             z=0,
             x=0,
@@ -259,7 +252,6 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     assert limiter.released == 0
     assert pool.acquire_count == 0
     query.assert_not_awaited()
-    catalog_session.rollback.assert_awaited()
 
 
 @pytest.mark.asyncio
@@ -328,9 +320,8 @@ async def test_hosted_tile_endpoints_share_cache_policy_and_limit_only_db_misses
 
     app = FastAPI()
     app.include_router(tile_router.router)
-    # fix(#1451): the DB-miss path now re-checks the catalog before reading the
-    # relation, so `None` no longer stands in for a session the endpoint never
-    # touched.
+    # fix(#1451): the endpoints re-check the catalog before acting on cached
+    # metadata, so `None` no longer stands in for a session they never touched.
     app.dependency_overrides[get_db] = lambda: _session_answering_liveness_probe()
     app.dependency_overrides[get_optional_user] = lambda: None
     transport = ASGITransport(app=app)

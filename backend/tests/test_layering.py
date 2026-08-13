@@ -2028,7 +2028,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
-#   tiles/router.py 2341 -> 2466. fix(#1451): +125 for `_assert_dataset_still_registered`
+#   tiles/router.py 2341 -> 2468. fix(#1451): +127 for `_assert_dataset_still_registered`
 #     and its single call site in `_acquire_and_serve_tile`. GH-1443 closed the
 #     half a caller could reach; direct DDL on the `data` schema can still put a
 #     relation under a deleted dataset's name, and the schema-wide default
@@ -2039,14 +2039,15 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     exists to avoid. Most of the lines are the docstring recording why the check
 #     sits on the pool path and not in _resolve_dataset_meta, since that placement
 #     is the whole difference between this and the option #1451 ruled out. The
-#     codex rounds added the placement itself, which took three and is now the bulk
-#     of the lines. A tile request takes an API-pool connection, a FAIR-01 permit
-#     and a tile-pool connection; each round found one more pair being taken in
-#     opposite orders by two paths, which stalls both under ordinary mixed load.
-#     The probe runs before all three and rolls back before the first is requested,
-#     which also retires the pre-existing half — a metadata-cache miss used to
-#     carry its connection into the permit wait. The rejected positions are written
-#     down at the call site so the next reader does not re-derive them.
+#     codex rounds added the placement itself, which took four and is now the bulk
+#     of the lines. The check sits in each endpoint on the first line past the
+#     byte-cache short-circuit: earlier and the hot path pays for it, later and it
+#     is below the COLD-02 seam (which would wake storage for a deleted dataset)
+#     and below the three bounded resources a tile request takes in order — an
+#     API-pool connection, a FAIR-01 permit, a tile-pool connection — where every
+#     position inverts a pair against a metadata-cache miss and stalls both paths.
+#     Every rejected position is recorded in the docstring, since re-deriving them
+#     is what the four rounds were.
 #   tiles/router.py 2329 -> 2341. fix(#1444): +12 of comment, no code. Both
 #     docstrings that GH-1429 left stating "a freed table name is immediately
 #     redrawable" as a live precondition now say GH-1443 removed it, and each
@@ -3096,7 +3097,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2466,
+    "backend/app/processing/tiles/router.py": 2468,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

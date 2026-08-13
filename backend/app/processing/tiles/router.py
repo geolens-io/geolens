@@ -1781,13 +1781,34 @@ async def _assert_dataset_still_registered(
     LRU, so a delete only evicts in the worker that served it. No process-local
     cache can answer for the others, so the check has to reach the database.
 
-    The cost is bounded by WHERE this runs. The caller is ``_acquire_and_serve_tile``,
-    which reaches this only after both tile caches have missed and before it takes
-    any capacity. A served-from-cache tile still costs zero round-trips, which is
-    the whole point of ``_dataset_cache`` (PERF-006 / PERF-002); a tile the pool
-    has to build pays one indexed primary-key lookup that is over, connection and
-    all, before the FAIR-01 permit is requested. The call site records why every
-    later position inverts an acquisition order against some other path.
+    WHERE this runs is the rest of the design, and four review rounds narrowed it
+    to one line in each endpoint: the first statement past the tile-byte-cache
+    short-circuit. Both bounds are tight.
+
+    No earlier, or the hot path pays for it. A tile answered from the byte cache
+    returns above this and still costs zero round-trips, which is the whole point
+    of ``_dataset_cache`` (PERF-006 / PERF-002).
+
+    No later, for two independent reasons. Everything below acts on the cached
+    authorization, starting with the COLD-02 seam, which would enqueue a restore
+    and hand back a 202 for a dataset the catalog no longer has. And a tile
+    request takes three bounded resources in sequence — this API-pool connection,
+    the FAIR-01 permit, then the tile-pool connection — so the check has to
+    complete and roll back before the first of them is requested. Every later
+    position inverts a pair against a metadata-cache MISS, which carries
+    ``_resolve_dataset_meta``'s connection into both waits: inside the tile
+    transaction it asks the API pool while holding a tile connection; after the
+    permit it holds a permit while asking the API pool. Both stall under ordinary
+    mixed load with no attacker involved.
+
+    Asking on the tile connection instead would need neither pool twice, but it
+    would need ``geolens_reader`` to hold SELECT on ``catalog.datasets``: a
+    runtime-role contract change for every deployment, and a widening of the one
+    role whose narrowness is why this path binds it at all.
+
+    ``test_both_tile_endpoints_ask_before_they_act`` pins the position, because a
+    third endpoint that resolved cached metadata and forgot this call would be a
+    silent regression.
 
     Pinning id AND table_name together is what makes it a liveness check rather
     than an existence check: a surviving row that has since been repointed at a
@@ -1976,8 +1997,6 @@ def _cluster_cache_table_key(
 async def _acquire_and_serve_tile(
     *,
     request: Request,
-    db: AsyncSession,
-    dataset_id: uuid.UUID,
     table_name: str,
     z: int,
     x: int,
@@ -2010,35 +2029,6 @@ async def _acquire_and_serve_tile(
     Callers keep their own cache-hit short-circuit and COLD-02 cold-rehydrate seam,
     which differ between the two paths.
     """
-    # fix(#1451): the catalog check, and the release that comes with it, run here
-    # — before any capacity is taken. Three resources are in play on this path and
-    # they are now acquired in one order by every request: the API-pool connection
-    # first, then the FAIR-01 permit, then the tile connection. Each is released
-    # before the next is requested, so no two paths can hold them in opposite
-    # orders (codex P1, rounds 1-3, which found one edge of that graph per round).
-    #
-    # `_assert_dataset_still_registered` ends by rolling back, which is what makes
-    # this position safe rather than merely early. The round-1 objection was
-    # retention, not placement: `db.execute` opens a transaction `get_db` would
-    # otherwise hold until the response is written, pinning an API connection
-    # through the 10s permit wait, the tile-pool wait, the PostGIS query and the
-    # gzip. Handing it back here also retires the PRE-EXISTING half of the same
-    # problem, since a metadata-cache miss already carried `_resolve_dataset_meta`'s
-    # connection into the permit wait, and an authenticated request carried the
-    # user lookup's.
-    #
-    # The two later positions both invert something. Inside the tile transaction
-    # it asks the API pool while holding a tile connection; after the permit it
-    # holds a permit while asking the API pool. Either one stalls against a
-    # metadata-cache miss taking the same pair the other way, under ordinary mixed
-    # load and with no attacker involved. Asking on the tile connection instead
-    # would need `geolens_reader` to hold SELECT on catalog.datasets: a
-    # runtime-role contract change for every deployment, and a widening of the one
-    # role whose narrowness is why this path binds it at all.
-    await _assert_dataset_still_registered(
-        db, dataset_id=dataset_id, table_name=table_name, tid=tid
-    )
-
     try:
         pool = get_tile_pool()
     except RuntimeError as exc:
@@ -2231,6 +2221,14 @@ async def cluster_tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
             )
 
+    # fix(#1451): first thing past the byte-cache short-circuit, because
+    # everything past it acts on the cached authorization — the cold seam below
+    # would enqueue a restore for a dataset the catalog no longer has. See the
+    # helper for why it cannot sit any later than this.
+    await _assert_dataset_still_registered(
+        db, dataset_id=meta.dataset_id, table_name=table_name, tid=_cluster_tid
+    )
+
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE cluster tile query.
     # Mirrors the tile_endpoint seam: uses cached meta.record_status (T-1214-18);
     # failure is broad-except-swallowed (T-1214-17).
@@ -2266,8 +2264,6 @@ async def cluster_tile_endpoint(
     # The same tenant concurrency budget governs vector and cluster DB reads.
     return await _acquire_and_serve_tile(
         request=request,
-        db=db,
-        dataset_id=meta.dataset_id,
         table_name=table_name,
         z=z,
         x=x,
@@ -2390,6 +2386,14 @@ async def tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _tile_cache_control),
             )
 
+    # fix(#1451): first thing past the byte-cache short-circuit, because
+    # everything past it acts on the cached authorization — the cold seam below
+    # would enqueue a restore for a dataset the catalog no longer has. See the
+    # helper for why it cannot sit any later than this.
+    await _assert_dataset_still_registered(
+        db, dataset_id=meta.dataset_id, table_name=table_name, tid=_tile_tid
+    )
+
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE tile query.
     # Uses the cached meta.record_status (no extra DB round-trip on the hot path,
     # T-1214-18). Returns a 202 Response for over-gate warming or None to continue.
@@ -2442,8 +2446,6 @@ async def tile_endpoint(
     # FAIR-01 per-tenant semaphore (cloud only) is threaded through tenant_sem.
     return await _acquire_and_serve_tile(
         request=request,
-        db=db,
-        dataset_id=meta.dataset_id,
         table_name=table_name,
         z=z,
         x=x,
