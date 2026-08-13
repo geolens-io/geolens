@@ -71,8 +71,11 @@ describe('OAuthCallbackPage', () => {
     );
   });
 
-  it('sends an incomplete fragment back to /login', async () => {
-    setHash('#expires_in=900');
+  // fix(#1446): the cookies were installed by the response that redirected
+  // here, so a fragment too incomplete to finish sign-in still leaves a live
+  // credential unless it is revoked.
+  it('revokes before sending an incomplete fragment back to /login', async () => {
+    setHash('#expires_in=900&auth_mode=cookie');
 
     render(<OAuthCallbackPage />);
 
@@ -80,5 +83,6 @@ describe('OAuthCallbackPage', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/login', { replace: true }),
     );
     expect(mockGetMe).not.toHaveBeenCalled();
+    expect(mockLogoutSession).toHaveBeenCalledTimes(1);
   });
 });
