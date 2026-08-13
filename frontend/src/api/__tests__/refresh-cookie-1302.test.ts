@@ -1,4 +1,4 @@
-import { login, logoutSession, refreshAccessToken } from '@/api/auth';
+import { awaitPendingLogout, login, logoutSession, refreshAccessToken } from '@/api/auth';
 import { useAuthStore } from '@/stores/auth-store';
 
 // fix(#1302): AC — after login the persisted `geolens-auth` value holds no
@@ -190,6 +190,44 @@ describe('browser refresh transport', () => {
     await loginPromise;
 
     expect(order).toEqual(['logout', 'login']);
+  });
+
+  // fix(#1446): two teardown paths can each dispatch a revocation (a terminal
+  // getMe 401 and a login catch, say). A single last-write-wins slot let
+  // awaitPendingLogout return once the LATER request settled, while the
+  // earlier one was still holding the user lock server-side — free to revoke
+  // rows a new sign-in just created. Every outstanding revocation must drain.
+  it('waits for every concurrent logout, not just the latest', async () => {
+    useAuthStore.setState({ token: 'live-access' });
+    const done204 = () =>
+      ({
+        ok: true,
+        status: 204,
+        statusText: 'No Content',
+        json: () => Promise.reject(new Error('no body')),
+        headers: new Headers(),
+      }) as Response;
+    let resolveSlow: (r: Response) => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => (resolveSlow = resolve)),
+    );
+    mockFetch.mockImplementationOnce(() => Promise.resolve(done204()));
+
+    const slowLogout = logoutSession();
+    const fastLogout = logoutSession();
+    await fastLogout;
+
+    let drained = false;
+    const drain = awaitPendingLogout().then(() => {
+      drained = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(drained).toBe(false);
+
+    resolveSlow(done204());
+    await slowLogout;
+    await drain;
+    expect(drained).toBe(true);
   });
 
   it('opts login into the cookie flow', async () => {

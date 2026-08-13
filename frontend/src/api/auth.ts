@@ -83,11 +83,18 @@ const LOGOUT_TIMEOUT_MS = 3_000;
  * so a request that lands after a fresh login would revoke the new session's
  * row, and a delayed response would erase its cookie.
  */
-let pendingLogout: Promise<void> | null = null;
+// fix(#1446): a Set, not a single slot. Concurrent teardown paths can each
+// dispatch a revocation (a terminal getMe 401 and a login-catch, say), and
+// last-write-wins would let awaitPendingLogout return while the older request
+// is still holding the user lock server-side — free to revoke rows a new
+// sign-in just created.
+const pendingLogouts = new Set<Promise<void>>();
 
-/** Wait for any in-flight logout revocation to settle. */
+/** Wait for every in-flight logout revocation to settle. */
 export async function awaitPendingLogout(): Promise<void> {
-  if (pendingLogout) await pendingLogout;
+  while (pendingLogouts.size > 0) {
+    await Promise.allSettled([...pendingLogouts]);
+  }
 }
 
 export async function logoutSession(): Promise<void> {
@@ -126,9 +133,9 @@ export async function logoutSession(): Promise<void> {
     () => undefined,
     () => undefined,
   );
-  pendingLogout = settled;
+  pendingLogouts.add(settled);
   void settled.then(() => {
-    if (pendingLogout === settled) pendingLogout = null;
+    pendingLogouts.delete(settled);
   });
 
   await request;

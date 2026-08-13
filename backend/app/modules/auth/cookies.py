@@ -136,6 +136,24 @@ def clear_browser_session(response: Response, request: Request) -> None:
 
 
 def read_refresh_cookie(request: Request) -> str | None:
+    """The refresh cookie's value, or None when absent or not trustworthy.
+
+    fix(#1446): refuses DUPLICATE cookies of this name outright. An attacker on
+    a sibling subdomain who holds their own valid refresh token can toss a
+    parent-``Domain`` cookie with this name; the browser then sends both, a
+    parser keeps one of the two, and the victim's refresh would rotate
+    whichever token won — installing the attacker's session under the victim's
+    UI (login CSRF). The attacker can only ADD a shadow, never remove the
+    victim's host cookie, so duplicates are the attack's fingerprint: refusing
+    them turns account confusion into a one-time re-login prompt.
+    """
+    raw = request.headers.get("cookie", "")
+    seen = 0
+    for part in raw.split(";"):
+        if part.split("=", 1)[0].strip() == REFRESH_COOKIE_NAME:
+            seen += 1
+    if seen > 1:
+        return None
     return request.cookies.get(REFRESH_COOKIE_NAME)
 
 

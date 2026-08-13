@@ -448,6 +448,69 @@ class TestLogoutClearsCookies:
         assert resp.status_code == 401
 
 
+class TestDuplicateCookieRefusal:
+    """fix(#1446): a sibling-subdomain attacker can toss a parent-Domain shadow
+    of the refresh cookie; the browser then sends BOTH and a parser keeps one.
+    Duplicates are the attack's fingerprint — the attacker can add a shadow but
+    never remove the victim's host cookie — so the server refuses them."""
+
+    async def test_duplicate_refresh_cookies_are_refused(self, client: AsyncClient):
+        login = await _login(client, cookie_mode=True)
+        real = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        csrf = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        client.cookies.clear()
+
+        resp = await client.post(
+            "/auth/refresh/",
+            headers={
+                **COOKIE_MODE,
+                "X-CSRF-Token": csrf,
+                "Cookie": (
+                    f"{REFRESH_COOKIE_NAME}={real}; "
+                    f"{REFRESH_COOKIE_NAME}=tossed-shadow; "
+                    f"{CSRF_COOKIE_NAME}={csrf}"
+                ),
+            },
+        )
+        assert resp.status_code == 401
+
+        # The legitimate cookie alone still rotates — refusal keys on the
+        # duplicate, not on the value.
+        _arm_cookies(client, real, csrf)
+        ok = await client.post(
+            "/auth/refresh/", headers={**COOKIE_MODE, "X-CSRF-Token": csrf}
+        )
+        assert ok.status_code == 200
+
+    async def test_duplicate_cookies_fall_through_to_the_body_token_at_logout(
+        self, client: AsyncClient
+    ):
+        """A shadowed cookie reads as absent, so logout still revokes via the
+        body token instead of 401ing the teardown."""
+        login = await _login(client, cookie_mode=True)
+        real = _cookie_attrs(login, REFRESH_COOKIE_NAME)["value"]
+        csrf = _cookie_attrs(login, CSRF_COOKIE_NAME)["value"]
+        body_token = (await _login(client, cookie_mode=False)).json()["refresh_token"]
+        client.cookies.clear()
+
+        resp = await client.post(
+            "/auth/logout/",
+            headers={
+                "Cookie": (
+                    f"{REFRESH_COOKIE_NAME}={real}; "
+                    f"{REFRESH_COOKIE_NAME}=tossed-shadow; "
+                    f"{CSRF_COOKIE_NAME}={csrf}"
+                ),
+            },
+            json={"refresh_token": body_token},
+        )
+        assert resp.status_code == 204, resp.text
+
+        client.cookies.clear()
+        after = await client.post("/auth/refresh/", json={"refresh_token": body_token})
+        assert after.status_code == 401
+
+
 class TestRotationRevocationRace:
     """fix(#1446): a rotation that read its row before a concurrent logout must
     not commit a still-active replacement afterwards. Client-side guards cannot
