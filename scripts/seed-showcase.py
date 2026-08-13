@@ -2172,14 +2172,24 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     pulled out FIRST and land in their own bucket whoever owns them, so no
     later branch can reach them.
     """
-    foreign_maps, stray_maps = [], []
+    foreign_maps, stray_maps, ownerless_maps = [], [], []
     for m in api.list_all_maps():
-        if m.get("created_by_username") != api.username:
+        # A NULL owner is not evidence of anything. Both Map.created_by and
+        # Record.created_by are ON DELETE SET NULL, so deleting a user strips
+        # ownership from everything they made and leaves it looking exactly
+        # like someone else's content to a "not mine" test. Deleting on that
+        # signal would destroy an operator's own work the moment their account
+        # was removed, which is the one outcome this command must never
+        # produce. Reported and kept, for a person to decide.
+        if m.get("created_by_username") is None:
+            ownerless_maps.append(m)
+        elif m.get("created_by_username") != api.username:
             foreign_maps.append(m)
         elif m.get("name") not in known_maps:
             stray_maps.append(m)
 
     foreign_datasets, stray_datasets, pinned, pinned_impostors = [], [], [], []
+    ownerless_datasets = []
     for d in api.list_all_datasets():
         if d.get("title") in PINNED_DATASET_TITLES:
             # Never in the delete set, whoever owns it. A title is not proof of
@@ -2193,6 +2203,10 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
                 pinned.append(d)
             else:
                 pinned_impostors.append(d)
+        elif d.get("created_by") is None:
+            # Same reasoning as the maps above: ownerless is unknown, not
+            # foreign.
+            ownerless_datasets.append(d)
         elif d.get("created_by") != api.user_id:
             foreign_datasets.append(d)
         elif not recognised(d.get("title", "")):
@@ -2201,8 +2215,10 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     return {
         "foreign_maps": foreign_maps,
         "stray_maps": stray_maps,
+        "ownerless_maps": ownerless_maps,
         "foreign_datasets": foreign_datasets,
         "stray_datasets": stray_datasets,
+        "ownerless_datasets": ownerless_datasets,
         "pinned": pinned,
         "pinned_impostors": pinned_impostors,
     }
@@ -2250,6 +2266,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     stray_datasets = buckets["stray_datasets"]
     pinned_hits = buckets["pinned"]
     pinned_impostors = buckets["pinned_impostors"]
+    ownerless_maps = buckets["ownerless_maps"]
+    ownerless_datasets = buckets["ownerless_datasets"]
 
     def report(label, rows, key, owner_key):
         print(f"\n  {label}: {len(rows)}")
@@ -2277,6 +2295,18 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         "created_by_username",
     )
     report("admin-owned strays (kept)", stray_datasets, "title", "created_by")
+    report(
+        "maps with no owner - creator account deleted (kept, review by hand)",
+        ownerless_maps,
+        "name",
+        "created_by_username",
+    )
+    report(
+        "datasets with no owner - creator account deleted (kept, review by hand)",
+        ownerless_datasets,
+        "title",
+        "created_by",
+    )
 
     print(f"\n  externally pinned, hard-kept: {len(pinned_hits)}")
     for d in pinned_hits:
@@ -2306,7 +2336,9 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
             f"{len(foreign_datasets)} datasets; would keep {len(stray_maps)} "
             f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
             f"{len(pinned_hits) + len(pinned_impostors)} pinned-title datasets "
-            f"({len(pinned_impostors)} not the seeder's). Nothing was deleted. "
+            f"({len(pinned_impostors)} not the seeder's) and "
+            f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
+            "Nothing was deleted. "
             "Re-run with --execute to perform it."
         )
         return 0
@@ -2333,8 +2365,10 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         f"\n  SUMMARY: deleted {deleted_maps}/{len(foreign_maps)} maps and "
         f"{deleted_datasets}/{len(foreign_datasets)} datasets; kept "
         f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
-        f"strays and {len(pinned_hits) + len(pinned_impostors)} pinned-title "
-        f"datasets ({len(pinned_impostors)} not the seeder's). {errors} error(s)."
+        f"strays, {len(pinned_hits) + len(pinned_impostors)} pinned-title "
+        f"datasets ({len(pinned_impostors)} not the seeder's) and "
+        f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
+        f"{errors} error(s)."
     )
     return 1 if errors else 0
 
@@ -5033,21 +5067,33 @@ MAP_TEXT_REQUIRES_LIVE_QUAKES = frozenset({"Restless Earth"})
 
 
 def _quakes_are_live(api: "Api") -> bool:
-    """Observed evidence that the quake datasets read from the USGS service.
+    """Observed evidence that BOTH quake datasets read from the USGS service.
 
-    Reads origin off the dataset rather than inferring it from "the builder
+    Reads origin off each dataset rather than inferring it from "the builder
     ran" or "the rename happened". Both inferences have been wrong: the
     builder is isolated so a failure is invisible downstream, and the rename
     is itself gated on the conversion, which makes it a proxy rather than
-    evidence. False on any error, since the claim being gated is one that
-    should only be published on positive proof.
+    evidence.
+
+    Both, because the wording this gates covers both. The Restless Earth notes
+    say the earthquakes are read live, and the map draws them twice - graduated
+    circles from one dataset, the heat surface from the other. They convert in
+    sequence, so the second can fail after the first succeeded, and checking
+    only the circles would publish "read live" over a heat layer still holding
+    the old M4.5 upload.
+
+    False on any error: the claim being gated should only be published on
+    positive proof.
     """
     try:
         by_title = api.datasets_by_title()
-        dataset_id = by_title.get(QUAKES_TITLE)
-        if dataset_id is None:
-            return False
-        return api.dataset_origin(dataset_id) == "service"
+        for title in (QUAKES_TITLE, QUAKES_HEAT_TITLE):
+            dataset_id = by_title.get(title)
+            if dataset_id is None:
+                return False
+            if api.dataset_origin(dataset_id) != "service":
+                return False
+        return True
     except (httpx.HTTPStatusError, httpx.TimeoutException):
         return False
 

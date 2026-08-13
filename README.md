@@ -304,7 +304,7 @@ See the [CLI guide](https://docs.getgeolens.com/guides/cli/) for the full manife
 
 `scripts/seed-showcase.py` builds seven showcase maps from public open data: a global
 tectonics story over real ocean-floor relief, the Manhattan 3D skyline colored by
-construction era (the hero above), 75 years of Atlantic hurricane tracks, clustered
+construction era (the hero above), Atlantic hurricane tracks since 1950, clustered
 meteorite falls, the Matterhorn in 2 m lidar 3D terrain, by-reference Sentinel-2
 imagery of New York, and a hurricane-exposure map computed in place from the storm
 tracks with buffer, intersect and dissolve:

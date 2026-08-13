@@ -9,8 +9,8 @@ Utility scripts for GeoLens administration and data seeding.
 Builds the seven showcase hero maps from public, openly licensed data against a
 running stack — Restless Earth (quakes + volcanic eruptions + plate boundaries
 over ETOPO global relief), Manhattan (3D skyline by construction era + the MTA
-subway), The Matterhorn (3D lidar terrain), Hurricane Alley (75 years of major
-Atlantic storms from HURDAT2), Everything That Fell From the Sky (clustered
+subway), The Matterhorn (3D lidar terrain), Hurricane Alley (major Atlantic
+storms since 1950 from HURDAT2), Everything That Fell From the Sky (clustered
 meteorite falls), New York From Orbit (Sentinel-2 COGs by reference), and
 Hurricane Exposure (the Category 3+ storm legs buffered, intersected with the
 Atlantic basin regions and dissolved per region, all through the analysis API,
