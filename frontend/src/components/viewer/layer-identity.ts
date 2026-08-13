@@ -58,3 +58,32 @@ export function isTerrainBackingLiveVisible<
   const entry = createViewerLayerEntries(layers).find((e) => e.layer === backing);
   return entry ? visibleLayers.has(entry.key) : true;
 }
+
+/**
+ * feat(#1472): the distinct credit lines the currently visible layers' datasets
+ * require, in stacking order, for MapLibre's attribution control.
+ *
+ * Scoped to `visibleLayers` — the live eye-toggle state, the same set the
+ * legend and the terrain-mesh gate read — rather than the saved `visible`
+ * flag, so hiding a layer drops its credit and showing it again restores it.
+ * A credit for data nobody can currently see is the wrong claim to make.
+ *
+ * Deduped by exact string: two layers ingested from one source carry the same
+ * line and must credit it once. MapLibre additionally drops any entry that is
+ * a substring of another and merges the result with the basemap's own credits,
+ * so this returns the raw distinct set rather than trying to pre-compose it.
+ */
+export function collectLayerAttributions<
+  T extends ViewerLayerIdentityInput & { dataset_attribution?: string | null },
+>(layers: T[] | undefined, visibleLayers: Set<string>): string[] {
+  const seen = new Set<string>();
+  const credits: string[] = [];
+  for (const { layer, key } of createViewerLayerEntries(layers)) {
+    if (!visibleLayers.has(key)) continue;
+    const credit = layer.dataset_attribution?.trim();
+    if (!credit || seen.has(credit)) continue;
+    seen.add(credit);
+    credits.push(credit);
+  }
+  return credits;
+}

@@ -34,6 +34,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
     extent_bbox: null,
     column_info: null,
     license: null,
+    attribution: null,
     source_organization: null,
     data_vintage_start: null,
     data_vintage_end: null,

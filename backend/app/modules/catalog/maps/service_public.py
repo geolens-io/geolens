@@ -414,6 +414,7 @@ def _build_shared_layer_dict(
     ds_is_dem: bool | None,
     ds_dem_vertical_units: str | None,
     ds_tile_version: int | None,
+    ds_attribution: str | None,
 ) -> tuple[dict, bool]:
     """Build a shared-layer response dict from a joined layer row.
 
@@ -464,6 +465,11 @@ def _build_shared_layer_dict(
         "feature_count": ds_feature_count,
         # fix(#394) VT-02: `_v=` cache-buster input (viewer parity).
         "tile_version": ds_tile_version,
+        # feat(#1472): the credit line the viewer renders in the attribution
+        # control. Not gated on `is_public` — a layer that reached this builder
+        # is already authorized to the caller, and a display obligation the
+        # source imposes applies most to the audience a share link reaches.
+        "dataset_attribution": ds_attribution,
     }, not is_public
 
 
@@ -545,6 +551,7 @@ async def get_shared_map(
             # current_version only changes on reupload, so feature edits and
             # column DDL never rolled the _v= param (stale CDN/browser tiles).
             Dataset.tile_cache_version,
+            Record.attribution,
         )
         .join(Map, Map.id == MapLayer.map_id)
         .join(Dataset, MapLayer.dataset_id == Dataset.id)
@@ -617,6 +624,7 @@ async def get_shared_map(
         ds_is_dem,
         ds_band_info,
         ds_tile_version,
+        ds_attribution,
     ) in layer_rows:
         layer_dict, is_non_public = _build_shared_layer_dict(
             layer,
@@ -631,6 +639,7 @@ async def get_shared_map(
             ds_is_dem,
             _extract_dem_vertical_units(ds_band_info),
             ds_tile_version,
+            ds_attribution,
         )
         if is_non_public:
             has_non_public = True

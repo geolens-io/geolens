@@ -4765,6 +4765,19 @@
             ],
             "title": "License"
           },
+          "attribution": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credit line displayed with the data. Null clears it; the ingest tail seeds it from a manifest's metadata.attribution.",
+            "title": "Attribution"
+          },
           "source_organization": {
             "anyOf": [
               {
@@ -5533,6 +5546,18 @@
               }
             ],
             "title": "License"
+          },
+          "attribution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Credit line the source's terms require to be displayed wherever the data is rendered. Shown verbatim in the map viewer's attribution control.",
+            "title": "Attribution"
           },
           "source_organization": {
             "anyOf": [
@@ -9984,6 +10009,17 @@
               }
             ],
             "title": "Dataset Status"
+          },
+          "dataset_attribution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Attribution"
           }
         },
         "required": [
@@ -15179,6 +15215,17 @@
               }
             ],
             "title": "Tile Version"
+          },
+          "dataset_attribution": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Attribution"
           }
         },
         "required": [

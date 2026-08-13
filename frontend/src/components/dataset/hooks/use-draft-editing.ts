@@ -13,7 +13,8 @@ export type PendingDraftField =
   | 'usage_constraints'
   | 'access_constraints'
   | 'sensitivity_classification'
-  | 'quality_statement';
+  | 'quality_statement'
+  | 'attribution';
 
 type PendingDrafts = Partial<Record<PendingDraftField, string | null>>;
 

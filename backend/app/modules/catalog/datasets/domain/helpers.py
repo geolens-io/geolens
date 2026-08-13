@@ -222,6 +222,7 @@ def dataset_to_response(
         column_info=dataset.column_info,
         quality_detail=dataset.quality_detail,
         license=record.license,
+        attribution=record.attribution,
         source_organization=record.source_organization,
         data_vintage_start=record.temporal_start,
         data_vintage_end=record.temporal_end,

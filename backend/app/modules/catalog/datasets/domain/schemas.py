@@ -291,6 +291,14 @@ class DatasetResponse(BaseModel):
         default=None, description="Column names, types, and stats"
     )
     license: str | None = None
+    attribution: str | None = Field(
+        default=None,
+        description=(
+            "Credit line the source's terms require to be displayed wherever "
+            "the data is rendered. Shown verbatim in the map viewer's "
+            "attribution control."
+        ),
+    )
     source_organization: str | None = None
     data_vintage_start: date | None = Field(
         default=None, description="Start of temporal coverage"
@@ -569,6 +577,18 @@ class DatasetMeta(BaseModel):
         description="Access level: private, restricted, internal, or public",
     )
     license: str | None = Field(default=None, max_length=1000)
+    # feat(#1472): 5000, not the 1000 its neighbours use, because
+    # ManifestMetadata.attribution is NonEmptyString5000 and the ingest tail
+    # writes it straight to the column. A 1000-char bound here would accept a
+    # manifest value the dataset PATCH then refuses to round-trip.
+    attribution: str | None = Field(
+        default=None,
+        max_length=5000,
+        description=(
+            "Credit line displayed with the data. Null clears it; the ingest "
+            "tail seeds it from a manifest's metadata.attribution."
+        ),
+    )
     source_organization: str | None = Field(default=None, max_length=1000)
     data_vintage_start: date | None = Field(
         default=None, description="Start of temporal coverage"
@@ -662,6 +682,7 @@ class DatasetMeta(BaseModel):
         "lineage_summary",
         "quality_statement",
         "source_organization",
+        "attribution",
         mode="before",
     )
     @classmethod

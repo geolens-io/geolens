@@ -59,6 +59,8 @@ class DatasetResponse:
             on an antimeridian-crossing extent.
         column_info (list[ColumnInfo] | None | Unset): Column names, types, and stats
         license_ (None | str | Unset):
+        attribution (None | str | Unset): Credit line the source's terms require to be displayed wherever the data is
+            rendered. Shown verbatim in the map viewer's attribution control.
         source_organization (None | str | Unset):
         data_vintage_start (datetime.date | None | Unset): Start of temporal coverage
         data_vintage_end (datetime.date | None | Unset): End of temporal coverage
@@ -148,6 +150,7 @@ class DatasetResponse:
     extent_bbox: list[float] | None | Unset = UNSET
     column_info: list[ColumnInfo] | None | Unset = UNSET
     license_: None | str | Unset = UNSET
+    attribution: None | str | Unset = UNSET
     source_organization: None | str | Unset = UNSET
     data_vintage_start: datetime.date | None | Unset = UNSET
     data_vintage_end: datetime.date | None | Unset = UNSET
@@ -295,6 +298,12 @@ class DatasetResponse:
             license_ = UNSET
         else:
             license_ = self.license_
+
+        attribution: None | str | Unset
+        if isinstance(self.attribution, Unset):
+            attribution = UNSET
+        else:
+            attribution = self.attribution
 
         source_organization: None | str | Unset
         if isinstance(self.source_organization, Unset):
@@ -586,6 +595,8 @@ class DatasetResponse:
             field_dict["column_info"] = column_info
         if license_ is not UNSET:
             field_dict["license"] = license_
+        if attribution is not UNSET:
+            field_dict["attribution"] = attribution
         if source_organization is not UNSET:
             field_dict["source_organization"] = source_organization
         if data_vintage_start is not UNSET:
@@ -839,6 +850,15 @@ class DatasetResponse:
             return cast(None | str | Unset, data)
 
         license_ = _parse_license_(d.pop("license", UNSET))
+
+        def _parse_attribution(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        attribution = _parse_attribution(d.pop("attribution", UNSET))
 
         def _parse_source_organization(data: object) -> None | str | Unset:
             if data is None:
@@ -1331,6 +1351,7 @@ class DatasetResponse:
             extent_bbox=extent_bbox,
             column_info=column_info,
             license_=license_,
+            attribution=attribution,
             source_organization=source_organization,
             data_vintage_start=data_vintage_start,
             data_vintage_end=data_vintage_end,

@@ -81,6 +81,7 @@ function makeDataset(): DatasetResponse {
     extent_bbox: [-1, -1, 1, 1],
     column_info: [{ name: 'name', type: 'text' }],
     license: null,
+    attribution: null,
     source_organization: null,
     data_vintage_start: null,
     data_vintage_end: null,
