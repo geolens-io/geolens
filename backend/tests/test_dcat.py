@@ -971,22 +971,36 @@ async def test_dcat_feed_gives_every_dataset_a_distribution(
     admin_auth_header: dict,
     test_db_session,
 ):
-    """Including STAC-origin rasters, which carry no distribution row."""
+    """Including STAC-origin rasters, which carry no distribution row.
+
+    Scoped to the datasets this test creates rather than asserted over the
+    whole feed. "Every dataset has a distribution" is a property of datasets
+    created through the real creation paths (which call
+    ``generate_distributions``), not of the table: under ``pytest -n 4`` the
+    shared per-worker DB carries public datasets that sibling tests inserted
+    as bare ORM rows, and a feed-wide assertion fails on those instead — 56
+    of them, on the first CI run of this test.
+    """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
-    await _create_dcat_dataset(session, created_by=admin_id, name="Vector")
-    await _create_dcat_raster_dataset(
-        session, created_by=admin_id, name="COG Raster", storage_key=_STORAGE_KEY
-    )
-    await _create_dcat_raster_dataset(
-        session, created_by=admin_id, name="Sentinel-2 Scene", source_format="stac"
-    )
+    created = {
+        "vector": await _create_dcat_dataset(
+            session, created_by=admin_id, name="Vector"
+        ),
+        "COG-backed raster": await _create_dcat_raster_dataset(
+            session, created_by=admin_id, name="COG Raster", storage_key=_STORAGE_KEY
+        ),
+        "STAC-origin raster": await _create_dcat_raster_dataset(
+            session, created_by=admin_id, name="Sentinel-2 Scene", source_format="stac"
+        ),
+    }
 
     resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
-    entries = resp.json()["dcat:dataset"]
-    assert entries
-    without = [e["@id"] for e in entries if not e.get("dcat:distribution")]
-    assert without == [], f"datasets with no access method: {without}"
+    entries = {e["dcterms:identifier"]: e for e in resp.json()["dcat:dataset"]}
+    for label, dataset in created.items():
+        entry = entries.get(str(dataset.id))
+        assert entry is not None, f"{label} missing from the feed"
+        assert entry.get("dcat:distribution"), f"{label} has no access method"
 
 
 @pytest.mark.anyio
