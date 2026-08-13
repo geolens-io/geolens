@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { login as apiLogin, getMe, logoutSession } from '@/api/auth';
-import { tryRefresh } from '@/api/client';
+import { abortInflightRefresh, tryRefresh } from '@/api/client';
 
 export function useAuth() {
   const navigate = useNavigate();
@@ -106,6 +106,11 @@ export function useAuth() {
     // below cannot affect it. Waiting would only buy a confirmation we never
     // act on, at the cost of holding the user on an authenticated screen for
     // as long as the network stalls.
+    // fix(#1446): abandon any refresh still in flight first. Its response
+    // carries a Set-Cookie the browser would apply on arrival, and if the user
+    // signs in again before it lands it would overwrite the new session's
+    // cookie with the token this logout is about to revoke.
+    abortInflightRefresh();
     void logoutSession().catch(() => {
       // Offline, or a session already dead. Local teardown proceeds regardless.
     });

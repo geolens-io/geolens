@@ -232,6 +232,32 @@ describe('late refresh after logout', () => {
     expect(window.localStorage.getItem('geolens-auth') ?? '').not.toContain('rotated');
   });
 
+  // fix(#1446): the epoch guard stops the store write, but the browser applies
+  // a response's Set-Cookie regardless. If the user signs in again before a
+  // stale refresh response lands, that cookie would replace the new session's
+  // credential with the one the logout revoked. Aborting means the response is
+  // never processed at all.
+  it('aborts an in-flight refresh so its Set-Cookie can never land', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    vi.doMock('@/api/auth', () => ({
+      refreshAccessToken: vi.fn((_token: string | null, signal?: AbortSignal) => {
+        capturedSignal = signal;
+        return new Promise(() => {});
+      }),
+      logoutSession: vi.fn(() => Promise.resolve()),
+    }));
+
+    const { tryRefresh, abortInflightRefresh } = await import('@/api/client');
+    const { useAuthStore: store } = await import('@/stores/auth-store');
+
+    store.setState({ token: 'live-access', refreshToken: null, expiresAt: Date.now() + 60_000 });
+    void tryRefresh();
+
+    expect(capturedSignal?.aborted).toBe(false);
+    abortInflightRefresh();
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
   it('still applies rotated tokens when no logout intervened', async () => {
     let resolveRefresh: (value: unknown) => void = () => {};
     vi.doMock('@/api/auth', () => ({

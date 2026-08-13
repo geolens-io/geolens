@@ -222,6 +222,7 @@ const REFRESH_TIMEOUT_MS = 30_000;
 
 export async function refreshAccessToken(
   refreshToken: string | null,
+  abortSignal?: AbortSignal,
 ): Promise<TokenResponse> {
   const headers: Record<string, string> = { ...cookieAuthHeaders() };
   if (refreshToken) headers['Content-Type'] = 'application/json';
@@ -235,7 +236,14 @@ export async function refreshAccessToken(
     // anything awaiting a refresh (logout, most visibly), and worse, leaves
     // tryRefresh's inflight singleton un-cleared — its `finally` never runs —
     // which wedges every later refresh for the life of the tab.
-    signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
+    //
+    // The caller's signal is composed in so a logout can abandon an in-flight
+    // refresh outright. That matters beyond saving a request: an aborted
+    // response is never processed, so its `Set-Cookie` cannot land and
+    // overwrite a cookie issued by a later login.
+    signal: abortSignal
+      ? AbortSignal.any([abortSignal, AbortSignal.timeout(REFRESH_TIMEOUT_MS)])
+      : AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     ...(refreshToken ? { body: JSON.stringify({ refresh_token: refreshToken }) } : {}),
   });
 

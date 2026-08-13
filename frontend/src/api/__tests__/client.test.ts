@@ -188,7 +188,7 @@ describe('apiFetch', () => {
 
     const result = await apiFetch('/protected/');
     expect(result).toEqual({ ok: true });
-    expect(mockRefresh).toHaveBeenCalledWith('my-refresh');
+    expect(mockRefresh).toHaveBeenCalledWith('my-refresh', expect.any(AbortSignal));
     expect(mockFetch).toHaveBeenCalledTimes(2);
 
     // Verify retry used the new token
@@ -278,7 +278,7 @@ describe('apiFetch', () => {
       .mockResolvedValueOnce(errorResponse(401));
 
     await expect(apiFetch('/protected/')).rejects.toThrow(ApiError);
-    expect(refreshAccessToken).toHaveBeenCalledWith(null);
+    expect(refreshAccessToken).toHaveBeenCalledWith(null, expect.any(AbortSignal));
     expect(useAuthStore.getState().token).toBeNull();
   });
 

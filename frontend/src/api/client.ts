@@ -28,6 +28,18 @@ export class ApiError extends Error {
 // /auth/refresh/ POST per refresh cycle. Cleared in finally so the next
 // expiration starts fresh.
 let inflightRefresh: Promise<void> | null = null;
+let inflightRefreshAbort: AbortController | null = null;
+
+/**
+ * fix(#1446): abandon any refresh still in flight, so its response — and the
+ * `Set-Cookie` riding on it — is never processed. Called when the session ends
+ * deliberately, where a rotated cookie arriving after a subsequent login would
+ * silently replace the new session's credential with a revoked one.
+ */
+export function abortInflightRefresh(): void {
+  inflightRefreshAbort?.abort();
+  inflightRefreshAbort = null;
+}
 
 // fix(#628): once a request 401s AND the follow-up refresh cannot produce a
 // working token, the session is conclusively dead — every surface in the app
@@ -63,6 +75,7 @@ export function notifySessionExpired(deadSessionKey: string): void {
   // the store cannot touch it. Dispatch a best-effort revocation on the way
   // out. logoutSession issues a plain fetch, so this cannot recurse back
   // through the 401 interceptor that called us.
+  abortInflightRefresh();
   void logoutSession().catch(() => {});
   useAuthStore.getState().logout();
   sessionExpiredHandler?.();
@@ -93,9 +106,17 @@ export async function tryRefresh(): Promise<boolean> {
   // /login. Capture the epoch now and refuse the write if it moved.
   const epochAtStart = useAuthStore.getState().sessionEpoch;
 
+  // fix(#1446): the epoch guard stops a late refresh writing to the store, but
+  // it cannot stop the BROWSER applying that response's Set-Cookie — which
+  // could overwrite a cookie a later login already issued, killing the new
+  // session. Aborting the request means the response is never processed at
+  // all, so the stale cookie never lands.
+  const controller = new AbortController();
+  inflightRefreshAbort = controller;
+
   const promise = (async () => {
     try {
-      const tokens = await refreshAccessToken(refreshToken);
+      const tokens = await refreshAccessToken(refreshToken, controller.signal);
       if (useAuthStore.getState().sessionEpoch !== epochAtStart) return;
       // fix(#1302): null in cookie mode, which also clears the legacy
       // localStorage token once the migrating refresh has spent it.
@@ -112,6 +133,7 @@ export async function tryRefresh(): Promise<boolean> {
       // Refresh failed -- will fall through to logout
     } finally {
       inflightRefresh = null;
+      if (inflightRefreshAbort === controller) inflightRefreshAbort = null;
     }
   })();
   inflightRefresh = promise;
