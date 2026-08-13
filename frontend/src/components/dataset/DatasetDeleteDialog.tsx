@@ -51,6 +51,16 @@ function parseDependentVrts(error: Error): DependentVrt[] | null {
  * can act on this dialog.
  */
 export function deleteDetachesTable(dataset: DatasetResponse): boolean {
+  // fix(#1452 review round 3): the raster-family override comes FIRST, exactly
+  // as it does in geolens_owns_table. A raster or VRT row whose source_format
+  // is null derives origin 'postgis' — classify_origin reads a null format as
+  // registered-in-place — and without this the dialog would promise a
+  // PostgreSQL table survives a delete that reaps the dataset's storage
+  // artifacts and retires its name. Registration only ever creates vector
+  // datasets, so a raster-family record is GeoLens's by construction.
+  if (dataset.record_type === 'raster_dataset' || dataset.record_type === 'vrt_dataset') {
+    return false;
+  }
   if (dataset.origin !== 'postgis') return false;
   return dataset.origin_ref?.managed !== true;
 }

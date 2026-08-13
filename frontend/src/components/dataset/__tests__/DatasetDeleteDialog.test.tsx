@@ -10,6 +10,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
   return {
     id: 'ds-1',
     title: 'Parcels',
+    record_type: 'vector_dataset',
     origin: 'upload',
     ...overrides,
   } as DatasetResponse;
@@ -36,6 +37,19 @@ describe('deleteDetachesTable', () => {
     });
     expect(deleteDetachesTable(dataset)).toBe(false);
   });
+
+  it.each(['raster_dataset', 'vrt_dataset'] as const)(
+    'never detaches a %s, even when its derived origin is postgis',
+    (record_type) => {
+      // A raster-family row with a null source_format derives origin
+      // 'postgis'. geolens_owns_table overrides on record type before it
+      // consults the origin, and this must agree: the delete reaps that
+      // dataset's storage and retires its name.
+      const dataset = makeDataset({ record_type, origin: 'postgis' });
+      expect(deleteDetachesTable(dataset)).toBe(false);
+      expect(deleteDescriptionKey(dataset)).toBe('deleteDialog.description');
+    },
+  );
 
   it('detaches when the ref carries no managed key', () => {
     // Registrations from before #1452 stored no key at all.
