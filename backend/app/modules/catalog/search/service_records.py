@@ -28,6 +28,7 @@ from app.modules.catalog.search.record_metadata import (
 )
 from app.modules.catalog.sources.provenance import derive_last_edited
 from app.platform.dataset_origin import classify_origin, project_unknown
+from app.standards.distributions import is_publishable_url
 from app.standards.ogc.utils import build_url
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -412,7 +413,12 @@ def dataset_to_ogc_record(
                 if record.usage_constraints or record.access_constraints
                 else None
             ),
-            # Distributions from record_distributions table (API-01)
+            # Distributions from record_distributions table (API-01).
+            # fix(#1469): the raster/VRT ingest tails write a row whose url is
+            # the COG's object-storage KEY — unresolvable by a consumer, and it
+            # exposes the storage layout. Dropped rather than replaced: this
+            # profile already publishes the raster access surface above, as
+            # build_assets' raster_tiles asset.
             "distributions": [
                 {
                     "type": d.distribution_type,
@@ -426,10 +432,9 @@ def dataset_to_ogc_record(
                     "media_type": d.media_type,
                     "is_primary": d.is_primary,
                 }
-                for d in record.distributions
-            ]
-            if record.distributions
-            else [],
+                for d in (record.distributions or ())
+                if is_publishable_url(d.url)
+            ],
         },
         "links": [
             {

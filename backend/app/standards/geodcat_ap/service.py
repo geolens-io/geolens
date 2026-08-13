@@ -24,6 +24,11 @@ from app.standards.dcat.service import (
     DCAT_CONTEXT,
     _lang_to_uri,
 )
+from app.standards.distributions import (
+    RASTER_TILES_DISTRIBUTION_TYPE,
+    PublishedDistribution,
+    published_distributions,
+)
 from app.standards.ogc.utils import normalize_language_tag
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -33,7 +38,6 @@ if TYPE_CHECKING:
         Dataset,
         Record,
         RecordContact,
-        RecordDistribution,
     )
 # GeoDCAT-AP extends the DCAT 3 context with the geospatial / EU namespaces it
 # relies on (GeoSPARQL for geometry/CRS, ADMS for status, locn, prov, geodcat
@@ -72,13 +76,20 @@ _ROLE_TO_PROPERTY: dict[str, str] = {
     "contributor": "dcterms:contributor",
 }
 
-SERVICE_DISTRIBUTION_TYPES = {"api", "ogcService", "ogc_features", "vector_tiles"}
+SERVICE_DISTRIBUTION_TYPES = {
+    "api",
+    "ogcService",
+    "ogc_features",
+    "vector_tiles",
+    RASTER_TILES_DISTRIBUTION_TYPE,
+}
 
 
 def record_to_geodcat_ap(
     dataset: Dataset,
     base_url: str,
     *,
+    app_base_url: str,
     include_context: bool = True,
     lineage_summary: str | None = None,
 ) -> dict:
@@ -88,6 +99,9 @@ def record_to_geodcat_ap(
         dataset: Dataset ORM object with the ``record`` relationship and its
             keywords/contacts/distributions eager-loaded.
         base_url: Absolute base URL (e.g. ``http://localhost:8000``).
+        app_base_url: Absolute public APP base URL, where the raster tile
+            template is served — fix(#1469), see
+            ``app.standards.distributions``.
         include_context: Include ``@context``. Set to False for entries nested
             inside a catalog feed to avoid duplicating the context.
         lineage_summary: ``dcterms:provenance``, already access-checked by the
@@ -167,10 +181,12 @@ def record_to_geodcat_ap(
     # Responsible parties by CI_RoleCode (does NOT fabricate missing contacts).
     _apply_responsible_parties(result, record.contacts)
 
-    if record.distributions:
+    distributions = published_distributions(
+        dataset, api_base_url=base_url, app_base_url=app_base_url
+    )
+    if distributions:
         result["dcat:distribution"] = [
-            _distribution_to_geodcat_ap(d, base_url, record=record)
-            for d in record.distributions
+            _distribution_to_geodcat_ap(d, record=record) for d in distributions
         ]
 
     # Temporal extent.
@@ -205,6 +221,7 @@ def catalog_to_geodcat_ap(
     datasets: list[Dataset],
     base_url: str,
     *,
+    app_base_url: str,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
 ) -> dict:
     """Serialize a list of visible datasets to a GeoDCAT-AP Catalog JSON-LD dict.
@@ -226,6 +243,7 @@ def catalog_to_geodcat_ap(
         record_to_geodcat_ap(
             ds,
             base_url,
+            app_base_url=app_base_url,
             include_context=False,
             lineage_summary=lineage.get(ds.record_id),
         )
@@ -324,13 +342,12 @@ def _to_vcard(agent: dict) -> dict:
 
 
 def _distribution_to_geodcat_ap(
-    dist: RecordDistribution,
-    base_url: str,
+    dist: PublishedDistribution,
     *,
     record: Record,
 ) -> dict:
-    """Serialize a RecordDistribution to a dcat:Distribution dict."""
-    url = _absolute_url(dist.url, base_url)
+    """Serialize a published distribution to a dcat:Distribution dict."""
+    url = dist.url
     result: dict = {"@type": "dcat:Distribution", "dcat:accessURL": {"@id": url}}
 
     if dist.title is not None:
@@ -404,11 +421,3 @@ def _mailto(value: str) -> str:
     if value.startswith("mailto:"):
         return value
     return f"mailto:{value}"
-
-
-def _absolute_url(value: str, base_url: str) -> str:
-    if value.startswith(("http://", "https://")):
-        return value
-    if value.startswith("/"):
-        return f"{base_url}{value}"
-    return f"{base_url}/{value}"

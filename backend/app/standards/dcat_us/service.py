@@ -10,18 +10,29 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from app.standards.distributions import (
+    RASTER_TILES_DISTRIBUTION_TYPE,
+    PublishedDistribution,
+    published_distributions,
+)
+
 if TYPE_CHECKING:
     from app.modules.catalog.datasets.domain.models import (
         Dataset,
         Record,
         RecordContact,
-        RecordDistribution,
     )
 
 logger = structlog.stdlib.get_logger(__name__)
 
 DCAT_US_CONTEXT = "https://resources.data.gov/dcat-us/3.0.0"
-SERVICE_DISTRIBUTION_TYPES = {"api", "ogcService", "ogc_features", "vector_tiles"}
+SERVICE_DISTRIBUTION_TYPES = {
+    "api",
+    "ogcService",
+    "ogc_features",
+    "vector_tiles",
+    RASTER_TILES_DISTRIBUTION_TYPE,
+}
 _EMAIL_PATTERN = re.compile(r"^mailto:[\w_~!$&'()*+,;=:.-]+@[\w.-]+\.[\w.-]+$")
 
 
@@ -29,6 +40,7 @@ def record_to_dcat_us3(
     dataset: Dataset,
     base_url: str,
     *,
+    app_base_url: str,
     include_context: bool = True,
     catalog_contact_email: str | None = None,
     lineage_summary: str | None = None,
@@ -39,6 +51,9 @@ def record_to_dcat_us3(
     (``visible_lineage_summary``) rather than off the record — fix(#1103): an
     analysis output's lineage names the titles of the datasets it was derived
     from, and this feed is served to anonymous requesters.
+
+    ``app_base_url`` is the public APP base URL, where the raster tile
+    template is served — fix(#1469), see ``app.standards.distributions``.
     """
     record = dataset.record
     result: dict = {}
@@ -104,16 +119,18 @@ def record_to_dcat_us3(
     if record.theme_category:
         result["theme"] = [_concept(theme) for theme in record.theme_category]
 
-    if record.distributions:
+    distributions = published_distributions(
+        dataset, api_base_url=base_url, app_base_url=app_base_url
+    )
+    if distributions:
         result["distribution"] = [
             _distribution_to_dcat_us3(
                 distribution,
-                base_url,
                 publisher=result["publisher"],
                 contacts=contacts,
                 license_value=record.license,
             )
-            for distribution in record.distributions
+            for distribution in distributions
         ]
 
     return _strip_empty(result)
@@ -123,6 +140,7 @@ def catalog_to_dcat_us3(
     datasets: list[Dataset],
     base_url: str,
     *,
+    app_base_url: str,
     catalog_contact_email: str | None = None,
     lineage_by_record_id: Mapping[uuid.UUID, str | None] | None = None,
 ) -> dict:
@@ -139,6 +157,7 @@ def catalog_to_dcat_us3(
         record_to_dcat_us3(
             ds,
             base_url,
+            app_base_url=app_base_url,
             include_context=False,
             catalog_contact_email=catalog_contact_email,
             lineage_summary=lineage.get(ds.record_id),
@@ -235,14 +254,13 @@ def _has_text(value: str | None) -> bool:
 
 
 def _distribution_to_dcat_us3(
-    distribution: RecordDistribution,
-    base_url: str,
+    distribution: PublishedDistribution,
     *,
     publisher: dict,
     contacts: list[dict],
     license_value: str | None,
 ) -> dict:
-    url = _absolute_url(distribution.url, base_url)
+    url = distribution.url
     result: dict = {
         "@type": "Distribution",
         "accessURL": url,
@@ -339,14 +357,6 @@ def _mailto(value: str) -> str:
     if value.startswith("mailto:"):
         return value
     return f"mailto:{value}"
-
-
-def _absolute_url(value: str, base_url: str) -> str:
-    if value.startswith(("http://", "https://")):
-        return value
-    if value.startswith("/"):
-        return f"{base_url}{value}"
-    return f"{base_url}/{value}"
 
 
 def _strip_empty(value: dict) -> dict:

@@ -760,7 +760,9 @@ class TestTwoRowsForOneFormat:
         from app.standards.dcat.service import record_to_dcat
 
         dataset = await self._record_with_two_gpkg_rows(test_db_session)
-        doc = record_to_dcat(dataset, "https://example.test")
+        doc = record_to_dcat(
+            dataset, "https://example.test", app_base_url="https://app.example.test"
+        )
 
         gpkg = [
             d for d in doc["dcat:distribution"] if d.get("dcterms:format") == "gpkg"

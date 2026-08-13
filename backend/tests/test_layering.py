@@ -1664,7 +1664,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Cap 505 -> 512, exact.
         # fix(#1372 codex r2): +7 — the advertised raster_tiles asset carries
         # ?v=<tile_cache_version> like every rendered raster template.
-        "backend/app/modules/catalog/search/service_records.py": 519,
+        # fix(#1469): +5 — properties.distributions no longer republishes the
+        # raster/VRT ingest tails' object-storage-key row (unresolvable, and it
+        # exposes the storage layout). One is_publishable_url guard plus the
+        # comment saying why this profile drops the row instead of replacing it
+        # — build_assets already advertises raster access here. Cap 519 -> 524.
+        "backend/app/modules/catalog/search/service_records.py": 524,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -4820,6 +4825,13 @@ def test_platform_never_imports_processing_routers() -> None:
 # surface cannot grow silently; shrinking (migrating an edge through
 # CatalogPort) is welcome but not required.
 _STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
+    # fix(#1469): the shared "what may a feed publish" helper the three
+    # DCAT-family serializers now share. Same catalog-ORM edge each of them
+    # already carries, in one file instead of three, and TYPE_CHECKING-only —
+    # it is duck-typed on the Dataset instance at runtime.
+    "distributions.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
     "dcat/service.py": {
         "app.modules.catalog.datasets.domain.models",
         "app.modules.catalog.records.localization",

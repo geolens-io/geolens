@@ -128,6 +128,88 @@ async def _create_dcat_dataset(
     return dataset
 
 
+async def _create_dcat_raster_dataset(
+    session,
+    *,
+    created_by: uuid.UUID,
+    name: str = "DCAT Raster Dataset",
+    record_type: str = "raster_dataset",
+    source_format: str = "geotiff",
+    storage_key: str | None = None,
+) -> Dataset:
+    """Insert a raster-family Record + Dataset shaped like the ingest tails.
+
+    ``storage_key`` models the row ``tasks_raster``/``tasks_vrt``/the swap
+    write: ``url`` is the object-storage KEY of the COG, with no title and no
+    media type. Left None for the STAC-import shape, which writes no
+    distribution row at all.
+    """
+    record = Record(
+        title=name,
+        summary=f"Description for {name}",
+        record_type=record_type,
+        visibility="public",
+        record_status="published",
+        created_by=created_by,
+        license="CC-BY-4.0",
+        spatial_extent=WKTElement(_NYC_EXTENT, srid=4326),
+    )
+    session.add(record)
+    await session.flush()
+
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=f"ras_{uuid.uuid4().hex[:12]}",
+        srid=4326,
+        geometry_type=None,
+        source_format=source_format,
+        source_filename=f"{name}.tif",
+    )
+    session.add(dataset)
+    await session.flush()
+
+    if storage_key is not None:
+        session.add(
+            RecordDistribution(
+                record_id=record.id,
+                distribution_type="download",
+                format="vrt" if record_type == "vrt_dataset" else "geotiff",
+                url=storage_key,
+            )
+        )
+
+    await session.commit()
+    await session.refresh(dataset)
+    return dataset
+
+
+def _access_urls(document: object, key: str = "dcat:accessURL") -> list[str]:
+    """Every access URL anywhere in a JSON-LD document.
+
+    Handles both spellings the profiles use: a bare string (DCAT 3, DCAT-US)
+    and a ``{"@id": ...}`` node reference (GeoDCAT-AP).
+    """
+    found: list[str] = []
+
+    def walk(value: object) -> None:
+        if isinstance(value, dict):
+            for found_key, nested in value.items():
+                if found_key == key:
+                    if isinstance(nested, str):
+                        found.append(nested)
+                    elif isinstance(nested, dict) and isinstance(
+                        nested.get("@id"), str
+                    ):
+                        found.append(nested["@id"])
+                walk(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                walk(nested)
+
+    walk(document)
+    return found
+
+
 # ---------------------------------------------------------------------------
 # Single record DCAT tests
 # ---------------------------------------------------------------------------
@@ -824,3 +906,163 @@ async def test_single_record_dcat_404_for_missing(
     random_id = uuid.uuid4()
     resp = await client.get(f"/datasets/{random_id}/dcat/", headers=admin_auth_header)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Raster distributions (#1469)
+# ---------------------------------------------------------------------------
+
+_STORAGE_KEY = (
+    "rasters/6e9ca821-3345-4c30-bcf8-935bc6dbd61f/1954d0c080b1/source.cog.tif"
+)
+
+
+def _raster_tile_distributions(entry: dict, dataset_id: uuid.UUID) -> list[dict]:
+    return [
+        d
+        for d in entry.get("dcat:distribution", [])
+        if f"/raster-tiles/{dataset_id}/tiles/" in d.get("dcat:accessURL", "")
+    ]
+
+
+@pytest.mark.anyio
+async def test_dcat_feed_never_exposes_a_storage_key(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """No accessURL in the feed is an object-storage key.
+
+    The COG-backed and VRT ingest tails write a distribution row whose url is
+    the storage key. DCAT 3 emitted it verbatim; the DCAT-US and GeoDCAT-AP
+    profiles glued it onto the API origin, which resolves to nothing and
+    exposes the same layout. All three now drop it.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    await _create_dcat_raster_dataset(
+        session, created_by=admin_id, name="COG Raster", storage_key=_STORAGE_KEY
+    )
+    await _create_dcat_raster_dataset(
+        session,
+        created_by=admin_id,
+        name="VRT Mosaic",
+        record_type="vrt_dataset",
+        storage_key="vrt/3d1b/mosaic.vrt",
+    )
+
+    for path, key in (
+        ("/datasets/dcat/", "dcat:accessURL"),
+        ("/datasets/dcat-us/3.0/", "accessURL"),
+        ("/datasets/geodcat-ap/", "dcat:accessURL"),
+    ):
+        resp = await client.get(path, headers=admin_auth_header)
+        assert resp.status_code == 200, path
+        urls = _access_urls(resp.json(), key)
+        assert urls, f"{path} published no access URLs at all"
+        assert not [u for u in urls if u.startswith("rasters/")], path
+        assert not [u for u in urls if "source.cog.tif" in u], path
+        assert all(u.startswith("http") for u in urls), path
+
+
+@pytest.mark.anyio
+async def test_dcat_feed_gives_every_dataset_a_distribution(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """Including STAC-origin rasters, which carry no distribution row.
+
+    Scoped to the datasets this test creates rather than asserted over the
+    whole feed. "Every dataset has a distribution" is a property of datasets
+    created through the real creation paths (which call
+    ``generate_distributions``), not of the table: under ``pytest -n 4`` the
+    shared per-worker DB carries public datasets that sibling tests inserted
+    as bare ORM rows, and a feed-wide assertion fails on those instead — 56
+    of them, on the first CI run of this test.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    created = {
+        "vector": await _create_dcat_dataset(
+            session, created_by=admin_id, name="Vector"
+        ),
+        "COG-backed raster": await _create_dcat_raster_dataset(
+            session, created_by=admin_id, name="COG Raster", storage_key=_STORAGE_KEY
+        ),
+        "STAC-origin raster": await _create_dcat_raster_dataset(
+            session, created_by=admin_id, name="Sentinel-2 Scene", source_format="stac"
+        ),
+    }
+
+    resp = await client.get("/datasets/dcat/", headers=admin_auth_header)
+    entries = {e["dcterms:identifier"]: e for e in resp.json()["dcat:dataset"]}
+    for label, dataset in created.items():
+        entry = entries.get(str(dataset.id))
+        assert entry is not None, f"{label} missing from the feed"
+        assert entry.get("dcat:distribution"), f"{label} has no access method"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("source_format", ["geotiff", "stac"])
+async def test_dcat_raster_advertises_the_tile_template(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    source_format: str,
+):
+    """Both raster origins advertise the template STAC already publishes.
+
+    The COG-backed case has a storage-key row to replace; the STAC-origin
+    case has no row at all and no local COG to point at, so the template is
+    the only access surface it can offer.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Raster {source_format}",
+        source_format=source_format,
+        storage_key=_STORAGE_KEY if source_format == "geotiff" else None,
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
+    assert resp.status_code == 200
+    tiles = _raster_tile_distributions(resp.json(), ds.id)
+    assert len(tiles) == 1, resp.json().get("dcat:distribution")
+    assert tiles[0]["dcterms:title"] == "Raster Tiles"
+    assert tiles[0]["dcat:mediaType"] == "image/png"
+    assert tiles[0]["dcat:accessURL"].startswith("http")
+    assert "{z}/{x}/{y}.png" in tiles[0]["dcat:accessURL"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("record_type", ["raster_dataset", "vrt_dataset"])
+async def test_dcat_raster_does_not_advertise_the_token_gated_cog_download(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    record_type: str,
+):
+    """``/download/cog`` 401s an anonymous caller, and this feed serves those.
+
+    Reaching it needs a download-scoped token minted by a separate POST to
+    ``/auth/download-token/{id}``, which no generic DCAT client will make, so
+    advertising it — as ``downloadURL`` in two of the three profiles — would
+    publish a link that fails for the feed's audience.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    ds = await _create_dcat_raster_dataset(
+        session,
+        created_by=admin_id,
+        name=f"Raster {record_type}",
+        record_type=record_type,
+        storage_key=_STORAGE_KEY,
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
+    dists = resp.json()["dcat:distribution"]
+    assert len(_raster_tile_distributions(resp.json(), ds.id)) == 1
+    assert not [d for d in dists if "/download/cog" in d["dcat:accessURL"]]
