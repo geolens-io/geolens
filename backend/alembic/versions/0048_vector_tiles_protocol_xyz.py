@@ -28,8 +28,16 @@ The WHERE clause is deliberately four-way:
   re-run is a no-op and an auto-generated row already corrected by hand is left
   as it is.
 
-Downgrade restores the old value under the mirror-image scope, so the data
-matches whatever the template says at that revision.
+Downgrade is a no-op, like the other data-only normalizations here (0003,
+0028, 0034). The mirror-image UPDATE looks symmetric and is not: ``XYZ`` is
+also what an operator who corrected a row by hand before this deploy already
+has, and the upgrade deliberately leaves those alone, so a reverse statement
+scoped to ``protocol = 'XYZ'`` would rewrite rows this migration never touched
+and hand them a value that was wrong when they fixed it. Recording the row ids
+to make the reverse exact is not worth it either, because no revision needs
+``OGC:WMTS`` back: ``protocol`` is metadata, nothing reads it for behaviour at
+any version (not the frontend, not the DCAT/GeoDCAT-AP/DCAT-US serializers,
+not STAC), so leaving the honest label in place downgrades cleanly.
 
 Revision ID: 0048_vector_tiles_protocol_xyz
 Revises: 0047_users_sessions_revoked_at
@@ -60,13 +68,8 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.execute(
-        """
-        UPDATE catalog.record_distributions
-        SET protocol = 'OGC:WMTS'
-        WHERE auto_generated = true
-          AND distribution_type = 'vector_tiles'
-          AND format = 'pbf'
-          AND protocol = 'XYZ'
-        """
-    )
+    # fix(#1463, codex round 1): data-only relabel, intentionally not reversed.
+    # See the module docstring — the reverse statement cannot tell a row this
+    # migration rewrote from one an operator had already corrected, and no
+    # revision needs the WMTS label back.
+    pass
