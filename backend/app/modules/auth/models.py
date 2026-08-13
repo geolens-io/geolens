@@ -134,6 +134,17 @@ class User(Base):
     key_epoch: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1", nullable=False
     )
+    # fix(#1455): revocation horizon — every session credential (refresh row or
+    # access JWT) issued at or before this instant is dead, whatever its own
+    # state says. token_version and the refresh-row UPDATE revoke the rows one
+    # statement's snapshot can see, which cannot express "everything issued up
+    # to now": a rotation committing just after that snapshot leaves a live
+    # refresh row behind. Read at use time by both refresh lookups and both JWT
+    # dependencies. NULL until the user's first revocation. Stamped from the DB
+    # clock, the same clock that stamps RefreshToken.created_at.
+    sessions_revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     auth_provider: Mapped[str] = mapped_column(
         String(20), server_default="local", nullable=False
     )

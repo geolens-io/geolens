@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import jwt
-from sqlalchemy import func, select, update
+from sqlalchemy import func, literal_column, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -176,6 +176,7 @@ class AuthService:
 
         Returns None when the token is missing, expired, or already revoked.
         Returns None when the linked user does not exist.
+        Returns None when the row predates the owner's revocation horizon.
         """
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         result = await self.db.execute(
@@ -185,6 +186,15 @@ class AuthService:
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
+                # fix(#1455): the revocation horizon, checked at use time so it
+                # covers rows revoke_all_tokens could not see when it ran.
+                # Both timestamps come from the DB clock, so the comparison is
+                # skew-free. A successor login's row is stamped after the
+                # horizon and passes without any client choreography.
+                or_(
+                    User.sessions_revoked_at.is_(None),
+                    RefreshToken.created_at > User.sessions_revoked_at,
+                ),
             )
         )
         stored = result.scalar_one_or_none()
@@ -223,6 +233,15 @@ class AuthService:
                 RefreshToken.token_hash == token_hash,
                 RefreshToken.revoked == False,  # noqa: E712
                 RefreshToken.expires_at > datetime.now(UTC),
+                # fix(#1455): the revocation horizon, checked at use time so it
+                # covers rows revoke_all_tokens could not see when it ran — the
+                # replacement a rotation commits just after the revoking
+                # statement took its snapshot is unrevoked and, without this,
+                # rotates into a fresh session that outlives its own logout.
+                or_(
+                    User.sessions_revoked_at.is_(None),
+                    RefreshToken.created_at > User.sessions_revoked_at,
+                ),
             )
         )
         stored = result.scalar_one_or_none()
@@ -368,7 +387,35 @@ class AuthService:
         # 2. Atomically increment token_version so prior access JWTs are
         #    rejected (and key_epoch in the same UPDATE when requested, so a
         #    security event revokes JWTs and API keys atomically).
-        values: dict = {"token_version": User.token_version + 1}
+        #
+        #    fix(#1455): stamp the revocation horizon in the same UPDATE. Step 1
+        #    can only revoke what its own snapshot sees, so a rotation that
+        #    commits its replacement row just after that snapshot survives this
+        #    revocation; the horizon is a predicate evaluated at USE time, which
+        #    is the only shape that covers a row this transaction cannot see
+        #    yet. func.now() is the transaction timestamp — the same clock that
+        #    stamps RefreshToken.created_at, so the refresh comparison has no
+        #    skew axis. GREATEST keeps the horizon monotonic if the DB clock
+        #    ever steps backwards. COALESCE is not redundant: Postgres GREATEST
+        #    happens to ignore NULLs, but the SQL standard propagates them, and
+        #    this must not depend on which behavior we get.
+        #
+        #    The token_version bump is retained, not replaced. iat comes from
+        #    the API process clock and the horizon from the DB clock, so an API
+        #    clock running ahead could mint a pre-logout token whose iat clears
+        #    the horizon — the bump is what still kills it. That is what makes
+        #    this change purely additive: no credential rejected today becomes
+        #    acceptable.
+        values: dict = {
+            "token_version": User.token_version + 1,
+            "sessions_revoked_at": func.greatest(
+                func.coalesce(
+                    User.sessions_revoked_at,
+                    literal_column("'-infinity'::timestamptz"),
+                ),
+                func.now(),
+            ),
+        }
         if bump_key_epoch:
             values["key_epoch"] = User.key_epoch + 1
         version_result = await self.db.execute(
