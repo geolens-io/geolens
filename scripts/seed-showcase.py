@@ -4503,11 +4503,17 @@ COLLECTIONS = {
         # promise earthquakes and eruptions to a STAC client that could see
         # neither - it lists what the collection HOLDS without claiming what any
         # one surface will show.
-        "The physical earth: live earthquake feeds, volcanic eruptions, plate "
-        "boundaries, hurricane tracks and meteorite falls, alongside the global "
-        "relief and alpine lidar terrain they play out on. Vector and raster "
-        "members both; catalogue surfaces that carry only rasters will show the "
-        "ETOPO relief and the swissALTI3D terrain.",
+        # No "live" here, deliberately. This text is written by a pass that
+        # runs whether or not the service conversion succeeded, and unlike the
+        # map notes it has no natural gate to hang on - a collection is a label
+        # over datasets, not a view of one. Describing WHAT the collection
+        # holds rather than HOW it is delivered is true of every instance,
+        # which is the same trick that keeps the hurricane map name honest.
+        "The physical earth: earthquakes, volcanic eruptions, plate boundaries, "
+        "hurricane tracks and meteorite falls, alongside the global relief and "
+        "alpine lidar terrain they play out on. Vector and raster members both; "
+        "catalogue surfaces that carry only rasters will show the ETOPO relief "
+        "and the swissALTI3D terrain.",
         [
             QUAKES_TITLE,
             QUAKES_HEAT_TITLE,
@@ -4710,24 +4716,36 @@ SHOWCASE_METADATA: dict[str, dict] = {
         "keywords": ["earthquakes", "seismic", "usgs", "hazards", "magnitude"],
         "source_organization": "USGS",
         "source_url": "https://earthquake.usgs.gov/earthquakes/map/",
-        # "continual" is the honest code for a service that re-publishes as
-        # events land. No vintage: the window is a rolling 30 days, so any
-        # date written here is wrong the day after it is written.
-        "update_frequency": "continual",
         "theme_category": ["geoscientificInformation"],
-        "summary": QUAKE_SUMMARIES[QUAKES_TITLE],
+        # Everything above is true of this dataset whatever it currently holds.
+        # Everything in `gated` describes a LIVE SERVICE, and is written only
+        # when the dataset is observably reading from one. "continual" is the
+        # honest maintenance code for a service that re-publishes as events
+        # land, and it is a lie about a static upload. No vintage either way:
+        # the window is a rolling 30 days, so any date is wrong the next day.
+        "requires_origin": "service",
+        "gated": {
+            "update_frequency": "continual",
+            "summary": QUAKE_SUMMARIES[QUAKES_TITLE],
+        },
     },
     QUAKES_HEAT_TITLE: {
         "license": "USGS Earthquake Hazards Program (US public domain)",
         "keywords": ["earthquakes", "seismic", "usgs", "density", "heatmap"],
         "source_organization": "USGS",
         "source_url": "https://earthquake.usgs.gov/earthquakes/map/",
-        "update_frequency": "continual",
         "theme_category": ["geoscientificInformation"],
+        # Gated for the same reason as the circles dataset, and this one needs
+        # it more: its title never changes, so the rename-after-conversion gate
+        # that protects the circles dataset does not cover it at all.
         # fix(#614): the old summary read as an internal rendering workaround;
         # describe it as the map's density layer instead. Now also corrected to
         # M2.5+, which is what the live service actually serves.
-        "summary": QUAKE_SUMMARIES[QUAKES_HEAT_TITLE],
+        "requires_origin": "service",
+        "gated": {
+            "update_frequency": "continual",
+            "summary": QUAKE_SUMMARIES[QUAKES_HEAT_TITLE],
+        },
     },
     "Tectonic Plate Boundaries (PB2002)": {
         "license": "Peter Bird (2003), PB2002 - free for research, please cite",
@@ -4969,6 +4987,22 @@ def enrich_showcase_metadata(api: "Api") -> None:
             fields = {k: spec[k] for k in _ENRICH_PATCH_FIELDS if k in spec}
             if spec.get("summary"):
                 fields["summary"] = spec["summary"]
+            # Claims that are only true once the data really came from a given
+            # origin are written only when the dataset OBSERVABLY has it. This
+            # pass runs whether or not the builder that was supposed to make it
+            # true succeeded, so "the seeder tried" is not evidence. The list
+            # response already carries origin, so this costs no extra request.
+            gated = spec.get("gated")
+            if gated:
+                origin = ds.get("origin")
+                if origin == spec.get("requires_origin"):
+                    fields.update(gated)
+                else:
+                    print(
+                        f"  (holding origin-dependent metadata for {title!r}: "
+                        f"origin is {origin!r}, not "
+                        f"{spec.get('requires_origin')!r})"
+                    )
             api.patch_dataset(dataset_id, **fields)
             record_id = api.dataset_record_id(dataset_id)
             have = api.existing_keywords(record_id)
@@ -4988,6 +5022,35 @@ def enrich_showcase_metadata(api: "Api") -> None:
 # found, so anything set only at creation time reaches a fresh instance and
 # never an existing one - which is every instance that matters, the live demo
 # included.
+
+# Maps whose NOTES and DESCRIPTION assert that the quakes read from a live
+# service. Both texts run through a pass that executes whether or not the
+# conversion succeeded, so they are held back until the datasets observably
+# read from one. The legend title, folder groups, pitch alignment and the
+# popup repair are unaffected: none of them claims anything about liveness,
+# and the popup has its own column-level gate.
+MAP_TEXT_REQUIRES_LIVE_QUAKES = frozenset({"Restless Earth"})
+
+
+def _quakes_are_live(api: "Api") -> bool:
+    """Observed evidence that the quake datasets read from the USGS service.
+
+    Reads origin off the dataset rather than inferring it from "the builder
+    ran" or "the rename happened". Both inferences have been wrong: the
+    builder is isolated so a failure is invisible downstream, and the rename
+    is itself gated on the conversion, which makes it a proxy rather than
+    evidence. False on any error, since the claim being gated is one that
+    should only be published on positive proof.
+    """
+    try:
+        by_title = api.datasets_by_title()
+        dataset_id = by_title.get(QUAKES_TITLE)
+        if dataset_id is None:
+            return False
+        return api.dataset_origin(dataset_id) == "service"
+    except (httpx.HTTPStatusError, httpx.TimeoutException):
+        return False
+
 
 # Map-level legend title + notes. The legend title names what the swatches
 # measure; the note says what the map is and where the numbers came from.
@@ -5337,6 +5400,8 @@ def apply_showcase_styling(api: "Api") -> None:
     regardless of which spelling was written.
     """
     maps = api.list_maps()
+    # Resolved once, and only if a map that needs it actually exists.
+    live_quakes: bool | None = None
     for name, map_id in sorted(maps.items()):
         # Every table that can carry work for a map has to be in this guard, or
         # that work silently never runs. MAP_LAYER_STYLE_FIXES reaches Restless
@@ -5356,20 +5421,38 @@ def apply_showcase_styling(api: "Api") -> None:
             continue
         try:
             current = api.get_map(map_id)
+            # Prose that asserts a live service waits for proof of one. The
+            # legend title is not prose and makes no such claim, so it is never
+            # held back.
+            text_ok = True
+            if name in MAP_TEXT_REQUIRES_LIVE_QUAKES:
+                if live_quakes is None:
+                    live_quakes = _quakes_are_live(api)
+                text_ok = live_quakes
+
             delta = {}
             legend_spec = MAP_LEGEND_AND_NOTES.get(name)
             if legend_spec:
                 legend_title, notes = legend_spec
                 if current.get("legend_title") != legend_title:
                     delta["legend_title"] = legend_title
-                if current.get("notes") != notes:
+                if text_ok and current.get("notes") != notes:
                     delta["notes"] = notes
             # The description too, and for the same reason the notes are here:
             # it is written once at map creation, so a builder that skips an
             # existing map can never correct text that has gone false.
             description = MAP_DESCRIPTIONS.get(name)
-            if description is not None and current.get("description") != description:
+            if (
+                text_ok
+                and description is not None
+                and current.get("description") != description
+            ):
                 delta["description"] = description
+            if not text_ok:
+                print(
+                    f"  (holding the live-service wording on {name!r}: the quake "
+                    "datasets do not read from the service yet)"
+                )
             if delta:
                 api.set_view(map_id, **delta)
                 print(f"  {'/'.join(sorted(delta))}: {name}")
