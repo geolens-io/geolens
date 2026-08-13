@@ -9,6 +9,13 @@ export async function login(
   username: string,
   password: string,
 ): Promise<TokenResponse> {
+  // fix(#1446): never overtake a logout still in flight. It revokes every
+  // refresh token for the user and deletes the cookies, so landing after this
+  // login would revoke the new session's row or erase its cookie. Bounded by
+  // logoutSession's own 3s timeout, and only waits when one is actually
+  // pending.
+  await awaitPendingLogout();
+
   // SP-11: route is /auth/login (no trailing slash) so the POST body is
   // preserved without a 307 redirect.
   const response = await fetch(`${API_BASE}/auth/login`, {
@@ -70,6 +77,19 @@ const LOGOUT_TIMEOUT_MS = 3_000;
  * then went out with no Authorization header at all — leaving exactly the live
  * credential this call exists to revoke.
  */
+/**
+ * fix(#1446): the in-flight revocation, tracked so a new login cannot overtake
+ * it. Logout revokes EVERY refresh token for the user and deletes the cookies,
+ * so a request that lands after a fresh login would revoke the new session's
+ * row, and a delayed response would erase its cookie.
+ */
+let pendingLogout: Promise<void> | null = null;
+
+/** Wait for any in-flight logout revocation to settle. */
+export async function awaitPendingLogout(): Promise<void> {
+  if (pendingLogout) await pendingLogout;
+}
+
 export async function logoutSession(): Promise<void> {
   const { token, refreshToken } = useAuthStore.getState();
   // fix(#1446): carry the cookie-mode headers too. When the access token has
@@ -86,7 +106,7 @@ export async function logoutSession(): Promise<void> {
     : undefined;
   if (body) headers['Content-Type'] = 'application/json';
 
-  await safeFetch(`${API_BASE}/auth/logout/`, {
+  const request = safeFetch(`${API_BASE}/auth/logout/`, {
     method: 'POST',
     headers,
     credentials: 'same-origin',
@@ -99,6 +119,19 @@ export async function logoutSession(): Promise<void> {
     keepalive: true,
     ...(body ? { body } : {}),
   });
+
+  // Callers dispatch without awaiting, so this is what lets a subsequent login
+  // wait for the revocation to settle rather than race it.
+  const settled = request.then(
+    () => undefined,
+    () => undefined,
+  );
+  pendingLogout = settled;
+  void settled.then(() => {
+    if (pendingLogout === settled) pendingLogout = null;
+  });
+
+  await request;
 }
 
 export async function registerUser(data: {

@@ -150,6 +150,48 @@ describe('browser refresh transport', () => {
     });
   });
 
+  // fix(#1446): logout revokes EVERY refresh token for the user and deletes
+  // the cookies, so a request that lands after a fresh login revokes the new
+  // session's row, and a delayed response erases its cookie. Login waits.
+  it('does not let a new login overtake a logout still in flight', async () => {
+    const order: string[] = [];
+    let finishLogout: () => void = () => {};
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishLogout = () => {
+            order.push('logout');
+            resolve({
+              ok: true,
+              status: 204,
+              statusText: 'No Content',
+              json: () => Promise.reject(new Error('no body')),
+              headers: new Headers(),
+            } as Response);
+          };
+        }),
+    );
+    mockFetch.mockImplementationOnce(() => {
+      order.push('login');
+      return Promise.resolve(
+        jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
+      );
+    });
+
+    useAuthStore.setState({ token: 'old-access' });
+    void logoutSession().catch(() => {});
+    const loginPromise = login('someone', 'secret');
+
+    // Login must still be parked on the pending revocation.
+    await Promise.resolve();
+    expect(order).toEqual([]);
+
+    finishLogout();
+    await loginPromise;
+
+    expect(order).toEqual(['logout', 'login']);
+  });
+
   it('opts login into the cookie flow', async () => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({ access_token: 'a1', refresh_token: null, expires_in: 900 }),
