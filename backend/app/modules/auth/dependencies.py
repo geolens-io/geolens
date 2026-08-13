@@ -25,6 +25,54 @@ oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error
 log = structlog.get_logger()
 
 
+def _predates_revocation_horizon(payload: Mapping, user: User) -> bool:
+    """True when this access JWT was certainly issued before the user's horizon.
+
+    fix(#1455): the companion to the ``token_version`` check at both call
+    sites. One helper rather than the pair of inline copies, so the two
+    dependencies cannot drift apart on a security predicate.
+
+    CONSTRAINT: the rounding below is only safe while ``revoke_all_tokens``
+    bumps ``token_version`` in the SAME UPDATE that stamps the horizon. Anyone
+    who removes or weakens that bump must tighten this back to
+    ``issued_at <= int(...)`` in the same change.
+
+    Why the coupling exists. ``iat`` is whole seconds (PyJWT truncates), so it
+    names the interval ``[iat, iat+1)`` rather than an instant, and this
+    rejects only when that WHOLE interval precedes the horizon — which leaves
+    the same-second region covered by nothing on this line. The bump is what
+    covers it: the horizon is the revoking transaction's ``now()``, so a token
+    minted before that UPDATE commits necessarily read the pre-bump version
+    under READ COMMITTED and dies on the version check, while one minted after
+    it commits carries the new version and legitimately lives. The same
+    composition covers API-vs-DB clock skew, where an API clock running ahead
+    could lift a pre-revocation ``iat`` past the horizon: the bump still
+    rejects it. This check is therefore added ALONGSIDE the version check and
+    never replaces it.
+
+    Rounding the other way is not free, which is why the constraint is worth
+    keeping rather than pre-emptively tightening: it kills any token minted in
+    the same second as a revocation, which breaks logging out and immediately
+    logging back in, and it made
+    ``test_a_rotation_racing_logout_never_leaves_a_live_session`` fail
+    intermittently (``iat=1786618628`` against a horizon of ``1786618628.02``,
+    a token minted AFTER the revocation and refused).
+
+    A missing (or non-numeric) ``iat`` is treated as 0, which precedes every
+    horizon and is therefore always rejected once one exists. That mirrors the
+    missing-``token_version``-is-0 convention at the call sites. Coercing
+    rather than comparing directly matters because PyJWT validates ``iat`` by
+    casting a COPY, leaving a numeric STRING in the payload, and ``"1" < 1``
+    raises rather than rejecting.
+    """
+    if user.sessions_revoked_at is None:
+        return False
+    issued_at = payload.get("iat", 0)
+    if not isinstance(issued_at, (int, float)):
+        issued_at = 0
+    return issued_at + 1 <= user.sessions_revoked_at.timestamp()
+
+
 # fix(#875): HTTP methods a read_only API key may authenticate. Enforcement is
 # method-based rather than capability-based on purpose: every read surface an
 # API-key client actually uses (OGC Features, STAC, tiles, search, dataset and
@@ -315,6 +363,13 @@ async def get_optional_user(
     if jwt_token_version < user.token_version:
         return None
 
+    # fix(#1455): a matching token_version is not proof the token postdates the
+    # last revocation — a rotation racing that revocation reads the pre-bump
+    # value and mints a token carrying it. The horizon is the check that does
+    # not depend on when the claim was read.
+    if _predates_revocation_horizon(payload, user):
+        return None
+
     return user
 
 
@@ -452,6 +507,13 @@ async def get_current_user(
     # version 0, which is always less than the minimum stored version of 1.
     jwt_token_version: int = payload.get("token_version", 0)
     if jwt_token_version < user.token_version:
+        raise credentials_exception
+
+    # fix(#1455): a matching token_version is not proof the token postdates the
+    # last revocation — a rotation racing that revocation reads the pre-bump
+    # value and mints a token carrying it. The horizon is the check that does
+    # not depend on when the claim was read.
+    if _predates_revocation_horizon(payload, user):
         raise credentials_exception
 
     return user

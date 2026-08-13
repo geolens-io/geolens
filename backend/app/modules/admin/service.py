@@ -13,9 +13,10 @@ from app.modules.admin.schemas import (
     EmbeddingStatsResponse,
     UserUpdate,
 )
-from app.modules.auth.models import ApiKey, RefreshToken, Role, User, UserRole
+from app.modules.auth.models import ApiKey, Role, User, UserRole
 from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password
+from app.modules.auth.service import AuthService
 from app.core.text import escape_ilike
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -432,6 +433,9 @@ class AdminService:
              CHECK admits 'local').
           6. DELETE the SAML oauth_accounts row (clean break per D-04 -- the
              oauth_providers row stays; other users may still link to it).
+          7. revoke_all_tokens(commit=False, bump_key_epoch=True): revoke the
+             refresh rows, bump token_version and key_epoch, and stamp the
+             revocation horizon, so no SAML-era credential survives.
 
         Returns (user, provider_slug). The router uses provider_slug to populate
         the audit-log details field. The router (NOT this method) writes the
@@ -484,32 +488,20 @@ class AdminService:
             delete(OAuthAccount).where(OAuthAccount.id == saml_account.id)
         )
 
-        # 7. SEC-S15 (CR-02, Phase 1062 review): bump token_version so any
-        #    outstanding SAML access JWT is rejected on the next authenticated
-        #    request. The SAML JWT remains cryptographically valid until its
-        #    natural expiry otherwise, which violates the SEC-S15 requirement
-        #    that auth-provider conversion forces re-authentication.
-        #    fix(#821): also bump key_epoch — an auth-provider conversion is a
-        #    credential reset, so API keys minted before it stop resolving.
-        await self.db.execute(
-            update(User)
-            .where(User.id == user_id)
-            .values(
-                token_version=User.token_version + 1,
-                key_epoch=User.key_epoch + 1,
-            )
-        )
-
-        # 8. Belt-and-suspenders: also revoke any active refresh tokens so the
-        #    converted user cannot exchange a SAML-era refresh token for a new
-        #    access JWT after conversion.
-        await self.db.execute(
-            update(RefreshToken)
-            .where(
-                RefreshToken.user_id == user_id,
-                RefreshToken.revoked == False,  # noqa: E712
-            )
-            .values(revoked=True)
+        # 7. Revoke every session credential the SAML identity holds. Conversion
+        #    is a credential reset: SEC-S15 (CR-02, Phase 1062 review) requires
+        #    it to force re-authentication rather than let an outstanding SAML
+        #    access JWT stay cryptographically valid until its natural expiry,
+        #    and the SAML-era refresh tokens must not be exchangeable for a new
+        #    JWT afterwards. bump_key_epoch=True per fix(#821), so API keys
+        #    minted before the conversion also stop resolving.
+        #
+        #    fix(#1455): one call where two inline UPDATEs used to duplicate
+        #    revoke_all_tokens. The duplication is what let the sites drift —
+        #    the horizon added there would have silently missed this one. Same
+        #    session, so commit=False folds it into the caller's transaction.
+        await AuthService(self.db).revoke_all_tokens(
+            user_id, commit=False, bump_key_epoch=True
         )
 
         await self.db.flush()
