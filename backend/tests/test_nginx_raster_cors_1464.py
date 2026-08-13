@@ -77,9 +77,18 @@ def test_empty_tile_fallback_repeats_the_cors_header():
 
 
 def test_raster_cors_header_is_static_never_reflected():
-    """A reflected origin is cache-poisonous behind raster_cache and the CDN."""
+    """A reflected origin is cache-poisonous behind raster_cache and the CDN.
+
+    Scoped to the two raster locations on purpose. The cache-safety invariant
+    belongs to this cached route, and an uncached location elsewhere may have
+    good reason to answer a specific origin.
+    """
     conf = _without_comments(NGINX_CONF.read_text())
-    values = _ANY_ACAO_VALUE.findall(conf)
+    values = [
+        value
+        for pattern in (RASTER_TILES_LOCATION, EMPTY_TILE_LOCATION)
+        for value in _ANY_ACAO_VALUE.findall(_location_block(conf, pattern))
+    ]
 
     assert values, "expected at least one Access-Control-Allow-Origin header"
     for value in values:
@@ -87,6 +96,26 @@ def test_raster_cors_header_is_static_never_reflected():
             f'Access-Control-Allow-Origin must be the static "*", got {value!r}; '
             "a per-origin value would be cached and replayed to other origins"
         )
+
+
+def test_empty_tile_keeps_its_security_headers():
+    """The CORS header must not cost @empty_tile its inherited security headers.
+
+    add_header disables inheritance from the server scope, so the three headers
+    this 204 carried before #1464 have to be re-declared alongside the new one.
+    """
+    conf = _without_comments(NGINX_CONF.read_text())
+    block = _location_block(conf, EMPTY_TILE_LOCATION)
+
+    for header, value in (
+        ("X-Frame-Options", "SAMEORIGIN"),
+        ("X-Content-Type-Options", "nosniff"),
+        ("Referrer-Policy", "strict-origin-when-cross-origin"),
+    ):
+        assert re.search(
+            rf'add_header\s+{re.escape(header)}\s+"{re.escape(value)}"\s+always\s*;',
+            block,
+        ), f"@empty_tile must re-declare {header}; add_header disables inheritance"
 
 
 def test_raster_tiles_hides_upstream_cors_header():
