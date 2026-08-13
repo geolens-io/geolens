@@ -1986,7 +1986,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # into a quietly missing layer in a hosted export.
     # fix(#1372): +5 — exported raster/DEM sources carry ?v=<tile_cache_version>
     # so external MapLibre consumers roll the shared nginx cache on replace.
-    "backend/app/modules/catalog/maps/style_json.py": 1620,
+    # fix(#1472 review): +9 — dataset_attribution on exported sources. Placed on
+    # _source_for_layer's common tail rather than in each branch, so vector,
+    # raster, and raster-dem carry it and a fourth source type cannot be added
+    # without it. Cap 1620 -> 1629, exact.
+    "backend/app/modules/catalog/maps/style_json.py": 1629,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
@@ -2516,7 +2520,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cannot evade; the comment records that, and why it mutates the exception
     # in place rather than raising a replacement (the class is load-bearing for
     # the error-code mapping below it). Cap 1125 -> 1139, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1139,
+    # fix(#1472 review): +12 — apply the manifest ledger's credit line on the
+    # reupload swap. A manifest re-apply with a changed fingerprint classifies
+    # as "update" and lands here rather than on either fresh-ingest tail, so
+    # without it the swap installed new data under the previous manifest's
+    # credit. Most of the lines are the comment recording why this path is the
+    # only reupload one that needs it and why dataset.record is safe to touch
+    # (joinedloaded by the SELECT above it). Cap 1139 -> 1151, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1151,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is

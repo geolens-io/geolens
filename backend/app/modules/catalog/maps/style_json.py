@@ -426,6 +426,15 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
             "minzoom": 1,
             "maxzoom": 22 if is_cluster else 14,
         }
+    # fix(#1472 review): the dataset's required credit, on the common tail so
+    # vector, raster, and raster-dem all carry it and a fourth source type
+    # cannot be added without it. An exported style is a published artifact
+    # handed to third parties and rendered outside this instance entirely,
+    # which is precisely where a source's display obligation binds — MapLibre
+    # reads `attribution` off the source and shows it in whatever attribution
+    # control the consuming application mounts.
+    if layer.dataset_attribution and layer.dataset_attribution.strip():
+        source["attribution"] = layer.dataset_attribution.strip()
     source["metadata"] = {
         "geolens": {
             "dataset_id": str(layer.dataset_id),

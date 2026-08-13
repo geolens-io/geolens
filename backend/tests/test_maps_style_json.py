@@ -67,6 +67,7 @@ def _layer(**overrides):
         is_3d=overrides.get("is_3d", False),
         is_dem=overrides.get("is_dem", False),
         dem_vertical_units=overrides.get("dem_vertical_units", None),
+        dataset_attribution=overrides.get("dataset_attribution", None),
     )
 
 
@@ -2412,3 +2413,54 @@ def test_a_layer_that_cannot_be_validated_is_dropped_not_500(monkeypatch):
     emitted = {entry["id"] for entry in style["layers"]}
     assert f"layer-{bad.id}" not in emitted
     assert f"layer-{good.id}" in emitted
+
+
+# fix(#1472 review): an exported style is a published artifact rendered outside
+# this instance, so a dataset whose terms require credit has to carry it into
+# every source type the exporter emits.
+_SWISSTOPO_CREDIT = "© swisstopo — swissALTI3D"
+
+
+def test_exported_vector_source_carries_dataset_attribution():
+    style = build_maplibre_style(
+        _map(), [_layer(dataset_attribution=_SWISSTOPO_CREDIT)]
+    )
+    sources = list(style["sources"].values())
+    dataset_sources = [s for s in sources if s.get("type") == "vector"]
+    assert dataset_sources, "no vector source in exported style"
+    assert all(s["attribution"] == _SWISSTOPO_CREDIT for s in dataset_sources)
+
+
+def test_exported_raster_source_carries_dataset_attribution():
+    layer = _layer(
+        layer_type="raster_geolens",
+        dataset_record_type="raster_dataset",
+        is_dem=False,
+        filter=None,
+        label_config=None,
+        paint={"raster-opacity": 1},
+        dataset_attribution=_SWISSTOPO_CREDIT,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    raster_sources = [s for s in style["sources"].values() if s.get("type") == "raster"]
+    assert raster_sources, "no raster source in exported style"
+    assert all(s["attribution"] == _SWISSTOPO_CREDIT for s in raster_sources)
+
+
+def test_exported_raster_dem_source_carries_dataset_attribution():
+    style = build_maplibre_style(
+        _map(), [_dem_layer(dataset_attribution=_SWISSTOPO_CREDIT)]
+    )
+    dem_sources = [
+        s for s in style["sources"].values() if s.get("type") == "raster-dem"
+    ]
+    assert dem_sources, "no raster-dem source in exported style"
+    assert all(s["attribution"] == _SWISSTOPO_CREDIT for s in dem_sources)
+
+
+@pytest.mark.parametrize("credit", [None, "", "   "])
+def test_exported_source_omits_attribution_when_no_credit_is_required(credit):
+    """The common case must leave the exported source byte-identical to before."""
+    style = build_maplibre_style(_map(), [_layer(dataset_attribution=credit)])
+    for source in style["sources"].values():
+        assert "attribution" not in source
