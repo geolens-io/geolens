@@ -5,8 +5,10 @@ Seven hero maps, every one carrying capabilities no other map shows, plus a
 private embed-token demo and two themed collections. All data is public and
 openly licensed; every flow was verified against the live API.
 
-  1. Restless Earth        - the composite story hero: 30 days of M4.5+ quakes
-                             (size+color double-encoded, white M7+ rings) over
+  1. Restless Earth        - the composite story hero: a LIVE USGS earthquake
+                             service (M2.5+, rolling 30 days, refreshed on
+                             demand rather than re-uploaded) with magnitude
+                             size+color double-encoded and white M7+ rings, over
                              PB2002 plate boundaries SPLIT into solid colliding
                              vs DASHED spreading/sliding layers (per-layer
                              filters + line-dasharray), 900 significant
@@ -25,7 +27,8 @@ openly licensed; every flow was verified against the live API.
                              with dashed alpine climbing routes (white-cased)
                              and labeled peaks.                [--no-terrain]
   4. Hurricane Alley       - every major (Cat 3+) Atlantic hurricane since
-                             1950 from NOAA HURDAT2, per-6h-segment categorical
+                             1950 from NOAA HURDAT2 (through the 2025 season),
+                             per-6h-segment categorical
                              color by Saffir-Simpson, width by wind, direction
                              arrows (render_mode 'arrow'), line-center storm
                              name labels.
@@ -63,9 +66,16 @@ openly licensed; every flow was verified against the live API.
   Collections: "Restless Planet" (physical earth) and "Human World" (built
   world), plus the Private Embed Demo (X-Embed-Token over a private dataset).
 
-Maintenance: --refresh-quakes re-downloads the USGS feed and swaps it into the
-two earthquake datasets in place (map styles/IDs untouched), then exits. Run it
-on the demo every week or two or "last 30 days" quietly goes stale.
+Maintenance:
+  --refresh-quakes    asks the server to re-pull both earthquake datasets from
+                      their bound USGS service, then exits. Community has no
+                      refresh scheduler, so this is the demo's cron job - run it
+                      weekly or "last 30 days" quietly goes stale.
+  --refresh-hurdat2   re-fetches the HURDAT2 file into both track datasets and
+                      rebuilds the derived exposure chain, then exits. Run it
+                      after NHC publishes a new season (usually spring).
+  --prune-userdata    reports what a cleanup would delete (visitor-uploaded
+                      maps/datasets); add --execute to actually delete.
 
 Upgrading an existing instance: run with --prune to delete the retired
 first-generation showcase maps/datasets (see RETIRED_* below), then seed.
@@ -74,7 +84,31 @@ Requires: pip install httpx
 
 GOTCHAS this script encodes (learned the hard way, all verified live):
   * A plain GeoJSON URL is NOT a "service" - the service connector only takes
-    WFS / ArcGIS Feature Service / OGC API Features. DOWNLOAD + /ingest/upload.
+    WFS / ArcGIS / OGC API Features. DOWNLOAD + /ingest/upload for those.
+  * ArcGIS MapServer URLs ARE accepted, not just FeatureServer: probing
+    .../MapServer/0 returns service_type "ArcGIS MapServer" and auto-selects
+    layer 0 (selected_layer_id). The probe NORMALIZES the url by dropping the
+    trailing layer number - send back probe["url"], not the url you typed.
+  * A service binding is created two ways off the SAME request body (url,
+    service_type, layer_name, layer_title, layer_id, object_id_field, all read
+    off the probe): POST /services/preview/ makes a NEW dataset (then the
+    ordinary /ingest/commit/{job}), and POST /datasets/{id}/reupload/service/
+    preview CONVERTS an existing one. Conversion is IN PLACE - dataset id,
+    record id, table name and every map layer survive it (atomic staging-table
+    swap server-side), so a converted dataset needs no map rewiring.
+  * Connectors have NO server-side attribute filter: `where=1=1` is hardcoded
+    (sources/adapters/arcgis.py, sources/preview.py). You take the WHOLE layer
+    or nothing - which is why the quakes feed is M2.5+ and not M4.5+.
+  * A refresh REBUILDS column_info from the service wholesale, so styles must
+    speak the SERVICE's column vocabulary permanently. Never bridge a name
+    change with the column-rename endpoints: the next refresh discards the
+    rename and the style silently points at a column that no longer exists.
+    The USGS service's names are depth_num and event_time_utc_date_fmt (the
+    seeder-era depth_km / time_utc are gone); mag, place, felt, tsunami and sig
+    survive by name. Column names are lowercased on ingest as always.
+  * Refresh is MANUAL-ONLY in Community - the codebase registers no periodic
+    tasks at all (platform/refresh/credentials.py). The demo therefore needs an
+    external cron calling --refresh-quakes; nothing refreshes on its own.
   * Socrata serialises numbers as STRINGS ("53.84"); coerce numeric columns
     before upload or GDAL ingests them as text (breaks graduated styling).
   * GeoLens LOWERCASES column names on ingest - reference the lowercased name
@@ -114,6 +148,23 @@ GOTCHAS this script encodes (learned the hard way, all verified live):
     visible_fields: [...]}. Heatmap layers never get popups or labels.
   * A line + a wider casing under it = TWO LAYERS on the SAME dataset
     (map-sync dedupes the tile source per dataset).
+  * fill-pattern takes a builtin sprite id ('geolens-fill-hatch' and four
+    siblings, FILL_PATTERN_IDS in layer-adapters/fill-pattern-images.ts) and
+    rides in PAINT. The builder makes fill-color and fill-pattern mutually
+    exclusive and stashes the colour in builder.fillColorSaved, but the API
+    accepts BOTH, and paint's fill-color then wins as the pattern tint - which
+    is what an API-authored layer wants (verified live).
+  * folderGroupId / folderGroupName / folderGroupExpanded are style_config
+    .BUILDER keys (not top-level style_config), and grouping is expressed by
+    layers SHARING one group id. The server canonicalizes builder keys to
+    snake_case on save, so what comes BACK is folder_group_id whichever
+    spelling went in - this script writes the snake_case form, like every other
+    builder key it sets, so a read and a write compare directly.
+  * An unknown style_config.builder key is accepted silently (no validation) -
+    a typo is a no-op, never a 422. Same failure mode as render_mode.
+  * Map name is settable via the ordinary PUT /maps/{id}. Builders skip a map
+    by NAME, so renaming one needs a rename-aware lookup (old name present +
+    new name absent -> PUT the rename) or the next run builds a duplicate.
   * Sentinel-2 by-reference import is POST /api/services/stac/import (remote,
     zero download) - NOT the manifest raster_cog path (that downloads; used
     deliberately for the ETOPO + swissALTI3D ingests). Query Element84
@@ -160,7 +211,6 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
 
 try:
     import httpx
@@ -199,9 +249,17 @@ SWISSALTI_STAC = (
     "https://data.geo.admin.ch/api/stac/v1/collections/"
     f"ch.swisstopo.swissalti3d/items?bbox={SWISSALTI_BBOX}&limit=100"
 )
-# USGS M4.5+ past 30 days (~500 significant quakes; public domain).
-USGS_QUAKES = (
-    "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_month.geojson"
+# USGS "Recent Earthquakes" ArcGIS MapServer, layer 0 = "M2.5+ Recent
+# Earthquakes" (rolling 30-day window, ~2,300 features, OID field OBJECTID;
+# public domain). Bound as a LIVE SERVICE rather than downloaded, so the demo
+# refreshes through the server instead of being re-uploaded.
+#
+# M2.5+ and not M4.5+ deliberately: the connector has no server-side filter
+# (where=1=1 is hardcoded), so the choice is this whole layer or none of it.
+# The wider feed is the better demo anyway - ~2,300 points instead of ~500 give
+# the heatmap and the graduated circles something to actually show.
+USGS_QUAKES_SERVICE = (
+    "https://earthquake.usgs.gov/arcgis/rest/services/eq/Recent_Earthquakes/MapServer/0"
 )
 # Natural Earth (public domain), pinned tag v5.1.2 for reproducibility.
 NE_BASE = (
@@ -233,9 +291,14 @@ NCEI_VOLCANOES = (
     "https://www.ngdc.noaa.gov/hazel/hazard-service/api/v1/volcanoes"
     "?itemsPerPage=200&page={page}"
 )
-# NOAA NHC HURDAT2 Atlantic best-track database (plain text, public domain).
-# Filename embeds the release date - update when NHC cuts a new revision.
-HURDAT2_ATLANTIC = "https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2024-040425.txt"
+# NOAA NHC HURDAT2 Atlantic best-track database (plain text, public domain),
+# now through the 2025 season. The filename embeds the release date - update it
+# when NHC cuts a new revision, and note that NHC changed the suffix format
+# from MMDDYY (040425) to MMDDYYYY (02272026) with this release, so a script
+# that pattern-matched the old six-digit form will not find the new file.
+# A bump here only reaches an existing instance through --refresh-hurdat2:
+# a plain seed reuses both track datasets by title and never re-downloads.
+HURDAT2_ATLANTIC = "https://www.nhc.noaa.gov/data/hurdat/hurdat2-1851-2025-02272026.txt"
 # Atlantic hurricane basin coastline window (W, S, E, N) for the exposure map's
 # admin polygons: Gulf of Mexico, Caribbean, Bahamas, the US/Canadian eastern
 # seaboard, Bermuda and the northern coast of South America. Cut from the
@@ -331,6 +394,44 @@ RETIRED_DATASETS = [
 ]
 RETIRED_COLLECTIONS = ["Discover the World"]
 
+# --- renamed showcase content -------------------------------------------------
+# Titles and map names that CHANGED after instances were already seeded. Each
+# pair is (current, legacy): every lookup tries the current name first and falls
+# back to the legacy one, then renames what it found. One run migrates a live
+# instance; every run after that finds the current name and does nothing.
+#
+# Renames are not cosmetic here. Both of these were claims that went false:
+# the quakes feed became M2.5+ when it moved to the live USGS service, and
+# "75 Years" stopped being true the moment the 2025 season landed. The new
+# hurricane name carries no year count at all so it cannot rot again.
+
+# The quakes datasets. The heatmap counterpart is deliberately NOT renamed - its
+# title never named a magnitude, so there is nothing in it to go stale (only its
+# summary mentioned M4.5+, and that is corrected in SHOWCASE_METADATA).
+QUAKES_TITLE = "Recent Earthquakes (M2.5+, last 30 days)"
+QUAKES_TITLE_LEGACY = "Recent Earthquakes (M4.5+, last 30 days)"
+QUAKES_HEAT_TITLE = "Recent Earthquakes - Heatmap source"
+
+HURRICANE_MAP = "Hurricane Alley - Major Atlantic Storms Since 1950"
+HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
+
+# The two HURDAT2 track datasets. Titles are stable (neither carries a year
+# count), but --refresh-hurdat2 resolves both by title, so they are named once.
+HURDAT2_TRACKS_TITLE = "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)"
+HURDAT2_LEGS_TITLE = "Major Hurricane Tracks (Cat 3+ legs, one per storm)"
+
+# --- externally pinned content -------------------------------------------------
+# These three are referenced from OUTSIDE this repo by UUID or by the table name
+# their title derives (the subway lines dataset backs `data.nyc_subway_lines_mta`).
+# A metadata PATCH is safe; a retitle, delete or re-ingest is NOT - it breaks the
+# external reference silently. --prune-userdata hard-keeps them regardless of
+# owner, and nothing here may be added to RETIRED_DATASETS.
+PINNED_DATASET_TITLES = (
+    "NYC Subway Lines (MTA)",  # title derives data.nyc_subway_lines_mta - NEVER rename
+    "NYC Subway Stations (MTA)",
+    "swissALTI3D Matterhorn DEM (2m mosaic)",
+)
+
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
 # plate boundaries and quake belts, the worldwide meteorite scatter, and storm
@@ -346,7 +447,7 @@ RETIRED_COLLECTIONS = ["Discover the World"]
 GLOBE_PROJECTION_MAPS = (
     "Restless Earth",
     "Everything That Fell From the Sky",
-    "Hurricane Alley - 75 Years of Major Atlantic Storms",
+    HURRICANE_MAP,
 )
 
 
@@ -469,12 +570,73 @@ class Api:
             f"{self.base}/api/datasets/{dataset_id}/reupload/{job}/preview",
             headers=self.h,
         ).raise_for_status()
+        self.reupload_commit(dataset_id, job)
+        self.poll(job)
+
+    def reupload_commit(self, dataset_id: str, job_id: str) -> None:
+        """Commit a staged reupload. Shared by the file and the service paths -
+        both stage into the same job and swap through the same door."""
         self.client.post(
-            f"{self.base}/api/datasets/{dataset_id}/reupload/{job}/commit",
+            f"{self.base}/api/datasets/{dataset_id}/reupload/{job_id}/commit",
             headers=self.h,
             json={},
         ).raise_for_status()
-        self.poll(job)
+
+    # --- live service bindings -------------------------------------------------
+
+    def probe_service(self, url: str) -> dict:
+        """Ask the server what a remote service exposes.
+
+        Returns {service_type, url, layers[], selected_layer_id}. Two fields of
+        the response are load-bearing downstream: `url` is NORMALIZED (probing
+        .../MapServer/0 returns .../MapServer), and `selected_layer_id` echoes
+        the layer number that was in the input URL. Send both back verbatim.
+        """
+        r = self.client.post(
+            f"{self.base}/api/services/probe/", headers=self.h, json={"url": url}
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def service_preview(self, body: dict) -> dict:
+        """Stage a NEW dataset from a service layer; returns a pending job.
+
+        The job then goes through the ordinary /ingest/commit/{job} door, which
+        is why this takes no title: commit carries it.
+        """
+        r = self.client.post(
+            f"{self.base}/api/services/preview/", headers=self.h, json=body
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def service_reupload_preview(self, dataset_id: str, body: dict) -> dict:
+        """Stage a service binding over an EXISTING dataset (same body shape as
+        service_preview). Returns {job_id, schema_diff, ...}; the swap itself
+        happens at reupload_commit and preserves the dataset id."""
+        r = self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/reupload/service/preview",
+            headers=self.h,
+            json=body,
+        )
+        r.raise_for_status()
+        return r.json()
+
+    def refresh_dataset(self, dataset_id: str) -> dict:
+        """Re-pull a dataset from its OWN stored origin binding.
+
+        The body carries no source pointer by design - the server reads where
+        the data comes from off the dataset, so this cannot re-point anything.
+        Returns {run_id, job_id, origin_kind, trigger, ...}; the run is the
+        durable history row the Source panel shows, the job is what to poll.
+        """
+        r = self.client.post(
+            f"{self.base}/api/datasets/{dataset_id}/refresh",
+            headers=self.h,
+            json={},
+        )
+        r.raise_for_status()
+        return r.json()
 
     def create_map(self, name: str, description: str) -> str:
         r = self.client.post(
@@ -638,6 +800,50 @@ class Api:
         r = self.client.delete(f"{self.base}/api/maps/{map_id}", headers=self.h)
         r.raise_for_status()
 
+    def delete_layer(self, map_id: str, layer_id: str) -> None:
+        r = self.client.delete(
+            f"{self.base}/api/maps/{map_id}/layers/{layer_id}", headers=self.h
+        )
+        r.raise_for_status()
+
+    def list_all_maps(self) -> list[dict]:
+        """EVERY map on the instance, not just this account's - the prune report
+        exists to find what other people left behind. Paginated for the same
+        reason list_maps is; see there."""
+        out: list[dict] = []
+        seen = 0
+        while True:
+            r = self.client.get(
+                f"{self.base}/api/maps?limit=200&skip={seen}"
+                "&sort_by=created_at&sort_dir=desc",
+                headers=self.h,
+            )
+            r.raise_for_status()
+            d = r.json()
+            page = d.get("maps", d.get("items", []))
+            out.extend(page)
+            seen += len(page)
+            total = d.get("total")
+            if not page or total is None or seen >= total:
+                return out
+
+    def list_all_datasets(self) -> list[dict]:
+        """EVERY dataset on the instance. Same rationale as list_all_maps."""
+        out: list[dict] = []
+        seen = 0
+        while True:
+            r = self.client.get(
+                f"{self.base}/api/datasets?limit=200&skip={seen}", headers=self.h
+            )
+            r.raise_for_status()
+            d = r.json()
+            page = d.get("datasets", d.get("items", []))
+            out.extend(page)
+            seen += len(page)
+            total = d.get("total")
+            if not page or total is None or seen >= total:
+                return out
+
     def delete_dataset(self, dataset_id: str, title: str) -> None:
         # DELETE requires the exact title as a confirmation body.
         r = self.client.request(
@@ -707,16 +913,26 @@ class Api:
             out.setdefault(x["title"], x["id"])
         return out
 
+    def dataset_detail(self, dataset_id: str) -> dict:
+        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
+        r.raise_for_status()
+        return r.json()
+
     def dataset_columns(self, dataset_id: str) -> set:
         """Column names of a dataset (from the detail endpoint's column_info)."""
-        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
-        r.raise_for_status()
-        return {c["name"] for c in (r.json().get("column_info") or [])}
+        return {
+            c["name"]
+            for c in (self.dataset_detail(dataset_id).get("column_info") or [])
+        }
 
     def dataset_feature_count(self, dataset_id: str) -> int | None:
-        r = self.client.get(f"{self.base}/api/datasets/{dataset_id}", headers=self.h)
-        r.raise_for_status()
-        return r.json().get("feature_count")
+        return self.dataset_detail(dataset_id).get("feature_count")
+
+    def dataset_origin(self, dataset_id: str) -> str | None:
+        """How the data entered the catalog: upload | postgis | service | stac |
+        created. Computed server-side from source_format + record_type, not
+        stored, and null for collections and VRTs."""
+        return self.dataset_detail(dataset_id).get("origin")
 
     def collections_by_name(self) -> dict[str, str]:
         """Map collection name -> id (name is UNIQUE in the catalog model)."""
@@ -803,45 +1019,121 @@ def warn_if_hidden_layers(api: Api, map_id: str, name: str) -> None:
 # --- data feeds ----------------------------------------------------------------
 
 
-def quake_feed() -> tuple[bytes, int]:
-    """USGS M4.5+ 30-day feed, slimmed + enriched for styling, popups and Ask AI.
+def service_binding_body(api: Api, service_url: str) -> dict:
+    """Probe a service URL and shape the request body both binding doors take.
 
-    Beyond mag/place, keeps the fields that make the dataset interrogable:
-    depth_km (geometry Z; USGS depth is already km), time_utc (human-readable,
-    lexicographically sortable in SQL), felt (DYFI report count), tsunami (0/1)
-    and sig (USGS significance 0-1000).
+    One function because /services/preview/ (new dataset) and
+    /datasets/{id}/reupload/service/preview (convert an existing one) take the
+    IDENTICAL body, and the fields all come from the probe rather than from
+    anything the caller knows: sending a hand-written url or a guessed
+    object_id_field is how pagination silently breaks on a big layer.
     """
-    fc = json.loads(fetch(USGS_QUAKES))
-    for feat in fc["features"]:
-        p = feat["properties"]
-        try:
-            mag = float(p["mag"]) if p.get("mag") is not None else None
-        except (TypeError, ValueError):
-            mag = None
-        coords = (feat.get("geometry") or {}).get("coordinates") or []
-        depth = (
-            round(float(coords[2]), 1)
-            if len(coords) > 2 and coords[2] is not None
-            else None
+    probe = api.probe_service(service_url)
+    layers = probe.get("layers") or []
+    if not layers:
+        raise RuntimeError(f"service exposed no layers: {service_url}")
+    selected = probe.get("selected_layer_id")
+    layer = next(
+        (x for x in layers if x.get("layer_id") == selected and selected is not None),
+        layers[0],
+    )
+    return {
+        "url": probe["url"],
+        "service_type": probe["service_type"],
+        "layer_name": layer["name"],
+        "layer_title": layer.get("title"),
+        "layer_id": layer.get("layer_id"),
+        "object_id_field": layer.get("object_id_field"),
+    }
+
+
+def _print_schema_diff(diff: dict, indent: str = "    ") -> None:
+    """Show what a staged service swap would do to the columns and row count.
+
+    Worth printing rather than assuming: this is the moment a service quietly
+    renames a column out from under a style, and the diff is the only place it
+    is visible before the swap commits.
+    """
+    old, new = diff.get("row_count_old"), diff.get("row_count_new")
+    delta = diff.get("row_count_delta")
+    shown = f"{delta:+d}" if isinstance(delta, int) else "?"
+    print(f"{indent}rows {old} -> {new} ({shown})")
+    for label, key in (("+", "columns_added"), ("-", "columns_removed")):
+        names = [c["name"] for c in (diff.get(key) or [])]
+        if names:
+            print(f"{indent}{label}columns: {', '.join(sorted(names))}")
+    for tc in diff.get("type_changes") or []:
+        print(
+            f"{indent}~type {tc.get('name')}: {tc.get('old_type')} -> {tc.get('new_type')}"
         )
-        ms = p.get("time")
-        time_utc = (
-            datetime.fromtimestamp(ms / 1000, tz=timezone.utc).strftime(
-                "%Y-%m-%d %H:%M UTC"
-            )
-            if isinstance(ms, (int, float))
-            else None
-        )
-        feat["properties"] = {
-            "mag": mag,
-            "place": p.get("place"),
-            "time_utc": time_utc,
-            "depth_km": depth,
-            "felt": p.get("felt"),
-            "tsunami": p.get("tsunami"),
-            "sig": p.get("sig"),
-        }
-    return json.dumps(fc).encode(), len(fc["features"])
+
+
+def ingest_service(
+    api: Api, service_url: str, title: str, summary: str, timeout: int = 900
+) -> str:
+    """Create a NEW dataset bound to a live service layer.
+
+    probe -> /services/preview/ (stages a pending job) -> the ordinary
+    /ingest/commit/{job} -> poll. The result carries origin "service", which is
+    what makes it refreshable later.
+    """
+    body = service_binding_body(api, service_url)
+    print(
+        f"  binding {title} to {body['service_type']} layer {body['layer_name']!r}..."
+    )
+    job = api.service_preview(body)["job_id"]
+    api.commit(job, title, summary)
+    return api.poll(job, timeout=timeout)["dataset_id"]
+
+
+def convert_to_service(
+    api: Api, dataset_id: str, service_url: str, label: str, timeout: int = 900
+) -> bool:
+    """Re-point an existing dataset at a live service, IN PLACE.
+
+    Idempotent by the dataset's own origin: a dataset already reading from a
+    service is left alone, so this is safe to run on every seed. Returns True
+    when it actually converted something.
+
+    In place is the whole point. The swap happens server-side against a staging
+    table, so the dataset id, the record id, the physical table name and every
+    map layer pointing at it all survive - a converted showcase dataset needs no
+    map rewiring, and the demo's URLs keep working.
+    """
+    if api.dataset_origin(dataset_id) == "service":
+        print(f"  [ok] {label} already reads from a live service")
+        return False
+    print(f"  converting {label} to a live service binding...")
+    body = service_binding_body(api, service_url)
+    staged = api.service_reupload_preview(dataset_id, body)
+    _print_schema_diff(staged["schema_diff"])
+    api.reupload_commit(dataset_id, staged["job_id"])
+    api.poll(staged["job_id"], timeout=timeout)
+    return True
+
+
+def refresh_and_report(
+    api: Api, dataset_id: str, label: str, timeout: int = 900
+) -> bool:
+    """Ask the server to re-pull one dataset from its origin, and say how it went.
+
+    Best-effort per dataset: one dataset whose upstream is briefly down must not
+    abort a refresh sweep over the others.
+    """
+    try:
+        run = api.refresh_dataset(dataset_id)
+        api.poll(run["job_id"], timeout=timeout)
+    except (
+        httpx.HTTPStatusError,
+        httpx.TimeoutException,
+        RuntimeError,
+        TimeoutError,
+    ) as e:
+        print(f"  ! refresh FAILED for {label}: {e}", file=sys.stderr)
+        return False
+    n = api.dataset_feature_count(dataset_id)
+    print(f"  refreshed {label} from its {run['origin_kind']} origin ({n} features)")
+    return True
 
 
 def volcano_feed() -> tuple[bytes, int]:
@@ -1315,6 +1607,95 @@ def _map_exists(api: Api, name: str) -> bool:
     return name in api.list_maps()
 
 
+def _rename_map_if_needed(api: Api, name: str, legacy: str) -> None:
+    """Migrate a map that was created under an older name.
+
+    Builders skip by NAME, so a rename without this leaves the old map sitting
+    there under its old name while the builder happily creates a second one
+    beside it - two Hurricane Alleys, one of them stale, on every instance that
+    was seeded before the rename. Renaming only when the old name exists AND the
+    new one does not keeps that from happening in either direction.
+    """
+    maps = api.list_maps()
+    if legacy in maps and name not in maps:
+        api.set_view(maps[legacy], name=name)
+        print(f"  renamed map {legacy!r} -> {name!r}")
+
+
+def _resolve_renamed(api: Api, by_title: dict, title: str, legacy: str) -> str | None:
+    """Find a dataset under its CURRENT title, or adopt the legacy one.
+
+    A live instance was seeded under the old title, and a plain lookup on the
+    new title would miss it and ingest a duplicate alongside it. Finding the
+    legacy title and PATCHing it forward migrates the instance in one run;
+    every run after that hits the first branch and does nothing.
+    """
+    if title in by_title:
+        return by_title[title]
+    if legacy in by_title:
+        ds = by_title[legacy]
+        api.patch_dataset(ds, title=title)
+        by_title[title] = ds
+        print(f"  retitled {legacy!r} -> {title!r}")
+        return ds
+    return None
+
+
+def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
+    """The two earthquake datasets, bound to the live USGS service.
+
+    Idempotent on every axis that can differ between instances:
+
+    * A fresh instance has neither, and both are created straight from the
+      service (no download, no upload).
+    * A live instance has them under the OLD M4.5+ title holding UPLOADED
+      GeoJSON. The title migrates first, then the data binding converts in
+      place - dataset ids and map layers survive both, so the Restless Earth
+      map keeps working through the upgrade without being touched.
+    * An already-converted instance hits neither path and pays one GET each.
+
+    --force does NOT reach here, deliberately. Everywhere else force means
+    "re-ingest instead of reusing", but there is nothing to re-download from a
+    service binding, and creating a second pair would orphan the datasets the
+    Restless Earth map's layers point at. A stale binding is fixed by
+    converting, which this already does on every run.
+
+    Returns (circles_dataset_id, heatmap_dataset_id).
+    """
+    summaries = {
+        QUAKES_TITLE: (
+            "Earthquakes of magnitude 2.5 and above from the last 30 days, read "
+            "LIVE from the USGS Recent Earthquakes map service: magnitude, "
+            "depth, felt reports, tsunami flag and USGS significance. Refreshes "
+            "in place from the service rather than being re-uploaded. Source: "
+            "USGS Earthquake Hazards Program (public domain)."
+        ),
+        QUAKES_HEAT_TITLE: (
+            "The same live USGS M2.5+ earthquake feed as the graduated-circle "
+            "dataset, bound separately so MapLibre renders it as its own "
+            "magnitude-weighted heat surface on the Restless Earth map. "
+            "Source: USGS Earthquake Hazards Program (public domain)."
+        ),
+    }
+    out: list[str] = []
+    for title, legacy in (
+        (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
+        (QUAKES_HEAT_TITLE, None),
+    ):
+        ds = (
+            _resolve_renamed(api, by_title, title, legacy)
+            if legacy
+            else by_title.get(title)
+        )
+        if ds is None:
+            ds = ingest_service(api, USGS_QUAKES_SERVICE, title, summaries[title])
+            by_title[title] = ds
+        else:
+            convert_to_service(api, ds, USGS_QUAKES_SERVICE, title)
+        out.append(ds)
+    return out[0], out[1]
+
+
 def _get_or_ingest(
     api: Api,
     by_title: dict,
@@ -1398,6 +1779,338 @@ def prune(api: Api) -> None:
                 print(f"  - collection: {name}")
             except httpx.HTTPStatusError as e:
                 print(f"  ! could not delete collection {name}: {e}")
+
+
+# --- maintenance entry points ------------------------------------------------
+# Each returns a process exit code and is terminal: main() runs one and exits.
+
+
+def refresh_quakes(api: Api) -> int:
+    """Re-pull both earthquake datasets from the USGS service they are bound to.
+
+    Thin by design - the server owns everything about WHERE the data comes from,
+    so this is two POSTs and two polls. Nothing is downloaded here and no
+    geometry crosses the wire from this machine.
+
+    This is the demo's cron job: Community registers no refresh scheduler, so
+    "last 30 days" only stays true because something outside the app calls this.
+    """
+    print("Refreshing the earthquake datasets from their USGS service binding...")
+    by_title = api.datasets_by_title()
+    failed = 0
+    for title, legacy in (
+        (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
+        (QUAKES_HEAT_TITLE, None),
+    ):
+        ds = (
+            _resolve_renamed(api, by_title, title, legacy)
+            if legacy
+            else by_title.get(title)
+        )
+        if ds is None:
+            print(f"  [skip] no dataset titled {title!r}")
+            continue
+        origin = api.dataset_origin(ds)
+        if origin != "service":
+            # Refusing beats "refreshing" an upload-origin dataset into a 409:
+            # this instance predates the service conversion and needs a seed run
+            # (which converts in place) before a refresh means anything.
+            print(
+                f"  ! {title!r} still has origin {origin!r}, not 'service' - "
+                "run a normal seed first to convert it",
+                file=sys.stderr,
+            )
+            failed += 1
+            continue
+        if not refresh_and_report(api, ds, title):
+            failed += 1
+    return 1 if failed else 0
+
+
+def refresh_sentinel2_scenes(api: Api) -> None:
+    """Refresh every imported Sentinel-2 scene from its STAC origin.
+
+    Run at the end of a normal seed rather than as its own flag. The scenes are
+    stac-origin and therefore refreshable, and firing one refresh each gives the
+    Source panel a real run history to show - which is the point: a scene that
+    has never been refreshed displays an empty panel, and the by-reference story
+    this map exists to tell is exactly that the data is not a local copy.
+
+    Best-effort and never fatal: this runs after everything is already built.
+    """
+    scenes = [
+        d for d in api.list_own_datasets() if d["title"].startswith("Sentinel-2 TCI ")
+    ]
+    if not scenes:
+        return
+    print(f"\nRefreshing {len(scenes)} Sentinel-2 scenes from their STAC origin...")
+    for d in scenes:
+        refresh_and_report(api, d["id"], d["title"])
+
+
+def refresh_hurdat2(api: Api) -> int:
+    """Pull a new HURDAT2 release into the tracks, then rebuild what derives.
+
+    Two different refresh mechanics, because the datasets are two different
+    kinds of thing:
+
+    * The two TRACK datasets are uploads, so they swap in place and keep their
+      ids - the Hurricane Alley map and the exposure map's legs layer are
+      untouched by this.
+    * The three DERIVED datasets cannot be refreshed at all. Materialize always
+      registers a NEW dataset, so there is no in-place door: the chain is
+      deleted and recomputed, and the one map layer that pointed into it is
+      deleted and re-added. The exposure MAP survives with its id intact.
+    """
+    print("Re-fetching HURDAT2 and rebuilding the derived exposure chain...")
+    by_title = api.datasets_by_title()
+    tracks_ds = by_title.get(HURDAT2_TRACKS_TITLE)
+    legs_ds = by_title.get(HURDAT2_LEGS_TITLE)
+    if tracks_ds is None or legs_ds is None:
+        print(
+            "  ! the HURDAT2 track datasets are not seeded yet - run a normal "
+            "seed before refreshing them",
+            file=sys.stderr,
+        )
+        return 1
+
+    data, n_storms, n_segs = hurdat2_feed()
+    print(f"  {n_storms} major storms, {n_segs} track segments")
+    api.reupload_geojson(tracks_ds, "atlantic_hurricanes.geojson", data)
+    print(f"  refreshed in place: {HURDAT2_TRACKS_TITLE}")
+    data, n_storms, n_legs = hurdat2_major_leg_feed()
+    print(f"  {n_storms} major storms, {n_legs} Category 3+ legs")
+    api.reupload_geojson(legs_ds, "hurricane_major_legs.geojson", data)
+    print(f"  refreshed in place: {HURDAT2_LEGS_TITLE}")
+
+    map_id = api.list_maps().get(EXPOSURE_MAP)
+    if map_id is None:
+        print(f"  [skip] no {EXPOSURE_MAP!r} map - refreshed the tracks only")
+        return 0
+
+    # The LAYER goes first: a dataset a map layer still points at cannot be
+    # deleted, and the layer would dangle anyway.
+    stale = {by_title[t] for t in EXPOSURE_CHAIN_TITLES if t in by_title}
+    for layer in api.get_map(map_id).get("layers", []):
+        if layer.get("dataset_id") in stale:
+            api.delete_layer(map_id, layer["id"])
+            print(f"  removed derived layer: {layer.get('display_name')}")
+    # Reverse dependency order - each derives from the one before it, so the
+    # children have to go before their parents.
+    for title in reversed(EXPOSURE_CHAIN_TITLES):
+        ds = by_title.pop(title, None)
+        if ds is None:
+            continue
+        try:
+            api.delete_dataset(ds, title)
+            print(f"  deleted derived dataset: {title}")
+        except httpx.HTTPStatusError as e:
+            print(f"  ! could not delete {title!r}: {e}", file=sys.stderr)
+            return 1
+
+    chain = _build_exposure_chain(api, by_title)
+    api.add_layer(map_id, _exposure_layer_body(chain["exposure"]))
+    print(f"  rebuilt the chain and re-added the exposure layer to map {map_id}")
+    # The context layer's hatch and the map's legend/notes live in the styling
+    # pass, which is idempotent - run it so the rebuilt map matches a fresh one.
+    apply_showcase_styling(api)
+    return 0
+
+
+def _showcase_dataset_titles() -> set[str]:
+    """Every dataset title this seeder creates, has created, or renames through.
+
+    Used only to decide whether an ADMIN-owned dataset is recognised content or
+    a stray worth reporting. Deliberately generous: over-recognising something
+    just leaves it out of a report, while under-recognising it would put a
+    hand-uploaded dataset on a list that reads like a deletion candidate.
+    """
+    titles = set(SHOWCASE_METADATA) | set(PINNED_DATASET_TITLES) | set(RETIRED_DATASETS)
+    titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_TITLE}
+    titles |= {
+        "World States & Provinces (Natural Earth 1:50m)",
+        "Private Embed Demo - VIP Sites",
+    }
+    for _description, members in COLLECTIONS.values():
+        titles |= set(members)
+    return titles
+
+
+# The seeder also makes datasets whose titles carry a per-item suffix: one per
+# swissALTI3D DEM tile (~62) and one per imported Sentinel-2 scene.
+_SHOWCASE_TITLE_PREFIXES = ("swissALTI3D 2m ", "Sentinel-2 TCI ")
+
+
+def _showcase_map_names() -> set[str]:
+    """Every map name this seeder creates or has created."""
+    return {
+        "Restless Earth",
+        "Manhattan - A Century of Skyline",
+        HURRICANE_MAP,
+        HURRICANE_MAP_LEGACY,
+        EXPOSURE_MAP,
+        "Everything That Fell From the Sky",
+        "The Matterhorn in 3D",
+        "New York From Orbit - Sentinel-2, by Reference",
+        "Private Embed Demo",
+    } | set(RETIRED_MAPS)
+
+
+def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
+    """Sort every map and dataset on the instance into the prune buckets.
+
+    Separated from the reporting so the RULE is readable on its own - which
+    matters more here than anywhere else in this file, because the difference
+    between two of these buckets is the difference between deleting a
+    visitor's upload and deleting the operator's.
+
+    Ownership decides, with one override: the externally pinned datasets are
+    pulled out FIRST and land in their own bucket whoever owns them, so no
+    later branch can reach them.
+    """
+    foreign_maps, stray_maps = [], []
+    for m in api.list_all_maps():
+        if m.get("created_by_username") != api.username:
+            foreign_maps.append(m)
+        elif m.get("name") not in known_maps:
+            stray_maps.append(m)
+
+    foreign_datasets, stray_datasets, pinned = [], [], []
+    for d in api.list_all_datasets():
+        if d.get("title") in PINNED_DATASET_TITLES:
+            pinned.append(d)
+        elif d.get("created_by") != api.user_id:
+            foreign_datasets.append(d)
+        elif not recognised(d.get("title", "")):
+            stray_datasets.append(d)
+
+    return {
+        "foreign_maps": foreign_maps,
+        "stray_maps": stray_maps,
+        "foreign_datasets": foreign_datasets,
+        "stray_datasets": stray_datasets,
+        "pinned": pinned,
+    }
+
+
+def prune_userdata(api: Api, execute: bool = False) -> int:
+    """Report - and with --execute, delete - content this seeder did not create.
+
+    DRY RUN BY DEFAULT. `--prune-userdata` prints the report and deletes
+    nothing; `--prune-userdata --execute` performs it. The dry run is the
+    normal way to use this, and the flag pair exists because the delete set is
+    computed from live ownership data that nobody can eyeball in advance.
+
+    What the sets mean, and why ownership rather than titles decides:
+
+    * OTHER USERS' maps and datasets are the delete set. On a public demo these
+      are visitor uploads, and a title tells you nothing about them.
+    * ADMIN-owned content the seeder does not recognise is reported as a stray
+      and KEPT. The live demo carries hand-uploaded datasets that predate this
+      script, and deleting one because this file has never heard of it is
+      exactly the accident this split prevents.
+    * Three datasets are hard-kept whoever owns them (PINNED_DATASET_TITLES):
+      they are referenced from outside this repo by id or by the table name
+      their title derives.
+    * Collections are reported only, never deleted - a collection is a label
+      over datasets, so deleting one destroys curation while freeing nothing.
+
+    Maps are deleted before datasets: a map layer is a live reference to a
+    dataset, and the dataset delete fails while one exists.
+    """
+    mode = "DELETING" if execute else "DRY RUN - deleting nothing"
+    print(f"\n[prune-userdata] {mode}")
+    print(f"  seeder account: {api.username} ({api.user_id})")
+
+    known_datasets = _showcase_dataset_titles()
+    known_maps = _showcase_map_names()
+
+    def recognised(title: str) -> bool:
+        return title in known_datasets or title.startswith(_SHOWCASE_TITLE_PREFIXES)
+
+    buckets = _classify_userdata(api, known_maps, recognised)
+    foreign_maps = buckets["foreign_maps"]
+    stray_maps = buckets["stray_maps"]
+    foreign_datasets = buckets["foreign_datasets"]
+    stray_datasets = buckets["stray_datasets"]
+    pinned_hits = buckets["pinned"]
+
+    def report(label, rows, key, owner_key):
+        print(f"\n  {label}: {len(rows)}")
+        for r in rows[:50]:
+            print(f"    - {r.get(key)!r}  (owner: {r.get(owner_key) or '?'})")
+        if len(rows) > 50:
+            print(f"    ... and {len(rows) - 50} more")
+
+    report(
+        "maps owned by other users (delete set)",
+        foreign_maps,
+        "name",
+        "created_by_username",
+    )
+    report(
+        "datasets owned by other users (delete set)",
+        foreign_datasets,
+        "title",
+        "created_by",
+    )
+    report(
+        "admin-owned maps not in the showcase set (kept)",
+        stray_maps,
+        "name",
+        "created_by_username",
+    )
+    report("admin-owned strays (kept)", stray_datasets, "title", "created_by")
+
+    print(f"\n  externally pinned, hard-kept whoever owns them: {len(pinned_hits)}")
+    for d in pinned_hits:
+        print(f"    = {d.get('title')!r}")
+
+    showcase_collections = set(COLLECTIONS) | set(RETIRED_COLLECTIONS)
+    other_collections = [
+        n for n in api.collections_by_name() if n not in showcase_collections
+    ]
+    print(
+        f"\n  non-showcase collections (reported only, never deleted): {len(other_collections)}"
+    )
+    for n in other_collections:
+        print(f"    ? {n!r}")
+
+    if not execute:
+        print(
+            f"\n  SUMMARY (dry run): would delete {len(foreign_maps)} maps and "
+            f"{len(foreign_datasets)} datasets; would keep {len(stray_maps)} "
+            f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
+            f"{len(pinned_hits)} pinned datasets. Nothing was deleted. "
+            "Re-run with --execute to perform it."
+        )
+        return 0
+
+    deleted_maps = deleted_datasets = 0
+    errors = 0
+    for m in foreign_maps:
+        try:
+            api.delete_map(m["id"])
+            deleted_maps += 1
+        except httpx.HTTPStatusError as e:
+            print(f"  ! could not delete map {m.get('name')!r}: {e}", file=sys.stderr)
+            errors += 1
+    for d in foreign_datasets:
+        try:
+            api.delete_dataset(d["id"], d["title"])
+            deleted_datasets += 1
+        except httpx.HTTPStatusError as e:
+            print(
+                f"  ! could not delete dataset {d.get('title')!r}: {e}", file=sys.stderr
+            )
+            errors += 1
+    print(
+        f"\n  SUMMARY: deleted {deleted_maps}/{len(foreign_maps)} maps and "
+        f"{deleted_datasets}/{len(foreign_datasets)} datasets; kept "
+        f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
+        f"strays and {len(pinned_hits)} pinned datasets. {errors} error(s)."
+    )
+    return 1 if errors else 0
 
 
 # --- showcase builders -----------------------------------------------------------
@@ -1523,40 +2236,10 @@ def build_restless_earth(
     by_title = api.datasets_by_title()
 
     # --- earthquakes (two datasets: circles + heatmap source) -----------------
-    quakes_title = "Recent Earthquakes (M4.5+, last 30 days)"
-    heat_title = "Recent Earthquakes - Heatmap source"
-    if not force and quakes_title in by_title and heat_title in by_title:
-        print("  [reuse] earthquake datasets")
-        # Instances seeded before the feed enrichment carry quake datasets
-        # with only mag/place/time - detect and refresh in place (fix #389).
-        if "depth_km" not in api.dataset_columns(by_title[quakes_title]):
-            print("  quake datasets predate the enriched feed - refreshing...")
-            qdata, qn = quake_feed()
-            api.reupload_geojson(by_title[quakes_title], "recent_quakes.geojson", qdata)
-            api.reupload_geojson(
-                by_title[heat_title], "recent_quakes_heat.geojson", qdata
-            )
-            print(f"  refreshed {qn} quakes into both datasets")
-    else:
-        qdata, qn = quake_feed()
-        print(f"  ingesting {qn} quakes (x2: circles + heatmap)...")
-        # GeoLens renders ONE MapLibre layer per dataset; the graduated-circle
-        # layer and the heatmap layer need the same geometry as TWO datasets.
-        by_title[quakes_title] = api.ingest_geojson(
-            "recent_quakes.geojson",
-            qdata,
-            quakes_title,
-            "Significant earthquakes (M4.5+) from the last 30 days: magnitude, "
-            "depth, felt reports, tsunami flag and USGS significance. "
-            "Source: USGS Earthquake Hazards Program (public domain).",
-        )
-        by_title[heat_title] = api.ingest_geojson(
-            "recent_quakes_heat.geojson",
-            qdata,
-            heat_title,
-            "Same M4.5+ quake geometry as the graduated-circle dataset, ingested "
-            "separately so MapLibre renders it as its own heatmap layer.",
-        )
+    # Both read from the LIVE USGS service. GeoLens renders one MapLibre layer
+    # per dataset, so the graduated-circle layer and the heatmap layer need the
+    # same geometry bound twice - each binding refreshes independently.
+    quakes_ds, heat_ds = ensure_quake_datasets(api, by_title)
 
     # --- plate boundaries ------------------------------------------------------
     plates_title = "Tectonic Plate Boundaries (PB2002)"
@@ -1685,6 +2368,10 @@ def build_restless_earth(
                                 "crs": "EPSG:4326",
                                 "organization": "NOAA NCEI",
                                 "license": "US public domain (cite NOAA NCEI)",
+                                # The credit line a viewer shows over the tiles.
+                                # NOAA's terms ask for the citation, and the
+                                # license string alone never reaches the map.
+                                "attribution": "NOAA NCEI",
                                 "tags": ["bathymetry", "relief", "etopo", "global"],
                             },
                             # "published" -> visibility public + record_status
@@ -1719,14 +2406,14 @@ def build_restless_earth(
     # --- the map --------------------------------------------------------------------
     map_id = api.create_map(
         name,
-        "Thirty days of M4.5+ earthquakes and 6,000 years of deadly volcanic "
-        "eruptions, on the tectonic plate boundaries that spawn them - solid "
-        "where plates collide, dashed where they spread and slide - over the "
-        "real relief of the planet (ETOPO 2022). Watch the mid-Atlantic ridge "
-        "line up with the dashed divergent boundary. Click anything, or open "
-        "Ask AI: which quakes triggered tsunami warnings? What was the "
-        "deadliest eruption? Sources: USGS, NOAA NCEI, PB2002 (Bird 2003), "
-        "Natural Earth.",
+        "Thirty days of M2.5+ earthquakes, read live from the USGS service, and "
+        "6,000 years of deadly volcanic eruptions, on the tectonic plate "
+        "boundaries that spawn them - solid where plates collide, dashed where "
+        "they spread and slide - over the real relief of the planet (ETOPO "
+        "2022). Watch the mid-Atlantic ridge line up with the dashed divergent "
+        "boundary. Click anything, or open Ask AI: which quakes triggered "
+        "tsunami warnings? What was the deadliest eruption? Sources: USGS, "
+        "NOAA NCEI, PB2002 (Bird 2003), Natural Earth.",
     )
 
     def mag_step(v0, v1, v2, v3):
@@ -1738,7 +2425,7 @@ def build_restless_earth(
     api.add_layer(
         map_id,
         {
-            "dataset_id": by_title[quakes_title],
+            "dataset_id": quakes_ds,
             "sort_order": 0,
             "opacity": 1.0,
             "display_name": "Earthquakes (last 30 days, by magnitude)",
@@ -1770,10 +2457,19 @@ def build_restless_earth(
                 "colors": quake_colors,
                 "sizeLabel": "Magnitude",
             },
+            # Service column vocabulary, not the old seeder-derived one: every
+            # refresh rebuilds column_info from the service, so depth_km and
+            # time_utc are gone for good and these names are permanent.
             "popup_config": {
                 "enabled": True,
                 "expression": "M{mag} - {place}",
-                "visible_fields": ["depth_km", "time_utc", "felt", "tsunami"],
+                "visible_fields": [
+                    "depth_num",
+                    "event_time_utc_date_fmt",
+                    "felt",
+                    "tsunami",
+                    "sig",
+                ],
             },
         },
     )
@@ -2042,7 +2738,7 @@ def build_restless_earth(
     api.add_layer(
         map_id,
         {
-            "dataset_id": by_title[heat_title],
+            "dataset_id": heat_ds,
             "sort_order": 5,
             "opacity": 1.0,
             "display_name": "Quake intensity (heatmap)",
@@ -2059,12 +2755,17 @@ def build_restless_earth(
                     6,
                     50,
                 ],
+                # Ramp from 2.5, the floor of the live service's feed. It used
+                # to start at 4, which was the floor of the old M4.5+ download;
+                # left there, every quake in the 2.5-4 band - most of the ~2,300
+                # - would pin to the same minimum weight and the surface would
+                # grade by density alone instead of by magnitude.
                 "heatmap-weight": [
                     "interpolate",
                     ["linear"],
                     ["to-number", ["get", "mag"], 0],
-                    4,
-                    0.1,
+                    2.5,
+                    0.05,
                     8,
                     1,
                 ],
@@ -2510,7 +3211,10 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
     (direction-of-motion arrows along the track), per-segment categorical
     line color, data-driven line width, line-center name labels.
     """
-    name = "Hurricane Alley - 75 Years of Major Atlantic Storms"
+    name = HURRICANE_MAP
+    # Migrate before the exists-check, or the check misses the renamed map and
+    # builds a duplicate next to it.
+    _rename_map_if_needed(api, name, HURRICANE_MAP_LEGACY)
     if not force and _map_exists(api, name):
         print(f"  [skip] {name} already exists")
         return "(skipped)"
@@ -2525,7 +3229,7 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
     tracks_ds = _get_or_ingest(
         api,
         by_title,
-        "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)",
+        HURDAT2_TRACKS_TITLE,
         "atlantic_hurricanes.geojson",
         tracks_bytes,
         "Six-hourly best-track segments for every Atlantic hurricane since "
@@ -2725,31 +3429,28 @@ EXPOSURE_BREAKS = [3, 6, 10]
 EXPOSURE_COLORS = ["#fed976", "#feb24c", "#f03b20", "#800026"]
 
 
-def build_hurricane_exposure(api: Api, force: bool = False) -> str:
-    """The analysis hero: the only showcase map that is a computed RESULT.
+# The exposure chain's dataset titles, in DEPENDENCY order (each derives from
+# the one before). --refresh-hurdat2 deletes them in reverse.
+EXPOSURE_CHAIN_TITLES = (
+    "Major Hurricane Corridors (100 km buffer)",
+    "Coastal Regions Inside a Major Hurricane Corridor",
+    "Hurricane Exposure by Coastal Region",
+)
+EXPOSURE_MAP = "Hurricane Exposure - Which Coasts the Major Storms Reach"
 
-    Three real operations, each one a provenance-tracked derived dataset:
 
-        Cat 3+ legs  --buffer 100 km-->  corridors
-        coastal regions  --intersect corridors-->  exposed pieces
-        exposed pieces  --dissolve by region-->  EXPOSURE
+def _build_exposure_chain(api: Api, by_title: dict, force: bool = False) -> dict:
+    """Build (or reuse) the datasets behind the Hurricane Exposure map.
 
-    The dissolve is what turns the pair rows into the map's number. Intersect
-    emits exactly one row per (region, corridor) pair, and one corridor is one
-    storm, so dissolve's generated `source_count` counts distinct major storms
-    per region - while its union collapses that region's overlapping pieces
-    into the single coastal footprint the fill is drawn on.
+    Split out of the map builder because --refresh-hurdat2 needs exactly this
+    and nothing else: the derived datasets CANNOT be refreshed in place -
+    materialize always registers a NEW dataset - so a season update deletes
+    them and runs this again, while the map itself survives. Two callers, one
+    definition of the chain, so a parameter change cannot reach one and miss
+    the other.
 
-    Nothing here is styled by hand-computed data: open any of the three derived
-    datasets and its provenance panel names the operation, the parameters and
-    the layer it came from. That is the thing on display.
+    Returns the five dataset ids by role.
     """
-    name = "Hurricane Exposure - Which Coasts the Major Storms Reach"
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
-    print("\n[hurricane-exposure] buffer -> intersect -> dissolve (HURDAT2 majors)")
-    by_title = api.datasets_by_title()
 
     def major_legs_bytes() -> bytes:
         data, n_storms, n_legs = hurdat2_major_leg_feed()
@@ -2768,7 +3469,7 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     legs_ds = _get_or_ingest(
         api,
         by_title,
-        "Major Hurricane Tracks (Cat 3+ legs, one per storm)",
+        HURDAT2_LEGS_TITLE,
         "hurricane_major_legs.geojson",
         major_legs_bytes,
         "Every Atlantic hurricane since 1950 that reached Category 3, reduced "
@@ -2800,7 +3501,7 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     corridors_ds = _get_or_analyze(
         api,
         by_title,
-        "Major Hurricane Corridors (100 km buffer)",
+        EXPOSURE_CHAIN_TITLES[0],
         legs_ds,
         "buffer",
         "The area within 100 km of a Category 3+ hurricane track, one corridor "
@@ -2812,7 +3513,7 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     pieces_ds = _get_or_analyze(
         api,
         by_title,
-        "Coastal Regions Inside a Major Hurricane Corridor",
+        EXPOSURE_CHAIN_TITLES[1],
         regions_ds,
         "intersect",
         "One feature per region-and-storm pair: the part of an Atlantic basin "
@@ -2825,7 +3526,7 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     exposure_ds = _get_or_analyze(
         api,
         by_title,
-        "Hurricane Exposure by Coastal Region",
+        EXPOSURE_CHAIN_TITLES[2],
         pieces_ds,
         "dissolve",
         "The coastal footprint of every Atlantic basin region reached by a "
@@ -2836,6 +3537,80 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
         force=force,
         by_field="region",
     )
+    return {
+        "legs": legs_ds,
+        "regions": regions_ds,
+        "corridors": corridors_ds,
+        "pieces": pieces_ds,
+        "exposure": exposure_ds,
+    }
+
+
+def _exposure_layer_body(exposure_ds: str) -> dict:
+    """The graded exposure layer, as one reusable body.
+
+    A function rather than a literal inside the builder because --refresh-hurdat2
+    DELETES this layer (its dataset is replaced, not refreshed) and re-adds it.
+    Re-adding through add_layer with the whole body, rather than PATCHing the
+    existing layer, is deliberate: the layer-diff path has a known
+    style-clobbering hazard, and a full POST cannot half-apply a style.
+    """
+    return {
+        "dataset_id": exposure_ds,
+        "sort_order": 0,
+        "opacity": 1.0,
+        "display_name": "Distinct major storms since 1950",
+        "style_config": {
+            "mode": "graduated",
+            "column": "source_count",
+            "ramp": "YlOrRd",
+            "method": "manual",
+            "breaks": EXPOSURE_BREAKS,
+            "colors": EXPOSURE_COLORS,
+            "colorLabel": "Distinct major storms",
+        },
+        "paint": {
+            "fill-color": step_expr("source_count", EXPOSURE_BREAKS, EXPOSURE_COLORS),
+            # Opaque enough to read as a choropleth, sheer enough that the
+            # storm legs below still show through the darkest classes.
+            "fill-opacity": 0.78,
+            "fill-outline-color": "#7f1d1d",
+        },
+        "popup_config": {
+            "enabled": True,
+            "expression": "{region}",
+            "visible_fields": ["source_count"],
+        },
+    }
+
+
+def build_hurricane_exposure(api: Api, force: bool = False) -> str:
+    """The analysis hero: the only showcase map that is a computed RESULT.
+
+    Three real operations, each one a provenance-tracked derived dataset:
+
+        Cat 3+ legs  --buffer 100 km-->  corridors
+        coastal regions  --intersect corridors-->  exposed pieces
+        exposed pieces  --dissolve by region-->  EXPOSURE
+
+    The dissolve is what turns the pair rows into the map's number. Intersect
+    emits exactly one row per (region, corridor) pair, and one corridor is one
+    storm, so dissolve's generated `source_count` counts distinct major storms
+    per region - while its union collapses that region's overlapping pieces
+    into the single coastal footprint the fill is drawn on.
+
+    Nothing here is styled by hand-computed data: open any of the three derived
+    datasets and its provenance panel names the operation, the parameters and
+    the layer it came from. That is the thing on display.
+    """
+    name = EXPOSURE_MAP
+    if not force and _map_exists(api, name):
+        print(f"  [skip] {name} already exists")
+        return "(skipped)"
+    print("\n[hurricane-exposure] buffer -> intersect -> dissolve (HURDAT2 majors)")
+    by_title = api.datasets_by_title()
+    chain = _build_exposure_chain(api, by_title, force=force)
+    legs_ds, exposure_ds = chain["legs"], chain["exposure"]
 
     map_id = api.create_map(
         name,
@@ -2851,38 +3626,7 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     # Exposure ON TOP (the viewer draws LOWER sort_order on top), the legs that
     # generated it underneath, so the map reads as cause and effect: this
     # storm track produced that coastal footprint.
-    api.add_layer(
-        map_id,
-        {
-            "dataset_id": exposure_ds,
-            "sort_order": 0,
-            "opacity": 1.0,
-            "display_name": "Distinct major storms since 1950",
-            "style_config": {
-                "mode": "graduated",
-                "column": "source_count",
-                "ramp": "YlOrRd",
-                "method": "manual",
-                "breaks": EXPOSURE_BREAKS,
-                "colors": EXPOSURE_COLORS,
-                "colorLabel": "Distinct major storms",
-            },
-            "paint": {
-                "fill-color": step_expr(
-                    "source_count", EXPOSURE_BREAKS, EXPOSURE_COLORS
-                ),
-                # Opaque enough to read as a choropleth, sheer enough that the
-                # storm legs below still show through the darkest classes.
-                "fill-opacity": 0.78,
-                "fill-outline-color": "#7f1d1d",
-            },
-            "popup_config": {
-                "enabled": True,
-                "expression": "{region}",
-                "visible_fields": ["source_count"],
-            },
-        },
-    )
+    api.add_layer(map_id, _exposure_layer_body(exposure_ds))
     api.add_layer(
         map_id,
         {
@@ -2947,7 +3691,9 @@ def build_meteorites(api: Api, force: bool = False) -> str:
     if not force and met_title in by_title:
         fc = api.dataset_feature_count(by_title[met_title])
         if fc and fc < 20000:
-            print(f"  dataset has {fc} features (capped-era seed) - swapping in the full feed...")
+            print(
+                f"  dataset has {fc} features (capped-era seed) - swapping in the full feed..."
+            )
             api.reupload_geojson(
                 by_title[met_title], "meteorite_landings.geojson", meteorites_bytes()
             )
@@ -3100,6 +3846,8 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
                         "crs": "EPSG:2056",
                         "organization": "swisstopo",
                         "license": "swisstopo OGD",
+                        # swisstopo OGD requires the source credit on display.
+                        "attribution": "© swisstopo",
                         "tags": ["dem", "swissalti3d", "matterhorn"],
                     },
                     "publication": {"intent": "ready"},
@@ -3523,12 +4271,19 @@ def build_embed_demo(api: Api, force: bool = False) -> str:
 # membership tops up on every run (fix #389).
 COLLECTIONS = {
     "Restless Planet": (
-        "The physical earth: earthquakes, volcanic eruptions, plate "
-        "boundaries, hurricane tracks, meteorite falls, global relief and "
-        "alpine lidar terrain.",
+        # Worded for the STAC surface as much as for the catalog. STAC exposes
+        # only a collection's RASTER members, so this description used to
+        # promise earthquakes and eruptions to a STAC client that could see
+        # neither - it lists what the collection HOLDS without claiming what any
+        # one surface will show.
+        "The physical earth: live earthquake feeds, volcanic eruptions, plate "
+        "boundaries, hurricane tracks and meteorite falls, alongside the global "
+        "relief and alpine lidar terrain they play out on. Vector and raster "
+        "members both; catalogue surfaces that carry only rasters will show the "
+        "ETOPO relief and the swissALTI3D terrain.",
         [
-            "Recent Earthquakes (M4.5+, last 30 days)",
-            "Recent Earthquakes - Heatmap source",
+            QUAKES_TITLE,
+            QUAKES_HEAT_TITLE,
             "Tectonic Plate Boundaries (PB2002)",
             "Significant Volcanic Eruptions (NCEI, 4360 BC-present)",
             "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)",
@@ -3581,31 +4336,83 @@ def build_collections(api: Api, force: bool = False) -> str:
 # Licenses are each dataset's real upstream terms; keywords power the faceted-
 # search sidebar. "World States & Provinces" is intentionally omitted - it is
 # the summary-less canvas for the AI metadata-generation demo and must stay bare.
+#
+# Beyond license + keywords, each entry may carry the provenance fields the
+# catalog, the DCAT/ISO exports and the metadata-quality score all read:
+#
+#   source_organization  who published it. Left UNSET on the three
+#                        analysis-derived datasets - they are computed products
+#                        of this instance, no outside body published them, and
+#                        their provenance panel already names the operation
+#                        chain that did. Naming NOAA there would credit an
+#                        organisation for a number GeoLens calculated.
+#   source_url           the human-facing landing page, not the download URL:
+#                        it is what a catalog visitor should follow to the
+#                        authoritative source.
+#   update_frequency     an ISO 19115 MD_MaintenanceFrequencyCode, and NOT free
+#                        text - a CHECK constraint (chk_records_update_frequency)
+#                        rejects anything outside continual / daily / weekly /
+#                        monthly / quarterly / biannually / annually / asNeeded /
+#                        irregular / notPlanned / unknown. Omitted wherever the
+#                        honest answer is not one of those.
+#   data_vintage_start   temporal coverage, ISO dates, and set ONLY where the
+#   data_vintage_end     source states one. A guessed vintage is worse than an
+#                        absent one: it is indistinguishable from a real one.
+#   theme_category       ISO 19115 MD_TopicCategoryCode values, which drive the
+#                        theme facet and the DCAT theme export.
 SHOWCASE_METADATA: dict[str, dict] = {
     "World Countries (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
         "keywords": ["countries", "boundaries", "admin-0", "natural earth"],
+        "source_organization": "Natural Earth",
+        "source_url": "https://www.naturalearthdata.com/",
+        "update_frequency": "asNeeded",
+        "theme_category": ["boundaries"],
     },
     "World Rivers & Lake Centerlines (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
         "keywords": ["rivers", "hydrology", "water", "water bodies", "natural earth"],
+        "source_organization": "Natural Earth",
+        "source_url": "https://www.naturalearthdata.com/",
+        "update_frequency": "asNeeded",
+        "theme_category": ["inlandWaters"],
     },
     "World Lakes & Reservoirs (Natural Earth 1:50m)": {
         "license": "Natural Earth (public domain)",
         "keywords": ["lakes", "hydrology", "water", "water bodies", "reservoirs"],
+        "source_organization": "Natural Earth",
+        "source_url": "https://www.naturalearthdata.com/",
+        "update_frequency": "asNeeded",
+        "theme_category": ["inlandWaters"],
     },
     "World Major Cities (500k+)": {
         "license": "Natural Earth (public domain)",
         "keywords": ["cities", "populated places", "urban", "natural earth"],
+        "source_organization": "Natural Earth",
+        "source_url": "https://www.naturalearthdata.com/",
+        "update_frequency": "asNeeded",
+        "theme_category": ["location", "society"],
     },
     "Manhattan Building Heights": {
         "license": "NYC Open Data (public domain)",
         "keywords": ["buildings", "3d", "heights", "manhattan", "nyc"],
+        "source_organization": "NYC Open Data",
+        "source_url": (
+            "https://data.cityofnewyork.us/Housing-Development/"
+            "Building-Footprints/5zhs-2jue"
+        ),
+        "theme_category": ["structure"],
     },
+    # PINNED: this title derives the table name data.nyc_subway_lines_mta, which
+    # is referenced from outside this repo. Metadata only - never retitle.
     "NYC Subway Lines (MTA)": {
         "license": "MTA open data (data.ny.gov)",
         "keywords": ["subway", "transit", "mta", "nyc", "rail"],
+        "source_organization": "MTA via NY State Open Data",
+        "source_url": "https://data.ny.gov/Transportation/MTA-Subway-Lines/s692-irgq",
+        "theme_category": ["transportation"],
     },
+    # PINNED by dataset id from outside this repo. Metadata only.
     "NYC Subway Stations (MTA)": {
         "license": "MTA open data (data.ny.gov)",
         "keywords": [
@@ -3617,22 +4424,51 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "ada",
             "accessibility",
         ],
+        "source_organization": "MTA via NY State Open Data",
+        "source_url": (
+            "https://data.ny.gov/Transportation/MTA-Subway-Stations/39hk-dx4f"
+        ),
+        "theme_category": ["transportation"],
     },
     "New York Median Household Income by County": {
         "license": "US Census Bureau, ACS 2017-21 (public domain)",
         "keywords": ["census", "income", "demographics", "acs", "new york"],
+        "source_organization": "USDA Economic Research Service",
+        "source_url": (
+            "https://www.ers.usda.gov/data-products/"
+            "atlas-of-rural-and-small-town-america/"
+        ),
+        # The ACS five-year estimates ship on an annual cadence, and the
+        # 2017-21 window is the one this extract states.
+        "update_frequency": "annually",
+        "data_vintage_start": "2017-01-01",
+        "data_vintage_end": "2021-12-31",
+        "theme_category": ["society", "economy"],
     },
-    "Recent Earthquakes (M4.5+, last 30 days)": {
+    QUAKES_TITLE: {
         "license": "USGS Earthquake Hazards Program (US public domain)",
         "keywords": ["earthquakes", "seismic", "usgs", "hazards", "magnitude"],
+        "source_organization": "USGS",
+        "source_url": "https://earthquake.usgs.gov/earthquakes/map/",
+        # "continual" is the honest code for a service that re-publishes as
+        # events land. No vintage: the window is a rolling 30 days, so any
+        # date written here is wrong the day after it is written.
+        "update_frequency": "continual",
+        "theme_category": ["geoscientificInformation"],
     },
-    "Recent Earthquakes - Heatmap source": {
+    QUAKES_HEAT_TITLE: {
         "license": "USGS Earthquake Hazards Program (US public domain)",
         "keywords": ["earthquakes", "seismic", "usgs", "density", "heatmap"],
+        "source_organization": "USGS",
+        "source_url": "https://earthquake.usgs.gov/earthquakes/map/",
+        "update_frequency": "continual",
+        "theme_category": ["geoscientificInformation"],
         # fix(#614): the old summary read as an internal rendering workaround;
-        # describe it as the map's density layer instead.
+        # describe it as the map's density layer instead. Now also corrected to
+        # M2.5+, which is what the live service actually serves.
         "summary": (
-            "USGS M4.5+ earthquakes from the last 30 days, styled as the "
+            "USGS M2.5+ earthquakes from the last 30 days, read live from the "
+            "USGS Recent Earthquakes service and styled as the "
             "magnitude-weighted heat surface on the Restless Earth map. "
             "Source: USGS Earthquake Hazards Program (public domain)."
         ),
@@ -3640,12 +4476,25 @@ SHOWCASE_METADATA: dict[str, dict] = {
     "Tectonic Plate Boundaries (PB2002)": {
         "license": "Peter Bird (2003), PB2002 - free for research, please cite",
         "keywords": ["plate tectonics", "geology", "boundaries", "pb2002"],
+        "source_organization": "Peter Bird (PB2002), via Nordpil",
+        "source_url": "https://github.com/fraxen/tectonicplates",
+        # A 2003 publication with no successor planned - which is what
+        # notPlanned means, and is more useful than leaving it unknown.
+        "update_frequency": "notPlanned",
+        "theme_category": ["geoscientificInformation"],
     },
     "Significant Volcanic Eruptions (NCEI, 4360 BC-present)": {
         "license": "NOAA NCEI (US public domain)",
         "keywords": ["volcanoes", "eruptions", "hazards", "geology", "ncei"],
+        "source_organization": "NOAA NCEI",
+        "source_url": (
+            "https://www.ngdc.noaa.gov/hazel/view/hazards/volcano/event-search"
+        ),
+        # No vintage: coverage starts in 4360 BC and the date columns cannot
+        # hold a BCE year.
+        "theme_category": ["geoscientificInformation"],
     },
-    "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)": {
+    HURDAT2_TRACKS_TITLE: {
         "license": "NOAA NHC HURDAT2 (US public domain)",
         "keywords": [
             "hurricanes",
@@ -3654,8 +4503,15 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "hurdat2",
             "storms",
         ],
+        "source_organization": "NOAA National Hurricane Center",
+        "source_url": "https://www.nhc.noaa.gov/data/#hurdat",
+        # NHC cuts one best-track revision per year, after the season closes.
+        "update_frequency": "annually",
+        "data_vintage_start": "1950-01-01",
+        "data_vintage_end": "2025-12-31",
+        "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
-    "Major Hurricane Tracks (Cat 3+ legs, one per storm)": {
+    HURDAT2_LEGS_TITLE: {
         "license": "NOAA NHC HURDAT2 (US public domain)",
         "keywords": [
             "hurricanes",
@@ -3664,6 +4520,12 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "hurdat2",
             "major hurricane",
         ],
+        "source_organization": "NOAA National Hurricane Center",
+        "source_url": "https://www.nhc.noaa.gov/data/#hurdat",
+        "update_frequency": "annually",
+        "data_vintage_start": "1950-01-01",
+        "data_vintage_end": "2025-12-31",
+        "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
     "Atlantic Basin Regions (Natural Earth admin-1)": {
         "license": "Natural Earth (public domain)",
@@ -3675,14 +4537,27 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "caribbean",
             "natural earth",
         ],
+        "source_organization": "Natural Earth",
+        "source_url": "https://www.naturalearthdata.com/",
+        "update_frequency": "asNeeded",
+        "theme_category": ["boundaries"],
     },
     # The three derived datasets. Summaries are written by _get_or_analyze at
     # materialize time (only the enrich pass's license + keywords are left);
     # lineage_summary is deliberately untouched here - the analysis API wrote
     # the real one, and it is the sentence the provenance panel shows.
+    #
+    # source_organization is deliberately UNSET on all three: no outside body
+    # published them, GeoLens computed them, and the provenance panel already
+    # names the operation chain. The vintage IS set, because it is a real
+    # property of the inputs rather than a guess - these cover exactly the
+    # HURDAT2 seasons the corridors were buffered from.
     "Major Hurricane Corridors (100 km buffer)": {
         "license": "Derived in GeoLens from NOAA NHC HURDAT2 (US public domain)",
         "keywords": ["hurricanes", "buffer", "analysis", "derived", "corridor"],
+        "data_vintage_start": "1950-01-01",
+        "data_vintage_end": "2025-12-31",
+        "theme_category": ["climatologyMeteorologyAtmosphere"],
     },
     "Coastal Regions Inside a Major Hurricane Corridor": {
         "license": (
@@ -3690,6 +4565,9 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "(both public domain)"
         ),
         "keywords": ["hurricanes", "intersect", "analysis", "derived", "exposure"],
+        "data_vintage_start": "1950-01-01",
+        "data_vintage_end": "2025-12-31",
+        "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
     },
     "Hurricane Exposure by Coastal Region": {
         "license": (
@@ -3704,39 +4582,124 @@ SHOWCASE_METADATA: dict[str, dict] = {
             "derived",
             "coastal",
         ],
+        "data_vintage_start": "1950-01-01",
+        "data_vintage_end": "2025-12-31",
+        "theme_category": ["climatologyMeteorologyAtmosphere", "boundaries"],
     },
     "Meteorite Landings (Meteoritical Society)": {
         "license": "NASA open data (public domain)",
         "keywords": ["meteorites", "impacts", "nasa", "meteoritical society"],
+        "source_organization": "NASA / The Meteoritical Society",
+        "source_url": "https://www.lpi.usra.edu/meteor/metbull.php",
+        "theme_category": ["geoscientificInformation"],
     },
     "Matterhorn Climbing Routes": {
         "license": "(C) OpenStreetMap contributors (ODbL)",
         "keywords": ["climbing", "alpinism", "routes", "osm", "matterhorn"],
+        "source_organization": "OpenStreetMap contributors",
+        "source_url": "https://www.openstreetmap.org/",
+        "theme_category": ["location"],
     },
     "Matterhorn Peaks": {
         "license": "(C) OpenStreetMap contributors (ODbL)",
         "keywords": ["peaks", "summits", "mountains", "osm", "matterhorn"],
+        "source_organization": "OpenStreetMap contributors",
+        "source_url": "https://www.openstreetmap.org/",
+        "theme_category": ["location"],
     },
     "ETOPO 2022 Global Relief (60 arc-second)": {
         "license": "US public domain (NOAA NCEI)",
         "keywords": ["bathymetry", "relief", "etopo", "global", "elevation"],
+        "source_organization": "NOAA NCEI",
+        "source_url": ("https://www.ncei.noaa.gov/products/etopo-global-relief-model"),
+        # No vintage: ETOPO 2022 is a compilation of many source surveys, so
+        # the release year is not the coverage the date fields would claim.
+        "theme_category": ["elevation", "oceans"],
     },
+    # PINNED by dataset id from outside this repo. Metadata only.
     "swissALTI3D Matterhorn DEM (2m mosaic)": {
         "license": "swisstopo OGD",
         "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
+        "source_organization": "swisstopo",
+        "source_url": ("https://www.swisstopo.admin.ch/en/height-model-swissalti3d"),
+        "data_vintage_start": "2024-01-01",
+        "data_vintage_end": "2024-12-31",
+        "theme_category": ["elevation"],
+    },
+}
+
+# Datasets the seeder creates one-per-item, so their titles carry a suffix and
+# cannot be dict keys: the ~62 swissALTI3D DEM tiles and every imported
+# Sentinel-2 scene. Matched by title PREFIX, and only after an exact-title
+# lookup misses.
+SHOWCASE_METADATA_BY_PREFIX: dict[str, dict] = {
+    "swissALTI3D 2m ": {
+        "license": "swisstopo OGD",
+        "keywords": ["terrain", "dem", "elevation", "swisstopo", "matterhorn"],
+        "source_organization": "swisstopo",
+        "source_url": ("https://www.swisstopo.admin.ch/en/height-model-swissalti3d"),
+        "data_vintage_start": "2024-01-01",
+        "data_vintage_end": "2024-12-31",
+        "theme_category": ["elevation"],
+    },
+    "Sentinel-2 TCI ": {
+        "license": "Copernicus Sentinel data (ESA), free and open",
+        "keywords": ["sentinel-2", "true-color", "imagery", "esa", "copernicus"],
+        "source_organization": "ESA Copernicus via Element84 Earth Search",
+        "source_url": "https://registry.opendata.aws/sentinel-2-l2a-cogs/",
+        # Sentinel-2 revisits every few days and new scenes land continuously.
+        # No vintage: the STAC import already stamped each scene with its own
+        # acquisition datetime, which is more precise than anything set here.
+        "update_frequency": "continual",
+        "theme_category": ["imageryBaseMapsEarthCover"],
     },
 }
 
 
-def enrich_showcase_metadata(api: "Api") -> None:
-    """Backfill license + keywords (and, where noted, a cleaner summary) on the
-    hand-seeded showcase datasets.
+# The DatasetMeta fields the enrich pass forwards verbatim when a spec carries
+# them. `keywords` is NOT here - keywords hang off the catalog record and go
+# through their own endpoint - and neither is `summary`, which is handled
+# separately because most specs deliberately leave the ingest-time one alone.
+_ENRICH_PATCH_FIELDS = (
+    "license",
+    "source_organization",
+    "source_url",
+    "update_frequency",
+    "data_vintage_start",
+    "data_vintage_end",
+    "theme_category",
+)
 
-    Idempotent: the license/summary PATCH is a plain overwrite and keywords are
-    added only when absent, so re-running the seeder never duplicates. Only
+
+def _metadata_spec(title: str) -> dict | None:
+    """The metadata spec for a dataset title, exact match before prefix match."""
+    spec = SHOWCASE_METADATA.get(title)
+    if spec is not None:
+        return spec
+    for prefix, prefix_spec in SHOWCASE_METADATA_BY_PREFIX.items():
+        if title.startswith(prefix):
+            return prefix_spec
+    return None
+
+
+def enrich_showcase_metadata(api: "Api") -> None:
+    """Backfill the catalog metadata the ingest flow does not set.
+
+    License and keywords (fix(#614)), plus the provenance fields that make a
+    dataset legible in the catalog and exportable through DCAT/ISO:
+    source_organization, source_url, update_frequency, the data vintage and the
+    ISO theme categories. See SHOWCASE_METADATA for what each one means and why
+    several are deliberately absent on some datasets.
+
+    Idempotent: the PATCH is a plain overwrite of fields this file owns and
+    keywords are added only when absent, so re-running never duplicates. Only
     datasets that actually exist are touched, so this composes with --only. Each
     dataset is isolated the same way the builders are - one flaky PATCH must not
     skip the rest - and the whole pass is best-effort: it never fails the seed.
+
+    Safe on the three externally pinned datasets: a metadata PATCH does not
+    touch a title, a table name or an id, which are the only things an outside
+    reference depends on.
 
     Iterates every OWNED dataset rather than a title->newest-id map: titles are
     NOT unique (a --force reseed leaves same-titled predecessors, see
@@ -3747,12 +4710,12 @@ def enrich_showcase_metadata(api: "Api") -> None:
     seeder's to relicense (list_own_datasets).
     """
     for ds in api.list_own_datasets():
-        spec = SHOWCASE_METADATA.get(ds["title"])
+        spec = _metadata_spec(ds["title"])
         if not spec:
             continue
         title, dataset_id = ds["title"], ds["id"]
         try:
-            fields = {"license": spec["license"]}
+            fields = {k: spec[k] for k in _ENRICH_PATCH_FIELDS if k in spec}
             if spec.get("summary"):
                 fields["summary"] = spec["summary"]
             api.patch_dataset(dataset_id, **fields)
@@ -3766,6 +4729,255 @@ def enrich_showcase_metadata(api: "Api") -> None:
             print(
                 f"  WARNING: metadata enrich failed for {title!r}: {e}", file=sys.stderr
             )
+
+
+# --- post-builder styling pass --------------------------------------------------
+# Everything below runs AFTER the builders, over the maps that exist, for the
+# reason apply_globe_projection documents: a builder skips a map it already
+# found, so anything set only at creation time reaches a fresh instance and
+# never an existing one - which is every instance that matters, the live demo
+# included.
+
+# Map-level legend title + notes. The legend title names what the swatches
+# measure; the note says what the map is and where the numbers came from.
+MAP_LEGEND_AND_NOTES: dict[str, tuple[str, str]] = {
+    "Restless Earth": (
+        "Earthquake magnitude",
+        "Earthquakes are read live from the USGS M2.5+ service and cover a "
+        "rolling 30-day window; they refresh on demand rather than on a "
+        "schedule. Eruptions are NOAA NCEI significant events since 4360 BC, "
+        "filtered on the map to VEI 4+ or 100+ deaths. Plate boundaries are "
+        "PB2002 (Bird 2003); relief is ETOPO 2022.",
+    ),
+    "Manhattan - A Century of Skyline": (
+        "Construction era",
+        "Buildings are extruded to their surveyed roof height (NYC Open Data, "
+        "feet converted to metres) and coloured by construction year. Subway "
+        "routes use official MTA colours, which the source feed does not "
+        "carry. Stations fade in above zoom 12.5.",
+    ),
+    "The Matterhorn in 3D": (
+        "Elevation",
+        "Terrain is a VRT mosaic of swissALTI3D 2 m lidar tiles (swisstopo "
+        "OGD) with a hillshade lit from the northwest and a hypsometric tint. "
+        "Routes and peaks are OpenStreetMap, clipped to the mosaic footprint "
+        "so no line leaves the terrain mesh.",
+    ),
+    HURRICANE_MAP: (
+        "Saffir-Simpson category",
+        "Every Atlantic storm since 1950 that reached Category 3, drawn as "
+        "six-hourly segments coloured by its intensity at that leg. Arrows "
+        "mark direction of motion on Category 5 legs only. Source: NOAA NHC "
+        "HURDAT2, through the 2025 season.",
+    ),
+    "Everything That Fell From the Sky": (
+        "Recovery type",
+        "Every meteorite recovery with coordinates, about 32,000 of them. "
+        "Above 5,000 features the viewer switches to server-side cluster "
+        "tiles, which is what the clustering here demonstrates. Source: NASA "
+        "open data / The Meteoritical Society.",
+    ),
+    "New York From Orbit - Sentinel-2, by Reference": (
+        "Sentinel-2 true colour",
+        "Recent low-cloud Sentinel-2 scenes streamed by reference from the "
+        "AWS Earth Search archive. No imagery was downloaded to build this "
+        "map; the tile server reads the cloud-optimized GeoTIFFs from S3 at "
+        "view time. ESA Copernicus via Element84.",
+    ),
+    EXPOSURE_MAP: (
+        "Distinct major storms since 1950",
+        "A computed result, not a rendering. The Category 3+ legs of every "
+        "Atlantic storm since 1950 were buffered by 100 km, intersected with "
+        "admin-1 regions, then dissolved per region, so the fill grades by how "
+        "many distinct major storms reached each coast. Each derived dataset's "
+        "provenance panel replays the step that made it.",
+    ),
+}
+
+# Layer display_name -> (folder group id, folder group name). Grouping is
+# expressed by layers SHARING a folderGroupId, so the id is the real key and the
+# name is what the stack shows. Only the two maps with enough layers to be worth
+# folding are listed; a map absent here keeps a flat stack.
+MAP_FOLDER_GROUPS: dict[str, dict[str, tuple[str, str]]] = {
+    "Restless Earth": {
+        "Earthquakes (last 30 days, by magnitude)": ("re-hazards", "Hazards"),
+        "Major eruptions (VEI 4+ or 100+ deaths)": ("re-hazards", "Hazards"),
+        "Quake intensity (heatmap)": ("re-hazards", "Hazards"),
+        "Colliding boundaries (solid)": ("re-context", "Context"),
+        "Spreading & sliding boundaries (dashed)": ("re-context", "Context"),
+        "Major cities (by population)": ("re-context", "Context"),
+        "Global relief (ETOPO 2022)": ("re-context", "Context"),
+    },
+    "The Matterhorn in 3D": {
+        "swissALTI3D relief": ("mh-terrain", "Terrain"),
+        "Climbing routes (OSM)": ("mh-routes", "Routes & Peaks"),
+        "Route casing": ("mh-routes", "Routes & Peaks"),
+        "Peaks": ("mh-routes", "Routes & Peaks"),
+    },
+}
+
+# Circle layers that read better flat ON the globe than billboarded toward the
+# camera. Both of these maps are globe-projected (GLOBE_PROJECTION_MAPS), which
+# is the whole reason: a pitch-aligned circle lies on the sphere's surface.
+MAP_PITCH_ALIGNED_CIRCLES: dict[str, tuple[str, ...]] = {
+    "Restless Earth": ("Earthquakes (last 30 days, by magnitude)",),
+    "Everything That Fell From the Sky": ("Meteorites (amber = seen falling)",),
+}
+
+# The writable half of a layer response - what POST /maps/{id}/layers accepts.
+# `id` and every dataset_*/is_*/tile_version field on the response is read-only.
+_LAYER_WRITABLE_FIELDS = (
+    "dataset_id",
+    "display_name",
+    "filter",
+    "label_config",
+    "layer_type",
+    "layout",
+    "opacity",
+    "paint",
+    "popup_config",
+    "show_in_legend",
+    "sort_order",
+    "style_config",
+    "visible",
+)
+
+
+def _restyle_layer(
+    api: "Api", map_id: str, layer: dict, paint=None, builder=None
+) -> None:
+    """Apply a style delta to an EXISTING layer by re-creating it.
+
+    Delete-and-re-add rather than PATCH, deliberately: the layer-diff path has a
+    known style-clobbering hazard where touching one key nulls out style_config,
+    and a full POST either lands whole or fails whole. The body is the layer's
+    own state read back from the server, so nothing is invented and nothing is
+    dropped - only the keys in the delta differ.
+    """
+    body = {k: layer[k] for k in _LAYER_WRITABLE_FIELDS if layer.get(k) is not None}
+    if paint:
+        body["paint"] = {**(body.get("paint") or {}), **paint}
+    if builder:
+        style_config = dict(body.get("style_config") or {})
+        style_config["builder"] = {**(style_config.get("builder") or {}), **builder}
+        body["style_config"] = style_config
+    api.delete_layer(map_id, layer["id"])
+    api.add_layer(map_id, body)
+
+
+def _basin_context_layer_body(regions_ds: str) -> dict:
+    """The Atlantic basin regions as a hatched CONTEXT layer.
+
+    The exposure map grades the regions a major storm actually reached, and
+    without this layer there is no way to see what was offered to the intersect
+    and did NOT survive it. The hatch is what keeps the two readable at once:
+    it says "considered, not exposed" without competing with a graded fill for
+    the same visual channel, which a second flat colour would.
+
+    sort_order 2 puts it at the BOTTOM of the three layers - the viewer draws
+    lower sort_order on top. fill-color rides alongside fill-pattern to tint the
+    hatch; the builder treats those as mutually exclusive but the API does not,
+    and paint's colour is what the tint resolver reads first.
+    """
+    return {
+        "dataset_id": regions_ds,
+        "sort_order": 2,
+        "opacity": 1.0,
+        "display_name": "Atlantic basin regions (context)",
+        "show_in_legend": False,
+        "paint": {
+            "fill-pattern": "geolens-fill-hatch",
+            "fill-color": "#64748b",
+            "fill-opacity": 0.22,
+            "fill-outline-color": "#94a3b8",
+        },
+        "popup_config": {"enabled": False},
+        "style_config": {"builder": {}},
+    }
+
+
+def _ensure_basin_context_layer(api: "Api", map_id: str, layers: list) -> bool:
+    """Add the hatched basin-regions context layer if the map has none."""
+    regions_ds = api.datasets_by_title().get(
+        "Atlantic Basin Regions (Natural Earth admin-1)"
+    )
+    if not regions_ds:
+        return False
+    if any(x.get("dataset_id") == regions_ds for x in layers):
+        return False
+    api.add_layer(map_id, _basin_context_layer_body(regions_ds))
+    print(f"  + hatched basin-regions context layer on {EXPOSURE_MAP}")
+    return True
+
+
+def apply_showcase_styling(api: "Api") -> None:
+    """Legend titles, notes, folder groups, pitch-aligned circles and the
+    exposure map's context layer - applied to whatever showcase maps exist.
+
+    Idempotent throughout: every write is preceded by a read of the current
+    value and skipped when it already matches, so a re-run costs GETs and
+    changes nothing. Best-effort per map, like the other post-builder passes -
+    a flaky PUT must not fail a seed whose maps and data are already built.
+
+    Reads look for the SNAKE_CASE builder keys. The server canonicalizes
+    style_config.builder on save, so folder_group_id is what comes back
+    regardless of which spelling was written.
+    """
+    maps = api.list_maps()
+    for name, map_id in sorted(maps.items()):
+        if name not in MAP_LEGEND_AND_NOTES and name not in MAP_FOLDER_GROUPS:
+            continue
+        try:
+            current = api.get_map(map_id)
+            legend_spec = MAP_LEGEND_AND_NOTES.get(name)
+            if legend_spec:
+                legend_title, notes = legend_spec
+                delta = {}
+                if current.get("legend_title") != legend_title:
+                    delta["legend_title"] = legend_title
+                if current.get("notes") != notes:
+                    delta["notes"] = notes
+                if delta:
+                    api.set_view(map_id, **delta)
+                    print(f"  legend/notes: {name}")
+
+            layers = current.get("layers") or []
+            if name == EXPOSURE_MAP and _ensure_basin_context_layer(
+                api, map_id, layers
+            ):
+                layers = (api.get_map(map_id) or {}).get("layers") or []
+
+            groups = MAP_FOLDER_GROUPS.get(name, {})
+            pitch_aligned = MAP_PITCH_ALIGNED_CIRCLES.get(name, ())
+            for layer in layers:
+                display = layer.get("display_name")
+                builder_now = ((layer.get("style_config") or {}).get("builder")) or {}
+                paint_now = layer.get("paint") or {}
+                builder_delta, paint_delta = {}, {}
+
+                group = groups.get(display)
+                if group and builder_now.get("folder_group_id") != group[0]:
+                    builder_delta = {
+                        "folder_group_id": group[0],
+                        "folder_group_name": group[1],
+                        "folder_group_expanded": True,
+                    }
+                if (
+                    display in pitch_aligned
+                    and paint_now.get("circle-pitch-alignment") != "map"
+                ):
+                    paint_delta = {"circle-pitch-alignment": "map"}
+
+                if builder_delta or paint_delta:
+                    _restyle_layer(
+                        api, map_id, layer, paint=paint_delta, builder=builder_delta
+                    )
+                    changed = "group" if builder_delta else ""
+                    changed += "+" if builder_delta and paint_delta else ""
+                    changed += "pitch" if paint_delta else ""
+                    print(f"  {changed}: {name} / {display}")
+        except (httpx.HTTPStatusError, httpx.TimeoutException) as e:
+            print(f"  WARNING: could not style {name!r}: {e}", file=sys.stderr)
 
 
 def apply_globe_projection(api: "Api") -> None:
@@ -3802,6 +5014,23 @@ def apply_globe_projection(api: "Api") -> None:
                 f"  WARNING: could not set globe projection on {name!r}: {e}",
                 file=sys.stderr,
             )
+
+
+def run_maintenance_mode(api: Api, args) -> int | None:
+    """Run whichever terminal maintenance flag was passed, if any.
+
+    Returns an exit code when one ran, or None to fall through to a normal
+    seed. Each of these is a MODE rather than a step: it does its one job
+    against an already-seeded instance and exits, so none of them compose with
+    each other or with --only.
+    """
+    if args.refresh_quakes:
+        return refresh_quakes(api)
+    if args.refresh_hurdat2:
+        return refresh_hurdat2(api)
+    if args.prune_userdata:
+        return prune_userdata(api, execute=args.execute)
+    return None
 
 
 def main() -> int:
@@ -3862,29 +5091,41 @@ def main() -> int:
     ap.add_argument(
         "--refresh-quakes",
         action="store_true",
-        help="swap a fresh USGS 30-day feed into the earthquake datasets, then exit",
+        help="re-pull both earthquake datasets from their USGS service binding, "
+        "then exit (the demo's weekly cron - nothing refreshes on its own)",
+    )
+    ap.add_argument(
+        "--refresh-hurdat2",
+        action="store_true",
+        help="re-fetch HURDAT2 into both track datasets and rebuild the derived "
+        "exposure chain, then exit (run after NHC publishes a new season)",
+    )
+    ap.add_argument(
+        "--prune-userdata",
+        action="store_true",
+        help="report visitor-uploaded maps/datasets a cleanup would delete, then "
+        "exit. DRY RUN unless --execute is also passed",
+    )
+    ap.add_argument(
+        "--execute",
+        action="store_true",
+        help="with --prune-userdata, actually perform the deletions",
     )
     args = ap.parse_args()
     if not args.password:
         ap.error("--password or GEOLENS_ADMIN_PASSWORD is required")
+    if args.execute and not args.prune_userdata:
+        # --execute is a modifier, not a mode. Silently ignoring a stray one
+        # would be fine today and a trap the moment anything else grows a
+        # dry-run pair.
+        ap.error("--execute is only meaningful with --prune-userdata")
 
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)
 
-    if args.refresh_quakes:
-        by_title = api.datasets_by_title()
-        data, n = quake_feed()
-        print(f"Refreshing {n} quakes into the earthquake datasets...")
-        for title in (
-            "Recent Earthquakes (M4.5+, last 30 days)",
-            "Recent Earthquakes - Heatmap source",
-        ):
-            if title not in by_title:
-                print(f"  [skip] no dataset titled {title!r}")
-                continue
-            api.reupload_geojson(by_title[title], "recent_quakes.geojson", data)
-            print(f"  refreshed: {title}")
-        return 0
+    maintenance = run_maintenance_mode(api, args)
+    if maintenance is not None:
+        return maintenance
 
     if args.prune:
         prune(api)
@@ -3956,6 +5197,15 @@ def main() -> int:
     # so an instance seeded before this landed gets the globe too.
     print("\nApplying the globe projection to the global showcase maps...")
     apply_globe_projection(api)
+
+    print("\nApplying showcase styling (legends, groups, context layer)...")
+    apply_showcase_styling(api)
+
+    # The scenes are imported by reference, so a refresh is what proves it:
+    # skipped when --no-sentinel2 meant none were built, and when --only built
+    # something else entirely.
+    if not args.no_sentinel2 and args.only in (None, "sentinel2"):
+        refresh_sentinel2_scenes(api)
 
     print("\nDone. Showcase:")
     for bname, mid in built.items():
