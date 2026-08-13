@@ -1,3 +1,4 @@
+import { latest as styleSpec } from '@maplibre/maplibre-gl-style-spec';
 import type { Map as MaplibreMap, SkySpecification } from 'maplibre-gl';
 import type { TileToken } from '@/api/tiles';
 import type { MapBasemapConfig } from '@/types/api';
@@ -53,12 +54,25 @@ const GLOBE_SKY: SkySpecification = {
 type SkyState = { applied: SkySpecification | undefined; base: SkySpecification | undefined };
 const skyStates = new WeakMap<MaplibreMap, SkyState>();
 
+// fix(#1474 Codex P2 round 2): handing back a `base` that never mentioned
+// atmosphere-blend does not remove ours. setSky's diff walks only the keys of
+// the spec you pass, so every key would compare equal and the write would be
+// dropped with our override still in the live style. Naming the property
+// explicitly forces the write. The value is what a fresh load of `base` would
+// evaluate the property to, read off the style spec so it cannot drift.
+const DEFAULT_ATMOSPHERE_BLEND = styleSpec.sky['atmosphere-blend'].default as number;
+
+function restoreSky(base: SkySpecification | undefined) {
+  if (!base || base['atmosphere-blend'] !== undefined) return base;
+  return { ...base, 'atmosphere-blend': DEFAULT_ATMOSPHERE_BLEND };
+}
+
 function applySky(map: MaplibreMap, isGlobe: boolean) {
   if (!map.setSky) return;
   const current = map.getSky?.();
   const tracked = skyStates.get(map);
   const base = tracked && current === tracked.applied ? tracked.base : current;
-  const next = isGlobe ? { ...base, ...GLOBE_SKY } : base;
+  const next = isGlobe ? { ...base, ...GLOBE_SKY } : restoreSky(base);
   // Passing `undefined` is the branch maplibre reads as "no sky at all", which
   // is the correct reset for a style that never had one. An empty object is a
   // silent no-op instead, because the diff it runs only walks the keys of the
