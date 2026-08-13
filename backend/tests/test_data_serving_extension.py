@@ -216,10 +216,10 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     limiter = _RejectingLimiter()
     pool = _FakeTilePool()
     query = AsyncMock(return_value=b"unreachable")
-    # fix(#1451): the catalog liveness probe is required by the DB-miss path now.
-    # A rejected request must not reach it, which is why the probe sits after
-    # capacity acquisition: ahead of the limiter it would have checked out an
-    # API-pool connection for every request the limiter was about to turn away.
+    # fix(#1451): the DB-miss path asks the catalog before requesting a permit,
+    # so a request the limiter is about to reject does pay one indexed lookup.
+    # What it must NOT do is still be holding that connection when it waits, and
+    # a rejected request must not take a permit it never releases.
     catalog_session = _session_answering_liveness_probe()
     monkeypatch.setattr(tile_router, "get_tile_pool", lambda: pool)
 
@@ -259,7 +259,7 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     assert limiter.released == 0
     assert pool.acquire_count == 0
     query.assert_not_awaited()
-    catalog_session.execute.assert_not_awaited()
+    catalog_session.rollback.assert_awaited()
 
 
 @pytest.mark.asyncio

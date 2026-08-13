@@ -16,12 +16,13 @@ so a delete only ever evicts in the worker that served it — which is why these
 tests warm the cache and then delete WITHOUT evicting: that is not a contrived
 state, it is what every other uvicorn worker holds.
 
-The fix asks the catalog once per tile the pool actually has to build. Two of
+The fix asks the catalog once per tile the pool actually has to build. Three of
 these tests cover the other half of that bargain, because where the question is
-asked matters as much as asking it: a tile answered from the byte cache must
-still reach the database zero times, and the check must sit after the FAIR-01
-permit and immediately before the relation read, holding no API-pool connection
-across the wait and leaving no await for a delete to slip through.
+asked matters as much as asking it. A tile answered from the byte cache must
+still reach the database zero times. And a tile request takes three bounded
+resources — an API-pool connection, a FAIR-01 permit, a tile-pool connection —
+so the check has to run before any of them and give its connection back before
+the first is requested, or two paths end up holding a pair in opposite orders.
 """
 
 import gzip
@@ -405,24 +406,38 @@ async def _null_async_context(events: list[str], label: str, value=None):
     yield value
 
 
-async def test_the_catalog_is_asked_between_capacity_and_the_tile_connection():
-    """Order is the fix, so order is what this pins (codex P1 rounds 1 and 2).
+class _RecordingLimiter:
+    """A FAIR-01 permit that logs when it is taken."""
 
-    Two failure modes bracket the one safe position, and a 404 assertion sees
-    neither. Ahead of the FAIR-01 permit, the probe held an API-pool connection
-    through a 10-second wait, starving the CRUD traffic the separate tile pool
-    exists to protect. Inside the tile transaction, it asked the API pool while
-    holding a tile connection, which is the reverse of the order a metadata cache
-    miss takes: two bounded pools acquired in opposite orders stall each other
-    under ordinary mixed load.
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+        self.released = 0
 
-    So the release has to land BETWEEN the catalog read and the tile acquire,
-    which is what the expected sequence below says and what neither neighbouring
-    placement can satisfy.
+    async def acquire(self) -> bool:
+        self._events.append("permit")
+        return True
+
+    def release(self) -> None:
+        self.released += 1
+
+
+async def test_the_catalog_is_asked_before_any_capacity_is_taken():
+    """Order is the fix, so order is what this pins (codex P1, rounds 1-3).
+
+    A tile request takes three bounded resources: an API-pool connection, a
+    FAIR-01 permit, and a tile-pool connection. Each round of review found one
+    more pair being taken in opposite orders by two paths, which is a stall under
+    ordinary mixed load and needs no attacker. The probe now runs first and hands
+    its connection back before the permit is requested, so all three are acquired
+    in one order by every request.
+
+    A 404 assertion cannot see any of that, so this asserts the sequence: the
+    release lands between the catalog read and the first capacity request, which
+    is what no later placement can produce.
     """
     events: list[str] = []
     pool = _RecordingTilePool(events)
-    dataset_id = uuid.uuid4()
+    limiter = _RecordingLimiter(events)
 
     async def _query(_pool, _conn):
         events.append("tile_query")
@@ -440,7 +455,7 @@ async def test_the_catalog_is_asked_between_capacity_and_the_tile_connection():
         response = await tile_router._acquire_and_serve_tile(
             request=_bare_request(),
             db=_RecordingSession(events),
-            dataset_id=dataset_id,
+            dataset_id=uuid.uuid4(),
             table_name="roads",
             z=0,
             x=0,
@@ -452,28 +467,33 @@ async def test_the_catalog_is_asked_between_capacity_and_the_tile_connection():
             cache_key="roads",
             cache_ttl=60,
             base_headers={},
+            tenant_sem=limiter,
         )
 
     assert response.status_code == 200
     assert events == [
         "db.execute",
         "db.rollback",
+        "permit",
         "pool.acquire",
         "txn",
         "set_role",
         "tile_query",
     ], events
+    assert limiter.released == 1
 
 
-async def test_a_refused_tile_is_a_404_not_a_service_error():
-    """The pool block maps a broad exception to 503; a refusal must escape that.
+async def test_a_refusal_costs_no_capacity_and_stays_a_404():
+    """A refused tile takes no permit, no pool slot, and is not reported as a 503.
 
-    Moving the check inside that block put it under a handler that would have
-    reported the deleted dataset as a tile-service outage, which reads as
-    something to page about and hides the reason the tile was withheld.
+    Both properties come from the same placement. Sitting ahead of the capacity
+    block, the refusal needs no release path of its own; sitting outside the
+    ``except Exception`` that maps tile failures to 503, it stays the answer it
+    is rather than reading as a tile-service outage worth paging about.
     """
     events: list[str] = []
     pool = _RecordingTilePool(events)
+    limiter = _RecordingLimiter(events)
 
     async def _query(_pool, _conn):  # pragma: no cover - must never run
         raise AssertionError("the relation was read after the catalog refused")
@@ -498,6 +518,9 @@ async def test_a_refused_tile_is_a_404_not_a_service_error():
             cache_key="roads",
             cache_ttl=60,
             base_headers={},
+            tenant_sem=limiter,
         )
 
     assert excinfo.value.status_code == 404
+    assert events == ["db.execute", "db.rollback"], events
+    assert limiter.released == 0

@@ -1782,12 +1782,12 @@ async def _assert_dataset_still_registered(
     cache can answer for the others, so the check has to reach the database.
 
     The cost is bounded by WHERE this runs. The caller is ``_acquire_and_serve_tile``,
-    which reaches this only after both tile caches have missed and after the
-    FAIR-01 permit is in hand, and which acquires its tile connection on the next
-    line. A served-from-cache tile still costs zero round-trips, which is the whole
-    point of ``_dataset_cache`` (PERF-006 / PERF-002); a tile the pool has to build
-    pays one indexed primary-key lookup that is over before the PostGIS query
-    begins. The call site records why no earlier or later position works.
+    which reaches this only after both tile caches have missed and before it takes
+    any capacity. A served-from-cache tile still costs zero round-trips, which is
+    the whole point of ``_dataset_cache`` (PERF-006 / PERF-002); a tile the pool
+    has to build pays one indexed primary-key lookup that is over, connection and
+    all, before the FAIR-01 permit is requested. The call site records why every
+    later position inverts an acquisition order against some other path.
 
     Pinning id AND table_name together is what makes it a liveness check rather
     than an existence check: a surviving row that has since been repointed at a
@@ -2010,6 +2010,35 @@ async def _acquire_and_serve_tile(
     Callers keep their own cache-hit short-circuit and COLD-02 cold-rehydrate seam,
     which differ between the two paths.
     """
+    # fix(#1451): the catalog check, and the release that comes with it, run here
+    # — before any capacity is taken. Three resources are in play on this path and
+    # they are now acquired in one order by every request: the API-pool connection
+    # first, then the FAIR-01 permit, then the tile connection. Each is released
+    # before the next is requested, so no two paths can hold them in opposite
+    # orders (codex P1, rounds 1-3, which found one edge of that graph per round).
+    #
+    # `_assert_dataset_still_registered` ends by rolling back, which is what makes
+    # this position safe rather than merely early. The round-1 objection was
+    # retention, not placement: `db.execute` opens a transaction `get_db` would
+    # otherwise hold until the response is written, pinning an API connection
+    # through the 10s permit wait, the tile-pool wait, the PostGIS query and the
+    # gzip. Handing it back here also retires the PRE-EXISTING half of the same
+    # problem, since a metadata-cache miss already carried `_resolve_dataset_meta`'s
+    # connection into the permit wait, and an authenticated request carried the
+    # user lookup's.
+    #
+    # The two later positions both invert something. Inside the tile transaction
+    # it asks the API pool while holding a tile connection; after the permit it
+    # holds a permit while asking the API pool. Either one stalls against a
+    # metadata-cache miss taking the same pair the other way, under ordinary mixed
+    # load and with no attacker involved. Asking on the tile connection instead
+    # would need `geolens_reader` to hold SELECT on catalog.datasets: a
+    # runtime-role contract change for every deployment, and a widening of the one
+    # role whose narrowness is why this path binds it at all.
+    await _assert_dataset_still_registered(
+        db, dataset_id=dataset_id, table_name=table_name, tid=tid
+    )
+
     try:
         pool = get_tile_pool()
     except RuntimeError as exc:
@@ -2042,42 +2071,12 @@ async def _acquire_and_serve_tile(
     # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
     # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
     try:
-        # fix(#1451): the catalog check sits between the FAIR-01 permit and the
-        # tile connection, and it returns its own connection before the next
-        # line asks for one. That position is pinned from three sides.
-        #
-        # Ahead of the permit (codex P1, round 1) it held an API-pool connection
-        # through the whole 10s wait, so a burst of uncached coordinates could
-        # starve CRUD of the connections the separate tile pool exists to
-        # protect.
-        #
-        # Inside the tile transaction (codex P1, round 2) it asked the API pool
-        # while holding a tile connection, the reverse of the order a metadata
-        # cache MISS takes, and two bounded pools acquired in opposite orders
-        # stall each other under a mixed load with no attacker involved.
-        #
-        # On the tile connection itself, which would need neither pool twice,
-        # geolens_reader would need SELECT on catalog.datasets — a runtime-role
-        # contract change for every deployment, and a widening of the role whose
-        # narrowness is what makes SET ROLE worth doing on this path.
-        #
-        # Releasing before the acquire also retires the pre-existing half of that
-        # inversion: on a metadata-cache miss the session was already holding an
-        # API connection into the tile-pool wait, and now hands it back first.
-        await _assert_dataset_still_registered(
-            db, dataset_id=dataset_id, table_name=table_name, tid=tid
-        )
-
         async with pool.acquire() as tile_conn:
             async with tile_conn.transaction():
                 # Bind per-tenant role + search_path BEFORE the tile query.
                 # No-op in single_tenant or when tid is None.
                 await set_tenant_role_for_tile_request(tile_conn, tid)
                 tile_data = await query_callable(pool, tile_conn)
-    except HTTPException:
-        # A refusal is an answer, not a tile-service failure. Without this the
-        # broad handler below would relabel the 404 as a 503.
-        raise
     except asyncio.TimeoutError:
         logger.warning(
             "Tile pool acquire timeout",
