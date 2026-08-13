@@ -446,6 +446,29 @@ MAP_DESCRIPTIONS: dict[str, str] = {
     ),
 }
 
+# Dataset summaries for the two quake bindings, defined once because they are
+# written TWICE: at creation, and again by the enrichment pass on every seed.
+# The second write is the load-bearing one. A summary is otherwise create-time
+# only, so an instance seeded before the service conversion would keep telling
+# visitors these are M4.5+ downloads forever - which is what the heatmap
+# dataset's entry in SHOWCASE_METADATA has always guarded against, and what the
+# circles dataset had no guard for at all.
+QUAKE_SUMMARIES: dict[str, str] = {
+    QUAKES_TITLE: (
+        "Earthquakes of magnitude 2.5 and above from the last 30 days, read "
+        "LIVE from the USGS Recent Earthquakes map service: magnitude, depth, "
+        "felt reports, tsunami flag and USGS significance. Refreshes in place "
+        "from the service rather than being re-uploaded. Source: USGS "
+        "Earthquake Hazards Program (public domain)."
+    ),
+    QUAKES_HEAT_TITLE: (
+        "The same live USGS M2.5+ earthquake feed as the graduated-circle "
+        "dataset, bound separately so MapLibre renders it as its own "
+        "magnitude-weighted heat surface on the Restless Earth map. Source: "
+        "USGS Earthquake Hazards Program (public domain)."
+    ),
+}
+
 # --- the quake layers' service vocabulary --------------------------------------
 # Defined once because TWO places write them: build_restless_earth when it
 # creates the map, and the styling pass when it repairs a map that already
@@ -988,12 +1011,15 @@ class Api:
         stored, and null for collections and VRTs."""
         return self.dataset_detail(dataset_id).get("origin")
 
-    def collections_by_name(self) -> dict[str, str]:
-        """Map collection name -> id (name is UNIQUE in the catalog model)."""
+    def list_collections(self) -> list[dict]:
         # Trailing slash required (redirect_slashes=False).
         r = self.client.get(f"{self.base}/api/catalog/collections/", headers=self.h)
         r.raise_for_status()
-        return {c["name"]: c["id"] for c in r.json().get("collections", [])}
+        return r.json().get("collections", [])
+
+    def collections_by_name(self) -> dict[str, str]:
+        """Map collection name -> id (name is UNIQUE in the catalog model)."""
+        return {c["name"]: c["id"] for c in self.list_collections()}
 
     def create_collection(self, name: str, description: str) -> str:
         # Collections have NO visibility/title/summary - only name (unique) +
@@ -1758,21 +1784,6 @@ def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
 
     Returns (circles_dataset_id, heatmap_dataset_id).
     """
-    summaries = {
-        QUAKES_TITLE: (
-            "Earthquakes of magnitude 2.5 and above from the last 30 days, read "
-            "LIVE from the USGS Recent Earthquakes map service: magnitude, "
-            "depth, felt reports, tsunami flag and USGS significance. Refreshes "
-            "in place from the service rather than being re-uploaded. Source: "
-            "USGS Earthquake Hazards Program (public domain)."
-        ),
-        QUAKES_HEAT_TITLE: (
-            "The same live USGS M2.5+ earthquake feed as the graduated-circle "
-            "dataset, bound separately so MapLibre renders it as its own "
-            "magnitude-weighted heat surface on the Restless Earth map. "
-            "Source: USGS Earthquake Hazards Program (public domain)."
-        ),
-    }
     out: list[str] = []
     for title, legacy in (
         (QUAKES_TITLE, QUAKES_TITLE_LEGACY),
@@ -1784,7 +1795,7 @@ def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
             else by_title.get(title)
         )
         if ds is None:
-            ds = ingest_service(api, USGS_QUAKES_SERVICE, title, summaries[title])
+            ds = ingest_service(api, USGS_QUAKES_SERVICE, title, QUAKE_SUMMARIES[title])
             by_title[title] = ds
         else:
             convert_to_service(api, ds, USGS_QUAKES_SERVICE, title)
@@ -4507,20 +4518,27 @@ def build_collections(api: Api, force: bool = False) -> str:
     carrying the mistake is not a correction.
     """
     print("\n[collections] Restless Planet + Human World")
-    existing = api.collections_by_name()
+    existing = {c["name"]: c for c in api.list_collections()}
     titles = api.datasets_by_title()
     ids = []
     for cname, (desc, wanted) in COLLECTIONS.items():
-        coll_id = existing.get(cname)
-        if coll_id is None:
+        current = existing.get(cname)
+        if current is None:
             coll_id = api.create_collection(cname, desc)
         else:
-            try:
-                api.update_collection(coll_id, description=desc)
-            except httpx.HTTPStatusError as e:
-                print(
-                    f"  ! could not update {cname!r} description: {e}", file=sys.stderr
-                )
+            coll_id = current["id"]
+            # Compared before writing, the way every other migration in this
+            # script is: an unconditional PATCH would bump updated_at on every
+            # seed and reorder any listing sorted by it.
+            if current.get("description") != desc:
+                try:
+                    api.update_collection(coll_id, description=desc)
+                    print(f"  updated description: {cname}")
+                except httpx.HTTPStatusError as e:
+                    print(
+                        f"  ! could not update {cname!r} description: {e}",
+                        file=sys.stderr,
+                    )
         member_ids = [titles[t] for t in wanted if t in titles]
         added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
         print(f"  {cname}: +{added} datasets ({len(member_ids)} referenced)")
@@ -4665,6 +4683,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         # date written here is wrong the day after it is written.
         "update_frequency": "continual",
         "theme_category": ["geoscientificInformation"],
+        "summary": QUAKE_SUMMARIES[QUAKES_TITLE],
     },
     QUAKES_HEAT_TITLE: {
         "license": "USGS Earthquake Hazards Program (US public domain)",
@@ -4676,12 +4695,7 @@ SHOWCASE_METADATA: dict[str, dict] = {
         # fix(#614): the old summary read as an internal rendering workaround;
         # describe it as the map's density layer instead. Now also corrected to
         # M2.5+, which is what the live service actually serves.
-        "summary": (
-            "USGS M2.5+ earthquakes from the last 30 days, read live from the "
-            "USGS Recent Earthquakes service and styled as the "
-            "magnitude-weighted heat surface on the Restless Earth map. "
-            "Source: USGS Earthquake Hazards Program (public domain)."
-        ),
+        "summary": QUAKE_SUMMARIES[QUAKES_HEAT_TITLE],
     },
     "Tectonic Plate Boundaries (PB2002)": {
         "license": "Peter Bird (2003), PB2002 - free for research, please cite",
@@ -5498,6 +5512,13 @@ def main() -> int:
     # self-isolating - see enrich_showcase_metadata - so it never fails the seed.
     print("\nEnriching catalog metadata (license + keywords)...")
     enrich_showcase_metadata(api)
+
+    # Rename before the passes below, not only inside build_hurricanes. Both
+    # passes look the map up by its CURRENT name, and the builder that renames
+    # it does not run under --only or after a builder failure - so without this
+    # the map would keep its legacy name and silently miss its legend, notes
+    # and globe projection. Guarded, so running it twice does nothing.
+    _rename_map_if_needed(api, HURRICANE_MAP, HURRICANE_MAP_LEGACY)
 
     # Same shape and the same reason: applied to whatever showcase maps exist,
     # so an instance seeded before this landed gets the globe too.
