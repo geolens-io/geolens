@@ -466,7 +466,14 @@ class TestMaterializeStampsTenantAttribution:
             "origin_uri does not name the tenant schema the table lives in.\n"
             f"  stored={row.origin_uri!r} expected='postgis://{qualified}'"
         )
-        assert row.origin_ref == {"kind": "postgis", "table_name": qualified}
+        # fix(#1452): the analysis materialize path CTAS'd this output table
+        # and registers it with managed=True, so delete may drop it again.
+        # An operator-registered table carries no `managed` key at all.
+        assert row.origin_ref == {
+            "kind": "postgis",
+            "table_name": qualified,
+            "managed": True,
+        }
         # The pointer and the ref are two spellings of one fact.
         assert row.origin_uri == f"postgis://{row.origin_ref['table_name']}"
         # And the shared schema must not appear anywhere in it.
@@ -509,7 +516,7 @@ class TestMaterializeStampsTenantAttribution:
         real_register = ingest_service.register_existing_table
         stamped: dict[str, object] = {}
 
-        async def _register_without_tenant_guc(session, request, user):
+        async def _register_without_tenant_guc(session, request, user, **kwargs):
             # End the transaction the registration statement_timeout opened,
             # then re-open it with no tenant bound so no GUC is issued.
             await session.rollback()
@@ -518,7 +525,7 @@ class TestMaterializeStampsTenantAttribution:
                 await session.execute(sa.text("SELECT 1"))
             finally:
                 current_tenant_var.reset(token)
-            dataset = await real_register(session, request, user)
+            dataset = await real_register(session, request, user, **kwargs)
             row = (
                 await session.execute(
                     sa.text(
