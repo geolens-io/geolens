@@ -426,6 +426,26 @@ HURRICANE_MAP_LEGACY = "Hurricane Alley - 75 Years of Major Atlantic Storms"
 HURDAT2_TRACKS_TITLE = "Atlantic Hurricane Tracks (HURDAT2, majors since 1950)"
 HURDAT2_LEGS_TITLE = "Major Hurricane Tracks (Cat 3+ legs, one per storm)"
 
+# --- map descriptions that must survive a rename or a re-seed ------------------
+# A map description is written at CREATE time and never again, so a builder that
+# skips an existing map leaves whatever text was there when the instance was
+# first seeded. Restless Earth's said M4.5+ and a downloaded feed, both of which
+# stopped being true when the quakes moved to the live M2.5+ service - and this
+# text is what the catalog and any shared-map view show. Defined here so the
+# builder and the migration pass write the same words.
+MAP_DESCRIPTIONS: dict[str, str] = {
+    "Restless Earth": (
+        "Thirty days of M2.5+ earthquakes, read live from the USGS service, and "
+        "6,000 years of deadly volcanic eruptions, on the tectonic plate "
+        "boundaries that spawn them - solid where plates collide, dashed where "
+        "they spread and slide - over the real relief of the planet (ETOPO "
+        "2022). Watch the mid-Atlantic ridge line up with the dashed divergent "
+        "boundary. Click anything, or open Ask AI: which quakes triggered "
+        "tsunami warnings? What was the deadliest eruption? Sources: USGS, "
+        "NOAA NCEI, PB2002 (Bird 2003), Natural Earth."
+    ),
+}
+
 # --- the quake layers' service vocabulary --------------------------------------
 # Defined once because TWO places write them: build_restless_earth when it
 # creates the map, and the styling pass when it repairs a map that already
@@ -985,6 +1005,15 @@ class Api:
         )
         r.raise_for_status()
         return r.json()["id"]
+
+    def update_collection(self, collection_id: str, **fields) -> None:
+        # PATCH (no trailing slash on the item route, unlike the list route).
+        r = self.client.patch(
+            f"{self.base}/api/catalog/collections/{collection_id}",
+            headers=self.h,
+            json=fields,
+        )
+        r.raise_for_status()
 
     def add_to_collection(self, collection_id: str, dataset_ids: list) -> int:
         # Trailing slash required; returns count of NEWLY added (idempotent).
@@ -2035,6 +2064,14 @@ def refresh_hurdat2(api: Api) -> int:
                 f"  ! could not delete the superseded {d['title']!r}: {e}",
                 file=sys.stderr,
             )
+    # The three derived datasets are BRAND NEW, so they carry ingest defaults:
+    # a "proprietary" license and no keywords or theme categories. Without this
+    # every successful refresh would quietly undo Part 2's catalog work on
+    # exactly the datasets whose provenance the exposure map exists to show.
+    # This is a terminal maintenance mode, so it never reaches main()'s pass.
+    print("\nRe-enriching the rebuilt chain's catalog metadata...")
+    enrich_showcase_metadata(api)
+
     # The context layer's hatch and the map's legend/notes live in the styling
     # pass, which is idempotent - run it so the rebuilt map matches a fresh one.
     apply_showcase_styling(api)
@@ -2523,9 +2560,14 @@ def build_restless_earth(
                                 "crs": "EPSG:4326",
                                 "organization": "NOAA NCEI",
                                 "license": "US public domain (cite NOAA NCEI)",
-                                # The credit line a viewer shows over the tiles.
-                                # NOAA's terms ask for the citation, and the
-                                # license string alone never reaches the map.
+                                # Recorded on the ingest job's manifest
+                                # metadata, which is where a required source
+                                # credit belongs in the provenance trail. Note
+                                # it does NOT reach the viewer today: the
+                                # backend stores it as job_metadata
+                                # ["manifest_attribution"] and no map-layer
+                                # response carries an attribution field, so
+                                # nothing renders it over the tiles yet.
                                 "attribution": "NOAA NCEI",
                                 "tags": ["bathymetry", "relief", "etopo", "global"],
                             },
@@ -2559,17 +2601,7 @@ def build_restless_earth(
             )
 
     # --- the map --------------------------------------------------------------------
-    map_id = api.create_map(
-        name,
-        "Thirty days of M2.5+ earthquakes, read live from the USGS service, and "
-        "6,000 years of deadly volcanic eruptions, on the tectonic plate "
-        "boundaries that spawn them - solid where plates collide, dashed where "
-        "they spread and slide - over the real relief of the planet (ETOPO "
-        "2022). Watch the mid-Atlantic ridge line up with the dashed divergent "
-        "boundary. Click anything, or open Ask AI: which quakes triggered "
-        "tsunami warnings? What was the deadliest eruption? Sources: USGS, "
-        "NOAA NCEI, PB2002 (Bird 2003), Natural Earth.",
-    )
+    map_id = api.create_map(name, MAP_DESCRIPTIONS[name])
 
     def mag_step(v0, v1, v2, v3):
         return ["step", ["to-number", ["get", "mag"], 0], v0, 5.0, v1, 6.0, v2, 7.0, v3]
@@ -3996,6 +4028,9 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
                         "organization": "swisstopo",
                         "license": "swisstopo OGD",
                         # swisstopo OGD requires the source credit on display.
+                        # Recorded in the manifest provenance for now - see the
+                        # ETOPO note above: nothing renders it over the tiles
+                        # yet, so the credit still has to be met elsewhere.
                         "attribution": "© swisstopo",
                         "tags": ["dem", "swissalti3d", "matterhorn"],
                     },
@@ -4462,13 +4497,30 @@ COLLECTIONS = {
 
 def build_collections(api: Api, force: bool = False) -> str:
     """Two themed collections. Collection.name is UNIQUE -> reuse on re-runs;
-    membership top-up is idempotent."""
+    membership top-up is idempotent.
+
+    The DESCRIPTION is refreshed on reuse, not only written at creation. It used
+    to be a create-time argument, which meant an existing instance kept whatever
+    wording it was seeded with - and Restless Planet's original wording promised
+    earthquakes and eruptions to the STAC surface, which exposes only a
+    collection's raster members. A correction that never reaches the instances
+    carrying the mistake is not a correction.
+    """
     print("\n[collections] Restless Planet + Human World")
     existing = api.collections_by_name()
     titles = api.datasets_by_title()
     ids = []
     for cname, (desc, wanted) in COLLECTIONS.items():
-        coll_id = existing.get(cname) or api.create_collection(cname, desc)
+        coll_id = existing.get(cname)
+        if coll_id is None:
+            coll_id = api.create_collection(cname, desc)
+        else:
+            try:
+                api.update_collection(coll_id, description=desc)
+            except httpx.HTTPStatusError as e:
+                print(
+                    f"  ! could not update {cname!r} description: {e}", file=sys.stderr
+                )
         member_ids = [titles[t] for t in wanted if t in titles]
         added = api.add_to_collection(coll_id, member_ids) if member_ids else 0
         print(f"  {cname}: +{added} datasets ({len(member_ids)} referenced)")
@@ -5179,21 +5231,31 @@ def apply_showcase_styling(api: "Api") -> None:
     """
     maps = api.list_maps()
     for name, map_id in sorted(maps.items()):
-        if name not in MAP_LEGEND_AND_NOTES and name not in MAP_FOLDER_GROUPS:
+        if (
+            name not in MAP_LEGEND_AND_NOTES
+            and name not in MAP_FOLDER_GROUPS
+            and name not in MAP_DESCRIPTIONS
+        ):
             continue
         try:
             current = api.get_map(map_id)
+            delta = {}
             legend_spec = MAP_LEGEND_AND_NOTES.get(name)
             if legend_spec:
                 legend_title, notes = legend_spec
-                delta = {}
                 if current.get("legend_title") != legend_title:
                     delta["legend_title"] = legend_title
                 if current.get("notes") != notes:
                     delta["notes"] = notes
-                if delta:
-                    api.set_view(map_id, **delta)
-                    print(f"  legend/notes: {name}")
+            # The description too, and for the same reason the notes are here:
+            # it is written once at map creation, so a builder that skips an
+            # existing map can never correct text that has gone false.
+            description = MAP_DESCRIPTIONS.get(name)
+            if description is not None and current.get("description") != description:
+                delta["description"] = description
+            if delta:
+                api.set_view(map_id, **delta)
+                print(f"  {'/'.join(sorted(delta))}: {name}")
 
             layers = current.get("layers") or []
             if name == EXPOSURE_MAP and _ensure_basin_context_layer(
