@@ -94,7 +94,7 @@ class TestLoginIsSerializedAgainstRevocation:
     async def test_a_login_racing_a_logout_is_revoked_or_a_clean_successor(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
     ):
-        """Force the widest possible window and assert there is no third outcome.
+        """Force the interleaving deterministically, then assert the outcome.
 
         The logout handler runs ``revoke_all_tokens(commit=False)`` and then
         ``audit_emit`` before its single commit, so stalling ``audit_emit``
@@ -108,8 +108,20 @@ class TestLoginIsSerializedAgainstRevocation:
         first = await _login(client, username)
         original_emit = audit_mod.audit_emit
 
+        # fix(#1460 codex): synchronize on the lock actually being held, not on
+        # elapsed time. A sleep long enough on a warm machine is not long
+        # enough under CI connection contention, and a login that slips in
+        # BEFORE the logout takes its lock gets revoked normally, which used to
+        # satisfy this test through an early return. That made the guard pass
+        # vacuously in exactly the conditions where it is hardest to notice,
+        # including with the serialization removed. audit_emit runs after
+        # revoke_all_tokens and before the commit, so entering it proves the
+        # lock is held and the revocation is staged but not yet durable.
+        lock_held = anyio.Event()
+
         async def _stalled_emit(*args, **kwargs):
             result = await original_emit(*args, **kwargs)
+            lock_held.set()
             await anyio.sleep(1.5)
             return result
 
@@ -124,9 +136,10 @@ class TestLoginIsSerializedAgainstRevocation:
             results["logout"] = resp.status_code
 
         async def _login_racing():
-            # Begin after the logout has taken its lock, which is what puts
-            # this login inside the revoking transaction's lifetime.
-            await anyio.sleep(0.5)
+            # Fail loudly rather than hang if the logout never reaches the
+            # stall (e.g. it 401s), which would otherwise look like a timeout.
+            with anyio.fail_after(30):
+                await lock_held.wait()
             resp = await client.post(
                 "/auth/login", data={"username": username, "password": PASSWORD}
             )
@@ -141,14 +154,20 @@ class TestLoginIsSerializedAgainstRevocation:
         assert results["logout"] == 204
         racing = await _newest_refresh_row(test_db_session, user_id)
 
-        if racing.revoked:
-            # Ordering one: the login committed before the revocation's UPDATE
-            # took its snapshot, so the revocation saw and killed its row.
-            return
+        # The login provably began after the lock was taken, so the revocation's
+        # UPDATE had already run and cannot have seen this row. Asserting that,
+        # rather than tolerating it, is what stops a mis-ordered run from
+        # passing without exercising anything. The other ordering has its own
+        # test below.
+        assert not racing.revoked, (
+            "the racing login's row was revoked, so it committed before the "
+            "revocation's UPDATE despite starting after the lock was held; the "
+            "interleaving this test needs did not happen and nothing was proven"
+        )
 
-        # Ordering two: the login completed after the revocation committed, so
-        # it read post-revocation state and is an ordinary successor. Both of
-        # its credentials must work. A failure here means the login minted from
+        # It therefore completed after the revocation committed, read
+        # post-revocation state, and is an ordinary successor. Both of its
+        # credentials must work. A failure here means it minted from
         # pre-revocation state and kept a live credential, which is the
         # zombie-session shape #1459 described.
         tokens = results["tokens"]
