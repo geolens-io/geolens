@@ -4,9 +4,15 @@
 # ORDER to a log; no real stack, no DB, no network.
 #
 # Asserts:
-#   - backup (pg_dump) runs BEFORE the image pull
+#   - fix(#1467): the image pull runs BEFORE api/worker are stopped, so the
+#     outage window does not include the download
+#   - fix(#1467): api/worker stay stopped across the whole migrate step, so a
+#     data migration cannot race the previous release's writes
+#   - backup (pg_dump) runs after the stop and before migrate
 #   - migrate runs BEFORE the app `up -d` and BEFORE the health gate
-#   - a NON-ZERO migrate aborts BEFORE `up -d` and prints the rollback recipe
+#   - the .env version pin moves only AFTER migrations succeed
+#   - a NON-ZERO migrate aborts BEFORE `up -d`, restarts the PREVIOUS release's
+#     api/worker, leaves the pin alone, and prints the rollback recipe
 #   - a source-build install (COMPOSE_FILE=docker-compose.yml) exits 0 with the
 #     source-build instructions and makes NO compose/pg_dump calls
 #   - test(#826) wait_for_healthy edge cases: a still-starting service passes
@@ -111,15 +117,25 @@ if [ "$1" = "compose" ]; then
       printf 'PGDMP-fake-custom-format-dump-bytes\n'
       exit 0 ;;
     up)
-      # detect the migrate one-shot vs the db-only config recreate vs the app up
+      # detect the migrate one-shot vs the db-only config recreate vs the
+      # previous-release restore vs the app up
       for a in "$@"; do
         if [ "$a" = "migrate" ]; then echo "migrate_up" >> "$LOG"; exit 0; fi
       done
       # fix(#959): `up -d --force-recreate --no-deps --wait db` applies a synced
       # db/postgresql.conf. It is NOT an app up — logging it as one would make
       # the ordering assertions read a config bounce as bringing the app back.
+      #
+      # fix(#1467): `up -d --no-deps api worker` is the failure-path restore of
+      # the PREVIOUS release. Matching on --no-deps is deliberate: the prod
+      # compose gives api a `depends_on: migrate:
+      # service_completed_successfully` edge, so a restore that dropped
+      # --no-deps would re-run the one-shot that just failed. Such a call falls
+      # through to app_up here, and the "no app_up on the failure path"
+      # assertions below catch it.
       case "$*" in
         *--no-deps*\ db|*--no-deps*\ db\ *) echo "db_recreate" >> "$LOG"; exit 0 ;;
+        *--no-deps*api\ worker*)            echo "restore_app" >> "$LOG"; exit 0 ;;
       esac
       echo "app_up" >> "$LOG"; exit 0 ;;
     ps)
@@ -293,10 +309,14 @@ else
 fi
 
 b="$(pos_of backup)"; p="$(pos_of pull)"; m="$(pos_of migrate_up)"; a="$(pos_of app_up)"
-if [ -n "$b" ] && [ -n "$p" ] && [ "$b" -lt "$p" ]; then
-  ok "backup (pg_dump) runs BEFORE the image pull ($b < $p)"
+s="$(pos_of stop_app)"
+# fix(#1467): the download must not be charged to the operator as downtime. The
+# pull happens while the previous release is still serving; only stop -> dump ->
+# migrate -> start is the outage.
+if [ -n "$p" ] && [ -n "$s" ] && [ "$p" -lt "$s" ]; then
+  ok "image pull runs BEFORE the app is stopped ($p < $s)"
 else
-  bad "backup did not precede pull (backup=$b pull=$p)"
+  bad "pull did not precede the stop (pull=$p stop=$s)"
 fi
 if [ -n "$m" ] && [ -n "$a" ] && [ "$m" -lt "$a" ]; then
   ok "migrate runs BEFORE the app up -d ($m < $a)"
@@ -314,46 +334,66 @@ else
   bad "success path did not print rollback recipe"
 fi
 
-# Full expected order: probe_pg, stop_app, backup, verify_backup, pull,
+# Full expected order: probe_pg, pull, stop_app, backup, verify_backup,
 # db_recreate, migrate_up, app_up. The PG-major probe runs first — it must
-# decide before anything is changed. db_recreate appears because the git stub
-# reports a db/postgresql.conf that differs from the target tag (fix(#959));
-# it lands after the pull and before migrate, so migrations already run under
-# the release's Postgres settings.
+# decide before anything is changed. fix(#1467): the pull sits before the stop,
+# so the outage is stop -> dump -> migrate -> start and nothing else.
+# db_recreate appears because the git stub reports a db/postgresql.conf that
+# differs from the target tag (fix(#959)); it lands after the dump and before
+# migrate, so migrations already run under the release's Postgres settings.
 order="$(tr '\n' ',' < "$WORK/calls.log")"
-expected="probe_pg,stop_app,backup,verify_backup,pull,db_recreate,migrate_up,app_up,"
+expected="probe_pg,pull,stop_app,backup,verify_backup,db_recreate,migrate_up,app_up,"
 if [ "$order" = "$expected" ]; then
-  ok "full call order is probe pg major -> stop api/worker -> backup -> verify -> pull -> db conf recreate -> migrate -> app_up"
+  ok "full call order is probe pg major -> pull -> stop api/worker -> backup -> verify -> db conf recreate -> migrate -> app_up"
 else
   bad "unexpected call order: $order"
 fi
 
 # fix(#959): the config bounce must not straddle the migrate step or the app up.
+# It also belongs inside the outage — bouncing the database under a running old
+# app would break its connections for nothing.
 d="$(pos_of db_recreate)"
-if [ -n "$d" ] && [ -n "$p" ] && [ -n "$m" ] && [ "$p" -lt "$d" ] && [ "$d" -lt "$m" ]; then
-  ok "synced db/postgresql.conf is applied between the pull and migrate ($p < $d < $m)"
+if [ -n "$d" ] && [ -n "$b" ] && [ -n "$m" ] && [ "$b" -lt "$d" ] && [ "$d" -lt "$m" ]; then
+  ok "synced db/postgresql.conf is applied between the backup and migrate ($b < $d < $m)"
 else
-  bad "db config recreate out of place (pull=$p db_recreate=$d migrate=$m)"
+  bad "db config recreate out of place (backup=$b db_recreate=$d migrate=$m)"
 fi
 
 # fix(#714): the rollback dump is read back end-to-end BEFORE the first
-# irreversible step. A dump truncated by a full disk is non-empty and passes
-# `--list`, so `-s` alone would let the upgrade migrate the schema behind an
-# unrestorable rollback artifact.
+# irreversible step, which is the migrate (the pull only downloads images, and
+# since fix(#1467) the .env pin does not move until migrations have committed).
+# A dump truncated by a full disk is non-empty and passes `--list`, so `-s`
+# alone would let the upgrade migrate the schema behind an unrestorable
+# rollback artifact.
 v="$(pos_of verify_backup)"
-if [ -n "$v" ] && [ -n "$b" ] && [ -n "$p" ] && [ "$b" -lt "$v" ] && [ "$v" -lt "$p" ]; then
-  ok "rollback dump verified between the dump and the first irreversible step ($b < $v < $p)"
+if [ -n "$v" ] && [ -n "$b" ] && [ -n "$m" ] && [ "$b" -lt "$v" ] && [ "$v" -lt "$m" ]; then
+  ok "rollback dump verified between the dump and the first irreversible step ($b < $v < $m)"
 else
-  bad "backup not verified before the pull (backup=$b verify=$v pull=$p)"
+  bad "backup not verified before the migrate (backup=$b verify=$v migrate=$m)"
 fi
 
 # Writers quiesced BEFORE the dump (so the snapshot loses no acknowledged writes on
-# rollback) and before migrate (Codex P1).
-s="$(pos_of stop_app)"
+# rollback) and before migrate (Codex P1, and the policy decision in #1467).
 if [ -n "$s" ] && [ -n "$b" ] && [ -n "$m" ] && [ "$s" -lt "$b" ] && [ "$b" -lt "$m" ]; then
   ok "api/worker stopped before the backup dump and before migrate ($s < $b < $m)"
 else
   bad "writers not quiesced before the dump (stop=$s backup=$b migrate=$m)"
+fi
+
+# fix(#1467): nothing restarts api/worker between the stop and the final app up,
+# so the whole migrate step runs with no application writer alive. A restore_app
+# in the happy path would mean something brought the OLD release back mid-upgrade.
+if [ -z "$(pos_of restore_app)" ]; then
+  ok "no writer restart between the stop and the app up (migrate sees no app writes)"
+else
+  bad "the previous release was restarted mid-upgrade: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+
+# A successful upgrade is what moves the .env pin.
+if grep -q '^GEOLENS_VERSION=1.2.4$' "$FAKE/.env"; then
+  ok "successful upgrade pins GEOLENS_VERSION=1.2.4 in .env"
+else
+  bad "successful upgrade did not pin the new version: $(grep GEOLENS_VERSION "$FAKE/.env")"
 fi
 
 # UPG release-file sync (Codex P2): the prebuilt flow fetches the target tag and
@@ -399,6 +439,44 @@ if [ -n "$(pos_of backup)" ] && [ -z "$(pos_of app_up)" ]; then
   ok "backup was taken before the failed migrate (data safe)"
 else
   bad "backup ordering wrong on the failure path"
+fi
+# fix(#1467): the app was stopped for the migration, so a failed migration must
+# put the PREVIOUS release back. Leaving it stopped turns a failed upgrade into
+# an outage that lasts until the operator notices.
+if [ -n "$(pos_of restore_app)" ]; then
+  ok "failed migrate restarts the previous release's api/worker (instance not left down)"
+else
+  bad "failed migrate left the app stopped: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if grep -q 'Restored GeoLens 1.2.3' "$WORK/out.txt"; then
+  ok "failed migrate says which version it restored"
+else
+  bad "failed migrate did not report the restored version"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'may already hold part' "$WORK/out.txt"; then
+  ok "failed migrate warns the database may hold part of the release's migrations"
+else
+  bad "failed migrate did not warn about a partially applied migration"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+# fix(#1467): the pin must NOT have moved. It used to move before the migrate,
+# so a re-run read the new version as installed, decided there was nothing to
+# upgrade, and exited 0 with the app still down and the schema unmigrated.
+if grep -q '^GEOLENS_VERSION=1.2.3$' "$FAKE/.env"; then
+  ok "failed migrate leaves GEOLENS_VERSION at the installed version"
+else
+  bad "failed migrate moved the version pin: $(grep GEOLENS_VERSION "$FAKE/.env")"
+fi
+
+# ...and because the pin did not move, re-running the upgrade actually retries
+# instead of reporting "nothing to upgrade".
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ] && [ -n "$(pos_of app_up)" ]; then
+  ok "re-running after a failed migrate retries the upgrade (not a no-op)"
+else
+  bad "re-run after a failed migrate did not retry (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+  sed 's/^/    # /' "$WORK/out.txt"
 fi
 
 # ============================================================================
@@ -528,10 +606,15 @@ if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -z "$(pos_of backup)" ]; then
 else
   bad "failed quiesce did not abort before backup (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
 fi
-if [ -n "$(pos_of app_up)" ]; then
-  ok "failed quiesce restarts api/worker (restart_writers ran)"
+if [ -n "$(pos_of restore_app)" ] && [ -z "$(pos_of app_up)" ]; then
+  ok "failed quiesce restarts api/worker on the previous release"
 else
-  bad "failed quiesce did not restart api/worker"
+  bad "failed quiesce did not restart api/worker: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if grep -q '^GEOLENS_VERSION=1.2.3$' "$FAKE/.env"; then
+  ok "failed quiesce leaves the version pin at the installed version"
+else
+  bad "failed quiesce moved the version pin: $(grep GEOLENS_VERSION "$FAKE/.env")"
 fi
 
 # ============================================================================
@@ -547,20 +630,27 @@ rm -rf "$FAKE/backups/pre-upgrade"
 VERIFY_MODE=fail
 run_upgrade ok 1.2.4
 VERIFY_MODE=ok
-if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -z "$(pos_of pull)" ]; then
-  ok "unreadable rollback dump aborts BEFORE the pull (nothing irreversible ran)"
+# The first IRREVERSIBLE step is the migrate; since fix(#1467) the pull happens
+# earlier, outside the outage, and downloading images changes nothing.
+if [ "$(cat "$WORK/code.txt")" != "0" ] && [ -z "$(pos_of migrate_up)" ]; then
+  ok "unreadable rollback dump aborts BEFORE the migrate (nothing irreversible ran)"
 else
-  bad "corrupt dump did not abort before pull (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+  bad "corrupt dump did not abort before migrate (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
 fi
 if [ -z "$(find "$FAKE/backups/pre-upgrade" -name '*.dump' 2>/dev/null)" ]; then
   ok "unreadable rollback dump is discarded, not left to look like a backup"
 else
   bad "corrupt dump was left on disk: $(find "$FAKE/backups/pre-upgrade" -name '*.dump')"
 fi
-if [ -n "$(pos_of app_up)" ]; then
-  ok "failed verification restarts api/worker (app is not left down)"
+if [ -n "$(pos_of restore_app)" ] && [ -z "$(pos_of app_up)" ]; then
+  ok "failed verification restarts api/worker on the previous release (app not left down)"
 else
-  bad "failed verification did not restart api/worker"
+  bad "failed verification did not restart api/worker: $(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if grep -q '^GEOLENS_VERSION=1.2.3$' "$FAKE/.env"; then
+  ok "failed verification leaves the version pin at the installed version"
+else
+  bad "failed verification moved the version pin: $(grep GEOLENS_VERSION "$FAKE/.env")"
 fi
 
 # ============================================================================
@@ -832,6 +922,16 @@ if grep -q 'ROLLBACK' "$WORK/out.txt"; then
   ok "stuck service failure prints the rollback recipe"
 else
   bad "stuck service failure did not print the rollback recipe"
+fi
+# fix(#1467): the automatic restore stops at the migrate boundary. Once
+# migrations have committed and the pin has moved, starting the PREVIOUS
+# release's containers on top of the new schema is not a rollback — restoring
+# the dump and then re-pinning is, and that stays the operator's call.
+if [ -z "$(pos_of restore_app)" ]; then
+  ok "a health-gate failure does not put old containers back on a migrated schema"
+else
+  bad "the previous release was restarted after migrations had committed"
+  sed 's/^/    # /' "$WORK/out.txt"
 fi
 
 # Mixed: one straggler within its tolerance, one past it — the overdue one
