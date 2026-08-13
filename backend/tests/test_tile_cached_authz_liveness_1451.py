@@ -405,14 +405,20 @@ async def _null_async_context(events: list[str], label: str, value=None):
     yield value
 
 
-async def test_the_catalog_is_asked_between_capacity_and_the_relation_read():
-    """Order is the fix, so order is what this pins (codex P1/P2 on #1454).
+async def test_the_catalog_is_asked_between_capacity_and_the_tile_connection():
+    """Order is the fix, so order is what this pins (codex P1 rounds 1 and 2).
 
-    Ahead of the tile pool the probe held an API-pool connection for the whole
-    FAIR-01 wait, which is how a burst of uncached coordinates starves the CRUD
-    traffic the separate tile pool exists to protect. Any await between the check
-    and the read reopens the window the check closes. Both failure modes are
-    invisible to a test that only asserts the 404, so this one asserts where.
+    Two failure modes bracket the one safe position, and a 404 assertion sees
+    neither. Ahead of the FAIR-01 permit, the probe held an API-pool connection
+    through a 10-second wait, starving the CRUD traffic the separate tile pool
+    exists to protect. Inside the tile transaction, it asked the API pool while
+    holding a tile connection, which is the reverse of the order a metadata cache
+    miss takes: two bounded pools acquired in opposite orders stall each other
+    under ordinary mixed load.
+
+    So the release has to land BETWEEN the catalog read and the tile acquire,
+    which is what the expected sequence below says and what neither neighbouring
+    placement can satisfy.
     """
     events: list[str] = []
     pool = _RecordingTilePool(events)
@@ -450,11 +456,11 @@ async def test_the_catalog_is_asked_between_capacity_and_the_relation_read():
 
     assert response.status_code == 200
     assert events == [
+        "db.execute",
+        "db.rollback",
         "pool.acquire",
         "txn",
         "set_role",
-        "db.execute",
-        "db.rollback",
         "tile_query",
     ], events
 

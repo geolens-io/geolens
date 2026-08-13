@@ -1782,12 +1782,12 @@ async def _assert_dataset_still_registered(
     cache can answer for the others, so the check has to reach the database.
 
     The cost is bounded by WHERE this runs. The caller is ``_acquire_and_serve_tile``,
-    which reaches this only after both tile caches have missed, after the FAIR-01
-    permit and the tile connection are already in hand, and with the relation read
-    as the very next statement. A served-from-cache tile still costs zero
-    round-trips, which is the whole point of ``_dataset_cache`` (PERF-006 /
-    PERF-002); a tile the pool has to build pays one indexed primary-key lookup
-    that ends before the PostGIS query begins.
+    which reaches this only after both tile caches have missed and after the
+    FAIR-01 permit is in hand, and which acquires its tile connection on the next
+    line. A served-from-cache tile still costs zero round-trips, which is the whole
+    point of ``_dataset_cache`` (PERF-006 / PERF-002); a tile the pool has to build
+    pays one indexed primary-key lookup that is over before the PostGIS query
+    begins. The call site records why no earlier or later position works.
 
     Pinning id AND table_name together is what makes it a liveness check rather
     than an existence check: a surviving row that has since been repointed at a
@@ -2042,22 +2042,37 @@ async def _acquire_and_serve_tile(
     # SET LOCAL ROLE + SET LOCAL search_path survive for the tile query
     # (PgBouncer transaction-mode: SET LOCAL is valid within one txn; T-1209-10).
     try:
+        # fix(#1451): the catalog check sits between the FAIR-01 permit and the
+        # tile connection, and it returns its own connection before the next
+        # line asks for one. That position is pinned from three sides.
+        #
+        # Ahead of the permit (codex P1, round 1) it held an API-pool connection
+        # through the whole 10s wait, so a burst of uncached coordinates could
+        # starve CRUD of the connections the separate tile pool exists to
+        # protect.
+        #
+        # Inside the tile transaction (codex P1, round 2) it asked the API pool
+        # while holding a tile connection, the reverse of the order a metadata
+        # cache MISS takes, and two bounded pools acquired in opposite orders
+        # stall each other under a mixed load with no attacker involved.
+        #
+        # On the tile connection itself, which would need neither pool twice,
+        # geolens_reader would need SELECT on catalog.datasets — a runtime-role
+        # contract change for every deployment, and a widening of the role whose
+        # narrowness is what makes SET ROLE worth doing on this path.
+        #
+        # Releasing before the acquire also retires the pre-existing half of that
+        # inversion: on a metadata-cache miss the session was already holding an
+        # API connection into the tile-pool wait, and now hands it back first.
+        await _assert_dataset_still_registered(
+            db, dataset_id=dataset_id, table_name=table_name, tid=tid
+        )
+
         async with pool.acquire() as tile_conn:
             async with tile_conn.transaction():
                 # Bind per-tenant role + search_path BEFORE the tile query.
                 # No-op in single_tenant or when tid is None.
                 await set_tenant_role_for_tile_request(tile_conn, tid)
-                # fix(#1451 codex P1/P2): the catalog check sits here, between
-                # capacity acquisition and the relation read, and nowhere
-                # earlier. Ahead of the semaphore it pinned an API-pool
-                # connection for the whole 10s wait plus the query, so a burst
-                # of uncached coordinates could starve CRUD of the connections
-                # the dedicated tile pool exists to protect; and every await
-                # between the check and the read is a window in which the
-                # delete-plus-recreate this guards against could still land.
-                await _assert_dataset_still_registered(
-                    db, dataset_id=dataset_id, table_name=table_name, tid=tid
-                )
                 tile_data = await query_callable(pool, tile_conn)
     except HTTPException:
         # A refusal is an answer, not a tile-service failure. Without this the
