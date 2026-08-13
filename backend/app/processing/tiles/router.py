@@ -1756,6 +1756,117 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
     return meta
 
 
+async def _assert_dataset_still_registered(
+    db: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    table_name: str,
+    tid: Any,
+) -> None:
+    """Refuse a cached authorization the catalog no longer backs (#1451).
+
+    ``_resolve_dataset_meta`` answers a cache hit without touching the database,
+    so for up to ``_DATASET_CACHE_TTL`` seconds a worker keeps authorizing
+    against a dataset row that may already be deleted. GH-1443 stopped the
+    product from redrawing a freed table name, but nothing stops someone holding
+    a database session from running ``CREATE TABLE data.roads`` directly, and
+    ``ALTER DEFAULT PRIVILEGES IN SCHEMA data GRANT SELECT ON TABLES TO
+    geolens_reader`` (scripts/lib/configure-runtime-db-role.sh) makes that
+    relation readable by the role the tile path binds without
+    ``grant_reader_access`` ever running. The deleted dataset's cached ``public``
+    visibility would then carry a stranger's rows to anonymous callers.
+
+    The ``_evict_dataset_meta`` listener (#1441) cannot close this alone: it is
+    process-local, and with REDIS_URL unset every uvicorn worker holds a private
+    LRU, so a delete only evicts in the worker that served it. No process-local
+    cache can answer for the others, so the check has to reach the database.
+
+    WHERE this runs is the rest of the design, and four review rounds narrowed it
+    to one line in each endpoint: the first statement past the tile-byte-cache
+    short-circuit. Both bounds are tight.
+
+    No earlier, or the hot path pays for it. A tile answered from the byte cache
+    returns above this and still costs zero round-trips, which is the whole point
+    of ``_dataset_cache`` (PERF-006 / PERF-002).
+
+    No later, for two independent reasons. Everything below acts on the cached
+    authorization, starting with the COLD-02 seam, which would enqueue a restore
+    and hand back a 202 for a dataset the catalog no longer has. And a tile
+    request takes three bounded resources in sequence — this API-pool connection,
+    the FAIR-01 permit, then the tile-pool connection — so the check has to
+    complete and roll back before the first of them is requested. Every later
+    position inverts a pair against a metadata-cache MISS, which carries
+    ``_resolve_dataset_meta``'s connection into both waits: inside the tile
+    transaction it asks the API pool while holding a tile connection; after the
+    permit it holds a permit while asking the API pool. Both stall under ordinary
+    mixed load with no attacker involved.
+
+    Asking on the tile connection instead would need neither pool twice, but it
+    would need ``geolens_reader`` to hold SELECT on ``catalog.datasets``: a
+    runtime-role contract change for every deployment, and a widening of the one
+    role whose narrowness is why this path binds it at all.
+
+    ``test_both_tile_endpoints_ask_before_they_act`` pins the position, because a
+    third endpoint that resolved cached metadata and forgot this call would be a
+    silent regression.
+
+    Pinning id AND table_name together is what makes it a liveness check rather
+    than an existence check: a surviving row that has since been repointed at a
+    different relation must not authorize a read of the old name either.
+
+    It runs unconditionally, including right after a ``_dataset_cache`` MISS has
+    just read the same row. Skipping it there would mean threading "was this a
+    cache hit" out of the resolver and into a security check, which buys one PK
+    lookup on the path that already pays a joinedload, in exchange for a caller
+    that can silently skip the check by getting the flag wrong.
+
+    Scope is every caller that reads a ``data``-schema relation off cached
+    authorization, which is the vector and cluster endpoints — one call site,
+    since both reach the relation through ``_acquire_and_serve_tile``. The raster
+    proxy caches authorization the same way (``_raster_meta_cache``) and is
+    deliberately NOT covered: it is addressed by dataset id rather than by table
+    name, and it resolves to an object-storage asset, so there is no relation for
+    an out-of-band ``CREATE TABLE`` to substitute. Its bounded staleness is the
+    tradeoff written down at ``_RASTER_META_CACHE_TTL``, not this bug.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetORM
+
+    stmt = select(DatasetORM.id).where(
+        DatasetORM.id == dataset_id,
+        DatasetORM.table_name == table_name,
+    )
+    if is_multi_tenant() and tid is not None:
+        # Mirrors the _resolve_dataset_meta filter so the probe cannot be
+        # satisfied by another tenant's row carrying the same table_name.
+        stmt = stmt.where(DatasetORM.tenant_id == tid)
+
+    registered = (await db.execute(stmt)).scalar_one_or_none()
+
+    # fix(#1451 codex P1): hand the API-pool connection back before returning.
+    # `db.execute` opens a transaction that `get_db` would otherwise hold open
+    # until the response is written, so without this every tile the pool has to
+    # build would occupy one of the API's connections for the length of its
+    # PostGIS query and gzip. The probe is read-only, so the rollback discards
+    # nothing; it is here rather than at the call site because the caller cannot
+    # release what it did not know was taken.
+    await db.rollback()
+
+    if registered is not None:
+        return
+
+    # Drop the entry that got us here so the next request re-resolves and 404s
+    # in _resolve_dataset_meta, rather than re-paying this probe for the TTL.
+    _evict_dataset_meta(table_name)
+    logger.warning(
+        "Tile refused: cached dataset metadata outlived its catalog row",
+        table_name=table_name,
+        dataset_id=str(dataset_id),
+    )
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+    )
+
+
 async def _authorize_vector_tile_request(
     request: Request,
     meta: _DatasetMeta,
@@ -2110,6 +2221,14 @@ async def cluster_tile_endpoint(
                 _serving_tile_headers(cache_scope, cache_ttl, _cluster_cache_control),
             )
 
+    # fix(#1451): first thing past the byte-cache short-circuit, because
+    # everything past it acts on the cached authorization — the cold seam below
+    # would enqueue a restore for a dataset the catalog no longer has. See the
+    # helper for why it cannot sit any later than this.
+    await _assert_dataset_still_registered(
+        db, dataset_id=meta.dataset_id, table_name=table_name, tid=_cluster_tid
+    )
+
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE cluster tile query.
     # Mirrors the tile_endpoint seam: uses cached meta.record_status (T-1214-18);
     # failure is broad-except-swallowed (T-1214-17).
@@ -2266,6 +2385,14 @@ async def tile_endpoint(
                 cached,
                 _serving_tile_headers(cache_scope, cache_ttl, _tile_cache_control),
             )
+
+    # fix(#1451): first thing past the byte-cache short-circuit, because
+    # everything past it acts on the cached authorization — the cold seam below
+    # would enqueue a restore for a dataset the catalog no longer has. See the
+    # helper for why it cannot sit any later than this.
+    await _assert_dataset_still_registered(
+        db, dataset_id=meta.dataset_id, table_name=table_name, tid=_tile_tid
+    )
 
     # COLD-02 (Phase 1214-04): cold-rehydrate seam — BEFORE tile query.
     # Uses the cached meta.record_status (no extra DB round-trip on the hot path,
