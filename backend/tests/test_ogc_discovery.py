@@ -210,14 +210,31 @@ async def test_anonymous_standards_cors_default_is_read_only(client, monkeypatch
     assert "access-control-allow-origin" not in credentialed.headers
 
 
-async def test_head_is_served_wherever_the_preflight_advertises_it(client):
+async def test_head_is_served_wherever_the_preflight_advertises_it(client, monkeypatch):
     """fix(#1470): the preflight said HEAD was allowed; the route said 405.
 
     ``_set_public_standards_cors_headers`` answers a standards preflight with
     ``GET, HEAD, POST, OPTIONS``, so a browser client that trusts it sent HEAD
     and got ``405 allow: GET``. Both surfaces are now derived from
     ``standards_api_path``.
+
+    ``_is_origin_allowed`` is stubbed for the same reason the sibling CORS
+    test above stubs it, and it is load-bearing rather than tidy: a real
+    lookup populates ``cors._origins_cache``, a module global with a 30s TTL
+    and no invalidation on settings write. Under ``pytest -n 4`` that cache
+    outlives this test and makes ``test_persistent_config.py::
+    test_cors_preflight_returns_200`` read a stale origin set and 405 — which
+    is exactly how it failed on this PR's first CI run.
     """
+
+    async def _deny_origin(_self, _origin):
+        return False
+
+    monkeypatch.setattr(
+        "app.api.middleware.cors.DynamicCORSMiddleware._is_origin_allowed",
+        _deny_origin,
+    )
+
     preflight = await client.options(
         "/collections",
         headers={

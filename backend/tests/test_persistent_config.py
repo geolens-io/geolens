@@ -805,11 +805,19 @@ async def test_cors_non_matching_origin_no_headers(
 @pytest.mark.anyio
 async def test_cors_preflight_returns_200(client: AsyncClient, admin_auth_header: dict):
     """OPTIONS preflight with matching origin returns 200 with CORS headers."""
+    from app.api.middleware import cors as cors_middleware
+
     await client.put(
         "/settings/",
         json={"settings": {"cors_allowed_origins": "http://example.com"}},
         headers=admin_auth_header,
     )
+    # Same guard as test_cors_wildcard_from_env_is_rejected below, for the same
+    # reason: the allowlist cache is a module global with a 30s TTL and no
+    # write-through invalidation, so the origin this test just saved is invisible
+    # while an earlier test's entry is still warm. Under `pytest -n 4` that made
+    # this test 405 on a sibling's cache (#1470 CI run 1).
+    cors_middleware._origins_cache = (0.0, set())
 
     resp = await client.options(
         "/health",
