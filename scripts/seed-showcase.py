@@ -96,6 +96,12 @@ GOTCHAS this script encodes (learned the hard way, all verified live):
     preview CONVERTS an existing one. Conversion is IN PLACE - dataset id,
     record id, table name and every map layer survive it (atomic staging-table
     swap server-side), so a converted dataset needs no map rewiring.
+  * Only ONE dataset per owner + service_type + url + layer may be created
+    through /services/preview/: a second import of the same layer is refused
+    with 409 `duplicate_source`. The CONVERSION door has no such guard (both
+    verified live). This showcase binds one USGS layer twice - circles and
+    heatmap - so every service dataset it creates is a one-point stub that is
+    immediately converted, never a /services/preview/ import.
   * Connectors have NO server-side attribute filter: `where=1=1` is hardcoded
     (sources/adapters/arcgis.py, sources/preview.py). You take the WHOLE layer
     or nothing - which is why the quakes feed is M2.5+ and not M4.5+.
@@ -598,17 +604,11 @@ class Api:
         r.raise_for_status()
         return r.json()
 
-    def service_preview(self, body: dict) -> dict:
-        """Stage a NEW dataset from a service layer; returns a pending job.
-
-        The job then goes through the ordinary /ingest/commit/{job} door, which
-        is why this takes no title: commit carries it.
-        """
-        r = self.client.post(
-            f"{self.base}/api/services/preview/", headers=self.h, json=body
-        )
-        r.raise_for_status()
-        return r.json()
+    # NOTE: there is no wrapper for POST /services/preview/ (stage a NEW
+    # dataset from a service layer) on purpose. It permits only one dataset per
+    # owner+service+layer and 409s on a second, and this seeder binds one USGS
+    # layer twice - so every dataset it creates goes through the conversion
+    # door instead. See ingest_service.
 
     def service_reupload_preview(self, dataset_id: str, body: dict) -> dict:
         """Stage a service binding over an EXISTING dataset (same body shape as
@@ -1068,22 +1068,55 @@ def _print_schema_diff(diff: dict, indent: str = "    ") -> None:
         )
 
 
+# A single throwaway point: the thing a brand-new service-bound dataset is
+# created FROM. It never survives, and nothing ever reads it - the conversion
+# that follows replaces the whole table before the dataset reaches a map.
+_SERVICE_STUB_FC = {
+    "type": "FeatureCollection",
+    "features": [
+        {
+            "type": "Feature",
+            "properties": {"placeholder": 1},
+            "geometry": {"type": "Point", "coordinates": [0, 0]},
+        }
+    ],
+}
+
+
 def ingest_service(
     api: Api, service_url: str, title: str, summary: str, timeout: int = 900
 ) -> str:
-    """Create a NEW dataset bound to a live service layer.
+    """Create a NEW dataset bound to a live service layer, by CONVERSION.
 
-    probe -> /services/preview/ (stages a pending job) -> the ordinary
-    /ingest/commit/{job} -> poll. The result carries origin "service", which is
-    what makes it refreshable later.
+    The obvious door is POST /services/preview/, and it cannot be used here.
+    It allows one dataset per (owner, service_type, url, layer) and refuses a
+    second import of the same layer with 409 `duplicate_source` (the
+    existing_stmt guard in sources/router.py). The showcase binds this one USGS
+    layer TWICE on purpose, once for the graduated circles and once for the
+    heatmap surface, so the second import would always fail. The reupload
+    conversion door carries no such guard; both behaviours were verified live.
+
+    So a new dataset is created as a one-point stub and immediately converted.
+    The stub is never seen: title and summary are the real ones from the first
+    write, and the conversion swaps every row before the dataset is layered
+    onto a map.
+
+    Both datasets go through this, rather than importing the first properly and
+    converting only the second. Any "the first one imports" rule breaks as soon
+    as only the OTHER dataset exists - delete the circles dataset on a seeded
+    instance and the import collides with the heatmap's binding instead. One
+    path has no such edge.
     """
-    body = service_binding_body(api, service_url)
-    print(
-        f"  binding {title} to {body['service_type']} layer {body['layer_name']!r}..."
+    print(f"  binding {title} to the live service...")
+    dataset_id = api.ingest_geojson(
+        "service_stub.geojson",
+        json.dumps(_SERVICE_STUB_FC).encode(),
+        title,
+        summary,
+        timeout=timeout,
     )
-    job = api.service_preview(body)["job_id"]
-    api.commit(job, title, summary)
-    return api.poll(job, timeout=timeout)["dataset_id"]
+    convert_to_service(api, dataset_id, service_url, title, timeout=timeout)
+    return dataset_id
 
 
 def convert_to_service(
@@ -1858,9 +1891,11 @@ def refresh_hurdat2(api: Api) -> int:
       ids - the Hurricane Alley map and the exposure map's legs layer are
       untouched by this.
     * The three DERIVED datasets cannot be refreshed at all. Materialize always
-      registers a NEW dataset, so there is no in-place door: the chain is
-      deleted and recomputed, and the one map layer that pointed into it is
-      deleted and re-added. The exposure MAP survives with its id intact.
+      registers a NEW dataset, so there is no in-place door: a replacement
+      chain is computed BESIDE the old one, the map layer is swapped onto it,
+      and only then is the superseded chain deleted. The exposure MAP survives
+      with its id intact, and a failure anywhere in the rebuild leaves the map
+      untouched rather than half-torn-down.
     """
     print("Re-fetching HURDAT2 and rebuilding the derived exposure chain...")
     by_title = api.datasets_by_title()
@@ -1888,29 +1923,44 @@ def refresh_hurdat2(api: Api) -> int:
         print(f"  [skip] no {EXPOSURE_MAP!r} map - refreshed the tracks only")
         return 0
 
-    # The LAYER goes first: a dataset a map layer still points at cannot be
-    # deleted, and the layer would dangle anyway.
-    stale = {by_title[t] for t in EXPOSURE_CHAIN_TITLES if t in by_title}
-    for layer in api.get_map(map_id).get("layers", []):
-        if layer.get("dataset_id") in stale:
-            api.delete_layer(map_id, layer["id"])
-            print(f"  removed derived layer: {layer.get('display_name')}")
-    # Reverse dependency order - each derives from the one before it, so the
-    # children have to go before their parents.
+    # BUILD FIRST, then swap, then delete. Deleting up front would leave the
+    # public exposure map without its headline layer for as long as the rebuild
+    # takes, and permanently if the rebuild failed - a worker outage or an
+    # analysis error would strand the demo mid-operation. Building beside the
+    # old chain means any failure below leaves the map exactly as it was.
+    # The cost is that the three derived datasets exist twice for the length of
+    # the rebuild, which matters only on an instance with a tight dataset quota.
+    old_chain = {t: by_title[t] for t in EXPOSURE_CHAIN_TITLES if t in by_title}
+    old_layer_ids = [
+        layer["id"]
+        for layer in api.get_map(map_id).get("layers", [])
+        if layer.get("dataset_id") in set(old_chain.values())
+    ]
+
+    chain = _build_exposure_chain(api, by_title, force_analysis=True)
+
+    # Swap: the new layer goes on before the old one comes off, so the map is
+    # never without an exposure layer.
+    api.add_layer(map_id, _exposure_layer_body(chain["exposure"]))
+    for layer_id in old_layer_ids:
+        api.delete_layer(map_id, layer_id)
+    print(f"  swapped in the rebuilt exposure layer on map {map_id}")
+
+    # Only now is the old chain unreferenced. Reverse dependency order: each
+    # derives from the one before it, so children go before their parents.
     for title in reversed(EXPOSURE_CHAIN_TITLES):
-        ds = by_title.pop(title, None)
+        ds = old_chain.get(title)
         if ds is None:
             continue
         try:
             api.delete_dataset(ds, title)
-            print(f"  deleted derived dataset: {title}")
+            print(f"  deleted the superseded derived dataset: {title}")
         except httpx.HTTPStatusError as e:
-            print(f"  ! could not delete {title!r}: {e}", file=sys.stderr)
-            return 1
-
-    chain = _build_exposure_chain(api, by_title)
-    api.add_layer(map_id, _exposure_layer_body(chain["exposure"]))
-    print(f"  rebuilt the chain and re-added the exposure layer to map {map_id}")
+            # Not fatal any more: the map is already correct, and a leftover
+            # dataset is visible in --prune-userdata rather than silently lost.
+            print(
+                f"  ! could not delete the superseded {title!r}: {e}", file=sys.stderr
+            )
     # The context layer's hatch and the map's legend/notes live in the styling
     # pass, which is idempotent - run it so the rebuilt map matches a fresh one.
     apply_showcase_styling(api)
@@ -3448,7 +3498,9 @@ EXPOSURE_CHAIN_TITLES = (
 EXPOSURE_MAP = "Hurricane Exposure - Which Coasts the Major Storms Reach"
 
 
-def _build_exposure_chain(api: Api, by_title: dict, force: bool = False) -> dict:
+def _build_exposure_chain(
+    api: Api, by_title: dict, force: bool = False, force_analysis: bool = False
+) -> dict:
     """Build (or reuse) the datasets behind the Hurricane Exposure map.
 
     Split out of the map builder because --refresh-hurdat2 needs exactly this
@@ -3457,6 +3509,14 @@ def _build_exposure_chain(api: Api, by_title: dict, force: bool = False) -> dict
     them and runs this again, while the map itself survives. Two callers, one
     definition of the chain, so a parameter change cannot reach one and miss
     the other.
+
+    `force_analysis` recomputes the three DERIVED datasets while leaving the
+    two ingested inputs reused. --refresh-hurdat2 needs exactly that split: it
+    has already swapped the tracks in place, so re-ingesting them would be
+    wasted work, but it must build a replacement chain BESIDE the old one
+    rather than deleting first. Titles collide during that window, which is
+    fine - datasets_by_title keeps the newest match - and the old ids are
+    captured by the caller before this runs.
 
     Returns the five dataset ids by role.
     """
@@ -3516,7 +3576,7 @@ def _build_exposure_chain(api: Api, by_title: dict, force: bool = False) -> dict
         "The area within 100 km of a Category 3+ hurricane track, one corridor "
         "per storm. Computed in GeoLens with a geodesic buffer over the "
         "Category 3+ legs of the NOAA HURDAT2 best-track database.",
-        force=force,
+        force=force or force_analysis,
         distance_meters=EXPOSURE_BUFFER_METERS,
     )
     pieces_ds = _get_or_analyze(
@@ -3529,7 +3589,7 @@ def _build_exposure_chain(api: Api, by_title: dict, force: bool = False) -> dict
         "region that fell inside a single major hurricane's 100 km corridor. "
         "Computed in GeoLens by intersecting the admin-1 regions with the "
         "buffered corridors.",
-        force=force,
+        force=force or force_analysis,
         mask_dataset_id=corridors_ds,
     )
     exposure_ds = _get_or_analyze(
@@ -3543,7 +3603,7 @@ def _build_exposure_chain(api: Api, by_title: dict, force: bool = False) -> dict
         "DISTINCT Category 3+ storms that reached it. Computed in GeoLens by "
         "dissolving the region-by-storm intersections back to one feature per "
         "region.",
-        force=force,
+        force=force or force_analysis,
         by_field="region",
     )
     return {
