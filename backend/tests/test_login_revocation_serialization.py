@@ -45,6 +45,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import RefreshToken
+from app.modules.auth.service import AuthService
 
 PASSWORD = "TestPass1234!"  # SEC-S16: 12 chars, 3 character classes
 
@@ -108,24 +109,49 @@ class TestLoginIsSerializedAgainstRevocation:
         first = await _login(client, username)
         original_emit = audit_mod.audit_emit
 
-        # fix(#1460 codex): synchronize on the lock actually being held, not on
-        # elapsed time. A sleep long enough on a warm machine is not long
-        # enough under CI connection contention, and a login that slips in
-        # BEFORE the logout takes its lock gets revoked normally, which used to
-        # satisfy this test through an early return. That made the guard pass
-        # vacuously in exactly the conditions where it is hardest to notice,
-        # including with the serialization removed. audit_emit runs after
-        # revoke_all_tokens and before the commit, so entering it proves the
-        # lock is held and the revocation is staged but not yet durable.
+        # fix(#1460 codex): both ends of the window are synchronized on events,
+        # not on elapsed time. Neither side may drift out of the interleaving.
+        #
+        # Start: audit_emit runs after revoke_all_tokens and before the commit,
+        # so entering it proves the lock is held and the revocation is staged
+        # but not durable. A login released by a timer instead could slip in
+        # BEFORE the lock was taken, get revoked normally, and satisfy the test
+        # without exercising anything.
+        #
+        # End: the stall must not expire on a timer either, or a login delayed
+        # past it (CI contention) arrives after the commit, legitimately reads
+        # post-revocation state, and passes for the wrong reason. So the
+        # revocation is held uncommitted until the login has actually reached
+        # issuance.
         lock_held = anyio.Event()
+        login_reached_issuance = anyio.Event()
+        original_create_access_token = AuthService.create_access_token
+
+        async def _signalling_create_access_token(self, *args, **kwargs):
+            # Signal BEFORE delegating. The original's version re-SELECT is the
+            # query that autoflushes the pending last_login_at write into the
+            # revocation's lock queue, so this call is about to block until the
+            # logout commits. Signalling after it would deadlock the pair.
+            login_reached_issuance.set()
+            return await original_create_access_token(self, *args, **kwargs)
 
         async def _stalled_emit(*args, **kwargs):
             result = await original_emit(*args, **kwargs)
             lock_held.set()
-            await anyio.sleep(1.5)
+            with anyio.fail_after(30):
+                await login_reached_issuance.wait()
+            # A margin AFTER a deterministic sync point, not a substitute for
+            # one. Its only job is to let a login that is NOT serialized finish
+            # its version read while the revocation is still uncommitted, so
+            # removing the serialization fails this test loudly instead of
+            # racing the commit. The serialized path does not depend on it.
+            await anyio.sleep(0.25)
             return result
 
         monkeypatch.setattr(audit_mod, "audit_emit", _stalled_emit)
+        monkeypatch.setattr(
+            AuthService, "create_access_token", _signalling_create_access_token
+        )
         results: dict = {}
 
         async def _logout():
@@ -227,14 +253,24 @@ class TestTheSerializationPointsStillExist:
         ):
             source = (Path(__file__).resolve().parents[1] / rel).read_text()
             assign = source.find("last_login_at = func.now()")
-            mint = source.find("create_refresh_token(")
+            # fix(#1460 codex): compare against create_access_token, NOT
+            # create_refresh_token. The boundary that matters is the version
+            # re-SELECT, because that is the query the pending write
+            # autoflushes into. Measuring against the refresh mint leaves a gap
+            # exactly the width of the two calls: an assignment moved BETWEEN
+            # them still precedes create_refresh_token and passes, while the
+            # access token has already been minted from pre-revocation state.
+            # The behavioural test above only drives /auth/login, so an OAuth
+            # reorder into that gap would be caught by nothing.
+            mint = source.find("create_access_token(")
             assert assign != -1, f"{rel}: last_login_at assignment not found"
-            assert mint != -1, f"{rel}: create_refresh_token call not found"
+            assert mint != -1, f"{rel}: create_access_token call not found"
             assert assign < mint, (
-                f"{rel}: the pending last_login_at write must precede token "
-                "issuance. It is what queues this login behind a concurrent "
-                "revocation's owner-row lock (fix(#1459)); minting first lets "
-                "the login read a token_version the revocation is about to bump."
+                f"{rel}: the pending last_login_at write must precede "
+                "create_access_token. Its version re-SELECT is what flushes "
+                "that write into a concurrent revocation's owner-row lock "
+                "queue (fix(#1459)); minting first lets the login read a "
+                "token_version the revocation is about to bump."
             )
 
     def test_create_access_token_still_queries_the_database(self):
