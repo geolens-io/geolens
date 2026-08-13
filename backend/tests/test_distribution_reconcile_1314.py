@@ -807,3 +807,137 @@ class TestTwoRowsForOneFormat:
         assert not any(
             key for key in item["assets"] if "mine.gpkg" in str(item["assets"][key])
         )
+
+
+class TestTheStaleProtocolRepair:
+    """fix(#1463, codex round 2): the pair-existence skip can strand a bad row.
+
+    Migration 0048 relabels the auto-generated vector-tile rows from
+    ``OGC:WMTS`` to ``XYZ``. It runs once, and the scripted upgrade path
+    applies migrations while the previous app containers are still serving, so a
+    dataset created in that window is written by the OLD template AFTER the
+    UPDATE has committed. Alembic will not repeat the revision, and the skip
+    in ``generate_distributions`` means the template never rewrites a pair it
+    already owns, so without the repair below the row stays wrong for good.
+
+    fix(#1463, codex round 4): what this does NOT do. Both refresh callers gate
+    ``reconcile_distributions`` on a modality flip, so an ordinary refresh of an
+    unchanged dataset never arrives here and the repair is a partial mitigation
+    rather than a closer. The reach is a dataset that gains or loses geometry,
+    plus any future caller that regenerates. Removing the window itself is
+    #1467. These tests pin the repair's behaviour where it does run; they are
+    not evidence that every stranded row gets fixed.
+    """
+
+    async def _stale(self, session: AsyncSession, record_id: uuid.UUID) -> None:
+        """Put a record's generated vector-tile row back to the old label."""
+        row = await _row(session, record_id, "vector_tiles", "pbf")
+        assert row is not None
+        row.protocol = "OGC:WMTS"
+        await session.commit()
+
+    async def test_generate_repairs_a_surviving_stale_row(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        dataset = await _spatial_dataset(test_db_session)
+        await self._stale(test_db_session, dataset.record_id)
+
+        await generate_distributions(
+            test_db_session,
+            dataset.id,
+            dataset.record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, dataset.record_id, "vector_tiles", "pbf")
+        assert row is not None
+        await test_db_session.refresh(row)
+        assert row.protocol == "XYZ"
+
+    async def test_reconcile_repairs_it_too(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The modality-flip path, which is the one that reaches this in prod."""
+        dataset = await _spatial_dataset(test_db_session)
+        await self._stale(test_db_session, dataset.record_id)
+
+        await reconcile_distributions(
+            test_db_session,
+            dataset.id,
+            dataset.record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, dataset.record_id, "vector_tiles", "pbf")
+        assert row is not None
+        await test_db_session.refresh(row)
+        assert row.protocol == "XYZ"
+
+    async def test_a_user_authored_row_keeps_its_own_protocol(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """Same rule as the migration's WHERE: user rows are not ours to edit.
+
+        Somebody pointing their own distribution at a real WMTS service is
+        correct, and the repair must not reach it just because the type and
+        the value match.
+        """
+        dataset = await _spatial_dataset(test_db_session)
+        await self._stale(test_db_session, dataset.record_id)
+        mine = await create_distribution(
+            test_db_session,
+            dataset.record_id,
+            distribution_type="vector_tiles",
+            format="pbf",
+            url="https://example.org/wmts/1.0.0/WMTSCapabilities.xml",
+            title="My own WMTS",
+            protocol="OGC:WMTS",
+        )
+        await test_db_session.commit()
+
+        await reconcile_distributions(
+            test_db_session,
+            dataset.id,
+            dataset.record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+
+        theirs = await test_db_session.get(RecordDistribution, mine.id)
+        assert theirs is not None
+        await test_db_session.refresh(theirs)
+        assert theirs.protocol == "OGC:WMTS"
+
+    async def test_a_healthy_row_is_left_alone(
+        self, test_db_session: AsyncSession
+    ) -> None:
+        """The repair matches the stale value, not the pair.
+
+        An auto-generated row an operator already corrected by hand to
+        something else is not stale, and rewriting it would be the same
+        overreach the migration's downgrade was dropped for.
+        """
+        dataset = await _spatial_dataset(test_db_session)
+        row = await _row(test_db_session, dataset.record_id, "vector_tiles", "pbf")
+        assert row is not None
+        row.protocol = "WWW:LINK"
+        await test_db_session.commit()
+
+        await reconcile_distributions(
+            test_db_session,
+            dataset.id,
+            dataset.record_id,
+            dataset.table_name,
+            geometry_type="POLYGON",
+        )
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, dataset.record_id, "vector_tiles", "pbf")
+        assert row is not None
+        await test_db_session.refresh(row)
+        assert row.protocol == "WWW:LINK"

@@ -628,6 +628,15 @@ _DISTRIBUTION_TEMPLATES = [
 # generated set, so reconcile has to see it.
 _VECTOR_TILES_PAIR = ("vector_tiles", "pbf")
 
+# fix(#1463): this read ``OGC:WMTS``, which the tile URL does not speak — it is
+# a plain XYZ template, no capabilities document and no TileMatrixSet. Bare, to
+# match ``HTTP`` above: this vocabulary prefixes ``OGC:`` only for real OGC
+# services, and there is no OGC XYZ standard to claim. Payload semantics stay
+# in ``format`` and ``media_type``. Migration 0048's WHERE matches both values
+# below, so the three move together.
+_VECTOR_TILES_PROTOCOL = "XYZ"
+_STALE_VECTOR_TILES_PROTOCOL = "OGC:WMTS"
+
 # The four-column unique constraint on ``record_distributions``
 # (record_id, distribution_type, format, url) — see RecordDistribution's
 # ``__table_args__``. Named here because the generated-row insert has to be
@@ -727,6 +736,35 @@ async def generate_distributions(
     )
     existing_set = {(row[0], row[1]) for row in existing_result.all()}
 
+    # fix(#1463, codex round 2): repair a surviving row the OLD template wrote.
+    # Migration 0048 is one-shot and the scripted upgrade migrates while the
+    # previous app containers still serve (it migrates first, replaces the app
+    # after), so a dataset created in that window is stamped `OGC:WMTS` after
+    # the UPDATE commits — and the pair-existence skip below means the template
+    # never rewrites it. Scoped like the migration's WHERE plus this record;
+    # a user's own row is not visible to this function at all.
+    #
+    # fix(#1463, codex round 4): this is a partial mitigation, not a closer, and
+    # the earlier comment here overstated it. Both refresh callers gate
+    # `reconcile_distributions` on a modality FLIP (`tasks_postgis_refresh` and
+    # `tasks_common`, each deliberately, so an unchanged refresh cannot
+    # renormalize `is_primary`), and creation cannot meet a stale row. So the
+    # reach is: a dataset that gains or loses geometry, plus any future caller
+    # that regenerates. Everything else created in the window keeps the wrong
+    # label until #1467 removes the window itself, which is the actual fix.
+    if _VECTOR_TILES_PAIR in existing_set:
+        await session.execute(
+            update(RecordDistribution)
+            .where(
+                RecordDistribution.record_id == record_id,
+                RecordDistribution.auto_generated.is_(True),
+                RecordDistribution.distribution_type == _VECTOR_TILES_PAIR[0],
+                RecordDistribution.format == _VECTOR_TILES_PAIR[1],
+                RecordDistribution.protocol == _STALE_VECTOR_TILES_PROTOCOL,
+            )
+            .values(protocol=_VECTOR_TILES_PROTOCOL)
+        )
+
     # fix(#1383): the template's primary flag yields to whoever already holds
     # it. At dataset creation nothing does and the GeoPackage (or CSV) row
     # takes it exactly as before; on a reconcile the holder is a surviving
@@ -791,7 +829,7 @@ async def generate_distributions(
                 "format": "pbf",
                 "url": f"/tiles/data.{table_name}/{{z}}/{{x}}/{{y}}.pbf",
                 "title": "Vector Tiles",
-                "protocol": "OGC:WMTS",
+                "protocol": _VECTOR_TILES_PROTOCOL,
                 "media_type": "application/vnd.mapbox-vector-tile",
                 "is_primary": False,
                 "auto_generated": True,

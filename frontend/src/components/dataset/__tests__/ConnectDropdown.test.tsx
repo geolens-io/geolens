@@ -107,7 +107,7 @@ describe('ConnectDropdown', () => {
             url: '/tiles/data.public_parks/{z}/{x}/{y}.pbf',
             title: 'Vector Tiles',
             description: null,
-            protocol: 'OGC:WMTS',
+            protocol: 'XYZ',
             media_type: 'application/vnd.mapbox-vector-tile',
             is_primary: false,
             auto_generated: true,
