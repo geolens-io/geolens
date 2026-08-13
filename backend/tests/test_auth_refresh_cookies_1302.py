@@ -21,6 +21,7 @@ from app.core.config import settings
 from app.modules.auth.cookies import (
     CSRF_COOKIE_NAME,
     REFRESH_COOKIE_NAME,
+    api_path_is_cookie_scoped,
     is_same_origin,
 )
 
@@ -396,6 +397,36 @@ class TestLogoutClearsCookies:
         )
         assert resp.status_code == 401
 
+    async def test_a_dead_cookie_does_not_shadow_a_live_body_token(
+        self, client: AsyncClient
+    ):
+        """fix(#1446): logout tries every presented credential. A revoked
+        cookie left in the jar must not eat the logout of a split-origin
+        caller presenting its live body token — that 401 would leave the
+        live session unrevoked while the UI reports a clean sign-out."""
+        dead = await _login(client, cookie_mode=True)
+        dead_refresh = _cookie_attrs(dead, REFRESH_COOKIE_NAME)["value"]
+        dead_csrf = _cookie_attrs(dead, CSRF_COOKIE_NAME)["value"]
+        access = dead.json()["access_token"]
+        # Revoke the cookie's session while its value stays in the jar.
+        await client.post(
+            "/auth/logout/", headers={"Authorization": f"Bearer {access}"}
+        )
+
+        live_token = (await _login(client, cookie_mode=False)).json()["refresh_token"]
+        _arm_cookies(client, dead_refresh, dead_csrf)
+
+        resp = await client.post(
+            "/auth/logout/",
+            headers={"X-CSRF-Token": dead_csrf},
+            json={"refresh_token": live_token},
+        )
+        assert resp.status_code == 204, resp.text
+
+        client.cookies.clear()
+        after = await client.post("/auth/refresh/", json={"refresh_token": live_token})
+        assert after.status_code == 401
+
     async def test_logout_revokes_the_cookie_token_server_side(
         self, client: AsyncClient
     ):
@@ -605,6 +636,37 @@ class TestOriginComparison:
     def test_unusable_values_are_not_same_origin(self):
         assert not is_same_origin("https://example.com", "/relative/path")
         assert not is_same_origin("https://example.com", "")
+
+
+class TestApiPathMustMatchCookieScope:
+    """fix(#1446): same origin is necessary but not sufficient. root_path is
+    fixed at /api, so a deployment that mounts the API elsewhere would get a
+    cookie the browser never sends — and cookie mode ships no fragment token to
+    fall back on."""
+
+    @staticmethod
+    def _request(root_path: str = "/api"):
+        class _FakeRequest:
+            scope = {"root_path": root_path}
+
+        return _FakeRequest()
+
+    def test_the_shipped_mount_point_matches(self):
+        assert api_path_is_cookie_scoped(self._request(), "https://example.com/api")
+        # Trailing slash is the same mount point.
+        assert api_path_is_cookie_scoped(self._request(), "https://example.com/api/")
+
+    def test_a_different_mount_point_does_not(self):
+        assert not api_path_is_cookie_scoped(
+            self._request(), "https://example.com/geolens-api"
+        )
+        assert not api_path_is_cookie_scoped(self._request(), "https://example.com")
+
+    def test_it_follows_root_path_rather_than_hardcoding_api(self):
+        assert api_path_is_cookie_scoped(
+            self._request(root_path="/geolens-api"),
+            "https://example.com/geolens-api",
+        )
 
 
 class TestSecureFlagFollowsProductionPosture:

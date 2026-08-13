@@ -732,15 +732,23 @@ async def logout(
         # the transport a cross-site page can cause the browser to attach. A
         # body token is bearer-equivalent and unreadable cross-site, the same
         # reasoning /auth/refresh applies.
-        presented = read_refresh_cookie(request)
-        if presented is not None:
+        cookie_token = read_refresh_cookie(request)
+        if cookie_token is not None:
             enforce_csrf(request)
-        elif body is not None:
-            presented = body.refresh_token
-        if presented is not None:
+        # fix(#1446): try every presented credential, cookie first. Unlike
+        # /auth/refresh — where the cookie is authoritative so a stale
+        # localStorage value cannot resurrect an old token family — logout is
+        # best-effort revocation, and a dead cookie left in the jar must not
+        # shadow a live body token (a split-origin install can hold both
+        # after a same-origin era). Failing here leaves the session alive.
+        body_token = body.refresh_token if body is not None else None
+        for presented in (cookie_token, body_token):
+            if presented is None:
+                continue
             token_user = await service.get_user_from_refresh_token(presented)
             if token_user is not None:
                 user_id = token_user.id
+                break
     if user_id is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

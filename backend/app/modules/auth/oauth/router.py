@@ -10,7 +10,11 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.auth.cookies import is_same_origin, issue_browser_session
+from app.modules.auth.cookies import (
+    api_path_is_cookie_scoped,
+    is_same_origin,
+    issue_browser_session,
+)
 from app.modules.auth.oauth.encryption import decrypt_secret
 from app.modules.auth.oauth.schemas import OAuthProviderPublic
 from app.modules.auth.oauth.service import (
@@ -335,7 +339,9 @@ async def oauth_callback(
         # cross-origin SPA cannot send that cookie back, so it keeps the
         # pre-GH-1302 fragment delivery.
         api_url = await get_public_api_url(db, request=request, for_external_use=True)
-        cookie_mode = is_same_origin(frontend_url, api_url)
+        cookie_mode = is_same_origin(
+            frontend_url, api_url
+        ) and api_path_is_cookie_scoped(request, api_url)
         redirect_url = (
             f"{frontend_url}/oauth/callback"
             f"#token={access_token}"

@@ -1,10 +1,11 @@
 """Browser refresh-token cookie + CSRF primitives (GH-1302).
 
 The refresh token is the only credential that moves into a cookie. Access
-tokens keep travelling as ``Authorization: Bearer`` headers, so **no**
-state-changing endpoint authenticates from a cookie — exactly one route does:
-``POST /auth/refresh``. CSRF enforcement is therefore scoped to that route
-rather than to every mutator.
+tokens keep travelling as ``Authorization: Bearer`` headers, so the cookie
+only ever authenticates the two session-lifecycle routes: ``POST
+/auth/refresh``, and ``POST /auth/logout`` as the credential of last resort.
+CSRF enforcement is therefore scoped to exactly those cookie-authenticated
+requests rather than to every mutator.
 
 Browser mode is negotiated explicitly with the ``X-GeoLens-Auth-Mode: cookie``
 request header. Header-sniffing (``Accept`` / ``Sec-Fetch-Mode``) was rejected:
@@ -116,8 +117,8 @@ def clear_browser_session(response: Response, request: Request) -> None:
     """Expire both cookies. Safe to call when no cookie was ever set.
 
     Deletion works from any request path: the browser applies a ``Set-Cookie``
-    whose name/path/domain match regardless of where the response came from, so
-    ``/auth/logout`` can clear a cookie scoped to ``/auth/refresh``.
+    whose name/path/domain match regardless of where the response came from,
+    so this can run from ``/auth/logout`` and the OAuth callback alike.
     """
     response.delete_cookie(
         REFRESH_COOKIE_NAME,
@@ -153,6 +154,26 @@ def _origin_parts(url: str) -> tuple[str, str, int | None] | None:
     # a raw string comparison called that a mismatch.
     effective = port if port is not None else {"https": 443, "http": 80}.get(scheme)
     return scheme, host.lower(), effective
+
+
+def api_path_is_cookie_scoped(request: Request, api_url: str) -> bool:
+    """Whether *api_url*'s path is the mount point this cookie is scoped under.
+
+    fix(#1446): same origin is necessary but not sufficient. ``root_path`` is
+    fixed at ``/api`` (api/main.py), so the cookie is always scoped to
+    ``/api/auth`` — while ``PUBLIC_API_URL`` / ``FRONTEND_API_BASE_URL`` are
+    documented as accepting any path form. A deployment mounted at, say,
+    ``/geolens-api`` would be handed a cookie the browser never sends back to
+    ``/geolens-api/auth/refresh/``, and cookie mode ships no fragment token to
+    fall back on, so the session would silently stop refreshing. Mirrors the
+    same guard in the SPA's ``cookieAuthAvailable()``.
+    """
+    root_path = request.scope.get("root_path", "").rstrip("/")
+    try:
+        configured = urlsplit(api_url).path
+    except ValueError:
+        return False
+    return configured.rstrip("/") == root_path
 
 
 def is_same_origin(url_a: str, url_b: str) -> bool:
