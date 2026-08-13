@@ -5060,9 +5060,21 @@ MAP_PITCH_ALIGNED_CIRCLES: dict[str, tuple[str, ...]] = {
 MAP_LAYER_STYLE_FIXES: dict[str, dict[str, dict]] = {
     "Restless Earth": {
         "Earthquakes (last 30 days, by magnitude)": {
+            # Gated on the columns actually being there. The conversion runs in
+            # a builder, the builder is isolated so one failure cannot kill a
+            # seed, and this pass runs afterwards regardless - so a transient
+            # failure mid-conversion would otherwise leave an upload-origin
+            # dataset carrying a popup that names service columns it does not
+            # have. That is worse than the stale popup it replaced: the old one
+            # showed real values, the new one would show blank rows. Applying
+            # nothing is the correct outcome until the conversion succeeds.
+            "requires_columns": ("depth_num", "event_time_utc_date_fmt"),
             "fields": {"popup_config": QUAKE_POPUP_CONFIG},
         },
         "Quake intensity (heatmap)": {
+            # Deliberately NOT gated: this reads `mag`, which both the old
+            # upload and the service carry, and a 2.5 floor over M4.5+ data is
+            # simply inert rather than wrong.
             "paint": {"heatmap-weight": QUAKE_HEATMAP_WEIGHT},
         },
     },
@@ -5117,7 +5129,25 @@ def _restyle_layer(
         style_config = dict(body.get("style_config") or {})
         style_config["builder"] = {**(style_config.get("builder") or {}), **builder}
         body["style_config"] = style_config
-    api.delete_layer(map_id, layer["id"])
+    # The DELETE is ambiguous on failure, not merely failed: a lost response or
+    # a timeout can follow a deletion the server already committed. Raising here
+    # without checking would leave the layer gone with no attempt to put it
+    # back, and the caller only logs. So re-read the map and let what is
+    # actually true decide - still present means nothing was lost and the delta
+    # simply does not apply, absent means the delete landed and the re-add below
+    # is now the recovery path rather than an optimisation.
+    try:
+        api.delete_layer(map_id, layer["id"])
+    except (httpx.HTTPStatusError, httpx.TimeoutException):
+        try:
+            survived = any(
+                x.get("id") == layer["id"]
+                for x in (api.get_map(map_id).get("layers") or [])
+            )
+        except (httpx.HTTPStatusError, httpx.TimeoutException):
+            raise
+        if survived:
+            raise
     try:
         api.add_layer(map_id, body)
     except Exception:
@@ -5217,8 +5247,21 @@ def _layer_style_delta(
         paint_delta["circle-pitch-alignment"] = "map"
         reasons.append("pitch")
 
-    # Repair a stored style that predates the service conversion.
+    # Repair a stored style that predates the service conversion, but only when
+    # the dataset can actually support it. The layer response carries its
+    # dataset's column_info, so this costs no extra request; an empty or absent
+    # list fails the check and skips, which is the safe direction - never write
+    # a style naming columns that cannot be confirmed to exist.
     fix = style_fixes.get(display, {})
+    required = fix.get("requires_columns")
+    if required:
+        have = {
+            c.get("name")
+            for c in (layer.get("dataset_column_info") or [])
+            if isinstance(c, dict)
+        }
+        if not set(required) <= have:
+            fix = {}
     for key, value in (fix.get("paint") or {}).items():
         if paint_now.get(key) != value:
             paint_delta[key] = value
@@ -5245,10 +5288,20 @@ def apply_showcase_styling(api: "Api") -> None:
     """
     maps = api.list_maps()
     for name, map_id in sorted(maps.items()):
-        if (
-            name not in MAP_LEGEND_AND_NOTES
-            and name not in MAP_FOLDER_GROUPS
-            and name not in MAP_DESCRIPTIONS
+        # Every table that can carry work for a map has to be in this guard, or
+        # that work silently never runs. MAP_LAYER_STYLE_FIXES reaches Restless
+        # Earth today only because the same map happens to appear in two other
+        # tables, which is luck rather than design: a fix added for a map listed
+        # nowhere else would never have applied.
+        if not any(
+            name in table
+            for table in (
+                MAP_LEGEND_AND_NOTES,
+                MAP_FOLDER_GROUPS,
+                MAP_DESCRIPTIONS,
+                MAP_LAYER_STYLE_FIXES,
+                MAP_PITCH_ALIGNED_CIRCLES,
+            )
         ):
             continue
         try:
