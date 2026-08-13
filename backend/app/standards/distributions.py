@@ -16,14 +16,14 @@ This module is the one place that decides what a feed may publish:
   can author goes through ``DistributionCreate``, whose validator requires
   an http(s) URL, and everything ``generate_distributions`` writes is a
   root-relative API path — so the rule drops storage keys and nothing else.
-- ``published_distributions`` adds, for the raster family, the access
-  surfaces the product actually serves. Those are derived per request rather
-  than stored, because both depend on values a row cannot hold: the tile
-  template lives at the APP origin (``/raster-tiles/...`` is nginx-rewritten
-  to the tile proxy; the API origin has no such route) and carries the
-  dataset's current ``tile_cache_version``.
+- ``published_distributions`` adds, for the raster family, the tile template
+  the product actually serves anonymously. It is derived per request rather
+  than stored, because it depends on values a row cannot hold: it lives at
+  the APP origin (``/raster-tiles/...`` is nginx-rewritten to the tile proxy;
+  the API origin has no such route) and carries the dataset's current
+  ``tile_cache_version``.
 
-The raster entries deliberately mirror ``build_assets`` in
+The raster entry deliberately mirrors ``build_assets`` in
 ``modules/catalog/search/service_records.py``, which is what STAC advertises
 for the same datasets. The two surfaces describing one dataset differently
 is the discrepancy #1469 reported.
@@ -48,7 +48,6 @@ if TYPE_CHECKING:
 RASTER_TILES_DISTRIBUTION_TYPE = "raster_tiles"
 
 _RASTER_TILES_MEDIA_TYPE = "image/png"
-_COG_MEDIA_TYPE = "image/tiff; application=geotiff; profile=cloud-optimized"
 
 _PUBLISHABLE_SCHEMES = frozenset({"http", "https"})
 
@@ -99,41 +98,33 @@ def raster_tiles_path(dataset: Dataset) -> str:
     return f"{path}?v={version}" if version else path
 
 
-def _raster_distributions(
-    dataset: Dataset,
-    *,
-    api_base_url: str,
-    app_base_url: str,
-) -> list[PublishedDistribution]:
-    """Access surfaces for a raster-family dataset, best first."""
-    entries = [
-        PublishedDistribution(
-            distribution_type=RASTER_TILES_DISTRIBUTION_TYPE,
-            format="png",
-            url=app_base_url + raster_tiles_path(dataset),
-            title="Raster Tiles",
-            description=None,
-            media_type=_RASTER_TILES_MEDIA_TYPE,
-        )
-    ]
+def _raster_tiles_distribution(
+    dataset: Dataset, *, app_base_url: str
+) -> PublishedDistribution:
+    """The one raster access surface these feeds can honestly advertise.
 
-    # ``download_cog`` (datasets/api/router_export.py) rejects anything that
-    # is not a ``raster_dataset``, so a VRT gets the tile template alone --
-    # a mosaic is composed from other datasets and has no single COG to hand
-    # out. Advertised for STAC-origin rasters too: their asset lives on a
-    # remote host and the endpoint redirects to it.
-    if dataset.record.record_type == "raster_dataset":
-        entries.append(
-            PublishedDistribution(
-                distribution_type="download",
-                format="cog",
-                url=f"{api_base_url}/datasets/{dataset.id}/download/cog",
-                title="Cloud-Optimized GeoTIFF Download",
-                description=None,
-                media_type=_COG_MEDIA_TYPE,
-            )
-        )
-    return entries
+    Deliberately NOT joined by a ``/datasets/{id}/download/cog`` entry
+    (#1469, review round 1). That route exists, but ``_resolve_download_user``
+    401s a caller carrying neither credentials nor a download-scoped
+    ``?token=``, and minting one is a separate POST to
+    ``/auth/download-token/{id}`` that no generic DCAT client will make. These
+    feeds are served to anonymous harvesters, so publishing it — as
+    ``dcat:downloadURL``, no less — would advertise a link that fails for the
+    audience it is written for. The tile template has no such gate: a public,
+    published raster serves tiles to an anonymous caller (see
+    ``TestRasterAuthCheck::test_auth_check_returns_open_path_for_public_raster``).
+
+    This also keeps the surface exactly equal to ``build_assets``, which
+    advertises ``raster_tiles`` and no COG download for the same datasets.
+    """
+    return PublishedDistribution(
+        distribution_type=RASTER_TILES_DISTRIBUTION_TYPE,
+        format="png",
+        url=app_base_url + raster_tiles_path(dataset),
+        title="Raster Tiles",
+        description=None,
+        media_type=_RASTER_TILES_MEDIA_TYPE,
+    )
 
 
 def published_distributions(
@@ -145,17 +136,13 @@ def published_distributions(
     """Every distribution a catalog feed should publish for *dataset*.
 
     Stored rows that resolve for a consumer, plus the derived raster access
-    surfaces. Requires ``dataset.record.distributions`` to be loaded.
+    surface. Requires ``dataset.record.distributions`` to be loaded.
     """
     record = dataset.record
     entries: list[PublishedDistribution] = []
 
     if is_raster_family(record.record_type):
-        entries.extend(
-            _raster_distributions(
-                dataset, api_base_url=api_base_url, app_base_url=app_base_url
-            )
-        )
+        entries.append(_raster_tiles_distribution(dataset, app_base_url=app_base_url))
 
     for row in record.distributions or ():
         if not is_publishable_url(row.url):

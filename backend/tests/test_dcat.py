@@ -1024,44 +1024,28 @@ async def test_dcat_raster_advertises_the_tile_template(
 
 
 @pytest.mark.anyio
-async def test_dcat_cog_raster_advertises_the_download_endpoint(
+@pytest.mark.parametrize("record_type", ["raster_dataset", "vrt_dataset"])
+async def test_dcat_raster_does_not_advertise_the_token_gated_cog_download(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    record_type: str,
 ):
-    """The COG download route replaces the storage key it used to publish."""
-    session = test_db_session
-    admin_id = await get_user_id(session, "admin")
-    ds = await _create_dcat_raster_dataset(
-        session, created_by=admin_id, storage_key=_STORAGE_KEY
-    )
+    """``/download/cog`` 401s an anonymous caller, and this feed serves those.
 
-    resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
-    downloads = [
-        d
-        for d in resp.json()["dcat:distribution"]
-        if d["dcat:accessURL"].endswith(f"/datasets/{ds.id}/download/cog")
-    ]
-    assert len(downloads) == 1
-    assert downloads[0]["dcterms:title"] == "Cloud-Optimized GeoTIFF Download"
-    assert downloads[0]["dcat:mediaType"].startswith("image/tiff")
-
-
-@pytest.mark.anyio
-async def test_dcat_vrt_advertises_tiles_but_no_cog_download(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-):
-    """``download_cog`` rejects a VRT, so the feed must not point at it."""
+    Reaching it needs a download-scoped token minted by a separate POST to
+    ``/auth/download-token/{id}``, which no generic DCAT client will make, so
+    advertising it — as ``downloadURL`` in two of the three profiles — would
+    publish a link that fails for the feed's audience.
+    """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
     ds = await _create_dcat_raster_dataset(
         session,
         created_by=admin_id,
-        name="VRT Mosaic",
-        record_type="vrt_dataset",
-        storage_key="vrt/3d1b/mosaic.vrt",
+        name=f"Raster {record_type}",
+        record_type=record_type,
+        storage_key=_STORAGE_KEY,
     )
 
     resp = await client.get(f"/datasets/{ds.id}/dcat/", headers=admin_auth_header)
