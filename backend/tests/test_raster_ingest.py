@@ -444,13 +444,27 @@ class _MockRecord:
 class _MockDataset:
     """Minimal Dataset stand-in for delete_dataset tests."""
 
-    def __init__(self, dataset_id: uuid.UUID, title: str, record_type: str):
+    def __init__(
+        self,
+        dataset_id: uuid.UUID,
+        title: str,
+        record_type: str,
+        source_format: str | None = "geotiff",
+    ):
         self.id = dataset_id
         self.table_name = "test_table"
         # delete_dataset copies this onto the retired-name row (GH-1443), which
         # is what scopes the retirement to a tenant. None is the single-tenant
         # value a real row carries here.
         self.tenant_id = None
+        # fix(#1452): delete_dataset asks geolens_owns_table whether it may
+        # drop the table and retire the name. These two fields are the whole
+        # input to that question, and the defaults describe an ingested
+        # dataset — the case every test in this class exercises. A registered
+        # table is source_format=None with a postgis origin_ref, and is
+        # covered in test_registered_delete_detach_1452.py.
+        self.source_format = source_format
+        self.origin_ref = None
         self.record = _MockRecord(title, record_type)
 
 
@@ -605,7 +619,9 @@ class TestRasterDeleteCascadeRemovesStorage:
                 vectors_prefix: vector_keys,
             }
         )
-        mock_dataset = _MockDataset(dataset_id, "My Vector", "vector_dataset")
+        mock_dataset = _MockDataset(
+            dataset_id, "My Vector", "vector_dataset", source_format="geojson"
+        )
         session = mock.AsyncMock()
         # AsyncSession.add is synchronous; an AsyncMock would turn
         # delete_dataset's retired-name write (GH-1443) into an

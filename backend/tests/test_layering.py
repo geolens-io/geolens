@@ -1763,6 +1763,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # pool this way. Three fast point lookups aren't worth that risk.
         # Cap 443 -> 429, exact.
         "backend/app/modules/catalog/datasets/domain/service_query.py": 429,
+        # fix(#1452): first explicit cap for this module — it sat under the
+        # 350 default until the detach landed. +65 over the pre-change 350:
+        # _reap_managed_storage (the reap loop both branches had inline,
+        # extracted when the new conditional pushed delete_dataset past
+        # ruff C901), _relation_exists (the pg_class probe that decides
+        # whether a detach freed the name), and the two decisions delete now
+        # makes with the reasoning behind them: drop-vs-detach, and the
+        # GH-1443 retirement that follows the relation rather than the
+        # dataset. Cap 350 -> 415, exact.
+        "backend/app/modules/catalog/datasets/domain/service_lifecycle.py": 415,
         # Phase 276 CODE-02: chat_*.py sub-modules are all under the 350
         # default (largest is chat_actions.py at ~245 LOC). No explicit
         # per-file overrides needed; default applies.
@@ -2748,7 +2758,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # single-tenant namespace, and where a row retired before a single -> multi
     # transition sits, since nothing back-stamps this table. Cap 1166 -> 1199,
     # exact.
-    "backend/app/processing/ingest/service.py": 1199,
+    # fix(#1452): +12 — the `managed` keyword and the docstring paragraph that
+    # says why it is an explicit argument rather than a guess. Registration is
+    # called both by an operator handing over a table they own and by the
+    # analysis materialize path handing over one it just CTAS'd, and delete now
+    # drops only the second; the caller is the only place that knows which.
+    # Cap 1199 -> 1211, exact.
+    "backend/app/processing/ingest/service.py": 1211,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -2971,7 +2987,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # set out to admit. _ungroupable_type_name and its ARRAY branch stay —
     # dissolve's by_field really does group by a user-chosen column. Cap
     # 1449 -> 1413, exact.
-    "backend/app/processing/analysis/tasks.py": 1413,
+    # fix(#1452): +7 — managed=True on the output registration, with the note
+    # that this table was CTAS'd here so delete may reclaim it. Without the
+    # flag it is indistinguishable from an operator's registered table and
+    # every analysis output would leak one on delete. Cap 1413 -> 1420, exact.
+    "backend/app/processing/analysis/tasks.py": 1420,
     # Tenant-owned media now crosses the shared logical-to-physical storage
     # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
     # aligned. Keep the ratchet exact after the import/decorator expansion.

@@ -27,12 +27,15 @@ This lives under ``platform/`` rather than in the datasets domain because
 both ``app.modules.catalog`` and ``app.processing.ingest`` write origins, and
 processing/ may not import catalog (``test_no_processing_imports_catalog``).
 It imports nothing from either side: the write helper is duck-typed on the
-Dataset ORM instance.
+Dataset ORM instance. The one import is ``app.core``, the layer every other
+layer may import.
 """
 
 from __future__ import annotations
 
 from typing import Any
+
+from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 
 # Formats whose rows were pulled from a remote OGC/Esri service. Mirrors
 # SERVICE_FORMATS in frontend/src/components/dataset/OriginBadge.tsx.
@@ -137,7 +140,21 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     ),
     "upload": frozenset({"filename", "file_hash"}),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
-    "postgis": frozenset({"table_name"}),
+    #
+    # fix(#1452): `managed` is the one bit that separates the two callers of
+    # register_existing_table. Both produce a postgis origin, and until this
+    # key existed nothing told them apart: an operator registering a table
+    # they built, and the analysis materialize path registering a table
+    # GeoLens just CTAS'd. Delete has to tell them apart, because dropping
+    # the first destroys data GeoLens never created a copy of. Absent means
+    # NOT managed, which is what makes the back catalog — every dataset
+    # registered before this key existed — fall on the side that preserves
+    # the operator's table. That default costs a leaked table for analysis
+    # outputs registered before this shipped; the other default costs
+    # irreversible loss of data GeoLens does not own, so the asymmetry
+    # decides it. It is an ownership fact about the SAME table the pointer
+    # names, not a second pointer, so gate 2 is untouched.
+    "postgis": frozenset({"table_name", "managed"}),
     # A dataset drawn in the app came from nowhere; it carries no payload.
     "created": frozenset(),
 }
@@ -166,7 +183,9 @@ def classify_origin(
     return "upload"
 
 
-def set_postgis_origin(dataset: Any, table_name: str, *, schema: str) -> None:
+def set_postgis_origin(
+    dataset: Any, table_name: str, *, schema: str, managed: bool = False
+) -> None:
     """Stamp a registered PostGIS table's origin.
 
     Separate from the generic writer because the pointer and the ref's
@@ -184,11 +203,72 @@ def set_postgis_origin(dataset: Any, table_name: str, *, schema: str) -> None:
     ``data_t_<tenant>``. Callers pass the schema they actually created,
     granted, and read the table in, which makes the pointer agree with
     physical placement by construction rather than by a parallel derivation.
+
+    ``managed`` says GeoLens created the table it is about to register and may
+    drop it again (fix #1452). It is passed as ``True``/``None`` rather than
+    ``True``/``False`` so an unmanaged registration stores the exact ref shape
+    it stored before the key existed — ``build_origin_ref`` omits ``None`` —
+    and every reader goes through :func:`geolens_owns_table`, which reads an
+    absent key and a stored ``false`` the same way.
     """
     qualified = f"{schema}.{table_name}"
     set_dataset_origin(
-        dataset, "postgis", uri=f"postgis://{qualified}", table_name=qualified
+        dataset,
+        "postgis",
+        uri=f"postgis://{qualified}",
+        table_name=qualified,
+        managed=True if managed else None,
     )
+
+
+def geolens_owns_table(
+    source_format: str | None,
+    record_type: str | None,
+    origin_ref: Any,
+) -> bool:
+    """Whether GeoLens created this dataset's physical table and may drop it.
+
+    fix(#1452): the question ``delete_dataset`` has to answer before it issues
+    a DROP. Every origin but ``postgis`` describes data GeoLens materialized
+    into a table of its own making — an upload run through ogr2ogr, a service
+    or STAC pull, a layer drawn in the app — so the table is GeoLens's to
+    reclaim. ``postgis`` is the registered-in-place origin, where registration
+    copies no data and the catalog row is a reference to a table the operator
+    built; dropping that destroys the original, not a managed copy.
+
+    The one exception is the analysis materialize path, which CTAS's its own
+    output table and then registers it through the same helper an operator
+    uses. It stamps ``managed`` on the ref, and that is the only thing
+    separating the two — see ``ORIGIN_REF_KEYS['postgis']`` for why an absent
+    key resolves to "not ours".
+
+    Also the condition for retiring the name in ``catalog.retired_table_names``
+    (GH-1443), because the two questions have one answer: a name is freed only
+    when the relation behind it is gone. A detached table still exists and
+    still holds the operator's rows, so retiring its name would free nothing
+    and would permanently refuse the re-registration that is the whole point
+    of leaving the table alone.
+
+    ``origin_ref`` is typed ``Any`` on purpose: the column is JSONB and the ORM
+    hands back whatever is stored, which is not necessarily what
+    ``build_origin_ref`` would have written. The caller is one line above a
+    DROP, so the shape is checked rather than assumed.
+    """
+    # Registration is the only writer of a postgis origin and it only ever
+    # creates vector datasets, so a raster or VRT is GeoLens's by construction.
+    # Stated structurally rather than left to classify_origin, which would
+    # answer "postgis" for a raster whose source_format happened to be NULL and
+    # silently stop retiring its name (GH-1443). Every raster path stamps a
+    # format today; this makes that a fact rather than a dependency.
+    if record_type in RASTER_FAMILY_RECORD_TYPES:
+        return True
+    if classify_origin(source_format, record_type) != "postgis":
+        return True
+    if not isinstance(origin_ref, dict):
+        return False
+    # `is True`, not truthiness: a stored "yes" or 1 is not a claim this
+    # function is willing to drop a table on.
+    return origin_ref.get("managed") is True
 
 
 def service_layer_identity(
