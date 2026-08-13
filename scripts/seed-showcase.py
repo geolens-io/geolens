@@ -1875,7 +1875,17 @@ def refresh_quakes(api: Api) -> int:
             else by_title.get(title)
         )
         if ds is None:
-            print(f"  [skip] no dataset titled {title!r}")
+            # A failure, not a skip. This is the demo's cron entry point, so a
+            # zero exit means "the quakes are current" to whatever is watching
+            # it. Both datasets are required - the map has a circle layer and a
+            # heatmap layer - so a missing one is a half-seeded instance that
+            # needs a person, and it has to be visible as a non-zero exit.
+            print(
+                f"  ! no dataset titled {title!r} - the showcase is not fully "
+                "seeded; run a normal seed",
+                file=sys.stderr,
+            )
+            failed += 1
             continue
         origin = api.dataset_origin(ds)
         if origin != "service":
@@ -1961,17 +1971,38 @@ def refresh_hurdat2(api: Api) -> int:
     # public exposure map without its headline layer for as long as the rebuild
     # takes, and permanently if the rebuild failed - a worker outage or an
     # analysis error would strand the demo mid-operation. Building beside the
-    # old chain means any failure below leaves the map exactly as it was.
+    # old chain means any failure below leaves the MAP exactly as it was.
     # The cost is that the three derived datasets exist twice for the length of
     # the rebuild, which matters only on an instance with a tight dataset quota.
-    old_chain = {t: by_title[t] for t in EXPOSURE_CHAIN_TITLES if t in by_title}
+    #
+    # The layer being replaced is found by NAME, not by dataset id. A run that
+    # died between materializing and swapping leaves newer same-titled datasets
+    # behind, so a title lookup would return an id the map has never pointed at,
+    # match no layer, and the retry would stack a second choropleth on top of
+    # the first instead of replacing it.
     old_layer_ids = [
         layer["id"]
         for layer in api.get_map(map_id).get("layers", [])
-        if layer.get("dataset_id") in set(old_chain.values())
+        if layer.get("display_name") == EXPOSURE_LAYER_NAME
     ]
 
-    chain = _build_exposure_chain(api, by_title, force_analysis=True)
+    try:
+        chain = _build_exposure_chain(api, by_title, force_analysis=True)
+    except (httpx.HTTPStatusError, httpx.TimeoutException, RuntimeError, TimeoutError):
+        # The tracks are already swapped and the chain is not, so the map's legs
+        # layer is a season ahead of its choropleth until this succeeds. That is
+        # inherent: reupload has no staging handle to roll back, and the chain
+        # can only be computed FROM the updated legs. Say so plainly rather than
+        # let a stack trace imply the map is untouched - re-running is the fix,
+        # and re-running is safe.
+        print(
+            "\n  ! the track data was replaced but the exposure chain was NOT "
+            "rebuilt.\n  ! The exposure map now shows new storm legs against a "
+            "choropleth computed\n  ! from the previous release. Re-run "
+            "--refresh-hurdat2 to finish; it is idempotent.",
+            file=sys.stderr,
+        )
+        raise
 
     # Swap: the new layer goes on before the old one comes off, so the map is
     # never without an exposure layer.
@@ -1980,20 +2011,29 @@ def refresh_hurdat2(api: Api) -> int:
         api.delete_layer(map_id, layer_id)
     print(f"  swapped in the rebuilt exposure layer on map {map_id}")
 
-    # Only now is the old chain unreferenced. Reverse dependency order: each
-    # derives from the one before it, so children go before their parents.
-    for title in reversed(EXPOSURE_CHAIN_TITLES):
-        ds = old_chain.get(title)
-        if ds is None:
-            continue
+    # Now delete every chain-titled dataset EXCEPT the three just built. That
+    # covers the superseded chain and also any orphans a previously failed run
+    # materialized and never swapped in - a plain "delete the old ids" would
+    # leave those behind to accumulate one set per failed attempt.
+    keep = {chain["corridors"], chain["pieces"], chain["exposure"]}
+    superseded = [
+        d
+        for d in api.list_own_datasets()
+        if d["title"] in EXPOSURE_CHAIN_TITLES and d["id"] not in keep
+    ]
+    # Reverse dependency order: each derives from the one before it, so the
+    # children have to go before their parents.
+    order = {title: i for i, title in enumerate(EXPOSURE_CHAIN_TITLES)}
+    for d in sorted(superseded, key=lambda x: -order[x["title"]]):
         try:
-            api.delete_dataset(ds, title)
-            print(f"  deleted the superseded derived dataset: {title}")
+            api.delete_dataset(d["id"], d["title"])
+            print(f"  deleted the superseded derived dataset: {d['title']}")
         except httpx.HTTPStatusError as e:
-            # Not fatal any more: the map is already correct, and a leftover
-            # dataset is visible in --prune-userdata rather than silently lost.
+            # Not fatal: the map is already correct, and a leftover dataset
+            # shows up in --prune-userdata rather than being silently lost.
             print(
-                f"  ! could not delete the superseded {title!r}: {e}", file=sys.stderr
+                f"  ! could not delete the superseded {d['title']!r}: {e}",
+                file=sys.stderr,
             )
     # The context layer's hatch and the map's legend/notes live in the styling
     # pass, which is idempotent - run it so the rebuilt map matches a fresh one.
@@ -2059,10 +2099,20 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
         elif m.get("name") not in known_maps:
             stray_maps.append(m)
 
-    foreign_datasets, stray_datasets, pinned = [], [], []
+    foreign_datasets, stray_datasets, pinned, pinned_impostors = [], [], [], []
     for d in api.list_all_datasets():
         if d.get("title") in PINNED_DATASET_TITLES:
-            pinned.append(d)
+            # Never in the delete set, whoever owns it. A title is not proof of
+            # identity though: titles are explicitly non-unique here, so a
+            # visitor can upload something called "NYC Subway Lines (MTA)" and
+            # inherit the exemption. Keeping it is still the right default -
+            # deleting the real one breaks an external reference, and the cost
+            # of keeping a squatter is that it survives a cleanup - but it is
+            # reported separately so it cannot hide among the genuine three.
+            if d.get("created_by") == api.user_id:
+                pinned.append(d)
+            else:
+                pinned_impostors.append(d)
         elif d.get("created_by") != api.user_id:
             foreign_datasets.append(d)
         elif not recognised(d.get("title", "")):
@@ -2074,6 +2124,7 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
         "foreign_datasets": foreign_datasets,
         "stray_datasets": stray_datasets,
         "pinned": pinned,
+        "pinned_impostors": pinned_impostors,
     }
 
 
@@ -2118,6 +2169,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     foreign_datasets = buckets["foreign_datasets"]
     stray_datasets = buckets["stray_datasets"]
     pinned_hits = buckets["pinned"]
+    pinned_impostors = buckets["pinned_impostors"]
 
     def report(label, rows, key, owner_key):
         print(f"\n  {label}: {len(rows)}")
@@ -2146,9 +2198,17 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     )
     report("admin-owned strays (kept)", stray_datasets, "title", "created_by")
 
-    print(f"\n  externally pinned, hard-kept whoever owns them: {len(pinned_hits)}")
+    print(f"\n  externally pinned, hard-kept: {len(pinned_hits)}")
     for d in pinned_hits:
         print(f"    = {d.get('title')!r}")
+    if pinned_impostors:
+        print(
+            f"\n  !! kept, but NOT the seeder's: {len(pinned_impostors)} dataset(s) "
+            "carry a pinned title while belonging to another account. Titles are "
+            "not unique, so these inherited the exemption. Review them by hand:"
+        )
+        for d in pinned_impostors:
+            print(f"    ? {d.get('title')!r}  (owner: {d.get('created_by') or '?'})")
 
     showcase_collections = set(COLLECTIONS) | set(RETIRED_COLLECTIONS)
     other_collections = [
@@ -2165,7 +2225,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
             f"\n  SUMMARY (dry run): would delete {len(foreign_maps)} maps and "
             f"{len(foreign_datasets)} datasets; would keep {len(stray_maps)} "
             f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
-            f"{len(pinned_hits)} pinned datasets. Nothing was deleted. "
+            f"{len(pinned_hits) + len(pinned_impostors)} pinned-title datasets "
+            f"({len(pinned_impostors)} not the seeder's). Nothing was deleted. "
             "Re-run with --execute to perform it."
         )
         return 0
@@ -2192,7 +2253,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         f"\n  SUMMARY: deleted {deleted_maps}/{len(foreign_maps)} maps and "
         f"{deleted_datasets}/{len(foreign_datasets)} datasets; kept "
         f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
-        f"strays and {len(pinned_hits)} pinned datasets. {errors} error(s)."
+        f"strays and {len(pinned_hits) + len(pinned_impostors)} pinned-title "
+        f"datasets ({len(pinned_impostors)} not the seeder's). {errors} error(s)."
     )
     return 1 if errors else 0
 
@@ -3507,6 +3569,13 @@ EXPOSURE_CHAIN_TITLES = (
     "Hurricane Exposure by Coastal Region",
 )
 EXPOSURE_MAP = "Hurricane Exposure - Which Coasts the Major Storms Reach"
+# The graded layer's display name, and the only stable handle on it. A refresh
+# has to find the layer it is REPLACING, and it cannot do that by dataset id:
+# the id it would look for comes from a title lookup, and a refresh that died
+# after materializing but before swapping leaves a NEWER dataset under the same
+# title, so the lookup returns an id the map has never referenced. Matching the
+# name finds the layer whatever it currently points at.
+EXPOSURE_LAYER_NAME = "Distinct major storms since 1950"
 
 
 def _build_exposure_chain(
@@ -3639,7 +3708,7 @@ def _exposure_layer_body(exposure_ds: str) -> dict:
         "dataset_id": exposure_ds,
         "sort_order": 0,
         "opacity": 1.0,
-        "display_name": "Distinct major storms since 1950",
+        "display_name": EXPOSURE_LAYER_NAME,
         "style_config": {
             "mode": "graduated",
             "column": "source_count",
