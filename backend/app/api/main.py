@@ -956,6 +956,54 @@ def _iter_api_routes(target_app: FastAPI) -> list:
     ]
 
 
+def _clone_api_route(
+    target_app: FastAPI,
+    route,
+    *,
+    path: str,
+    methods: list[str],
+    name_suffix: str,
+) -> None:
+    """Re-register an existing APIRoute at *path* for *methods*.
+
+    Both derived-route passes below register a copy of a canonical route
+    rather than editing it, so every attribute a handler's behaviour depends
+    on has to be carried across. Spelled once here: a kwarg dropped from this
+    list is a silent behaviour difference between the canonical route and its
+    copy, and that is not a difference either caller wants.
+
+    Hidden from OpenAPI. A derived route documents nothing the canonical one
+    does not, and publishing it would churn every generated SDK.
+    """
+    target_app.add_api_route(
+        path=path,
+        endpoint=route.endpoint,
+        response_model=route.response_model,
+        status_code=route.status_code,
+        tags=route.tags,
+        dependencies=route.dependencies,
+        summary=route.summary,
+        description=route.description,
+        response_description=route.response_description,
+        responses=route.responses,
+        deprecated=route.deprecated,
+        methods=methods,
+        operation_id=None,  # MUST differ from canonical for uniqueness;
+        # FastAPI auto-generates when None.
+        response_model_include=route.response_model_include,
+        response_model_exclude=route.response_model_exclude,
+        response_model_by_alias=route.response_model_by_alias,
+        response_model_exclude_unset=route.response_model_exclude_unset,
+        response_model_exclude_defaults=route.response_model_exclude_defaults,
+        response_model_exclude_none=route.response_model_exclude_none,
+        include_in_schema=False,
+        response_class=route.response_class,
+        name=f"{route.name}__{name_suffix}" if route.name else None,
+        openapi_extra=route.openapi_extra,
+        generate_unique_id_function=route.generate_unique_id_function,
+    )
+
+
 def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
     """ROUTE-01 (Phase 1092 review CR-01): register a hidden no-slash alias
     for every trailing-slash route in the app.
@@ -1013,33 +1061,12 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
             # Register the alias. Inherit response_model, dependencies,
             # status_code, etc. from the canonical route — APIRoute
             # exposes these directly.
-            target_app.add_api_route(
+            _clone_api_route(
+                target_app,
+                route,
                 path=no_slash,
-                endpoint=route.endpoint,
-                response_model=route.response_model,
-                status_code=route.status_code,
-                tags=route.tags,
-                dependencies=route.dependencies,
-                summary=route.summary,
-                description=route.description,
-                response_description=route.response_description,
-                responses=route.responses,
-                deprecated=route.deprecated,
                 methods=[method],
-                operation_id=None,  # MUST differ from canonical for
-                # uniqueness; FastAPI auto-generates
-                # when None.
-                response_model_include=route.response_model_include,
-                response_model_exclude=route.response_model_exclude,
-                response_model_by_alias=route.response_model_by_alias,
-                response_model_exclude_unset=route.response_model_exclude_unset,
-                response_model_exclude_defaults=route.response_model_exclude_defaults,
-                response_model_exclude_none=route.response_model_exclude_none,
-                include_in_schema=False,  # ROUTE-01: hide aliases from OpenAPI
-                response_class=route.response_class,
-                name=f"{route.name}__no_slash_alias" if route.name else None,
-                openapi_extra=route.openapi_extra,
-                generate_unique_id_function=route.generate_unique_id_function,
+                name_suffix="no_slash_alias",
             )
             existing_paths.add((method, no_slash))
             added += 1
@@ -1051,7 +1078,57 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
         target_app.openapi_schema = None
 
 
+def _register_standards_head_routes(target_app: FastAPI) -> None:
+    """fix(#1470): serve HEAD wherever the CORS preflight says we do.
+
+    ``DynamicCORSMiddleware._set_public_standards_cors_headers`` answers a
+    preflight on the anonymous standards surface with
+    ``Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS``, and
+    ``_is_anonymous_standards_request`` accepts ``HEAD`` as a requested
+    method — but FastAPI's ``APIRoute`` does not add HEAD alongside GET the
+    way starlette's plain ``Route`` does, so every one of these routes
+    answered ``405 allow: GET``. A browser client that trusts the preflight
+    was told HEAD was fine and then refused. HEAD-probing a landing page or a
+    collection before fetching it is ordinary OGC client behaviour.
+
+    Derived here rather than by editing ~48 decorators across five routers.
+    Both surfaces read the same ``standards_api_path`` classifier, so the set
+    that answers HEAD and the set advertised as answering it cannot drift —
+    which is the actual bug, not the missing routes.
+
+    Runs after ``_add_trailing_slash_aliases`` so the no-slash aliases are
+    covered too. Registering a route rather than adding to
+    ``route.methods``: fastapi 0.140 keeps included-router routes nested and
+    matches through ``RouteContext``, whose ``methods`` is a COPY of the
+    route's, so an in-place mutation would leave the matcher answering 405.
+    """
+    existing: set[tuple[str, str]] = set()
+    for ctx in _iter_api_routes(target_app):
+        for method in ctx.route.methods:
+            existing.add((method, ctx.path))
+
+    added = 0
+    for ctx in _iter_api_routes(target_app):
+        if "GET" not in ctx.route.methods or ("HEAD", ctx.path) in existing:
+            continue
+        if standards_api_path(ctx.path) is None:
+            continue
+        _clone_api_route(
+            target_app,
+            ctx.route,
+            path=ctx.path,
+            methods=["HEAD"],
+            name_suffix="head",
+        )
+        existing.add(("HEAD", ctx.path))
+        added += 1
+
+    if added > 0:
+        target_app.openapi_schema = None
+
+
 _add_trailing_slash_aliases(app)
+_register_standards_head_routes(app)
 
 
 # OGC API Common requires malformed standards-path parameters to use 400.  The

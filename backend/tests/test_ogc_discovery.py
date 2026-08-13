@@ -210,6 +210,42 @@ async def test_anonymous_standards_cors_default_is_read_only(client, monkeypatch
     assert "access-control-allow-origin" not in credentialed.headers
 
 
+async def test_head_is_served_wherever_the_preflight_advertises_it(client):
+    """fix(#1470): the preflight said HEAD was allowed; the route said 405.
+
+    ``_set_public_standards_cors_headers`` answers a standards preflight with
+    ``GET, HEAD, POST, OPTIONS``, so a browser client that trusts it sent HEAD
+    and got ``405 allow: GET``. Both surfaces are now derived from
+    ``standards_api_path``.
+    """
+    preflight = await client.options(
+        "/collections",
+        headers={
+            "Origin": "https://client.example",
+            "Access-Control-Request-Method": "HEAD",
+            "Access-Control-Request-Headers": "Accept",
+        },
+    )
+    assert preflight.status_code == 200
+    assert "HEAD" in preflight.headers["access-control-allow-methods"]
+
+    for path in ("/collections", "/", "/conformance", "/stac", "/datasets/dcat/"):
+        head = await client.head(path)
+        get = await client.get(path)
+        assert head.status_code == 200, path
+        assert head.status_code == get.status_code, path
+        assert head.headers.get("content-type") == get.headers.get("content-type"), path
+        assert head.content == b"", path
+        assert get.content, path
+
+
+async def test_head_stays_off_non_standards_routes(client):
+    """The pass is scoped by the same classifier, not applied app-wide."""
+    response = await client.head("/datasets/")
+    assert response.status_code == 405
+    assert "HEAD" not in response.headers.get("allow", "")
+
+
 # --- Conformance endpoint tests ---
 
 
