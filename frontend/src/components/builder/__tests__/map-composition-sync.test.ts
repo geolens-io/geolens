@@ -191,6 +191,90 @@ describe('map composition sync', () => {
     expect(setProjection).toHaveBeenCalledWith({ type: 'mercator' });
   });
 
+  it('applies the globe atmosphere with the projection and resets it on mercator (feat(#1473))', () => {
+    const setProjection = vi.fn();
+    const setSky = vi.fn();
+    const target = { isStyleLoaded: vi.fn(() => true), setProjection, setSky } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: target,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+      idPrefix: 'viewer-',
+    });
+    expect(setSky).toHaveBeenCalledWith({
+      'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0],
+    });
+
+    // Mercator resets with `undefined`, the branch maplibre reads as "no sky".
+    // An empty object is a silent no-op there and would strand the globe sky.
+    applyMapBasemapAppearance({ map: target, basemapConfig: null, idPrefix: 'viewer-' });
+    expect(setSky).toHaveBeenLastCalledWith(undefined);
+
+    // Sky is attempted on the same not-yet-idle path as the projection.
+    setSky.mockClear();
+    applyMapBasemapAppearance({
+      map: { isStyleLoaded: vi.fn(() => false), setProjection, setSky } as unknown as MaplibreMap,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(setSky).toHaveBeenCalledWith(
+      expect.objectContaining({ 'atmosphere-blend': expect.anything() }),
+    );
+  });
+
+  it('retries the globe sky on style.load with the projection (feat(#1473))', () => {
+    // The projection throws first on an unparsed style, so the sky never runs
+    // until the retry — proving it rides the same deferral.
+    let styleParsed = false;
+    const setProjection = vi.fn(() => {
+      if (!styleParsed) throw new Error('Style is not done loading');
+    });
+    const setSky = vi.fn();
+    const once = vi.fn();
+    const off = vi.fn();
+    const loading = {
+      isStyleLoaded: vi.fn(() => false), setProjection, setSky, once, off,
+    } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: loading,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(setSky).not.toHaveBeenCalled();
+
+    styleParsed = true;
+    (once.mock.calls[0][1] as () => void)();
+    expect(setSky).toHaveBeenCalledWith(
+      expect.objectContaining({ 'atmosphere-blend': expect.anything() }),
+    );
+
+    // A sky call that is itself the one to throw defers the same way.
+    let skyParsed = false;
+    const throwingSky = vi.fn(() => {
+      if (!skyParsed) throw new Error('Style is not done loading');
+    });
+    const skyOnce = vi.fn();
+    const skyLoading = {
+      isStyleLoaded: vi.fn(() => false),
+      setProjection: vi.fn(),
+      setSky: throwingSky,
+      once: skyOnce,
+      off: vi.fn(),
+    } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: skyLoading,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(skyOnce).toHaveBeenCalledWith('style.load', expect.any(Function));
+
+    skyParsed = true;
+    throwingSky.mockClear();
+    (skyOnce.mock.calls[0][1] as () => void)();
+    expect(throwingSky).toHaveBeenCalledWith(
+      expect.objectContaining({ 'atmosphere-blend': expect.anything() }),
+    );
+  });
+
   it('lets sublayer override retry logic handle unloaded styles', () => {
     const basemapConfig: MapBasemapConfig = {
       label_mode: 'full',
