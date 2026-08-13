@@ -95,6 +95,9 @@ def _make_mock_dataset(record_type: str, title: str = "Test Dataset") -> MagicMo
     ds.record.updated_at = datetime(2026, 1, 2)
     ds.record.record_status = "published"
     ds.record.license = None
+    # feat(#1472): see the note above — an unset attribute yields a MagicMock,
+    # which DatasetResponse.attribution (str | None) rejects.
+    ds.record.attribution = None
     ds.record.source_organization = None
     ds.record.temporal_start = None
     ds.record.temporal_end = None

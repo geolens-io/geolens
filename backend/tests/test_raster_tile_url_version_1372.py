@@ -86,6 +86,7 @@ class TestSharedLayerTileUrlVersion:
             ds_is_dem=None,
             ds_dem_vertical_units=None,
             ds_tile_version=tile_version,
+            ds_attribution=None,
         )
         return layer, layer_dict
 
