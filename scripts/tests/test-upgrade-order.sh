@@ -162,6 +162,13 @@ if [ "$1" = "compose" ]; then
 fi
 if [ "$1" = "wait" ]; then
   # docker wait <cid> -> block-then-print the migrate one-shot's exit code (0|3).
+  #
+  # codex P1 on #1476: this call is the last thing before upgrade.sh pins .env,
+  # so it is where the test makes that pin fail for real. Dropping write
+  # permission on the install directory means `update_env_value`'s
+  # `mv .env.tmp.$$ .env` cannot rename, which is the fallible step that used to
+  # reach the EXIT trap with the auto-restore still armed.
+  [ -n "${DOCKER_SEAL_DIR:-}" ] && chmod a-w "$DOCKER_SEAL_DIR" 2>/dev/null
   [ "$MIGRATE_MODE" = "fail" ] && echo 3 || echo 0
   exit 0
 fi
@@ -277,6 +284,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_STARTED_backup="${STARTED_BACKUP:-}" \
       DOCKER_STARTED_api="${STARTED_API:-}" \
       DOCKER_STARTED_frontend="${STARTED_FRONTEND:-}" \
+      DOCKER_SEAL_DIR="${SEAL_DIR:-}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
@@ -476,6 +484,39 @@ if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ] && [ -n 
   ok "re-running after a failed migrate retries the upgrade (not a no-op)"
 else
   bad "re-run after a failed migrate did not retry (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+
+# ============================================================================
+# CASE 2d — codex P1 on #1476: migrations commit, then pinning .env fails. The
+# automatic restore must already be disarmed, because starting the PREVIOUS
+# release against a fully migrated schema is the state the flag exists to
+# prevent. The docker stub drops write permission on the install directory
+# during `docker wait`, so `update_env_value`'s rename genuinely fails and
+# `set -e` carries the abort into the EXIT trap.
+# ============================================================================
+seed_prod_env
+SEAL_DIR="$FAKE"
+run_upgrade ok 1.2.4
+SEAL_DIR=""
+chmod u+w "$FAKE" 2>/dev/null
+
+if [ "$(cat "$WORK/code.txt")" != "0" ]; then
+  ok "an unwritable .env after a successful migration fails the upgrade"
+else
+  bad "unwritable .env did not fail the upgrade (exit=$(cat "$WORK/code.txt"))"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if [ -z "$(pos_of restore_app)" ]; then
+  ok "a failed pin after committed migrations does NOT restart the previous release"
+else
+  bad "the previous release was restarted onto a migrated schema: $(tr '\n' ',' < "$WORK/calls.log")"
+  sed 's/^/    # /' "$WORK/out.txt"
+fi
+if grep -q 'ROLLBACK' "$WORK/out.txt"; then
+  ok "a failed pin prints the rollback recipe"
+else
+  bad "a failed pin did not print the rollback recipe"
   sed 's/^/    # /' "$WORK/out.txt"
 fi
 

@@ -498,6 +498,18 @@ if [ -n "$migrate_cid" ]; then
   fi
 fi
 say "  migrations applied."
+# Committed forward. The schema is the new release's, so the trap must not put
+# the previous release's containers back on top of it, and the rollback recipe
+# (restore the dump, then re-pin) becomes the only correct answer.
+#
+# This has to be the FIRST thing after the migration succeeds, ahead of anything
+# that can fail (codex P1 on #1476). Pinning .env below is fallible — an
+# unwritable file, a full disk — and under `set -e` that abort reaches the EXIT
+# trap. With the flag still armed, the trap would start ${PREVIOUS_VERSION}
+# against a fully migrated schema, which is the state this flag exists to
+# prevent. The app is then left stopped, which the printed rollback recipe
+# covers; old code on a new schema is the worse of the two.
+APP_DOWN=0
 say ""
 
 # --- Step 8: pin the new version, bring the app up, health gate --------------
@@ -510,12 +522,6 @@ say "Step 4/5: pinning GEOLENS_VERSION=$TARGET_VERSION in .env"
 export GEOLENS_VERSION="$TARGET_VERSION"
 update_env_value GEOLENS_VERSION "$TARGET_VERSION"
 say ""
-
-# Committed forward: the schema is migrated and the pin has moved, so the trap
-# must not put the previous release's containers back on top of them. From here
-# a failure is a stack that is up but unhealthy, and the rollback recipe (restore
-# the dump, then re-pin) is the only correct answer.
-APP_DOWN=0
 
 say "Step 5/5: starting GeoLens $TARGET_VERSION — the outage ends here"
 compose up -d || fail "compose up failed for $TARGET_VERSION."
