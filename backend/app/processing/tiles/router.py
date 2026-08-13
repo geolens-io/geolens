@@ -1781,10 +1781,13 @@ async def _assert_dataset_still_registered(
     LRU, so a delete only evicts in the worker that served it. No process-local
     cache can answer for the others, so the check has to reach the database.
 
-    The cost is bounded by WHERE this runs: the caller is the pool path, reached
-    only after both tile caches have missed and immediately before the relation
-    is read. A served-from-cache tile still costs zero round-trips, which is the
-    whole point of ``_dataset_cache`` (PERF-006 / PERF-002).
+    The cost is bounded by WHERE this runs. The caller is ``_acquire_and_serve_tile``,
+    which reaches this only after both tile caches have missed, after the FAIR-01
+    permit and the tile connection are already in hand, and with the relation read
+    as the very next statement. A served-from-cache tile still costs zero
+    round-trips, which is the whole point of ``_dataset_cache`` (PERF-006 /
+    PERF-002); a tile the pool has to build pays one indexed primary-key lookup
+    that ends before the PostGIS query begins.
 
     Pinning id AND table_name together is what makes it a liveness check rather
     than an existence check: a surviving row that has since been repointed at a
@@ -1816,7 +1819,18 @@ async def _assert_dataset_still_registered(
         # satisfied by another tenant's row carrying the same table_name.
         stmt = stmt.where(DatasetORM.tenant_id == tid)
 
-    if (await db.execute(stmt)).scalar_one_or_none() is not None:
+    registered = (await db.execute(stmt)).scalar_one_or_none()
+
+    # fix(#1451 codex P1): hand the API-pool connection back before returning.
+    # `db.execute` opens a transaction that `get_db` would otherwise hold open
+    # until the response is written, so without this every tile the pool has to
+    # build would occupy one of the API's connections for the length of its
+    # PostGIS query and gzip. The probe is read-only, so the rollback discards
+    # nothing; it is here rather than at the call site because the caller cannot
+    # release what it did not know was taken.
+    await db.rollback()
+
+    if registered is not None:
         return
 
     # Drop the entry that got us here so the next request re-resolves and 404s
@@ -1996,21 +2010,6 @@ async def _acquire_and_serve_tile(
     Callers keep their own cache-hit short-circuit and COLD-02 cold-rehydrate seam,
     which differ between the two paths.
     """
-    # fix(#1451): every read of a `data`-schema relation off cached authorization
-    # funnels through here, so this is the one place the catalog has to agree
-    # before the relation is queried. Both tile caches have already missed by the
-    # time control reaches this line — a cache hit returns in the caller and pays
-    # nothing, which is the round-trip `_dataset_cache` exists to avoid.
-    #
-    # Ordered ahead of the FAIR-01 semaphore rather than behind it: a dead dataset
-    # then costs no permit and no pool slot, and the refusal needs no release path
-    # of its own. The cost of that choice is one indexed lookup on a request the
-    # limiter is about to reject — which is not a new class, since a metadata
-    # cache miss and an embed-token check both already query before this point.
-    await _assert_dataset_still_registered(
-        db, dataset_id=dataset_id, table_name=table_name, tid=tid
-    )
-
     try:
         pool = get_tile_pool()
     except RuntimeError as exc:
@@ -2048,7 +2047,22 @@ async def _acquire_and_serve_tile(
                 # Bind per-tenant role + search_path BEFORE the tile query.
                 # No-op in single_tenant or when tid is None.
                 await set_tenant_role_for_tile_request(tile_conn, tid)
+                # fix(#1451 codex P1/P2): the catalog check sits here, between
+                # capacity acquisition and the relation read, and nowhere
+                # earlier. Ahead of the semaphore it pinned an API-pool
+                # connection for the whole 10s wait plus the query, so a burst
+                # of uncached coordinates could starve CRUD of the connections
+                # the dedicated tile pool exists to protect; and every await
+                # between the check and the read is a window in which the
+                # delete-plus-recreate this guards against could still land.
+                await _assert_dataset_still_registered(
+                    db, dataset_id=dataset_id, table_name=table_name, tid=tid
+                )
                 tile_data = await query_callable(pool, tile_conn)
+    except HTTPException:
+        # A refusal is an answer, not a tile-service failure. Without this the
+        # broad handler below would relabel the 404 as a 503.
+        raise
     except asyncio.TimeoutError:
         logger.warning(
             "Tile pool acquire timeout",

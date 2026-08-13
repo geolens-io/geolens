@@ -216,6 +216,11 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     limiter = _RejectingLimiter()
     pool = _FakeTilePool()
     query = AsyncMock(return_value=b"unreachable")
+    # fix(#1451): the catalog liveness probe is required by the DB-miss path now.
+    # A rejected request must not reach it, which is why the probe sits after
+    # capacity acquisition: ahead of the limiter it would have checked out an
+    # API-pool connection for every request the limiter was about to turn away.
+    catalog_session = _session_answering_liveness_probe()
     monkeypatch.setattr(tile_router, "get_tile_pool", lambda: pool)
 
     request = Request(
@@ -233,10 +238,7 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     with pytest.raises(HTTPException) as exc_info:
         await tile_router._acquire_and_serve_tile(
             request=request,
-            # fix(#1451): the liveness probe runs ahead of the limiter so a dead
-            # dataset takes no permit. Answering it with a row keeps this test
-            # about the rejection path it is named for.
-            db=_session_answering_liveness_probe(),
+            db=catalog_session,
             dataset_id=uuid.uuid4(),
             table_name="roads",
             z=0,
@@ -257,6 +259,7 @@ async def test_rejected_tile_limiter_never_queries_or_releases(
     assert limiter.released == 0
     assert pool.acquire_count == 0
     query.assert_not_awaited()
+    catalog_session.execute.assert_not_awaited()
 
 
 @pytest.mark.asyncio

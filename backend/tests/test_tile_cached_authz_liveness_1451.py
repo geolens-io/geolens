@@ -16,23 +16,30 @@ so a delete only ever evicts in the worker that served it — which is why these
 tests warm the cache and then delete WITHOUT evicting: that is not a contrived
 state, it is what every other uvicorn worker holds.
 
-The fix asks the catalog once per tile the pool actually has to build. The last
-test here is the other half of the bargain: a tile answered from the byte cache
-must still reach the database zero times.
+The fix asks the catalog once per tile the pool actually has to build. Two of
+these tests cover the other half of that bargain, because where the question is
+asked matters as much as asking it: a tile answered from the byte cache must
+still reach the database zero times, and the check must sit after the FAIR-01
+permit and immediately before the relation read, holding no API-pool connection
+across the wait and leaving no await for a delete to slip through.
 """
 
 import gzip
 import uuid
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastapi import HTTPException
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.requests import Request
 
 from app.processing.tiles import router as tile_router
 from tests.factories import get_user_id
+
 
 pytestmark = pytest.mark.usefixtures("_init_tile_pool_for_tests")
 
@@ -40,6 +47,22 @@ pytestmark = pytest.mark.usefixtures("_init_tile_pool_for_tests")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _bare_request() -> Request:
+    """The minimum scope ``_acquire_and_serve_tile`` reads off a request."""
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/tiles/data.roads/0/0/0.pbf",
+            "headers": [],
+            "query_string": b"",
+            "server": ("test", 80),
+            "client": ("test", 1234),
+            "scheme": "http",
+        }
+    )
 
 
 @pytest.fixture(autouse=True)
@@ -341,3 +364,134 @@ async def test_a_cached_tile_still_reaches_the_database_zero_times(tile_kind: st
 
     assert response.status_code == 200
     db.execute.assert_not_awaited()
+
+
+class _RecordingSession:
+    """A session that logs when it is queried and when it lets its connection go."""
+
+    def __init__(self, events: list[str], *, registered: bool = True) -> None:
+        self._events = events
+        self._registered = registered
+
+    async def execute(self, _stmt):
+        self._events.append("db.execute")
+        value = uuid.uuid4() if self._registered else None
+        return SimpleNamespace(scalar_one_or_none=lambda: value)
+
+    async def rollback(self) -> None:
+        self._events.append("db.rollback")
+
+
+class _RecordingTileConnection:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    def transaction(self):
+        return _null_async_context(self._events, "txn")
+
+
+class _RecordingTilePool:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+        self.connection = _RecordingTileConnection(events)
+
+    def acquire(self):
+        return _null_async_context(self._events, "pool.acquire", self.connection)
+
+
+@asynccontextmanager
+async def _null_async_context(events: list[str], label: str, value=None):
+    events.append(label)
+    yield value
+
+
+async def test_the_catalog_is_asked_between_capacity_and_the_relation_read():
+    """Order is the fix, so order is what this pins (codex P1/P2 on #1454).
+
+    Ahead of the tile pool the probe held an API-pool connection for the whole
+    FAIR-01 wait, which is how a burst of uncached coordinates starves the CRUD
+    traffic the separate tile pool exists to protect. Any await between the check
+    and the read reopens the window the check closes. Both failure modes are
+    invisible to a test that only asserts the 404, so this one asserts where.
+    """
+    events: list[str] = []
+    pool = _RecordingTilePool(events)
+    dataset_id = uuid.uuid4()
+
+    async def _query(_pool, _conn):
+        events.append("tile_query")
+        return b"mvt"
+
+    async def _record_role_bind(_conn, _tid):
+        events.append("set_role")
+
+    with (
+        patch.object(tile_router, "get_tile_pool", lambda: pool),
+        patch.object(
+            tile_router, "set_tenant_role_for_tile_request", _record_role_bind
+        ),
+    ):
+        response = await tile_router._acquire_and_serve_tile(
+            request=_bare_request(),
+            db=_RecordingSession(events),
+            dataset_id=dataset_id,
+            table_name="roads",
+            z=0,
+            x=0,
+            y=0,
+            tid=None,
+            schema="data",
+            query_callable=_query,
+            tile_cache=None,
+            cache_key="roads",
+            cache_ttl=60,
+            base_headers={},
+        )
+
+    assert response.status_code == 200
+    assert events == [
+        "pool.acquire",
+        "txn",
+        "set_role",
+        "db.execute",
+        "db.rollback",
+        "tile_query",
+    ], events
+
+
+async def test_a_refused_tile_is_a_404_not_a_service_error():
+    """The pool block maps a broad exception to 503; a refusal must escape that.
+
+    Moving the check inside that block put it under a handler that would have
+    reported the deleted dataset as a tile-service outage, which reads as
+    something to page about and hides the reason the tile was withheld.
+    """
+    events: list[str] = []
+    pool = _RecordingTilePool(events)
+
+    async def _query(_pool, _conn):  # pragma: no cover - must never run
+        raise AssertionError("the relation was read after the catalog refused")
+
+    with (
+        patch.object(tile_router, "get_tile_pool", lambda: pool),
+        patch.object(tile_router, "set_tenant_role_for_tile_request", AsyncMock()),
+        pytest.raises(HTTPException) as excinfo,
+    ):
+        await tile_router._acquire_and_serve_tile(
+            request=_bare_request(),
+            db=_RecordingSession(events, registered=False),
+            dataset_id=uuid.uuid4(),
+            table_name="roads",
+            z=0,
+            x=0,
+            y=0,
+            tid=None,
+            schema="data",
+            query_callable=_query,
+            tile_cache=None,
+            cache_key="roads",
+            cache_ttl=60,
+            base_headers={},
+        )
+
+    assert excinfo.value.status_code == 404

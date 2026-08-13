@@ -2028,7 +2028,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
-#   tiles/router.py 2341 -> 2438. fix(#1451): +97 for `_assert_dataset_still_registered`
+#   tiles/router.py 2341 -> 2452. fix(#1451): +111 for `_assert_dataset_still_registered`
 #     and its single call site in `_acquire_and_serve_tile`. GH-1443 closed the
 #     half a caller could reach; direct DDL on the `data` schema can still put a
 #     relation under a deleted dataset's name, and the schema-wide default
@@ -2038,7 +2038,13 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     to build — never on a cache hit, which is the round-trip _dataset_cache
 #     exists to avoid. Most of the lines are the docstring recording why the check
 #     sits on the pool path and not in _resolve_dataset_meta, since that placement
-#     is the whole difference between this and the option #1451 ruled out.
+#     is the whole difference between this and the option #1451 ruled out. The
+#     codex round added the placement itself: the probe moved inside the tile
+#     transaction, after the FAIR-01 permit and the pool connection, so it neither
+#     pins an API-pool connection across the 10s capacity wait nor leaves an await
+#     between the check and the read for a delete-plus-recreate to land in. The
+#     HTTPException re-raise beside it keeps a refusal a 404 instead of letting the
+#     broad handler relabel it 503.
 #   tiles/router.py 2329 -> 2341. fix(#1444): +12 of comment, no code. Both
 #     docstrings that GH-1429 left stating "a freed table name is immediately
 #     redrawable" as a live precondition now say GH-1443 removed it, and each
@@ -3088,7 +3094,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2438,
+    "backend/app/processing/tiles/router.py": 2452,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
