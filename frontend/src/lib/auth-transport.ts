@@ -18,6 +18,12 @@ export const AUTH_MODE_HEADER = 'X-GeoLens-Auth-Mode';
 export const CSRF_HEADER = 'X-CSRF-Token';
 export const CSRF_COOKIE_NAME = 'geolens_csrf';
 
+/**
+ * Mount point the refresh cookie is scoped under. The backend derives its
+ * `Path` from the ASGI `root_path`, which `api/main.py` fixes at `/api`.
+ */
+const COOKIE_SCOPED_API_PATH = '/api';
+
 export function cookieAuthAvailable(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -28,7 +34,17 @@ export function cookieAuthAvailable(): boolean {
     // 'same-origin'` withheld the cookie — every session would have stopped
     // refreshing once its access token expired. Resolution handles the
     // relative default correctly too.
-    return new URL(API_BASE, window.location.href).origin === window.location.origin;
+    const base = new URL(API_BASE, window.location.href);
+    if (base.origin !== window.location.origin) return false;
+    // fix(#1446): same origin is necessary but not sufficient — the PATH has to
+    // fall inside the cookie's scope too. FRONTEND_API_BASE_URL is documented
+    // as "URL path or absolute URL", so a deployment can mount the API at, say,
+    // `/geolens-api` behind a rewriting proxy. The cookie would still be scoped
+    // to `/api/auth`, the browser would never send it to `/geolens-api/auth/
+    // refresh/`, and no body token comes back in cookie mode — so the session
+    // would silently stop refreshing. Such deployments stay on the body-token
+    // flow, which works at any mount point.
+    return base.pathname.replace(/\/+$/, '') === COOKIE_SCOPED_API_PATH;
   } catch {
     return false;
   }

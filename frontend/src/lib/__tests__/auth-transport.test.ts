@@ -43,6 +43,27 @@ describe('cookieAuthAvailable', () => {
     vi.resetModules();
   });
 
+  // fix(#1446): the backend scopes the cookie under its fixed `/api` root_path,
+  // so a same-origin base mounted elsewhere gets a cookie the browser never
+  // sends — and cookie mode returns no body token to fall back on.
+  it('is false for a same-origin base mounted outside the cookie scope', async () => {
+    vi.doMock('@/lib/constants', () => ({ API_BASE: '/geolens-api' }));
+    vi.resetModules();
+    const mod = await import('@/lib/auth-transport');
+    expect(mod.cookieAuthAvailable()).toBe(false);
+    vi.doUnmock('@/lib/constants');
+    vi.resetModules();
+  });
+
+  it('tolerates a trailing slash on the default base', async () => {
+    vi.doMock('@/lib/constants', () => ({ API_BASE: '/api/' }));
+    vi.resetModules();
+    const mod = await import('@/lib/auth-transport');
+    expect(mod.cookieAuthAvailable()).toBe(true);
+    vi.doUnmock('@/lib/constants');
+    vi.resetModules();
+  });
+
   it('is true for a protocol-relative base that resolves to this origin', async () => {
     vi.doMock('@/lib/constants', () => ({
       API_BASE: `//${window.location.host}/api`,
