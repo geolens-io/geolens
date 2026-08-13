@@ -61,10 +61,10 @@ async def _reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> N
             await asyncio.gather(*(storage.delete(key) for key in keys))
 
 
-async def _relation_exists(
+async def _relation_oid(
     session: AsyncSession, table_name: str, *, schema: str
-) -> bool:
-    """Whether a relation of this name currently exists in ``schema``.
+) -> int | None:
+    """The oid of the relation holding this name in ``schema``, or None.
 
     pg_catalog rather than information_schema, for the reason
     ``generate_table_name``'s collision probe gives: the SQL standard filters
@@ -72,16 +72,22 @@ async def _relation_exists(
     a role that does not own the relation can be blind to exactly the one
     being asked about. pg_class is visible to every role and covers every
     relation kind that can hold the name.
+
+    fix(#1456): returns the oid rather than a bare bool so ONE probe answers
+    both questions the delete asks — whether anything still occupies the name,
+    and which relation occupies it. `relname` is unique within a namespace, so
+    there is at most one row. None is the only "absent" answer; an oid is
+    never 0, but callers ask `is None` because that is the actual question.
     """
     result = await session.execute(
         text(
-            "SELECT EXISTS ("
-            " SELECT 1 FROM pg_catalog.pg_class c"
+            "SELECT c.oid FROM pg_catalog.pg_class c"
             " JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace"
-            " WHERE n.nspname = :schema AND c.relname = :table_name)"
+            " WHERE n.nspname = :schema AND c.relname = :table_name"
         ).bindparams(schema=schema, table_name=table_name)
     )
-    return bool(result.scalar())
+    oid = result.scalar()
+    return None if oid is None else int(oid)
 
 
 class DependentVrtError(Exception):
@@ -156,6 +162,14 @@ async def delete_dataset(
     # disclosure GH-1443 exists to prevent, while an extra one costs an
     # operator a rename before they can re-register.
     name_is_freed = True
+
+    # fix(#1456): the identity of the relation this delete frees, read while it
+    # is still there to read. Stays None wherever no relation held the name —
+    # the raster/VRT branch (whose table_name is the synthetic `raster_<hex>`
+    # and names nothing in the data schema) and a detach whose table the
+    # operator had already dropped. NULL therefore means "nothing to identify",
+    # never "no owner"; see the tombstone insert below.
+    relation_oid: int | None = None
 
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
@@ -235,7 +249,17 @@ async def delete_dataset(
                 "Dataset deletion is missing tenant context in multi-tenant mode"
             )
         data_schema = tenant_data_schema(tenant_id)
+        # fix(#1456): probe ahead of the branch, not inside the detach arm.
+        # After the DROP below the pg_class row is gone within this
+        # transaction, so this is the last moment the dropped relation can be
+        # identified at all — and the detach arm needs the same read it was
+        # already making. One probe, both answers.
+        relation_oid = await _relation_oid(session, table_name, schema=data_schema)
         if owns_table:
+            # Deliberately does NOT feed `name_is_freed`. A missing relation
+            # here means the DROP IF EXISTS is a no-op, not that the name stays
+            # taken: the catalog row going is what frees it. The fail-safe
+            # direction is unchanged — this path always retires.
             await session.execute(
                 text(
                     f"DROP TABLE IF EXISTS "
@@ -245,12 +269,10 @@ async def delete_dataset(
         else:
             # The name stays taken only if the relation is still there. Asked
             # inside this transaction, so a concurrent DROP either committed
-            # before this read (answers False, name retired) or lands after
+            # before this read (answers None, name retired) or lands after
             # it. The latter is the residual noted in the retirement comment
             # below.
-            name_is_freed = not await _relation_exists(
-                session, table_name, schema=data_schema
-            )
+            name_is_freed = relation_oid is None
         # The storage reap below runs either way: `originals/` and `vectors/`
         # hold GeoLens-produced artifacts keyed by dataset id (an archived
         # source, a quicklook), never the operator's table. A detached dataset
@@ -311,20 +333,34 @@ async def delete_dataset(
     # processing/tiles/router.py already documents for any visibility change,
     # not a predecessor's visibility over a different dataset's rows.
     #
-    # ONE residual remains, and closing it needs a schema change this fix does
-    # not make: if the operator drops that relation AFTER this transaction
-    # reads it, the name goes free with no tombstone. Telling "the table I
-    # detached" from "a new table wearing its name" needs the relation's
-    # identity stored on the tombstone (pg_class.oid), so registration could
-    # accept the first and refuse the second while generate_table_name refuses
-    # both. Until then the exposure is an operator dropping their own table
-    # inside the same 60s window in which a new ingest must also draw the name.
+    # ONE residual remains: if the operator drops that relation AFTER this
+    # transaction reads it, the name goes free with no tombstone. Telling "the
+    # table I detached" from "a new table wearing its name" needs the
+    # relation's identity, so registration could accept the first and refuse
+    # the second while generate_table_name refuses both.
+    #
+    # fix(#1456) records that identity but does NOT act on it. The decision
+    # above is unchanged and still keyed on `name_is_freed`; nothing reads
+    # `relation_oid` or `previous_owner_id` yet. The exposure is still an
+    # operator dropping their own table inside the same 60s window in which a
+    # new ingest must also draw the name — what changed is that the data a
+    # future closure needs now exists, and it could not be reconstructed later
+    # because both of its sources die in this transaction.
     if name_is_freed:
         session.add(
             RetiredTableName(
                 table_name=table_name,
                 tenant_id=dataset.tenant_id,
                 dataset_id=dataset_id,
+                # fix(#1456): captured while their sources are alive — the oid
+                # before the DROP above, created_by before the record delete
+                # below. The oid identifies the relation for ONE cluster
+                # lifetime only: pg_dump/pg_restore does not preserve oids, so
+                # after a RUNBOOK restore every stored oid matches nothing and
+                # a consumer must treat it as unknown rather than as a
+                # mismatch. The owner id is the durable half.
+                relation_oid=relation_oid,
+                previous_owner_id=dataset.record.created_by,
             )
         )
 

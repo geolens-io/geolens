@@ -438,6 +438,11 @@ class _MockRecord:
     def __init__(self, title: str, record_type: str):
         self.title = title
         self.record_type = record_type
+        # fix(#1456): delete_dataset copies this onto the retired-name row as
+        # previous_owner_id, reading it before the record is deleted. A real
+        # record's created_by is nullable, and None is the honest value for a
+        # double that never had an owner.
+        self.created_by = None
         self._deleted = False
 
 
@@ -631,6 +636,15 @@ class TestRasterDeleteCascadeRemovesStorage:
 
         async def _capture_execute(stmt, *args, **kwargs):
             executed_sqls.append(str(stmt))
+            # fix(#1456): the vector branch now probes pg_class for the
+            # relation's oid before the DROP, and reads .scalar() off the
+            # result. Returning None here answered every execute with None and
+            # broke on that read. A scalar of None is the honest answer for a
+            # session with no database behind it — no relation is found, so the
+            # tombstone records no identity, which this test does not assert on.
+            result = mock.MagicMock()
+            result.scalar.return_value = None
+            return result
 
         session.execute.side_effect = _capture_execute
 
