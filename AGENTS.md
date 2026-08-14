@@ -81,13 +81,30 @@ Pull requests should describe the change, call out schema/API/config impacts, li
 
 Brand assets (logos, color tokens, font references, brand-usage rules, press materials) live in the sibling [`geolens-io/branding`](https://github.com/geolens-io/branding) repository — not here. When an app feature needs a logo, palette token, or identity element, copy from a tagged branding release rather than re-authoring locally. The propagation order for any change that touches brand identity is **branding → this repo → marketing → docs**. Cross-surface brand canon lives in branding's `BRAND-GUIDE.md`.
 
+## Repository Docs Policy
+
+Keep root repository docs single-purpose:
+
+- `README.md` is the public overview.
+- `SUPPORT.md` is support routing.
+- `CHANGELOG.md` is the release-note source of truth.
+- `EDITIONS.md` is the open-core/commercial boundary. Sanctioned at the root because licensing transparency requires it in-repo (REL-01).
+- `RUNBOOK.md` is the operator backup/restore and disaster-recovery runbook. Sanctioned at the root because a self-hoster must be able to recover offline (BKP-04).
+
+Everything else has a home:
+
+- README images live in `.github/assets/`.
+- Detailed product docs live on docs.getgeolens.com.
+- Contributor-facing architecture and onboarding docs live under `.github/` (e.g. `.github/CONTRIBUTING.md`, `.github/ARCHITECTURE.md`).
+- Private and internal notes stay in ignored `docs-internal/`.
+
+Do not reintroduce a root `docs/` directory, and do not add standalone narrative feature docs that duplicate the docs site.
+
 ## Security & Configuration Tips
 
 Use `.env.example` and `.env.test.example` as templates. Never commit secrets, coverage output, Playwright reports, virtual environments, or dependency directories.
 
 Keep assistant and internal-notes state out of git. `.gitignore` covers AI-assistant and internal directories (e.g. `.claude/`, `.planning/`, `docs-internal/`); if any of those become tracked, untrack them before committing.
-
-Keep root repository docs single-purpose: `README.md` is the public overview, `SUPPORT.md` is support routing, and `CHANGELOG.md` is the release-note source of truth. Two further root docs are sanctioned because product requirements mandate them in-repo: `EDITIONS.md` (the open-core/commercial boundary — required at the repo root for licensing transparency, REL-01) and `RUNBOOK.md` (the operator backup/restore & disaster-recovery runbook — must ship in-repo so a self-hoster can recover offline, BKP-04). README images live in `.github/assets/`, detailed product docs live on docs.getgeolens.com, contributor-facing architecture/onboarding docs live under `.github/` (e.g. `.github/CONTRIBUTING.md`, `.github/ARCHITECTURE.md`), and private/internal notes stay in ignored `docs-internal/`. Do not reintroduce a root `docs/` directory or standalone narrative feature docs that duplicate the docs site.
 
 ### Security pre-commit checklist
 
@@ -111,9 +128,15 @@ Reference implementations:
 
 Any new `httpx.AsyncClient` configured with `follow_redirects=True` MUST be constructed via `make_safe_client()` from `backend/app/platform/security.py` — never directly with `httpx.AsyncClient(follow_redirects=True, ...)`. The factory installs the per-hop `_revalidate_redirect` event hook that re-runs `validate_url_for_ssrf` against every 3xx `Location` header.
 
-The module belongs in `platform/` and must stay there. It is cross-cutting infrastructure that auth, config_ops, catalog, and processing all depend on, and it contains no catalog logic. While it lived at `modules/catalog/sources/security.py` this rule contradicted the layering burndown installed by #435, which listed each `processing/` importer as debt to be routed through `ProcessingPort` — the indirection that would stop the Rule 2 grep hook from matching. Do not move it back under a product domain.
+*Keep `security.py` in `platform/`; do not move it back under a product domain.* It is cross-cutting infrastructure that auth, config_ops, catalog, and processing all depend on, and it contains no catalog logic. While it lived at `modules/catalog/sources/security.py` this rule contradicted the layering burndown installed by #435, which listed each `processing/` importer as debt to be routed through `ProcessingPort`, and that indirection would stop the Rule 2 grep hook from matching.
 
-GDAL and ogr2ogr CANNOT be made redirect-safe from the inside: `GDAL_HTTP_FOLLOWLOCATION` is not a GDAL option (setting it does nothing — #937), and GDAL exposes no option that disables redirect-following. For any GDAL/ogr2ogr/rasterio path the defenses are structural, in this order: (1) prefer never handing a caller-controlled URL to GDAL at all — fetch only managed storage (`/vsis3/`, `/vsiaz/`, local paths with validated keys) and never probe remote sources in-process; (2) where a user-supplied service URL must be fetched (service ingest/preview), `validate_url_for_ssrf` gates it at submission time and residual redirect/DNS-rebinding exposure is bounded operationally (worker egress firewall); (3) subprocess envs come from `gdal_safe_env()` / `gdal_safe_open_env()` in `backend/app/processing/raster/vrt.py`, which apply the real clamps (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS`, `VRT_VIRTUAL_OVERVIEWS`). Never re-add `GDAL_HTTP_FOLLOWLOCATION` anywhere; it reads as a defense and is a no-op.
+*GDAL and ogr2ogr CANNOT be made redirect-safe from the inside.* `GDAL_HTTP_FOLLOWLOCATION` is not a GDAL option, so setting it does nothing (#937), and GDAL exposes no option that disables redirect-following. **Never re-add `GDAL_HTTP_FOLLOWLOCATION` anywhere: it reads as a defense and is a no-op.** No structural test catches this one, so the rule is the only guard.
+
+For any GDAL/ogr2ogr/rasterio path the defenses are structural, in this order:
+
+1. Prefer never handing a caller-controlled URL to GDAL at all. Fetch only managed storage (`/vsis3/`, `/vsiaz/`, local paths with validated keys) and never probe remote sources in-process.
+2. Where a user-supplied service URL must be fetched (service ingest/preview), `validate_url_for_ssrf` gates it at submission time, and residual redirect/DNS-rebinding exposure is bounded operationally (worker egress firewall).
+3. Subprocess envs come from `gdal_safe_env()` / `gdal_safe_open_env()` in `backend/app/processing/raster/vrt.py`, which apply the real clamps (`CPL_VSIL_CURL_ALLOWED_EXTENSIONS`, `VRT_VIRTUAL_OVERVIEWS`).
 
 **Rule 3 — Never reintroduce known-public credential literals**
 
@@ -122,6 +145,13 @@ A handful of demo credential literals leaked through git history when an early d
 **Two distinct enforcement layers:**
 
 - **Python boot guard** (`validate_known_bad_credentials` in `backend/app/core/config.py`): refuses to boot if `JWT_SECRET_KEY`, `GEOLENS_ADMIN_PASSWORD`, or `POSTGRES_PASSWORD` matches a known-public literal. MinIO credentials are **not** `Settings` fields and are **not** inspected by this guard.
-- **MinIO runtime entrypoint guard** (`docker-compose.yml`, minio service): the compose file uses parse-safe `${MINIO_ROOT_USER:-}` references (the old `:?required` syntax aborted `compose config` at parse time even when the cloud-dev profile was inactive, breaking a verbatim-`.env.example` install — INST-01), and the entrypoint refuses to start MinIO when `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` are blank, so it can never silently boot with the well-known `minioadmin` defaults. The operator must supply a non-default value (e.g. via `openssl rand -base64 24`).
+- **MinIO runtime entrypoint guard** (`docker-compose.yml`, minio service): the entrypoint refuses to start MinIO when `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` are blank, so it can never silently boot with the well-known `minioadmin` defaults. The operator must supply a non-default value (e.g. via `openssl rand -base64 24`). The compose file references them as parse-safe `${MINIO_ROOT_USER:-}`; the older `:?required` syntax aborted `compose config` at parse time even when the cloud-dev profile was inactive, which broke a verbatim-`.env.example` install (INST-01).
 
-**Enforcement.** Both Rule 1 and Rule 2 have pre-commit grep hooks in `.pre-commit-config.yaml`. Rule 1's hook matches any `@*router.<verb>` handler that calls `get_dataset(` and greps the file for an access/visibility check (it has no `exclude:` clause); the authoritative per-handler layer is `backend/tests/test_rule1_structural.py` (#822), which walks the FastAPI route table and also covers `db.get`/`select`/service-layer fetch paths plus `processing/` routes. Rule 2's hook covers ONLY the httpx half: it fails any non-excluded file that constructs `httpx.AsyncClient(` while `follow_redirects=True` appears in the file. The GDAL/rasterio half is enforced by `backend/tests/test_rule2_structural.py` (#936), which walks `backend/app/` ASTs and requires every `rasterio.open`/`rasterio.Env` and every GDAL CLI argv to go through the safe-env helpers in `backend/app/processing/raster/vrt.py` or carry an explicit allowlisted justification. Rule 3 is enforced at backend boot — boot-failure is the signal. Standing CodeQL policy (decided 2026-08-03): if the validated-identifier `py/sql-injection` class fires again on an ingest-adjacent PR, adopt the alert-suppression query pack (workflow config plus `# codeql[py/sql-injection]` comments at the `_qtable` sites) instead of another round of manual dismissals.
+**Enforcement.** Both Rule 1 and Rule 2 have pre-commit grep hooks in `.pre-commit-config.yaml`.
+
+- **Rule 1** — the hook matches any `@*router.<verb>` handler that calls `get_dataset(` and greps the file for an access/visibility check (it has no `exclude:` clause). The authoritative per-handler layer is `backend/tests/test_rule1_structural.py` (#822), which walks the FastAPI route table and also covers `db.get`/`select`/service-layer fetch paths plus `processing/` routes.
+- **Rule 2, httpx half** — the hook fails any non-excluded file that constructs `httpx.AsyncClient(` while `follow_redirects=True` appears in the file. This is the ONLY half the hook covers.
+- **Rule 2, GDAL/rasterio half** — `backend/tests/test_rule2_structural.py` (#936) walks `backend/app/` ASTs and requires every `rasterio.open`/`rasterio.Env` and every GDAL CLI argv to go through the safe-env helpers in `backend/app/processing/raster/vrt.py`, or to carry an explicit allowlisted justification.
+- **Rule 3** — enforced at backend boot; boot-failure is the signal.
+
+Standing CodeQL policy (decided 2026-08-03): if the validated-identifier `py/sql-injection` class fires again on an ingest-adjacent PR, adopt the alert-suppression query pack (workflow config plus `# codeql[py/sql-injection]` comments at the `_qtable` sites) instead of another round of manual dismissals.
