@@ -107,8 +107,15 @@ export function assertWorktreeMatchesStack(): void {
 
   // MY changes: merge-base -> working tree. Absent from the stack, so a run
   // reports on code I did not write.
+  //
+  // fix(#1492): --no-renames is load-bearing. With rename detection on,
+  // `--name-only` prints only the destination, so moving frontend/a.ts to
+  // docs/a.ts reports just docs/a.ts — and the served frontend/a.ts, which
+  // still exists in the main checkout, becomes invisible to the guard.
+  // Disabling detection emits the delete and the add separately, which is
+  // exactly the set of touched paths this needs and costs no extra parser.
   const mine = [
-    ...(mergeBase ? gitRaw(['diff', '--name-only', '-z', mergeBase]).split('\0') : []),
+    ...(mergeBase ? gitRaw(['diff', '--name-only', '--no-renames', '-z', mergeBase]).split('\0') : []),
     // Uncommitted changes count: they are equally absent from the stack.
     ...porcelainPaths(gitRaw(['status', '--porcelain', '-z'])),
   ].filter(Boolean);
@@ -122,7 +129,7 @@ export function assertWorktreeMatchesStack(): void {
   // its HEAD. An uncommitted or untracked file there is bind-mounted and being
   // served right now, so resolving only the committed HEAD stayed blind to it.
   const divergent = [
-    ...(mainRef ? gitRaw(['diff', '--name-only', '-z', mainRef]).split('\0') : []),
+    ...(mainRef ? gitRaw(['diff', '--name-only', '--no-renames', '-z', mainRef]).split('\0') : []),
     ...(mainCheckout ? porcelainPaths(gitRaw(['status', '--porcelain', '-z'], mainCheckout)) : []),
   ].filter(Boolean);
   const mineSet = new Set(mine);
