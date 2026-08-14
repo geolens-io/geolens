@@ -1,4 +1,5 @@
-import { execFileSync } from 'node:child_process';
+import { statSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 // fix(#1480): a worktree e2e run silently tests whatever the shared stack is
 // serving, which is the MAIN checkout.
@@ -12,25 +13,33 @@ import { execFileSync } from 'node:child_process';
 // This deliberately does NOT try to work out whether your changes happen to be
 // in the stack. An earlier revision did, comparing git metadata and then file
 // bytes between the two trees, and review found eleven separate ways for that
-// answer to be wrong: rename detection hiding an endpoint, porcelain's leading
-// status column, a missing merge base, HEAD versus working tree, byte-identical
-// branches, collapsed untracked directories, symlinks compared through their
-// targets, and a configurable FRONTEND_PORT. That surface is unbounded because
-// it spans git reporting, filesystem semantics and compose configuration.
+// answer to be wrong. That surface is unbounded: it spans git reporting,
+// filesystem semantics and compose configuration.
 //
-// So it asks the one question it can answer reliably — am I in a linked
-// worktree — and requires an explicit acknowledgement to proceed. Blocking a
-// run that would have been fine costs one environment variable. Allowing a run
-// that reports on code you did not write costs a wrong answer you cannot see.
+// It also does not shell out to git. The first simplification did, and review
+// found that a `rev-parse` failure — an older git without `--path-format`, or a
+// `safe.directory` ownership rejection — turned into an empty string and
+// silently disabled the guard, which is the same false pass in a new costume.
+//
+// Detection is a filesystem fact instead. A linked worktree's `.git` is a FILE
+// containing `gitdir: /…/.git/worktrees/<name>`; the main checkout's `.git` is
+// a DIRECTORY. No subprocess, no git version dependency, no ownership checks,
+// and anything unexpected fails closed.
 
-function git(args: string[]): string {
-  try {
-    return execFileSync('git', args, {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-  } catch {
-    return '';
+type Marker = { dir: string; isDirectory: boolean };
+
+/** Nearest `.git` at or above `start`, or null if there is none. Exported for testing. */
+export function findGitMarker(start: string): Marker | null {
+  let dir = start;
+  for (;;) {
+    try {
+      return { dir, isDirectory: statSync(join(dir, '.git')).isDirectory() };
+    } catch {
+      // no .git here; keep walking up
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return null;
+    dir = parent;
   }
 }
 
@@ -42,19 +51,21 @@ function git(args: string[]): string {
 export function assertWorktreeMatchesStack(): void {
   if (process.env.E2E_ALLOW_WORKTREE) return;
 
-  // Equal in the main checkout; in a linked worktree git-dir is
-  // <common>/worktrees/<name>. Also returns early outside a repo, and in CI,
-  // where the checkout is ordinary and this must never fire.
-  const gitDir = git(['rev-parse', '--absolute-git-dir']);
-  const commonDir = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
-  if (!gitDir || !commonDir || gitDir === commonDir) return;
+  const marker = findGitMarker(process.cwd());
+  // No .git anywhere above us: not a git checkout, so there is no worktree to
+  // confuse. A tarball install is a legitimate case and must keep working.
+  if (marker === null) return;
+  // A real directory is the main checkout, which is what the stack serves.
+  if (marker.isDirectory) return;
+  // Anything else — a .git file (linked worktree, submodule) or an entry we
+  // cannot classify — blocks. Fails closed by construction.
 
   const target = process.env.E2E_BASE_URL ?? 'http://localhost:8080 (default)';
   throw new Error(
     [
       'Refusing to run e2e from a linked git worktree without acknowledgement.',
       '',
-      `  worktree:  ${git(['rev-parse', '--show-toplevel'])}`,
+      `  worktree:  ${marker.dir}`,
       `  target:    ${target}`,
       '',
       "The dev stack bind-mounts the MAIN checkout, so it serves main's code",
