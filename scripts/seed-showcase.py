@@ -4403,38 +4403,6 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         print(f"  [skip] {name} already exists")
         return "(skipped)"
     print("\n[sentinel2] New York From Orbit (COGs by reference)")
-    if force:
-        # fix(#1493 review): --force must RECREATE, not duplicate. The import
-        # endpoint dedupes on source_url and returns status="skipped" WITHOUT
-        # updating origin_ref, so a force-rerun over existing scenes would
-        # stack a second same-named map on top of the old, still-unrefreshable
-        # datasets. Deleting this seeder's own map + scenes first is the only
-        # way a rerun records fresh bindings - which also makes
-        # `--only sentinel2 --force` the supported repair for instances seeded
-        # before item_href was sent.
-        # Enumerate ALL owned maps under this name, not list_maps() - that
-        # helper deliberately collapses a name to one id (newest), and the old
-        # --force behavior could leave several same-named duplicates behind.
-        # Deleting only the newest would cascade the scene datasets' layers
-        # off the survivors and leave empty husk maps in the catalog.
-        stale_maps = [
-            m["id"]
-            for m in api.list_all_maps()
-            if m.get("name") == name
-            and m.get("created_by_username") == api.username
-        ]
-        for map_id in stale_maps:
-            api.delete_map(map_id)
-            print(f"  [force] deleted existing map {map_id}")
-        stale = [
-            d
-            for d in api.list_own_datasets()
-            if d["title"].startswith("Sentinel-2 TCI ")
-        ]
-        for d in stale:
-            api.delete_dataset(d["id"], d["title"])
-        if stale:
-            print(f"  [force] deleted {len(stale)} existing scene datasets")
     # Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s
     # on the SSRF IP-pin against Element84's CloudFront edge). Collection-1
     # (sentinel-2-c1-l2a) supersedes the legacy sentinel-2-l2a collection and
@@ -4517,6 +4485,50 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
             break
     if not items:
         raise RuntimeError("no low-cloud Sentinel-2 TCI items matched the NYC AOI")
+    if force:
+        # fix(#1493 review): --force must RECREATE, not duplicate - the import
+        # endpoint dedupes on source_url and returns status="skipped" WITHOUT
+        # updating origin_ref, so a rerun over existing scenes could never
+        # record fresh bindings. Deleting first is what makes
+        # `--only sentinel2 --force` the supported repair for instances seeded
+        # before item_href was sent. Three deliberate shapes here:
+        #
+        # * Runs AFTER the catalog search succeeded (round 3): a flaky
+        #   Element84 must fail this builder BEFORE it destroys a working
+        #   showcase, not after.
+        # * Enumerates ALL owned maps under the name via list_all_maps()
+        #   (round 2): list_maps() collapses a name to the newest id, and the
+        #   old --force behavior could stack duplicates; deleting only the
+        #   newest would cascade the survivors' layers away and leave husks.
+        # * Deletes only scene datasets ATTACHED to those maps, intersected
+        #   with own+prefix+raster (round 3): a bare title-prefix sweep would
+        #   destroy an operator's unrelated same-prefixed import, and a bare
+        #   attached-layer sweep would destroy a shared context dataset if a
+        #   styling pass ever adds one to this map.
+        stale_maps = [
+            m["id"]
+            for m in api.list_all_maps()
+            if m.get("name") == name
+            and m.get("created_by_username") == api.username
+        ]
+        own_titles = {d["id"]: d["title"] for d in api.list_own_datasets()}
+        doomed: dict[str, str] = {}
+        for map_id in stale_maps:
+            for layer in api.get_map(map_id).get("layers", []):
+                ds_id = layer.get("dataset_id")
+                title = own_titles.get(ds_id, "")
+                if (
+                    layer.get("layer_type") == "raster_geolens"
+                    and title.startswith("Sentinel-2 TCI ")
+                ):
+                    doomed[ds_id] = title
+        for map_id in stale_maps:
+            api.delete_map(map_id)
+            print(f"  [force] deleted existing map {map_id}")
+        for ds_id, title in doomed.items():
+            api.delete_dataset(ds_id, title)
+        if doomed:
+            print(f"  [force] deleted {len(doomed)} attached scene datasets")
     print(f"  importing {len(items)} TCI COGs by reference (no download)...")
     results = api.stac_import(SENTINEL_STAC, items, visibility="public")
     errored = [x for x in results if x.get("status") == "error"]
