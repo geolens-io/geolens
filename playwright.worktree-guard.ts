@@ -100,6 +100,14 @@ export function assertWorktreeMatchesStack(): void {
     '';
   const mainRef = servedRef;
   const mergeBase = mainRef ? git(['merge-base', 'HEAD', mainRef]) : '';
+  // fix(#1492): an orphan or otherwise unrelated branch has NO merge base, and
+  // `git merge-base` then exits non-zero with no output. Diffing against
+  // nothing dropped every committed change out of `mine`, so a changed
+  // frontend/ file fell through to `stale` and only warned. With no common
+  // ancestor there is no way to tell my divergence from the served tree's, so
+  // compare against the served tree directly and treat all of it as mine,
+  // which fails CLOSED.
+  const mineBase = mergeBase || mainRef;
   // Human label for messages; mainRef itself is a 40-char sha and unreadable.
   const branch = mainCheckout ? git(['rev-parse', '--abbrev-ref', 'HEAD'], mainCheckout) : '';
   const servedLabel =
@@ -115,7 +123,7 @@ export function assertWorktreeMatchesStack(): void {
   // Disabling detection emits the delete and the add separately, which is
   // exactly the set of touched paths this needs and costs no extra parser.
   const mine = [
-    ...(mergeBase ? gitRaw(['diff', '--name-only', '--no-renames', '-z', mergeBase]).split('\0') : []),
+    ...(mineBase ? gitRaw(['diff', '--name-only', '--no-renames', '-z', mineBase]).split('\0') : []),
     // Uncommitted changes count: they are equally absent from the stack.
     ...porcelainPaths(gitRaw(['status', '--porcelain', '-z'])),
   ].filter(Boolean);
