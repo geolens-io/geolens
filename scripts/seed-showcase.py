@@ -4553,6 +4553,28 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
                     and title.startswith("Sentinel-2 TCI ")
                 ):
                     doomed[ds_id] = title
+        if doomed:
+            # fix(#1493 review round 5): a scene someone layered into ANY
+            # other map is not ours to cascade away - keep it and say so. The
+            # kept scene then rides the dedupe skip-fallback below if the
+            # fresh search reselects its asset (reattached, still
+            # unrefreshable, and flagged [origin_unavailable] by the
+            # seed-end refresh report) - visible partial repair over silent
+            # imagery loss in an unrelated map. Rewiring the other map's
+            # layer to the replacement was rejected: mutating a map this
+            # seeder does not own is the same overreach in a different coat.
+            stale_set = set(stale_maps)
+            for m in api.list_all_maps():
+                if m["id"] in stale_set or not doomed:
+                    continue
+                for layer in api.get_map(m["id"]).get("layers", []):
+                    ds_id = layer.get("dataset_id")
+                    if ds_id in doomed:
+                        print(
+                            f"  [force] keeping scene {doomed[ds_id]!r} - "
+                            f"also layered in map {m.get('name', m['id'])!r}"
+                        )
+                        doomed.pop(ds_id)
         for map_id in stale_maps:
             api.delete_map(map_id)
             print(f"  [force] deleted existing map {map_id}")
