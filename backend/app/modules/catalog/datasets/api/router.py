@@ -377,7 +377,11 @@ async def update_dataset_metadata(
             resource_id=dataset_id,
             # exclude_unset, not exclude_none: an explicit null clear
             # (#458 E-04) must appear in the audit/history details.
-            details=meta.model_dump(exclude_unset=True),
+            # fix(#1484): mode="json" — details lands in a JSONB column that
+            # serializes with stdlib json.dumps, and data_vintage_start/end are
+            # real date objects. A python-mode dump raised at flush time and
+            # rolled back the record UPDATE staged above it.
+            details=meta.model_dump(mode="json", exclude_unset=True),
             ip_address=request.client.host if request.client else None,
         ),
     )
