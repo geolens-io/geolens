@@ -6,7 +6,7 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
-.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
+.PHONY: dev dev-init down reset-db migrate migration alembic-check overlay-migration-check test test-sequential test-cov env-test ai-evals e2e logs logs-db logs-api status doctor preflight openapi openapi-check sdks sdks-check sdks-test manifest-contract-check publish-sdks-py publish-sdks-ts cli-build cli-test cli-check publish-cli mcp-build mcp-test mcp-live-test publish-mcp audit-sink-discipline billing-extraction-discipline catalog-domain-discipline bump version-check public-surface-check deployed-surface-check
 
 # Pre-flight: verify boot-required env vars are non-empty in .env before any
 # `docker compose` build (which takes 5-10 minutes on a cold cache only to crash
@@ -84,9 +84,30 @@ test-sequential:
 test-cov:
 	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv COVERAGE_FILE=/app/staging/.coverage uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short --cov=app --cov-report=term-missing
 
+# Bootstrap the host-side test env file. `.env.test` is gitignored, so a fresh
+# clone starts without it and so does every new worktree. The documented host
+# pytest recipe then dies on missing env vars before collecting anything, with
+# a non-zero exit that reads exactly like a gate failure and is not one.
+# Idempotent: an existing .env.test is left alone, never overwritten.
+env-test:
+	@if [ -f .env.test ]; then \
+		echo ".env.test already exists, leaving it alone"; \
+	else \
+		cp .env.test.example .env.test; \
+		echo "created .env.test from .env.test.example"; \
+	fi
+
 # Live-provider AI evals (assertion-based NL->SQL regression suite). Skipped
 # in normal test runs; costs real provider tokens. Needs the dev DB up and
 # ANTHROPIC_API_KEY (or the configured provider's key) in the environment.
+#
+# fix(#1481): the `if [ -f ... ]` guard below is load-bearing. Do NOT make this
+# target depend on env-test, and do not source the file unconditionally.
+# .env.test.example ships POSTGRES_PASSWORD=geolens, while `make dev-init`
+# generates a RANDOM one into .env (SEC-010). Sourcing the template under
+# `set -a` exports the public default over the real password, and the evals can
+# no longer authenticate against the dev DB. With no .env.test present,
+# Settings loads .env directly and the credentials match.
 ai-evals:
 	cd backend && set -a && if [ -f ../.env.test ]; then . ../.env.test; fi && set +a && RUN_AI_EVALS=1 uv run pytest tests/evals/ -v
 

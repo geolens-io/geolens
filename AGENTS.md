@@ -25,7 +25,7 @@ The React/Vite frontend is in `frontend/src/`: `components/`, `pages/`, `hooks/`
 - Frontend: `cd frontend && npx vitest run src/path/foo.test.ts`.
 - E2E: `npx playwright test e2e/foo.spec.ts --project=chromium` (stack must be running).
 
-A focused selection is blind to the module-size gates. `backend/tests/test_layering.py` caps the size of the largest backend modules, and CI runs it on every PR that triggers `backend-test`, so a change that adds lines to a ratcheted file passes locally and fails there. If you touched anything under `backend/app/`, finish with `cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_layering.py -q`; it needs no database, but it does boot `app.core.config`, so a bare run dies on missing env vars with a non-zero exit before collecting anything — which reads exactly like a gate failure and is not one. In a fresh clone `.env.test` does not exist yet (it is gitignored); create it once with `cp .env.test.example .env.test` from the repo root. Growth is allowed — raise the file's cap in `_MODULE_LOC_CAPS` in the same commit, with a comment saying what the lines bought.
+A focused selection is blind to the module-size gates. `backend/tests/test_layering.py` caps the size of the largest backend modules, and CI runs it on every PR that triggers `backend-test`, so a change that adds lines to a ratcheted file passes locally and fails there. If you touched anything under `backend/app/`, finish with `cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_layering.py -q`; it needs no database, but it does boot `app.core.config`, so a bare run dies on missing env vars with a non-zero exit before collecting anything — which reads exactly like a gate failure and is not one. In a fresh clone `.env.test` does not exist yet (it is gitignored); create it once with `make env-test` from the repo root. Growth is allowed — raise the file's cap in `_MODULE_LOC_CAPS` in the same commit, with a comment saying what the lines bought.
 
 ### Working from a git worktree
 
@@ -33,7 +33,7 @@ The dev stack bind-mounts the MAIN checkout (`./frontend` → `/app`, and `backe
 
 One exception: a spec-only change (editing `e2e/*.spec.ts` with no app-code change) is validly testable from a worktree, because Playwright reads the specs from your worktree while the app code stays byte-identical to `main`.
 
-The host backend recipe above is also unrunnable verbatim from a worktree — the sandbox refuses `source` on a path outside the worktree and denies reading `.env*`. Copy `.env.test` into the worktree instead (it is gitignored; delete it when you are done) and run pytest from a wrapper script.
+The host backend recipe above is also unrunnable verbatim from a worktree — the sandbox refuses `source` on a path outside the worktree and denies reading `.env*`. Run `make env-test` inside the worktree instead (it is gitignored; delete it when you are done) and run pytest from a wrapper script.
 
 ## Architecture
 
