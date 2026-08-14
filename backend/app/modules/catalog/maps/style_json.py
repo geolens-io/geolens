@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from typing import Any
@@ -426,6 +427,26 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
             "minzoom": 1,
             "maxzoom": 22 if is_cluster else 14,
         }
+    # fix(#1472 review): the dataset's required credit, on the common tail so
+    # vector, raster, and raster-dem all carry it and a fourth source type
+    # cannot be added without it. An exported style is a published artifact
+    # handed to third parties and rendered outside this instance entirely,
+    # which is precisely where a source's display obligation binds — MapLibre
+    # reads `attribution` off the source and shows it in whatever attribution
+    # control the consuming application mounts.
+    if layer.dataset_attribution and layer.dataset_attribution.strip():
+        # fix(#1472 review): HTML-escaped. The MapLibre style spec's
+        # `attribution` is an HTML string — every basemap uses it to carry a
+        # link — and the consuming application assigns it to innerHTML, so this
+        # export hands a third party a render context we do not control. The
+        # write paths already reject `<` and `>` (core.text.reject_html_markup),
+        # which leaves this escaping only the ampersand in a name like
+        # "Rand & McNally"; that is correct for the HTML target and is what
+        # keeps a value written before that guard, or by a direct database
+        # write, inert instead of live markup.
+        source["attribution"] = html.escape(
+            layer.dataset_attribution.strip(), quote=False
+        )
     source["metadata"] = {
         "geolens": {
             "dataset_id": str(layer.dataset_id),

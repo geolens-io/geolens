@@ -12,6 +12,7 @@ import {
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { useTileTokens, useInvalidateTileTokens } from '@/hooks/use-tile-token';
@@ -554,6 +555,10 @@ export const BuilderMap = memo(function BuilderMap({
       minzoom: token.minzoom,
       maxzoom: token.maxzoom,
       bounds: token.bounds,
+      // fix(#1472 review): a terrain-mode DEM has no visible layer, so the
+      // attributed source its adapter created is unreferenced and MapLibre
+      // does not count it. This one is counted through usedForTerrain.
+      attribution: toMapLibreAttribution(demLayer.dataset_attribution),
     });
     map.setTerrain({
       source: TERRAIN_SOURCE_ID,

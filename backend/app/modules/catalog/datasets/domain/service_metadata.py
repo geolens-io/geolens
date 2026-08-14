@@ -100,6 +100,7 @@ _RECORD_FIELD_MAP: dict[str, str] = {
     "title": "title",
     "summary": "summary",
     "license": "license",
+    "attribution": "attribution",
     "source_organization": "source_organization",
     "data_vintage_start": "temporal_start",
     "data_vintage_end": "temporal_end",

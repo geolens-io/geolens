@@ -39,7 +39,12 @@ import { resolveAdapterType, prefixed, getDataDrivenColumnsForLayer } from '@/co
 import { applyMapBasemapAppearance, syncMapComposition } from '@/components/builder/map-composition-sync';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { asFeatureCollection, fetchBoundedGeoJson } from '@/api/geojson-z';
-import { createViewerLayerEntries, isTerrainBackingLiveVisible } from '@/components/viewer/layer-identity';
+import {
+  attributionControlKey,
+  collectLayerAttributions,
+  createViewerLayerEntries,
+  isTerrainBackingLiveVisible,
+} from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, isClusterRenderMode, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { effectiveDemRenderMode } from '@/lib/dem-render-mode';
 import { AccessibleMapDataPanel } from '@/components/viewer/AccessibleMapDataPanel';
@@ -184,6 +189,12 @@ export const ViewerMap = memo(function ViewerMap({
   // the <MapGL projection> site for why it must never change after mount.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const layerEntries = useMemo(() => createViewerLayerEntries(layers), [layers]);
+  // feat(#1472): the visible layers' required credit lines, for the attribution
+  // control below.
+  const layerAttributions = useMemo(
+    () => collectLayerAttributions(layers, visibleLayers),
+    [layers, visibleLayers],
+  );
 
   // Tile token management (fetch, auto-refresh, error toast)
   const { tokenMap, refreshTokens } = useViewerTokens({ layers, apiKey, embedToken });
@@ -1058,7 +1069,21 @@ export const ViewerMap = memo(function ViewerMap({
           <TerrainControl source="terrain-dem" position="top-right" />
         )}
         <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
-        <AttributionControl position="bottom-right" compact={true} />
+        {/* feat(#1472): the `key` is load-bearing, not cosmetic. react-maplibre's
+            useControl builds the control once with `useMemo(…, [])`, so a
+            changed `customAttribution` prop never reaches MapLibre. Keying on
+            the credit set remounts the control (removeControl + addControl)
+            exactly when that set changes, and not on any other render.
+            attributionControlKey owns the derivation so its injectivity can be
+            tested directly — see the note there. */}
+        <AttributionControl
+          key={attributionControlKey(layerAttributions)}
+          position="bottom-right"
+          compact={true}
+          customAttribution={
+            layerAttributions.length > 0 ? layerAttributions : undefined
+          }
+        />
         {popupInfo && (
           <FeaturePopup
             longitude={popupInfo.longitude}

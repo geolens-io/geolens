@@ -157,6 +157,11 @@ class Record(Base):
     title: Mapped[str] = mapped_column(Text, nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     license: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # feat(#1472): the credit line a source's terms require to be displayed
+    # wherever the data is rendered (swisstopo swissALTI3D, NOAA ETOPO). Distinct
+    # from license (the terms themselves) and from source_organization (a facet
+    # value): this is verbatim text the viewer puts in the attribution control.
+    attribution: Mapped[str | None] = mapped_column(Text, nullable=True)
     # source_organization: the entity that published or provided the data (used in facets/search)
     source_organization: Mapped[str | None] = mapped_column(Text, nullable=True)
     # owner_org: the entity that owns the data (governance/provenance, not used in search)

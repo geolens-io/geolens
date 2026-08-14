@@ -65,6 +65,7 @@ class MapLayerResponse:
         tile_version (int | None | Unset):
         dataset_visibility (None | str | Unset):
         dataset_status (None | str | Unset):
+        dataset_attribution (None | str | Unset):
     """
 
     id: UUID
@@ -100,6 +101,7 @@ class MapLayerResponse:
     tile_version: int | None | Unset = UNSET
     dataset_visibility: None | str | Unset = UNSET
     dataset_status: None | str | Unset = UNSET
+    dataset_attribution: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -263,6 +265,12 @@ class MapLayerResponse:
         else:
             dataset_status = self.dataset_status
 
+        dataset_attribution: None | str | Unset
+        if isinstance(self.dataset_attribution, Unset):
+            dataset_attribution = UNSET
+        else:
+            dataset_attribution = self.dataset_attribution
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -316,6 +324,8 @@ class MapLayerResponse:
             field_dict["dataset_visibility"] = dataset_visibility
         if dataset_status is not UNSET:
             field_dict["dataset_status"] = dataset_status
+        if dataset_attribution is not UNSET:
+            field_dict["dataset_attribution"] = dataset_attribution
 
         return field_dict
 
@@ -609,6 +619,17 @@ class MapLayerResponse:
 
         dataset_status = _parse_dataset_status(d.pop("dataset_status", UNSET))
 
+        def _parse_dataset_attribution(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_attribution = _parse_dataset_attribution(
+            d.pop("dataset_attribution", UNSET)
+        )
+
         map_layer_response = cls(
             id=id,
             dataset_id=dataset_id,
@@ -639,6 +660,7 @@ class MapLayerResponse:
             tile_version=tile_version,
             dataset_visibility=dataset_visibility,
             dataset_status=dataset_status,
+            dataset_attribution=dataset_attribution,
         )
 
         map_layer_response.additional_properties = d

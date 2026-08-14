@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getEnvConfig } from '@/lib/env';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
@@ -29,6 +30,11 @@ interface UseMapLayersOptions {
   mapRef: React.RefObject<MaplibreMap | null>;
   /** Column name containing height/elevation data for 3D extrusion (polygon datasets only) */
   elevationColumn?: string | null;
+  /** fix(#1472 review): the dataset's required credit line. Applied as the
+   *  MapLibre source `attribution`, which the map's default attribution control
+   *  reads off whichever sources are live — the preview map has no explicit
+   *  control to pass `customAttribution` to. */
+  attribution?: string | null;
 }
 
 export function useMapLayers({
@@ -42,9 +48,13 @@ export function useMapLayers({
   mvtSourceLayerReady = true,
   mapRef,
   elevationColumn,
+  attribution,
 }: UseMapLayersOptions) {
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
+  // fix(#1472 review): escaped once for both source specs below — MapLibre
+  // renders attribution as innerHTML. See lib/attribution-safety.
+  const safeAttribution = toMapLibreAttribution(attribution);
 
   const addVectorLayers = useCallback(
     (map: MaplibreMap) => {
@@ -62,6 +72,7 @@ export function useMapLayers({
           tiles: [buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion)],
           minzoom: 1,
           maxzoom: 22,
+          ...(safeAttribution ? { attribution: safeAttribution } : {}),
         });
 
         const upperType = geometryType.toUpperCase();
@@ -201,7 +212,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
-    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn],
+    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn, safeAttribution],
   );
 
   // DatasetMap's load event can precede the settings request. Re-run the
@@ -241,6 +252,7 @@ export function useMapLayers({
           tileSize: 256,
           minzoom: 0,
           maxzoom: 22,
+          ...(safeAttribution ? { attribution: safeAttribution } : {}),
         });
         map.addLayer({
           id: 'raster-layer',
@@ -253,7 +265,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
-    [rasterTileUrl, tileVersion],
+    [rasterTileUrl, tileVersion, safeAttribution],
   );
 
   const addOverlaySource = useCallback((map: MaplibreMap) => {

@@ -43,7 +43,8 @@ export type SourceQualityDraftField =
   | 'usage_constraints'
   | 'access_constraints'
   | 'sensitivity_classification'
-  | 'quality_statement';
+  | 'quality_statement'
+  | 'attribution';
 
 export type SourceQualityDraftValues = Record<SourceQualityDraftField, string>;
 
@@ -427,6 +428,35 @@ export function SourceQualityTab({
               <p className="text-sm">{dataset.license}</p>
             </div>
           )}
+
+          {/* feat(#1472): attribution sits beside license because it is the
+              same obligation seen from the other side — license names the
+              terms, this is the credit those terms require on display. Unlike
+              license it is editable, so an operator can add a credit line a
+              source started requiring without re-ingesting the data. */}
+          <div className="space-y-1" data-field-anchor="attribution">
+            <Label className="text-sm font-medium text-muted-foreground">
+              {t('metadata.attribution')}
+            </Label>
+            {renderReadFirstField('attribution', draftValues.attribution, capabilities.attribution.editable, (
+              <EditableFieldShell capability={capabilities.attribution} testId="editable-field-shell-attribution">
+                <InlineEdit
+                  value={draftValues.attribution}
+                  onSave={(val) => onDraftSave('attribution', val)}
+                  allowClear
+                  as="p"
+                  multiline
+                  canEdit={capabilities.attribution.editable}
+                  placeholder={t('metadata.attributionPlaceholder')}
+                  className="text-sm"
+                  onDirtyChange={(isDirty) => onDraftDirtyChange('attribution', isDirty)}
+                />
+              </EditableFieldShell>
+            ), t('metadata.attribution'))}
+            <p className="text-xs text-muted-foreground">
+              {t('metadata.attributionHelp')}
+            </p>
+          </div>
 
           <div className="space-y-1">
             <Label className="text-sm font-medium text-muted-foreground">

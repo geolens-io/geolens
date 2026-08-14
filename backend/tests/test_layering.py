@@ -1730,7 +1730,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#1178 review): -5 — the check body moved into the shared
         # inherited_keyword_disclosure_warning helper so the publication
         # status endpoints run it too. Cap 483 -> 478, exact.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 478,
+        # feat(#1472): +1 — the `attribution` entry in _RECORD_FIELD_MAP, which
+        # is all the PATCH needs: the field is a plain scalar on the record, so
+        # _apply_simple_field_assignments already gives it PATCH semantics and
+        # explicit-null clearing. Cap 478 -> 479, exact.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 479,
         # fix(#435 codex r1): +6 LOC in get_dataset_rows to probe schema existence
         # before degrading a 42P01 to an empty page. Postgres reports a missing
         # tenant data schema with the same code as a raster dataset's synthetic
@@ -1982,7 +1986,17 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # into a quietly missing layer in a hosted export.
     # fix(#1372): +5 — exported raster/DEM sources carry ?v=<tile_cache_version>
     # so external MapLibre consumers roll the shared nginx cache on replace.
-    "backend/app/modules/catalog/maps/style_json.py": 1620,
+    # fix(#1472 review): +9 — dataset_attribution on exported sources. Placed on
+    # _source_for_layer's common tail rather than in each branch, so vector,
+    # raster, and raster-dem carry it and a fourth source type cannot be added
+    # without it. Cap 1620 -> 1629, exact.
+    # fix(#1472 review): +12 — HTML-escape the exported credit. The style spec's
+    # `attribution` is an HTML string the consuming application renders, so this
+    # export hands a third party a context we do not control; the lines are
+    # mostly the note recording that the write guard already keeps `<`/`>` out,
+    # which leaves this escaping the ampersand and covering a value written
+    # before that guard existed. Cap 1629 -> 1641, exact.
+    "backend/app/modules/catalog/maps/style_json.py": 1641,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
@@ -2205,7 +2219,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1109 review): -10 — the nested-dict walker is gone; the check reads
     # direct property values only, because a `stops` key inside an expression
     # operand is data, not a legacy function. Cap 1379 -> 1369, still exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1369,
+    # feat(#1472): +8 — dataset_attribution on the three layer read models
+    # (DatasetMetaKwargs, MapLayerResponse, SharedLayerResponse) plus the notes
+    # recording that the shared/embed response carries it deliberately: that is
+    # the surface a source's display obligation most needs to reach, because it
+    # is the one shown to people outside the instance. Cap 1369 -> 1377, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1377,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip
@@ -2460,7 +2479,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # docstring recording why `refresh_attribute_metadata` is right to leave
     # that row alone for every other caller, and why the null check lives
     # inside the helper. Cap 2139 -> 2178, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2178,
+    # feat(#1472): +29 — `apply_manifest_record_metadata`, the read-back for the
+    # manifest metadata `manifest_job_metadata` had been writing into the job
+    # ledger and nobody consumed. It lives here rather than in either tail
+    # because the vector tail (below) and the raster tail (tasks_raster, which
+    # already imports `_parse_temporal_fields` from this module) both need it
+    # and would otherwise each grow their own copy. Most of the lines are the
+    # docstring recording why only the manifest-namespaced keys are copied:
+    # title/summary/visibility reach the record through create_dataset's own
+    # arguments on every ingest path, so touching them here would change
+    # non-manifest ingests, and why `record` is duck-typed rather than annotated
+    # `Record` (the annotation would add the processing -> modules.catalog edge
+    # ProcessingPort exists to keep out). Cap 2178 -> 2207, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2207,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2495,7 +2526,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cannot evade; the comment records that, and why it mutates the exception
     # in place rather than raising a replacement (the class is load-bearing for
     # the error-code mapping below it). Cap 1125 -> 1139, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1139,
+    # fix(#1472 review): +12 — apply the manifest ledger's credit line on the
+    # reupload swap. A manifest re-apply with a changed fingerprint classifies
+    # as "update" and lands here rather than on either fresh-ingest tail, so
+    # without it the swap installed new data under the previous manifest's
+    # credit. Most of the lines are the comment recording why this path is the
+    # only reupload one that needs it and why dataset.record is safe to touch
+    # (joinedloaded by the SELECT above it). Cap 1139 -> 1151, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1151,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -2925,7 +2963,21 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # -16 — dead-code sweep: DatasetCreate deleted. The request schema had
     # zero references across backend/cli/mcp/sdks/frontend — creation uses
     # CreateEmptyDatasetRequest instead. Cap 1468 -> 1452, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1452,
+    # feat(#1472): +21 — `attribution` on DatasetResponse and DatasetMeta, plus
+    # the NFC-normalization entry. The lines are mostly the note on the PATCH
+    # field's max_length: 5000 rather than the 1000 its neighbours use, because
+    # ManifestMetadata.attribution is NonEmptyString5000 and the ingest tail
+    # writes it straight to the column, so a 1000 bound here would accept a
+    # manifest value the dataset PATCH then refuses to round-trip.
+    # Cap 1452 -> 1473, exact.
+    # fix(#1472 review): +10 — the markup guard on `attribution`. It is the one
+    # field in this schema that reaches an HTML render context (MapLibre's
+    # attribution control assigns it to innerHTML, and MapLibre's own sanitizer
+    # keeps img/iframe/style), so it is the one that must stay plain text. The
+    # rule itself lives in core.text.reject_html_markup, shared with the
+    # manifest schema; these lines are the field_validator and the note saying
+    # why only this field carries it. Cap 1473 -> 1483, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1483,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

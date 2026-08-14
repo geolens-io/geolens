@@ -47,6 +47,7 @@ from app.processing.ingest.tasks_common import (
     _run_service_import_with_wfs_fallback,
     _run_staging_pipeline,
     _validate_upload_file_safety,
+    apply_manifest_record_metadata,
     invalidate_tile_cache_for_table,
     resolve_service_type,
     task_app,
@@ -430,6 +431,17 @@ async def reupload_file(
                 # a registered table or a service import.
                 origin_ref={"filename": source_filename, "file_hash": file_hash},
             )
+            # fix(#1472 review): a manifest re-apply whose fingerprint changed
+            # classifies as "update" and lands on THIS path (manifest updates
+            # are vector-file reuploads — _validate_existing_dataset_update
+            # rejects every other shape), carrying the manifest's current
+            # metadata.attribution in the reupload job's ledger. Without this
+            # the swap installs the new data and leaves the old credit on it,
+            # which is worse than a missing one: it names a source the bytes no
+            # longer came from. `dataset.record` is joinedloaded on this path,
+            # so no lazy load runs here, and this is the swap's own transaction.
+            apply_manifest_record_metadata(dataset.record, user_metadata)
+
             # Captured pre-commit: the ORM attribute may be expired after commit.
             live_table_name = dataset.table_name
 

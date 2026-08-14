@@ -57,6 +57,7 @@ class SharedLayerResponse:
         is_3d (bool | None | Unset):
         feature_count (int | None | Unset):
         tile_version (int | None | Unset):
+        dataset_attribution (None | str | Unset):
     """
 
     id: str
@@ -84,6 +85,7 @@ class SharedLayerResponse:
     is_3d: bool | None | Unset = UNSET
     feature_count: int | None | Unset = UNSET
     tile_version: int | None | Unset = UNSET
+    dataset_attribution: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -209,6 +211,12 @@ class SharedLayerResponse:
         else:
             tile_version = self.tile_version
 
+        dataset_attribution: None | str | Unset
+        if isinstance(self.dataset_attribution, Unset):
+            dataset_attribution = UNSET
+        else:
+            dataset_attribution = self.dataset_attribution
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -254,6 +262,8 @@ class SharedLayerResponse:
             field_dict["feature_count"] = feature_count
         if tile_version is not UNSET:
             field_dict["tile_version"] = tile_version
+        if dataset_attribution is not UNSET:
+            field_dict["dataset_attribution"] = dataset_attribution
 
         return field_dict
 
@@ -477,6 +487,17 @@ class SharedLayerResponse:
 
         tile_version = _parse_tile_version(d.pop("tile_version", UNSET))
 
+        def _parse_dataset_attribution(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        dataset_attribution = _parse_dataset_attribution(
+            d.pop("dataset_attribution", UNSET)
+        )
+
         shared_layer_response = cls(
             id=id,
             dataset_id=dataset_id,
@@ -503,6 +524,7 @@ class SharedLayerResponse:
             is_3d=is_3d,
             feature_count=feature_count,
             tile_version=tile_version,
+            dataset_attribution=dataset_attribution,
         )
 
         shared_layer_response.additional_properties = d

@@ -77,6 +77,7 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
             tile_version=None,
             dataset_visibility=None,
             dataset_status=None,
+            dataset_attribution=None,
         )
     return DatasetMetaKwargs(
         dataset_name=meta.title,
@@ -94,6 +95,7 @@ def _meta_to_kwargs(meta) -> DatasetMetaKwargs:
         tile_version=meta.tile_version,
         dataset_visibility=meta.visibility,
         dataset_status=meta.record_status,
+        dataset_attribution=meta.attribution,
     )
 
 
@@ -143,6 +145,7 @@ def _build_layer_response(
         tile_version=meta.get("tile_version"),
         dataset_visibility=meta.get("dataset_visibility"),
         dataset_status=meta.get("dataset_status"),
+        dataset_attribution=meta.get("dataset_attribution"),
     )
 
 
@@ -167,6 +170,7 @@ def _layers_from_tuples(layer_rows: list[LayerRow]) -> list[MapLayerResponse]:
                 tile_version=row.tile_version,
                 dataset_visibility=row.visibility,
                 dataset_status=row.record_status,
+                dataset_attribution=row.attribution,
             ),
         )
         for row in layer_rows

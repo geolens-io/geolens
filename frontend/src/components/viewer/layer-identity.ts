@@ -1,4 +1,5 @@
 import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 
 export interface ViewerLayerIdentityInput {
   id?: string | null;
@@ -57,4 +58,53 @@ export function isTerrainBackingLiveVisible<
   if (!backing) return true;
   const entry = createViewerLayerEntries(layers).find((e) => e.layer === backing);
   return entry ? visibleLayers.has(entry.key) : true;
+}
+
+/**
+ * feat(#1472): the distinct credit lines the currently visible layers' datasets
+ * require, in stacking order, for MapLibre's attribution control.
+ *
+ * Scoped to `visibleLayers` — the live eye-toggle state, the same set the
+ * legend and the terrain-mesh gate read — rather than the saved `visible`
+ * flag, so hiding a layer drops its credit and showing it again restores it.
+ * A credit for data nobody can currently see is the wrong claim to make.
+ *
+ * Deduped by exact string: two layers ingested from one source carry the same
+ * line and must credit it once. MapLibre additionally drops any entry that is
+ * a substring of another and merges the result with the basemap's own credits,
+ * so this returns the raw distinct set rather than trying to pre-compose it.
+ */
+/**
+ * React `key` for the viewer's AttributionControl, derived from the credit set.
+ *
+ * react-maplibre's `useControl` builds the control once with `useMemo(…, [])`,
+ * so a changed `customAttribution` prop never reaches MapLibre; remounting on a
+ * changed key is what makes the prop live. That makes this function's
+ * injectivity load-bearing: any two distinct credit sets that collide here are
+ * two sets a toggle can move between without the control updating.
+ *
+ * fix(#1472 review): `JSON.stringify`, not a `join`. A credit containing the
+ * separator collided — `['A|B']` and `['A', 'B']` both yielded `A|B`.
+ */
+export function attributionControlKey(credits: string[]): string {
+  return `attribution-${JSON.stringify(credits)}`;
+}
+
+export function collectLayerAttributions<
+  T extends ViewerLayerIdentityInput & { dataset_attribution?: string | null },
+>(layers: T[] | undefined, visibleLayers: Set<string>): string[] {
+  const seen = new Set<string>();
+  const credits: string[] = [];
+  for (const { layer, key } of createViewerLayerEntries(layers)) {
+    if (!visibleLayers.has(key)) continue;
+    // fix(#1472 review): escaped here, not at the control. MapLibre renders
+    // attribution as innerHTML and its sanitizer leaves img/iframe/style
+    // standing — see lib/attribution-safety. Deduping AFTER escaping keeps one
+    // credit one entry regardless of which form it arrived in.
+    const credit = toMapLibreAttribution(layer.dataset_attribution);
+    if (!credit || seen.has(credit)) continue;
+    seen.add(credit);
+    credits.push(credit);
+  }
+  return credits;
 }

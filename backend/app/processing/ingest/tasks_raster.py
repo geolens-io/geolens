@@ -46,6 +46,7 @@ from app.processing.ingest.tasks_common import (
     _job_phase_session,
     _parse_temporal_fields,
     _validate_upload_file_safety,
+    apply_manifest_record_metadata,
     reap_downloaded_staging_source,
     reap_presigned_staging_object,
     task_app,
@@ -438,6 +439,11 @@ async def ingest_raster(
                     visibility=um.get("visibility", "private"),
                     record_status=um.get("record_status", "published"),
                 )
+
+            # feat(#1472): the manifest's credit line. Covers both branches
+            # above — a manifest raster and a manifest-driven VRT alike, since
+            # neither create_*_dataset takes the field.
+            apply_manifest_record_metadata(record, um)
 
             # 9b. Set temporal fields on Record (N5 extraction to _parse_temporal_fields).
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(

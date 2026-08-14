@@ -2851,6 +2851,12 @@ export type DatasetMeta = {
      */
     license?: string | null;
     /**
+     * Attribution
+     *
+     * Credit line displayed with the data. Null clears it; the ingest tail seeds it from a manifest's metadata.attribution.
+     */
+    attribution?: string | null;
+    /**
      * Source Organization
      */
     source_organization?: string | null;
@@ -3296,6 +3302,12 @@ export type DatasetResponse = {
      * License
      */
     license?: string | null;
+    /**
+     * Attribution
+     *
+     * Credit line the source's terms require to be displayed wherever the data is rendered. Shown verbatim in the map viewer's attribution control.
+     */
+    attribution?: string | null;
     /**
      * Source Organization
      */
@@ -5835,6 +5847,10 @@ export type MapLayerResponse = {
      * Dataset Status
      */
     dataset_status?: string | null;
+    /**
+     * Dataset Attribution
+     */
+    dataset_attribution?: string | null;
 };
 
 /**
@@ -8943,6 +8959,10 @@ export type SharedLayerResponse = {
      * Tile Version
      */
     tile_version?: number | null;
+    /**
+     * Dataset Attribution
+     */
+    dataset_attribution?: string | null;
 };
 
 /**

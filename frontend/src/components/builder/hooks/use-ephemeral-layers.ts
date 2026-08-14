@@ -79,6 +79,14 @@ export function useEphemeralLayers(
       }
       if (map.getSource(EPHEMERAL_SOURCE)) map.removeSource(EPHEMERAL_SOURCE);
 
+      // fix(#1472 review): deliberately carries no `attribution`, unlike every
+      // other dataset-backed source in the builder. This renders the OUTPUT of
+      // a spatial operation, not a dataset — the geometry is computed, the
+      // result is transient (cleared on the next run and never persisted or
+      // exported), and the hook receives only the result GeoJSON, with no
+      // handle on which input datasets produced it. Crediting derived analysis
+      // output is a real question, but it belongs with the analysis feature
+      // that knows its inputs, not here.
       map.addSource(EPHEMERAL_SOURCE, {
         type: 'geojson',
         data: ephemeralResult.geojson,

@@ -19,6 +19,7 @@ import {
 } from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
@@ -85,9 +86,9 @@ function absolutizeTileUrl(tileUrl: string) {
 }
 
 function sourceSpec(source: unknown) {
-  return (source as { serialize?: () => { tiles?: string[]; bounds?: number[]; tileSize?: number; minzoom?: number; maxzoom?: number } } | null)
+  return (source as { serialize?: () => { tiles?: string[]; bounds?: number[]; tileSize?: number; minzoom?: number; maxzoom?: number; attribution?: string } } | null)
     ?.serialize?.()
-    ?? (source as { tiles?: string[]; bounds?: number[]; tileSize?: number; minzoom?: number; maxzoom?: number } | null)
+    ?? (source as { tiles?: string[]; bounds?: number[]; tileSize?: number; minzoom?: number; maxzoom?: number; attribution?: string } | null)
     ?? {};
 }
 
@@ -106,6 +107,19 @@ export function ensureRasterDemTerrainSource(
     minzoom?: number | null;
     maxzoom?: number | null;
     bounds?: number[] | null;
+    /** fix(#1472 review): the backing DEM's required credit. Load-bearing on
+     *  the BUILDER path only, and only because a terrain-mode DEM has no
+     *  visible layer: `isDemTerrainVisualSuppressed` suppresses it, so nothing
+     *  references the attributed raster-dem source the adapter created and
+     *  MapLibre's `used` flag for it is false. This source is a different id
+     *  (TERRAIN_SOURCE_ID) and is counted through `usedForTerrain`, so without
+     *  the credit here a DEM used purely as terrain renders its relief
+     *  uncredited — swissALTI3D, the example in #1472, is exactly that shape.
+     *  The viewer passes nothing: it credits through customAttribution off its
+     *  layer list, and in the one case that list misses (a share-token embed
+     *  whose DEM row was filtered out, where terrain still seeds from the
+     *  raster token) there is no layer object to read a credit from at all. */
+    attribution?: string | null;
   } = {},
 ) {
   const sourceId = options.sourceId ?? TERRAIN_SOURCE_ID;
@@ -122,6 +136,11 @@ export function ensureRasterDemTerrainSource(
       || existingSpec.tileSize !== (options.tileSize ?? 256)
       || existingSpec.minzoom !== (options.minzoom ?? 0)
       || existingSpec.maxzoom !== (options.maxzoom ?? 18)
+      // fix(#1472 review): a changed credit replaces the source. Unlike the
+      // GeoJSON case above there is no data to drop — this source carries only
+      // a tile template — so the swap is cheap and keeps the terrain credit
+      // live across an edit.
+      || existingSpec.attribution !== (options.attribution ?? undefined)
     );
 
   if (shouldReplace) {
@@ -137,6 +156,7 @@ export function ensureRasterDemTerrainSource(
       minzoom: options.minzoom ?? 0,
       maxzoom: options.maxzoom ?? 18,
       ...(bounds ? { bounds } : {}),
+      ...(options.attribution ? { attribution: options.attribution } : {}),
       encoding: 'mapbox',
     });
   }
@@ -243,6 +263,18 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     // fix(#394) VT-02 (codex P2): without this the builder's `_v=` read below
     // always saw undefined — the cache-buster only flowed on the viewer path.
     tile_version: layer.tile_version,
+    // fix(#1472 review): the builder's half of the attribution feature. It has
+    // no explicit <AttributionControl> to hand `customAttribution` to (and
+    // react-maplibre reads the <Map attributionControl> option once at mount),
+    // so the builder credits through MapLibre's native source-level mechanism —
+    // the field MVT-05 built here and left unfed. MapLibre recomputes the
+    // control from sources whose `used` flag is live, so hiding every layer on
+    // a source drops its credit without any code of ours running.
+    //
+    // Deliberately NOT mirrored in toViewerSyncInput: the viewer owns an
+    // explicit control and passes customAttribution, and feeding both would be
+    // two mechanisms answering one question.
+    attribution: toMapLibreAttribution(layer.dataset_attribution),
     // MVT-06: surface the dataset spatial extent so the vector source can bound
     // tile fetching to the data footprint (the raster path already passes bounds).
     // fix(#1112): this is the RFC 7946 spec form now — `west > east` on an
@@ -989,20 +1021,47 @@ function ensureVectorSource(
   const layerMinzoom = (layerLayout['_minzoom'] as number) ?? 0;
   const layerMaxzoom = (layerLayout['_maxzoom'] as number) ?? 22;
 
+  // fix(#1472 review): hoisted above the GeoJSON branch so BOTH source kinds
+  // this function can create read one definition. It was declared inside the
+  // vector-tile block, which is why the two GeoJSON sources below shipped
+  // uncredited: a 3D dataset at or under the GeoJSON-Z threshold, and a bounded
+  // client-side cluster layer, are the two shapes that never reach that block.
+  const attribution = typeof layer.attribution === 'string' && layer.attribution.length > 0
+    ? layer.attribution
+    : undefined;
+
   if (useGeoJsonSource) {
     const geojsonData = geojsonDataMap!.get(layer.id)!;
     adapterInput.sourceType = 'geojson';
     if (!map.getSource(sourceId)) {
       if (canUseBoundedCluster) {
-        map.addSource(sourceId, { type: 'geojson', data: geojsonData, cluster: true, ...clusterOptions });
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: geojsonData,
+          cluster: true,
+          ...clusterOptions,
+          ...(attribution ? { attribution } : {}),
+        });
         clusterStore.set(sourceId, desiredClusterSignature ?? '');
       } else {
-        map.addSource(sourceId, { type: 'geojson', data: geojsonData });
+        map.addSource(sourceId, {
+          type: 'geojson',
+          data: geojsonData,
+          ...(attribution ? { attribution } : {}),
+        });
         clusterStore.delete(sourceId);
       }
       adapter.addLayers(map, adapterInput);
     } else {
       const src = map.getSource(sourceId);
+      // fix(#1472 review): setData carries data only — MapLibre reads a GeoJSON
+      // source's `attribution` at construction and exposes no setter, so an
+      // attribution edited mid-session does not reach a source already on the
+      // map. Accepted rather than engineered around: the alternative is
+      // remove-and-re-add, which drops the rendered features and refetches, and
+      // the credit is correct again on the next load of the builder. Every
+      // PUBLISHED surface (viewer, share, embed, exported style) re-reads the
+      // field per render or per request and is never stale.
       if (src && src.type === 'geojson') (src as GeoJSONSource).setData(geojsonData);
       // A second layer sharing this dataset's source (the SF-04 dedupe) hits this
       // branch even though its own layer was never added. syncPaint no-ops when the
@@ -1018,11 +1077,9 @@ function ensureVectorSource(
   if (!map.getSource(sourceId)) {
     const needsLineMetrics = lineGradientNeededFor(sourceId, allLayers, prefix);
     // MVT-06: bound tile fetching to the dataset footprint. MVT-05: surface the
-    // dataset attribution string when available.
+    // dataset attribution string when available (hoisted above the GeoJSON
+    // branch — see the note there).
     const bounds = normalizeRasterBounds(layer.bounds);
-    const attribution = typeof layer.attribution === 'string' && layer.attribution.length > 0
-      ? layer.attribution
-      : undefined;
     // lineMetrics is sticky per D-02 (255-CONTEXT.md): we only set it at source CREATE time.
     const vectorSpec: VectorSourceSpecification = {
       type: 'vector',
@@ -1238,6 +1295,8 @@ export function syncLayersToMap(
         sourceLayer,
         tileUrl: '',
         style_config: layer.style_config ?? null,
+        // fix(#1472 review): reaches the raster / raster-dem source specs.
+        attribution: layer.attribution ?? null,
       };
 
       const rasterToken = token?.kind === 'raster' ? token : rasterTokenFromLayer(layer);

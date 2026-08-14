@@ -239,6 +239,11 @@ export interface DatasetResponse {
   extent_bbox: number[] | null;
   column_info: { name: string; type: string; semantic_role?: string | null; domain_type?: string | null }[] | null;
   license: string | null;
+  /** feat(#1472): credit line the source's terms require to be displayed
+   * wherever the data is rendered. Shown verbatim in the viewer's attribution
+   * control — distinct from `license` (the terms) and `source_organization`
+   * (a search facet). */
+  attribution: string | null;
   source_organization: string | null;
   data_vintage_start: string | null;
   data_vintage_end: string | null;
@@ -338,6 +343,7 @@ export interface DatasetUpdateRequest {
   summary?: string;
   visibility?: DatasetVisibility;
   license?: string;
+  attribution?: string | null;
   source_organization?: string;
   data_vintage_start?: string;
   data_vintage_end?: string;
@@ -1263,6 +1269,9 @@ export interface MapLayerResponse {
   band_count?: number | null;
   /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
   tile_version?: number | null;
+  /** feat(#1472): the backing dataset's required credit line, for the viewer's
+   * MapLibre attribution control. */
+  dataset_attribution?: string | null;
 }
 
 export interface MapResponse {
@@ -1487,6 +1496,9 @@ export interface SharedLayerResponse {
   feature_count?: number | null;
   /** fix(#394) VT-02: dataset content version — `_v=` tile-URL cache-buster. */
   tile_version?: number | null;
+  /** feat(#1472): the backing dataset's required credit line (viewer parity
+   * with MapLayerResponse.dataset_attribution). */
+  dataset_attribution?: string | null;
 }
 
 export interface SharedMapResponse {

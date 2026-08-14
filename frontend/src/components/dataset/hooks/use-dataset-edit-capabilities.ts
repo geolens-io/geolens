@@ -12,6 +12,7 @@ export type DatasetEditField =
   | 'access_constraints'
   | 'sensitivity_classification'
   | 'quality_statement'
+  | 'attribution'
   | 'data_vintage_start'
   | 'data_vintage_end'
   | 'theme_category'
@@ -50,6 +51,9 @@ export const EDITABLE_FIELDS: DatasetEditField[] = [
   'access_constraints',
   'sensitivity_classification',
   'quality_statement',
+  // feat(#1472): editable so an operator can add or correct a required credit
+  // line without re-ingesting. `license` beside it stays read-only.
+  'attribution',
   'data_vintage_start',
   'data_vintage_end',
   'theme_category',

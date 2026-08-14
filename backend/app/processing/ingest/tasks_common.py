@@ -362,6 +362,31 @@ def _parse_temporal_fields(
     return parsed_start, parsed_end, errors
 
 
+def apply_manifest_record_metadata(record: Any, user_metadata: dict | None) -> None:
+    """Copy manifest-supplied catalog metadata onto a freshly created record.
+
+    ``record`` is duck-typed rather than annotated ``Record``: importing the
+    catalog ORM class here would add a ``processing`` -> ``modules.catalog``
+    edge, which is the dependency ``ProcessingPort`` exists to keep out.
+
+    feat(#1472): ``manifest_job_metadata`` writes ``metadata.attribution`` into
+    the job ledger at apply time, but nothing read it back, so a credit line an
+    operator supplied to satisfy a source's terms was accepted and then dropped.
+    This is the read-back, called once per ingest tail after the record exists
+    and before the phase transaction commits.
+
+    Only the manifest-namespaced keys are copied. The un-namespaced ``title`` /
+    ``summary`` / ``visibility`` keys stay where they are, applied through
+    ``create_dataset``'s own arguments, because non-manifest ingests (upload,
+    service, STAC) set those too and this helper must be a no-op for them.
+    """
+    if not user_metadata:
+        return
+    attribution = user_metadata.get("manifest_attribution")
+    if isinstance(attribution, str) and attribution.strip():
+        record.attribution = attribution.strip()
+
+
 @asynccontextmanager
 async def _job_phase_session(
     job_uuid: uuid.UUID,
@@ -1471,6 +1496,10 @@ async def _finalize_ingest(ctx: IngestContext):
     dataset.record.record_status = final_status
     if final_status != "published":
         dataset.record.published_at = None
+
+    # feat(#1472): the manifest's credit line, which create_dataset has no
+    # argument for. Same transaction as the record it annotates.
+    apply_manifest_record_metadata(dataset.record, user_metadata)
 
     # feat(#1218): system-managed origin pointer, in the same transaction that
     # creates the dataset. Service ingest supplies the enriched URL through

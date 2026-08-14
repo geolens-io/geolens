@@ -7233,6 +7233,11 @@ export interface components {
             visibility?: ("private" | "restricted" | "internal" | "public") | null;
             /** License */
             license?: string | null;
+            /**
+             * Attribution
+             * @description Credit line displayed with the data. Null clears it; the ingest tail seeds it from a manifest's metadata.attribution.
+             */
+            attribution?: string | null;
             /** Source Organization */
             source_organization?: string | null;
             /**
@@ -7586,6 +7591,11 @@ export interface components {
             column_info?: components["schemas"]["ColumnInfo"][] | null;
             /** License */
             license?: string | null;
+            /**
+             * Attribution
+             * @description Credit line the source's terms require to be displayed wherever the data is rendered. Shown verbatim in the map viewer's attribution control.
+             */
+            attribution?: string | null;
             /** Source Organization */
             source_organization?: string | null;
             /**
@@ -9432,6 +9442,8 @@ export interface components {
             dataset_visibility?: string | null;
             /** Dataset Status */
             dataset_status?: string | null;
+            /** Dataset Attribution */
+            dataset_attribution?: string | null;
         };
         /** MapListResponse */
         MapListResponse: {
@@ -11762,6 +11774,8 @@ export interface components {
             feature_count?: number | null;
             /** Tile Version */
             tile_version?: number | null;
+            /** Dataset Attribution */
+            dataset_attribution?: string | null;
         };
         /** SharedMapResponse */
         SharedMapResponse: {

@@ -19,6 +19,7 @@ const BASE: DatasetResponse = {
     { name: 'geom', type: 'geometry' },
   ],
   license: null,
+  attribution: null,
   source_organization: null,
   data_vintage_start: null,
   data_vintage_end: null,

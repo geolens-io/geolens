@@ -581,6 +581,7 @@ export function DatasetPage() {
                 recordType={dataset.record_type}
                 rasterTileUrl={dataset.raster?.tile_url}
                 tileVersion={dataset.updated_at}
+                attribution={dataset.attribution}
                 onFeatureClick={setReadOnlyFeatureGid}
                 {...(tracksHero ? {
                   onMapReady,

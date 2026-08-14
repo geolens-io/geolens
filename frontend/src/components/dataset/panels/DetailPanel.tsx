@@ -94,6 +94,7 @@ export function DetailPanel(props: DetailPanelProps) {
     access_constraints: resolveDraftValue('access_constraints'),
     sensitivity_classification: resolveDraftValue('sensitivity_classification'),
     quality_statement: resolveDraftValue('quality_statement'),
+    attribution: resolveDraftValue('attribution'),
   }), [resolveDraftValue]);
 
   return (

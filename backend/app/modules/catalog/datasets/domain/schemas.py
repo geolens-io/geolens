@@ -15,6 +15,7 @@ from pydantic import (
 
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
+from app.core.text import reject_html_markup as _reject_markup
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 
@@ -291,6 +292,14 @@ class DatasetResponse(BaseModel):
         default=None, description="Column names, types, and stats"
     )
     license: str | None = None
+    attribution: str | None = Field(
+        default=None,
+        description=(
+            "Credit line the source's terms require to be displayed wherever "
+            "the data is rendered. Shown verbatim in the map viewer's "
+            "attribution control."
+        ),
+    )
     source_organization: str | None = None
     data_vintage_start: date | None = Field(
         default=None, description="Start of temporal coverage"
@@ -569,6 +578,18 @@ class DatasetMeta(BaseModel):
         description="Access level: private, restricted, internal, or public",
     )
     license: str | None = Field(default=None, max_length=1000)
+    # feat(#1472): 5000, not the 1000 its neighbours use, because
+    # ManifestMetadata.attribution is NonEmptyString5000 and the ingest tail
+    # writes it straight to the column. A 1000-char bound here would accept a
+    # manifest value the dataset PATCH then refuses to round-trip.
+    attribution: str | None = Field(
+        default=None,
+        max_length=5000,
+        description=(
+            "Credit line displayed with the data. Null clears it; the ingest "
+            "tail seeds it from a manifest's metadata.attribution."
+        ),
+    )
     source_organization: str | None = Field(default=None, max_length=1000)
     data_vintage_start: date | None = Field(
         default=None, description="Start of temporal coverage"
@@ -662,11 +683,21 @@ class DatasetMeta(BaseModel):
         "lineage_summary",
         "quality_statement",
         "source_organization",
+        "attribution",
         mode="before",
     )
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
+    # fix(#1472 review): attribution is the one field here that reaches an
+    # HTML render context (MapLibre's attribution control assigns it to
+    # innerHTML), so it is the one that must stay markup-free. See
+    # reject_html_markup for why MapLibre's own sanitizer is not a defense.
+    @field_validator("attribution")
+    @classmethod
+    def attribution_is_not_markup(cls, v: str | None) -> str | None:
+        return _reject_markup(v)
 
 
 # Prefer the semantically precise name in new Python call sites while retaining

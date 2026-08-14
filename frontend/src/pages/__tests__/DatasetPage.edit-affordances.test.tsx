@@ -187,6 +187,7 @@ function makeDataset(): DatasetResponse {
     extent_bbox: [-180, -90, 180, 90],
     column_info: [{ name: 'name', type: 'text' }],
     license: null,
+    attribution: null,
     source_organization: 'Natural Earth',
     data_vintage_start: null,
     data_vintage_end: null,

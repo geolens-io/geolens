@@ -958,6 +958,7 @@ class DatasetMetaKwargs(TypedDict, total=False):
     tile_version: int | None
     dataset_visibility: str | None
     dataset_status: str | None
+    dataset_attribution: str | None
 
 
 class MapLayerResponse(BaseModel):
@@ -997,6 +998,9 @@ class MapLayerResponse(BaseModel):
     # dataset is hidden from a public/shared map's anonymous audience.
     dataset_visibility: str | None = None
     dataset_status: str | None = None
+    # feat(#1472): the dataset's required credit line, so the viewer can put it
+    # in MapLibre's attribution control alongside the basemap's.
+    dataset_attribution: str | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -1201,6 +1205,10 @@ class SharedLayerResponse(BaseModel):
     # fix(#394) VT-02: dataset content version for the `_v=` tile cache-buster
     # (viewer parity with MapLayerResponse.tile_version).
     tile_version: int | None = None
+    # feat(#1472): viewer parity with MapLayerResponse.dataset_attribution. The
+    # shared/embed viewer is the surface a license's display obligation most
+    # needs to reach, since it is the one shown to people outside the instance.
+    dataset_attribution: str | None = None
 
 
 class SharedMapResponse(BaseModel):
