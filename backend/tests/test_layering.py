@@ -2179,7 +2179,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # boot-time callers deliberately stay synchronous, so a future review
     # round reads the asymmetry as intentional rather than a missed sibling.
     # Cap 1386 -> 1389, exact.
-    "backend/app/api/main.py": 1389,
+    # fix(#1470): +77 — _register_standards_head_routes, the derived-route pass
+    # that makes HEAD answer wherever the CORS preflight advertises it, and
+    # _clone_api_route, the ~25-kwarg route copy it now shares with
+    # _add_trailing_slash_aliases (which previously spelled that list inline).
+    # HEAD was 405 on all 48 standards GET routes; deriving both surfaces from
+    # standards_api_path is what stops them drifting again, and is why this is
+    # one pass here rather than 48 decorator edits across five routers.
+    # Cap 1389 -> 1466, exact.
+    "backend/app/api/main.py": 1466,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

@@ -210,6 +210,91 @@ async def test_anonymous_standards_cors_default_is_read_only(client, monkeypatch
     assert "access-control-allow-origin" not in credentialed.headers
 
 
+async def test_head_is_served_wherever_the_preflight_advertises_it(client, monkeypatch):
+    """fix(#1470): the preflight said HEAD was allowed; the route said 405.
+
+    ``_set_public_standards_cors_headers`` answers a standards preflight with
+    ``GET, HEAD, POST, OPTIONS``, so a browser client that trusts it sent HEAD
+    and got ``405 allow: GET``. Both surfaces are now derived from
+    ``standards_api_path``.
+
+    ``_is_origin_allowed`` is stubbed for the same reason the sibling CORS
+    test above stubs it, and it is load-bearing rather than tidy: a real
+    lookup populates ``cors._origins_cache``, a module global with a 30s TTL
+    and no invalidation on settings write. Under ``pytest -n 4`` that cache
+    outlives this test and makes ``test_persistent_config.py::
+    test_cors_preflight_returns_200`` read a stale origin set and 405 — which
+    is exactly how it failed on this PR's first CI run.
+    """
+
+    async def _deny_origin(_self, _origin):
+        return False
+
+    monkeypatch.setattr(
+        "app.api.middleware.cors.DynamicCORSMiddleware._is_origin_allowed",
+        _deny_origin,
+    )
+
+    preflight = await client.options(
+        "/collections",
+        headers={
+            "Origin": "https://client.example",
+            "Access-Control-Request-Method": "HEAD",
+            "Access-Control-Request-Headers": "Accept",
+        },
+    )
+    assert preflight.status_code == 200
+    assert "HEAD" in preflight.headers["access-control-allow-methods"]
+
+    for path in ("/collections", "/", "/conformance", "/stac", "/datasets/dcat/"):
+        head = await client.head(path)
+        get = await client.get(path)
+        assert head.status_code == 200, path
+        assert head.status_code == get.status_code, path
+        assert head.headers.get("content-type") == get.headers.get("content-type"), path
+        assert head.content == b"", path
+        assert get.content, path
+
+
+async def test_head_stays_off_non_standards_routes(client):
+    """The pass is scoped by the same classifier, not applied app-wide."""
+    response = await client.head("/datasets/")
+    assert response.status_code == 405
+    assert "HEAD" not in response.headers.get("allow", "")
+
+
+async def test_standards_405_allow_header_reports_head(client):
+    """A 405 must enumerate what the surface answers, HEAD included.
+
+    HEAD is registered as a separate route (see
+    ``_register_standards_head_routes``), and starlette builds ``Allow`` from
+    the first partial match — the GET-only canonical route — so the header
+    understated the surface until the standards error handler restated it.
+    """
+    for path in ("/conformance", "/collections", "/stac"):
+        response = await client.request("PUT", path)
+        assert response.status_code == 405, path
+        methods = {m.strip() for m in response.headers["allow"].split(",")}
+        assert methods == {"GET", "HEAD"}, path
+
+    # Scoped: a native route's 405 keeps the methods it actually serves.
+    native = await client.request("PUT", "/datasets/")
+    assert native.status_code == 405
+    assert "HEAD" not in native.headers.get("allow", "")
+
+
+async def test_standards_router_errors_keep_problem_details(client):
+    """The 405 handler binds starlette's base class, not fastapi's subclass.
+
+    Routers raise fastapi's ``HTTPException``, which must keep resolving to
+    the problem+json handler — registering a base-class handler beside it
+    would be a silent contract change if MRO lookup preferred the general one.
+    """
+    response = await client.get("/collections/00000000-0000-0000-0000-000000000000")
+    assert response.status_code == 404
+    assert response.headers["content-type"].startswith("application/problem+json")
+
+
 # --- Conformance endpoint tests ---
 
 
