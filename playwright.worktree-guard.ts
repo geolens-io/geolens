@@ -67,6 +67,14 @@ export const porcelainPaths = (out: string): string[] => {
   return paths.filter(Boolean);
 };
 
+/** Paths reported as untracked (`??`) by `git status --porcelain -z`. */
+export const porcelainUntracked = (out: string): string[] =>
+  out
+    .split('\0')
+    .filter((e) => e.startsWith('??'))
+    .map((e) => e.slice(3))
+    .filter(Boolean);
+
 /**
  * Throws when this worktree's changes are absent from the stack under test.
  * Call from the top level of every Playwright config.
@@ -143,10 +151,25 @@ export function assertWorktreeMatchesStack(): void {
   const mineSet = new Set(mine);
   const stale = divergent.filter((p) => !mineSet.has(p));
 
+  // fix(#1492): divergence from the served tree is the ground truth; the
+  // merge-base delta only CLASSIFIES it for the message. Blocking straight off
+  // the delta rejected byte-identical worktrees: when main and this branch make
+  // the same change independently, the path appears in the delta while the two
+  // files are identical and the run is perfectly valid.
+  //
+  // `git diff` cannot see untracked files, so mine's untracked entries are
+  // folded in separately — those are real divergence, being absent from the
+  // served tree entirely.
+  const reallyDifferent = new Set([
+    ...divergent,
+    ...porcelainUntracked(gitRaw(['status', '--porcelain', '-z'])),
+  ]);
+  const mineDivergent = mine.filter((p) => reallyDifferent.has(p));
+
   const hits = (paths: string[], prefixes: string[]) =>
     [...new Set(paths.filter((p) => prefixes.some((s) => p.startsWith(s))))];
-  const frontend = hits(mine, FRONTEND_PATHS);
-  const backend = hits(mine, BACKEND_PATHS);
+  const frontend = hits(mineDivergent, FRONTEND_PATHS);
+  const backend = hits(mineDivergent, BACKEND_PATHS);
 
   if (frontend.length === 0 && backend.length === 0) {
     // Nothing of mine is missing from the stack, so a run is still meaningful.
