@@ -513,12 +513,21 @@ PINNED_DATASET_TITLES = (
     "NYC Subway Lines (MTA)",  # title derives data.nyc_subway_lines_mta - NEVER rename
     "NYC Subway Stations (MTA)",
     "swissALTI3D Matterhorn DEM (2m mosaic)",
-    # Visitor-uploaded on the demo, never created by this seeder - pinned because
-    # the geolens-examples MCP transcripts quote it, so a prune that deletes it
-    # breaks a published walkthrough. The 08-14 prune dry run listed it for
-    # deletion; this entry is what keeps --execute from doing that.
-    "MNMAP_PLUTO",
 )
+
+# Pinned titles the seeder did NOT create and expects a VISITOR to own.
+# MNMAP_PLUTO is hand-uploaded on the demo, and the geolens-examples MCP
+# transcripts quote it, so a prune that deletes it breaks a published
+# walkthrough - the 08-14 dry run listed it for deletion, which is what this
+# tuple exists to prevent. A separate tuple rather than an entry above because
+# the two classes carry OPPOSITE ownership expectations: the three above are
+# admin-created, so a foreign copy is by definition a title-squatter and is
+# reported as one; for these, foreign ownership IS the expected state, and no
+# ownership signal can tell the genuine visitor upload from a squatting one -
+# so every dataset bearing the title is hard-kept and counted as pinned, and
+# over-keeping a squatter is the accepted cost (deleting the real one breaks
+# the walkthrough; keeping a fake one frees nothing).
+PINNED_FOREIGN_DATASET_TITLES = ("MNMAP_PLUTO",)
 
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
@@ -2157,6 +2166,7 @@ def _showcase_dataset_titles() -> set[str]:
     hand-uploaded dataset on a list that reads like a deletion candidate.
     """
     titles = set(SHOWCASE_METADATA) | set(PINNED_DATASET_TITLES) | set(RETIRED_DATASETS)
+    titles |= set(PINNED_FOREIGN_DATASET_TITLES)
     titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_TITLE}
     titles |= {
         "World States & Provinces (Natural Earth 1:50m)",
@@ -2218,7 +2228,14 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     foreign_datasets, stray_datasets, pinned, pinned_impostors = [], [], [], []
     ownerless_datasets = []
     for d in api.list_all_datasets():
-        if d.get("title") in PINNED_DATASET_TITLES:
+        if d.get("title") in PINNED_FOREIGN_DATASET_TITLES:
+            # Hard-kept whoever owns it, and counted as genuinely pinned even
+            # though the owner is not the admin: foreign ownership is this
+            # class's EXPECTED state (see the tuple), so the impostor split
+            # below would misfile the real dataset as a squatter and invite
+            # the manual deletion the pin exists to prevent.
+            pinned.append(d)
+        elif d.get("title") in PINNED_DATASET_TITLES:
             # Never in the delete set, whoever owns it. A title is not proof of
             # identity though: titles are explicitly non-unique here, so a
             # visitor can upload something called "NYC Subway Lines (MTA)" and
@@ -2267,9 +2284,11 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
       and KEPT. The live demo carries hand-uploaded datasets that predate this
       script, and deleting one because this file has never heard of it is
       exactly the accident this split prevents.
-    * Three datasets are hard-kept whoever owns them (PINNED_DATASET_TITLES):
-      they are referenced from outside this repo by id or by the table name
-      their title derives.
+    * Pinned datasets are hard-kept whoever owns them: PINNED_DATASET_TITLES
+      (referenced from outside this repo by id or by the table name their title
+      derives) and PINNED_FOREIGN_DATASET_TITLES (visitor-uploaded content that
+      published walkthroughs quote; foreign ownership is their expected state,
+      so they count as pinned rather than as impostors).
     * Collections are reported only, never deleted - a collection is a label
       over datasets, so deleting one destroys curation while freeing nothing.
 
