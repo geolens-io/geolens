@@ -1,4 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertWorktreeMatchesStack } from './playwright.worktree-guard';
+
+// fix(#1480): every config must call this, not just playwright.config.ts —
+// this one is selected with `-c` by `npm run e2e:smoke:builder-hardening`.
+assertWorktreeMatchesStack();
 
 export default defineConfig({
   testDir: './e2e',
