@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { lstatSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 // fix(#1480): a worktree e2e run silently tests whatever the shared stack is
@@ -26,16 +26,36 @@ import { dirname, join } from 'node:path';
 // a DIRECTORY. No subprocess, no git version dependency, no ownership checks,
 // and anything unexpected fails closed.
 
-type Marker = { dir: string; isDirectory: boolean };
+export type Marker = { dir: string; kind: 'directory' | 'file' | 'unreadable' };
 
-/** Nearest `.git` at or above `start`, or null if there is none. Exported for testing. */
+// fix(#1492) round thirteen: ONLY "there is nothing here" may continue the
+// walk. An earlier revision caught every stat error and walked past, so an
+// inaccessible or dangling `.git` allowed the run — the same fail-open the git
+// version had, relocated to the filesystem, and contradicting this module's
+// own claim that unclassifiable entries block.
+const NOT_HERE = new Set(['ENOENT', 'ENOTDIR']);
+
+/** Nearest `.git` at or above `start`, or null if there is genuinely none. Exported for testing. */
 export function findGitMarker(start: string): Marker | null {
   let dir = start;
   for (;;) {
+    const marker = join(dir, '.git');
     try {
-      return { dir, isDirectory: statSync(join(dir, '.git')).isDirectory() };
-    } catch {
-      // no .git here; keep walking up
+      // lstat, so a dangling symlink is still an entry that EXISTS and must be
+      // classified rather than walked past as absent.
+      const st = lstatSync(marker);
+      if (st.isSymbolicLink()) {
+        try {
+          return { dir, kind: statSync(marker).isDirectory() ? 'directory' : 'file' };
+        } catch {
+          return { dir, kind: 'unreadable' }; // dangling or unresolvable
+        }
+      }
+      return { dir, kind: st.isDirectory() ? 'directory' : 'file' };
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (!NOT_HERE.has(code ?? '')) return { dir, kind: 'unreadable' };
+      // genuinely absent here; keep walking up
     }
     const parent = dirname(dir);
     if (parent === dir) return null;
@@ -56,16 +76,16 @@ export function assertWorktreeMatchesStack(): void {
   // confuse. A tarball install is a legitimate case and must keep working.
   if (marker === null) return;
   // A real directory is the main checkout, which is what the stack serves.
-  if (marker.isDirectory) return;
-  // Anything else — a .git file (linked worktree, submodule) or an entry we
-  // cannot classify — blocks. Fails closed by construction.
+  if (marker.kind === 'directory') return;
+  // A .git file is a linked worktree (or a submodule); 'unreadable' is an entry
+  // we could not classify. Both block — that is the fail-closed contract.
 
   const target = process.env.E2E_BASE_URL ?? 'http://localhost:8080 (default)';
   throw new Error(
     [
       'Refusing to run e2e from a linked git worktree without acknowledgement.',
       '',
-      `  worktree:  ${marker.dir}`,
+      `  ${marker.kind === 'unreadable' ? 'unclassifiable .git in' : 'worktree: '}  ${marker.dir}`,
       `  target:    ${target}`,
       '',
       "The dev stack bind-mounts the MAIN checkout, so it serves main's code",
