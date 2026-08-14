@@ -570,6 +570,7 @@ class Api:
         me = r.json()
         self.username = me["username"]
         self.user_id = me["id"]
+        self.roles = me.get("roles") or []
 
     @classmethod
     def login(cls, base_url: str, username: str, password: str) -> "Api":
@@ -4485,7 +4486,24 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
             break
     if not items:
         raise RuntimeError("no low-cloud Sentinel-2 TCI items matched the NYC AOI")
+    # href -> own dataset id for holdings the force preflight proved the
+    # skip-fallback can use; consulted before the by-title fallback because
+    # titles are NOT unique (see datasets_by_title) and the newest same-titled
+    # row is not necessarily the row holding the asset (round 8).
+    resolved_by_href: dict[str, str] = {}
     if force:
+        # fix(#1493 review round 8): the shared-scene and conflict scans
+        # below must see EVERY map and dataset. --username can select a
+        # non-admin account, and non-admin listings are visibility-filtered -
+        # a stranger's PRIVATE map layering one of these public scenes would
+        # be invisible to the round-5 sweep and its imagery silently
+        # cascaded away by the delete.
+        if "admin" not in api.roles:
+            raise RuntimeError(
+                "force recreate requires an admin account: a non-admin "
+                "listing cannot see other users' private maps, so the "
+                "shared-scene protection would be blind"
+            )
         # fix(#1493 review): --force must RECREATE, not duplicate - the import
         # endpoint dedupes on source_url and returns status="skipped" WITHOUT
         # updating origin_ref, so a rerun over existing scenes could never
@@ -4580,7 +4598,12 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
                 d.get("created_by") == api.user_id
                 and d.get("title") == href_to_title[held]
             ):
-                continue  # own + seeder-titled: the skip-fallback resolves it
+                # Own + seeder-titled: resolvable. Record WHICH row holds the
+                # href so the skipped-result resolution below can bind to it
+                # directly - a newer same-titled own row would win the
+                # by-title lookup and attach the wrong data (round 8).
+                resolved_by_href[held] = d["id"]
+                continue
             conflicts.append(d)
         if conflicts:
             names = ", ".join(
@@ -4629,9 +4652,13 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         )
     # 'created' results carry dataset_id; 'skipped' (already imported - the
     # backend dedupes on source_url, so --force cannot re-create them) resolve
-    # back to the existing dataset by the title we assigned.
+    # to the row the force preflight proved holds the asset, falling back to
+    # the title we assigned. The href binding comes first because titles are
+    # not unique: a newer same-titled own row would win the by-title lookup
+    # and attach the wrong data to the map (round 8).
     id_to_title = {it["id"]: it["title"] for it in items}
     id_to_date = {it["id"]: it["datetime_start"][:10] for it in items}
+    id_to_href = {it["id"]: it["data_asset_href"] for it in items}
     by_title = None
     scenes = []  # (dataset_id, capture_date)
     for x in results:
@@ -4639,6 +4666,10 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         if x.get("dataset_id"):
             scenes.append((x["dataset_id"], id_to_date.get(item_id, "?")))
         elif x.get("status") == "skipped":
+            held_id = resolved_by_href.get(id_to_href.get(item_id, ""))
+            if held_id:
+                scenes.append((held_id, id_to_date.get(item_id, "?")))
+                continue
             if by_title is None:
                 by_title = api.datasets_by_title()
             existing = by_title.get(id_to_title.get(item_id, ""))
