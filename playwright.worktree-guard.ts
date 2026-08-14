@@ -24,29 +24,48 @@ const BACKEND_PATHS = ['backend/app/', 'backend/alembic/'];
 // primary checkout's path is interpolated into these calls, and a path
 // containing a space would word-split under a shell, silently fall back to
 // `main`, and compare against a tree that is not the one bind-mounted.
-function git(args: string[], cwd?: string): string {
+function gitRaw(args: string[], cwd?: string): string {
   try {
     return execFileSync('git', args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
       ...(cwd ? { cwd } : {}),
-    }).trim();
+    });
   } catch {
     return '';
   }
 }
 
-// `git status --porcelain` lines are "XY path"; strip the 2-char status + space.
-// Renames arrive as "XY old -> new" on one line, so split those and keep both
-// sides: either path being under a served prefix means the trees differ there.
-const porcelainPaths = (out: string): string[] =>
-  out
-    .split('\n')
-    .flatMap((l) => {
-      const p = l.slice(3);
-      return p.includes(' -> ') ? p.split(' -> ') : [p];
-    })
-    .filter(Boolean);
+// fix(#1492): NEVER trim porcelain output. Its first line begins with a space
+// for an ordinary unstaged change (" M frontend/src/a.ts"), so trimming eats
+// the status column and the subsequent slice then eats a real character,
+// yielding "rontend/src/a.ts" — which matches no served prefix and silently
+// disables the check for that file. Only non-porcelain callers may trim.
+function git(args: string[], cwd?: string): string {
+  return gitRaw(args, cwd).trim();
+}
+
+/**
+ * Parse `git status --porcelain -z`. NUL-terminated, so paths are never quoted
+ * or escaped and a leading-space status column cannot be lost to trimming.
+ * Each entry is "XY path"; a rename or copy is followed by one extra field
+ * holding the origin path. Both sides of a rename are kept, because either
+ * being under a served prefix means the trees differ there.
+ * Exported for testing.
+ */
+export const porcelainPaths = (out: string): string[] => {
+  const parts = out.split('\0').filter((s) => s.length > 0);
+  const paths: string[] = [];
+  for (let i = 0; i < parts.length; i += 1) {
+    const entry = parts[i];
+    paths.push(entry.slice(3));
+    if (entry[0] === 'R' || entry[0] === 'C') {
+      i += 1;
+      if (parts[i]) paths.push(parts[i]);
+    }
+  }
+  return paths.filter(Boolean);
+};
 
 /**
  * Throws when this worktree's changes are absent from the stack under test.
@@ -89,9 +108,9 @@ export function assertWorktreeMatchesStack(): void {
   // MY changes: merge-base -> working tree. Absent from the stack, so a run
   // reports on code I did not write.
   const mine = [
-    ...(mergeBase ? git(['diff', '--name-only', mergeBase]).split('\n') : []),
+    ...(mergeBase ? gitRaw(['diff', '--name-only', '-z', mergeBase]).split('\0') : []),
     // Uncommitted changes count: they are equally absent from the stack.
-    ...porcelainPaths(git(['status', '--porcelain'])),
+    ...porcelainPaths(gitRaw(['status', '--porcelain', '-z'])),
   ].filter(Boolean);
 
   // fix(#1492): the merge-base delta only ever sees MY side. It is blind to
@@ -103,8 +122,8 @@ export function assertWorktreeMatchesStack(): void {
   // its HEAD. An uncommitted or untracked file there is bind-mounted and being
   // served right now, so resolving only the committed HEAD stayed blind to it.
   const divergent = [
-    ...(mainRef ? git(['diff', '--name-only', mainRef]).split('\n') : []),
-    ...(mainCheckout ? porcelainPaths(git(['status', '--porcelain'], mainCheckout)) : []),
+    ...(mainRef ? gitRaw(['diff', '--name-only', '-z', mainRef]).split('\0') : []),
+    ...(mainCheckout ? porcelainPaths(gitRaw(['status', '--porcelain', '-z'], mainCheckout)) : []),
   ].filter(Boolean);
   const mineSet = new Set(mine);
   const stale = divergent.filter((p) => !mineSet.has(p));
