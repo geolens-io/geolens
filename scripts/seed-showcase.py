@@ -516,10 +516,10 @@ PINNED_DATASET_TITLES = (
 )
 
 # Pinned titles the seeder did NOT create and expects a VISITOR to own.
-# MNMAP_PLUTO is hand-uploaded on the demo, and the geolens-examples MCP
-# transcripts quote it, so a prune that deletes it breaks a published
-# walkthrough - the 08-14 dry run listed it for deletion, which is what this
-# tuple exists to prevent. A separate tuple rather than an entry above because
+# fix(#1487): MNMAP_PLUTO is hand-uploaded on the demo, and the geolens-examples
+# MCP transcripts quote it, so a prune that deletes it breaks a published
+# walkthrough - the dry run behind #1487 listed it for deletion, which is what
+# this tuple exists to prevent. A separate tuple rather than an entry above because
 # the two classes carry OPPOSITE ownership expectations: the three above are
 # admin-created, so a foreign copy is by definition a title-squatter and is
 # reported as one; for these, foreign ownership IS the expected state, and no
@@ -2234,6 +2234,10 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
             # class's EXPECTED state (see the tuple), so the impostor split
             # below would misfile the real dataset as a squatter and invite
             # the manual deletion the pin exists to prevent.
+            # fix(#1487 review): deliberately BEFORE the null-owner branch - a
+            # pinned dataset whose creator account was deleted must not land in
+            # the ownerless "review by hand" list, which reads as a deletion
+            # candidate. The report labels the null owner honestly instead.
             pinned.append(d)
         elif d.get("title") in PINNED_DATASET_TITLES:
             # Never in the delete set, whoever owns it. A title is not proof of
@@ -2357,10 +2361,18 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     # Ownership is still worth SHOWING for the expected-foreign pins: they are
     # trusted, but a cleanup audit that never mentions a kept dataset belongs
     # to another account would be hiding the one fact the pin class encodes.
-    pinned_foreign = [d for d in pinned_hits if d.get("created_by") != api.user_id]
+    # fix(#1487 review): a NULL owner is a deleted creator account, not a
+    # visitor - label it as the unknown it is instead of calling it expected.
+    # It stays hard-kept either way; only the words change.
+    pinned_foreign = [
+        d for d in pinned_hits if d.get("created_by") not in (api.user_id, None)
+    ]
     print(f"\n  externally pinned, hard-kept: {len(pinned_hits)}")
     for d in pinned_hits:
-        if d.get("created_by") != api.user_id:
+        owner = d.get("created_by")
+        if owner is None:
+            print(f"    = {d.get('title')!r}  (ownerless - creator account deleted)")
+        elif owner != api.user_id:
             print(f"    = {d.get('title')!r}  (visitor-owned - expected for this title)")
         else:
             print(f"    = {d.get('title')!r}")
