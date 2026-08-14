@@ -570,6 +570,7 @@ class Api:
         me = r.json()
         self.username = me["username"]
         self.user_id = me["id"]
+        self.roles = me.get("roles") or []
 
     @classmethod
     def login(cls, base_url: str, username: str, password: str) -> "Api":
@@ -1287,7 +1288,19 @@ def refresh_and_report(
         RuntimeError,
         TimeoutError,
     ) as e:
-        print(f"  ! refresh FAILED for {label}: {e}", file=sys.stderr)
+        # Surface the API's structured refusal code (e.g. origin_unavailable
+        # vs refresh_not_applicable) - the bare httpx status line hides the
+        # difference between "binding incomplete" and "wrong dataset kind",
+        # which is the difference between re-importing and giving up.
+        detail = ""
+        if isinstance(e, httpx.HTTPStatusError):
+            try:
+                body = e.response.json().get("detail")
+                if isinstance(body, dict) and body.get("code"):
+                    detail = f" [{body['code']}]"
+            except (ValueError, KeyError):
+                pass
+        print(f"  ! refresh FAILED for {label}: {e}{detail}", file=sys.stderr)
         return False
     # The refresh SUCCEEDED at this point. The count is decoration on the log
     # line, so it gets its own guard: letting a transient failure here escape
@@ -4440,6 +4453,22 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
                 "collection": f.get("collection", "sentinel-2-l2a"),
                 "title": f"Sentinel-2 TCI {f['id']}",
                 "data_asset_href": a["href"],
+                # feat(#1222): the item's rel=self link. The backend records it
+                # as origin_ref.item_href, which is what makes the dataset
+                # REFRESHABLE - without it every refresh 409s origin_unavailable.
+                # The in-app import flow captures this server-side via the
+                # search proxy; this direct-import path must supply it itself.
+                # None-tolerant: a catalog that publishes no self link still
+                # imports, it just cannot refresh (and the seed-end refresh
+                # pass reports exactly that).
+                "item_href": next(
+                    (
+                        link.get("href")
+                        for link in f.get("links", [])
+                        if link.get("rel") == "self"
+                    ),
+                    None,
+                ),
                 "bbox": f.get("bbox"),
                 "epsg": epsg,
                 "datetime_start": dt,
@@ -4457,6 +4486,162 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
             break
     if not items:
         raise RuntimeError("no low-cloud Sentinel-2 TCI items matched the NYC AOI")
+    # href -> own dataset id for holdings the force preflight proved the
+    # skip-fallback can use; consulted before the by-title fallback because
+    # titles are NOT unique (see datasets_by_title) and the newest same-titled
+    # row is not necessarily the row holding the asset (round 8).
+    resolved_by_href: dict[str, str] = {}
+    if force:
+        # fix(#1493 review round 8): the shared-scene and conflict scans
+        # below must see EVERY map and dataset. --username can select a
+        # non-admin account, and non-admin listings are visibility-filtered -
+        # a stranger's PRIVATE map layering one of these public scenes would
+        # be invisible to the round-5 sweep and its imagery silently
+        # cascaded away by the delete.
+        if "admin" not in api.roles:
+            raise RuntimeError(
+                "force recreate requires an admin account: a non-admin "
+                "listing cannot see other users' private maps, so the "
+                "shared-scene protection would be blind"
+            )
+        # fix(#1493 review): --force must RECREATE, not duplicate - the import
+        # endpoint dedupes on source_url and returns status="skipped" WITHOUT
+        # updating origin_ref, so a rerun over existing scenes could never
+        # record fresh bindings. Deleting first is what makes
+        # `--only sentinel2 --force` the supported repair for instances seeded
+        # before item_href was sent. Three deliberate shapes here:
+        #
+        # * Runs AFTER the catalog search succeeded (round 3): a flaky
+        #   Element84 must fail this builder BEFORE it destroys a working
+        #   showcase, not after.
+        # * Enumerates ALL owned maps under the name via list_all_maps()
+        #   (round 2): list_maps() collapses a name to the newest id, and the
+        #   old --force behavior could stack duplicates; deleting only the
+        #   newest would cascade the survivors' layers away and leave husks.
+        # * Deletes only scene datasets ATTACHED to those maps, intersected
+        #   with own+prefix+raster (round 3): a bare title-prefix sweep would
+        #   destroy an operator's unrelated same-prefixed import, and a bare
+        #   attached-layer sweep would destroy a shared context dataset if a
+        #   styling pass ever adds one to this map.
+        # * Aborts BEFORE deleting when a selected asset is held by a dataset
+        #   the rebuild can neither delete nor resolve (rounds 4+6): the
+        #   import dedupe is instance-wide on asset href, and the
+        #   skip-fallback below resolves own datasets by seeder title only.
+        #   A holding survives the rebuild unless it is in the deletion set,
+        #   and satisfies the fallback only if it is own-owned AND still
+        #   carries the seeder title - anything else (a foreign import, an
+        #   ownerless row, an own manual import or renamed scene) would
+        #   dedupe-skip into a missing scene or an all-conflict raise after
+        #   the maps were already gone. Keyed the same way the backend guard
+        #   is (fix(#1286)): origin_ref.asset_href, source_url as fallback.
+        # * Deletes datasets BEFORE maps (round 7): a scene serving a
+        #   committed VRT or an in-progress generation makes its DELETE 409
+        #   DependentVrtError, and that check is server-side only (origin_ref
+        #   and derived_from expose no VRT sources client-side) - the delete
+        #   itself is the only authoritative probe. Failing on it aborts with
+        #   every stale map still standing, instead of discovering the block
+        #   after the showcase is gone.
+        stale_maps = [
+            m["id"]
+            for m in api.list_all_maps()
+            if m.get("name") == name
+            and m.get("created_by_username") == api.username
+        ]
+        own_titles = {d["id"]: d["title"] for d in api.list_own_datasets()}
+        doomed: dict[str, str] = {}
+        for map_id in stale_maps:
+            for layer in api.get_map(map_id).get("layers", []):
+                ds_id = layer.get("dataset_id")
+                title = own_titles.get(ds_id, "")
+                if (
+                    layer.get("layer_type") == "raster_geolens"
+                    and title.startswith("Sentinel-2 TCI ")
+                ):
+                    doomed[ds_id] = title
+        if doomed:
+            # fix(#1493 review round 5): a scene someone layered into ANY
+            # other map is not ours to cascade away - keep it and say so. The
+            # kept scene then rides the dedupe skip-fallback below if the
+            # fresh search reselects its asset (reattached, still
+            # unrefreshable, and flagged [origin_unavailable] by the
+            # seed-end refresh report) - visible partial repair over silent
+            # imagery loss in an unrelated map. Rewiring the other map's
+            # layer to the replacement was rejected: mutating a map this
+            # seeder does not own is the same overreach in a different coat.
+            stale_set = set(stale_maps)
+            for m in api.list_all_maps():
+                if m["id"] in stale_set or not doomed:
+                    continue
+                for layer in api.get_map(m["id"]).get("layers", []):
+                    ds_id = layer.get("dataset_id")
+                    if ds_id in doomed:
+                        print(
+                            f"  [force] keeping scene {doomed[ds_id]!r} - "
+                            f"also layered in map {m.get('name', m['id'])!r}"
+                        )
+                        doomed.pop(ds_id)
+        # Preflight (rounds 4+6) - runs on the FINAL doomed set, after the
+        # shared-scene exclusions, and before anything is deleted.
+        href_to_title = {it["data_asset_href"]: it["title"] for it in items}
+        conflicts = []
+        for d in api.list_all_datasets():
+            if d.get("source_format") != "stac":
+                continue
+            held = ((d.get("origin_ref") or {}).get("asset_href")) or d.get(
+                "source_url"
+            )
+            if held not in href_to_title:
+                continue
+            if d["id"] in doomed:
+                continue  # about to be deleted - this href is freed
+            if (
+                d.get("created_by") == api.user_id
+                and d.get("title") == href_to_title[held]
+            ):
+                # Own + seeder-titled: resolvable. Record WHICH row holds the
+                # href so the skipped-result resolution below can bind to it
+                # directly - a newer same-titled own row would win the
+                # by-title lookup and attach the wrong data (round 8).
+                resolved_by_href[held] = d["id"]
+                continue
+            conflicts.append(d)
+        if conflicts:
+            names = ", ".join(
+                f"{d['title']!r} (owner "
+                f"{d.get('created_by_display') or d.get('created_by') or 'none'})"
+                for d in conflicts[:4]
+            )
+            raise RuntimeError(
+                f"force recreate aborted BEFORE deleting anything: "
+                f"{len(conflicts)} selected scene(s) are held by datasets "
+                f"this rebuild can neither delete nor resolve (foreign, "
+                f"ownerless, or own-but-renamed/manual) - they would "
+                f"dedupe-skip and leave the rebuilt map incomplete: {names}"
+            )
+        for ds_id, title in doomed.items():
+            try:
+                api.delete_dataset(ds_id, title)
+            except httpx.HTTPStatusError as e:
+                blockers = ""
+                if e.response.status_code == 409:
+                    try:
+                        det = e.response.json().get("detail")
+                        if isinstance(det, dict) and det.get("dependent_vrts"):
+                            blockers = (
+                                f" (dependent VRTs: {det['dependent_vrts']})"
+                            )
+                    except ValueError:
+                        pass
+                raise RuntimeError(
+                    f"force recreate aborted: scene {title!r} could not be "
+                    f"deleted{blockers}; the stale showcase maps were NOT "
+                    f"deleted - resolve the dependency and rerun"
+                ) from e
+        if doomed:
+            print(f"  [force] deleted {len(doomed)} attached scene datasets")
+        for map_id in stale_maps:
+            api.delete_map(map_id)
+            print(f"  [force] deleted existing map {map_id}")
     print(f"  importing {len(items)} TCI COGs by reference (no download)...")
     results = api.stac_import(SENTINEL_STAC, items, visibility="public")
     errored = [x for x in results if x.get("status") == "error"]
@@ -4467,9 +4652,13 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         )
     # 'created' results carry dataset_id; 'skipped' (already imported - the
     # backend dedupes on source_url, so --force cannot re-create them) resolve
-    # back to the existing dataset by the title we assigned.
+    # to the row the force preflight proved holds the asset, falling back to
+    # the title we assigned. The href binding comes first because titles are
+    # not unique: a newer same-titled own row would win the by-title lookup
+    # and attach the wrong data to the map (round 8).
     id_to_title = {it["id"]: it["title"] for it in items}
     id_to_date = {it["id"]: it["datetime_start"][:10] for it in items}
+    id_to_href = {it["id"]: it["data_asset_href"] for it in items}
     by_title = None
     scenes = []  # (dataset_id, capture_date)
     for x in results:
@@ -4477,6 +4666,10 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         if x.get("dataset_id"):
             scenes.append((x["dataset_id"], id_to_date.get(item_id, "?")))
         elif x.get("status") == "skipped":
+            held_id = resolved_by_href.get(id_to_href.get(item_id, ""))
+            if held_id:
+                scenes.append((held_id, id_to_date.get(item_id, "?")))
+                continue
             if by_title is None:
                 by_title = api.datasets_by_title()
             existing = by_title.get(id_to_title.get(item_id, ""))
