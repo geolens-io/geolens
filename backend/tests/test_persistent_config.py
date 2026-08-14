@@ -773,12 +773,19 @@ async def test_cors_matching_origin_gets_headers(
     client: AsyncClient, admin_auth_header: dict
 ):
     """Request with matching origin gets CORS headers in response."""
+    from app.api.middleware import cors as cors_middleware
+
     # Set CORS origins to allow http://example.com
     await client.put(
         "/settings/",
         json={"settings": {"cors_allowed_origins": "http://example.com"}},
         headers=admin_auth_header,
     )
+    # Same guard, same reason, as test_cors_preflight_returns_200 below: any
+    # request in the previous 30s left an allowlist in the module-global cache,
+    # and the PUT above does not invalidate it, so this positive assertion would
+    # be read against a neighbour's origins rather than the one just written.
+    cors_middleware._origins_cache = (0.0, set())
 
     resp = await client.get("/health", headers={"Origin": "http://example.com"})
     assert resp.status_code == 200
@@ -791,11 +798,18 @@ async def test_cors_non_matching_origin_no_headers(
     client: AsyncClient, admin_auth_header: dict
 ):
     """Request with non-matching origin gets no CORS headers."""
+    from app.api.middleware import cors as cors_middleware
+
     await client.put(
         "/settings/",
         json={"settings": {"cors_allowed_origins": "http://example.com"}},
         headers=admin_auth_header,
     )
+    # Same guard as test_cors_preflight_returns_200 below, and here it is what
+    # gives the assertion teeth rather than what keeps it passing: a stale-empty
+    # cache denies every origin, so the deny path would look correct without the
+    # written allowlist ever being consulted.
+    cors_middleware._origins_cache = (0.0, set())
 
     resp = await client.get("/health", headers={"Origin": "http://evil.com"})
     assert resp.status_code == 200
