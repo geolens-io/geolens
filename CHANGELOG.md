@@ -7,6 +7,44 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-08-14
+
+### Added
+
+- **Dataset attribution is persisted and displayed.** Attribution supplied
+  at manifest ingest used to stop in the job metadata; it now lands on the
+  record, comes back through the catalog API, and renders in the map's
+  attribution control wherever the dataset is drawn (#1477, #1472).
+- **Globe projection gets an atmosphere and a space background.** Maps
+  saved with the globe projection render MapLibre's sky atmosphere and a
+  deep-space backdrop behind the sphere, in both the builder and the
+  viewer; mercator maps are unchanged (#1474, #1488).
+
+### Fixed
+
+- **Multi-color line symbology icons render again.** The layer list,
+  sidebar, and legends drew a blank icon for every line layer with banded
+  or graduated colors, because a zero-height bounding box disables the
+  icon's gradient under the SVG default units. The gradient now uses
+  user-space coordinates (#1494).
+- **A logged exception can no longer pin the API event loop.** Production
+  tracebacks are logged plain instead of through the rich renderer, which
+  could spend minutes rendering a single traceback while the loop served
+  nothing else (#1490).
+- **Date fields in a dataset PATCH no longer 500 the request.** Audit
+  details are serialized in JSON mode, so date-typed metadata fields
+  write cleanly instead of failing the whole mutation (#1489, #1484).
+- **Standards endpoints serve HEAD wherever the preflight advertises it.**
+  A browser client that preflights a HEAD against a standards path was
+  told it is allowed and then got a 405 (#1478, #1470).
+- **DCAT feeds publish real raster access surfaces.** COG-backed rasters
+  published a bare object-storage key as their distribution URL; raster
+  and VRT datasets now list working access URLs (#1475, #1469).
+- **Upgrades pull new images before stopping the app, and restore it if
+  the upgrade fails.** The outage window no longer includes image
+  download time, and a failed upgrade brings the previous release back
+  up (#1476, #1467).
+
 ## [1.13.0] - 2026-08-13
 
 ### Security
