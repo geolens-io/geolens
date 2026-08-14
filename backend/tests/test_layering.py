@@ -2201,7 +2201,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # standards_api_path is what stops them drifting again, and is why this is
     # one pass here rather than 48 decorator edits across five routers.
     # Cap 1389 -> 1466, exact.
-    "backend/app/api/main.py": 1466,
+    # fix(#1485): +4 — the boot-time setup_logging() call gains
+    # production=settings.is_production, which selects the plain traceback
+    # formatter so an exception cannot pin the event loop rendering frame
+    # locals with rich. Over 88 columns as one line, hence four.
+    # Cap 1466 -> 1470, exact.
+    "backend/app/api/main.py": 1470,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

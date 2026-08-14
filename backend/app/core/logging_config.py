@@ -5,6 +5,21 @@ structlog chain so JWT / API-key / password values are replaced with
 `[REDACTED]` before reaching stdout / log aggregators. Even if a developer
 accidentally logs `logger.info("attempt", token=jwt)`, the token is
 redacted at the structlog layer.
+
+fix(#1485): exception rendering is never handed to rich in production.
+`structlog.dev.ConsoleRenderer` defaults its `exception_formatter` to
+`RichTracebackFormatter(show_locals=True)` whenever rich is importable, and
+rich is in the backend's transitive dependency set. Rendering per-frame
+locals costs time proportional to the `repr()` of every local in every frame,
+and rich's line splitting is quadratic in the length of a single long line —
+so one exception raised with ORM objects in scope burned minutes of
+synchronous CPU inside the logging call, on the event loop, in the request
+path. With `--workers 1` that is the whole API.
+
+`RichTracebackFormatter`'s `locals_max_length` / `locals_max_string` do not
+bound it: they truncate containers and `str` values, not the `repr()` of an
+arbitrary object, which is exactly what a SQLAlchemy session or model
+instance produces.
 """
 
 import logging
@@ -54,8 +69,30 @@ def _redact_sensitive_fields(
     return event_dict
 
 
-def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
-    """Configure structlog + stdlib logging with shared processor chain."""
+def _dev_exception_formatter() -> structlog.types.ExceptionRenderer:
+    """The console exception formatter for non-production deployments.
+
+    Keeps rich's syntax-highlighted frames, which are the reason the pretty
+    renderer is worth having, and drops only the per-frame locals tables — the
+    part whose cost is unbounded (see the module docstring). Deployments
+    without rich installed keep whatever structlog picked for them.
+    """
+    formatter = structlog.dev.default_exception_formatter
+    if isinstance(formatter, structlog.dev.RichTracebackFormatter):
+        return structlog.dev.RichTracebackFormatter(show_locals=False)
+    return formatter
+
+
+def setup_logging(
+    json_logs: bool = False, log_level: str = "INFO", *, production: bool = False
+) -> None:
+    """Configure structlog + stdlib logging with shared processor chain.
+
+    `production` selects the exception-rendering posture rather than the log
+    format: when set, tracebacks are formatted by the stdlib `traceback`
+    module and rich is never reached, at a cost that does not depend on the
+    size of any frame's local variables.
+    """
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
@@ -71,7 +108,12 @@ def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
         structlog.processors.StackInfoRenderer(),
     ]
 
-    if json_logs:
+    # fix(#1485): resolve `exc_info` into a plain `exception` string inside the
+    # processor chain, so no renderer is ever handed a traceback object to
+    # pretty-print. This chain is also the ProcessorFormatter's
+    # `foreign_pre_chain` below, so it covers stdlib records (uvicorn.error and
+    # friends) as well as structlog's own.
+    if json_logs or production:
         shared_processors.append(structlog.processors.format_exc_info)
 
     structlog.configure(
@@ -85,8 +127,19 @@ def setup_logging(json_logs: bool = False, log_level: str = "INFO") -> None:
     log_renderer: structlog.types.Processor
     if json_logs:
         log_renderer = structlog.processors.JSONRenderer()
+    elif production:
+        # `plain_traceback` is the second half of the #1485 fix, not a
+        # redundant one: ConsoleRenderer warns on every exception when a
+        # non-plain formatter meets an already-rendered `exception` field
+        # ("Remove `format_exc_info` from your processor chain..."), and it
+        # still owns any exc_info that reaches it by another route.
+        log_renderer = structlog.dev.ConsoleRenderer(
+            exception_formatter=structlog.dev.plain_traceback
+        )
     else:
-        log_renderer = structlog.dev.ConsoleRenderer()
+        log_renderer = structlog.dev.ConsoleRenderer(
+            exception_formatter=_dev_exception_formatter()
+        )
 
     formatter = structlog.stdlib.ProcessorFormatter(
         foreign_pre_chain=shared_processors,
