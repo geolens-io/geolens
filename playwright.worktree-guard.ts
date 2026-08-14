@@ -69,11 +69,15 @@ export const porcelainPaths = (out: string): string[] => {
   return paths.filter(Boolean);
 };
 
-const readOrNull = (p: string): Buffer | null => {
+// null = genuinely absent. undefined = present but not readable as a file (a
+// directory, a permissions error), which must NOT be conflated with absent:
+// fix(#1492) round nine, where an untracked directory read as EISDIR on one
+// side and ENOENT on the other and the pair was declared "absent from both".
+const readOrNull = (p: string): Buffer | null | undefined => {
   try {
     return readFileSync(p);
-  } catch {
-    return null;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === 'ENOENT' ? null : undefined;
   }
 };
 
@@ -93,6 +97,7 @@ export const makeDiffersOnDisk =
     if (!worktreeRoot || !servedRoot) return true; // cannot prove equal -> assume different
     const a = readOrNull(join(worktreeRoot, rel));
     const b = readOrNull(join(servedRoot, rel));
+    if (a === undefined || b === undefined) return true; // unreadable -> fail closed
     if (a === null && b === null) return false; // absent from both
     if (a === null || b === null) return true; // present in only one
     return !a.equals(b);
@@ -164,7 +169,7 @@ export function assertWorktreeMatchesStack(): void {
   const mine = [
     ...(mineBase ? gitRaw(['diff', '--name-only', '--no-renames', '-z', mineBase]).split('\0') : []),
     // Uncommitted changes count: they are equally absent from the stack.
-    ...porcelainPaths(gitRaw(['status', '--porcelain', '-z'])),
+    ...porcelainPaths(gitRaw(['status', '--porcelain', '-z', '--untracked-files=all'])),
   ].filter(Boolean);
 
   // fix(#1492): the merge-base delta only ever sees MY side. It is blind to
@@ -177,7 +182,7 @@ export function assertWorktreeMatchesStack(): void {
   // served right now, so resolving only the committed HEAD stayed blind to it.
   const divergent = [
     ...(mainRef ? gitRaw(['diff', '--name-only', '--no-renames', '-z', mainRef]).split('\0') : []),
-    ...(mainCheckout ? porcelainPaths(gitRaw(['status', '--porcelain', '-z'], mainCheckout)) : []),
+    ...(mainCheckout ? porcelainPaths(gitRaw(['status', '--porcelain', '-z', '--untracked-files=all'], mainCheckout)) : []),
   ].filter(Boolean);
   const mineSet = new Set(mine);
   const stale = divergent.filter((p) => !mineSet.has(p));
@@ -193,7 +198,7 @@ export function assertWorktreeMatchesStack(): void {
   // served tree entirely.
   const candidates = new Set([
     ...divergent,
-    ...porcelainUntracked(gitRaw(['status', '--porcelain', '-z'])),
+    ...porcelainUntracked(gitRaw(['status', '--porcelain', '-z', '--untracked-files=all'])),
   ]);
   // Git only nominates candidates; the byte comparison decides. Cheap, because
   // the candidate set is the handful of paths that changed, not the whole tree.
