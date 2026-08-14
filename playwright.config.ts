@@ -1,4 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
+import { assertWorktreeMatchesStack } from './playwright.worktree-guard';
+
+assertWorktreeMatchesStack();
 
 export default defineConfig({
   testDir: './e2e',
