@@ -100,11 +100,16 @@ env-test:
 # Live-provider AI evals (assertion-based NL->SQL regression suite). Skipped
 # in normal test runs; costs real provider tokens. Needs the dev DB up and
 # ANTHROPIC_API_KEY (or the configured provider's key) in the environment.
-# Depends on env-test so the source is unconditional: the old `if [ -f ... ]`
-# guard let a missing .env.test run the evals against whatever happened to be
-# in the environment instead of failing.
-ai-evals: env-test
-	cd backend && set -a && . ../.env.test && set +a && RUN_AI_EVALS=1 uv run pytest tests/evals/ -v
+#
+# fix(#1481): the `if [ -f ... ]` guard below is load-bearing. Do NOT make this
+# target depend on env-test, and do not source the file unconditionally.
+# .env.test.example ships POSTGRES_PASSWORD=geolens, while `make dev-init`
+# generates a RANDOM one into .env (SEC-010). Sourcing the template under
+# `set -a` exports the public default over the real password, and the evals can
+# no longer authenticate against the dev DB. With no .env.test present,
+# Settings loads .env directly and the credentials match.
+ai-evals:
+	cd backend && set -a && if [ -f ../.env.test ]; then . ../.env.test; fi && set +a && RUN_AI_EVALS=1 uv run pytest tests/evals/ -v
 
 e2e:
 	npx playwright test
