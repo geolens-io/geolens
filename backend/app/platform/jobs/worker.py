@@ -37,7 +37,11 @@ redirect_tempfile_to_staging(settings.upload_staging_dir)
 configure_gdal_s3_env(settings)
 
 # Configure structured logging with service label
-setup_logging(json_logs=settings.log_json, log_level=settings.log_level)
+setup_logging(
+    json_logs=settings.log_json,
+    log_level=settings.log_level,
+    production=settings.is_production,
+)
 structlog.contextvars.bind_contextvars(service="worker")
 log = structlog.get_logger()
 

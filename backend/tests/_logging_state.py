@@ -69,7 +69,7 @@ def preserved_logging_state() -> Iterator[None]:
 
 @contextlib.contextmanager
 def configured_logging(
-    *, json_logs: bool = True, log_level: str = "DEBUG"
+    *, json_logs: bool = True, log_level: str = "DEBUG", production: bool = False
 ) -> Iterator[None]:
     """``setup_logging()`` inside a preserved window, with the freeze disarmed.
 
@@ -98,6 +98,6 @@ def configured_logging(
     fails with ``--- Logging error ---`` instead of landing anywhere assertable.
     """
     with preserved_logging_state():
-        setup_logging(json_logs=json_logs, log_level=log_level)
+        setup_logging(json_logs=json_logs, log_level=log_level, production=production)
         structlog.configure(cache_logger_on_first_use=False)
         yield

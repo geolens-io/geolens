@@ -65,7 +65,11 @@ from slowapi.middleware import SlowAPIMiddleware
 import slowapi.middleware as slowapi_middleware_module
 
 # Configure structured logging before app creation so lifespan logs are structured
-setup_logging(json_logs=settings.log_json, log_level=settings.log_level)
+setup_logging(
+    json_logs=settings.log_json,
+    log_level=settings.log_level,
+    production=settings.is_production,
+)
 structlog.contextvars.bind_contextvars(service="api")
 
 logger = structlog.stdlib.get_logger(__name__)
