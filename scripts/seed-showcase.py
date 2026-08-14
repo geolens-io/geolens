@@ -513,6 +513,11 @@ PINNED_DATASET_TITLES = (
     "NYC Subway Lines (MTA)",  # title derives data.nyc_subway_lines_mta - NEVER rename
     "NYC Subway Stations (MTA)",
     "swissALTI3D Matterhorn DEM (2m mosaic)",
+    # Visitor-uploaded on the demo, never created by this seeder - pinned because
+    # the geolens-examples MCP transcripts quote it, so a prune that deletes it
+    # breaks a published walkthrough. The 08-14 prune dry run listed it for
+    # deletion; this entry is what keeps --execute from doing that.
+    "MNMAP_PLUTO",
 )
 
 # --- globe projection ---------------------------------------------------------
