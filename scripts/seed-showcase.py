@@ -4516,6 +4516,13 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         #   dedupe-skip into a missing scene or an all-conflict raise after
         #   the maps were already gone. Keyed the same way the backend guard
         #   is (fix(#1286)): origin_ref.asset_href, source_url as fallback.
+        # * Deletes datasets BEFORE maps (round 7): a scene serving a
+        #   committed VRT or an in-progress generation makes its DELETE 409
+        #   DependentVrtError, and that check is server-side only (origin_ref
+        #   and derived_from expose no VRT sources client-side) - the delete
+        #   itself is the only authoritative probe. Failing on it aborts with
+        #   every stale map still standing, instead of discovering the block
+        #   after the showcase is gone.
         stale_maps = [
             m["id"]
             for m in api.list_all_maps()
@@ -4588,13 +4595,30 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
                 f"ownerless, or own-but-renamed/manual) - they would "
                 f"dedupe-skip and leave the rebuilt map incomplete: {names}"
             )
+        for ds_id, title in doomed.items():
+            try:
+                api.delete_dataset(ds_id, title)
+            except httpx.HTTPStatusError as e:
+                blockers = ""
+                if e.response.status_code == 409:
+                    try:
+                        det = e.response.json().get("detail")
+                        if isinstance(det, dict) and det.get("dependent_vrts"):
+                            blockers = (
+                                f" (dependent VRTs: {det['dependent_vrts']})"
+                            )
+                    except ValueError:
+                        pass
+                raise RuntimeError(
+                    f"force recreate aborted: scene {title!r} could not be "
+                    f"deleted{blockers}; the stale showcase maps were NOT "
+                    f"deleted - resolve the dependency and rerun"
+                ) from e
+        if doomed:
+            print(f"  [force] deleted {len(doomed)} attached scene datasets")
         for map_id in stale_maps:
             api.delete_map(map_id)
             print(f"  [force] deleted existing map {map_id}")
-        for ds_id, title in doomed.items():
-            api.delete_dataset(ds_id, title)
-        if doomed:
-            print(f"  [force] deleted {len(doomed)} attached scene datasets")
     print(f"  importing {len(items)} TCI COGs by reference (no download)...")
     results = api.stac_import(SENTINEL_STAC, items, visibility="public")
     errored = [x for x in results if x.get("status") == "error"]
