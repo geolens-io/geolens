@@ -104,6 +104,19 @@ function applySpaceBackdrop(map: MaplibreMap, isGlobe: boolean) {
   else container.removeAttribute(GLOBE_SPACE_ATTR);
 }
 
+/**
+ * Whether `map` is currently showing the globe space backdrop.
+ *
+ * fix(#1479 Codex P2 round 1): image captures have to paint the same void the
+ * screen does, and this is the one predicate that answers "is space showing
+ * right now" — asking the container what it was marked with, rather than
+ * re-deriving globeness from projection state, is what keeps a capture from
+ * ever disagreeing with the pixels it is capturing.
+ */
+export function hasGlobeSpaceBackdrop(map: MaplibreMap): boolean {
+  return map.getContainer?.()?.hasAttribute(GLOBE_SPACE_ATTR) ?? false;
+}
+
 function sourcePrefixFor(idPrefix: string | undefined) {
   return idPrefix ? `${idPrefix}source-` : 'source-';
 }

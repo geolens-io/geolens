@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
+import { MAP_COLORS } from '@/lib/map-colors';
 import { act } from '@testing-library/react';
 import { renderHook as baseRenderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -87,17 +88,42 @@ vi.mock('@/hooks/use-edition', () => ({
 /* ── Helpers ───────────────────────────────────────── */
 
 function createMockCanvas() {
+  // fix(#1479): the 2D context records its fills so the globe space backdrop
+  // painted under a capture can be asserted, along with the order — a fill
+  // after drawImage would erase the map instead of backing it.
+  const fills: { style: string; rect: number[] }[] = [];
+  const ctx = {
+    drawImage: vi.fn(),
+    fillStyle: '',
+    font: '',
+    textBaseline: '',
+    fillText: vi.fn(),
+    fillRect: vi.fn((...rect: number[]) => { fills.push({ style: ctx.fillStyle, rect }); }),
+    strokeRect: vi.fn(),
+    beginPath: vi.fn(),
+    arc: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+  };
   return {
     width: 800,
     height: 600,
     toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' }))),
     toDataURL: vi.fn(() => 'data:image/jpeg;base64,abc'),
-    getContext: vi.fn(() => ({ drawImage: vi.fn() })),
+    getContext: vi.fn(() => ctx),
+    ctx,
+    fills,
   };
 }
 
-function createMockMap(overrides: { loaded?: boolean } = {}) {
+function createMockMap(overrides: { loaded?: boolean; globeSpace?: boolean } = {}) {
+  // fix(#1479): capture paths ask the container whether the space backdrop is
+  // on screen. Every mock map has one; only an opted-in map is marked.
+  const container = document.createElement('div');
+  if (overrides.globeSpace) container.setAttribute('data-globe-space', 'true');
   return {
+    getContainer: vi.fn(() => container),
     getCenter: vi.fn(() => ({ lng: -73.9, lat: 40.7 })),
     getZoom: vi.fn(() => 10),
     getBearing: vi.fn(() => 0),
@@ -1533,6 +1559,64 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
+    it('backs thumbnail and OG crops with the globe space color (fix(#1479))', async () => {
+      // The WebGL canvas is transparent where a ray missed the planet, so a
+      // crop with nothing under it hands the encoder alpha and the sphere
+      // lands on whatever it substitutes — white for PNG, black for JPEG.
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({ loaded: true, globeSpace: true });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Two crops: the 400x250 thumbnail and the 1200x630 OG image.
+      const crops = canvases.filter((c) => c.fills.length > 0);
+      expect(crops).toHaveLength(2);
+      expect(crops.map((c) => c.fills[0])).toEqual([
+        { style: MAP_COLORS.exportImage.globeBackground, rect: [0, 0, 400, 250] },
+        { style: MAP_COLORS.exportImage.globeBackground, rect: [0, 0, 1200, 630] },
+      ]);
+
+      // Under the map, not over it.
+      for (const crop of crops) {
+        expect(crop.ctx.fillRect.mock.invocationCallOrder[0])
+          .toBeLessThan(crop.ctx.drawImage.mock.invocationCallOrder[0]);
+      }
+
+      vi.useRealTimers();
+    });
+
+    it('leaves mercator crops unpainted (fix(#1479))', async () => {
+      // A mercator map fills its own canvas edge to edge, so a backdrop would
+      // be dead paint and any color drift behind it would be invisible.
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({ loaded: true });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      expect(canvases.some((c) => c.fills.length > 0)).toBe(false);
+      expect(canvases.some((c) => c.ctx.drawImage.mock.calls.length > 0)).toBe(true);
+
+      vi.useRealTimers();
+    });
+
     it('idle event clears timeout to prevent double-capture', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: false });
@@ -1648,6 +1732,27 @@ describe('useBuilderSave', () => {
   });
 
   describe('handleExportPNG (idle handling)', () => {
+    // fix(#1479): the spy is installed and restored by the hooks rather than
+    // inline, so a failing assertion cannot leave it in place — a leaked spy
+    // becomes the next test's `origCreateElement` and recurses forever.
+    const origCreateElement = document.createElement.bind(document);
+    let createElementSpy: ReturnType<typeof vi.spyOn>;
+    let canvases: ReturnType<typeof createMockCanvas>[] = [];
+
+    beforeEach(() => {
+      canvases = [];
+      createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+    });
+
+    afterEach(() => {
+      createElementSpy.mockRestore();
+    });
+
     it('defers export via idle event when map is not loaded', () => {
       const mockMap = createMockMap({ loaded: false });
       const state = makeSaveState({ mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'] });
@@ -1656,6 +1761,52 @@ describe('useBuilderSave', () => {
       act(() => { result.current.handleExportPNG(); });
 
       expect(mockMap.once).toHaveBeenCalledWith('idle', expect.any(Function));
+    });
+
+    it('paints the space color under the map band only (fix(#1479))', () => {
+      // The chrome bands keep the white fill: exportImage.text is #0a0a0a, so
+      // darkening the whole sheet would take the title and legend with it.
+      const mockMap = createMockMap({ loaded: true, globeSpace: true });
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        localName: 'Globe',
+        localDescription: '',
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      act(() => { result.current.handleExportPNG(); });
+      act(() => { fireRenderCallback(mockMap); });
+
+      const sheet = canvases.find((c) => c.fills.length > 0);
+      expect(sheet).toBeDefined();
+      const [chrome, mapBand] = sheet!.fills;
+
+      // Whole sheet white first, then the map band alone in space color. The
+      // source canvas is 800x600 and a title with no description adds 56px.
+      expect(chrome.style).toBe(MAP_COLORS.exportImage.background);
+      expect(mapBand).toEqual({
+        style: MAP_COLORS.exportImage.globeBackground,
+        rect: [0, 56, 800, 600],
+      });
+      expect(sheet!.ctx.drawImage).toHaveBeenCalledWith(expect.anything(), 0, 56);
+      expect(sheet!.ctx.fillRect.mock.invocationCallOrder[1])
+        .toBeLessThan(sheet!.ctx.drawImage.mock.invocationCallOrder[0]);
+    });
+
+    it('leaves a mercator export sheet white (fix(#1479))', () => {
+      const mockMap = createMockMap({ loaded: true });
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        localName: 'Flat',
+      });
+      const { result } = renderHook(() => useBuilderSave(state));
+      act(() => { result.current.handleExportPNG(); });
+      act(() => { fireRenderCallback(mockMap); });
+
+      const sheet = canvases.find((c) => c.fills.length > 0);
+      expect(sheet).toBeDefined();
+      expect(sheet!.fills.map((f) => f.style)).not.toContain(
+        MAP_COLORS.exportImage.globeBackground,
+      );
     });
   });
 

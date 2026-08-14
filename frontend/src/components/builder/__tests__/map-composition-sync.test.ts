@@ -9,7 +9,7 @@ import {
   syncLayersToMap,
   type SyncLayerInput,
 } from '../map-sync';
-import { applyMapBasemapAppearance, syncMapComposition } from '../map-composition-sync';
+import { applyMapBasemapAppearance, hasGlobeSpaceBackdrop, syncMapComposition } from '../map-composition-sync';
 
 vi.mock('../map-sync', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../map-sync')>();
@@ -454,6 +454,24 @@ describe('map composition sync', () => {
 
     applyMapBasemapAppearance({ map: unparsed, basemapConfig: null });
     expect(container.hasAttribute('data-globe-space')).toBe(false);
+  });
+
+  it('reports the backdrop to capture paths through hasGlobeSpaceBackdrop (fix(#1479))', () => {
+    // Image captures read this instead of re-deriving globeness, so it has to
+    // track the marker exactly — including for a map that cannot be marked.
+    const target = containerMap();
+    expect(hasGlobeSpaceBackdrop(target.map)).toBe(false);
+
+    applyMapBasemapAppearance({
+      map: target.map,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(hasGlobeSpaceBackdrop(target.map)).toBe(true);
+
+    applyMapBasemapAppearance({ map: target.map, basemapConfig: null });
+    expect(hasGlobeSpaceBackdrop(target.map)).toBe(false);
+
+    expect(hasGlobeSpaceBackdrop(map())).toBe(false);
   });
 
   it('tolerates a map with no container (feat(#1479))', () => {
