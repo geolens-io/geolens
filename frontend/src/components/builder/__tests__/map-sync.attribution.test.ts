@@ -9,7 +9,7 @@
  * every layer kind the builder renders (vector, raster, raster-dem).
  */
 import { describe, expect, it, vi } from 'vitest';
-import { syncLayersToMap, toSyncInput } from '../map-sync';
+import { ensureRasterDemTerrainSource, syncLayersToMap, toSyncInput } from '../map-sync';
 import type { TileToken } from '@/api/tiles';
 import type { MapLayerResponse } from '@/types/api';
 
@@ -85,6 +85,29 @@ function makeLayer(overrides: Partial<MapLayerResponse> = {}): MapLayerResponse 
   } as unknown as MapLayerResponse;
 }
 
+/** Sync one layer with bounded GeoJSON data and return the source spec. */
+function syncGeoJsonAndReadSourceSpec(
+  layer: MapLayerResponse,
+  geojson: GeoJSON.FeatureCollection,
+): Record<string, unknown> {
+  const map = makeMockMap();
+  syncLayersToMap(
+    map,
+    [toSyncInput(layer)],
+    new Map<string, TileToken>([['ds-1', VECTOR_TOKEN]]),
+    undefined,
+    { current: new Set() },
+    { current: '' },
+    new Map([[layer.id, geojson]]),
+  );
+  return (map.addSource as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<
+    string,
+    unknown
+  >;
+}
+
+const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+
 /** Sync one layer and return the source spec it created. */
 function syncAndReadSourceSpec(
   layer: MapLayerResponse,
@@ -148,6 +171,74 @@ describe('dataset attribution through the builder sync path (#1472)', () => {
       makeLayer({ dataset_attribution: null }),
       VECTOR_TOKEN,
     );
+    expect(spec).not.toHaveProperty('attribution');
+  });
+});
+
+// fix(#1472 review): the two GeoJSON source shapes shipped uncredited because
+// the attribution lookup lived inside the vector-tile block they never reach.
+describe('dataset attribution on the builder GeoJSON source paths (#1472)', () => {
+  it('reaches the plain GeoJSON source a small 3D dataset uses', () => {
+    const spec = syncGeoJsonAndReadSourceSpec(
+      makeLayer({ is_3d: true, dataset_feature_count: 100 }),
+      EMPTY_FC,
+    );
+    expect(spec.type).toBe('geojson');
+    expect(spec.cluster).toBeUndefined();
+    expect(spec.attribution).toBe(SWISSTOPO);
+  });
+
+  it('reaches the clustered GeoJSON source a bounded cluster layer uses', () => {
+    const spec = syncGeoJsonAndReadSourceSpec(
+      makeLayer({
+        dataset_geometry_type: 'Point',
+        style_config: { render_mode: 'cluster' },
+        dataset_feature_count: 100,
+      }),
+      EMPTY_FC,
+    );
+    expect(spec.type).toBe('geojson');
+    expect(spec.cluster).toBe(true);
+    expect(spec.attribution).toBe(SWISSTOPO);
+  });
+
+  it('omits attribution on a GeoJSON source when no credit is required', () => {
+    const spec = syncGeoJsonAndReadSourceSpec(
+      makeLayer({ is_3d: true, dataset_feature_count: 100, dataset_attribution: null }),
+      EMPTY_FC,
+    );
+    expect(spec.type).toBe('geojson');
+    expect(spec).not.toHaveProperty('attribution');
+  });
+});
+
+// fix(#1472 review): a terrain-mode DEM has no visible layer, so the attributed
+// source its adapter built is unreferenced and MapLibre's `used` flag is false.
+// The terrain source is counted through `usedForTerrain` instead, which makes it
+// the only place a terrain-only DEM's credit can come from on the builder.
+describe('dataset attribution on the terrain DEM source (#1472)', () => {
+  it('puts the credit on the terrain source', () => {
+    const map = makeMockMap();
+    ensureRasterDemTerrainSource(map, '/raster-tiles/ds-1/tiles/{z}/{x}/{y}.png', {
+      attribution: SWISSTOPO,
+    });
+    const spec = (map.addSource as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
+    expect(spec.type).toBe('raster-dem');
+    expect(spec.attribution).toBe(SWISSTOPO);
+  });
+
+  it('omits it when the DEM requires no credit', () => {
+    const map = makeMockMap();
+    ensureRasterDemTerrainSource(map, '/raster-tiles/ds-1/tiles/{z}/{x}/{y}.png', {
+      attribution: null,
+    });
+    const spec = (map.addSource as ReturnType<typeof vi.fn>).mock.calls[0][1] as Record<
+      string,
+      unknown
+    >;
     expect(spec).not.toHaveProperty('attribution');
   });
 });

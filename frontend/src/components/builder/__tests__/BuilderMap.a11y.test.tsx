@@ -560,6 +560,10 @@ describe('BuilderMap terrain activation', () => {
       minzoom: 0,
       maxzoom: 17,
       bounds: [-74.05, 44.08, -73.85, 44.32],
+      // fix(#1472 review): the DEM's required credit. This fixture's layer
+      // carries none, so it is null rather than absent — the option is always
+      // passed, and the source spec omits the key when there is nothing to say.
+      attribution: null,
     });
     expect(mapState.fakeMap.setTerrain).toHaveBeenCalledWith({
       source: TERRAIN_SOURCE_ID,

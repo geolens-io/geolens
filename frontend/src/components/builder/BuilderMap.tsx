@@ -554,6 +554,10 @@ export const BuilderMap = memo(function BuilderMap({
       minzoom: token.minzoom,
       maxzoom: token.maxzoom,
       bounds: token.bounds,
+      // fix(#1472 review): a terrain-mode DEM has no visible layer, so the
+      // attributed source its adapter created is unreferenced and MapLibre
+      // does not count it. This one is counted through usedForTerrain.
+      attribution: demLayer.dataset_attribution ?? null,
     });
     map.setTerrain({
       source: TERRAIN_SOURCE_ID,
