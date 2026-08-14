@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 // fix(#1480): a worktree e2e run silently tests `main`.
 //
@@ -66,6 +68,35 @@ export const porcelainPaths = (out: string): string[] => {
   }
   return paths.filter(Boolean);
 };
+
+const readOrNull = (p: string): Buffer | null => {
+  try {
+    return readFileSync(p);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * fix(#1492): the only question that actually matters is whether the two
+ * working trees hold different bytes at a path. Git's path-level bookkeeping
+ * answers a different question — what changed relative to a COMMIT — and both
+ * trees can differ from that commit identically (the same dirty edit on each
+ * side, or an untracked file present in both). Every earlier revision of this
+ * guard reconstructed tree equality out of that metadata and kept finding new
+ * ways it lies. So compare the bytes, and let git only nominate candidates.
+ * Exported for testing.
+ */
+export const makeDiffersOnDisk =
+  (worktreeRoot: string, servedRoot: string) =>
+  (rel: string): boolean => {
+    if (!worktreeRoot || !servedRoot) return true; // cannot prove equal -> assume different
+    const a = readOrNull(join(worktreeRoot, rel));
+    const b = readOrNull(join(servedRoot, rel));
+    if (a === null && b === null) return false; // absent from both
+    if (a === null || b === null) return true; // present in only one
+    return !a.equals(b);
+  };
 
 /** Paths reported as untracked (`??`) by `git status --porcelain -z`. */
 export const porcelainUntracked = (out: string): string[] =>
@@ -160,11 +191,15 @@ export function assertWorktreeMatchesStack(): void {
   // `git diff` cannot see untracked files, so mine's untracked entries are
   // folded in separately — those are real divergence, being absent from the
   // served tree entirely.
-  const reallyDifferent = new Set([
+  const candidates = new Set([
     ...divergent,
     ...porcelainUntracked(gitRaw(['status', '--porcelain', '-z'])),
   ]);
-  const mineDivergent = mine.filter((p) => reallyDifferent.has(p));
+  // Git only nominates candidates; the byte comparison decides. Cheap, because
+  // the candidate set is the handful of paths that changed, not the whole tree.
+  const worktreeRoot = git(['rev-parse', '--show-toplevel']);
+  const differsOnDisk = makeDiffersOnDisk(worktreeRoot, mainCheckout);
+  const mineDivergent = mine.filter((p) => candidates.has(p) && differsOnDisk(p));
 
   const hits = (paths: string[], prefixes: string[]) =>
     [...new Set(paths.filter((p) => prefixes.some((s) => p.startsWith(s))))];
@@ -177,7 +212,7 @@ export function assertWorktreeMatchesStack(): void {
     // NEWER app code, which is what CI will do after merge anyway. Warn with a
     // remedy rather than blocking — a guard that blocks every stale worktree in
     // a repo whose main moves hourly gets disabled, and then it guards nothing.
-    const staleServed = hits(stale, [...FRONTEND_PATHS, ...BACKEND_PATHS]);
+    const staleServed = hits(stale.filter(differsOnDisk), [...FRONTEND_PATHS, ...BACKEND_PATHS]);
     if (staleServed.length > 0) {
       console.warn(
         `\n[worktree] This worktree is behind ${servedLabel} in paths the stack serves:\n` +
