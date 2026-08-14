@@ -4403,6 +4403,28 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         print(f"  [skip] {name} already exists")
         return "(skipped)"
     print("\n[sentinel2] New York From Orbit (COGs by reference)")
+    if force:
+        # fix(#1493 review): --force must RECREATE, not duplicate. The import
+        # endpoint dedupes on source_url and returns status="skipped" WITHOUT
+        # updating origin_ref, so a force-rerun over existing scenes would
+        # stack a second same-named map on top of the old, still-unrefreshable
+        # datasets. Deleting this seeder's own map + scenes first is the only
+        # way a rerun records fresh bindings - which also makes
+        # `--only sentinel2 --force` the supported repair for instances seeded
+        # before item_href was sent.
+        mid = api.list_maps().get(name)
+        if mid:
+            api.delete_map(mid)
+            print(f"  [force] deleted existing map {mid}")
+        stale = [
+            d
+            for d in api.list_own_datasets()
+            if d["title"].startswith("Sentinel-2 TCI ")
+        ]
+        for d in stale:
+            api.delete_dataset(d["id"], d["title"])
+        if stale:
+            print(f"  [force] deleted {len(stale)} existing scene datasets")
     # Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s
     # on the SSRF IP-pin against Element84's CloudFront edge). Collection-1
     # (sentinel-2-c1-l2a) supersedes the legacy sentinel-2-l2a collection and
