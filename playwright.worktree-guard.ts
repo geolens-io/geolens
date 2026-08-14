@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync } from 'node:fs';
 import { join } from 'node:path';
 
 // fix(#1480): a worktree e2e run silently tests `main`.
@@ -75,6 +75,13 @@ export const porcelainPaths = (out: string): string[] => {
 // side and ENOENT on the other and the pair was declared "absent from both".
 const readOrNull = (p: string): Buffer | null | undefined => {
   try {
+    const st = lstatSync(p);
+    // fix(#1492): compare the LINK, not its target. readFileSync follows
+    // symlinks, so two different links whose targets happen to hold identical
+    // bytes compared equal — and a link and a regular file with the same
+    // content did too. The sentinel prefix keeps those three cases distinct.
+    if (st.isSymbolicLink()) return Buffer.from(`\0symlink:${readlinkSync(p)}`);
+    if (!st.isFile()) return undefined; // directory, socket, fifo -> fail closed
     return readFileSync(p);
   } catch (err) {
     return (err as NodeJS.ErrnoException)?.code === 'ENOENT' ? null : undefined;
@@ -218,16 +225,31 @@ export function assertWorktreeMatchesStack(): void {
     // remedy rather than blocking — a guard that blocks every stale worktree in
     // a repo whose main moves hourly gets disabled, and then it guards nothing.
     const staleServed = hits(stale.filter(differsOnDisk), [...FRONTEND_PATHS, ...BACKEND_PATHS]);
-    if (staleServed.length > 0) {
-      console.warn(
-        `\n[worktree] This worktree is behind ${servedLabel} in paths the stack serves:\n` +
-          staleServed.slice(0, 5).map((p) => `  ${p}`).join('\n') +
-          (staleServed.length > 5 ? `\n  …and ${staleServed.length - 5} more` : '') +
-          `\nSpecs will run against ${servedLabel}'s newer app code, not your worktree's.` +
-          `\nRebase onto ${branch || 'main'} if that matters for what you are testing.\n`,
-      );
-    }
-    return;
+    if (staleServed.length === 0) return;
+    // fix(#1492) round ten: this used to warn and continue. It now blocks.
+    // The earlier reasoning was that hard-blocking every stale worktree in a
+    // repo whose main moves hourly would get the guard switched off — but that
+    // was when "behind" was inferred from commit ancestry. These paths are now
+    // proven to differ on disk, so the run really would report on code that is
+    // not in this worktree, and the remedy is one command rather than standing
+    // up a separate stack.
+    throw new Error(
+      [
+        `e2e from this worktree would test ${servedLabel}, not your worktree's code.`,
+        '',
+        `This worktree is BEHIND the served checkout in paths the stack serves.`,
+        'These files differ on disk between the two trees:',
+        '',
+        ...staleServed.slice(0, 10).map((p) => `  ${p}`),
+        ...(staleServed.length > 10 ? [`  …and ${staleServed.length - 10} more`] : []),
+        '',
+        `Rebase onto ${branch || 'main'} and run again.`,
+        '',
+        'Set E2E_ALLOW_WORKTREE=1 to run anyway — reasonable for a spec-only',
+        "branch where testing against the served checkout's newer app code is",
+        'what you actually want.',
+      ].join('\n'),
+    );
   }
 
   const lines = [
