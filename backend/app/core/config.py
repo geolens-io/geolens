@@ -175,7 +175,10 @@ class Settings(BaseSettings):
     # behaviors — API docs exposure (/docs, /redoc) and the Secure flag on the
     # OAuth session cookie (SessionMiddleware https_only). Previously these were
     # keyed off LOG_JSON, an innocuously-documented log-format flag.
-    #   "production"  -> hardened posture (docs hidden, Secure cookie)
+    # fix(#1485): also selects plain traceback rendering, because rich's
+    # frame-locals tables made one exception a multi-minute event-loop stall.
+    #   "production"  -> hardened posture (docs hidden, Secure cookie,
+    #                    plain tracebacks)
     #   "development" -> open posture (docs shown, no Secure cookie)
     #   unset (None)  -> fall back to LOG_JSON for backward compatibility
     # Set ENVIRONMENT=production on any public, TLS-terminated deployment.
@@ -860,8 +863,8 @@ class Settings(BaseSettings):
 
     @property
     def is_production(self) -> bool:
-        """Whether to enforce the production security posture (API docs hidden,
-        Secure session cookie).
+        """Whether to enforce the production posture (API docs hidden, Secure
+        session cookie, plain tracebacks).
 
         SEC-005: driven by the explicit ENVIRONMENT setting. When ENVIRONMENT is
         unset, fall back to LOG_JSON (the de-facto production switch before this

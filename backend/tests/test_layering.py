@@ -2634,7 +2634,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # estimate of how long an upload takes — the tracking-row check is what
     # decides ownership), so nobody later "tunes" it as if it were a transfer
     # margin. Cap 1091 -> 1104, exact.
-    "backend/app/core/config.py": 1104,
+    # fix(#1485): +3 — ENVIRONMENT gained a third behavior (plain traceback
+    # rendering), so the field comment and the `is_production` docstring that
+    # enumerate what the setting controls say so. This setting exists because
+    # security posture was once keyed off a flag documented as log-format only;
+    # an under-documented coupling is the same mistake. Cap 1104 -> 1107, exact.
+    "backend/app/core/config.py": 1107,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
