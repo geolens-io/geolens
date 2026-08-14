@@ -2354,9 +2354,16 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         "created_by",
     )
 
+    # Ownership is still worth SHOWING for the expected-foreign pins: they are
+    # trusted, but a cleanup audit that never mentions a kept dataset belongs
+    # to another account would be hiding the one fact the pin class encodes.
+    pinned_foreign = [d for d in pinned_hits if d.get("created_by") != api.user_id]
     print(f"\n  externally pinned, hard-kept: {len(pinned_hits)}")
     for d in pinned_hits:
-        print(f"    = {d.get('title')!r}")
+        if d.get("created_by") != api.user_id:
+            print(f"    = {d.get('title')!r}  (visitor-owned - expected for this title)")
+        else:
+            print(f"    = {d.get('title')!r}")
     if pinned_impostors:
         print(
             f"\n  !! kept, but NOT the seeder's: {len(pinned_impostors)} dataset(s) "
@@ -2382,7 +2389,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
             f"{len(foreign_datasets)} datasets; would keep {len(stray_maps)} "
             f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
             f"{len(pinned_hits) + len(pinned_impostors)} pinned-title datasets "
-            f"({len(pinned_impostors)} not the seeder's) and "
+            f"({len(pinned_foreign)} expected visitor-owned, "
+            f"{len(pinned_impostors)} impostors) and "
             f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
             "Nothing was deleted. "
             "Re-run with --execute to perform it."
@@ -2412,7 +2420,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         f"{deleted_datasets}/{len(foreign_datasets)} datasets; kept "
         f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
         f"strays, {len(pinned_hits) + len(pinned_impostors)} pinned-title "
-        f"datasets ({len(pinned_impostors)} not the seeder's) and "
+        f"datasets ({len(pinned_foreign)} expected visitor-owned, "
+        f"{len(pinned_impostors)} impostors) and "
         f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
         f"{errors} error(s)."
     )
