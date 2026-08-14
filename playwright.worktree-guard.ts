@@ -50,18 +50,64 @@ export function assertWorktreeMatchesStack(): void {
   const commonDir = git('rev-parse --path-format=absolute --git-common-dir');
   if (!gitDir || !commonDir || gitDir === commonDir) return;
 
-  const mergeBase = git('merge-base HEAD main') || git('merge-base HEAD origin/main');
-  const changed = [
+  // What the stack serves is the MAIN CHECKOUT's working tree, which is
+  // bind-mounted. So compare against whatever is actually checked out there,
+  // not against `origin/main`: an unfetched local main is still what the
+  // containers are serving, and the main checkout may even be on another
+  // branch. Deriving it from the common dir keeps this literal instead of
+  // assumed. Falls back to the main ref, then origin/main, then nothing.
+  const mainCheckout = commonDir.replace(/\/\.git\/?$/, '');
+  const servedRef =
+    (mainCheckout && git(`-C ${mainCheckout} rev-parse --verify --quiet HEAD`)) ||
+    git('rev-parse --verify --quiet main') ||
+    git('rev-parse --verify --quiet origin/main') ||
+    '';
+  const mainRef = servedRef;
+  const mergeBase = mainRef ? git(`merge-base HEAD ${mainRef}`) : '';
+  // Human label for messages; mainRef itself is a 40-char sha and unreadable.
+  const branch = mainCheckout ? git(`-C ${mainCheckout} rev-parse --abbrev-ref HEAD`) : '';
+  const servedLabel =
+    branch && branch !== 'HEAD' ? `${branch} (${mainRef.slice(0, 9)})` : mainRef.slice(0, 9) || 'main';
+
+  // MY changes: merge-base -> working tree. Absent from the stack, so a run
+  // reports on code I did not write.
+  const mine = [
     ...(mergeBase ? git(`diff --name-only ${mergeBase}`).split('\n') : []),
     // Uncommitted changes count: they are equally absent from the stack.
     ...git('status --porcelain').split('\n').map((l) => l.slice(3)),
   ].filter(Boolean);
 
-  const hits = (prefixes: string[]) =>
-    [...new Set(changed.filter((p) => prefixes.some((s) => p.startsWith(s))))];
-  const frontend = hits(FRONTEND_PATHS);
-  const backend = hits(BACKEND_PATHS);
-  if (frontend.length === 0 && backend.length === 0) return;
+  // fix(#1492): the merge-base delta only ever sees MY side. It is blind to
+  // everything main gained after I forked, so a worktree that is merely stale
+  // used to pass the guard while the stack served app code I do not have.
+  // Comparing the working tree with main directly catches that direction too.
+  const divergent = mainRef ? git(`diff --name-only ${mainRef}`).split('\n').filter(Boolean) : [];
+  const mineSet = new Set(mine);
+  const stale = divergent.filter((p) => !mineSet.has(p));
+
+  const hits = (paths: string[], prefixes: string[]) =>
+    [...new Set(paths.filter((p) => prefixes.some((s) => p.startsWith(s))))];
+  const frontend = hits(mine, FRONTEND_PATHS);
+  const backend = hits(mine, BACKEND_PATHS);
+
+  if (frontend.length === 0 && backend.length === 0) {
+    // Nothing of mine is missing from the stack, so a run is still meaningful.
+    // Being behind main is a different, milder problem: the specs run against
+    // NEWER app code, which is what CI will do after merge anyway. Warn with a
+    // remedy rather than blocking — a guard that blocks every stale worktree in
+    // a repo whose main moves hourly gets disabled, and then it guards nothing.
+    const staleServed = hits(stale, [...FRONTEND_PATHS, ...BACKEND_PATHS]);
+    if (staleServed.length > 0) {
+      console.warn(
+        `\n[worktree] This worktree is behind ${servedLabel} in paths the stack serves:\n` +
+          staleServed.slice(0, 5).map((p) => `  ${p}`).join('\n') +
+          (staleServed.length > 5 ? `\n  …and ${staleServed.length - 5} more` : '') +
+          `\nSpecs will run against ${servedLabel}'s newer app code, not your worktree's.` +
+          `\nRebase onto ${branch || 'main'} if that matters for what you are testing.\n`,
+      );
+    }
+    return;
+  }
 
   const lines = [
     'e2e from this worktree would test `main`, not your changes.',
