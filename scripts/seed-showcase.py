@@ -4505,6 +4505,37 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         #   destroy an operator's unrelated same-prefixed import, and a bare
         #   attached-layer sweep would destroy a shared context dataset if a
         #   styling pass ever adds one to this map.
+        # * Aborts BEFORE deleting when a selected asset is already imported
+        #   by another account (round 4): the import dedupe is instance-wide
+        #   on asset href, and the skip-fallback below resolves own datasets
+        #   only - so a foreign holding would leave the rebuilt map missing
+        #   that scene (or, all-conflicting, destroy the showcase and build
+        #   nothing). Deleting our own old scenes frees OUR hrefs; a foreign
+        #   row is not ours to free. Keyed the same way the backend guard is
+        #   (fix(#1286)): origin_ref.asset_href, source_url as fallback.
+        fresh_hrefs = {it["data_asset_href"] for it in items}
+        foreign = [
+            d
+            for d in api.list_all_datasets()
+            if d.get("source_format") == "stac"
+            and d.get("created_by") != api.user_id
+            and (
+                ((d.get("origin_ref") or {}).get("asset_href"))
+                or d.get("source_url")
+            )
+            in fresh_hrefs
+        ]
+        if foreign:
+            names = ", ".join(
+                f"{d['title']!r} (owner {d.get('created_by_display') or d.get('created_by') or 'none'})"
+                for d in foreign[:4]
+            )
+            raise RuntimeError(
+                f"force recreate aborted BEFORE deleting anything: "
+                f"{len(foreign)} selected scene(s) already imported by "
+                f"another account would dedupe-skip and leave the rebuilt "
+                f"map incomplete: {names}"
+            )
         stale_maps = [
             m["id"]
             for m in api.list_all_maps()
