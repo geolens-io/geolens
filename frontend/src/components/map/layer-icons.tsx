@@ -206,7 +206,14 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints, discrete }: IconS
       <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
         {hasGradient && (
           <defs>
-            <linearGradient id={gradientId}>
+            {/* userSpaceOnUse, not the objectBoundingBox default: a horizontal
+                line has a zero-height bounding box, and the SVG spec disables
+                rendering of any element painted by a bounding-box-united
+                gradient when either bbox dimension is zero — so every
+                multi-color line icon (categorical bands and graduated ramps
+                alike) drew nothing. The coordinates pin the gradient to the
+                line's own endpoints. */}
+            <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1="1" y1="7" x2="13" y2="7">
               {gradientStops(colors, discrete)}
             </linearGradient>
           </defs>
