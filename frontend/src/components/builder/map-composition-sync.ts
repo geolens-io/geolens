@@ -82,6 +82,28 @@ function applySky(map: MaplibreMap, isGlobe: boolean) {
   skyStates.set(map, { applied: map.getSky?.(), base });
 }
 
+// feat(#1479): the void behind the sphere, which no sky value can reach — the
+// atmosphere pass returns alpha 0 for rays that miss the planet, the canvas
+// clears transparent, and the style's `background` layer is drawn per tile so
+// it stays clipped to the sphere. What shows through the miss is the page
+// behind the canvas, so the treatment is a background on the map container and
+// the color lives in `index.css` against this marker.
+//
+// A dedicated attribute rather than writing container.style.backgroundColor
+// keeps the value out of the component (DESIGN-GUIDE) and gives the mercator
+// path the discipline #1474 needed for sky: we add and remove exactly the one
+// attribute we own, so reverting cannot clobber a background that belongs to
+// someone else.
+const GLOBE_SPACE_ATTR = 'data-globe-space';
+
+function applySpaceBackdrop(map: MaplibreMap, isGlobe: boolean) {
+  // Partial map mocks in tests lack `getContainer`, hence the optional call.
+  const container = map.getContainer?.();
+  if (!container) return;
+  if (isGlobe) container.setAttribute(GLOBE_SPACE_ATTR, 'true');
+  else container.removeAttribute(GLOBE_SPACE_ATTR);
+}
+
 function sourcePrefixFor(idPrefix: string | undefined) {
   return idPrefix ? `${idPrefix}source-` : 'source-';
 }
@@ -136,6 +158,12 @@ export function applyMapBasemapAppearance({
     pendingRootStyleRetries.delete(map);
   }
   const projection = basemapConfig?.projection ?? 'mercator';
+  // feat(#1479): the backdrop is DOM state, not style state, so it does not
+  // share setProjection's parsed-style precondition and is applied outside the
+  // retry below. Inside it, a throw from either maplibre call would strand the
+  // backdrop out of step with the projection until `style.load` — permanently
+  // if the throw came from anything other than an unparsed style.
+  applySpaceBackdrop(map, projection === 'globe');
   const applyRootStyle = () => {
     pendingRootStyleRetries.delete(map);
     try {
