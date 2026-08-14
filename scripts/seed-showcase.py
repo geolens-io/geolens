@@ -515,6 +515,20 @@ PINNED_DATASET_TITLES = (
     "swissALTI3D Matterhorn DEM (2m mosaic)",
 )
 
+# Pinned titles the seeder did NOT create and expects a VISITOR to own.
+# fix(#1487): MNMAP_PLUTO is hand-uploaded on the demo, and the geolens-examples
+# MCP transcripts quote it, so a prune that deletes it breaks a published
+# walkthrough - the dry run behind #1487 listed it for deletion, which is what
+# this tuple exists to prevent. A separate tuple rather than an entry above because
+# the two classes carry OPPOSITE ownership expectations: the three above are
+# admin-created, so a foreign copy is by definition a title-squatter and is
+# reported as one; for these, foreign ownership IS the expected state, and no
+# ownership signal can tell the genuine visitor upload from a squatting one -
+# so every dataset bearing the title is hard-kept and counted as pinned, and
+# over-keeping a squatter is the accepted cost (deleting the real one breaks
+# the walkthrough; keeping a fake one frees nothing).
+PINNED_FOREIGN_DATASET_TITLES = ("MNMAP_PLUTO",)
+
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
 # plate boundaries and quake belts, the worldwide meteorite scatter, and storm
@@ -2152,6 +2166,7 @@ def _showcase_dataset_titles() -> set[str]:
     hand-uploaded dataset on a list that reads like a deletion candidate.
     """
     titles = set(SHOWCASE_METADATA) | set(PINNED_DATASET_TITLES) | set(RETIRED_DATASETS)
+    titles |= set(PINNED_FOREIGN_DATASET_TITLES)
     titles |= {QUAKES_TITLE, QUAKES_TITLE_LEGACY, QUAKES_HEAT_TITLE}
     titles |= {
         "World States & Provinces (Natural Earth 1:50m)",
@@ -2213,7 +2228,18 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     foreign_datasets, stray_datasets, pinned, pinned_impostors = [], [], [], []
     ownerless_datasets = []
     for d in api.list_all_datasets():
-        if d.get("title") in PINNED_DATASET_TITLES:
+        if d.get("title") in PINNED_FOREIGN_DATASET_TITLES:
+            # Hard-kept whoever owns it, and counted as genuinely pinned even
+            # though the owner is not the admin: foreign ownership is this
+            # class's EXPECTED state (see the tuple), so the impostor split
+            # below would misfile the real dataset as a squatter and invite
+            # the manual deletion the pin exists to prevent.
+            # fix(#1487 review): deliberately BEFORE the null-owner branch - a
+            # pinned dataset whose creator account was deleted must not land in
+            # the ownerless "review by hand" list, which reads as a deletion
+            # candidate. The report labels the null owner honestly instead.
+            pinned.append(d)
+        elif d.get("title") in PINNED_DATASET_TITLES:
             # Never in the delete set, whoever owns it. A title is not proof of
             # identity though: titles are explicitly non-unique here, so a
             # visitor can upload something called "NYC Subway Lines (MTA)" and
@@ -2262,9 +2288,11 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
       and KEPT. The live demo carries hand-uploaded datasets that predate this
       script, and deleting one because this file has never heard of it is
       exactly the accident this split prevents.
-    * Three datasets are hard-kept whoever owns them (PINNED_DATASET_TITLES):
-      they are referenced from outside this repo by id or by the table name
-      their title derives.
+    * Pinned datasets are hard-kept whoever owns them: PINNED_DATASET_TITLES
+      (referenced from outside this repo by id or by the table name their title
+      derives) and PINNED_FOREIGN_DATASET_TITLES (visitor-uploaded content that
+      published walkthroughs quote; foreign ownership is their expected state,
+      so they count as pinned rather than as impostors).
     * Collections are reported only, never deleted - a collection is a label
       over datasets, so deleting one destroys curation while freeing nothing.
 
@@ -2330,9 +2358,25 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         "created_by",
     )
 
+    # Ownership is still worth SHOWING for the expected-foreign pins: they are
+    # trusted, but a cleanup audit that never mentions a kept dataset belongs
+    # to another account would be hiding the one fact the pin class encodes.
+    # fix(#1487 review): a NULL owner is a deleted creator account, not a
+    # visitor - label it as the unknown it is instead of calling it expected.
+    # It stays hard-kept either way; only the words change.
+    pinned_foreign = [
+        d for d in pinned_hits if d.get("created_by") not in (api.user_id, None)
+    ]
+    pinned_ownerless = [d for d in pinned_hits if d.get("created_by") is None]
     print(f"\n  externally pinned, hard-kept: {len(pinned_hits)}")
     for d in pinned_hits:
-        print(f"    = {d.get('title')!r}")
+        owner = d.get("created_by")
+        if owner is None:
+            print(f"    = {d.get('title')!r}  (ownerless - creator account deleted)")
+        elif owner != api.user_id:
+            print(f"    = {d.get('title')!r}  (visitor-owned - expected for this title)")
+        else:
+            print(f"    = {d.get('title')!r}")
     if pinned_impostors:
         print(
             f"\n  !! kept, but NOT the seeder's: {len(pinned_impostors)} dataset(s) "
@@ -2358,7 +2402,9 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
             f"{len(foreign_datasets)} datasets; would keep {len(stray_maps)} "
             f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
             f"{len(pinned_hits) + len(pinned_impostors)} pinned-title datasets "
-            f"({len(pinned_impostors)} not the seeder's) and "
+            f"({len(pinned_foreign)} expected visitor-owned, "
+            f"{len(pinned_ownerless)} ownerless, "
+            f"{len(pinned_impostors)} impostors) and "
             f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
             "Nothing was deleted. "
             "Re-run with --execute to perform it."
@@ -2388,7 +2434,9 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         f"{deleted_datasets}/{len(foreign_datasets)} datasets; kept "
         f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
         f"strays, {len(pinned_hits) + len(pinned_impostors)} pinned-title "
-        f"datasets ({len(pinned_impostors)} not the seeder's) and "
+        f"datasets ({len(pinned_foreign)} expected visitor-owned, "
+        f"{len(pinned_ownerless)} ownerless, "
+        f"{len(pinned_impostors)} impostors) and "
         f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
         f"{errors} error(s)."
     )
