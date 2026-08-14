@@ -9,7 +9,7 @@ import {
   syncLayersToMap,
   type SyncLayerInput,
 } from '../map-sync';
-import { applyMapBasemapAppearance, syncMapComposition } from '../map-composition-sync';
+import { applyMapBasemapAppearance, hasGlobeSpaceBackdrop, syncMapComposition } from '../map-composition-sync';
 
 vi.mock('../map-sync', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../map-sync')>();
@@ -68,6 +68,21 @@ function skyMap(initialSky?: Sky) {
     setSky,
     sky: () => stored,
     reload: (next: Sky) => { stored = next; },
+  };
+}
+
+// A map holding a real container element, so the space backdrop can be read
+// back the way the stylesheet selects it (feat(#1479)).
+function containerMap() {
+  const container = document.createElement('div');
+  container.className = 'maplibregl-map';
+  return {
+    map: {
+      isStyleLoaded: vi.fn(() => true),
+      setProjection: vi.fn(),
+      getContainer: vi.fn(() => container),
+    } as unknown as MaplibreMap,
+    container,
   };
 }
 
@@ -355,6 +370,117 @@ describe('map composition sync', () => {
     expect(throwingSky).toHaveBeenCalledWith(
       expect.objectContaining({ 'atmosphere-blend': expect.anything() }),
     );
+  });
+
+  it('marks the container for globe and unmarks it on mercator (feat(#1479))', () => {
+    const target = containerMap();
+
+    applyMapBasemapAppearance({
+      map: target.map,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(target.container.getAttribute('data-globe-space')).toBe('true');
+
+    // Both ways of saying mercator have to strip it: an explicit projection and
+    // a config that never mentioned one.
+    applyMapBasemapAppearance({
+      map: target.map,
+      basemapConfig: { projection: 'mercator' } as MapBasemapConfig,
+    });
+    expect(target.container.hasAttribute('data-globe-space')).toBe(false);
+
+    applyMapBasemapAppearance({
+      map: target.map,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    applyMapBasemapAppearance({ map: target.map, basemapConfig: null });
+    expect(target.container.hasAttribute('data-globe-space')).toBe(false);
+  });
+
+  it('leaves the marker off a container it never set (feat(#1479))', () => {
+    // Reverting a map that was never a globe must not invent the attribute,
+    // and removeAttribute on an absent attribute must stay silent.
+    const target = containerMap();
+    applyMapBasemapAppearance({ map: target.map, basemapConfig: null });
+    expect(target.container.hasAttribute('data-globe-space')).toBe(false);
+  });
+
+  it('keeps one surface\'s backdrop out of the other (feat(#1479))', () => {
+    const builder = containerMap();
+    const viewer = containerMap();
+
+    applyMapBasemapAppearance({
+      map: builder.map,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    applyMapBasemapAppearance({
+      map: viewer.map,
+      basemapConfig: null,
+      idPrefix: 'viewer-',
+    });
+
+    expect(builder.container.getAttribute('data-globe-space')).toBe('true');
+    expect(viewer.container.hasAttribute('data-globe-space')).toBe(false);
+
+    // And the reverse, so neither surface is merely winning by ordering.
+    applyMapBasemapAppearance({ map: builder.map, basemapConfig: null });
+    applyMapBasemapAppearance({
+      map: viewer.map,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+      idPrefix: 'viewer-',
+    });
+    expect(builder.container.hasAttribute('data-globe-space')).toBe(false);
+    expect(viewer.container.getAttribute('data-globe-space')).toBe('true');
+  });
+
+  it('does not wait for a parsed style to update the backdrop (feat(#1479))', () => {
+    // The backdrop is DOM, not style state. Riding the projection's retry
+    // would strand it behind any setProjection throw — the whole style.load
+    // window on the way in, and forever if the throw had another cause.
+    const container = document.createElement('div');
+    const unparsed = {
+      isStyleLoaded: vi.fn(() => false),
+      setProjection: vi.fn(() => { throw new Error('Style is not done loading'); }),
+      getContainer: vi.fn(() => container),
+      once: vi.fn(),
+      off: vi.fn(),
+    } as unknown as MaplibreMap;
+
+    applyMapBasemapAppearance({
+      map: unparsed,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(container.getAttribute('data-globe-space')).toBe('true');
+
+    applyMapBasemapAppearance({ map: unparsed, basemapConfig: null });
+    expect(container.hasAttribute('data-globe-space')).toBe(false);
+  });
+
+  it('reports the backdrop to capture paths through hasGlobeSpaceBackdrop (fix(#1479))', () => {
+    // Image captures read this instead of re-deriving globeness, so it has to
+    // track the marker exactly — including for a map that cannot be marked.
+    const target = containerMap();
+    expect(hasGlobeSpaceBackdrop(target.map)).toBe(false);
+
+    applyMapBasemapAppearance({
+      map: target.map,
+      basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+    });
+    expect(hasGlobeSpaceBackdrop(target.map)).toBe(true);
+
+    applyMapBasemapAppearance({ map: target.map, basemapConfig: null });
+    expect(hasGlobeSpaceBackdrop(target.map)).toBe(false);
+
+    expect(hasGlobeSpaceBackdrop(map())).toBe(false);
+  });
+
+  it('tolerates a map with no container (feat(#1479))', () => {
+    expect(() =>
+      applyMapBasemapAppearance({
+        map: map(),
+        basemapConfig: { projection: 'globe' } as MapBasemapConfig,
+      }),
+    ).not.toThrow();
   });
 
   it('lets sublayer override retry logic handle unloaded styles', () => {

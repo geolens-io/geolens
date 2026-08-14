@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { getSourceIdForLayer } from '@/components/builder/map-sync';
+import { hasGlobeSpaceBackdrop } from '@/components/builder/map-composition-sync';
 import { ApiError } from '@/api/client';
 import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledPlugins } from '@/hooks/use-settings';
@@ -34,8 +35,19 @@ import { getLayerCapabilities, isFolderGroupLayer } from '@/lib/layer-capabiliti
  *
  *  SHARE-08 (Phase 1142): extracted from the former inline doCapture crop block
  *  to allow two crops (400×250 thumbnail, 1200×630 OG image) to share one
- *  render event with a single triggerRepaint(). */
-function cropResize(srcCanvas: HTMLCanvasElement, targetW: number, targetH: number): HTMLCanvasElement {
+ *  render event with a single triggerRepaint().
+ *
+ *  fix(#1479 Codex P2 round 1): `backdrop` is painted under the crop when the
+ *  globe space backdrop is on screen. The WebGL canvas is transparent wherever
+ *  a ray missed the planet, so without it the sphere lands on whatever the
+ *  encoder substitutes for alpha — white once composited, black for JPEG,
+ *  neither of them the space color the map is actually showing. */
+function cropResize(
+  srcCanvas: HTMLCanvasElement,
+  targetW: number,
+  targetH: number,
+  backdrop?: string,
+): HTMLCanvasElement {
   const targetRatio = targetW / targetH;
   const srcW = srcCanvas.width;
   const srcH = srcCanvas.height;
@@ -55,6 +67,10 @@ function cropResize(srcCanvas: HTMLCanvasElement, targetW: number, targetH: numb
   offscreen.height = targetH;
   const ctx = offscreen.getContext('2d');
   if (ctx) {
+    if (backdrop) {
+      ctx.fillStyle = backdrop;
+      ctx.fillRect(0, 0, targetW, targetH);
+    }
     ctx.drawImage(srcCanvas, cropX, cropY, cropW, cropH, 0, 0, targetW, targetH);
   }
   return offscreen;
@@ -77,9 +93,15 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
   const onRender = () => {
     try {
       const srcCanvas = map.getCanvas();
+      // fix(#1479 Codex P2 round 1): both crops carry the space backdrop when
+      // the map is showing one, so a globe map's thumbnail and OG card match
+      // the builder instead of putting the sphere back on a flat background.
+      const backdrop = hasGlobeSpaceBackdrop(map)
+        ? MAP_COLORS.exportImage.globeBackground
+        : undefined;
 
       // 400×250 thumbnail — unchanged behavior
-      const thumb = cropResize(srcCanvas, 400, 250);
+      const thumb = cropResize(srcCanvas, 400, 250, backdrop);
       uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
@@ -97,7 +119,7 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       });
 
       // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
-      const og = cropResize(srcCanvas, 1200, 630);
+      const og = cropResize(srcCanvas, 1200, 630, backdrop);
       uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
@@ -896,6 +918,15 @@ export function useBuilderSave(state: SaveState) {
             cursorY += titleBlockH;
           }
 
+          // fix(#1479 Codex P2 round 1): the map band, and only the map band,
+          // gets the space color under the canvas — the globe's void is
+          // transparent, so it would otherwise composite onto the white fill
+          // above and export as a sphere on white. The title/legend/footer
+          // bands stay white because their text is #0a0a0a on white by design.
+          if (hasGlobeSpaceBackdrop(map)) {
+            ctx.fillStyle = MAP_COLORS.exportImage.globeBackground;
+            ctx.fillRect(0, cursorY, totalW, mapHeight);
+          }
           ctx.drawImage(srcCanvas, 0, cursorY);
           cursorY += mapHeight;
 

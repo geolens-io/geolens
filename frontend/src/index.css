@@ -93,6 +93,16 @@
   --map-street: oklch(0.82 0.004 85);
   --map-water:  oklch(0.85 0.02 220);
 
+  /* ─ Globe space ─
+     feat(#1479): the void behind the sphere on globe-projection maps. Has no
+     dark-mode counterpart on purpose — space is the same dark in both themes,
+     and a light value is exactly what makes the globe read as a sticker on
+     white. Sits a little below the dark theme's --background (0.145) so the
+     void reads as deeper than the chrome around it instead of continuous with
+     it, and carries enough chroma to stay a night sky rather than a black
+     rectangle. */
+  --map-space: oklch(0.13 0.03 265);
+
   /* ─ Shadow tokens (light mode) ─ */
   --elevation-xs: 0 1px 1px oklch(0 0 0 / 4%);
   --elevation-sm: 0 1px 2px oklch(0 0 0 / 5%);
@@ -577,6 +587,24 @@
  */
 [data-builder-canvas="true"] [data-coord-readout="true"] {
   top: 3rem; /* 48px — below the centered MapToolbar band */
+}
+
+/* ── Globe projection: the space behind the sphere ─────────────────────────
+ * feat(#1479): nothing inside a MapLibre style can paint the void a globe
+ * leaves around itself. The atmosphere pass added in #1473/#1474 returns
+ * alpha 0 for rays that miss the planet, the canvas clears transparent, and
+ * the style's `background` layer is drawn per tile so it stays clipped to the
+ * sphere. What shows through is whatever is behind the canvas — the page — so
+ * the treatment has to live on the map container.
+ *
+ * The marker is set by `applyMapBasemapAppearance` in `map-composition-sync`
+ * whenever basemap_config.projection is `globe` and removed on mercator, so
+ * the builder and the viewer both inherit it from the one place that already
+ * owns projection state. Scoped to `.maplibregl-map` so the attribute can only
+ * ever paint a map container.
+ */
+.maplibregl-map[data-globe-space="true"] {
+  background-color: var(--map-space);
 }
 
 /* ── MapLibre Popup Styling ─────────────────────────── */

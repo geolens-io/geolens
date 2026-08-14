@@ -100,6 +100,13 @@ export const MAP_COLORS = {
     text: '#0a0a0a',
     mutedText: '#666666',
     attribution: '#999999',
+    /** fix(#1479 Codex P2 round 1): the void a globe leaves around itself is
+     *  transparent in the WebGL canvas, so a capture composited over
+     *  `background` puts the sphere back on white — the exact problem #1479
+     *  fixes on screen. Captures fill the map region with this instead
+     *  whenever the on-screen space backdrop is active. It is the sRGB form of
+     *  the `--map-space` token, held to it by map-colors.test.ts. */
+    globeBackground: '#030713',
   },
   /** Transparent MapLibre paint value. */
   transparent: 'rgba(0,0,0,0)',

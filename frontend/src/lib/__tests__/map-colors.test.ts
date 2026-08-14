@@ -85,6 +85,14 @@ describe('MAP_COLORS design-token parity', () => {
     expect(MAP_COLORS.default.stroke).toBe(oklchToSrgbHex(readOklchToken(root, '--primary-700')));
   });
 
+  it('keeps the globe export backdrop synchronized with --map-space (fix(#1479))', () => {
+    // Captures composite the WebGL canvas onto a 2D context, which cannot read
+    // a CSS token, so the globe void's color exists twice. This pins the copy.
+    expect(MAP_COLORS.exportImage.globeBackground).toBe(
+      oklchToSrgbHex(readOklchToken(root, '--map-space')),
+    );
+  });
+
   it('keeps non-frozen categorical colors synchronized with light --viz-2..8', () => {
     const tokenColors = Array.from({ length: 7 }, (_, index) =>
       oklchToSrgbHex(readOklchToken(root, `--viz-${index + 2}`)),
