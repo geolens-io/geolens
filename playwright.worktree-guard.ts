@@ -28,6 +28,29 @@ import { dirname, join } from 'node:path';
 
 const ACKNOWLEDGED = new Set(['1', 'true', 'yes', 'on']);
 
+// fix(#1492): cwd alone is not enough. Playwright resolves `-c` relative to
+// cwd, so `cd ~ && npx playwright test -c /path/to/a/worktree/playwright.config.ts`
+// walks up from ~ and finds nothing — and invoking from inside the MAIN
+// checkout finds ITS .git directory and allows. This module sits beside the
+// configs, so its own directory is the checkout that owns them.
+//
+// Both anchors are checked and EITHER one reporting a worktree blocks. That is
+// deliberate: falling back from __dirname to cwd when the loader gives no
+// __dirname would silently restore the original hole, which is the same
+// fail-open-fallback shape as the earlier git and stat findings.
+declare const __dirname: string | undefined;
+
+function anchors(): string[] {
+  const out: string[] = [];
+  if (typeof __dirname !== 'undefined' && __dirname) out.push(__dirname);
+  try {
+    out.push(process.cwd());
+  } catch {
+    // cwd can be gone if the directory was deleted; the module anchor stands.
+  }
+  return [...new Set(out)];
+}
+
 export type Marker = { dir: string; kind: 'directory' | 'file' | 'unreadable' };
 
 // fix(#1492) round thirteen: ONLY "there is nothing here" may continue the
@@ -77,14 +100,15 @@ export function assertWorktreeMatchesStack(): void {
   // acknowledges; everything else, including 0 and false, does not.
   if (ACKNOWLEDGED.has((process.env.E2E_ALLOW_WORKTREE ?? '').trim().toLowerCase())) return;
 
-  const marker = findGitMarker(process.cwd());
-  // No .git anywhere above us: not a git checkout, so there is no worktree to
-  // confuse. A tarball install is a legitimate case and must keep working.
-  if (marker === null) return;
-  // A real directory is the main checkout, which is what the stack serves.
-  if (marker.kind === 'directory') return;
   // A .git file is a linked worktree (or a submodule); 'unreadable' is an entry
-  // we could not classify. Both block — that is the fail-closed contract.
+  // we could not classify. Both block — that is the fail-closed contract. A
+  // real directory is the main checkout, and no marker at all means this is not
+  // a git checkout (a tarball install, which must keep working).
+  const found = anchors()
+    .map(findGitMarker)
+    .filter((m): m is Marker => m !== null && m.kind !== 'directory');
+  const marker = found[0];
+  if (!marker) return;
 
   const target = process.env.E2E_BASE_URL ?? 'http://localhost:8080 (default)';
   throw new Error(
