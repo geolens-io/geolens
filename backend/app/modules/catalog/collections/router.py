@@ -253,7 +253,9 @@ async def update_collection_endpoint(
             action="collection.update",
             resource_type="collection",
             resource_id=collection_id,
-            details=body.model_dump(exclude_none=True),
+            # fix(#1484): mode="json" so a future non-JSON scalar on
+            # CollectionUpdate cannot reach the JSONB column as a raw object.
+            details=body.model_dump(mode="json", exclude_none=True),
             ip_address=request.client.host if request.client else None,
         ),
     )
