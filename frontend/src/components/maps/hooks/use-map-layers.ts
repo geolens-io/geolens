@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { getEnvConfig } from '@/lib/env';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import maplibregl from 'maplibre-gl';
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
@@ -51,6 +52,9 @@ export function useMapLayers({
 }: UseMapLayersOptions) {
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
+  // fix(#1472 review): escaped once for both source specs below — MapLibre
+  // renders attribution as innerHTML. See lib/attribution-safety.
+  const safeAttribution = toMapLibreAttribution(attribution);
 
   const addVectorLayers = useCallback(
     (map: MaplibreMap) => {
@@ -68,7 +72,7 @@ export function useMapLayers({
           tiles: [buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion)],
           minzoom: 1,
           maxzoom: 22,
-          ...(attribution ? { attribution } : {}),
+          ...(safeAttribution ? { attribution: safeAttribution } : {}),
         });
 
         const upperType = geometryType.toUpperCase();
@@ -208,7 +212,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addVectorLayers: failed to add sources/layers', e);
       }
     },
-    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn, attribution],
+    [tableName, geometryType, tileConfigCdnBaseUrl, mvtSourceLayerPrefix, mvtSourceLayerReady, tileToken, tileVersion, elevationColumn, safeAttribution],
   );
 
   // DatasetMap's load event can precede the settings request. Re-run the
@@ -248,7 +252,7 @@ export function useMapLayers({
           tileSize: 256,
           minzoom: 0,
           maxzoom: 22,
-          ...(attribution ? { attribution } : {}),
+          ...(safeAttribution ? { attribution: safeAttribution } : {}),
         });
         map.addLayer({
           id: 'raster-layer',
@@ -261,7 +265,7 @@ export function useMapLayers({
         if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
-    [rasterTileUrl, tileVersion, attribution],
+    [rasterTileUrl, tileVersion, safeAttribution],
   );
 
   const addOverlaySource = useCallback((map: MaplibreMap) => {

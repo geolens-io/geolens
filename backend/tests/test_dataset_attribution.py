@@ -137,6 +137,81 @@ class TestAttributionPatchRoundTrip:
         assert resp.status_code == 422, resp.text
 
 
+class TestAttributionMarkupIsRejected:
+    """fix(#1472 review): attribution reaches MapLibre's attribution control,
+    which assigns it to innerHTML. MapLibre's sanitizer strips only <script>,
+    on* handlers, and javascript:/data: URLs — <img src>, <iframe src>, and
+    inline style all survive it — so an editor-supplied credit would otherwise
+    be stored markup rendered on every public, shared, and embedded map."""
+
+    _PAYLOADS = [
+        "<img src=1 onerror=alert(1)>",
+        '<iframe src="https://evil.example"></iframe>',
+        '<div style="position:fixed;inset:0">overlay</div>',
+        "© swisstopo <script>alert(1)</script>",
+    ]
+
+    @pytest.mark.parametrize("payload", _PAYLOADS)
+    async def test_patch_rejects_markup(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, payload
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name=f"Attribution Markup {uuid.uuid4().hex[:6]}",
+        )
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"attribution": payload},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422, resp.text
+
+        record = await test_db_session.get(Record, ds.record_id)
+        await test_db_session.refresh(record)
+        assert record.attribution is None
+
+    @pytest.mark.parametrize("payload", _PAYLOADS)
+    def test_manifest_rejects_markup(self, payload):
+        """The other write path 422s at apply rather than dropping the credit
+        silently at commit."""
+        from pydantic import ValidationError
+
+        from app.processing.ingest.manifest_schemas import ManifestMetadata
+
+        with pytest.raises(ValidationError):
+            ManifestMetadata.model_validate({"attribution": payload})
+
+    @pytest.mark.parametrize(
+        "credit",
+        [
+            "© swisstopo — swissALTI3D",
+            "Rand & McNally",
+            'NOAA NCEI, ETOPO 2022 ("public domain")',
+            "Données © IGN — l'aménagement",
+        ],
+    )
+    async def test_ordinary_credits_still_round_trip(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session, credit
+    ):
+        """The guard rejects angle brackets only — ampersands, quotes, and
+        accents appear in real organization names and must survive."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name=f"Attribution Plain {uuid.uuid4().hex[:6]}",
+        )
+        resp = await client.patch(
+            f"/datasets/{ds.id}",
+            json={"attribution": credit},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["attribution"] == credit
+
+
 class TestAttributionReadModels:
     async def test_dataset_detail_and_list_carry_attribution(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

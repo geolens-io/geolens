@@ -2464,3 +2464,23 @@ def test_exported_source_omits_attribution_when_no_credit_is_required(credit):
     style = build_maplibre_style(_map(), [_layer(dataset_attribution=credit)])
     for source in style["sources"].values():
         assert "attribution" not in source
+
+
+def test_exported_source_attribution_is_html_escaped():
+    """fix(#1472 review): the style spec's `attribution` is an HTML string the
+    consuming application assigns to innerHTML, so this export hands a third
+    party a render context we do not control. The write guard keeps `<`/`>` out
+    of the column; this keeps a value that predates it, or arrives by a direct
+    database write, inert rather than live markup."""
+    layer = _layer(dataset_attribution="Rand & McNally")
+    style = build_maplibre_style(_map(), [layer])
+    source = next(iter(style["sources"].values()))
+    assert source["attribution"] == "Rand &amp; McNally"
+
+
+def test_exported_source_attribution_neutralizes_stored_markup():
+    layer = _layer(dataset_attribution="<img src=1 onerror=alert(1)>")
+    style = build_maplibre_style(_map(), [layer])
+    source = next(iter(style["sources"].values()))
+    assert "<" not in source["attribution"]
+    assert ">" not in source["attribution"]

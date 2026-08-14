@@ -15,6 +15,7 @@ from pydantic import (
 
 from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
+from app.core.text import reject_html_markup as _reject_markup
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 
@@ -688,6 +689,15 @@ class DatasetMeta(BaseModel):
     @classmethod
     def normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
+
+    # fix(#1472 review): attribution is the one field here that reaches an
+    # HTML render context (MapLibre's attribution control assigns it to
+    # innerHTML), so it is the one that must stay markup-free. See
+    # reject_html_markup for why MapLibre's own sanitizer is not a defense.
+    @field_validator("attribution")
+    @classmethod
+    def attribution_is_not_markup(cls, v: str | None) -> str | None:
+        return _reject_markup(v)
 
 
 # Prefer the semantically precise name in new Python call sites while retaining

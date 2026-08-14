@@ -19,6 +19,7 @@ import {
 } from '@/lib/basemap-utils';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { isFolderGroupLayer } from '@/lib/layer-capabilities';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 import { effectiveDemRenderMode, normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { getAdapter } from './layer-adapters/registry';
 import type { AdapterLayerInput, LayerAdapter } from './layer-adapters/types';
@@ -273,7 +274,7 @@ export function toSyncInput(layer: MapLayerResponse): SyncLayerInput {
     // Deliberately NOT mirrored in toViewerSyncInput: the viewer owns an
     // explicit control and passes customAttribution, and feeding both would be
     // two mechanisms answering one question.
-    attribution: layer.dataset_attribution ?? null,
+    attribution: toMapLibreAttribution(layer.dataset_attribution),
     // MVT-06: surface the dataset spatial extent so the vector source can bound
     // tile fetching to the data footprint (the raster path already passes bounds).
     // fix(#1112): this is the RFC 7946 spec form now — `west > east` on an

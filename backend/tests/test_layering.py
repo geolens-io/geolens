@@ -1990,7 +1990,13 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # _source_for_layer's common tail rather than in each branch, so vector,
     # raster, and raster-dem carry it and a fourth source type cannot be added
     # without it. Cap 1620 -> 1629, exact.
-    "backend/app/modules/catalog/maps/style_json.py": 1629,
+    # fix(#1472 review): +12 — HTML-escape the exported credit. The style spec's
+    # `attribution` is an HTML string the consuming application renders, so this
+    # export hands a third party a context we do not control; the lines are
+    # mostly the note recording that the write guard already keeps `<`/`>` out,
+    # which leaves this escaping the ampersand and covering a value written
+    # before that guard existed. Cap 1629 -> 1641, exact.
+    "backend/app/modules/catalog/maps/style_json.py": 1641,
     "backend/app/modules/catalog/maps/style_import.py": 450,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
@@ -2964,7 +2970,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes it straight to the column, so a 1000 bound here would accept a
     # manifest value the dataset PATCH then refuses to round-trip.
     # Cap 1452 -> 1473, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1473,
+    # fix(#1472 review): +10 — the markup guard on `attribution`. It is the one
+    # field in this schema that reaches an HTML render context (MapLibre's
+    # attribution control assigns it to innerHTML, and MapLibre's own sanitizer
+    # keeps img/iframe/style), so it is the one that must stay plain text. The
+    # rule itself lives in core.text.reject_html_markup, shared with the
+    # manifest schema; these lines are the field_validator and the note saying
+    # why only this field carries it. Cap 1473 -> 1483, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1483,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

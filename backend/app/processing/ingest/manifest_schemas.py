@@ -14,6 +14,8 @@ from pydantic import (
     field_validator,
 )
 
+from app.core.text import reject_html_markup
+
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
 NonEmptyString320 = Annotated[str, Field(min_length=1, max_length=320)]
 NonEmptyString500 = Annotated[str, Field(min_length=1, max_length=500)]
@@ -162,6 +164,16 @@ class ManifestMetadata(_ManifestBaseModel):
     license: NonEmptyString500 | None = None
     attribution: NonEmptyString5000 | None = None
     bbox: ManifestBbox | None = None
+
+    # fix(#1472 review): the manifest is the other write path to
+    # records.attribution, so it carries the same guard as the dataset PATCH.
+    # Enforced here rather than only in the ingest tail so a manifest with
+    # markup fails apply with a field-level 422, instead of being accepted and
+    # then having its credit line silently dropped at commit.
+    @field_validator("attribution")
+    @classmethod
+    def attribution_is_not_markup(cls, v: str | None) -> str | None:
+        return reject_html_markup(v)
 
     @field_validator("tags")
     @classmethod

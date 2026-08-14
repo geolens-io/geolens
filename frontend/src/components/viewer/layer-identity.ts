@@ -1,4 +1,5 @@
 import { resolveTerrainSourceLayer } from '@/components/builder/map-stack';
+import { toMapLibreAttribution } from '@/lib/attribution-safety';
 
 export interface ViewerLayerIdentityInput {
   id?: string | null;
@@ -96,7 +97,11 @@ export function collectLayerAttributions<
   const credits: string[] = [];
   for (const { layer, key } of createViewerLayerEntries(layers)) {
     if (!visibleLayers.has(key)) continue;
-    const credit = layer.dataset_attribution?.trim();
+    // fix(#1472 review): escaped here, not at the control. MapLibre renders
+    // attribution as innerHTML and its sanitizer leaves img/iframe/style
+    // standing — see lib/attribution-safety. Deduping AFTER escaping keeps one
+    // credit one entry regardless of which form it arrived in.
+    const credit = toMapLibreAttribution(layer.dataset_attribution);
     if (!credit || seen.has(credit)) continue;
     seen.add(credit);
     credits.push(credit);

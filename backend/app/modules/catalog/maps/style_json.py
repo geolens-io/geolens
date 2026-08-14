@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 import re
 from typing import Any
@@ -434,7 +435,18 @@ def _source_for_layer(layer: MapLayerResponse) -> dict[str, Any]:
     # reads `attribution` off the source and shows it in whatever attribution
     # control the consuming application mounts.
     if layer.dataset_attribution and layer.dataset_attribution.strip():
-        source["attribution"] = layer.dataset_attribution.strip()
+        # fix(#1472 review): HTML-escaped. The MapLibre style spec's
+        # `attribution` is an HTML string — every basemap uses it to carry a
+        # link — and the consuming application assigns it to innerHTML, so this
+        # export hands a third party a render context we do not control. The
+        # write paths already reject `<` and `>` (core.text.reject_html_markup),
+        # which leaves this escaping only the ampersand in a name like
+        # "Rand & McNally"; that is correct for the HTML target and is what
+        # keeps a value written before that guard, or by a direct database
+        # write, inert instead of live markup.
+        source["attribution"] = html.escape(
+            layer.dataset_attribution.strip(), quote=False
+        )
     source["metadata"] = {
         "geolens": {
             "dataset_id": str(layer.dataset_id),
