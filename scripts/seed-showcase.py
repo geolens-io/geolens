@@ -1287,7 +1287,19 @@ def refresh_and_report(
         RuntimeError,
         TimeoutError,
     ) as e:
-        print(f"  ! refresh FAILED for {label}: {e}", file=sys.stderr)
+        # Surface the API's structured refusal code (e.g. origin_unavailable
+        # vs refresh_not_applicable) - the bare httpx status line hides the
+        # difference between "binding incomplete" and "wrong dataset kind",
+        # which is the difference between re-importing and giving up.
+        detail = ""
+        if isinstance(e, httpx.HTTPStatusError):
+            try:
+                body = e.response.json().get("detail")
+                if isinstance(body, dict) and body.get("code"):
+                    detail = f" [{body['code']}]"
+            except (ValueError, KeyError):
+                pass
+        print(f"  ! refresh FAILED for {label}: {e}{detail}", file=sys.stderr)
         return False
     # The refresh SUCCEEDED at this point. The count is decoration on the log
     # line, so it gets its own guard: letting a transient failure here escape
@@ -4440,6 +4452,22 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
                 "collection": f.get("collection", "sentinel-2-l2a"),
                 "title": f"Sentinel-2 TCI {f['id']}",
                 "data_asset_href": a["href"],
+                # feat(#1222): the item's rel=self link. The backend records it
+                # as origin_ref.item_href, which is what makes the dataset
+                # REFRESHABLE - without it every refresh 409s origin_unavailable.
+                # The in-app import flow captures this server-side via the
+                # search proxy; this direct-import path must supply it itself.
+                # None-tolerant: a catalog that publishes no self link still
+                # imports, it just cannot refresh (and the seed-end refresh
+                # pass reports exactly that).
+                "item_href": next(
+                    (
+                        link.get("href")
+                        for link in f.get("links", [])
+                        if link.get("rel") == "self"
+                    ),
+                    None,
+                ),
                 "bbox": f.get("bbox"),
                 "epsg": epsg,
                 "datetime_start": dt,
