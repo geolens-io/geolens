@@ -4412,10 +4412,20 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         # way a rerun records fresh bindings - which also makes
         # `--only sentinel2 --force` the supported repair for instances seeded
         # before item_href was sent.
-        mid = api.list_maps().get(name)
-        if mid:
-            api.delete_map(mid)
-            print(f"  [force] deleted existing map {mid}")
+        # Enumerate ALL owned maps under this name, not list_maps() - that
+        # helper deliberately collapses a name to one id (newest), and the old
+        # --force behavior could leave several same-named duplicates behind.
+        # Deleting only the newest would cascade the scene datasets' layers
+        # off the survivors and leave empty husk maps in the catalog.
+        stale_maps = [
+            m["id"]
+            for m in api.list_all_maps()
+            if m.get("name") == name
+            and m.get("created_by_username") == api.username
+        ]
+        for map_id in stale_maps:
+            api.delete_map(map_id)
+            print(f"  [force] deleted existing map {map_id}")
         stale = [
             d
             for d in api.list_own_datasets()
