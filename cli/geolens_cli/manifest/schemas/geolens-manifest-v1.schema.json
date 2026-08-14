@@ -206,7 +206,9 @@
         "attribution": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 5000
+          "maxLength": 5000,
+          "pattern": "^[^<>]*$",
+          "description": "Credit line displayed with the data. Rejects '<' and '>': the API stores this verbatim and the map viewer renders it in MapLibre's attribution control, which is an HTML context. Mirrors ManifestMetadata.attribution in backend/app/processing/ingest/manifest_schemas.py — keep the two in step."
         },
         "bbox": {
           "type": "array",

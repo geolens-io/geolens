@@ -344,3 +344,50 @@ def test_manifest_modules_do_not_import_backend_app() -> None:
                     offenders.append(f"{path}:{node.lineno}:{imported}")
 
     assert offenders == []
+
+
+# fix(#1472 review): the backend rejects `<`/`>` in metadata.attribution
+# (ManifestMetadata in backend/app/processing/ingest/manifest_schemas.py) because
+# the value is rendered in MapLibre's attribution control, an HTML context. This
+# packaged schema is a hand-maintained mirror, so without the same restriction
+# `geolens manifest validate` and the local preflight inside `geolens manifest
+# apply` would both call such a document valid and let the user discover the
+# rejection only as a 422 from the API.
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "<img src=1 onerror=alert(1)>",
+        '<iframe src="https://evil.example"></iframe>',
+        '<div style="position:fixed;inset:0">overlay</div>',
+        "© swisstopo <script>alert(1)</script>",
+        "credit with a stray > bracket",
+    ],
+)
+def test_manifest_attribution_rejects_markup(payload: str) -> None:
+    document = _minimal_manifest()
+    document["datasets"][0]["metadata"] = {"attribution": payload}
+
+    assert (
+        "$.datasets[0].metadata.attribution",
+        "pattern",
+    ) in _error_pairs(document)
+
+
+@pytest.mark.parametrize(
+    "credit",
+    [
+        "© swisstopo — swissALTI3D",
+        "Rand & McNally",
+        'NOAA NCEI, ETOPO 2022 ("public domain")',
+        "Données © IGN — l'aménagement",
+        "line one\nline two",
+    ],
+)
+def test_manifest_attribution_accepts_ordinary_credit_lines(credit: str) -> None:
+    """The restriction is angle brackets only. Ampersands, quotes, accents, and
+    newlines all appear in real credit lines and must still validate — including
+    the newline case, which `[^<>]` matches and a `.`-based pattern would not."""
+    document = _minimal_manifest()
+    document["datasets"][0]["metadata"] = {"attribution": credit}
+
+    assert _error_pairs(document) == set()
