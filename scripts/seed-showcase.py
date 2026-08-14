@@ -2367,6 +2367,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     pinned_foreign = [
         d for d in pinned_hits if d.get("created_by") not in (api.user_id, None)
     ]
+    pinned_ownerless = [d for d in pinned_hits if d.get("created_by") is None]
     print(f"\n  externally pinned, hard-kept: {len(pinned_hits)}")
     for d in pinned_hits:
         owner = d.get("created_by")
@@ -2402,6 +2403,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
             f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
             f"{len(pinned_hits) + len(pinned_impostors)} pinned-title datasets "
             f"({len(pinned_foreign)} expected visitor-owned, "
+            f"{len(pinned_ownerless)} ownerless, "
             f"{len(pinned_impostors)} impostors) and "
             f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
             "Nothing was deleted. "
@@ -2433,6 +2435,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
         f"strays, {len(pinned_hits) + len(pinned_impostors)} pinned-title "
         f"datasets ({len(pinned_foreign)} expected visitor-owned, "
+        f"{len(pinned_ownerless)} ownerless, "
         f"{len(pinned_impostors)} impostors) and "
         f"{len(ownerless_maps) + len(ownerless_datasets)} ownerless items. "
         f"{errors} error(s)."
