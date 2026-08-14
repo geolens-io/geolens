@@ -26,6 +26,8 @@ import { dirname, join } from 'node:path';
 // a DIRECTORY. No subprocess, no git version dependency, no ownership checks,
 // and anything unexpected fails closed.
 
+const ACKNOWLEDGED = new Set(['1', 'true', 'yes', 'on']);
+
 export type Marker = { dir: string; kind: 'directory' | 'file' | 'unreadable' };
 
 // fix(#1492) round thirteen: ONLY "there is nothing here" may continue the
@@ -69,7 +71,11 @@ export function findGitMarker(start: string): Marker | null {
  * `npm run e2e:smoke:builder-hardening` selects its own with `-c`.
  */
 export function assertWorktreeMatchesStack(): void {
-  if (process.env.E2E_ALLOW_WORKTREE) return;
+  // fix(#1492) round fourteen: any non-empty string is truthy, so
+  // E2E_ALLOW_WORKTREE=0 or =false — which a shell or CI profile may set to
+  // mean "off" — used to bypass the guard entirely. Only an affirmative value
+  // acknowledges; everything else, including 0 and false, does not.
+  if (ACKNOWLEDGED.has((process.env.E2E_ALLOW_WORKTREE ?? '').trim().toLowerCase())) return;
 
   const marker = findGitMarker(process.cwd());
   // No .git anywhere above us: not a git checkout, so there is no worktree to
