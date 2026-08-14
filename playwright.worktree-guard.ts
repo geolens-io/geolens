@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 
 // fix(#1480): a worktree e2e run silently tests `main`.
 //
@@ -20,16 +20,33 @@ import { execSync } from 'node:child_process';
 const FRONTEND_PATHS = ['frontend/'];
 const BACKEND_PATHS = ['backend/app/', 'backend/alembic/'];
 
-function git(args: string): string {
+// fix(#1492): execFileSync with an argv array, never a shell string. The
+// primary checkout's path is interpolated into these calls, and a path
+// containing a space would word-split under a shell, silently fall back to
+// `main`, and compare against a tree that is not the one bind-mounted.
+function git(args: string[], cwd?: string): string {
   try {
-    return execSync(`git ${args}`, {
+    return execFileSync('git', args, {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore'],
+      ...(cwd ? { cwd } : {}),
     }).trim();
   } catch {
     return '';
   }
 }
+
+// `git status --porcelain` lines are "XY path"; strip the 2-char status + space.
+// Renames arrive as "XY old -> new" on one line, so split those and keep both
+// sides: either path being under a served prefix means the trees differ there.
+const porcelainPaths = (out: string): string[] =>
+  out
+    .split('\n')
+    .flatMap((l) => {
+      const p = l.slice(3);
+      return p.includes(' -> ') ? p.split(' -> ') : [p];
+    })
+    .filter(Boolean);
 
 /**
  * Throws when this worktree's changes are absent from the stack under test.
@@ -46,8 +63,8 @@ export function assertWorktreeMatchesStack(): void {
   // <common>/worktrees/<name>. Cheaper than parsing `git worktree list`, and it
   // returns early in CI before any further git call, which matters under a
   // shallow clone where `main` may not exist.
-  const gitDir = git('rev-parse --absolute-git-dir');
-  const commonDir = git('rev-parse --path-format=absolute --git-common-dir');
+  const gitDir = git(['rev-parse', '--absolute-git-dir']);
+  const commonDir = git(['rev-parse', '--path-format=absolute', '--git-common-dir']);
   if (!gitDir || !commonDir || gitDir === commonDir) return;
 
   // What the stack serves is the MAIN CHECKOUT's working tree, which is
@@ -58,30 +75,37 @@ export function assertWorktreeMatchesStack(): void {
   // assumed. Falls back to the main ref, then origin/main, then nothing.
   const mainCheckout = commonDir.replace(/\/\.git\/?$/, '');
   const servedRef =
-    (mainCheckout && git(`-C ${mainCheckout} rev-parse --verify --quiet HEAD`)) ||
-    git('rev-parse --verify --quiet main') ||
-    git('rev-parse --verify --quiet origin/main') ||
+    (mainCheckout && git(['rev-parse', '--verify', '--quiet', 'HEAD'], mainCheckout)) ||
+    git(['rev-parse', '--verify', '--quiet', 'main']) ||
+    git(['rev-parse', '--verify', '--quiet', 'origin/main']) ||
     '';
   const mainRef = servedRef;
-  const mergeBase = mainRef ? git(`merge-base HEAD ${mainRef}`) : '';
+  const mergeBase = mainRef ? git(['merge-base', 'HEAD', mainRef]) : '';
   // Human label for messages; mainRef itself is a 40-char sha and unreadable.
-  const branch = mainCheckout ? git(`-C ${mainCheckout} rev-parse --abbrev-ref HEAD`) : '';
+  const branch = mainCheckout ? git(['rev-parse', '--abbrev-ref', 'HEAD'], mainCheckout) : '';
   const servedLabel =
     branch && branch !== 'HEAD' ? `${branch} (${mainRef.slice(0, 9)})` : mainRef.slice(0, 9) || 'main';
 
   // MY changes: merge-base -> working tree. Absent from the stack, so a run
   // reports on code I did not write.
   const mine = [
-    ...(mergeBase ? git(`diff --name-only ${mergeBase}`).split('\n') : []),
+    ...(mergeBase ? git(['diff', '--name-only', mergeBase]).split('\n') : []),
     // Uncommitted changes count: they are equally absent from the stack.
-    ...git('status --porcelain').split('\n').map((l) => l.slice(3)),
+    ...porcelainPaths(git(['status', '--porcelain'])),
   ].filter(Boolean);
 
   // fix(#1492): the merge-base delta only ever sees MY side. It is blind to
   // everything main gained after I forked, so a worktree that is merely stale
   // used to pass the guard while the stack served app code I do not have.
   // Comparing the working tree with main directly catches that direction too.
-  const divergent = mainRef ? git(`diff --name-only ${mainRef}`).split('\n').filter(Boolean) : [];
+  //
+  // fix(#1492): and the served tree is the main checkout's WORKING tree, not
+  // its HEAD. An uncommitted or untracked file there is bind-mounted and being
+  // served right now, so resolving only the committed HEAD stayed blind to it.
+  const divergent = [
+    ...(mainRef ? git(['diff', '--name-only', mainRef]).split('\n') : []),
+    ...(mainCheckout ? porcelainPaths(git(['status', '--porcelain'], mainCheckout)) : []),
+  ].filter(Boolean);
   const mineSet = new Set(mine);
   const stale = divergent.filter((p) => !mineSet.has(p));
 
