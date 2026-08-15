@@ -1,6 +1,8 @@
 """Backfill embeddings for records that don't have them yet.
 
-Processes all records missing a corresponding RecordEmbedding row.
+Processes every record with no RecordEmbedding row under the ACTIVE embedding
+model (fix #1506) — a vector left behind by a superseded model is unusable to
+semantic search, so the record counts as missing until it has a current one.
 fix(#448): texts are embedded in batches of _BATCH_SIZE per provider call
 (the embeddings endpoint accepts input lists) instead of one call per
 record — a 50-200x reduction in API round trips on bulk backfills.
@@ -59,8 +61,15 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         await session.commit()
         logger.info("Backfill: cleared visible embeddings (force=True)")
 
-    # Find records that have no embedding row, eager-load keywords
-    records = await port.get_records_without_embeddings(session, force=False)
+    # Find the records still needing a vector, eager-loading keywords.
+    # fix(#1506): pass `force` through instead of hardcoding False. On the
+    # force path the delete above already emptied the table, so both flags
+    # select the same rows today — but the port's non-force branch now has to
+    # resolve the active model, and routing a post-delete regenerate through
+    # it would make a run that already destroyed its input depend on that
+    # resolution succeeding. force=True asks for "every record" directly,
+    # which is what this branch has always meant.
+    records = await port.get_records_without_embeddings(session, force=force)
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
     # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)

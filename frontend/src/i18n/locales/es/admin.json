@@ -262,7 +262,7 @@
     "backfillSuccess": "Embeddings generados para {{count}} conjuntos de datos",
     "backfillEmpty": "Todos los conjuntos de datos ya tienen embeddings",
     "allEmbedded": "Todos los conjuntos de datos tienen embeddings",
-    "staleEmbeddingsWarning": "{{count}} embedding(s) se generaron con otro modelo y la búsqueda semántica no puede usarlos. Regenere todos los embeddings para restaurar la cobertura.",
+    "staleEmbeddingsWarning": "{{count}} embedding(s) se generaron con otro modelo y la búsqueda semántica no puede usarlos. Genere los embeddings faltantes para volver a generar solo esos registros, o regenere todos para eliminar además los vectores obsoletos.",
     "apiKeysEnvOnlyNote": "Las claves API solo se pueden configurar mediante variables de entorno (ANTHROPIC_API_KEY, OPENAI_API_KEY) y no se pueden cambiar desde esta página. Todas las demás configuraciones de IA son modificables por el administrador.",
     "availableNotSelected": "Disponible",
     "backfillAllFailed": "Los {{errors}} embeddings fallaron — verifique que OPENAI_API_KEY esté configurado y el modelo de embedding esté disponible",

@@ -117,14 +117,18 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
     expect(hoisted.useEmbeddingStats).toHaveBeenCalledWith({ enabled: false });
     expect(screen.getByRole('switch', { name: 'Semantic Search' })).toBeChecked();
     expect(screen.queryByText('Embedding Coverage')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Generate Missing' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Generate Missing/ })).not.toBeInTheDocument();
   });
 });
 
 // fix(#1503): after an embedding-model swap every stored vector belongs to the
 // previous model, so coverage reads 0 while the rows are still there. The panel
-// has to name that state and keep Regenerate All — the only control that clears
+// has to name that state and keep Regenerate All — the control that clears
 // those rows — reachable.
+// fix(#1506): the non-force backfill now selects on "no vector under the ACTIVE
+// model", so Generate Missing covers stale records too. #1503 gated that button
+// on `missing_records - stale_records > 0`, which hid the cheap remedy on the
+// exact state it fixes; the gate is now `missing_records > 0`.
 describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => {
   beforeEach(() => {
     hoisted.canManageUsers = true;
@@ -158,7 +162,24 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
     expect(screen.getByRole('button', { name: 'Regenerate All' })).toBeInTheDocument();
   });
 
-  it('hides Generate Missing when no record is simply unembedded', () => {
+  // fix(#1506): the counterfactual for the gate change. Under #1503's
+  // `missing_records - stale_records > 0` this state (100 missing, all of them
+  // stale) evaluated to 0 and the button was absent.
+  it('offers Generate Missing when every missing record is stale', () => {
+    renderTab();
+    expect(screen.getByRole('button', { name: /Generate Missing/ })).toBeInTheDocument();
+  });
+
+  it('still hides Generate Missing when the active model covers everything', () => {
+    hoisted.useEmbeddingStats.mockReturnValue({
+      data: {
+        total_records: 100,
+        embedded_records: 100,
+        missing_records: 0,
+        stale_records: 0,
+        coverage_percent: 100,
+      },
+    });
     renderTab();
     expect(
       screen.queryByRole('button', { name: /Generate Missing/ }),
@@ -168,6 +189,16 @@ describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => 
   it('warns that stale vectors are unusable by semantic search', () => {
     renderTab();
     expect(screen.getByText(/cannot be used by semantic search/)).toBeInTheDocument();
+  });
+
+  // fix(#1506): the warning used to send operators straight to Regenerate All,
+  // which re-embeds the whole catalog. It has to name the incremental remedy
+  // first now that one exists.
+  it('names Generate Missing as the remedy before Regenerate All', () => {
+    renderTab();
+    expect(
+      screen.getByText(/Generate missing embeddings to re-embed just those records/),
+    ).toBeInTheDocument();
   });
 });
 
@@ -263,7 +294,7 @@ describe('SettingsAITab — Test Connection probe (#635)', () => {
     renderTab();
     expect(hoisted.useEmbeddingStats).toHaveBeenCalledWith({ enabled: false });
     expect(screen.queryByText('Embedding Coverage')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Generate Missing' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Generate Missing/ })).not.toBeInTheDocument();
   });
 
   // fix(#652): the probe tests PERSISTED settings — a dirty form must not

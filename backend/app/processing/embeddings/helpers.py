@@ -22,6 +22,12 @@ _has_embeddings_cache: dict[str, tuple[bool, float]] = {}
 _HAS_EMBEDDINGS_TTL = 30.0  # seconds
 _HAS_EMBEDDINGS_MAX = 8  # bounded; operators rarely run more than 2-3 models
 
+# fix(#1506): named so a caller can branch on "the model is unknown" without
+# repeating the literal. Read-side callers may keep treating it as a name that
+# matches no stored row; a WRITE-side caller has to check for it explicitly
+# (see DefaultProcessingPort.get_records_without_embeddings).
+UNKNOWN_EMBEDDING_MODEL = "__model_unknown__"
+
 
 async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
     """Tune HNSW ef_search for the current transaction.
@@ -48,15 +54,22 @@ async def resolve_embedding_model_name(session: AsyncSession) -> str:
     reports zero current-model coverage while the model is unknown — the
     same thing semantic search does in that state (its vector arm resolves
     the model too, and degrades to FTS-only when it cannot).
+
+    fix(#1506): that "matches no row" property reads in opposite directions
+    depending on which side of the query the caller is on. For a coverage
+    COUNT it under-reports, which is the safe direction. For a "which records
+    still need work" SELECT it over-reports — every record looks unembedded —
+    so the backfill's caller compares against `UNKNOWN_EMBEDDING_MODEL` and
+    refuses to run rather than scoping by it.
     """
     try:
         from app.core.persistent_config import EMBEDDING_MODEL
 
         value = await EMBEDDING_MODEL.get(session)
-        return value or "__model_unknown__"
+        return value or UNKNOWN_EMBEDDING_MODEL
     except Exception:  # broad: persistent_config resolution can fail for any DB/cache reason; fall back to sentinel
         logger.warning("has_embeddings_model_resolution_failed", exc_info=True)
-        return "__model_unknown__"
+        return UNKNOWN_EMBEDDING_MODEL
 
 
 async def has_embeddings(session: AsyncSession) -> bool:
