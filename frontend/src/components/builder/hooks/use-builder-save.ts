@@ -190,7 +190,21 @@ export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
  *  targets from the same srcCanvas without a second triggerRepaint (Pitfall #5).
  *  The OG upload is fire-and-forget with its own catch so an OG failure does
  *  not prevent the thumbnail save. */
-function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
+/** Who asked for this capture. The blank-frame guard applies ONLY to 'auto'
+ *  (#1504 review round 4): auto-capture fires on first open, where a uniform
+ *  frame means the unpainted-canvas race. On an explicit save the map is
+ *  loaded and painted — a uniform frame is the map's true appearance (the
+ *  user removed its content), and skipping the upload would leave a stale
+ *  thumbnail advertising layers that no longer exist, with `hasThumbnail`
+ *  true so no retry ever corrects it. */
+type CaptureTrigger = 'auto' | 'save';
+
+function doCapture(
+  map: MaplibreMap,
+  mapId: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+  trigger: CaptureTrigger,
+) {
   const onRender = () => {
     try {
       const srcCanvas = map.getCanvas();
@@ -204,27 +218,28 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
       const og = cropResize(srcCanvas, 1200, 630, backdrop);
 
-      // fix(#1502): never persist a blank frame. Skipping the thumbnail leaves
-      // `hasThumbnail` false, and re-arming the SF-07 guard converts the
-      // permanent failure into a transient one within the SPA session, not
-      // just across hard reloads (#1504 review round 1) — the next open of
-      // the map simply retries.
+      // fix(#1502): never persist a blank AUTO-captured frame (see
+      // CaptureTrigger for why explicit saves are exempt). Skipping the
+      // thumbnail leaves `hasThumbnail` false, and re-arming the SF-07 guard
+      // converts the permanent failure into a transient one within the SPA
+      // session, not just across hard reloads (#1504 review round 1) — the
+      // next open of the map simply retries.
       //
       // The two crops are judged INDEPENDENTLY (#1504 review round 2): they
       // center-crop the same canvas to different aspect ratios (1.6 vs 1.905),
       // so on a 16:9 viewport the OG crop sees side strips the thumbnail crop
       // never contains, and either can hold content the other lacks.
-      const thumbBlank = isEffectivelyBlank(thumb);
-      const ogBlank = isEffectivelyBlank(og);
-      if (thumbBlank) {
+      const thumbSkip = trigger === 'auto' && isEffectivelyBlank(thumb);
+      const ogSkip = trigger === 'auto' && isEffectivelyBlank(og);
+      if (thumbSkip) {
         rearmAutoCapture(mapId);
         if (import.meta.env.DEV) {
           console.warn('[thumbnail] capture skipped: frame is effectively blank; will retry on next open');
         }
       }
-      if (thumbBlank && ogBlank) return;
+      if (thumbSkip && ogSkip) return;
 
-      if (!thumbBlank) uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
+      if (!thumbSkip) uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
         // useMap, which is ['map', id], a different root string. The target is the
@@ -241,7 +256,7 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       });
 
       // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
-      if (!ogBlank) uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
+      if (!ogSkip) uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
     } catch (err) {
@@ -320,6 +335,7 @@ function runCaptureNow(
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
   layersRef?: React.RefObject<MapLayerResponse[]>,
+  trigger: CaptureTrigger = 'save',
 ) {
   // POLISH-01: defer the first capture when a layer-add is pending (layersRef
   // provided) but no layers have synced yet. Poll the live ref so we pick up
@@ -331,7 +347,7 @@ function runCaptureNow(
       const live = layersRef.current ?? [];
       if (live.length > 0) {
         // Layers have arrived — proceed through normal source-readiness path.
-        waitForVisibleLayerSources(map, live, () => doCapture(map, mapId, queryClient), signal);
+        waitForVisibleLayerSources(map, live, () => doCapture(map, mapId, queryClient, trigger), signal);
         return;
       }
       if (Date.now() >= deadline) {
@@ -340,7 +356,7 @@ function runCaptureNow(
         // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
         // an unmount, so the guard must be at capture time, not registration time.
         whenMapIdle(map, () => {
-          if (!signal?.cancelled) doCapture(map, mapId, queryClient);
+          if (!signal?.cancelled) doCapture(map, mapId, queryClient, trigger);
         });
         return;
       }
@@ -349,7 +365,7 @@ function runCaptureNow(
     pollForLayers();
     return;
   }
-  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient), signal);
+  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient, trigger), signal);
 }
 
 /** SP-16: 500ms trailing-edge debounce around captureThumbnail.
@@ -399,6 +415,7 @@ function captureThumbnail(
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
   layersRef?: React.RefObject<MapLayerResponse[]>,
+  trigger: CaptureTrigger = 'save',
 ) {
   // SP-16: clear any prior pending capture for this mapId; the latest call
   // wins (trailing edge), reflecting the final state once the window settles.
@@ -410,7 +427,7 @@ function captureThumbnail(
     // POLISH-01: pass layersRef through so runCaptureNow can defer on the
     // new-map + ?add_dataset path. Save-path callers do not pass layersRef,
     // so they remain on the existing waitForVisibleLayerSources path.
-    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef);
+    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger);
   }, THUMBNAIL_DEBOUNCE_MS);
 
   pendingCaptures.set(mapId, timer);
@@ -1211,7 +1228,7 @@ export function useBuilderSave(state: SaveState) {
     // the live localLayersRef so runCaptureNow can defer the capture until layers
     // arrive. For all other paths, layersRef is undefined → existing behavior.
     const layersRef = state.pendingLayerAdd ? localLayersRef : undefined;
-    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef);
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto');
   }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient]);
 
   // P-08: Cancel in-flight polling on unmount
