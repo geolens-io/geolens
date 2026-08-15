@@ -8,8 +8,8 @@ tooling* out of this public repo (see "Where the tooling lives" below).
 ## Current set
 
 The README hero plus a six-step Find -> Inspect -> Ask your data -> Build ->
-Ask AI -> Operate story. Displayed at `width="900"`; sources are ~1200–1600 px
-wide. Use PNG for UI shots (crisp text) and JPG for photographic 3D terrain
+Ask AI -> Operate story. Displayed at `width="900"`; the five `capture:readme`
+shots are 1600×900 sources. Use PNG for UI shots (crisp text) and JPG for photographic 3D terrain
 (smaller). Files with a `-dark` sibling are light/dark pairs wired into the
 README via `<picture>` + `prefers-color-scheme` so GitHub serves the right
 variant per theme.
@@ -17,8 +17,8 @@ variant per theme.
 | File | Beat | Shows | Subject (live seeded stack) |
 | --- | --- | --- | --- |
 | `geolens-manhattan-3d-hero.jpg` | Hero | Manhattan footprints extruded to roof height, colored by era, with the layer editor open | **Manhattan - A Century of Skyline** map, Buildings (3D) layer selected |
-| `geolens-search.png` | Find | Semantic search: "natural disasters" ranks earthquakes + volcanic eruptions with no keyword match | Catalog, search `natural disasters` (2 results) |
-| `geolens-dataset.png` | Inspect | Dataset map preview + typed metadata over a dense point cloud | **Meteorite Landings** dataset detail (32,186 points) |
+| `geolens-search.png` | Find | Semantic search: "tallest peaks in Europe" finds the Matterhorn terrain model with zero word overlap | Public catalog (logged out), search `tallest peaks in Europe` (1 result) |
+| `geolens-dataset.png` | Inspect | Dataset map preview + typed metadata over a dense point cloud | **Significant Volcanic Eruptions** dataset detail (900 points, NOAA NCEI) |
 | `geolens-dataset-chat{,-dark}.png` | Ask your data | Dataset Q&A in natural language: question -> answer + result table -> open in builder | **Meteorite Landings** detail, Ask AI: "How many meteorites were seen falling versus found later?" |
 | `geolens-matterhorn-terrain.jpg` | Build | Matterhorn 3D terrain mesh + layer stack + legend | **The Matterhorn in 3D** map |
 | `geolens-ai-labels.png` | Ask AI | AI editing a map in natural language | **Restless Earth** map, Ask AI: "Label the volcanoes with their names" |
@@ -88,10 +88,8 @@ the gate fails on an unpinned file rather than ignoring it.
 ## Capture notes
 
 - The recipe captures at 1600×900 and the README renders at `width="900"`.
-  The five `capture:readme` shots currently committed are **not** at that size —
-  they are 1200×750 (1200×800 for `geolens-ai-labels.png`), predating the
-  automated recipe and downscaled on top of it. `check-readme-assets.mjs` records
-  the gap and pins them where they are; recapturing is a separate change.
+  The five `capture:readme` shots are committed at exactly that size
+  (recaptured 2026-08-15), and `check-readme-assets.mjs` pins them there.
   Optionally strip/optimize before committing (e.g. `magick in.png -strip out.png`;
   JPG at quality ~88 for terrain).
 - These images are public. Keep them free of private/draft dataset titles,

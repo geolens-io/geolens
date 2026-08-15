@@ -157,15 +157,15 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 ## Screenshots
 
 <p align="center">
-  <img src=".github/assets/geolens-search.png" alt="GeoLens catalog search for 'natural disasters' semantically ranking a recent-earthquakes dataset and a significant-volcanic-eruptions dataset, with type, location, and temporal filters" width="900" />
+  <img src=".github/assets/geolens-search.png" alt="GeoLens catalog search for 'tallest peaks in Europe' semantically returning the swissALTI3D Matterhorn terrain dataset, with type, location, and temporal filters" width="900" />
   <br />
-  <em><strong>Find:</strong> search by meaning. A query for "natural disasters" surfaces earthquakes and volcanic eruptions with no keyword match, alongside type, location, and temporal filters</em>
+  <em><strong>Find:</strong> search by meaning. "Tallest peaks in Europe" finds the Matterhorn terrain model even though no result contains any of those words, alongside type, location, and temporal filters</em>
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-dataset.png" alt="GeoLens dataset detail for Meteorite Landings: a global map preview of 32,186 recovery points above schema stats and typed metadata" width="900" />
+  <img src=".github/assets/geolens-dataset.png" alt="GeoLens dataset detail for Significant Volcanic Eruptions: a global map preview of 900 eruption sites along plate boundaries above schema stats and typed metadata" width="900" />
   <br />
-  <em><strong>Inspect:</strong> every dataset gets a map preview, schema stats, and typed metadata. Here, 32,186 meteorite landings across the globe</em>
+  <em><strong>Inspect:</strong> every dataset gets a map preview, schema stats, and typed metadata. Here, 6,000 years of significant volcanic eruptions from NOAA NCEI</em>
 </p>
 
 <p align="center">
@@ -178,7 +178,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens map builder rendering the Matterhorn as a 3D terrain mesh from swissALTI3D lidar, with labeled peaks, climbing routes, the drag-orderable layer stack, and a legend" width="900" />
+  <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens map builder rendering the Matterhorn as a 3D terrain mesh from swissALTI3D lidar, with the drag-orderable layer stack and a legend" width="900" />
   <br />
   <em><strong>Build:</strong> compose multi-layer maps in the browser with a drag-orderable layer stack and per-layer editors (here: the Matterhorn as a 3D terrain mesh from swissALTI3D lidar)</em>
 </p>
