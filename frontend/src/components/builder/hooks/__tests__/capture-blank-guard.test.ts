@@ -4,24 +4,24 @@
  *  idle timeout), so a slow first render can hand doCapture an unpainted
  *  canvas. The gate that schedules auto-capture is `hasThumbnail`, so one
  *  blank upload used to disqualify the map from every future attempt — the
- *  demo served two solid-colour thumbnails (luminance stddev 0.00 and 1.88)
- *  for months. These tests pin the discriminator that now stands in front of
- *  the upload.
+ *  demo served two solid-colour thumbnails (stddev 0.00 and 1.88) for months.
+ *  These tests pin the discriminator that now stands in front of the upload:
+ *  per-channel variance, a deviant-pixel rescue for sparse maps, and fail-open
+ *  behaviour whenever pixels are unreadable.
  *
- *  jsdom has no 2D canvas, so `luminanceStddev` is exercised on synthetic
- *  pixel data and `isEffectivelyBlank` through a stub canvas — including the
- *  fail-open path, which must never block an upload just because pixels were
- *  unreadable.
+ *  jsdom has no 2D canvas, so the pixel math is exercised on synthetic data
+ *  and `isEffectivelyBlank` through a stub canvas — including the fail-open
+ *  path, which must never block an upload just because pixels were unreadable.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
-  luminanceStddev,
+  maxChannelStddev,
   isBlankPixelData,
   isEffectivelyBlank,
   shouldAutoCapture,
   rearmAutoCapture,
   __resetThumbnailDebounceForTests,
-  BLANK_LUMINANCE_STDDEV,
+  BLANK_CHANNEL_STDDEV,
   SPARSE_PIXEL_COUNT,
 } from '../use-builder-save';
 
@@ -53,12 +53,12 @@ function stubCanvas(data: Uint8ClampedArray | null): HTMLCanvasElement {
   } as unknown as HTMLCanvasElement;
 }
 
-describe('luminanceStddev', () => {
+describe('maxChannelStddev', () => {
   it('is ~0 for a solid fill — the demo Manhattan failure shape', () => {
     // Not exactly 0: sumSq/n - mean^2 carries float rounding at the 1e-7
     // scale, which the sqrt turns into ~1e-4 at worst. What matters is that
     // it sits far below the threshold, not that it is a perfect zero.
-    expect(luminanceStddev(rgba(1000, () => [241, 241, 241]))).toBeLessThan(0.001);
+    expect(maxChannelStddev(rgba(1000, () => [241, 241, 241]))).toBeLessThan(0.001);
   });
 
   it('is small for near-uniform noise — the demo heatmap failure shape (1.88)', () => {
@@ -67,24 +67,29 @@ describe('luminanceStddev', () => {
       const v = 198 + (i % 5) - 2;
       return [v, v, v];
     });
-    const sd = luminanceStddev(data, 1);
+    const sd = maxChannelStddev(data);
     expect(sd).toBeGreaterThan(0);
-    expect(sd).toBeLessThan(BLANK_LUMINANCE_STDDEV);
+    expect(sd).toBeLessThan(BLANK_CHANNEL_STDDEV);
   });
 
   it('is large for real content — alternating dark/light like map linework', () => {
     const data = rgba(1000, (i) => (i % 2 === 0 ? [30, 30, 30] : [220, 220, 220]));
-    expect(luminanceStddev(data, 1)).toBeGreaterThan(BLANK_LUMINANCE_STDDEV * 10);
+    expect(maxChannelStddev(data)).toBeGreaterThan(BLANK_CHANNEL_STDDEV * 10);
   });
 
-  it('weights channels as luminance, not average — pure-chroma variation still counts', () => {
-    // Red/blue alternation: identical channel averages, different luminance.
-    const data = rgba(1000, (i) => (i % 2 === 0 ? [255, 0, 0] : [0, 0, 255]));
-    expect(luminanceStddev(data, 1)).toBeGreaterThan(BLANK_LUMINANCE_STDDEV);
+  /** fix(#1504 review round 3): red (255,0,0) and green (0,130,0) sit at the
+   *  SAME luminance (~76.3), so a luminance statistic reads a red/green
+   *  categorical map as a solid fill. Per-channel stddev sees it plainly. */
+  it('sees isoluminant hue variation a luminance statistic cannot', () => {
+    const data = rgba(1000, (i) => (i % 2 === 0 ? [255, 0, 0] : [0, 130, 0]));
+    const lumA = 0.299 * 255;
+    const lumB = 0.587 * 130;
+    expect(Math.abs(lumA - lumB)).toBeLessThan(0.5); // genuinely isoluminant
+    expect(maxChannelStddev(data)).toBeGreaterThan(BLANK_CHANNEL_STDDEV * 10);
   });
 
   it('returns 0 on empty data rather than NaN', () => {
-    expect(luminanceStddev(new Uint8ClampedArray(0))).toBe(0);
+    expect(maxChannelStddev(new Uint8ClampedArray(0))).toBe(0);
   });
 });
 
@@ -101,11 +106,20 @@ describe('isBlankPixelData', () => {
   /** fix(#1504 review round 2): a lone point feature on the "No basemap"
    *  uniform background sits UNDER the stddev threshold — the deviant-pixel
    *  rescue is the only thing that saves it. The first assertion pins the
-   *  counterfactual: stddev-only logic rejects this frame. */
+   *  counterfactual: the stddev screen alone rejects this frame. */
   it('rescues a sparse map — a 20px dot the stddev screen alone would reject', () => {
     const dot = rgba(100_000, (i) => (i < 20 ? [10, 10, 10] : [200, 200, 200]));
-    expect(luminanceStddev(dot)).toBeLessThan(BLANK_LUMINANCE_STDDEV); // would reject
+    expect(maxChannelStddev(dot)).toBeLessThan(BLANK_CHANNEL_STDDEV); // would reject
     expect(isBlankPixelData(dot)).toBe(false); // rescued
+  });
+
+  /** fix(#1504 review round 3): the sparse rescue must also be channel-space.
+   *  A red dot on an isoluminant green ground deviates by ~0 in luminance but
+   *  by 255 in the red channel. */
+  it('rescues an isoluminant sparse dot — invisible to luminance entirely', () => {
+    const dot = rgba(100_000, (i) => (i < 20 ? [255, 0, 0] : [0, 130, 0]));
+    expect(maxChannelStddev(dot)).toBeLessThan(BLANK_CHANNEL_STDDEV); // sparse: fails the screen
+    expect(isBlankPixelData(dot)).toBe(false); // rescued per-channel
   });
 
   it('does not let stray outlier pixels below the count floor rescue a blank', () => {
@@ -115,6 +129,11 @@ describe('isBlankPixelData', () => {
 
   it('passes real content on variance alone', () => {
     const data = rgba(1000, (i) => (i % 2 === 0 ? [30, 30, 30] : [220, 220, 220]));
+    expect(isBlankPixelData(data)).toBe(false);
+  });
+
+  it('passes an isoluminant categorical split on channel variance alone', () => {
+    const data = rgba(1000, (i) => (i % 2 === 0 ? [255, 0, 0] : [0, 130, 0]));
     expect(isBlankPixelData(data)).toBe(false);
   });
 

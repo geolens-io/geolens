@@ -76,62 +76,77 @@ function cropResize(
   return offscreen;
 }
 
-/** fix(#1502): luminance stddev below this reads as "no content". The demo's
+/** fix(#1502): channel stddev below this reads as "no content". The demo's
  *  two blank uploads measured 0.00 and 1.88; the flattest REAL thumbnail
  *  observed on a seeded instance measured 22.9, and even a bare world-basemap
- *  capture measures ~24. The gap is wide; 4 sits far from both sides so a
- *  legitimately minimal map (open ocean on a flat basemap) still clears it
- *  in practice, while a frame that never painted cannot. */
-export const BLANK_LUMINANCE_STDDEV = 4;
+ *  capture measures ~24 (all measured as luminance on grey-dominated frames,
+ *  where per-channel and luminance stddev coincide, so the thresholds carry
+ *  over). The gap is wide; 4 sits far from both sides so a legitimately
+ *  minimal map (open ocean on a flat basemap) still clears it in practice,
+ *  while a frame that never painted cannot. */
+export const BLANK_CHANNEL_STDDEV = 4;
 
 /** fix(#1504 review round 2): stddev alone rejects legitimately SPARSE maps —
  *  a lone point feature on the "No basemap" uniform background computes to a
  *  stddev around 2, under the threshold. So a low-variance frame gets a second
- *  chance: count pixels deviating meaningfully from the mean. The two demo
- *  blank uploads (stddev 0.00 and 1.88) have ZERO such pixels — a smooth
- *  gradient at stddev 1.88 spans roughly ±3 luminance — while a real point
- *  feature deviates by 100+ across its whole footprint. 8 pixels is far above
- *  stray readback noise and far below any visible feature's footprint. */
-export const SPARSE_LUMINANCE_DELTA = 25;
+ *  chance: count pixels deviating meaningfully from the mean color. The two
+ *  demo blank uploads have ZERO such pixels — a smooth gradient at stddev
+ *  1.88 spans roughly ±3 — while a real point feature deviates by 100+ across
+ *  its whole footprint. 8 pixels is far above stray readback noise and far
+ *  below any visible feature's footprint. */
+export const SPARSE_CHANNEL_DELTA = 25;
 export const SPARSE_PIXEL_COUNT = 8;
 
-/** Standard deviation of pixel luminance over RGBA data, sampling every
- *  `stride`-th pixel (default: every pixel — sampling can miss a dot, see
- *  #1504 review round 2). Pure so it is testable without a canvas (jsdom has
- *  none). */
-export function luminanceStddev(rgba: Uint8ClampedArray | number[], stride = 1): number {
-  let sum = 0;
-  let sumSq = 0;
+/** Max per-channel standard deviation over RGBA data, scanning every pixel
+ *  (sampling can miss a dot — #1504 review round 2). Channel-space rather
+ *  than luminance (#1504 review round 3): isoluminant hue changes — say a
+ *  red/green categorical split at equal lightness — are invisible to a
+ *  luminance statistic but enormous per channel. Pure so it is testable
+ *  without a canvas (jsdom has none). */
+export function maxChannelStddev(rgba: Uint8ClampedArray | number[]): number {
+  const sum = [0, 0, 0];
+  const sumSq = [0, 0, 0];
   let n = 0;
-  const step = 4 * Math.max(1, stride);
-  for (let i = 0; i + 2 < rgba.length; i += step) {
-    const lum = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
-    sum += lum;
-    sumSq += lum * lum;
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const v = rgba[i + c];
+      sum[c] += v;
+      sumSq[c] += v * v;
+    }
     n++;
   }
   if (n === 0) return 0;
-  const mean = sum / n;
-  return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+  let max = 0;
+  for (let c = 0; c < 3; c++) {
+    const mean = sum[c] / n;
+    max = Math.max(max, Math.sqrt(Math.max(0, sumSq[c] / n - mean * mean)));
+  }
+  return max;
 }
 
-/** Whether RGBA pixel data reads as a frame nothing painted: low luminance
- *  variance AND no cluster of pixels standing off the mean (the sparse-map
- *  rescue above). Pure for the same jsdom reason. */
+/** Whether RGBA pixel data reads as a frame nothing painted: low variance in
+ *  EVERY channel AND no cluster of pixels standing off the mean color in any
+ *  channel (the sparse-map rescue above). Pure for the same jsdom reason. */
 export function isBlankPixelData(rgba: Uint8ClampedArray | number[]): boolean {
-  if (luminanceStddev(rgba) >= BLANK_LUMINANCE_STDDEV) return false;
-  let mean = 0;
+  if (maxChannelStddev(rgba) >= BLANK_CHANNEL_STDDEV) return false;
+  const sum = [0, 0, 0];
   let n = 0;
   for (let i = 0; i + 2 < rgba.length; i += 4) {
-    mean += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+    sum[0] += rgba[i];
+    sum[1] += rgba[i + 1];
+    sum[2] += rgba[i + 2];
     n++;
   }
   if (n === 0) return false; // cannot judge empty data — fail open
-  mean /= n;
+  const mean = [sum[0] / n, sum[1] / n, sum[2] / n];
   let deviants = 0;
   for (let i = 0; i + 2 < rgba.length; i += 4) {
-    const lum = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
-    if (Math.abs(lum - mean) > SPARSE_LUMINANCE_DELTA && ++deviants >= SPARSE_PIXEL_COUNT) {
+    const dev = Math.max(
+      Math.abs(rgba[i] - mean[0]),
+      Math.abs(rgba[i + 1] - mean[1]),
+      Math.abs(rgba[i + 2] - mean[2]),
+    );
+    if (dev > SPARSE_CHANNEL_DELTA && ++deviants >= SPARSE_PIXEL_COUNT) {
       return false;
     }
   }
