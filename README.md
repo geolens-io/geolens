@@ -178,7 +178,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 </p>
 
 <p align="center">
-  <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens map builder rendering the Matterhorn as a 3D terrain mesh from swissALTI3D lidar, with labeled peaks, climbing routes, the drag-orderable layer stack, and a legend" width="900" />
+  <img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens map builder rendering the Matterhorn as a 3D terrain mesh from swissALTI3D lidar, with the drag-orderable layer stack and a legend" width="900" />
   <br />
   <em><strong>Build:</strong> compose multi-layer maps in the browser with a drag-orderable layer stack and per-layer editors (here: the Matterhorn as a 3D terrain mesh from swissALTI3D lidar)</em>
 </p>

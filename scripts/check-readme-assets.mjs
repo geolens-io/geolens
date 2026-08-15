@@ -51,20 +51,10 @@ const assetDir = path.join(repoRoot, '.github/assets');
 // `width`/`height` to match it in the same commit.
 const README_ASSETS = {
   // --- The five targets of getgeolens.com/scripts/capture-readme.ts ---------
-  // That script declares `const VP = { width: 1600, height: 900 }` for all five,
-  // and .github/assets/README.md documents "Sources are captured at 1600x900".
-  // What is committed is neither: 1200x750 is a 1.6 aspect, and 1200x800 is 1.5,
-  // while 1600x900 is 1.778. A sanitizer pass over a 1600x900 master lands at
-  // 1200x675 (measured), so these are not downscales of the current recipe —
-  // they are downscales of an older, differently-shaped hand capture. Git agrees:
-  // at #205 (2026-06-07) four of them were 1200x675, i.e. genuinely 1600x900
-  // shrunk; they became 1200x750 at #407 (2026-07-06) and have not moved since.
-  //
-  // They are pinned here at their committed size rather than at 1600x900 so this
-  // gate lands green and starts protecting the other ten images immediately. See
-  // the PR for why the recapture is a separate change.
-  // Recaptured 2026-08-15 at the recipe's declared 1600x900 (the capturedAt
-  // deficit is cleared; see the recapture PR for the per-shot QA).
+  // Recaptured 2026-08-15 at the recipe's declared 1600x900, clearing the
+  // `capturedAt` deficit this gate carried since it landed (the previous
+  // committed files were 1200x750/800 downscales of an older, differently
+  // shaped hand capture — see this file's git history for the forensics).
   'geolens-manhattan-3d-hero.jpg': { width: 1600, height: 900 },
   'geolens-search.png': { width: 1600, height: 900 },
   'geolens-dataset.png': { width: 1600, height: 900 },
