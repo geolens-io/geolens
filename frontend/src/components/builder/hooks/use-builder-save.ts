@@ -211,17 +211,29 @@ type CaptureTrigger = 'auto' | 'save';
  *  appearance at its aspect ratio and must upload.
  *
  *  WebGL pixels are unreadable through 2D APIs on the source itself, so the
- *  frame is copied into a 2D canvas at NATIVE size — downscaling would
- *  average a sparse dot away and defeat the deviant-pixel rescue. Fail-open,
- *  like everything in this pipeline: unreadable pixels never block uploads. */
+ *  frame is copied into a 2D canvas — BOUNDED to ~1M pixels (#1504 review
+ *  round 6): a native copy on a DPR-2 2560×1440 display is ~14.7M pixels and
+ *  over 110 MiB of transient RGBA inside the render callback, and an
+ *  allocation failure would fail open into exactly the blank upload this
+ *  guard prevents. The downscale is safe for both classifications: an
+ *  unpainted frame is uniform at EVERY scale, and the sparse rescue survives
+ *  because drawImage blends rather than drops — an output pixel at just ~13%
+ *  feature coverage already crosses the delta-25 deviant threshold, so any
+ *  feature of roughly 3×3 effective pixels or larger still rescues. Smaller
+ *  than that reads blank, which on auto-capture means skip-and-retry, never a
+ *  permanent state. Fail-open, like everything in this pipeline: unreadable
+ *  pixels never block uploads. */
+const FRAME_SAMPLE_PIXEL_BUDGET = 1_000_000;
+
 function isCanvasFrameBlank(src: HTMLCanvasElement): boolean {
   try {
+    const scale = Math.min(1, Math.sqrt(FRAME_SAMPLE_PIXEL_BUDGET / (src.width * src.height || 1)));
     const off = document.createElement('canvas');
-    off.width = src.width;
-    off.height = src.height;
+    off.width = Math.max(1, Math.round(src.width * scale));
+    off.height = Math.max(1, Math.round(src.height * scale));
     const ctx = off.getContext('2d');
     if (!ctx) return false;
-    ctx.drawImage(src, 0, 0);
+    ctx.drawImage(src, 0, 0, off.width, off.height);
     return isEffectivelyBlank(off);
   } catch {
     return false;
