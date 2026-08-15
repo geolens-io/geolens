@@ -8315,14 +8315,19 @@ export interface components {
             total_records: number;
             /**
              * Embedded Records
-             * @description Number of records that have an embedding stored.
+             * @description Number of records with an embedding for the ACTIVE embedding model — the only vectors semantic search can use.
              */
             embedded_records: number;
             /**
              * Missing Records
-             * @description Number of records still missing embeddings.
+             * @description Number of records without an active-model embedding (total_records - embedded_records).
              */
             missing_records: number;
+            /**
+             * Stale Records
+             * @description Subset of missing_records whose only stored embeddings belong to other models. Regenerating all embeddings clears these; generating missing ones does not.
+             */
+            stale_records: number;
             /**
              * Coverage Percent
              * @description Embedding coverage as a percentage (0-100).

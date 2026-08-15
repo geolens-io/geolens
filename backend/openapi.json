@@ -7342,13 +7342,18 @@
             "type": "integer"
           },
           "embedded_records": {
-            "description": "Number of records that have an embedding stored.",
+            "description": "Number of records with an embedding for the ACTIVE embedding model \u2014 the only vectors semantic search can use.",
             "title": "Embedded Records",
             "type": "integer"
           },
           "missing_records": {
-            "description": "Number of records still missing embeddings.",
+            "description": "Number of records without an active-model embedding (total_records - embedded_records).",
             "title": "Missing Records",
+            "type": "integer"
+          },
+          "stale_records": {
+            "description": "Subset of missing_records whose only stored embeddings belong to other models. Regenerating all embeddings clears these; generating missing ones does not.",
+            "title": "Stale Records",
             "type": "integer"
           },
           "coverage_percent": {
@@ -7361,6 +7366,7 @@
           "total_records",
           "embedded_records",
           "missing_records",
+          "stale_records",
           "coverage_percent"
         ],
         "title": "EmbeddingStatsResponse",

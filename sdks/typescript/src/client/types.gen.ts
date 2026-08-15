@@ -4283,15 +4283,21 @@ export type EmbeddingStatsResponse = {
     /**
      * Embedded Records
      *
-     * Number of records that have an embedding stored.
+     * Number of records with an embedding for the ACTIVE embedding model — the only vectors semantic search can use.
      */
     embedded_records: number;
     /**
      * Missing Records
      *
-     * Number of records still missing embeddings.
+     * Number of records without an active-model embedding (total_records - embedded_records).
      */
     missing_records: number;
+    /**
+     * Stale Records
+     *
+     * Subset of missing_records whose only stored embeddings belong to other models. Regenerating all embeddings clears these; generating missing ones does not.
+     */
+    stale_records: number;
     /**
      * Coverage Percent
      *

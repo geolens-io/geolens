@@ -262,6 +262,7 @@
     "backfillSuccess": "Embeddings generes pour {{count}} jeux de donnees",
     "backfillEmpty": "Tous les jeux de donnees ont deja des embeddings",
     "allEmbedded": "Tous les jeux de données ont des embeddings",
+    "staleEmbeddingsWarning": "{{count}} embedding(s) ont été générés par un autre modèle et la recherche sémantique ne peut pas les utiliser. Régénérez tous les embeddings pour rétablir la couverture.",
     "apiKeysEnvOnlyNote": "Les clés API ne peuvent être définies que via des variables d'environnement (ANTHROPIC_API_KEY, OPENAI_API_KEY).",
     "availableNotSelected": "Disponible",
     "backfillAllFailed": "Les {{errors}} embeddings ont échoué — vérifiez que OPENAI_API_KEY est défini",

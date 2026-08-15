@@ -1557,8 +1557,13 @@ export interface AIStatusResponse {
 
 export interface EmbeddingStatsResponse {
   total_records: number;
+  // fix(#1503): scoped to the ACTIVE embedding model — the only vectors
+  // semantic search can use.
   embedded_records: number;
   missing_records: number;
+  // Subset of missing_records holding vectors from superseded models.
+  // Cleared by Regenerate All, not by Generate Missing.
+  stale_records: number;
   coverage_percent: number;
 }
 

@@ -51,7 +51,7 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
     helpers._has_embeddings_cache.clear()
     monkeypatch.setattr(
         helpers,
-        "_resolve_embedding_model_name",
+        "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
 
@@ -83,8 +83,14 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
 @pytest.mark.anyio
 async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     """Stats join Record and force deletion uses a visible-Record subquery."""
+    monkeypatch.setattr(
+        helpers,
+        "resolve_embedding_model_name",
+        AsyncMock(return_value="tenant-isolation-model"),
+    )
     stats_result = MagicMock()
-    stats_result.one.return_value = (4, 3)
+    # (total, active-model embedded, any-model embedded) — fix(#1503)
+    stats_result.one.return_value = (4, 3, 3)
     stats_session = AsyncMock()
     stats_session.execute.return_value = stats_result
 
@@ -198,7 +204,7 @@ async def test_embedding_reads_and_stats_are_tenant_local(
     port = DefaultProcessingPort()
     monkeypatch.setattr(
         helpers,
-        "_resolve_embedding_model_name",
+        "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
     helpers._has_embeddings_cache.clear()

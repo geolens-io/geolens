@@ -791,28 +791,58 @@ class AdminService:
         return token_obj.id, token_obj.map_id, len(embed_ids)
 
     async def get_embedding_stats(self) -> EmbeddingStatsResponse:
-        """Return embedding coverage statistics."""
+        """Return embedding coverage statistics for the ACTIVE embedding model.
+
+        fix(#1503): the coverage join is scoped to the current model name.
+        `catalog.record_embeddings` is keyed `(record_id, model_name)` because
+        vectors from different models are incomparable, and semantic search
+        reads only rows matching the active model
+        (`catalog/search/service_semantic.py`). Counting every row regardless
+        of model reported 100% coverage after a model swap while search's
+        vector arm matched nothing, so the panel showed a healthy bar over
+        dead semantic ranking.
+
+        When the active model cannot be resolved, `resolve_embedding_model_name`
+        returns a sentinel that matches no stored row, so coverage reads 0 and
+        every embedded record reads stale. That is deliberate: search's vector
+        arm is equally unusable in that state, and over-reporting coverage is
+        the failure this fix exists to remove.
+        """
+        from app.processing.embeddings.helpers import resolve_embedding_model_name
+
         try:
+            model_name = await resolve_embedding_model_name(self.db)
             result = await self.db.execute(
                 text(
                     "SELECT COUNT(DISTINCT visible_record.id) AS total_records, "
-                    "COUNT(DISTINCT embedding.record_id) AS embedded_records "
+                    "COUNT(DISTINCT visible_record.id) "
+                    "FILTER (WHERE embedding.model_name = :model_name) "
+                    "AS embedded_records, "
+                    "COUNT(DISTINCT visible_record.id) "
+                    "FILTER (WHERE embedding.record_id IS NOT NULL) "
+                    "AS any_model_records "
                     "FROM catalog.records AS visible_record "
                     "LEFT JOIN catalog.record_embeddings AS embedding "
                     "ON embedding.record_id = visible_record.id"
-                )
+                ),
+                {"model_name": model_name},
             )
-            total_records, embedded_records = result.one()
+            total_records, embedded_records, any_model_records = result.one()
         except Exception:  # broad: pgvector table may be missing or DB unavailable; degrade to zeros for admin UI
             logger.warning("Failed to query embedding stats", exc_info=True)
             return EmbeddingStatsResponse(
                 total_records=0,
                 embedded_records=0,
                 missing_records=0,
+                stale_records=0,
                 coverage_percent=0.0,
             )
 
         missing_records = total_records - embedded_records
+        # Records carrying vectors, but none the active model can use. Subset of
+        # missing_records: the remedy is Regenerate All, not Generate Missing
+        # (the non-force backfill skips any record that already has a row).
+        stale_records = any_model_records - embedded_records
         coverage_percent = (
             (embedded_records / total_records * 100) if total_records > 0 else 0.0
         )
@@ -820,6 +850,7 @@ class AdminService:
             total_records=total_records,
             embedded_records=embedded_records,
             missing_records=missing_records,
+            stale_records=stale_records,
             coverage_percent=round(coverage_percent, 1),
         )
 

@@ -16,7 +16,13 @@ const hoisted = vi.hoisted(() => ({
   canManageTenants: false,
   isMultiTenant: false,
   useEmbeddingStats: vi.fn((_options?: { enabled?: boolean }) => ({
-    data: { total_records: 100, embedded_records: 50, missing_records: 50, coverage_percent: 50 },
+    data: {
+      total_records: 100,
+      embedded_records: 50,
+      missing_records: 50,
+      stale_records: 0,
+      coverage_percent: 50,
+    },
   })),
 }));
 
@@ -112,6 +118,56 @@ describe('SettingsAITab — embedding coverage single spinner (#347 (ADM-05))', 
     expect(screen.getByRole('switch', { name: 'Semantic Search' })).toBeChecked();
     expect(screen.queryByText('Embedding Coverage')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Generate Missing' })).not.toBeInTheDocument();
+  });
+});
+
+// fix(#1503): after an embedding-model swap every stored vector belongs to the
+// previous model, so coverage reads 0 while the rows are still there. The panel
+// has to name that state and keep Regenerate All — the only control that clears
+// those rows — reachable.
+describe('SettingsAITab — stale embeddings after a model swap (#1503)', () => {
+  beforeEach(() => {
+    hoisted.canManageUsers = true;
+    hoisted.backfill = { mutate: vi.fn(), isPending: false, variables: undefined };
+    hoisted.useEmbeddingStats.mockReturnValue({
+      data: {
+        total_records: 100,
+        embedded_records: 0,
+        missing_records: 100,
+        stale_records: 100,
+        coverage_percent: 0,
+      },
+    });
+  });
+
+  afterEach(() => {
+    hoisted.useEmbeddingStats.mockReset();
+    hoisted.useEmbeddingStats.mockReturnValue({
+      data: {
+        total_records: 100,
+        embedded_records: 50,
+        missing_records: 50,
+        stale_records: 0,
+        coverage_percent: 50,
+      },
+    });
+  });
+
+  it('keeps Regenerate All available when every embedding is stale', () => {
+    renderTab();
+    expect(screen.getByRole('button', { name: 'Regenerate All' })).toBeInTheDocument();
+  });
+
+  it('hides Generate Missing when no record is simply unembedded', () => {
+    renderTab();
+    expect(
+      screen.queryByRole('button', { name: /Generate Missing/ }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('warns that stale vectors are unusable by semantic search', () => {
+    renderTab();
+    expect(screen.getByText(/cannot be used by semantic search/)).toBeInTheDocument();
   });
 });
 

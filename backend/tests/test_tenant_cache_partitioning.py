@@ -323,7 +323,7 @@ async def test_embedding_presence_cache_is_tenant_scoped(
     helpers._has_embeddings_cache.clear()
     monkeypatch.setattr(
         helpers,
-        "_resolve_embedding_model_name",
+        "resolve_embedding_model_name",
         AsyncMock(return_value="shared-model"),
     )
 
@@ -350,7 +350,7 @@ async def test_unscoped_embedding_presence_fails_closed_without_shared_cache(
     helpers = importlib.import_module("app.processing.embeddings.helpers")
     helpers._has_embeddings_cache.clear()
     resolve_model = AsyncMock(return_value="shared-model")
-    monkeypatch.setattr(helpers, "_resolve_embedding_model_name", resolve_model)
+    monkeypatch.setattr(helpers, "resolve_embedding_model_name", resolve_model)
     session = AsyncMock()
 
     assert await helpers.has_embeddings(session) is False

@@ -33,7 +33,7 @@ async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
     await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
 
 
-async def _resolve_embedding_model_name(session: AsyncSession) -> str:
+async def resolve_embedding_model_name(session: AsyncSession) -> str:
     """Return the active embedding model name, or a sentinel on failure.
 
     PERF-10 (Phase 274): the resolved name partitions the has_embeddings
@@ -41,6 +41,13 @@ async def _resolve_embedding_model_name(session: AsyncSession) -> str:
     persistent_config resolution (e.g. uninitialized cache, transient
     DB issue) fall back to ``"__model_unknown__"`` so the caller still
     gets a correct EXISTS result instead of a NoneType crash.
+
+    fix(#1503): promoted from `_resolve_embedding_model_name` when admin's
+    embedding-coverage stats became its second caller. The sentinel matches
+    no stored `model_name`, so a caller that scopes a query by this value
+    reports zero current-model coverage while the model is unknown — the
+    same thing semantic search does in that state (its vector arm resolves
+    the model too, and degrades to FTS-only when it cannot).
     """
     try:
         from app.core.persistent_config import EMBEDDING_MODEL
@@ -67,7 +74,7 @@ async def has_embeddings(session: AsyncSession) -> bool:
     if not tenant_cache_context_available():
         return False
 
-    model_key = tenant_cache_key(await _resolve_embedding_model_name(session))
+    model_key = tenant_cache_key(await resolve_embedding_model_name(session))
     entry = _has_embeddings_cache.get(model_key)
     if entry and (now - entry[1]) < _HAS_EMBEDDINGS_TTL:
         return entry[0]
