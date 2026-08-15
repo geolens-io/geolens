@@ -492,7 +492,7 @@
       "add": "Hinzufügen",
       "attributionLabel": "Quellenangabe",
       "attributionPlaceholder": "© Anbietername",
-      "attributionHelp": "Erforderlich für XYZ-Kachel-URLs — diese Quellenangabe wird angezeigt. Style-JSON-URLs ignorieren dieses Feld und zeigen die im Style selbst deklarierte Quellenangabe. HTML für Links erlaubt.",
+      "attributionHelp": "Die meisten Kachelanbieter verlangen eine Quellenangabe; prüfen Sie die Bedingungen Ihrer Quelle. Bei XYZ-URLs wird dieses Feld angezeigt. Style-JSON-URLs ignorieren es und zeigen die im Style selbst deklarierte Quellenangabe. HTML für Links erlaubt.",
       "apiKeyLabel": "API-Schlüssel",
       "apiKeyPlaceholder": "Optional — erforderlich wenn URL {api_key} enthält",
       "apiKeyHelp": "Verwenden Sie {api_key} in der Kachel-URL als Platzhalter. Der Schlüssel wird serverseitig interpoliert.",
