@@ -129,6 +129,20 @@ repos:
         types_or: [python, pyi]
         files: '^backend/.*\.py$'
 
+      # --- Committed README images ---
+      # The image-sanitizer plugin resizes images in place from a PreToolUse hook
+      # on the Read tool, so the damage happens on a developer's machine between
+      # checkout and commit. Catching it here is strictly earlier than CI; the
+      # readme-assets job in ci.yml is the backstop for anyone not running hooks.
+      # pass_filenames is off because the script checks the whole folder,
+      # including the "an image landed here unpinned" case.
+      - id: readme-assets
+        name: "README image dimensions (.github/assets)"
+        language: system
+        entry: node scripts/check-readme-assets.mjs
+        pass_filenames: false
+        files: '^(\.github/assets/|scripts/check-readme-assets\.mjs$)'
+
   # --- Generic hygiene + secret scanning ---
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0

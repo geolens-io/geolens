@@ -885,6 +885,35 @@ jobs:
       - name: Surface gate regression tests
         run: python -m unittest tests.test_check_public_surface tests.test_check_deployed_surface
 
+  # ---------- README assets ----------
+  # Gate over the committed README screenshots in .github/assets/.
+  #
+  # The image-sanitizer Claude Code plugin resizes images IN PLACE from a
+  # PreToolUse hook on the Read tool (shrink-only, 1200px cap), so any committed
+  # image wider than that silently loses resolution the first time someone opens
+  # it to look at it. docs and marketing (both in getgeolens.com) each grew a gate
+  # against this; the README shots did not, because they are produced in that repo
+  # and committed in THIS one, so neither side owned the check. Three of the
+  # source-panel crops are 1232px wide and were live-vulnerable.
+  #
+  # No path filter on purpose: the corruption edits the images, so a filtered job
+  # would still fire, but this also catches a manifest edit that quietly unpins a
+  # file. Pure stdlib Node — no DB, browser, or network. Runs on every push/PR.
+  readme-assets:
+    name: README Assets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020  # v7.0.0
+        with:
+          node-version: 22
+
+      # No `npm ci` — the script is dependency-free stdlib Node, so the job stays
+      # a few seconds.
+      - name: Check committed README image dimensions
+        run: npm run check:readme-assets
+
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
   # a direct httpx/requests dependency. Runs on cli/** OR sdks/python/**
@@ -1519,6 +1548,7 @@ jobs:
       - pre-commit
       - version-coherence
       - docs-contract
+      - readme-assets
       # fix(#825): PR-only browser gate; skipped (non-stack PRs, push, cron)
       # counts as pass below, failed blocks the merge.
       - e2e-smoke
