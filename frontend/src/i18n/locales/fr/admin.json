@@ -492,7 +492,7 @@
       "add": "Ajouter",
       "attributionLabel": "Attribution",
       "attributionPlaceholder": "© Nom du fournisseur",
-      "attributionHelp": "Facultatif. HTML autorisé pour les liens.",
+      "attributionHelp": "La plupart des fournisseurs de tuiles exigent une attribution ; vérifiez les conditions de votre source. Pour les URL de tuiles XYZ/TMS, c'est ce champ qui s'affiche. Les URL de style JSON l'ignorent et affichent l'attribution déclarée par le style lui-même. HTML autorisé pour les liens.",
       "apiKeyLabel": "Clé API",
       "apiKeyPlaceholder": "Facultatif — requis si l'URL contient {api_key}",
       "apiKeyHelp": "Utilisez {api_key} dans l'URL des tuiles comme espace réservé. La clé est interpolée côté serveur.",
