@@ -84,9 +84,22 @@ function cropResize(
  *  in practice, while a frame that never painted cannot. */
 export const BLANK_LUMINANCE_STDDEV = 4;
 
+/** fix(#1504 review round 2): stddev alone rejects legitimately SPARSE maps —
+ *  a lone point feature on the "No basemap" uniform background computes to a
+ *  stddev around 2, under the threshold. So a low-variance frame gets a second
+ *  chance: count pixels deviating meaningfully from the mean. The two demo
+ *  blank uploads (stddev 0.00 and 1.88) have ZERO such pixels — a smooth
+ *  gradient at stddev 1.88 spans roughly ±3 luminance — while a real point
+ *  feature deviates by 100+ across its whole footprint. 8 pixels is far above
+ *  stray readback noise and far below any visible feature's footprint. */
+export const SPARSE_LUMINANCE_DELTA = 25;
+export const SPARSE_PIXEL_COUNT = 8;
+
 /** Standard deviation of pixel luminance over RGBA data, sampling every
- *  `stride`-th pixel. Pure so it is testable without a canvas (jsdom has none). */
-export function luminanceStddev(rgba: Uint8ClampedArray | number[], stride = 4): number {
+ *  `stride`-th pixel (default: every pixel — sampling can miss a dot, see
+ *  #1504 review round 2). Pure so it is testable without a canvas (jsdom has
+ *  none). */
+export function luminanceStddev(rgba: Uint8ClampedArray | number[], stride = 1): number {
   let sum = 0;
   let sumSq = 0;
   let n = 0;
@@ -100,6 +113,29 @@ export function luminanceStddev(rgba: Uint8ClampedArray | number[], stride = 4):
   if (n === 0) return 0;
   const mean = sum / n;
   return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+}
+
+/** Whether RGBA pixel data reads as a frame nothing painted: low luminance
+ *  variance AND no cluster of pixels standing off the mean (the sparse-map
+ *  rescue above). Pure for the same jsdom reason. */
+export function isBlankPixelData(rgba: Uint8ClampedArray | number[]): boolean {
+  if (luminanceStddev(rgba) >= BLANK_LUMINANCE_STDDEV) return false;
+  let mean = 0;
+  let n = 0;
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    mean += 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+    n++;
+  }
+  if (n === 0) return false; // cannot judge empty data — fail open
+  mean /= n;
+  let deviants = 0;
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    const lum = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+    if (Math.abs(lum - mean) > SPARSE_LUMINANCE_DELTA && ++deviants >= SPARSE_PIXEL_COUNT) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** fix(#1502): whether a captured frame is effectively a solid fill.
@@ -120,7 +156,7 @@ export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
     const ctx = canvas.getContext('2d');
     if (!ctx) return false;
     const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    return luminanceStddev(data) < BLANK_LUMINANCE_STDDEV;
+    return isBlankPixelData(data);
   } catch {
     return false;
   }
@@ -151,22 +187,29 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
         : undefined;
 
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
+      const og = cropResize(srcCanvas, 1200, 630, backdrop);
 
-      // fix(#1502): never persist a blank frame. Skipping BOTH uploads (the OG
-      // crop comes from the same srcCanvas, so it is blank whenever this is)
-      // leaves `hasThumbnail` false, which converts the permanent failure into
-      // a transient one — the next open of the map simply retries. Re-arming
-      // the SF-07 guard is what makes that true within an SPA session, not
-      // just across hard reloads (#1504 review).
-      if (isEffectivelyBlank(thumb)) {
+      // fix(#1502): never persist a blank frame. Skipping the thumbnail leaves
+      // `hasThumbnail` false, and re-arming the SF-07 guard converts the
+      // permanent failure into a transient one within the SPA session, not
+      // just across hard reloads (#1504 review round 1) — the next open of
+      // the map simply retries.
+      //
+      // The two crops are judged INDEPENDENTLY (#1504 review round 2): they
+      // center-crop the same canvas to different aspect ratios (1.6 vs 1.905),
+      // so on a 16:9 viewport the OG crop sees side strips the thumbnail crop
+      // never contains, and either can hold content the other lacks.
+      const thumbBlank = isEffectivelyBlank(thumb);
+      const ogBlank = isEffectivelyBlank(og);
+      if (thumbBlank) {
         rearmAutoCapture(mapId);
         if (import.meta.env.DEV) {
           console.warn('[thumbnail] capture skipped: frame is effectively blank; will retry on next open');
         }
-        return;
       }
+      if (thumbBlank && ogBlank) return;
 
-      uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
+      if (!thumbBlank) uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
         // useMap, which is ['map', id], a different root string. The target is the
@@ -183,8 +226,7 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       });
 
       // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
-      const og = cropResize(srcCanvas, 1200, 630, backdrop);
-      uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
+      if (!ogBlank) uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
     } catch (err) {

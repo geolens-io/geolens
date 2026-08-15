@@ -16,11 +16,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   luminanceStddev,
+  isBlankPixelData,
   isEffectivelyBlank,
   shouldAutoCapture,
   rearmAutoCapture,
   __resetThumbnailDebounceForTests,
   BLANK_LUMINANCE_STDDEV,
+  SPARSE_PIXEL_COUNT,
 } from '../use-builder-save';
 
 beforeEach(() => {
@@ -83,6 +85,41 @@ describe('luminanceStddev', () => {
 
   it('returns 0 on empty data rather than NaN', () => {
     expect(luminanceStddev(new Uint8ClampedArray(0))).toBe(0);
+  });
+});
+
+describe('isBlankPixelData', () => {
+  it('flags both demo failure shapes: exact uniform and near-uniform noise', () => {
+    expect(isBlankPixelData(rgba(100_000, () => [241, 241, 241]))).toBe(true);
+    const noisy = rgba(100_000, (i) => {
+      const v = 198 + (i % 5) - 2;
+      return [v, v, v];
+    });
+    expect(isBlankPixelData(noisy)).toBe(true);
+  });
+
+  /** fix(#1504 review round 2): a lone point feature on the "No basemap"
+   *  uniform background sits UNDER the stddev threshold — the deviant-pixel
+   *  rescue is the only thing that saves it. The first assertion pins the
+   *  counterfactual: stddev-only logic rejects this frame. */
+  it('rescues a sparse map — a 20px dot the stddev screen alone would reject', () => {
+    const dot = rgba(100_000, (i) => (i < 20 ? [10, 10, 10] : [200, 200, 200]));
+    expect(luminanceStddev(dot)).toBeLessThan(BLANK_LUMINANCE_STDDEV); // would reject
+    expect(isBlankPixelData(dot)).toBe(false); // rescued
+  });
+
+  it('does not let stray outlier pixels below the count floor rescue a blank', () => {
+    const stray = rgba(100_000, (i) => (i < SPARSE_PIXEL_COUNT - 3 ? [10, 10, 10] : [200, 200, 200]));
+    expect(isBlankPixelData(stray)).toBe(true);
+  });
+
+  it('passes real content on variance alone', () => {
+    const data = rgba(1000, (i) => (i % 2 === 0 ? [30, 30, 30] : [220, 220, 220]));
+    expect(isBlankPixelData(data)).toBe(false);
+  });
+
+  it('fails open on empty data — unreadable pixels must never block an upload', () => {
+    expect(isBlankPixelData(new Uint8ClampedArray(0))).toBe(false);
   });
 });
 
