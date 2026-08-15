@@ -288,6 +288,13 @@ class ProcessingPort(Protocol):
     # Implementations must eagerly populate both ``keywords`` and
     # ``translations`` because embedding backfills consume them after query
     # execution and the community ORM deliberately uses lazy="raise".
+    #
+    # fix(#1506): with ``force=False`` the contract is "records with no vector
+    # under the ACTIVE embedding model", not "records with no vector at all" —
+    # rows from a superseded model are unusable to semantic search and so are
+    # missing. An implementation that cannot resolve the active model must
+    # return an empty list; returning everything would hand the whole catalog
+    # to a run that cannot store what it embeds.
     async def get_records_without_embeddings(
         self, session: AsyncSession, *, force: bool = False
     ) -> list[RecordProtocol]: ...

@@ -839,9 +839,14 @@ class AdminService:
             )
 
         missing_records = total_records - embedded_records
-        # Records carrying vectors, but none the active model can use. Subset of
-        # missing_records: the remedy is Regenerate All, not Generate Missing
-        # (the non-force backfill skips any record that already has a row).
+        # Records carrying vectors, but none the active model can use. Subset
+        # of missing_records. fix(#1506): Generate Missing now covers these —
+        # the non-force backfill selects on "no active-model row" rather than
+        # "no row at all", so it re-embeds them without touching the records
+        # the current model already covers. Regenerate All remains the way to
+        # also DELETE the superseded rows; a non-force run leaves them in
+        # place, which costs storage but no longer counts as stale (the count
+        # below is a difference, and the new active-model row closes it).
         stale_records = any_model_records - embedded_records
         coverage_percent = (
             (embedded_records / total_records * 100) if total_records > 0 else 0.0

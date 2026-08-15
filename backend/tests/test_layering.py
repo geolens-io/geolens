@@ -1885,7 +1885,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # so cannot import the catalog model it needs; this is the same
         # ORM-class accessor shape as its five neighbours. Cap 494 -> 499,
         # exact.
-        "backend/app/platform/extensions/defaults_processing_port.py": 499,
+        # fix(#1506): +38 — get_records_without_embeddings became model-aware.
+        # Six lines are the NOT EXISTS and the model resolution; the rest is
+        # the pair of rationales a future reader needs to not undo it: why
+        # "missing" means "missing under THIS model", and why an unresolvable
+        # model returns nothing here while the same sentinel is allowed to
+        # read as zero coverage in admin's stats. Cap 499 -> 537, exact.
+        "backend/app/platform/extensions/defaults_processing_port.py": 537,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same

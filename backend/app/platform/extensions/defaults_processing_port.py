@@ -235,15 +235,19 @@ class DefaultProcessingPort:
     # -------------------------------------------------------------------------
 
     async def get_records_without_embeddings(self, session, *, force=False):  # type: ignore[no-untyped-def]
+        import structlog
         from sqlalchemy import select
         from sqlalchemy.orm import joinedload, selectinload
 
         from app.modules.catalog.datasets.domain.models import Record
+        from app.processing.embeddings.helpers import (
+            UNKNOWN_EMBEDDING_MODEL,
+            resolve_embedding_model_name,
+        )
         from app.processing.embeddings.models import RecordEmbedding
 
         stmt = (
             select(Record)
-            .outerjoin(RecordEmbedding, Record.id == RecordEmbedding.record_id)
             .options(
                 joinedload(Record.keywords),
                 selectinload(Record.translations),
@@ -251,7 +255,41 @@ class DefaultProcessingPort:
             .order_by(Record.created_at)
         )
         if not force:
-            stmt = stmt.where(RecordEmbedding.id.is_(None))
+            # fix(#1506): "missing" means "has no vector THIS model can use",
+            # not "has no vector at all". `record_embeddings` is keyed
+            # (record_id, model_name) and semantic search reads only
+            # active-model rows, so the old `RecordEmbedding.id IS NULL`
+            # predicate made Generate Missing a no-op after a model swap —
+            # every record kept its superseded row and so read as covered.
+            # Mirrors the model-scoped count in AdminService.get_embedding_stats
+            # (#1503), which is what the admin panel reports against.
+            # The outer join went with it: NOT EXISTS correlates on its own,
+            # and the join only ever produced per-embedding duplicate Records
+            # that `.unique()` collapsed again.
+            model_name = await resolve_embedding_model_name(session)
+            if model_name == UNKNOWN_EMBEDDING_MODEL:
+                # Fail closed, which is the OPPOSITE of what the sentinel does
+                # for #1503's coverage stats, and deliberately so. There it
+                # under-reports a number on a read-only panel. Here it would
+                # select the entire catalog as missing and feed it to a run
+                # that cannot store the result: backfill.py stamps rows from
+                # its own EMBEDDING_MODEL.get() and `model_name` is NOT NULL,
+                # so every record gets embedded at provider-token cost and
+                # then fails to insert. Selecting nothing is the recoverable
+                # error — the operator re-runs once config resolution works,
+                # and the panel already reads 0% coverage meanwhile.
+                structlog.stdlib.get_logger(__name__).warning(
+                    "backfill_skipped_unresolved_embedding_model"
+                )
+                return []
+            stmt = stmt.where(
+                ~select(RecordEmbedding.id)
+                .where(
+                    RecordEmbedding.record_id == Record.id,
+                    RecordEmbedding.model_name == model_name,
+                )
+                .exists()
+            )
         result = await session.execute(stmt)
         return list(result.unique().scalars().all())
 
