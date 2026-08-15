@@ -63,11 +63,13 @@ const README_ASSETS = {
   // They are pinned here at their committed size rather than at 1600x900 so this
   // gate lands green and starts protecting the other ten images immediately. See
   // the PR for why the recapture is a separate change.
-  'geolens-manhattan-3d-hero.jpg': { width: 1200, height: 750, capturedAt: { width: 1600, height: 900 } },
-  'geolens-search.png': { width: 1200, height: 750, capturedAt: { width: 1600, height: 900 } },
-  'geolens-dataset.png': { width: 1200, height: 750, capturedAt: { width: 1600, height: 900 } },
-  'geolens-matterhorn-terrain.jpg': { width: 1200, height: 750, capturedAt: { width: 1600, height: 900 } },
-  'geolens-ai-labels.png': { width: 1200, height: 800, capturedAt: { width: 1600, height: 900 } },
+  // Recaptured 2026-08-15 at the recipe's declared 1600x900 (the capturedAt
+  // deficit is cleared; see the recapture PR for the per-shot QA).
+  'geolens-manhattan-3d-hero.jpg': { width: 1600, height: 900 },
+  'geolens-search.png': { width: 1600, height: 900 },
+  'geolens-dataset.png': { width: 1600, height: 900 },
+  'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
+  'geolens-ai-labels.png': { width: 1600, height: 900 },
 
   // --- Hand-captured, added 2026-07-23 (#659) ------------------------------
   // Not part of capture-readme.ts's target list; .github/assets/README.md
