@@ -199,6 +199,35 @@ export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
  *  true so no retry ever corrects it. */
 type CaptureTrigger = 'auto' | 'save';
 
+/** Whether the ENTIRE source frame reads as unpainted (#1504 review round 5).
+ *
+ *  The guard's one job is detecting the unpainted-canvas race, and an
+ *  unpainted canvas is blank EVERYWHERE — so the honest measurement is the
+ *  full frame, once. Judging the two crops individually (an earlier revision)
+ *  had a terminal converse: content only in the top/bottom strips makes the
+ *  1.6 thumbnail crop real and the wider 1.905 OG crop genuinely uniform, the
+ *  thumbnail upload flips `hasThumbnail`, and the skipped-but-truthful OG can
+ *  never retry. Once the frame is known painted, every crop is the map's true
+ *  appearance at its aspect ratio and must upload.
+ *
+ *  WebGL pixels are unreadable through 2D APIs on the source itself, so the
+ *  frame is copied into a 2D canvas at NATIVE size — downscaling would
+ *  average a sparse dot away and defeat the deviant-pixel rescue. Fail-open,
+ *  like everything in this pipeline: unreadable pixels never block uploads. */
+function isCanvasFrameBlank(src: HTMLCanvasElement): boolean {
+  try {
+    const off = document.createElement('canvas');
+    off.width = src.width;
+    off.height = src.height;
+    const ctx = off.getContext('2d');
+    if (!ctx) return false;
+    ctx.drawImage(src, 0, 0);
+    return isEffectivelyBlank(off);
+  } catch {
+    return false;
+  }
+}
+
 function doCapture(
   map: MaplibreMap,
   mapId: string,
@@ -215,31 +244,25 @@ function doCapture(
         ? MAP_COLORS.exportImage.globeBackground
         : undefined;
 
-      const thumb = cropResize(srcCanvas, 400, 250, backdrop);
-      const og = cropResize(srcCanvas, 1200, 630, backdrop);
-
-      // fix(#1502): never persist a blank AUTO-captured frame (see
-      // CaptureTrigger for why explicit saves are exempt). Skipping the
-      // thumbnail leaves `hasThumbnail` false, and re-arming the SF-07 guard
-      // converts the permanent failure into a transient one within the SPA
-      // session, not just across hard reloads (#1504 review round 1) — the
-      // next open of the map simply retries.
-      //
-      // The two crops are judged INDEPENDENTLY (#1504 review round 2): they
-      // center-crop the same canvas to different aspect ratios (1.6 vs 1.905),
-      // so on a 16:9 viewport the OG crop sees side strips the thumbnail crop
-      // never contains, and either can hold content the other lacks.
-      const thumbSkip = trigger === 'auto' && isEffectivelyBlank(thumb);
-      const ogSkip = trigger === 'auto' && isEffectivelyBlank(og);
-      if (thumbSkip) {
+      // fix(#1502): never persist an unpainted AUTO-captured frame (see
+      // CaptureTrigger for why explicit saves are exempt, and
+      // isCanvasFrameBlank for why the FULL frame is measured rather than the
+      // crops). Skipping leaves `hasThumbnail` false, and re-arming the SF-07
+      // guard converts the permanent failure into a transient one within the
+      // SPA session, not just across hard reloads (#1504 review round 1) —
+      // the next open of the map simply retries.
+      if (trigger === 'auto' && isCanvasFrameBlank(srcCanvas)) {
         rearmAutoCapture(mapId);
         if (import.meta.env.DEV) {
           console.warn('[thumbnail] capture skipped: frame is effectively blank; will retry on next open');
         }
+        return;
       }
-      if (thumbSkip && ogSkip) return;
 
-      if (!thumbSkip) uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
+      const thumb = cropResize(srcCanvas, 400, 250, backdrop);
+      const og = cropResize(srcCanvas, 1200, 630, backdrop);
+
+      uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
         // useMap, which is ['map', id], a different root string. The target is the
@@ -256,7 +279,7 @@ function doCapture(
       });
 
       // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
-      if (!ogSkip) uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
+      uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
     } catch (err) {
