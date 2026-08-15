@@ -155,8 +155,11 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       // fix(#1502): never persist a blank frame. Skipping BOTH uploads (the OG
       // crop comes from the same srcCanvas, so it is blank whenever this is)
       // leaves `hasThumbnail` false, which converts the permanent failure into
-      // a transient one — the next open of the map simply retries.
+      // a transient one — the next open of the map simply retries. Re-arming
+      // the SF-07 guard is what makes that true within an SPA session, not
+      // just across hard reloads (#1504 review).
       if (isEffectivelyBlank(thumb)) {
+        rearmAutoCapture(mapId);
         if (import.meta.env.DEV) {
           console.warn('[thumbnail] capture skipped: frame is effectively blank; will retry on next open');
         }
@@ -363,7 +366,7 @@ function captureThumbnail(
  *  cleared. Callers should run this BEFORE `captureThumbnail()` so a
  *  StrictMode-driven remount cannot bypass it. The trailing-edge debounce
  *  in `captureThumbnail` still applies for the legitimate first call. */
-function shouldAutoCapture(mapId: string, userId: string | null): boolean {
+export function shouldAutoCapture(mapId: string, userId: string | null): boolean {
   // Phase 1051 WR-07: key by both userId and mapId. anon users (token only,
   // no resolvable user) collapse to a stable 'anon' bucket so anonymous
   // sessions still benefit from StrictMode dedupe within a single tab.
@@ -383,6 +386,17 @@ function shouldAutoCapture(mapId: string, userId: string | null): boolean {
     autoCapturedKeys.delete(oldest);
   }
   return true;
+}
+
+/** fix(#1504 review): when doCapture rejects a blank frame, the SF-07 guard
+ *  must be re-armed or the promised "retry on next open" only survives a hard
+ *  reload — the module LRU outlives unmount/remount within an SPA session.
+ *  Keys are `userId:mapId` and doCapture does not know the user, so drop every
+ *  entry for the map; any user bucket that re-opens it deserves a fresh try. */
+export function rearmAutoCapture(mapId: string): void {
+  for (const key of autoCapturedKeys.keys()) {
+    if (key.endsWith(`:${mapId}`)) autoCapturedKeys.delete(key);
+  }
 }
 
 /** Test helper — clear any pending debounced captures AND the SF-07

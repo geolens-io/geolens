@@ -13,12 +13,19 @@
  *  fail-open path, which must never block an upload just because pixels were
  *  unreadable.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   luminanceStddev,
   isEffectivelyBlank,
+  shouldAutoCapture,
+  rearmAutoCapture,
+  __resetThumbnailDebounceForTests,
   BLANK_LUMINANCE_STDDEV,
 } from '../use-builder-save';
+
+beforeEach(() => {
+  __resetThumbnailDebounceForTests();
+});
 
 /** RGBA buffer of `n` pixels produced by `fn(index) -> [r,g,b]`. */
 function rgba(n: number, fn: (i: number) => [number, number, number]): Uint8ClampedArray {
@@ -106,5 +113,27 @@ describe('isEffectivelyBlank', () => {
         }) as unknown as CanvasRenderingContext2D,
     } as unknown as HTMLCanvasElement;
     expect(isEffectivelyBlank(canvas)).toBe(false);
+  });
+});
+
+describe('rearmAutoCapture', () => {
+  /** fix(#1504 review): the SF-07 LRU marks a map "attempted" at schedule
+   *  time and survives unmount/remount, so a rejected blank frame must clear
+   *  it — otherwise "retry on next open" only holds across hard reloads. */
+  it('re-arms a map after a rejected frame so the next open retries', () => {
+    expect(shouldAutoCapture('m1', 'u1')).toBe(true);
+    expect(shouldAutoCapture('m1', 'u1')).toBe(false); // armed for the session
+    rearmAutoCapture('m1');
+    expect(shouldAutoCapture('m1', 'u1')).toBe(true); // retry allowed again
+  });
+
+  it('clears every user bucket for the map, and only that map', () => {
+    shouldAutoCapture('m1', 'u1');
+    shouldAutoCapture('m1', null); // anon bucket for the same map
+    shouldAutoCapture('m2', 'u1');
+    rearmAutoCapture('m1');
+    expect(shouldAutoCapture('m1', 'u1')).toBe(true);
+    expect(shouldAutoCapture('m1', null)).toBe(true);
+    expect(shouldAutoCapture('m2', 'u1')).toBe(false); // untouched
   });
 });
