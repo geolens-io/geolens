@@ -76,6 +76,107 @@ function cropResize(
   return offscreen;
 }
 
+/** fix(#1502): channel stddev below this reads as "no content". The demo's
+ *  two blank uploads measured 0.00 and 1.88; the flattest REAL thumbnail
+ *  observed on a seeded instance measured 22.9, and even a bare world-basemap
+ *  capture measures ~24 (all measured as luminance on grey-dominated frames,
+ *  where per-channel and luminance stddev coincide, so the thresholds carry
+ *  over). The gap is wide; 4 sits far from both sides so a legitimately
+ *  minimal map (open ocean on a flat basemap) still clears it in practice,
+ *  while a frame that never painted cannot. */
+export const BLANK_CHANNEL_STDDEV = 4;
+
+/** fix(#1504 review round 2): stddev alone rejects legitimately SPARSE maps —
+ *  a lone point feature on the "No basemap" uniform background computes to a
+ *  stddev around 2, under the threshold. So a low-variance frame gets a second
+ *  chance: count pixels deviating meaningfully from the mean color. The two
+ *  demo blank uploads have ZERO such pixels — a smooth gradient at stddev
+ *  1.88 spans roughly ±3 — while a real point feature deviates by 100+ across
+ *  its whole footprint. 8 pixels is far above stray readback noise and far
+ *  below any visible feature's footprint. */
+export const SPARSE_CHANNEL_DELTA = 25;
+export const SPARSE_PIXEL_COUNT = 8;
+
+/** Max per-channel standard deviation over RGBA data, scanning every pixel
+ *  (sampling can miss a dot — #1504 review round 2). Channel-space rather
+ *  than luminance (#1504 review round 3): isoluminant hue changes — say a
+ *  red/green categorical split at equal lightness — are invisible to a
+ *  luminance statistic but enormous per channel. Pure so it is testable
+ *  without a canvas (jsdom has none). */
+export function maxChannelStddev(rgba: Uint8ClampedArray | number[]): number {
+  const sum = [0, 0, 0];
+  const sumSq = [0, 0, 0];
+  let n = 0;
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const v = rgba[i + c];
+      sum[c] += v;
+      sumSq[c] += v * v;
+    }
+    n++;
+  }
+  if (n === 0) return 0;
+  let max = 0;
+  for (let c = 0; c < 3; c++) {
+    const mean = sum[c] / n;
+    max = Math.max(max, Math.sqrt(Math.max(0, sumSq[c] / n - mean * mean)));
+  }
+  return max;
+}
+
+/** Whether RGBA pixel data reads as a frame nothing painted: low variance in
+ *  EVERY channel AND no cluster of pixels standing off the mean color in any
+ *  channel (the sparse-map rescue above). Pure for the same jsdom reason. */
+export function isBlankPixelData(rgba: Uint8ClampedArray | number[]): boolean {
+  if (maxChannelStddev(rgba) >= BLANK_CHANNEL_STDDEV) return false;
+  const sum = [0, 0, 0];
+  let n = 0;
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    sum[0] += rgba[i];
+    sum[1] += rgba[i + 1];
+    sum[2] += rgba[i + 2];
+    n++;
+  }
+  if (n === 0) return false; // cannot judge empty data — fail open
+  const mean = [sum[0] / n, sum[1] / n, sum[2] / n];
+  let deviants = 0;
+  for (let i = 0; i + 2 < rgba.length; i += 4) {
+    const dev = Math.max(
+      Math.abs(rgba[i] - mean[0]),
+      Math.abs(rgba[i + 1] - mean[1]),
+      Math.abs(rgba[i + 2] - mean[2]),
+    );
+    if (dev > SPARSE_CHANNEL_DELTA && ++deviants >= SPARSE_PIXEL_COUNT) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** fix(#1502): whether a captured frame is effectively a solid fill.
+ *
+ *  The capture pipeline is fail-open at every stage before this point —
+ *  waitForVisibleLayerSources proceeds on its 5s deadline, whenMapIdle fires
+ *  on its 3s timeout — so on a slow first render doCapture can read a canvas
+ *  nothing has painted. Uploading that frame is what makes the failure
+ *  PERMANENT: the auto-capture gate is `hasThumbnail`, so one blank upload
+ *  disqualifies the map from every future attempt (the demo shipped two such
+ *  thumbnails for months).
+ *
+ *  Reads the already-small thumbnail crop (no extra canvas), and fails open:
+ *  if the 2D context or pixel data is unavailable, report "not blank" so the
+ *  upload proceeds exactly as before this guard existed. */
+export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
+  try {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return isBlankPixelData(data);
+  } catch {
+    return false;
+  }
+}
+
 /** Crop and resize the map canvas to a 400x250 JPEG thumbnail AND a 1200x630
  *  OG image, then upload both.
  *
@@ -89,7 +190,62 @@ function cropResize(
  *  targets from the same srcCanvas without a second triggerRepaint (Pitfall #5).
  *  The OG upload is fire-and-forget with its own catch so an OG failure does
  *  not prevent the thumbnail save. */
-function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<typeof useQueryClient>) {
+/** Who asked for this capture. The blank-frame guard applies ONLY to 'auto'
+ *  (#1504 review round 4): auto-capture fires on first open, where a uniform
+ *  frame means the unpainted-canvas race. On an explicit save the map is
+ *  loaded and painted — a uniform frame is the map's true appearance (the
+ *  user removed its content), and skipping the upload would leave a stale
+ *  thumbnail advertising layers that no longer exist, with `hasThumbnail`
+ *  true so no retry ever corrects it. */
+type CaptureTrigger = 'auto' | 'save';
+
+/** Whether the ENTIRE source frame reads as unpainted (#1504 review round 5).
+ *
+ *  The guard's one job is detecting the unpainted-canvas race, and an
+ *  unpainted canvas is blank EVERYWHERE — so the honest measurement is the
+ *  full frame, once. Judging the two crops individually (an earlier revision)
+ *  had a terminal converse: content only in the top/bottom strips makes the
+ *  1.6 thumbnail crop real and the wider 1.905 OG crop genuinely uniform, the
+ *  thumbnail upload flips `hasThumbnail`, and the skipped-but-truthful OG can
+ *  never retry. Once the frame is known painted, every crop is the map's true
+ *  appearance at its aspect ratio and must upload.
+ *
+ *  WebGL pixels are unreadable through 2D APIs on the source itself, so the
+ *  frame is copied into a 2D canvas — BOUNDED to ~1M pixels (#1504 review
+ *  round 6): a native copy on a DPR-2 2560×1440 display is ~14.7M pixels and
+ *  over 110 MiB of transient RGBA inside the render callback, and an
+ *  allocation failure would fail open into exactly the blank upload this
+ *  guard prevents. The downscale is safe for both classifications: an
+ *  unpainted frame is uniform at EVERY scale, and the sparse rescue survives
+ *  because drawImage blends rather than drops — an output pixel at just ~13%
+ *  feature coverage already crosses the delta-25 deviant threshold, so any
+ *  feature of roughly 3×3 effective pixels or larger still rescues. Smaller
+ *  than that reads blank, which on auto-capture means skip-and-retry, never a
+ *  permanent state. Fail-open, like everything in this pipeline: unreadable
+ *  pixels never block uploads. */
+const FRAME_SAMPLE_PIXEL_BUDGET = 1_000_000;
+
+function isCanvasFrameBlank(src: HTMLCanvasElement): boolean {
+  try {
+    const scale = Math.min(1, Math.sqrt(FRAME_SAMPLE_PIXEL_BUDGET / (src.width * src.height || 1)));
+    const off = document.createElement('canvas');
+    off.width = Math.max(1, Math.round(src.width * scale));
+    off.height = Math.max(1, Math.round(src.height * scale));
+    const ctx = off.getContext('2d');
+    if (!ctx) return false;
+    ctx.drawImage(src, 0, 0, off.width, off.height);
+    return isEffectivelyBlank(off);
+  } catch {
+    return false;
+  }
+}
+
+function doCapture(
+  map: MaplibreMap,
+  mapId: string,
+  queryClient: ReturnType<typeof useQueryClient>,
+  trigger: CaptureTrigger,
+) {
   const onRender = () => {
     try {
       const srcCanvas = map.getCanvas();
@@ -100,8 +256,24 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
         ? MAP_COLORS.exportImage.globeBackground
         : undefined;
 
-      // 400×250 thumbnail — unchanged behavior
+      // fix(#1502): never persist an unpainted AUTO-captured frame (see
+      // CaptureTrigger for why explicit saves are exempt, and
+      // isCanvasFrameBlank for why the FULL frame is measured rather than the
+      // crops). Skipping leaves `hasThumbnail` false, and re-arming the SF-07
+      // guard converts the permanent failure into a transient one within the
+      // SPA session, not just across hard reloads (#1504 review round 1) —
+      // the next open of the map simply retries.
+      if (trigger === 'auto' && isCanvasFrameBlank(srcCanvas)) {
+        rearmAutoCapture(mapId);
+        if (import.meta.env.DEV) {
+          console.warn('[thumbnail] capture skipped: frame is effectively blank; will retry on next open');
+        }
+        return;
+      }
+
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
+      const og = cropResize(srcCanvas, 1200, 630, backdrop);
+
       uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
@@ -119,7 +291,6 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
       });
 
       // 1200×630 OG image — fire-and-forget, isolated failure (SHARE-08)
-      const og = cropResize(srcCanvas, 1200, 630, backdrop);
       uploadOgImage(mapId, og.toDataURL('image/jpeg', 0.85)).catch(() => {
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
@@ -199,6 +370,7 @@ function runCaptureNow(
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
   layersRef?: React.RefObject<MapLayerResponse[]>,
+  trigger: CaptureTrigger = 'save',
 ) {
   // POLISH-01: defer the first capture when a layer-add is pending (layersRef
   // provided) but no layers have synced yet. Poll the live ref so we pick up
@@ -210,7 +382,7 @@ function runCaptureNow(
       const live = layersRef.current ?? [];
       if (live.length > 0) {
         // Layers have arrived — proceed through normal source-readiness path.
-        waitForVisibleLayerSources(map, live, () => doCapture(map, mapId, queryClient), signal);
+        waitForVisibleLayerSources(map, live, () => doCapture(map, mapId, queryClient, trigger), signal);
         return;
       }
       if (Date.now() >= deadline) {
@@ -219,7 +391,7 @@ function runCaptureNow(
         // callback (WR-02): whenMapIdle can fire up to ~3s later, possibly after
         // an unmount, so the guard must be at capture time, not registration time.
         whenMapIdle(map, () => {
-          if (!signal?.cancelled) doCapture(map, mapId, queryClient);
+          if (!signal?.cancelled) doCapture(map, mapId, queryClient, trigger);
         });
         return;
       }
@@ -228,7 +400,7 @@ function runCaptureNow(
     pollForLayers();
     return;
   }
-  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient), signal);
+  waitForVisibleLayerSources(map, layers, () => doCapture(map, mapId, queryClient, trigger), signal);
 }
 
 /** SP-16: 500ms trailing-edge debounce around captureThumbnail.
@@ -278,6 +450,7 @@ function captureThumbnail(
   layers: MapLayerResponse[],
   signal?: { cancelled: boolean },
   layersRef?: React.RefObject<MapLayerResponse[]>,
+  trigger: CaptureTrigger = 'save',
 ) {
   // SP-16: clear any prior pending capture for this mapId; the latest call
   // wins (trailing edge), reflecting the final state once the window settles.
@@ -289,7 +462,7 @@ function captureThumbnail(
     // POLISH-01: pass layersRef through so runCaptureNow can defer on the
     // new-map + ?add_dataset path. Save-path callers do not pass layersRef,
     // so they remain on the existing waitForVisibleLayerSources path.
-    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef);
+    runCaptureNow(map, mapId, queryClient, layers, signal, layersRef, trigger);
   }, THUMBNAIL_DEBOUNCE_MS);
 
   pendingCaptures.set(mapId, timer);
@@ -302,7 +475,7 @@ function captureThumbnail(
  *  cleared. Callers should run this BEFORE `captureThumbnail()` so a
  *  StrictMode-driven remount cannot bypass it. The trailing-edge debounce
  *  in `captureThumbnail` still applies for the legitimate first call. */
-function shouldAutoCapture(mapId: string, userId: string | null): boolean {
+export function shouldAutoCapture(mapId: string, userId: string | null): boolean {
   // Phase 1051 WR-07: key by both userId and mapId. anon users (token only,
   // no resolvable user) collapse to a stable 'anon' bucket so anonymous
   // sessions still benefit from StrictMode dedupe within a single tab.
@@ -322,6 +495,17 @@ function shouldAutoCapture(mapId: string, userId: string | null): boolean {
     autoCapturedKeys.delete(oldest);
   }
   return true;
+}
+
+/** fix(#1504 review): when doCapture rejects a blank frame, the SF-07 guard
+ *  must be re-armed or the promised "retry on next open" only survives a hard
+ *  reload — the module LRU outlives unmount/remount within an SPA session.
+ *  Keys are `userId:mapId` and doCapture does not know the user, so drop every
+ *  entry for the map; any user bucket that re-opens it deserves a fresh try. */
+export function rearmAutoCapture(mapId: string): void {
+  for (const key of autoCapturedKeys.keys()) {
+    if (key.endsWith(`:${mapId}`)) autoCapturedKeys.delete(key);
+  }
 }
 
 /** Test helper — clear any pending debounced captures AND the SF-07
@@ -1079,7 +1263,7 @@ export function useBuilderSave(state: SaveState) {
     // the live localLayersRef so runCaptureNow can defer the capture until layers
     // arrive. For all other paths, layersRef is undefined → existing behavior.
     const layersRef = state.pendingLayerAdd ? localLayersRef : undefined;
-    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef);
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto');
   }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient]);
 
   // P-08: Cancel in-flight polling on unmount
