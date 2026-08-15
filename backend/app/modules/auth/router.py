@@ -3,12 +3,26 @@
 import secrets
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.cookies import (
+    AUTH_MODE_HEADER,
+    COOKIE_AUTH_MODE,
+    CSRF_COOKIE_NAME,
+    CSRF_HEADER_NAME,
+    REFRESH_COOKIE_NAME,
     clear_browser_session,
     enforce_csrf,
     issue_browser_session,
@@ -66,6 +80,43 @@ def _login_rate_limit(_request: Request | None = None) -> str:
     return f"{get_cached_login_rate_limit()}/minute"
 
 
+# fix(#1496): the browser cookie flow is negotiated and CSRF-protected with two
+# request headers, and the spec named them only in prose — so the three
+# session-lifecycle operations published ZERO parameters, and neither a
+# generated SDK nor the docs "try it" form could express the inputs needed to
+# establish, refresh, or revoke a cookie session.
+#
+# The parameters below are DECLARED, not consumed. Every cookie and CSRF
+# decision stays in app/modules/auth/cookies.py, which reads the headers off the
+# Request because it needs that same Request to reach the paired cookies;
+# FastAPI has no "document a header without binding it" primitive, so an
+# optional unread parameter is the declaration. Two things stop it rotting away
+# from the enforcement: each ``alias`` IS the cookies.py constant, so renaming
+# the header cannot leave a stale spec behind, and
+# tests/test_api_contract_openapi.py derives the expected header set per
+# operation from the helper calls each handler actually makes.
+#
+# Optional is the entire compatibility argument. Neither header carries a
+# default value, a pattern, or a required flag, so a caller that sends neither
+# gets the pre-GH-1302 token-in-body contract byte for byte — which is exactly
+# what the CLI, both generated SDKs, Postman, and CI logins send.
+_AUTH_MODE_PARAM_DESCRIPTION = (
+    f"Browser session-transport negotiation. Send `{COOKIE_AUTH_MODE}` to carry "
+    f"the refresh token in an httpOnly `{REFRESH_COOKIE_NAME}` cookie, paired "
+    f"with a script-readable `{CSRF_COOKIE_NAME}` cookie, and receive a null "
+    "`refresh_token` in the response body. When the header is absent (the "
+    "default) the refresh token is returned in the response body, which is the "
+    "contract every non-browser caller uses."
+)
+
+_CSRF_PARAM_DESCRIPTION = (
+    "Double-submit CSRF token, enforced only when the refresh cookie is what "
+    f"authenticates the call. Echo the value of the `{CSRF_COOKIE_NAME}` cookie "
+    "issued alongside the refresh cookie. Callers presenting a refresh token in "
+    "the request body do not send it."
+)
+
+
 # SP-11 (v1009.1) superseded by ROUTE-01 (Phase 1092): both slash and
 # no-slash variants register the same handler directly. Canonical
 # OpenAPI-published form is /login; /login/ is a hidden alias for callers
@@ -85,6 +136,12 @@ async def login(
     response: Response,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db),
+    # fix(#1496): declared for the contract, read via wants_cookie_auth below.
+    auth_mode: str | None = Header(
+        default=None,
+        alias=AUTH_MODE_HEADER,
+        description=_AUTH_MODE_PARAM_DESCRIPTION,
+    ),
 ) -> TokenResponse:
     """Authenticate with username and password, receive a JWT token.
 
@@ -237,6 +294,18 @@ async def refresh(
     response: Response,
     body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
+    # fix(#1496): declared for the contract, read via wants_cookie_auth /
+    # enforce_csrf below.
+    auth_mode: str | None = Header(
+        default=None,
+        alias=AUTH_MODE_HEADER,
+        description=_AUTH_MODE_PARAM_DESCRIPTION,
+    ),
+    csrf_token: str | None = Header(
+        default=None,
+        alias=CSRF_HEADER_NAME,
+        description=_CSRF_PARAM_DESCRIPTION,
+    ),
 ) -> TokenResponse:
     """Exchange a valid refresh token for a new access + refresh token pair.
 
@@ -694,6 +763,16 @@ async def logout(
     identity: Identity | None = Depends(get_optional_user),
     body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
+    # fix(#1496): declared for the contract, read via enforce_csrf below. No
+    # auth-mode parameter here on purpose: unlike login and refresh, logout
+    # never calls wants_cookie_auth. It accepts the refresh cookie and clears
+    # both cookies unconditionally, so publishing a negotiation header this
+    # handler ignores would document an input that does nothing.
+    csrf_token: str | None = Header(
+        default=None,
+        alias=CSRF_HEADER_NAME,
+        description=_CSRF_PARAM_DESCRIPTION,
+    ),
 ) -> Response:
     """Revoke all refresh tokens and bump token_version for the current user.
 

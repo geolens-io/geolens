@@ -129,6 +129,79 @@ class TestProgrammaticCallersUnchanged:
         assert resp.status_code == 200
 
 
+class TestDeclaredHeadersStayInert:
+    """fix(#1496): both headers are published OpenAPI parameters now.
+
+    Declaring them is a documentation change and has to stay one. FastAPI
+    validates declared parameters, so the risk the class covers is a parameter
+    that grows a required flag, a pattern, or a default and starts rejecting or
+    reshaping calls that used to succeed. Every case below sends a header value
+    the handler does not act on and expects the pre-GH-1302 behaviour.
+    """
+
+    async def test_an_unrecognised_auth_mode_still_returns_the_body_token(
+        self, client: AsyncClient
+    ):
+        """Only the exact opt-in value switches transport; anything else is
+        not an error, it is simply not the opt-in."""
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
+            headers={"X-GeoLens-Auth-Mode": "bearer"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["refresh_token"]
+        assert not resp.headers.get_list("set-cookie")
+
+    async def test_an_empty_auth_mode_is_not_a_validation_error(
+        self, client: AsyncClient
+    ):
+        resp = await client.post(
+            "/auth/login",
+            data={"username": ADMIN_USER, "password": ADMIN_PASS},
+            headers={"X-GeoLens-Auth-Mode": ""},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["refresh_token"]
+
+    async def test_a_stray_csrf_header_does_not_disturb_a_body_token_refresh(
+        self, client: AsyncClient
+    ):
+        """No cookie authenticates this call, so the CSRF value is irrelevant
+        and must be neither validated nor enforced."""
+        refresh_token = (await _login(client, cookie_mode=False)).json()[
+            "refresh_token"
+        ]
+        client.cookies.clear()
+
+        resp = await client.post(
+            "/auth/refresh/",
+            json={"refresh_token": refresh_token},
+            headers={"X-CSRF-Token": "not-a-real-token"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["refresh_token"]
+
+    async def test_a_stray_csrf_header_does_not_disturb_a_body_token_logout(
+        self, client: AsyncClient
+    ):
+        refresh_token = (await _login(client, cookie_mode=False)).json()[
+            "refresh_token"
+        ]
+        client.cookies.clear()
+
+        resp = await client.post(
+            "/auth/logout/",
+            json={"refresh_token": refresh_token},
+            headers={"X-CSRF-Token": "not-a-real-token"},
+        )
+
+        assert resp.status_code == 204, resp.text
+
+
 class TestBrowserCookieFlow:
     async def test_login_sets_httponly_refresh_cookie_and_nulls_body_token(
         self, client: AsyncClient

@@ -13656,6 +13656,14 @@ export type CreateDownloadTokenEndpointAuthDownloadTokenDatasetIdPostResponse = 
 
 export type LoginAuthLoginPostData = {
     body: BodyLoginAuthLoginPost;
+    headers?: {
+        /**
+         * X-Geolens-Auth-Mode
+         *
+         * Browser session-transport negotiation. Send `cookie` to carry the refresh token in an httpOnly `geolens_refresh` cookie, paired with a script-readable `geolens_csrf` cookie, and receive a null `refresh_token` in the response body. When the header is absent (the default) the refresh token is returned in the response body, which is the contract every non-browser caller uses.
+         */
+        'X-GeoLens-Auth-Mode'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/auth/login';
@@ -13712,6 +13720,14 @@ export type LogoutAuthLogoutPostData = {
      * Body
      */
     body?: RefreshRequest | null;
+    headers?: {
+        /**
+         * X-Csrf-Token
+         *
+         * Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it.
+         */
+        'X-CSRF-Token'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/auth/logout/';
@@ -14087,6 +14103,20 @@ export type RefreshAuthRefreshPostData = {
      * Body
      */
     body?: RefreshRequest | null;
+    headers?: {
+        /**
+         * X-Geolens-Auth-Mode
+         *
+         * Browser session-transport negotiation. Send `cookie` to carry the refresh token in an httpOnly `geolens_refresh` cookie, paired with a script-readable `geolens_csrf` cookie, and receive a null `refresh_token` in the response body. When the header is absent (the default) the refresh token is returned in the response body, which is the contract every non-browser caller uses.
+         */
+        'X-GeoLens-Auth-Mode'?: string | null;
+        /**
+         * X-Csrf-Token
+         *
+         * Double-submit CSRF token, enforced only when the refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie issued alongside the refresh cookie. Callers presenting a refresh token in the request body do not send it.
+         */
+        'X-CSRF-Token'?: string | null;
+    };
     path?: never;
     query?: never;
     url: '/auth/refresh/';
