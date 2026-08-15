@@ -9,7 +9,7 @@ import textwrap
 
 from fastapi.routing import APIRoute
 
-from app.api.main import app
+from app.api.main import _iter_api_routes, app
 
 
 def _openapi() -> dict:
@@ -439,6 +439,95 @@ def test_config_ops_and_source_health_tags_are_title_case() -> None:
     health_op = spec["paths"]["/datasets/{dataset_id}/source-health/"]["post"]
     assert "Datasets - Source health" not in health_op["tags"]
     assert "Datasets - Source Health" in health_op["tags"]
+
+
+def _published_post_endpoint(path: str):
+    """The handler behind the schema-visible POST operation at *path*.
+
+    Two traps here. The auth routes register twice (ROUTE-01 dual-shape), so
+    ``include_in_schema`` picks the half that reaches the spec. And routes
+    included from a router stay NESTED under fastapi 0.140 — a plain scan of
+    ``app.routes`` sees almost none of the API — so this walks the flattened
+    route contexts, whose ``path_format`` carries the effective full path.
+    """
+    for ctx in _iter_api_routes(app):
+        if (
+            ctx.path_format == path
+            and "POST" in (ctx.route.methods or ())
+            and ctx.route.include_in_schema
+        ):
+            return ctx.route.endpoint
+    raise AssertionError(f"no published POST route at {path}")
+
+
+def _called_helper_names(endpoint, candidates: set[str]) -> set[str]:
+    """Which of *candidates* the handler calls directly."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(endpoint)))
+    return {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in candidates
+    }
+
+
+def test_cookie_session_operations_declare_their_negotiation_headers() -> None:
+    """fix(#1496): the cookie-mode headers are published parameters, not prose.
+
+    Before this, the three session-lifecycle operations declared zero
+    parameters, so a generated SDK or the docs request form could not express
+    the inputs that establish, refresh, or revoke a browser cookie session.
+
+    The expectation is derived from each handler's own body — which cookies.py
+    helper it calls decides which header is an input — so the declaration
+    cannot drift away from the enforcement in either direction: start
+    enforcing CSRF somewhere new without declaring it, or declare a header no
+    handler reads, and this fails.
+    """
+    from app.modules.auth.cookies import AUTH_MODE_HEADER, CSRF_HEADER_NAME
+
+    spec = _openapi()
+    helper_header = {
+        "wants_cookie_auth": AUTH_MODE_HEADER,
+        "enforce_csrf": CSRF_HEADER_NAME,
+    }
+    # Pinned as well as derived: logout deliberately never negotiates (it
+    # accepts the cookie and clears it unconditionally), and a change to that
+    # should have to edit this table rather than pass silently.
+    expected_helpers = {
+        "/auth/login": {"wants_cookie_auth"},
+        "/auth/refresh/": {"wants_cookie_auth", "enforce_csrf"},
+        "/auth/logout/": {"enforce_csrf"},
+    }
+
+    for path, helpers in expected_helpers.items():
+        endpoint = _published_post_endpoint(path)
+        assert _called_helper_names(endpoint, set(helper_header)) == helpers, (
+            f"{path} no longer calls the helpers this test was written against"
+        )
+
+        # .get: an operation with no parameters at all omits the key entirely,
+        # which is the exact state this test exists to catch — read it as an
+        # empty set so the failure is the set comparison, not a KeyError.
+        published = {
+            param["name"]: param
+            for param in spec["paths"][path]["post"].get("parameters", [])
+        }
+        assert set(published) == {helper_header[helper] for helper in helpers}, path
+
+        for name, param in published.items():
+            assert param["in"] == "header", (path, name)
+            # Optional, nullable, and defaultless is the compatibility
+            # contract: a caller that sends neither header gets the
+            # pre-GH-1302 token-in-body response byte for byte.
+            assert param["required"] is False, (path, name)
+            assert param["schema"]["anyOf"] == [{"type": "string"}, {"type": "null"}], (
+                path,
+                name,
+            )
+            assert "default" not in param["schema"], (path, name)
+            assert param["description"], (path, name)
 
 
 def test_inline_json_schema_rejects_recursive_model() -> None:

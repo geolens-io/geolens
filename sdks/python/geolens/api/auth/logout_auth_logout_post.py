@@ -15,8 +15,11 @@ from ...types import Unset
 def _get_kwargs(
     *,
     body: None | RefreshRequest | Unset = UNSET,
+    x_csrf_token: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_csrf_token, Unset):
+        headers["X-CSRF-Token"] = x_csrf_token
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -102,6 +105,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: None | RefreshRequest | Unset = UNSET,
+    x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     r"""Logout
 
@@ -124,6 +128,10 @@ def sync_detailed(
     /auth/refresh, since the cookie is then the credential.
 
     Args:
+        x_csrf_token (None | str | Unset): Double-submit CSRF token, enforced only when the
+            refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie
+            issued alongside the refresh cookie. Callers presenting a refresh token in the request
+            body do not send it.
         body (None | RefreshRequest | Unset):
 
     Raises:
@@ -136,6 +144,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_csrf_token=x_csrf_token,
     )
 
     response = client.get_httpx_client().request(
@@ -149,6 +158,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: None | RefreshRequest | Unset = UNSET,
+    x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     r"""Logout
 
@@ -171,6 +181,10 @@ def sync(
     /auth/refresh, since the cookie is then the credential.
 
     Args:
+        x_csrf_token (None | str | Unset): Double-submit CSRF token, enforced only when the
+            refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie
+            issued alongside the refresh cookie. Callers presenting a refresh token in the request
+            body do not send it.
         body (None | RefreshRequest | Unset):
 
     Raises:
@@ -184,6 +198,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_csrf_token=x_csrf_token,
     ).parsed
 
 
@@ -191,6 +206,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: None | RefreshRequest | Unset = UNSET,
+    x_csrf_token: None | str | Unset = UNSET,
 ) -> Response[Any | ProblemDetail]:
     r"""Logout
 
@@ -213,6 +229,10 @@ async def asyncio_detailed(
     /auth/refresh, since the cookie is then the credential.
 
     Args:
+        x_csrf_token (None | str | Unset): Double-submit CSRF token, enforced only when the
+            refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie
+            issued alongside the refresh cookie. Callers presenting a refresh token in the request
+            body do not send it.
         body (None | RefreshRequest | Unset):
 
     Raises:
@@ -225,6 +245,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_csrf_token=x_csrf_token,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -236,6 +257,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: None | RefreshRequest | Unset = UNSET,
+    x_csrf_token: None | str | Unset = UNSET,
 ) -> Any | ProblemDetail | None:
     r"""Logout
 
@@ -258,6 +280,10 @@ async def asyncio(
     /auth/refresh, since the cookie is then the credential.
 
     Args:
+        x_csrf_token (None | str | Unset): Double-submit CSRF token, enforced only when the
+            refresh cookie is what authenticates the call. Echo the value of the `geolens_csrf` cookie
+            issued alongside the refresh cookie. Callers presenting a refresh token in the request
+            body do not send it.
         body (None | RefreshRequest | Unset):
 
     Raises:
@@ -272,5 +298,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_csrf_token=x_csrf_token,
         )
     ).parsed

@@ -4,19 +4,23 @@ from typing import Any
 import httpx
 
 from ...client import AuthenticatedClient, Client
-from ...types import Response
+from ...types import Response, UNSET
 from ... import errors
 
 from ...models.body_login_auth_login_post import BodyLoginAuthLoginPost
 from ...models.problem_detail import ProblemDetail
 from ...models.token_response import TokenResponse
+from ...types import Unset
 
 
 def _get_kwargs(
     *,
     body: BodyLoginAuthLoginPost,
+    x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
     headers: dict[str, Any] = {}
+    if not isinstance(x_geo_lens_auth_mode, Unset):
+        headers["X-GeoLens-Auth-Mode"] = x_geo_lens_auth_mode
 
     _kwargs: dict[str, Any] = {
         "method": "post",
@@ -100,6 +104,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: BodyLoginAuthLoginPost,
+    x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
     """Login
 
@@ -111,6 +116,11 @@ def sync_detailed(
     the CLI, the generated SDKs, Postman, and CI logins working.
 
     Args:
+        x_geo_lens_auth_mode (None | str | Unset): Browser session-transport negotiation. Send
+            `cookie` to carry the refresh token in an httpOnly `geolens_refresh` cookie, paired with a
+            script-readable `geolens_csrf` cookie, and receive a null `refresh_token` in the response
+            body. When the header is absent (the default) the refresh token is returned in the
+            response body, which is the contract every non-browser caller uses.
         body (BodyLoginAuthLoginPost):
 
     Raises:
@@ -123,6 +133,7 @@ def sync_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_geo_lens_auth_mode=x_geo_lens_auth_mode,
     )
 
     response = client.get_httpx_client().request(
@@ -136,6 +147,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
     body: BodyLoginAuthLoginPost,
+    x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
     """Login
 
@@ -147,6 +159,11 @@ def sync(
     the CLI, the generated SDKs, Postman, and CI logins working.
 
     Args:
+        x_geo_lens_auth_mode (None | str | Unset): Browser session-transport negotiation. Send
+            `cookie` to carry the refresh token in an httpOnly `geolens_refresh` cookie, paired with a
+            script-readable `geolens_csrf` cookie, and receive a null `refresh_token` in the response
+            body. When the header is absent (the default) the refresh token is returned in the
+            response body, which is the contract every non-browser caller uses.
         body (BodyLoginAuthLoginPost):
 
     Raises:
@@ -160,6 +177,7 @@ def sync(
     return sync_detailed(
         client=client,
         body=body,
+        x_geo_lens_auth_mode=x_geo_lens_auth_mode,
     ).parsed
 
 
@@ -167,6 +185,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
     body: BodyLoginAuthLoginPost,
+    x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> Response[ProblemDetail | TokenResponse]:
     """Login
 
@@ -178,6 +197,11 @@ async def asyncio_detailed(
     the CLI, the generated SDKs, Postman, and CI logins working.
 
     Args:
+        x_geo_lens_auth_mode (None | str | Unset): Browser session-transport negotiation. Send
+            `cookie` to carry the refresh token in an httpOnly `geolens_refresh` cookie, paired with a
+            script-readable `geolens_csrf` cookie, and receive a null `refresh_token` in the response
+            body. When the header is absent (the default) the refresh token is returned in the
+            response body, which is the contract every non-browser caller uses.
         body (BodyLoginAuthLoginPost):
 
     Raises:
@@ -190,6 +214,7 @@ async def asyncio_detailed(
 
     kwargs = _get_kwargs(
         body=body,
+        x_geo_lens_auth_mode=x_geo_lens_auth_mode,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -201,6 +226,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
     body: BodyLoginAuthLoginPost,
+    x_geo_lens_auth_mode: None | str | Unset = UNSET,
 ) -> ProblemDetail | TokenResponse | None:
     """Login
 
@@ -212,6 +238,11 @@ async def asyncio(
     the CLI, the generated SDKs, Postman, and CI logins working.
 
     Args:
+        x_geo_lens_auth_mode (None | str | Unset): Browser session-transport negotiation. Send
+            `cookie` to carry the refresh token in an httpOnly `geolens_refresh` cookie, paired with a
+            script-readable `geolens_csrf` cookie, and receive a null `refresh_token` in the response
+            body. When the header is absent (the default) the refresh token is returned in the
+            response body, which is the contract every non-browser caller uses.
         body (BodyLoginAuthLoginPost):
 
     Raises:
@@ -226,5 +257,6 @@ async def asyncio(
         await asyncio_detailed(
             client=client,
             body=body,
+            x_geo_lens_auth_mode=x_geo_lens_auth_mode,
         )
     ).parsed
