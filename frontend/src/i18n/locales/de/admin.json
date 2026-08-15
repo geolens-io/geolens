@@ -262,6 +262,7 @@
     "backfillSuccess": "Embeddings fuer {{count}} Datensaetze generiert",
     "backfillEmpty": "Alle Datensaetze haben bereits Embeddings",
     "allEmbedded": "Alle Datensätze haben Embeddings",
+    "staleEmbeddingsWarning": "{{count}} Embedding(s) wurden mit einem anderen Modell erzeugt und können von der semantischen Suche nicht verwendet werden. Generieren Sie alle Embeddings neu, um die Abdeckung wiederherzustellen.",
     "apiKeysEnvOnlyNote": "API-Schlüssel können nur über Umgebungsvariablen (ANTHROPIC_API_KEY, OPENAI_API_KEY) gesetzt werden.",
     "availableNotSelected": "Verfügbar",
     "backfillAllFailed": "Alle {{errors}} Embeddings fehlgeschlagen — prüfen Sie OPENAI_API_KEY",

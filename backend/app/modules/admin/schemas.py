@@ -321,10 +321,23 @@ class AIStatusUpdate(BaseModel):
 class EmbeddingStatsResponse(BaseModel):
     total_records: int = Field(description="Total number of records in the catalog.")
     embedded_records: int = Field(
-        description="Number of records that have an embedding stored."
+        description=(
+            "Number of records with an embedding for the ACTIVE embedding model "
+            "— the only vectors semantic search can use."
+        )
     )
     missing_records: int = Field(
-        description="Number of records still missing embeddings."
+        description=(
+            "Number of records without an active-model embedding "
+            "(total_records - embedded_records)."
+        )
+    )
+    stale_records: int = Field(
+        description=(
+            "Subset of missing_records whose only stored embeddings belong to "
+            "other models. Regenerating all embeddings clears these; generating "
+            "missing ones does not."
+        )
     )
     coverage_percent: float = Field(
         description="Embedding coverage as a percentage (0-100)."

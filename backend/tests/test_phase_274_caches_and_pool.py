@@ -282,10 +282,10 @@ def test_has_embeddings_cache_bounded():
 
 
 def test_has_embeddings_resolver_is_async():
-    """PERF-10: _resolve_embedding_model_name is async (matches PersistentConfig.get)."""
+    """PERF-10: resolve_embedding_model_name is async (matches PersistentConfig.get)."""
     from app.processing.embeddings import helpers
 
-    assert inspect.iscoroutinefunction(helpers._resolve_embedding_model_name)
+    assert inspect.iscoroutinefunction(helpers.resolve_embedding_model_name)
 
 
 @pytest.mark.anyio
@@ -302,7 +302,7 @@ async def test_has_embeddings_resolver_falls_back_safely():
     # The resolver swallows any exception from EMBEDDING_MODEL.get(session).
     # Pass a session whose execute() raises; the path inside .get() that hits
     # session.execute(...) will raise before any value is returned.
-    got = await helpers._resolve_embedding_model_name(_FailingSession())  # type: ignore[arg-type]
+    got = await helpers.resolve_embedding_model_name(_FailingSession())  # type: ignore[arg-type]
     assert got == "__model_unknown__"
 
 
@@ -319,7 +319,7 @@ async def test_has_embeddings_partitions_cache_per_model(monkeypatch):
     async def _fake_resolver(_session):
         return model_holder["name"]
 
-    monkeypatch.setattr(helpers, "_resolve_embedding_model_name", _fake_resolver)
+    monkeypatch.setattr(helpers, "resolve_embedding_model_name", _fake_resolver)
 
     # Stub session.execute to return an EXISTS scalar without DB access.
     class _FakeResult:
@@ -370,7 +370,7 @@ async def test_has_embeddings_eviction_bounded(monkeypatch):
     async def _fake_resolver(_session):
         return model_holder["name"]
 
-    monkeypatch.setattr(helpers, "_resolve_embedding_model_name", _fake_resolver)
+    monkeypatch.setattr(helpers, "resolve_embedding_model_name", _fake_resolver)
 
     class _FakeResult:
         def scalar_one(self):

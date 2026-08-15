@@ -15,14 +15,18 @@ class EmbeddingStatsResponse:
     """
     Attributes:
         total_records (int): Total number of records in the catalog.
-        embedded_records (int): Number of records that have an embedding stored.
-        missing_records (int): Number of records still missing embeddings.
+        embedded_records (int): Number of records with an embedding for the ACTIVE embedding model — the only vectors
+            semantic search can use.
+        missing_records (int): Number of records without an active-model embedding (total_records - embedded_records).
+        stale_records (int): Subset of missing_records whose only stored embeddings belong to other models. Regenerating
+            all embeddings clears these; generating missing ones does not.
         coverage_percent (float): Embedding coverage as a percentage (0-100).
     """
 
     total_records: int
     embedded_records: int
     missing_records: int
+    stale_records: int
     coverage_percent: float
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
@@ -33,6 +37,8 @@ class EmbeddingStatsResponse:
 
         missing_records = self.missing_records
 
+        stale_records = self.stale_records
+
         coverage_percent = self.coverage_percent
 
         field_dict: dict[str, Any] = {}
@@ -42,6 +48,7 @@ class EmbeddingStatsResponse:
                 "total_records": total_records,
                 "embedded_records": embedded_records,
                 "missing_records": missing_records,
+                "stale_records": stale_records,
                 "coverage_percent": coverage_percent,
             }
         )
@@ -57,12 +64,15 @@ class EmbeddingStatsResponse:
 
         missing_records = d.pop("missing_records")
 
+        stale_records = d.pop("stale_records")
+
         coverage_percent = d.pop("coverage_percent")
 
         embedding_stats_response = cls(
             total_records=total_records,
             embedded_records=embedded_records,
             missing_records=missing_records,
+            stale_records=stale_records,
             coverage_percent=coverage_percent,
         )
 
