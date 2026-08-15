@@ -492,7 +492,7 @@
       "add": "Agregar",
       "attributionLabel": "Atribución",
       "attributionPlaceholder": "© Nombre del proveedor",
-      "attributionHelp": "La mayoría de proveedores de teselas exigen atribución; consulte los términos de su fuente. En URLs XYZ, este campo es el que se muestra. Las URLs de estilo JSON lo ignoran y muestran la atribución que declare el propio estilo. Se permite HTML para enlaces.",
+      "attributionHelp": "La mayoría de proveedores de teselas exigen atribución; consulte los términos de su fuente. En URLs de teselas XYZ/TMS, este campo es el que se muestra. Las URLs de estilo JSON lo ignoran y muestran la atribución que declare el propio estilo. Se permite HTML para enlaces.",
       "apiKeyLabel": "Clave API",
       "apiKeyPlaceholder": "Opcional — requerida si la URL contiene {api_key}",
       "apiKeyHelp": "Use {api_key} en la URL del mosaico como marcador de posición. La clave se interpola en el servidor.",
