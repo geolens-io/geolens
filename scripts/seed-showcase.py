@@ -4164,7 +4164,16 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
     print("\n[matterhorn] The Matterhorn (3D terrain via regional VRT mosaic)")
     by_title = api.datasets_by_title()
     vrt_title = "swissALTI3D Matterhorn DEM (2m mosaic)"
-    if not force and vrt_title in by_title:
+    # fix(#1508): the DEM mosaic and its 62 tile rasters are reused even under
+    # --force. The manifest endpoint refuses updates to existing raster
+    # datasets ("Manifest raster updates are not supported"), so a forced
+    # re-push aborted the whole builder before the map and OSM overlay steps —
+    # which made --force useless for exactly the repair it exists for
+    # (restoring the routes/peaks layers). Recreating the tiles for real would
+    # mean deleting 62 datasets and re-downloading gigabytes; --force keeps
+    # meaning "rebuild the MAP" here, like the vector builders rebuild cheap
+    # datasets but nobody re-pulls ETOPO.
+    if vrt_title in by_title:
         print("  [reuse] existing DEM mosaic")
         vrt_ds = by_title[vrt_title]
     else:
