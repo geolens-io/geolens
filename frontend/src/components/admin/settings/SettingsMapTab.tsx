@@ -254,7 +254,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
                   value={newAttribution}
                   onChange={(e) => setNewAttribution(e.target.value)}
                 />
-                <p className="text-xs text-muted-foreground">{t('settings.basemaps.attributionHelp', 'Optional. HTML allowed for links.')}</p>
+                <p className="text-xs text-muted-foreground">{t('settings.basemaps.attributionHelp', 'Required by most tile providers; not needed for style JSON URLs, which include their own attribution. HTML allowed for links.')}</p>
               </div>
               <div className="space-y-1.5 max-w-md">
                 <Label htmlFor="basemap-api-key">{t('settings.basemaps.apiKeyLabel', 'API Key')}</Label>

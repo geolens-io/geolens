@@ -539,7 +539,7 @@
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png or .json style URL",
       "attributionLabel": "Attribution",
       "attributionPlaceholder": "© Provider Name",
-      "attributionHelp": "Optional. HTML allowed for links.",
+      "attributionHelp": "Required by most tile providers; not needed for style JSON URLs, which include their own attribution. HTML allowed for links.",
       "apiKeyLabel": "API Key",
       "apiKeyPlaceholder": "Optional — required if URL contains {api_key}",
       "apiKeyHelp": "Use {api_key} in the tile URL as a placeholder. The key is interpolated server-side.",
