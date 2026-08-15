@@ -76,6 +76,56 @@ function cropResize(
   return offscreen;
 }
 
+/** fix(#1502): luminance stddev below this reads as "no content". The demo's
+ *  two blank uploads measured 0.00 and 1.88; the flattest REAL thumbnail
+ *  observed on a seeded instance measured 22.9, and even a bare world-basemap
+ *  capture measures ~24. The gap is wide; 4 sits far from both sides so a
+ *  legitimately minimal map (open ocean on a flat basemap) still clears it
+ *  in practice, while a frame that never painted cannot. */
+export const BLANK_LUMINANCE_STDDEV = 4;
+
+/** Standard deviation of pixel luminance over RGBA data, sampling every
+ *  `stride`-th pixel. Pure so it is testable without a canvas (jsdom has none). */
+export function luminanceStddev(rgba: Uint8ClampedArray | number[], stride = 4): number {
+  let sum = 0;
+  let sumSq = 0;
+  let n = 0;
+  const step = 4 * Math.max(1, stride);
+  for (let i = 0; i + 2 < rgba.length; i += step) {
+    const lum = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
+    sum += lum;
+    sumSq += lum * lum;
+    n++;
+  }
+  if (n === 0) return 0;
+  const mean = sum / n;
+  return Math.sqrt(Math.max(0, sumSq / n - mean * mean));
+}
+
+/** fix(#1502): whether a captured frame is effectively a solid fill.
+ *
+ *  The capture pipeline is fail-open at every stage before this point —
+ *  waitForVisibleLayerSources proceeds on its 5s deadline, whenMapIdle fires
+ *  on its 3s timeout — so on a slow first render doCapture can read a canvas
+ *  nothing has painted. Uploading that frame is what makes the failure
+ *  PERMANENT: the auto-capture gate is `hasThumbnail`, so one blank upload
+ *  disqualifies the map from every future attempt (the demo shipped two such
+ *  thumbnails for months).
+ *
+ *  Reads the already-small thumbnail crop (no extra canvas), and fails open:
+ *  if the 2D context or pixel data is unavailable, report "not blank" so the
+ *  upload proceeds exactly as before this guard existed. */
+export function isEffectivelyBlank(canvas: HTMLCanvasElement): boolean {
+  try {
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return false;
+    const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    return luminanceStddev(data) < BLANK_LUMINANCE_STDDEV;
+  } catch {
+    return false;
+  }
+}
+
 /** Crop and resize the map canvas to a 400x250 JPEG thumbnail AND a 1200x630
  *  OG image, then upload both.
  *
@@ -100,8 +150,19 @@ function doCapture(map: MaplibreMap, mapId: string, queryClient: ReturnType<type
         ? MAP_COLORS.exportImage.globeBackground
         : undefined;
 
-      // 400×250 thumbnail — unchanged behavior
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
+
+      // fix(#1502): never persist a blank frame. Skipping BOTH uploads (the OG
+      // crop comes from the same srcCanvas, so it is blank whenever this is)
+      // leaves `hasThumbnail` false, which converts the permanent failure into
+      // a transient one — the next open of the map simply retries.
+      if (isEffectivelyBlank(thumb)) {
+        if (import.meta.env.DEV) {
+          console.warn('[thumbnail] capture skipped: frame is effectively blank; will retry on next open');
+        }
+        return;
+      }
+
       uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
         // expected rather than a bug. maps.all is ['maps'] while the builder mounts
