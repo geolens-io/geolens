@@ -69,9 +69,29 @@ The three content shots (Find / Inspect / Ask AI panel) are deterministic — th
 are the ones that drift with catalog data, which is exactly what the automated
 recipe keeps in parity with the marketing site.
 
+## Keeping the committed files intact
+
+`npm run check:readme-assets` (from the repo root) pins every image in this
+folder to an exact pixel size and fails if one moves. CI runs it on every PR, and
+there is a pre-commit hook for it.
+
+It exists because these files get silently downscaled. The `image-sanitizer`
+Claude Code plugin hooks the **Read** tool and runs `magick -resize` in place on
+anything wider than 1200px, so a committed image loses resolution the moment
+somebody opens it to look at it — long after whatever produced it exited. Never
+open a master with an image-previewing tool. Measure with `sips -g pixelWidth -g
+pixelHeight`, and copy to a throwaway path first if you want to see one.
+
+Adding an image here means adding it to `scripts/check-readme-assets.mjs` too;
+the gate fails on an unpinned file rather than ignoring it.
+
 ## Capture notes
 
-- Sources are captured at 1600×900; the README renders them at `width="900"`.
+- The recipe captures at 1600×900 and the README renders at `width="900"`.
+  The five `capture:readme` shots currently committed are **not** at that size —
+  they are 1200×750 (1200×800 for `geolens-ai-labels.png`), predating the
+  automated recipe and downscaled on top of it. `check-readme-assets.mjs` records
+  the gap and pins them where they are; recapturing is a separate change.
   Optionally strip/optimize before committing (e.g. `magick in.png -strip out.png`;
   JPG at quality ~88 for terrain).
 - These images are public. Keep them free of private/draft dataset titles,
