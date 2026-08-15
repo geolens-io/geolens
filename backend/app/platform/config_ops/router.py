@@ -84,7 +84,18 @@ async def export_configuration(
             ip_address=get_client_ip(request),
         ),
     )
-    # Do not release a sensitive export unless its audit record is durable.
+    # Commit before the payload leaves, so the audit record is durable rather
+    # than merely staged when the export is released.
+    #
+    # fix(#1491): this is no longer fail-closed, and the change is deliberate.
+    # audit_emit() now isolates each sink in a SAVEPOINT and suppresses its
+    # failure, so a rejected audit row no longer fails this commit and the
+    # export ships anyway. NIST SP 800-53 AU-5 — every baseline — asks for an
+    # alert on an audit-logging failure, which audit_emit() raises with the
+    # full event; fail-closed is AU-5(4), which is in no baseline and is waived
+    # where an alternate audit logging capability exists. This is the only
+    # audit_emit() call site in the app that commits for durability, so the
+    # semantics changed here and nowhere else.
     await db.commit()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
