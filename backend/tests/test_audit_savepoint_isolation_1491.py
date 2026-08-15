@@ -397,6 +397,52 @@ async def test_dropped_event_is_logged_in_full(test_db_session) -> None:
     assert record["action"] == f"savepoint.dropped_{marker}"
 
 
+async def test_dropped_event_redacts_nested_credentials(test_db_session) -> None:
+    """Logging the payload must not leak a credential nested inside it.
+
+    Found by review on #1497. ``persistent_config`` puts ``old_value``/
+    ``new_value`` into ``details`` for a setting update, and a ``basemaps``
+    entry carries an ``api_key`` (``settings/schemas.py``). The structlog
+    redactor is shallow by design and ``details`` is not a denylisted key, so
+    logging the payload verbatim would print that credential into the
+    application log at exactly the moment the audit row was lost.
+
+    The denylisted key is nested two levels down here, which is the depth the
+    shallow processor cannot reach.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    marker = uuid.uuid4().hex[:8]
+    secret = f"sk-live-{marker}"
+
+    with audit_sinks(PoisonSink(f"savepoint.poison_{marker}")):
+        with structlog.testing.capture_logs() as captured:
+            await audit_emit(
+                session,
+                AuditEvent(
+                    user_id=admin_id,
+                    action=f"savepoint.basemaps_{marker}",
+                    resource_type="setting",
+                    details={
+                        "setting_key": "basemaps",
+                        "new_value": [{"name": "Satellite", "api_key": secret}],
+                    },
+                ),
+            )
+        await session.rollback()
+
+    dropped = _swallowed(captured)
+    assert len(dropped) == 1, f"expected one suppressed-sink record, got {captured}"
+
+    record = dropped[0]
+    assert record["details"]["new_value"][0]["api_key"] == "[REDACTED]"
+    # The non-secret siblings must survive, or the redaction has eaten the
+    # forensic value the log exists to provide.
+    assert record["details"]["new_value"][0]["name"] == "Satellite"
+    assert record["details"]["setting_key"] == "basemaps"
+    assert secret not in repr(record), "the credential reached the log record"
+
+
 async def test_missing_session_is_logged_in_full(test_db_session) -> None:
     """The other drop path carries the same payload.
 

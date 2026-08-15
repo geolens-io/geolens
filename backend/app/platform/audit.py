@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.logging_config import redact_nested
 from app.platform.extensions import get_audit_sinks
 
 if TYPE_CHECKING:
@@ -52,9 +53,15 @@ def _event_fields(event: AuditEvent) -> dict:
     exists". Logging the complete event is that capability: a rejected row
     lands in the application log instead of vanishing.
 
-    ``details`` is safe to log. It is already admin-readable through the audit
-    API and the CSV/JSON export, and by convention carries no secrets — key
-    fingerprints, token hints, ids and changed-field names, never a credential.
+    ``details`` goes through ``redact_nested()`` rather than straight to the
+    logger. Most payloads carry nothing sensitive — fingerprints, token hints,
+    ids, changed-field names — but ``persistent_config`` puts ``old_value``/
+    ``new_value`` in there, and a ``basemaps`` setting holds an ``api_key``
+    inside a basemap entry. The structlog redactor is shallow by design and
+    ``details`` is not itself a denylisted key, so that credential would have
+    been emitted verbatim, during an audit failure, into the application log.
+    The deep walk is affordable here because this runs only when a row is
+    dropped, not on every log line.
     """
     return {
         "action": event.action,
@@ -62,7 +69,7 @@ def _event_fields(event: AuditEvent) -> dict:
         "resource_id": str(event.resource_id) if event.resource_id else None,
         "user_id": str(event.user_id) if event.user_id else None,
         "ip_address": event.ip_address,
-        "details": event.details,
+        "details": redact_nested(event.details),
     }
 
 
