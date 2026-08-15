@@ -46,7 +46,11 @@ if (!PASSWORD) {
   process.exit(2);
 }
 
-/** Log in through the API and return the bearer token. */
+/**
+ * Log in through the API. Returns the whole token payload, not just the access
+ * token: the refresh token and expiry are what let the browser session renew
+ * itself mid-batch (see the store seeding in main()).
+ */
 async function login() {
   const res = await fetch(`${BASE_URL}/api/auth/login`, {
     method: 'POST',
@@ -54,32 +58,73 @@ async function login() {
     body: new URLSearchParams({ username: USERNAME, password: PASSWORD }),
   });
   if (!res.ok) throw new Error(`login failed: ${res.status} ${await res.text()}`);
-  const { access_token: token } = await res.json();
-  if (!token) throw new Error('login returned no access_token');
-  return token;
+  const payload = await res.json();
+  if (!payload?.access_token) throw new Error('login returned no access_token');
+  return payload;
 }
 
+const PAGE_SIZE = 200; // the endpoint's cap
+
+/**
+ * Every map the credential can see, following pagination to the end.
+ *
+ * fix(#1501 review): a single `?limit=200` returns only the first page. On an
+ * instance with more maps than that, everything after page one was skipped
+ * while the script still reported "N maps visible" and exited 0 — silently
+ * doing a fraction of the job, which is worse than failing.
+ */
 async function listMaps(token) {
-  const res = await fetch(`${BASE_URL}/api/maps/?limit=200`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`GET /api/maps/ failed: ${res.status}`);
-  const data = await res.json();
-  return Array.isArray(data) ? data : (data.maps ?? data.items ?? []);
+  const headers = { Authorization: `Bearer ${token}` };
+  const all = [];
+  for (let skip = 0; ; skip += PAGE_SIZE) {
+    const res = await fetch(`${BASE_URL}/api/maps/?limit=${PAGE_SIZE}&skip=${skip}`, { headers });
+    if (!res.ok) throw new Error(`GET /api/maps/ failed: ${res.status}`);
+    const data = await res.json();
+    const page = Array.isArray(data) ? data : (data.maps ?? data.items ?? []);
+    all.push(...page);
+
+    const total = Array.isArray(data) ? null : data.total;
+    // Stop on a short page (covers a server that ignores `skip`) or once the
+    // reported total is accounted for. Both, so neither alone can loop forever.
+    if (page.length < PAGE_SIZE) break;
+    if (typeof total === 'number' && all.length >= total) break;
+  }
+  return all;
+}
+
+/**
+ * Node-side GET that re-authenticates once on 401.
+ *
+ * The polling below runs for the whole batch, so it outlives the access token
+ * for the same reason the browser session does. Without this, every poll after
+ * expiry returns 401 -> "no thumbnail" -> the script reports TIMED OUT for maps
+ * whose capture actually succeeded. A false negative is worse than a failure
+ * here, because it sends the operator looking for a rendering bug.
+ */
+let nodeToken = null;
+async function authedGet(path) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      headers: { Authorization: `Bearer ${nodeToken}` },
+    });
+    if (res.status !== 401) return res;
+    nodeToken = (await login()).access_token;
+  }
+  return null;
 }
 
 /** Re-read one map's thumbnail_url; the auto-capture upload is what flips it. */
-async function hasThumbnail(token, id) {
-  const res = await fetch(`${BASE_URL}/api/maps/${id}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) return false;
+async function hasThumbnail(id) {
+  const res = await authedGet(`/api/maps/${id}`);
+  if (!res || !res.ok) return false;
   const m = await res.json();
   return Boolean(m.thumbnail_url);
 }
 
 async function main() {
-  const token = await login();
+  const auth = await login();
+  const token = auth.access_token;
+  nodeToken = token;
   const maps = await listMaps(token);
   const missing = maps.filter((m) => !m.thumbnail_url);
 
@@ -102,18 +147,37 @@ async function main() {
 
   // Seed the auth store the same way a signed-in browser holds it, so the
   // builder's own fetches (and the thumbnail PUT) are authenticated.
+  //
+  // fix(#1501 review): seed the REAL refresh token and expiry rather than null
+  // and a hard-coded 15 minutes. Login happened in Node, so no refresh cookie
+  // was installed in this browser; discarding the body refresh token left the
+  // session with no way to renew and nothing to renew from. A backfill over
+  // many maps easily outlives one access token — more so on an instance with
+  // ACCESS_TOKEN_EXPIRE_MINUTES below the default — and every map after
+  // expiry would fail its thumbnail PUT while the script kept going.
+  //
+  // With these seeded, apiFetch's own 401 -> refresh path keeps the session
+  // alive for the whole batch using the mechanism the app already ships.
   await page.goto(`${BASE_URL}/`);
+  const me = await (await fetch(`${BASE_URL}/api/auth/me/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  })).json();
   await page.evaluate(
-    ([tok, user]) => {
+    ([tok, refresh, expiresIn, user]) => {
       localStorage.setItem(
         'geolens-auth',
         JSON.stringify({
-          state: { token: tok, refreshToken: null, expiresAt: Date.now() + 15 * 60_000, user },
+          state: {
+            token: tok,
+            refreshToken: refresh ?? null,
+            expiresAt: Date.now() + (expiresIn ?? 900) * 1000,
+            user,
+          },
           version: 1,
         }),
       );
     },
-    [token, await (await fetch(`${BASE_URL}/api/auth/me/`, { headers: { Authorization: `Bearer ${token}` } })).json()],
+    [token, auth.refresh_token ?? null, auth.expires_in ?? null, me],
   );
 
   let filled = 0;
@@ -131,7 +195,7 @@ async function main() {
       let ok = false;
       while (Date.now() < deadline) {
         await page.waitForTimeout(POLL_MS);
-        if (await hasThumbnail(token, m.id)) { ok = true; break; }
+        if (await hasThumbnail(m.id)) { ok = true; break; }
       }
       if (ok) { filled++; console.log('ok'); }
       else { failed.push(m.name); console.log('TIMED OUT'); }
