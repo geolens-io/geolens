@@ -4,6 +4,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import func, nulls_last, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased, joinedload
@@ -196,13 +197,25 @@ async def log_action(
     ``user_id=None`` is structurally accepted: the underlying ``audit_logs.user_id``
     column is nullable (ON DELETE SET NULL FK + SAML-JIT preexisting use case +
     KNOWN-01 anonymous-download closure).
+
+    fix(#1491): ``details`` is normalized through ``jsonable_encoder`` on the way
+    in, the same way ``record_map_history_event`` builds its payload. The column
+    is JSONB and the engine registers no ``json_serializer``, so SQLAlchemy
+    encodes it with stdlib ``json.dumps``, which cannot take a ``date``,
+    ``UUID`` or ``Decimal`` (#1484). #1489 fixed that at the two call sites that
+    could produce one and added a structural guard against new ones; this makes
+    the row itself unable to carry the fault, so the savepoint in
+    ``audit_emit()`` is the second line of defence rather than the only one, and
+    a payload that would have been dropped is recorded correctly instead.
+    ``None`` is preserved as SQL NULL — an absent payload and an empty one are
+    different rows.
     """
     entry = AuditLog(
         user_id=user_id,
         action=action,
         resource_type=resource_type,
         resource_id=resource_id,
-        details=details,
+        details=jsonable_encoder(details) if details is not None else None,
         ip_address=ip_address,
     )
     session.add(entry)

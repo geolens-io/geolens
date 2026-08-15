@@ -23,7 +23,7 @@ instance produces.
 """
 
 import logging
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 import structlog
@@ -50,6 +50,10 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
     }
 )
 
+# Depth ceiling for redact_nested(). Audit payloads are two or three levels at
+# most; this only exists so a caller-supplied cyclic structure terminates.
+_MAX_REDACT_DEPTH = 8
+
 
 def _redact_sensitive_fields(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
@@ -67,6 +71,40 @@ def _redact_sensitive_fields(
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
     return event_dict
+
+
+def redact_nested(value: Any, _depth: int = 0) -> Any:
+    """Deep-redact denylisted keys in a nested payload.
+
+    The processor above is shallow on purpose: it runs on every log line and
+    recursing there would put the walk in the hot path. This is the opt-in
+    counterpart for a payload that is known to be nested AND known to be worth
+    the cost, which today means the audit event logged when a sink drops it
+    (fix(#1491)).
+
+    That path needs it. ``persistent_config`` puts ``old_value``/``new_value``
+    into ``details``, and a ``basemaps`` setting carries ``api_key`` inside a
+    basemap entry — nested two levels down, where the shallow pass cannot see
+    it. ``details`` is not itself a denylisted key, so without this the whole
+    payload was emitted verbatim, and precisely during an audit failure.
+
+    Depth is capped because ``details`` is caller-supplied and need not be
+    JSON-derived; a self-referencing structure would otherwise not terminate.
+    """
+    if _depth >= _MAX_REDACT_DEPTH:
+        return "[TRUNCATED]"
+    if isinstance(value, Mapping):
+        return {
+            key: (
+                "[REDACTED]"
+                if str(key).lower() in _SENSITIVE_FIELDS
+                else redact_nested(val, _depth + 1)
+            )
+            for key, val in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [redact_nested(item, _depth + 1) for item in value]
+    return value
 
 
 def _dev_exception_formatter() -> structlog.types.ExceptionRenderer:
