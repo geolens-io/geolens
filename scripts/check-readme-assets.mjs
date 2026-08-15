@@ -157,8 +157,29 @@ for (const [filename, expected] of Object.entries(README_ASSETS)) {
 
 // A new image that nobody pinned is a new unguarded surface — which is the exact
 // hole this gate exists to close. Fail rather than ignore it.
-const onDisk = fs
-  .readdirSync(assetDir)
+//
+// fix(#1500 review): `readdirSync` returns immediate children only, so an image
+// at `.github/assets/<subdir>/shot.png` was seen as a directory name, matched no
+// image extension, and slipped through unpinned — the gate reporting success on
+// precisely the file it was meant to cover. The manifest is keyed by bare
+// filename, so rather than recurse (which would make two files of the same name
+// in different directories collide on one key), reject subdirectories outright.
+// AGENTS.md puts README images in `.github/assets/`, flat, so this enforces the
+// documented layout instead of quietly supporting a second one.
+const entries = fs.readdirSync(assetDir, { withFileTypes: true });
+
+for (const entry of entries) {
+  if (entry.isDirectory()) {
+    failures.push(
+      `${entry.name}/: .github/assets/ must stay flat — README images live directly in it ` +
+        '(AGENTS.md), and a nested image would not be covered by this gate',
+    );
+  }
+}
+
+const onDisk = entries
+  .filter((entry) => !entry.isDirectory())
+  .map((entry) => entry.name)
   .filter((name) => IMAGE_EXTENSIONS.has(path.extname(name).toLowerCase()));
 for (const name of onDisk) {
   if (!(name in README_ASSETS)) {
