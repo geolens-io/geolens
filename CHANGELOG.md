@@ -20,6 +20,8 @@ and releases use semantic versioning.
   get the public view. `POST /auth/logout` is the one exception, so a session
   whose access token has already expired can still be cleared (#1518, #401).
 
+## [1.13.1] - 2026-08-14
+
 ### Added
 
 - **Dataset attribution is persisted and displayed.** Attribution supplied
