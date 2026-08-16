@@ -4,8 +4,9 @@ import os
 import re
 import shutil
 import uuid
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,11 @@ from app.core.db.tenant_session import current_tenant_var
 from app.platform.extensions import get_permission_extension, get_processing_port
 from app.processing.export.ogr import ExportError, bbox_where_sql
 from app.processing.export.schemas import ExportFormat
-from app.processing.export.service import export_dataset, validate_where_clause
+from app.processing.export.service import (
+    export_dataset,
+    export_descriptor,
+    validate_where_clause,
+)
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
 from app.standards.ogc.errors import (
@@ -136,6 +141,82 @@ async def _count_selected_features(
     return result.scalar_one()
 
 
+def _file_response_content_disposition(filename: str) -> str:
+    """Restate starlette ``FileResponse``'s Content-Disposition rule.
+
+    The GET half of this route hands ``filename=`` to ``FileResponse``, which
+    derives the header itself (``starlette/responses.py``, ``FileResponse
+    .__init__``): a quoted ``filename=`` for names that survive percent-
+    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
+    file to hand it, so the rule is restated here.
+
+    Not ``safe_content_disposition()`` from ``export/service.py``: that one
+    always appends ``filename*``, so HEAD would advertise a different header
+    than the GET delivers. ``test_head_export_content_disposition_matches_get``
+    pins the two byte-for-byte, over both branches, so a starlette change
+    fails a test instead of shipping the mismatch.
+    """
+    quoted = quote(filename)
+    if quoted != filename:
+        return f"attachment; filename*=utf-8''{quoted}"
+    return f'attachment; filename="{filename}"'
+
+
+def _head_export_response(dataset_title: str, format_key: str) -> Response:
+    """fix(#1513): the HEAD half of the export route.
+
+    Everything that decides the RESPONSE STATUS — access control, the export
+    capability, bbox/CRS validation, the raster and geometry gates, the
+    feature-count ceiling — has already run in the shared handler above, so
+    HEAD's status matches what GET would answer. Only the conversion is
+    skipped, which is the whole point: a HEAD that ran ogr2ogr and discarded
+    the bytes would hand any anonymous caller a way to spend a worker per
+    request on a public dataset.
+
+    Content-Length is deliberately absent. An export's length is knowable only
+    after the conversion, and RFC 9110 section 9.3.2 lets a HEAD omit header
+    fields "for which a value is determined only while generating the
+    content". Measured against GDAL 3.13.0 ``/vsicurl/``, omitting it costs
+    nothing: HEAD without a length logs "HEAD did not provide file size.
+    Retrying with limited range GET", and the 206's Content-Range supplies the
+    size — same request count as a HEAD that carried Content-Length, and one
+    fewer full-body GET than the 405 this replaces.
+    """
+    filename, media_type = export_descriptor(dataset_title, format_key)
+    response = Response(
+        status_code=status.HTTP_200_OK,
+        media_type=media_type,
+        headers={
+            "content-disposition": _file_response_content_disposition(filename),
+            # Truthful: the GET this describes is a FileResponse, which serves
+            # 206 byte ranges. It is also what lets a size-less HEAD work —
+            # vsicurl learns the length from the first range response.
+            "accept-ranges": "bytes",
+        },
+    )
+    # Starlette gives every non-204 response a Content-Length from its body,
+    # which for an empty body is `content-length: 0` — a WRONG answer about the
+    # export's size rather than no answer, and strictly worse than the 405 it
+    # replaces: a client would read the export as an empty file. Strip it.
+    response.raw_headers = [
+        (key, value) for key, value in response.raw_headers if key != b"content-length"
+    ]
+    return response
+
+
+# fix(#1513): HEAD alongside GET. FastAPI's APIRoute does not add it the way
+# starlette's plain Route does, so this answered `405 allow: GET` — which RFC
+# 9110 forbids for a GET-able resource, and which breaks every client that
+# probes before downloading (GDAL/QGIS `/vsicurl/`, resumable downloaders,
+# link checkers). `_register_standards_head_routes` in app/api/main.py closes
+# the same gap for the standards surface, but by CLONING the route, which
+# would run the full conversion here; this route needs a handler that stops
+# before it, so it is registered explicitly instead.
+#
+# include_in_schema=False for the reason `_clone_api_route` gives: a derived
+# route documents nothing the canonical one does not, and publishing it would
+# churn both SDKs and the CLI.
+@router.head("/{dataset_id}/export", include_in_schema=False)
 @router.get("/{dataset_id}/export", response_class=FileResponse)
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
@@ -156,7 +237,7 @@ async def export_dataset_endpoint(
     # per-role matrix check below.
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+) -> Response:
     """Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
@@ -314,6 +395,13 @@ async def export_dataset_endpoint(
                     "more selective bbox or attribute filter."
                 ),
             )
+
+    # 6c. fix(#1513): HEAD stops here — after every gate that decides the
+    # status, before the conversion that decides the bytes. No audit event
+    # either: nothing was exported, and a `dataset.export` row for a probe
+    # would misreport who downloaded what.
+    if request.method == "HEAD":
+        return _head_export_response(dataset.record.title, format)
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.

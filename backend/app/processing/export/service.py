@@ -115,6 +115,38 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     return where
 
 
+def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
+    """The download's ``(filename, media_type)``, derived WITHOUT exporting.
+
+    fix(#1513): the export route now answers HEAD, and a HEAD must advertise
+    the same Content-Type and Content-Disposition its GET would send — while
+    running none of the conversion that produces the file. Both verbs read
+    this one function so they cannot advertise different things; nothing here
+    touches the database or the filesystem.
+
+    Raises:
+        ValueError: If format_key is not a supported export format.
+    """
+    safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
+
+    if format_key == "parquet":
+        # Function-level import: parquet.py imports this module for
+        # validate_where_clause, and it pulls pyarrow in with it.
+        from app.processing.export.parquet import PARQUET_MEDIA_TYPE
+
+        return f"{safe_name}.parquet", PARQUET_MEDIA_TYPE
+
+    if format_key not in FORMAT_MAP:
+        raise ValueError(f"Unsupported export format: {format_key}")
+
+    fmt = FORMAT_MAP[format_key]
+    # Shapefile is a multi-file format: ogr2ogr writes the export.* sidecars
+    # and the caller ships the zip, so the DOWNLOAD's extension is .zip while
+    # fmt["ext"] stays the driver's .shp.
+    ext = ".zip" if format_key == "shp" else fmt["ext"]
+    return f"{safe_name}{ext}", fmt["media"]
+
+
 async def export_dataset(
     table_name: str,
     dataset_name: str,
@@ -154,7 +186,7 @@ async def export_dataset(
     fmt = FORMAT_MAP[format_key]
     driver = fmt["driver"]
     ext = fmt["ext"]
-    media_type = fmt["media"]
+    filename, media_type = export_descriptor(dataset_name, format_key)
 
     # Verify export staging root before creating per-export temp directories.
     exports_root = ensure_staging_ready(
@@ -166,9 +198,6 @@ async def export_dataset(
     temp_dir_path = exports_root / export_id
     temp_dir_path.mkdir(parents=False, exist_ok=False)
     temp_dir = str(temp_dir_path)
-
-    # Sanitize dataset name for filename
-    safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
 
     # fix(#435): own the temp directory until we hand a path back to the caller.
     # ogr2ogr failure, an oversized ZIP, or a cancelled request used to leave the
@@ -193,14 +222,12 @@ async def export_dataset(
             # (and job heartbeats) for the duration. fix(#435 codex r4): drained on
             # cancellation so the `except BaseException` rmtree below cannot delete
             # temp_dir while the zip thread is still writing into it.
-            zip_filename = f"{safe_name}.zip"
-            zip_path = os.path.join(temp_dir, zip_filename)
+            zip_path = os.path.join(temp_dir, filename)
             await run_in_thread_draining(_zip_export_files, temp_dir, zip_path)
 
-            return zip_path, zip_filename, media_type
+            return zip_path, filename, media_type
 
         # Single-file formats
-        filename = f"{safe_name}{ext}"
         output_path = os.path.join(temp_dir, filename)
         await run_ogr2ogr_export(
             table_name,

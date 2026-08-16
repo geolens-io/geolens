@@ -13,7 +13,6 @@ embedded PROJJSON is needed here.
 
 import json
 import os
-import re
 import shutil
 import uuid
 
@@ -26,7 +25,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.processing.export.ogr import bbox_where_sql
-from app.processing.export.service import validate_where_clause
+from app.processing.export.service import export_descriptor, validate_where_clause
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info
 
@@ -247,8 +246,8 @@ async def export_parquet(
     )
     temp_dir = str(exports_root / uuid.uuid4().hex)
     os.mkdir(temp_dir)
-    safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
-    filename = f"{safe_name}.parquet"
+    # fix(#1513): one naming rule for both verbs — see export_descriptor.
+    filename, _ = export_descriptor(dataset_name, "parquet")
     output_path = os.path.join(temp_dir, filename)
     geom_col = _geometry_column_name(attr_names)
     try:
