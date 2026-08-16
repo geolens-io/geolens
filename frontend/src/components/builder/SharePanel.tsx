@@ -44,21 +44,6 @@ import type { MapLayerResponse, MapVisibility } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
 
 /**
- * Generate the iframe embed snippet for a shared map.
- *
- * SEC-07 / M-70: deliberately omits `allow-same-origin` from the sandbox
- * attribute. Per MDN, combining `allow-scripts` with `allow-same-origin`
- * lets the iframe remove its own sandboxing (it can rewrite the parent
- * document's storage / cookies for the iframe's origin), neutralizing
- * the protection. The embedded map viewer authenticates via the
- * `et=<token>` query param and does not need same-origin access — so we
- * keep the iframe in the strongest sandbox that still allows MapLibre
- * GL JS to run.
- *
- * Exported so SharePanel.test.tsx can pin the rendered snippet shape
- * without mounting the full ShareDialog component.
- */
-/**
  * Build the embedded-viewer iframe `src` URL for a shared map (builder-audit
  * SHARE-04). Single source of truth shared by generateEmbedCode (full iframe
  * snippet) and EmbedPreviewPane (live preview) so the viewer URL shape — path,
@@ -82,6 +67,38 @@ export function buildEmbedSrc({
   return `${origin}/m/${shareToken}?${params.toString()}`;
 }
 
+/**
+ * Generate the iframe embed snippet for a shared map.
+ *
+ * fix(#1515): emits `sandbox="allow-scripts allow-same-origin"`. The old value
+ * omitted `allow-same-origin` on SEC-07 / M-70 reasoning, and the snippet could
+ * not boot. Without that flag the frame gets an OPAQUE origin, so the shell's
+ * `<script type="module" crossorigin>` fetch and every later `/api/` call are
+ * cross-origin with `Origin: null`. Measured end to end against a real share
+ * token: the viewer rendered "Map not found" while the api answered the very
+ * same request 200 and the browser discarded it for want of a CORS header.
+ *
+ * The escape hatch that reasoning feared is real, and it does not reach here.
+ * A frame strips its own sandbox by reaching `parent.document`, which requires
+ * being same-origin with its EMBEDDER. A third-party page embedding a GeoLens
+ * map never is, so the pair cannot be used to escape from there. That warning
+ * belongs to a FIRST-PARTY frame of your own origin. (FeaturePopup.tsx already
+ * ships the same pair for YouTube; threat model T-1138-04.)
+ *
+ * Narrower than the usual case, too: an iframe with no `sandbox` attribute at
+ * all, which is what most embed snippets ship and what worked before this bug
+ * was reported, additionally permits forms, popups, top-level navigation,
+ * downloads and pointer lock.
+ *
+ * What it does cost, and the reason this was Ian's call rather than a header
+ * change: the frame regains the GeoLens origin, so a signed-in viewer's embed
+ * runs with their session — `authenticatedRawFetch` attaches the persisted
+ * bearer token on every call. The embedding page is still cross-origin to the
+ * frame and cannot read those responses.
+ *
+ * Exported so SharePanel.test.tsx can pin the rendered snippet shape
+ * without mounting the full ShareDialog component.
+ */
 export function generateEmbedCode({
   shareToken,
   embedTokenRaw,
@@ -93,7 +110,7 @@ export function generateEmbedCode({
 }): string {
   if (!shareToken) return '';
   const url = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
-  return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts" style="border:none;"></iframe>`;
+  return `<iframe src="${url}" width="800" height="600" sandbox="allow-scripts allow-same-origin" style="border:none;"></iframe>`;
 }
 
 const VISIBILITY_OPTIONS: Array<{
@@ -613,12 +630,15 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" aria-hidden="true" />
                 </div>
               )}
-              {/* SEC-07 / M-70: sandbox="allow-scripts" ONLY. NEVER add allow-same-origin — see SharePanel.tsx generateEmbedCode docstring. */}
+              {/* fix(#1515): must stay byte-identical to the sandbox generateEmbedCode emits.
+                  A preview under a different sandbox is a preview of a different page — this one
+                  showed "Map not found" for a valid token while the copied snippet was blamed.
+                  See the generateEmbedCode docstring for why the pair is safe for a third-party embed. */}
               <iframe
                 key={reloadKey}
                 data-testid="share-preview-iframe"
                 src={src}
-                sandbox="allow-scripts"
+                sandbox="allow-scripts allow-same-origin"
                 title={t('share.iframePreviewTitle', { defaultValue: 'Map embed preview' })}
                 loading="lazy"
                 style={{ border: 'none' }}
@@ -646,8 +666,10 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
           )}
           <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted-foreground border-t border-border">
             <Shield className="h-3 w-3" aria-hidden="true" />
+            {/* fix(#1515): the old copy said "permits scripts only", which stopped being
+                true when the sandbox gained allow-same-origin. */}
             {t('share.iframeSandboxNote', {
-              defaultValue: 'The embed preview runs in a restricted sandbox that permits scripts only.',
+              defaultValue: 'The embed preview runs in the same restricted sandbox as the snippet you copy.',
             })}
           </div>
         </div>

@@ -690,7 +690,7 @@
     "iframeErrorTitle": "Vorschau nicht verfügbar",
     "iframeErrorBody": "Bitte überprüfen Sie, ob das Einbettungs-Token gültig und der Freigabelink aktiv ist. Zum Wiederholen neu laden.",
     "iframeReload": "Neu laden",
-    "iframeSandboxNote": "Die Einbettungsvorschau wird in einer eingeschränkten Umgebung ausgeführt, die nur Skripte zulässt.",
+    "iframeSandboxNote": "Die Einbettungsvorschau wird in derselben eingeschränkten Umgebung ausgeführt wie das kopierte Snippet.",
     "embedTokenMissing": "Diese Karte enthält nicht-öffentliche Ebenen. Betrachter können nicht alle Ebenen ohne ein Einbettungstoken sehen.",
     "embedTokenNotAvailable": "Das Einbettungstoken wurde in einer früheren Sitzung erstellt. Neu generieren, um den Einbettungscode zu erhalten.",
     "embedTokenRegenerated": "Einbettungstoken neu generiert",

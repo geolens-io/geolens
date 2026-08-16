@@ -261,23 +261,42 @@ describe('ShareDialog edition gates', () => {
 });
 
 /* ------------------------------------------------------------------ */
-/*  SEC-07 / M-70: embed iframe sandbox attribute                      */
+/*  #1515: embed iframe sandbox attribute                              */
 /* ------------------------------------------------------------------ */
 //
-// Pins the v13.13 closure of M-70. The combination of `allow-scripts` +
-// `allow-same-origin` neutralizes the iframe sandbox (MDN-documented
-// anti-pattern) — embed iframes loaded by external sites would have
-// access to cookies/localStorage of the GeoLens deployment, defeating
-// share-token isolation.
-describe('SEC-07: embed code sandbox attribute', () => {
-  it('uses allow-scripts only, no allow-same-origin', () => {
+// Supersedes the M-70 contract this block used to pin. `allow-scripts` alone
+// gives the frame an opaque origin, and the emitted snippet could not boot:
+// measured end to end, the viewer rendered "Map not found" for a valid share
+// token because every /api/ call was cross-origin with `Origin: null`.
+//
+// The sandbox-escape M-70 feared needs the frame to be same-origin with its
+// EMBEDDER, which a third-party embed never is. See the generateEmbedCode
+// docstring.
+//
+// The whole string is asserted, not just the sandbox value: this snippet is
+// copied verbatim into other people's pages, so an edit to any part of the
+// template should fail here rather than ship.
+describe('#1515: embed code sandbox attribute', () => {
+  it('emits the exact snippet, sandbox included', () => {
     const code = generateEmbedCode({
       shareToken: 'abc123',
       embedTokenRaw: 'tok-456',
       origin: 'https://geolens.example.com',
     });
-    expect(code).toContain('sandbox="allow-scripts"');
-    expect(code).not.toContain('allow-same-origin');
+    expect(code).toBe(
+      '<iframe src="https://geolens.example.com/m/abc123?embed=true&et=tok-456"' +
+        ' width="800" height="600" sandbox="allow-scripts allow-same-origin"' +
+        ' style="border:none;"></iframe>',
+    );
+  });
+
+  it('carries allow-same-origin, without which the frame cannot load its own bundle', () => {
+    const code = generateEmbedCode({
+      shareToken: 'abc123',
+      embedTokenRaw: 'tok-456',
+      origin: 'https://geolens.example.com',
+    });
+    expect(code).toContain('sandbox="allow-scripts allow-same-origin"');
   });
 
   it('returns empty string when shareToken is missing', () => {
@@ -311,7 +330,7 @@ describe('SEC-07: embed code sandbox attribute', () => {
   // value. Substitutes for the deferred Playwright MCP UAT — confirms the
   // sandbox value reaches the rendered DOM exactly as the unit-tested pure
   // function emits it (no later string-rewriting in the component layer).
-  it('rendered embed textarea contains sandbox="allow-scripts" only after creating a raw share token', async () => {
+  it('rendered embed textarea carries the emitted sandbox after creating a raw share token', async () => {
     const user = userEvent.setup();
     setup({ enterprise: false, hasShareToken: false });
 
@@ -319,8 +338,7 @@ describe('SEC-07: embed code sandbox attribute', () => {
 
     const textarea = await screen.findByRole('textbox') as HTMLTextAreaElement;
     expect(textarea).toBeTruthy();
-    expect(textarea.value).toContain('sandbox="allow-scripts"');
-    expect(textarea.value).not.toContain('allow-same-origin');
+    expect(textarea.value).toContain('sandbox="allow-scripts allow-same-origin"');
   });
 });
 
@@ -773,7 +791,10 @@ describe('SHARE-03 embed-preview iframe', () => {
     });
   });
 
-  it('test_iframe_sandbox_is_allow_scripts_only: sandbox attribute is exactly "allow-scripts" (no allow-same-origin — SEC-07 contract)', async () => {
+  // fix(#1515): the preview and the copied snippet must carry the SAME sandbox.
+  // While they differed the preview was a preview of a different page, and it
+  // showed "Map not found" for a token that was perfectly valid.
+  it('test_iframe_sandbox_matches_the_emitted_snippet: preview sandbox === generateEmbedCode sandbox', async () => {
     const user = userEvent.setup();
     setup({ enterprise: false, hasShareToken: false, hasNonPublic: true });
 
@@ -781,8 +802,14 @@ describe('SHARE-03 embed-preview iframe', () => {
     await user.click(screen.getByRole('button', { name: /preview/i }));
 
     const iframe = await screen.findByTestId('share-preview-iframe');
-    expect(iframe.getAttribute('sandbox')).toBe('allow-scripts');
-    expect(iframe.getAttribute('sandbox')).not.toContain('allow-same-origin');
+    expect(iframe.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
+
+    const snippet = generateEmbedCode({
+      shareToken: 'share-token',
+      embedTokenRaw: 'raw-token',
+      origin: 'https://geolens.example.com',
+    });
+    expect(snippet).toContain(`sandbox="${iframe.getAttribute('sandbox')}"`);
   });
 
   it('test_iframe_title_attribute_set: iframe has title="Map embed preview" (a11y)', async () => {
@@ -821,7 +848,9 @@ describe('SHARE-03 embed-preview iframe', () => {
     });
 
     // Security indicator footer: contains sandbox note text
-    expect(screen.getByText(/restricted sandbox that permits scripts only/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/same restricted sandbox as the snippet you copy/i),
+    ).toBeInTheDocument();
   });
 });
 
