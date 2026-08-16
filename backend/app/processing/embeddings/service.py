@@ -49,7 +49,11 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
 
 
 async def generate_embeddings_batch(
-    texts: list[str], session: AsyncSession
+    texts: list[str],
+    session: AsyncSession,
+    *,
+    model: str | None = None,
+    dimensions: int | None = None,
 ) -> list[list[float]]:
     """Generate embedding vectors for many texts in ONE provider call.
 
@@ -58,6 +62,14 @@ async def generate_embeddings_batch(
     size (backfill uses 128; the OpenAI endpoint accepts up to 2048 inputs).
     Config resolution and retry semantics are identical to the single-text
     path — generate_embedding() delegates here with a one-element list.
+
+    fix(#1511 review): ``model`` and ``dimensions`` let a caller that already
+    resolved the pair pin it for the whole run instead of having this function
+    re-read the config on every call. A multi-call caller that does not pin
+    straddles an admin model swap: it labels rows from its own resolution while
+    the provider generates from a later one, so vectors land under a model that
+    did not produce them. Pass both or neither — pinning only the model would
+    call model A with model B's dimensions.
 
     Returns vectors in the same order as ``texts``.
 
@@ -76,8 +88,15 @@ async def generate_embeddings_batch(
     # embedding provider; overlays add more under different names.
     provider_ext = get_embedding_provider("openai_compatible")
     runtime_config = await provider_ext.resolve_runtime_config(session)
-    model = await EMBEDDING_MODEL.get(session) or runtime_config.get("default_model")
-    dims = await EMBEDDING_DIMS.get(session) or runtime_config.get("default_dims")
+    # `is None` rather than falsy: a pinned value the caller supplied is
+    # honored as given, and only an absent one re-reads the config. Both then
+    # fall back to the provider default exactly as an empty config value does.
+    if model is None:
+        model = await EMBEDDING_MODEL.get(session)
+    model = model or runtime_config.get("default_model")
+    if dimensions is None:
+        dimensions = await EMBEDDING_DIMS.get(session)
+    dimensions = dimensions or runtime_config.get("default_dims")
     base_url = runtime_config.get("base_url")
 
     # Truncate very long inputs
@@ -86,7 +105,7 @@ async def generate_embeddings_batch(
     logger.info(
         "Generating embeddings",
         model=model,
-        dimensions=dims,
+        dimensions=dimensions,
         batch_size=len(texts),
         text_length=sum(len(t) for t in texts),
     )
@@ -97,7 +116,7 @@ async def generate_embeddings_batch(
     return await provider_ext.embed(
         texts=texts,
         model=model,
-        dimensions=dims,
+        dimensions=dimensions,
         base_url=base_url,
         timeout=130.0,
     )

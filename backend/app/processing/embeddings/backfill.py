@@ -16,7 +16,7 @@ import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.persistent_config import AI_ENABLED, EMBEDDING_MODEL
+from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
 from app.platform.extensions import get_processing_port
 from app.processing.embeddings.models import RecordEmbedding
 from app.processing.embeddings.service import (
@@ -146,6 +146,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # closes — resolution can fail between the two calls, and by then the
     # delete has committed.
     model_name = forced_model_name or await EMBEDDING_MODEL.get(session)
+    # fix(#1511 review, codex P1): resolve the dimensions alongside the name and
+    # pin BOTH into every provider call below. generate_embeddings_batch would
+    # otherwise re-read the config per call, so an admin swapping models
+    # mid-run gets model B's vectors stored under model A's label — search on
+    # the active model then skips rows it believes it wrote. Pinning the model
+    # alone would be worse than neither: model A with B's dimensions.
+    embedding_dims = await EMBEDDING_DIMS.get(session)
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped = 0
@@ -172,7 +179,10 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         batch = items[start : start + _BATCH_SIZE]
         try:
             vectors = await generate_embeddings_batch(
-                [content for _, content in batch], session
+                [content for _, content in batch],
+                session,
+                model=model_name,
+                dimensions=embedding_dims,
             )
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
@@ -198,7 +208,12 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # failed batch per record so only the bad ones count as errors.
             for record_id, content in batch:
                 try:
-                    [vector] = await generate_embeddings_batch([content], session)
+                    [vector] = await generate_embeddings_batch(
+                        [content],
+                        session,
+                        model=model_name,
+                        dimensions=embedding_dims,
+                    )
                     session.add(
                         RecordEmbedding(
                             record_id=record_id,
