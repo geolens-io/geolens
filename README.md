@@ -112,6 +112,8 @@ PostGIS and pgvector share one database, so with semantic search enabled you can
 
 Connect directly from QGIS: **Layer > Add WFS / OGC API Features** and point at `http://localhost:8080/api/`.
 
+The same endpoints from a map library: [geolens-examples](https://github.com/geolens-io/geolens-examples) holds single-file MapLibre, Leaflet, OpenLayers, and ArcGIS SDK pages, plus both GeoLens SDKs, a saved-map embed, a Python/GeoPandas analysis, and an MCP setup. Each one runs against the live demo, and CI re-runs them all against it weekly, so what you copy is code that worked this week. [Browse the gallery](https://geolens-io.github.io/geolens-examples/).
+
 ## Features
 
 Each example above has a full guide in the [docs](https://docs.getgeolens.com/guides/). What GeoLens reads, writes, and exposes:
@@ -415,6 +417,7 @@ see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
 | [CLI & Manifests](https://docs.getgeolens.com/guides/cli/) | Publish files and manage catalogs with the `geolens` CLI |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
 | [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt: public-cog (remote COG), url-source, s3-source, publication-states |
+| [Client examples](https://github.com/geolens-io/geolens-examples) | Runnable browser, SDK, embed, Python, and MCP examples, verified against the live demo in CI ([gallery](https://geolens-io.github.io/geolens-examples/)) |
 
 ## Community
 

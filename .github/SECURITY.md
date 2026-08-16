@@ -36,6 +36,8 @@ This policy covers:
 - Official packages published to PyPI (`geolens`, `geolens-cli`, `geolens-mcp`) and npm (`@geolens/sdk`)
 - The public demo at demo.getgeolens.com
 
+That includes a server, image, package, or demo bug you find while running one of the client examples in [geolens-examples](https://github.com/geolens-io/geolens-examples), which ships sample client code and nothing else. An unsafe pattern in the example code itself belongs to that repo's own policy, which routes to this same address alongside GitHub private vulnerability reporting. See [its SECURITY.md](https://github.com/geolens-io/geolens-examples/blob/main/SECURITY.md).
+
 Out of scope here (report to the respective repo or contact): the marketing/docs website (getgeolens.com), and Helm/deployment packaging ([geolens-deployments](https://github.com/geolens-io/geolens-deployments)).
 
 ## Recognition
