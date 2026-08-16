@@ -55,10 +55,36 @@ def _sweep_lock_path(multiproc_dir: str) -> str:
     return os.path.join(multiproc_dir, "sweep.lock")
 
 
+# fix(#1517): upper bounds for http_request_duration_seconds, the only latency
+# histogram carrying a `handler` label. The library default is (0.1, 0.5, 1)
+# plus the implicit +Inf, and histogram_quantile returns the highest FINITE
+# bound when the quantile lands in +Inf -- so on the default buckets p95 could
+# never exceed 1.0 for any handler selection, and every alert in
+# infra/monitoring/alerts.yml wanting a threshold above 1s was inexpressible.
+# GeoLensApiInteractiveLatencyP95 fired three times on the demo reading exactly
+# 1 each time; that was the ceiling, not a latency. Top finite bucket 10 puts
+# the clamp at 10s, well above any threshold the rules express.
+#
+# Cost, and why upstream ships it coarse: this histogram is labelled by
+# `handler` AND `method`, so each added bound multiplies its series count --
+# 4 bounds to 8 roughly doubles it. That is upstream's reason to default low,
+# not a GeoLens-specific one; at a few dozen templated handlers the extra
+# series are cheap and an expressible threshold is not optional.
+# The sibling http_request_duration_highr_seconds already carries 21 bounds up
+# to 60, but it is unlabelled, so it cannot answer "p95 excluding tiles" --
+# which is the entire point of the rules that read this one.
+LATENCY_LOWR_BUCKETS = (0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+
+
 def init_metrics(app: FastAPI):
     """Instrument the FastAPI app and expose /metrics endpoint."""
     instrumentator = create_instrumentator()
-    instrumentator.instrument(app)
+    # fix(#1517): buckets are passed HERE, not in create_instrumentator().
+    # Instrumentator.__init__ accepts no bucket arguments at all;
+    # instrument() is the only place they can be set
+    # (prometheus_fastapi_instrumentator 8.1.0). instrumentator.py is the file
+    # that looks like it configures this and cannot.
+    instrumentator.instrument(app, latency_lowr_buckets=LATENCY_LOWR_BUCKETS)
     instrumentator.expose(app, include_in_schema=False, should_gzip=True)
 
     @app.middleware("http")
