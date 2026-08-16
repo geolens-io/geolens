@@ -1,6 +1,7 @@
 import { render, waitFor } from '@/test/test-utils';
 import { OAuthCallbackPage } from '@/pages/OAuthCallbackPage';
 import { useAuthStore } from '@/stores/auth-store';
+import { denySessionStorage } from '@/test/deny-storage';
 import type { UserResponse } from '@/types/api';
 
 const mockNavigate = vi.fn();
@@ -84,5 +85,28 @@ describe('OAuthCallbackPage', () => {
     );
     expect(mockGetMe).not.toHaveBeenCalled();
     expect(mockLogoutSession).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * fix(#1527): the redirect key is read and cleared between a successful
+   * getMe() and the navigation that lands the user. Bare, a storage-denied
+   * context threw into the sibling .catch(), which revokes the session and
+   * bounces to /login — so a perfectly good SSO round-trip ended signed out.
+   */
+  it('completes sign-in when sessionStorage access throws', async () => {
+    const user = { id: '1', username: 'someone', roles: ['viewer'] } as UserResponse;
+    mockGetMe.mockResolvedValueOnce(user);
+    setHash('#token=access-1&expires_in=900&auth_mode=cookie');
+
+    const restore = denySessionStorage();
+    try {
+      render(<OAuthCallbackPage />);
+
+      await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true }));
+      expect(useAuthStore.getState().user).toEqual(user);
+      expect(mockLogoutSession).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
   });
 });

@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { denySessionStorage } from '@/test/deny-storage';
 import { LoginForm } from '../LoginForm';
 
 const mockLogin = vi.fn().mockResolvedValue(undefined);
@@ -140,5 +141,34 @@ describe('LoginForm', () => {
     await waitFor(() => {
       expect(sessionStorage.getItem('geolens-login-redirect')).toBeNull();
     });
+  });
+
+  /**
+   * fix(#1527): the redirect key is cleared between a SUCCESSFUL login and the
+   * navigation that follows it, inside the submit handler's try block. In a
+   * storage-denied context the removeItem threw, so the catch turned a
+   * completed sign-in into an inline "SecurityError: ..." on the form and the
+   * user never left /login — with a live token already in the store.
+   */
+  it('navigates after login when sessionStorage access throws', async () => {
+    mockLogin.mockResolvedValue(undefined);
+    mockLocationState.from = '/datasets/abc';
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), 'admin');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+
+    const restore = denySessionStorage();
+    try {
+      await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+      await waitFor(() => {
+        expect(mockNavigate).toHaveBeenCalledWith('/datasets/abc', { replace: true });
+      });
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    } finally {
+      restore();
+    }
   });
 });

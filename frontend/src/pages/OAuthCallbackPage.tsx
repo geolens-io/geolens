@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { getMe, logoutSession } from '@/api/auth';
+import { readSessionStorage, removeSessionStorage } from '@/lib/storage';
 import { Loader2 } from 'lucide-react';
 
 export function OAuthCallbackPage() {
@@ -59,8 +60,12 @@ export function OAuthCallbackPage() {
     getMe()
       .then((user) => {
         useAuthStore.getState().setAuth(token, refreshToken ?? null, parseInt(expiresIn, 10), user);
-        const redirect = sessionStorage.getItem('geolens-login-redirect');
-        sessionStorage.removeItem('geolens-login-redirect');
+        // fix(#1527): a bare access here threw into the sibling .catch()
+        // below, which revokes the session and bounces to /login — so a
+        // storage-denied context ended a perfectly good SSO round-trip signed
+        // out. No stored redirect just means landing on "/".
+        const redirect = readSessionStorage('geolens-login-redirect');
+        removeSessionStorage('geolens-login-redirect');
         const target = redirect && redirect.startsWith('/') ? redirect : '/';
         navigate(target, { replace: true });
       })

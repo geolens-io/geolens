@@ -14,6 +14,7 @@ import { OAuthButtons } from '@/components/auth/OAuthButtons';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
+import { writeSessionStorage } from '@/lib/storage';
 
 function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<string, string>) => string): string {
   if (error.includes('invalid_grant')) {
@@ -239,7 +240,11 @@ export function LoginPage() {
   // Sets the sessionStorage marker so LandingFirstGuard does not bounce the
   // visitor back to /login for the rest of the browser session.
   const handleBrowseCatalog = useCallback(() => {
-    sessionStorage.setItem(GUEST_BROWSE_KEY, 'true');
+    // fix(#1527): a bare write threw in the click handler and killed the one
+    // button on this page that needs no account. Losing the marker only means
+    // landing-first bounces the visitor here again; losing the navigation is
+    // a dead button.
+    writeSessionStorage(GUEST_BROWSE_KEY, 'true');
     navigate('/');
   }, [navigate]);
 

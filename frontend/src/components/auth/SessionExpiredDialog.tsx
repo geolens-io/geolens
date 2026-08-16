@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { onSessionExpired } from '@/api/client';
 import { getAuthConfig } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
+import { readSessionStorage, writeSessionStorage } from '@/lib/storage';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -71,7 +72,11 @@ export function SessionExpiredDialog() {
           // Anonymous catalog browsing exists on "/" unless landing-first
           // would bounce this (now signed-out) visitor to /login — there the
           // prompt is exactly the context the teleport otherwise lacks.
-          const guestBrowse = sessionStorage.getItem('gl-guest-browse') === 'true';
+          // fix(#1527): notifySessionExpired calls this handler synchronously
+          // from the fetch core's 401 path, so a bare read that throws escapes
+          // into the API client. Denied storage means no marker, which is the
+          // same answer as an absent one: prompt.
+          const guestBrowse = readSessionStorage('gl-guest-browse') === 'true';
           if (!landingFirstRef.current || guestBrowse) return;
         } else if (isAnonymousCapable(pathname)) {
           return;
@@ -82,7 +87,10 @@ export function SessionExpiredDialog() {
   );
 
   const signIn = () => {
-    if (from) sessionStorage.setItem('geolens-login-redirect', from);
+    // fix(#1527): the write half of the same defect — guarding only the read
+    // above would leave the button that recovers the session throwing. The
+    // key is an SSO-round-trip convenience; `from` also rides router state.
+    if (from) writeSessionStorage('geolens-login-redirect', from);
     navigate('/login', { state: { from } });
     setFrom(null);
   };

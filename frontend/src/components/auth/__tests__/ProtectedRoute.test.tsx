@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { useAuthStore } from '@/stores/auth-store';
+import { denySessionStorage } from '@/test/deny-storage';
 import { ProtectedRoute } from '../ProtectedRoute';
 import type { UserResponse } from '@/types/api';
 
@@ -76,5 +77,23 @@ describe('ProtectedRoute', () => {
     renderWithRoutes('/datasets/abc');
 
     expect(sessionStorage.getItem('geolens-login-redirect')).toBe('/datasets/abc');
+  });
+
+  /**
+   * fix(#1527): the redirect target is WRITTEN during render, so a storage-denied
+   * context turns "bounce an anonymous visitor to /login" into a thrown render.
+   * Every protected route in the app is behind this component, so the blast
+   * radius is the whole authenticated surface, not one lost preference.
+   */
+  it('still redirects to /login when sessionStorage access throws', () => {
+    const restore = denySessionStorage();
+    try {
+      renderWithRoutes('/datasets/abc');
+
+      expect(screen.getByText('Login Page')).toBeInTheDocument();
+      expect(screen.getByTestId('from')).toHaveTextContent('/datasets/abc');
+    } finally {
+      restore();
+    }
   });
 });

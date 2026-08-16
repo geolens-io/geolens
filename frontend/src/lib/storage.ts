@@ -55,3 +55,28 @@ export function readSessionStorage(key: string): string | null {
     return null;
   }
 }
+
+/**
+ * fix(#1527): writing is denied in exactly the same contexts reading is, and
+ * for the same reason — the property access raises before `setItem` is ever
+ * reached. Guarding only `readSessionStorage` covers half the surface: on the
+ * auth path most of these accesses are writes (the login-redirect key, the
+ * guest-browse marker), several of them during render or inside a click
+ * handler where the throw is a blank page rather than a lost preference.
+ */
+export function writeSessionStorage(key: string, value: string): void {
+  try {
+    sessionStorage.setItem(key, value);
+  } catch {
+    // storage unavailable (opaque origin / private mode / quota) — the caller
+    // degrades to the no-marker path, which is always a valid state.
+  }
+}
+
+export function removeSessionStorage(key: string): void {
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // storage unavailable — nothing was stored, so nothing needs clearing.
+  }
+}
