@@ -571,6 +571,26 @@ keys stop authenticating, and keys are also invalidated by security events
 on the owner's account (password change or role change). Logging out of the
 web UI does not affect API keys.
 
+### What a rejected credential looks like
+
+Send no credential and you are served anonymously: public datasets come
+back, private ones do not.
+
+Send a credential that cannot be resolved (expired, revoked, or mistyped)
+and every endpoint that reads credentials answers `401`, including the ones
+that also serve anonymous callers. It is never quietly ignored. A `200`
+carrying only the public subset would look exactly like a catalog holding
+nothing more, so a client whose key died overnight would go on working
+against a smaller view of the data and never be told. The `401` is also the
+signal a client needs to refresh and retry.
+
+`POST /auth/logout` is the one exception. It accepts a dead access token so
+a stale session can still be cleared, and falls back to the refresh
+credential. It still answers `401` when nothing you present resolves.
+
+A few endpoints read no credential at all, such as the landing page and the
+conformance declaration, and answer `200` either way.
+
 ### GDAL / ogr2ogr with API Key
 
 ```bash
@@ -1157,7 +1177,10 @@ def _route_operation(schema: dict, ctx, method: str) -> dict | None:
 def _normalize_security_contract(schema: dict) -> None:
     """Publish every runtime credential form and anonymous-capable alternative."""
 
-    from app.modules.auth.dependencies import get_optional_user
+    from app.modules.auth.dependencies import (
+        get_optional_user,
+        get_optional_user_fail_open,
+    )
 
     security_schemes = schema.setdefault("components", {}).setdefault(
         "securitySchemes", {}
@@ -1177,9 +1200,15 @@ def _normalize_security_contract(schema: dict) -> None:
 
     # ``get_optional_user_no_security_schema`` deliberately keeps public STAC
     # operations credential-aware at runtime without stamping authentication
-    # onto their generated clients. Only the normal optional dependency should
-    # gain the anonymous-or-credential security alternatives here.
-    optional_targets = {get_optional_user}
+    # onto their generated clients. Only the normal optional dependencies
+    # should gain the anonymous-or-credential security alternatives here.
+    #
+    # fix(#1518): both optional dependencies belong in this set. They differ in
+    # what an unresolvable credential does (401 vs anonymous), not in whether
+    # the operation accepts one, and the published contract is the latter — a
+    # fail-open handler left out of this set would lose its ``{}`` anonymous
+    # alternative and be documented as requiring authentication.
+    optional_targets = {get_optional_user, get_optional_user_fail_open}
     credential_alternatives = [
         {"OAuth2PasswordBearer": []},
         {"ApiKeyHeader": []},

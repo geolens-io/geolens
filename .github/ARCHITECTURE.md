@@ -74,6 +74,8 @@ Each domain module follows a stable pattern — `router.py` → `service.py` →
 
 Auth is resolved in this order: **`X-Api-Key` header → `?api_key=` query param → JWT Bearer → anonymous**. (The query-param fallback is excluded from OGC/Features reserved params. It is deprecated as of #821 — a key in the URL lands in access and proxy logs — and is kept only for clients that cannot send headers, e.g. XYZ tile URLs in desktop GIS tools.)
 
+The last arrow is narrower than it looks: **anonymous** means *no credential was presented*, not *the presented credential failed*. A credential that cannot be resolved — expired, revoked, mistyped — gets `401` from `get_optional_user`, so an anonymous-capable handler never downgrades a broken credential into a smaller successful answer (#1518). The one sanctioned way out is `get_optional_user_fail_open`, whose users are allowlisted in `backend/tests/test_optional_auth_failure_mode_1518.py`.
+
 **Search** (`modules/catalog/search/`) combines full-text (`pg_trgm`) and semantic
 (`pgvector`) ranking **in a single PostGIS query**, so results can be ranked by meaning
 *inside* a spatial window.

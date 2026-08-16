@@ -2212,7 +2212,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # formatter so an exception cannot pin the event loop rendering frame
     # locals with rich. Over 88 columns as one line, hence four.
     # Cap 1466 -> 1470, exact.
-    "backend/app/api/main.py": 1470,
+    # fix(#1518): +29 — 23 lines of API description telling a client what a
+    # rejected credential does, and 6 in _normalize_security_contract for the
+    # second optional-identity dependency. The description is the only in-repo
+    # home for that contract (it is `info.description` in the committed
+    # openapi.json and the rendered /docs page), and the answer could not be
+    # written down before #1518 because it depended on which router you hit.
+    # Cap 1470 -> 1499, exact.
+    "backend/app/api/main.py": 1499,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

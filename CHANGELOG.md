@@ -7,7 +7,18 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-## [1.13.1] - 2026-08-14
+### Changed
+
+- **An API key or token that cannot be resolved now returns 401 on every
+  endpoint that reads credentials.** It used to get a 401 from the eight OGC
+  and STAC detail routes and be discarded in silence by the other 58
+  handlers, which answered 200 with the public subset. That response looks
+  exactly like a catalog holding nothing more, so a client whose key expired
+  overnight kept working against a quietly smaller view of the data. Which
+  answer you got depended on which route you hit, so the behaviour could not
+  be documented. Requests that send no credential are unaffected and still
+  get the public view. `POST /auth/logout` is the one exception, so a session
+  whose access token has already expired can still be cleared (#1518, #401).
 
 ### Added
 

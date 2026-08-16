@@ -2211,10 +2211,10 @@ export const exportDatasetEndpointDatasetsDatasetIdExportGet = <ThrowOnError ext
  * client clustering for anonymous public-map viewers.
  *
  * fix(#390) codex P2: a request that *supplied* credentials which failed to
- * resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
- * gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
- * fires instead of a private layer permanently failing as "not found".
- * Truly credentialless requests keep the anonymous public path.
+ * resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+ * frontend's refresh-on-401 retry fires instead of a private layer
+ * permanently failing as "not found". Truly credentialless requests keep the
+ * anonymous public path.
  */
 export const getFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGet = <ThrowOnError extends boolean = false>(options: Options<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetData, ThrowOnError>): RequestResult<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses, GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors, ThrowOnError> => (options.client ?? client).get<GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetResponses, GetFeaturesGeojsonZEndpointDatasetsDatasetIdFeaturesGeojsonGetErrors, ThrowOnError>({
     security: [

@@ -303,16 +303,38 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     return user
 
 
-async def get_optional_user(
-    request: Request,
-    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
-    db: AsyncSession = Depends(get_db),
-) -> Identity | None:
-    """Try to extract the current user from an API key or JWT token.
+def request_carries_credentials(request: Request) -> bool:
+    """True if the request supplied any user credential (Bearer / API key).
 
-    Returns None if no credentials are provided or they are invalid.
-    Used on endpoints that should be accessible anonymously (public datasets)
-    but can show additional data when authenticated.
+    Lets anonymous-capable endpoints tell a truly anonymous caller (serve
+    public, 404 private) apart from one whose supplied credentials failed to
+    resolve — e.g. an expired or revoked JWT that ``_resolve_optional_identity``
+    maps to ``None``. The latter should get 401, not 404, so the client's
+    refresh-and-retry path fires instead of a misleading "not found". Mirrors
+    the credential sources ``_resolve_api_key`` + the bearer scheme accept.
+    """
+    return bool(
+        request.headers.get("Authorization")
+        or request.headers.get("X-Api-Key")
+        or request.query_params.get("api_key")
+    )
+
+
+async def _resolve_optional_identity(
+    request: Request,
+    token: str | None,
+    db: AsyncSession,
+) -> Identity | None:
+    """Resolve a caller identity from an API key or JWT, or ``None``.
+
+    The raw resolution shared by both optional-identity dependencies below.
+    ``None`` here means "no identity resolved", which is NOT the same as "no
+    credential was supplied" — an expired, revoked, or mistyped credential
+    lands on the same ``None``. Deciding what that means is the caller's job:
+    ``get_optional_user`` refuses it, ``get_optional_user_fail_open`` does not.
+    Splitting the resolution out is what stops the #1518 answer from being
+    duplicated alongside a copy of the resolution logic, which is how the two
+    answers drifted apart the first time.
     """
     # Try API key first
     user = await _resolve_api_key(request, db)
@@ -373,6 +395,74 @@ async def get_optional_user(
     return user
 
 
+async def get_optional_user(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
+    db: AsyncSession = Depends(get_db),
+) -> Identity | None:
+    """Resolve the caller on an anonymous-capable endpoint. FAIL-CLOSED.
+
+    A credentialless request resolves to ``None`` and keeps the public path
+    (public datasets served, private ones absent). A request that SUPPLIED a
+    credential which does not resolve — expired, revoked, mistyped — gets 401.
+
+    fix(#401): the OGC/STAC read handlers resolved a stale/revoked token to the
+    anonymous path, so a credentialed caller's private dataset 404'd instead of
+    401ing and the client's refresh-on-401 retry never fired.
+
+    fix(#1518): that reasoning was never specific to OGC and STAC, but the fix
+    was. It lived in a separate ``get_optional_user_or_401`` and reached the 8
+    handlers whose routers were in scope; the other 58 kept this dependency and
+    kept silently downgrading. Seen through a list endpoint the same bug is
+    quieter than the 404 #401 describes and worse: the caller gets 200 and the
+    public subset, with no way to tell "my key expired last night" from "this
+    catalog holds nothing else". Which answer a caller got was decided by which
+    router happened to get patched, so it could be neither predicted nor
+    documented.
+
+    The rule lives HERE now, so every site inherits it instead of opting in.
+    ``get_optional_user_fail_open`` is the one sanctioned way out, and its
+    users are pinned by ``tests/test_optional_auth_failure_mode_1518.py``.
+    """
+    user = await _resolve_optional_identity(request, token, db)
+    if user is None and request_carries_credentials(request):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
+
+
+async def get_optional_user_fail_open(
+    request: Request,
+    token: Annotated[str | None, Depends(oauth2_scheme_optional)],
+    db: AsyncSession = Depends(get_db),
+) -> Identity | None:
+    """``get_optional_user`` for handlers that must NOT 401 on a dead credential.
+
+    THE named exception to the fail-closed rule above (#1518). A
+    supplied-but-unresolvable credential resolves to ``None`` here and the
+    request continues anonymously.
+
+    The category, stated so a future entry is judged against a bar rather than
+    against how inconvenient a 401 would be: **an endpoint whose job is to
+    recover from a dead credential**. Refusing the caller because the very
+    credential they are trying to discard is dead is circular — it makes the
+    broken state permanent. ``/auth/logout`` is the case this exists for: it
+    accepts the refresh cookie or a body token when the access JWT has aged out
+    (fix(#1446)) and raises its own 401 when nothing presented resolves, so it
+    stays fail-closed on its own terms rather than becoming anonymous.
+
+    Every user of this dependency must be listed in ``FAIL_OPEN_ALLOWLIST`` in
+    ``tests/test_optional_auth_failure_mode_1518.py`` with its justification.
+    That test walks the route table and fails on an unlisted one, which is what
+    keeps the exception list from growing by accident — the way the 8/58 split
+    grew in the first place.
+    """
+    return await _resolve_optional_identity(request, token, db)
+
+
 async def get_optional_user_no_security_schema(
     request: Request,
     db: AsyncSession = Depends(get_db),
@@ -385,48 +475,16 @@ async def get_optional_user_no_security_schema(
     client. This variant extracts the bearer token from the raw header —
     identical resolution semantics, zero schema footprint. Use ONLY on
     endpoints that must stay anonymous on the public OpenAPI surface.
+
+    fix(#1518): it delegates to ``get_optional_user`` rather than to the raw
+    resolver, so it inherits the fail-closed rule. What this variant opts out
+    of is the SCHEMA marker, never the failure mode — pointing it at
+    ``_resolve_optional_identity`` would silently restore the split on the
+    public STAC routes without tripping the fail-open allowlist.
     """
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.lower().startswith("bearer ") else None
     return await get_optional_user(request, token, db)
-
-
-def request_carries_credentials(request: Request) -> bool:
-    """True if the request supplied any user credential (Bearer / API key).
-
-    Lets anonymous-capable endpoints tell a truly anonymous caller (serve
-    public, 404 private) apart from one whose supplied credentials failed to
-    resolve — e.g. an expired or revoked JWT that ``get_optional_user`` maps to
-    ``None``. The latter should get 401, not 404, so the client's
-    refresh-and-retry path fires instead of a misleading "not found". Mirrors
-    the credential sources ``_resolve_api_key`` + the bearer scheme accept.
-    """
-    return bool(
-        request.headers.get("Authorization")
-        or request.headers.get("X-Api-Key")
-        or request.query_params.get("api_key")
-    )
-
-
-async def get_optional_user_or_401(
-    request: Request,
-    user: Annotated[Identity | None, Depends(get_optional_user)],
-) -> Identity | None:
-    """``get_optional_user``, but supplied-yet-unresolvable credentials get 401.
-
-    fix(#401): the OGC/STAC read handlers resolved a stale/revoked token to the
-    anonymous path, so a credentialed caller's private dataset 404'd instead of
-    401ing and the client's refresh-on-401 retry never fired. Use this on
-    anonymous-capable read endpoints; truly credentialless requests still
-    resolve to ``None`` and keep the public path.
-    """
-    if user is None and request_carries_credentials(request):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
 
 
 async def get_current_user(

@@ -25,7 +25,6 @@ from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
-    request_carries_credentials,
     require_permission,
 )
 from app.modules.catalog.authorization import (
@@ -176,11 +175,25 @@ async def get_features_geojson_z_endpoint(
     client clustering for anonymous public-map viewers.
 
     fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-    fires instead of a private layer permanently failing as "not found".
-    Truly credentialless requests keep the anonymous public path.
+    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+    frontend's refresh-on-401 retry fires instead of a private layer
+    permanently failing as "not found". Truly credentialless requests keep the
+    anonymous public path.
     """
+    # fix(#1518): the 401 above is raised by `get_optional_user` now, not by an
+    # inline check in this body. The inline copy is deleted rather than left as
+    # unreachable code reading like a guard.
+    #
+    # One ordering consequence, recorded because it is a real behaviour change
+    # and not a refactor: the 401 now precedes the embed-token branch below, so
+    # a caller presenting a VALID `X-Embed-Token` ALONGSIDE a dead user
+    # credential is refused where it used to be served on the embed's
+    # authority. The frontend cannot produce that pair — its embed path issues
+    # a bare `fetch` carrying only `X-Embed-Token` (frontend/src/api/
+    # geojson-z.ts) — and a caller that knowingly sends a dead credential is
+    # not a shape worth keeping the 8-vs-58 split alive for. This comment lives
+    # here rather than in the docstring because docstrings become the public
+    # OpenAPI operation description.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -195,15 +208,6 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
-        if user is None and request_carries_credentials(request):
-            # Credentials were supplied but did not resolve (expired/revoked
-            # token). Return 401 so the client refreshes and retries rather
-            # than the anonymous path's 404. fix(#390) codex P2.
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature

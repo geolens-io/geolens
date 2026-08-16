@@ -120,10 +120,10 @@ def sync_detailed(
     client clustering for anonymous public-map viewers.
 
     fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-    fires instead of a private layer permanently failing as \"not found\".
-    Truly credentialless requests keep the anonymous public path.
+    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+    frontend's refresh-on-401 retry fires instead of a private layer
+    permanently failing as \"not found\". Truly credentialless requests keep the
+    anonymous public path.
 
     Args:
         dataset_id (UUID):
@@ -173,10 +173,10 @@ def sync(
     client clustering for anonymous public-map viewers.
 
     fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-    fires instead of a private layer permanently failing as \"not found\".
-    Truly credentialless requests keep the anonymous public path.
+    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+    frontend's refresh-on-401 retry fires instead of a private layer
+    permanently failing as \"not found\". Truly credentialless requests keep the
+    anonymous public path.
 
     Args:
         dataset_id (UUID):
@@ -221,10 +221,10 @@ async def asyncio_detailed(
     client clustering for anonymous public-map viewers.
 
     fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-    fires instead of a private layer permanently failing as \"not found\".
-    Truly credentialless requests keep the anonymous public path.
+    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+    frontend's refresh-on-401 retry fires instead of a private layer
+    permanently failing as \"not found\". Truly credentialless requests keep the
+    anonymous public path.
 
     Args:
         dataset_id (UUID):
@@ -272,10 +272,10 @@ async def asyncio(
     client clustering for anonymous public-map viewers.
 
     fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-    fires instead of a private layer permanently failing as \"not found\".
-    Truly credentialless requests keep the anonymous public path.
+    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+    frontend's refresh-on-401 retry fires instead of a private layer
+    permanently failing as \"not found\". Truly credentialless requests keep the
+    anonymous public path.
 
     Args:
         dataset_id (UUID):

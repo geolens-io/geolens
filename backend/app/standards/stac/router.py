@@ -31,8 +31,8 @@ from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 import app.core.db as _db_module
 from app.modules.auth.dependencies import (
+    get_optional_user,
     get_optional_user_no_security_schema,
-    get_optional_user_or_401,
 )
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
@@ -985,7 +985,7 @@ async def get_collection_items(
     collection_id: str,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_or_401),
+    user: Identity | None = Depends(get_optional_user),
     bbox: str | None = Query(None, description="Bounding box: west,south,east,north"),
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
@@ -1216,7 +1216,7 @@ async def get_collection_item(
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_or_401),
+    user: Identity | None = Depends(get_optional_user),
 ) -> JSONResponse:
     """Get a single STAC Item within a collection."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
@@ -1263,7 +1263,7 @@ async def get_item(
     item_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_or_401),
+    user: Identity | None = Depends(get_optional_user),
 ) -> JSONResponse:
     """Get a single STAC Item by dataset ID."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
@@ -1639,7 +1639,7 @@ async def _execute_search(
 async def search_get(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_or_401),
+    user: Identity | None = Depends(get_optional_user),
     bbox: str | None = Query(None, description="Bounding box: west,south,east,north"),
     datetime_param: str | None = Query(
         None, alias="datetime", description="OGC datetime interval"
@@ -1764,7 +1764,7 @@ async def search_post(
     body: StacSearchBody,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_or_401),
+    user: Identity | None = Depends(get_optional_user),
 ) -> JSONResponse:
     """STAC Item Search (POST with JSON body)."""
     stac_api_url, public_api_url = await _resolve_urls(db, request)
