@@ -73,10 +73,24 @@ groups:
         # HEAD counts as a read. _register_standards_head_routes() in
         # backend/app/api/main.py clones the GET route with the SAME endpoint,
         # so a HEAD on /collections/{id}/items runs the identical query and
-        # serialization and only drops the body on the wire. If a future
-        # explicit HEAD handler answers cheaply without doing the read (#1513
-        # adds a HEAD verb to the export route), it stops being a bulk read and
-        # belongs back here.
+        # serialization and only drops the body on the wire.
+        #
+        # fix(#1513): the export HEAD is the exception that condition
+        # anticipated, and the third union arm below is where it landed. It is
+        # NOT free — it runs every check that decides the status, so a parquet
+        # HEAD costs a live-column introspection plus a bounded COUNT, roughly
+        # half a second on a 5M-row table. It is judged here anyway, because
+        # the bulk bound exists to tolerate PAYLOAD TRANSFER and a HEAD never
+        # transfers a payload. A HEAD spending over a second in query work is a
+        # real regression signal, not the caller asking for 10MB; leaving it on
+        # the bulk side would let a 5s bound tolerate a second of pure query
+        # time on a request that returns no bytes.
+        #
+        # `method="HEAD"` there is an exact `=`, deliberately, NOT `=~`.
+        # _read_method_selector() in backend/tests/test_alert_rules.py collects
+        # only `=~` and `!~`, so the exact form leaves its counts untouched and
+        # the GET|HEAD partition it pins keeps meaning what it meant. Tidying
+        # this to `=~"HEAD"` would break that helper for no gain.
         #
         # `>= 1` not `> 1`: before #1517 this was a workaround (the histogram
         # clipped at 1.0, so `> 1` could never fire). It is now a real p95 —
@@ -98,6 +112,11 @@ groups:
             rate(http_request_duration_seconds_bucket{
               handler=~"/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items",
               method!~"GET|HEAD"
+            }[5m])
+            or
+            rate(http_request_duration_seconds_bucket{
+              handler=~"/datasets/[^/]+/export",
+              method="HEAD"
             }[5m])
           )) >= 1
         for: 10m
@@ -143,18 +162,31 @@ groups:
         # complement of the same alternation appears in the interactive rule
         # above, so POST /datasets/{dataset_id}/features stays on the 1s
         # interactive bound rather than being pooled here against 5s. See that
-        # rule for why HEAD counts as a read.
+        # rule for why HEAD counts as a read, and why the export HEAD is the
+        # one exception — carved out of both halves of the ratio below with
+        # `unless`, so it is judged by the interactive rule instead. `unless`
+        # rather than a subtraction for the same reason the union above uses
+        # `or`: an empty right-hand side leaves the left untouched instead of
+        # emptying the whole expression.
         #
         # With no bulk traffic the ratio is 0/0 = NaN, which never compares true.
         expr: |
           sum by (handler) (rate(http_request_duration_seconds_sum{
             handler=~"/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items",
             method=~"GET|HEAD"
-          }[10m]))
+          }[10m])
+            unless rate(http_request_duration_seconds_sum{
+              handler=~"/datasets/[^/]+/export",
+              method="HEAD"
+            }[10m]))
             / sum by (handler) (rate(http_request_duration_seconds_count{
               handler=~"/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items",
               method=~"GET|HEAD"
-            }[10m])) > 5
+            }[10m])
+              unless rate(http_request_duration_seconds_count{
+                handler=~"/datasets/[^/]+/export",
+                method="HEAD"
+              }[10m])) > 5
         for: 10m
         labels:
           severity: warning
