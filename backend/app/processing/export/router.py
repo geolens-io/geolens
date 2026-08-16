@@ -187,6 +187,24 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
     Those checks are hoisted now; the parity claim above is the narrower one
     the code actually supports.
 
+    ``Accept-Ranges: bytes`` says the endpoint serves byte ranges. It does NOT
+    say the representation is stable across requests, and here it is not: every
+    range GET re-enters this endpoint and converts the dataset again, so a
+    probing client is reading a sequence of freshly built artifacts rather than
+    slices of one (fix(#1532)). While the data is unchanged that is only
+    wasteful — the export is byte-deterministic, so consecutive conversions are
+    identical. While the data changes mid-read the sequence is incoherent, and
+    it fails LOUDLY: a spliced GeoJSON dies with ``ERROR 4: Failed to read
+    GeoJSON data`` and no output file, rather than yielding a plausible wrong
+    answer. Keeping that loud failure is a constraint on the real fix, which is
+    to serve ranges from a cached artifact.
+
+    The header stays. GDAL ranges because a size-less HEAD gives it no length,
+    not because it read this header, and the GET has advertised ``accept-ranges``
+    from starlette's ``FileResponse`` on main all along — dropping it here would
+    change nothing about the exposure and would break the size discovery this
+    HEAD depends on.
+
     Content-Length is deliberately absent. An export's length is knowable only
     after the conversion, and RFC 9110 section 9.3.2 lets a HEAD omit header
     fields "for which a value is determined only while generating the
@@ -202,9 +220,11 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         media_type=media_type,
         headers={
             "content-disposition": _file_response_content_disposition(filename),
-            # Truthful: the GET this describes is a FileResponse, which serves
-            # 206 byte ranges. It is also what lets a size-less HEAD work —
-            # vsicurl learns the length from the first range response.
+            # The GET this describes is a FileResponse, which serves 206 byte
+            # ranges, and this is also what lets a size-less HEAD work: vsicurl
+            # learns the length from the first range response. It promises
+            # range SERVICE, not a stable representation — see the docstring
+            # and fix(#1532).
             "accept-ranges": "bytes",
         },
     )
