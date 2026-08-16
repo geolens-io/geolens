@@ -351,13 +351,17 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
 ):
     """Generating is only half the promise: the vector has to fit the column.
 
-    fix(#1511 review r4, codex P1): `update_settings` runs
-    `_auto_detect_embedding_dims()` and `rebuild_embedding_column()` on
-    MUTUALLY EXCLUSIVE branches — the first when `embedding_dims` is absent
-    from the request, the second when it is present
-    (`modules/settings/router.py:348-360`). So an admin who switches model
-    without naming dimensions gets the detected width persisted and the column
-    left at its old one.
+    fix(#1511 review r4, codex P1): the width a model produces and the width
+    the column declares are written by different code at different times, so
+    they can disagree. What found it was a settings write that persisted a
+    newly detected width without rebuilding the column, leaving storage at the
+    old one (that path is the subject of #1529).
+
+    The scenario below is built from the mismatch itself rather than from that
+    route: a model whose vectors are the wrong width for the live column. It
+    therefore holds whatever produced the mismatch, which is the point of the
+    guard it covers — that guard reads storage, not config, so closing any one
+    route does not retire it.
 
     Every earlier guard passes here, and that is the point. Model and
     dimensions are consistent with each other, they are stable, and the

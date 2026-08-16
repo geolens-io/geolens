@@ -176,15 +176,19 @@ async def _preflight_embedding(
         ) from exc
 
     # fix(#1511 review r4, codex P1): generating a vector is only half the
-    # promise — it also has to fit the column. `update_settings` runs
-    # _auto_detect_embedding_dims() and rebuild_embedding_column() on MUTUALLY
-    # EXCLUSIVE branches (`embedding_dims` absent from the request versus
-    # present, modules/settings/router.py:348-360), so an admin who switches
-    # model without naming dimensions gets the detected width persisted and the
-    # column left at its old one. The provider then answers happily at the new
-    # width, this pre-flight passed, the DELETE committed, and every insert
-    # failed on the typmod. Zero coverage, by the exact route the pre-flight
-    # exists to close.
+    # promise — it also has to fit the column. The width a model produces and
+    # the width the column declares are written by different code at different
+    # times, so they can disagree, and when they do the provider answers
+    # happily at the new width, this pre-flight passes, the DELETE commits and
+    # every insert dies on the typmod.
+    #
+    # The case that found it was a settings write that persisted a newly
+    # detected width without rebuilding the column, so switching model without
+    # naming dimensions left storage at the old width (that path is the subject
+    # of #1529). This check is deliberately NOT written against that path: it
+    # asks storage what it will accept, so it holds for any cause — a rebuild
+    # that failed partway, a restored dump, a column altered by hand, a writer
+    # nobody has added yet. Closing one route does not make it redundant.
     #
     # Read the width off the live column rather than trusting EMBEDDING_DIMS:
     # the setting is what disagreed with storage in the first place. pgvector
@@ -212,8 +216,8 @@ async def _preflight_embedding(
             f"Cannot regenerate embeddings: model {model_name!r} produces "
             f"{generated}-dimension vectors but catalog.record_embeddings."
             f"embedding is vector({column_dims}). Existing vectors were left "
-            "untouched. Set the embedding dimensions explicitly in Settings so "
-            "the column is rebuilt, then re-run."
+            "untouched. Re-save the embedding configuration in Settings so the "
+            f"column is rebuilt to {generated} dimensions, then re-run."
         )
 
 
@@ -277,12 +281,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
         # fix(#1511 review r3, codex P1): the checks above test proxies for
         # "regeneration will work". This one tests the property itself, because
-        # the proxies keep running out. `update_settings` commits a new
-        # embedding_model and only then probes for its dimensions
-        # (settings/router.py), so between those two steps the stored pair is
-        # mismatched, committed and STABLE — re-reading it agrees with itself
-        # and learns nothing. That window opens exactly when an admin has just
-        # switched models, which is exactly when someone clicks Regenerate All.
+        # the proxies keep running out. A comparison-based guard can only catch
+        # a value that MOVES. It is blind to a pair that is wrong, committed and
+        # stable, because re-reading such a pair agrees with itself and learns
+        # nothing. What made that concrete was a settings write publishing a new
+        # model before its dimensions were known (that publish is the subject of
+        # #1529), but the blindness belongs to comparing, not to that one writer.
+        #
         # One real embedding proves the live config can produce a vector, and
         # covers the modes nobody has enumerated yet: provider down, revoked
         # key, exhausted quota, dimensions the model rejects.
