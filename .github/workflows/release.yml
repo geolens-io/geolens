@@ -87,6 +87,26 @@ jobs:
           if [ -z "$(printf '%s' "$NOTES" | tr -d '[:space:]')" ]; then
             # Fallback: generate from git log
             NOTES=$(git log --format="- %s" "${PREV}..${TAG}" --no-merges | grep -v "^- docs(" | grep -v "^- chore(" | head -30)
+            # fix(#1530): say so. Three times now the fallback has fired when it
+            # should not have — every prerelease tag (#715), a whitespace-only
+            # section (#715 review), and a CHANGELOG edit that deleted the
+            # `## [1.13.1]` header outright (#1518). Each was fixed by making
+            # the matching smarter; three occurrences say the problem is that
+            # the fallback is INDISTINGUISHABLE from success once the notes are
+            # published. It still must not block a release, so it warns rather
+            # than failing, and drops a marker in the body so the state is
+            # visible to readers and not only to whoever opens the workflow log.
+            echo "::warning title=Release notes fell back to git log::No '## [${CHANGELOG_VERSION}]' section found in CHANGELOG.md. Published notes are auto-generated commit subjects, not curated, and the filter drops every docs()/chore() subject and caps at 30 entries."
+            {
+              echo "### :warning: Auto-generated release notes"
+              echo
+              echo "No \`## [${CHANGELOG_VERSION}]\` section was found in \`CHANGELOG.md\`, so these"
+              echo "notes are commit subjects rather than curated release notes."
+            } >> "$GITHUB_STEP_SUMMARY"
+            # Single line on purpose: a multi-line assignment here has to start
+            # its continuation lines at column 0, which terminates the YAML
+            # block scalar this whole `run:` lives in. check-yaml catches it.
+            NOTES="$(printf '> **Note**\n> These notes were generated from commit subjects because no `## [%s]` section was found in `CHANGELOG.md`.\n\n%s' "$CHANGELOG_VERSION" "$NOTES")"
           fi
 
           # Write to file to preserve newlines

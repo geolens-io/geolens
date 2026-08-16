@@ -150,6 +150,43 @@ for tag in ("v1.5.0", "v1.5.0-rc.1", "v1.5.0-beta.2"):
     else:
         bad(f"{tag} still falls back to the git log")
 
+# --- 4. the fallback must announce itself (#1530) ---------------------------
+# Three separate occasions had the fallback fire when it should not have: every
+# prerelease tag (#715), a whitespace-only section (#715 review), and a
+# CHANGELOG edit that deleted the `## [1.13.1]` header (#1518). Each was fixed
+# by sharpening the matching. The residual defect is that a fallback release is
+# indistinguishable from a curated one once published, so it keeps being found
+# by accident rather than reported. These assertions pin the announcement, not
+# the matching.
+_fallback = release_text.split("# Fallback: generate from git log", 1)
+if len(_fallback) != 2:
+    bad("release.yml no longer has the git-log fallback this test describes")
+else:
+    # Scope to the fallback branch: a warning elsewhere in the file would
+    # satisfy a whole-file search while the fallback stayed silent.
+    # Anchor the terminator to a line of its own — a bare "fi" substring also
+    # matches inside "fix(#NNNN)", which truncated the branch before the very
+    # lines these cases check and made them fail against a correct workflow.
+    _end = re.search(r"^\s*fi\s*$", _fallback[1], re.MULTILINE)
+    branch = _fallback[1][: _end.start()] if _end else _fallback[1]
+
+    if "::warning" in branch:
+        ok("the git-log fallback emits a ::warning annotation")
+    else:
+        bad("the git-log fallback is silent — no ::warning in its branch")
+
+    if "GITHUB_STEP_SUMMARY" in branch:
+        ok("the git-log fallback writes to the job summary")
+    else:
+        bad("the git-log fallback does not report in the job summary")
+
+    # The published body has to carry it too. A warning only reaches whoever
+    # opens the workflow log; the marker reaches whoever reads the release.
+    if "NOTES=" in branch and "commit subjects" in branch:
+        ok("the git-log fallback marks the published notes as auto-generated")
+    else:
+        bad("the published notes carry no marker that they are auto-generated")
+
 print(f"1..{PASS + FAIL}")
 print(f"# {PASS} passed, {FAIL} failed")
 sys.exit(1 if FAIL else 0)
