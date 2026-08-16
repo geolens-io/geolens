@@ -43,28 +43,139 @@ groups:
       - alert: GeoLensApiInteractiveLatencyP95
         # fix(#658): replaces the all-handler p95 alert (#466), which fired
         # during plain map browsing — tile requests are the legitimate slow
-        # tail, so they get their own rule below. Excluding a handler forces
-        # the handler-labeled histogram, whose buckets top out at le=1.0, so
-        # histogram_quantile clips at 1.0 and `>= 1` is the only expressible
-        # "worse than 1s" predicate (`> 1` could never fire).
+        # tail, so they get their own rule below.
+        #
+        # fix(#1517): bulk reads are excluded for exactly the same reason, and
+        # get GeoLensApiBulkLatencyMean below. This rule fired three times on
+        # the demo, every time from geolens-examples CI pulling collections at
+        # ?limit=2000 (~10MB responses), never from the demo being slow.
+        #
+        # The bulk selector below must stay byte-identical to the one in
+        # GeoLensApiBulkLatencyMean — a handler that drifts out of one and not
+        # into the other is either double-alerted or unmonitored. Pinned by
+        # backend/tests/test_alert_rules.py, which also checks the selector
+        # against the app's real route table: `.*/export` and `/collections/.*/items`
+        # (the shapes first proposed on #1517) miss the trailing-slash twins
+        # that FastAPI registers alongside these routes, and a miss reads
+        # identically to a hit in a diff.
+        #
+        # fix(#1521 review): only bulk READS leave this rule. A path is not a
+        # request — /datasets/{dataset_id}/features[/] answers GET and POST off
+        # one template, so a handler-only exclusion would have dropped feature
+        # CREATION out of interactive monitoring and pooled its duration into a
+        # 5s bulk bound built for 10MB downloads. Hence the union below rather
+        # than one selector: everything that is neither a tile nor a bulk path,
+        # PLUS writes to bulk paths. `or` is deliberate over `unless` or
+        # subtraction — the two arms are disjoint by construction (handler!~
+        # versus handler=~), and an empty arm leaves the other untouched
+        # instead of emptying the whole expression the way a binary `-` would.
+        #
+        # HEAD counts as a read. _register_standards_head_routes() in
+        # backend/app/api/main.py clones the GET route with the SAME endpoint,
+        # so a HEAD on /collections/{id}/items runs the identical query and
+        # serialization and only drops the body on the wire. If a future
+        # explicit HEAD handler answers cheaply without doing the read (#1513
+        # adds a HEAD verb to the export route), it stops being a bulk read and
+        # belongs back here.
+        #
+        # `>= 1` not `> 1`: before #1517 this was a workaround (the histogram
+        # clipped at 1.0, so `> 1` could never fire). It is now a real p95 —
+        # the top finite bucket is 10 — and `>=` is kept deliberately, so a p95
+        # sitting exactly on the 1s bucket boundary still counts as "at or
+        # above 1s". See LATENCY_LOWR_BUCKETS in
+        # backend/app/observability/metrics/__init__.py.
+        #
+        # Not touched here: /tiles/.* is still excluded by path alone, so a POST
+        # to /tiles/tokens is out of this rule too. That is #658's shape, its
+        # population is what GeoLensApiTileLatencyMean's 2s bound was calibrated
+        # against, and re-partitioning it is a separate change.
         expr: |
-          histogram_quantile(0.95,
-            sum by (le) (rate(http_request_duration_seconds_bucket{handler!~"/tiles/.*"}[5m]))) >= 1
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{
+              handler!~"/tiles/.*|/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items"
+            }[5m])
+            or
+            rate(http_request_duration_seconds_bucket{
+              handler=~"/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items",
+              method!~"GET|HEAD"
+            }[5m])
+          )) >= 1
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "API p95 latency (non-tile) at or above 1s"
+          summary: "API p95 latency (interactive) at or above 1s"
           description: >-
-            95th-percentile latency of non-tile API requests has been at the
-            1s histogram ceiling for 10 minutes. Tile endpoints are excluded;
-            see GeoLensApiTileLatencyMean.
+            95th-percentile latency of interactive API requests has been at or
+            above 1s for 10 minutes ({{ $value | humanizeDuration }}). Tile and
+            bulk-read endpoints are excluded; see GeoLensApiTileLatencyMean and
+            GeoLensApiBulkLatencyMean.
+
+      - alert: GeoLensApiBulkLatencyMean
+        # fix(#1517): the other half of the split. Bulk reads return whatever
+        # the caller asked for — ?limit=2000 on a feature collection is roughly
+        # 10MB — so over a second is the correct cost of the payload, the same
+        # way a slow tile is.
+        #
+        # Shape copied from GeoLensApiTileLatencyMean: the exact mean from
+        # _sum/_count, not a quantile, so the bound is a real number of seconds
+        # that does not move when bucket boundaries do.
+        #
+        # `by (handler)` rather than that rule's single pooled series: this set
+        # spans four unrelated payload shapes, and pooling would let a
+        # high-volume healthy handler dilute a low-volume degraded one. It also
+        # puts the offending handler in the notification.
+        #
+        # Bound: on the demo these average 1.2-1.4s (#1517 measured
+        # features.geojson 1334ms, /collections/{id}/items 1197ms, export
+        # 397ms). 5s is ~4x the worst healthy mean — loose on purpose, because
+        # response size here is caller-controlled and a tighter bound would page
+        # on a legitimately larger download rather than on a regression.
+        #
+        # Admin exports (/admin/audit-logs/export/{format},
+        # /admin/users/export.csv, /config-ops/export) are deliberately NOT in
+        # this set. They are admin-only one-offs, so a single legitimately huge
+        # one would carry a per-handler mean over any bound for a full rate
+        # window, which is the false page this issue is about; at their volume
+        # they cannot move the interactive p95 either.
+        #
+        # fix(#1521 review): `method=~"GET|HEAD"` keeps this to bulk READS. The
+        # complement of the same alternation appears in the interactive rule
+        # above, so POST /datasets/{dataset_id}/features stays on the 1s
+        # interactive bound rather than being pooled here against 5s. See that
+        # rule for why HEAD counts as a read.
+        #
+        # With no bulk traffic the ratio is 0/0 = NaN, which never compares true.
+        expr: |
+          sum by (handler) (rate(http_request_duration_seconds_sum{
+            handler=~"/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items",
+            method=~"GET|HEAD"
+          }[10m]))
+            / sum by (handler) (rate(http_request_duration_seconds_count{
+              handler=~"/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items",
+              method=~"GET|HEAD"
+            }[10m])) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Mean bulk-read latency above 5s ({{ $labels.handler }})"
+          description: >-
+            {{ $labels.handler }} has averaged {{ $value | humanizeDuration }}
+            over the last 10 minutes. Bulk reads are slow by design, so this
+            bound sits well above the ~1.3s a 10MB response normally costs —
+            crossing it points at the query or the export path, not at payload
+            size.
 
       - alert: GeoLensApiTileLatencyMean
-        # fix(#658): tile p95 is unreadable from the handler-labeled histogram
-        # (clips at 1s), so alert on the exact mean from _sum/_count instead.
+        # fix(#658): tile p95 was unreadable from the handler-labeled histogram
+        # (it clipped at 1s), so alert on the exact mean from _sum/_count
+        # instead. fix(#1517) raised the top finite bucket to 10, so the clip is
+        # no longer the reason — the mean stays because it is the more honest
+        # reading for a family this bursty, and the bound below is calibrated
+        # against it.
         # Active map browsing keeps the mean well under 1s even while p95 sits
-        # at the ceiling; a sustained mean above 2s means tiles are genuinely
+        # high; a sustained mean above 2s means tiles are genuinely
         # grinding (raster-proxy incidents run 2.2-2.6s/tile, cf. #643).
         # With no tile traffic the ratio is 0/0 = NaN, which never compares true.
         expr: |

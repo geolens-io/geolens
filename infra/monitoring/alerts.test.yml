@@ -1,0 +1,637 @@
+# promtool unit tests for alerts.yml — fix(#1517).
+#
+# Run from the repo root (same pinned tag as RUNBOOK.md §4):
+#
+#   docker run --rm -v "$PWD/infra/monitoring:/w" \
+#     --entrypoint promtool prom/prometheus:v3.6.0 test rules /w/alerts.test.yml
+#
+# Why this file exists: a PromQL `handler!~"..."` that silently matches nothing,
+# or matches everything, reads identically to a working one in a diff. #1517
+# shipped from a rule whose threshold could never be crossed, and no amount of
+# reviewing the YAML would have shown it. Every handler label below is a real
+# route from the app's route table, not an invented one. The partition itself is
+# also pinned in CI by backend/tests/test_alert_rules.py, which runs the same
+# selectors against that route table without needing promtool.
+#
+# All series are per-minute increments on a 1m interval, so `0+12x30` is 12
+# requests a minute for thirty minutes — long enough to satisfy every `for: 10m`.
+
+rule_files:
+  - alerts.yml
+
+evaluation_interval: 1m
+
+tests:
+  # --------------------------------------------------------------------------
+  # 0. Why the bucket change had to land with the rule change.
+  #
+  #    These bucket counts are not invented: they are a verbatim /metrics
+  #    scrape from a FastAPI app instrumented the way this repo instrumented it
+  #    BEFORE #1517 (library default buckets 0.1/0.5/1 + Inf), driven with 9
+  #    requests at 10ms and one slow one. The two handlers differ only in how
+  #    slow that request was — 1.5s and 11s — and the histogram cannot tell
+  #    them apart: both report p95 = 1.0, the highest finite bound, which is
+  #    what histogram_quantile returns for anything landing in +Inf.
+  #
+  #    That is why all three #1517 firings read exactly `1`. It was the ceiling,
+  #    not a latency, and no rule with a threshold above 1s could ever have
+  #    fired. Compare with scenario 1, on the widened buckets.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "pre-#1517 buckets: p95 cannot exceed 1.0, whatever the latency"
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="0.1"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="0.5"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="1.0"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="+Inf"}'
+        values: "0+10x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="0.1"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="0.5"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="1.0"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="+Inf"}'
+        values: "0+10x10"
+    promql_expr_test:
+      # The clamp value is a literal bucket bound handed straight back, so it is
+      # exact on every platform and safe to assert by value.
+      - expr: |
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{handler="/slow-1500ms"}[5m])))
+        eval_time: 10m
+        exp_samples:
+          - labels: "{}"
+            value: 1
+      - expr: |
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{handler="/slow-11000ms"}[5m])))
+        eval_time: 10m
+        exp_samples:
+          - labels: "{}"
+            value: 1
+      # And the claim itself, as a boolean: on these buckets p95 cannot exceed
+      # 1.0, for an 11s request or any other. `> bool` yields exactly 0 or 1,
+      # which is the point — see scenario 0b's note on comparing interpolated
+      # quantiles by value.
+      - expr: |
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{handler="/slow-11000ms"}[5m]))) > bool 1
+        eval_time: 10m
+        exp_samples:
+          - labels: "{}"
+            value: 0
+
+  # --------------------------------------------------------------------------
+  # 0b. The same two requests through LATENCY_LOWR_BUCKETS. The 1.5s one is now
+  #     a real reading; the 11s one clamps at the new top finite bound, 10s.
+  #     Same provenance — a real scrape, this time from the shipped code.
+  #
+  #     The 1.5s reading is asserted with `> bool` / `< bool` rather than by
+  #     value. An interpolated quantile is not bit-identical across
+  #     architectures: this case is exactly 1.75 on linux/amd64 and
+  #     1.7499999999999993 on darwin/arm64, because Go contracts `a + b*c` into
+  #     a fused multiply-add on arm64 and not on amd64. promtool compares
+  #     exp_samples exactly, so a pinned literal here passes on whichever
+  #     machine produced it and fails on the other. Values that come back as a
+  #     literal bucket bound (the clamps, 1 and 10) have no such arithmetic and
+  #     stay asserted by value.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "widened buckets: p95 readable to 1.75s, ceiling now 10s"
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="0.1"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="0.25"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="0.5"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="1.0"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="2.5"}'
+        values: "0+10x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="5.0"}'
+        values: "0+10x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="10.0"}'
+        values: "0+10x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-1500ms", le="+Inf"}'
+        values: "0+10x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="0.1"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="0.25"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="0.5"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="1.0"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="2.5"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="5.0"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="10.0"}'
+        values: "0+9x10"
+      - series: 'http_request_duration_seconds_bucket{handler="/slow-11000ms", le="+Inf"}'
+        values: "0+10x10"
+    promql_expr_test:
+      # p95 for the 1.5s request now lands strictly inside the (1, 2.5] bucket:
+      # a real reading, not the ceiling. Roughly 1.75; see the note above for
+      # why that number is not asserted directly.
+      - expr: |
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{handler="/slow-1500ms"}[5m]))) > bool 1
+        eval_time: 10m
+        exp_samples:
+          - labels: "{}"
+            value: 1
+      - expr: |
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{handler="/slow-1500ms"}[5m]))) < bool 2.5
+        eval_time: 10m
+        exp_samples:
+          - labels: "{}"
+            value: 1
+      # The 11s request clamps at the new top finite bound. A returned bucket
+      # bound, so exact everywhere.
+      - expr: |
+          histogram_quantile(0.95, sum by (le) (
+            rate(http_request_duration_seconds_bucket{handler="/slow-11000ms"}[5m])))
+        eval_time: 10m
+        exp_samples:
+          - labels: "{}"
+            value: 10
+
+  # --------------------------------------------------------------------------
+  # 1. The incident, replayed. Bulk reads slow (1-2.5s), interactive traffic
+  #    healthy — the exact shape of all three #1517 firings.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "healthy demo under geolens-examples CI load"
+    input_series:
+      # Interactive: 60/min, every one under 100ms.
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="0.1"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="0.25"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="0.5"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="1.0"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="2.5"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="5.0"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="10.0"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}", method="GET", le="+Inf"}'
+        values: "0+60x30"
+      # Bulk: 12/min each, every one between 1s and 2.5s.
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="0.1"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="0.25"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="0.5"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="2.5"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="5.0"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="10.0"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="GET", le="+Inf"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="0.1"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="0.25"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="0.5"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="2.5"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="5.0"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="10.0"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features.geojson", method="GET", le="+Inf"}'
+        values: "0+12x30"
+      # Same bulk traffic seen by the mean rule: 1.3s average, the demo's
+      # measured healthy cost for a ~10MB response.
+      - series: 'http_request_duration_seconds_sum{handler="/collections/{dataset_id}/items", method="GET"}'
+        values: "0+15.6x30"
+      - series: 'http_request_duration_seconds_count{handler="/collections/{dataset_id}/items", method="GET"}'
+        values: "0+12x30"
+      - series: 'http_request_duration_seconds_sum{handler="/datasets/{dataset_id}/features.geojson", method="GET"}'
+        values: "0+15.6x30"
+      - series: 'http_request_duration_seconds_count{handler="/datasets/{dataset_id}/features.geojson", method="GET"}'
+        values: "0+12x30"
+
+    promql_expr_test:
+      # The rule's selector as it stood BEFORE #1517 (tiles-only exclusion), on
+      # this exact input: 2.24s, over the bound, so it pages. On the pre-#1517
+      # buckets it would have read the ceiling value 1 instead (scenario 0) and
+      # `>= 1` would have paged just the same. Either way this healthy traffic
+      # crosses the old rule's threshold — that is the false page.
+      # Both readings are interpolated quantiles, so they are compared with
+      # `>= bool` / `< bool` rather than pinned as literals — see scenario 0b.
+      # Measured values, for orientation: 2.2375s on the old selector, 0.095s on
+      # the shipped one.
+      - expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{handler!~"/tiles/.*"}[5m]))) >= bool 1
+        eval_time: 25m
+        exp_samples:
+          - labels: "{}"
+            value: 1
+      # The same input through the shipped rule's selector: a real p95, far
+      # below the bound. 28.6% of non-tile requests still exceed 1s.
+      - expr: |
+          histogram_quantile(0.95,
+            sum by (le) (rate(http_request_duration_seconds_bucket{
+              handler!~"/tiles/.*|/datasets/[^/]+/features(\\.geojson)?/?|/datasets/[^/]+/export|/datasets/[^/]+/download/cog|/collections/[^/]+/items/?|/stac/collections/[^/]+/items"
+            }[5m]))) < bool 0.5
+        eval_time: 25m
+        exp_samples:
+          - labels: "{}"
+            value: 1
+
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: GeoLensApiBulkLatencyMean
+        exp_alerts: []
+
+  # --------------------------------------------------------------------------
+  # 2. The interactive rule is still alive. Without this the exclusion above
+  #    could have swallowed every handler and scenario 1 would still pass.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "interactive endpoint genuinely degraded"
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="0.1"}'
+        values: "0+40x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="0.25"}'
+        values: "0+40x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="0.5"}'
+        values: "0+40x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="1.0"}'
+        values: "0+40x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="2.5"}'
+        values: "0+50x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="5.0"}'
+        values: "0+50x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="10.0"}'
+        values: "0+50x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/search/datasets/", method="GET", le="+Inf"}'
+        values: "0+50x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "API p95 latency (interactive) at or above 1s"
+              description:
+                "95th-percentile latency of interactive API requests has been at
+                or above 1s for 10 minutes (2.125s). Tile and bulk-read endpoints
+                are excluded; see GeoLensApiTileLatencyMean and
+                GeoLensApiBulkLatencyMean."
+
+  # --------------------------------------------------------------------------
+  # 3. The bulk rule is not vacuous either.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "bulk endpoint genuinely degraded"
+    input_series:
+      - series: 'http_request_duration_seconds_sum{handler="/datasets/{dataset_id}/export", method="GET"}'
+        values: "0+80x30"
+      - series: 'http_request_duration_seconds_count{handler="/datasets/{dataset_id}/export", method="GET"}'
+        values: "0+10x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiBulkLatencyMean
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              handler: "/datasets/{dataset_id}/export"
+            exp_annotations:
+              summary: "Mean bulk-read latency above 5s (/datasets/{dataset_id}/export)"
+              description:
+                "/datasets/{dataset_id}/export has averaged 8s over the last 10
+                minutes. Bulk reads are slow by design, so this bound sits well
+                above the ~1.3s a 10MB response normally costs — crossing it
+                points at the query or the export path, not at payload size."
+
+  # --------------------------------------------------------------------------
+  # 4. Selector precision. Every handler here is slow enough to pin p95, and
+  #    each one's membership is a decision the regex has to get right.
+  #
+  #    Trailing-slash twins are the trap: FastAPI registers both
+  #    /collections/{dataset_id}/items and /collections/{dataset_id}/items/, and
+  #    redirect_slashes=False means both are live, distinct handler labels. The
+  #    `/collections/.*/items` shape first proposed on #1517 covers only the
+  #    first, so the CI traffic hitting the second would have kept paging.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "bulk-adjacent handlers are on the intended side of the selector"
+    input_series:
+      # Bulk (excluded from the interactive rule).
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items/", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items/", method="GET", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items/", method="GET", le="+Inf"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/stac/collections/{collection_id}/items", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/stac/collections/{collection_id}/items", method="GET", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/stac/collections/{collection_id}/items", method="GET", le="+Inf"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features/", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features/", method="GET", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features/", method="GET", le="+Inf"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/download/cog", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/download/cog", method="GET", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/download/cog", method="GET", le="+Inf"}'
+        values: "0+20x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts: []
+
+  - interval: 1m
+    name: "single-object reads and bulk-named mutations stay interactive"
+    input_series:
+      # A single feature read is not a bulk transfer, however much its path
+      # looks like one. Same for a mutation whose name contains "bulk".
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features/{gid}", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features/{gid}", method="GET", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features/{gid}", method="GET", le="+Inf"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items/{feature_id}", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items/{feature_id}", method="GET", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items/{feature_id}", method="GET", le="+Inf"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/bulk-delete", method="POST", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/bulk-delete", method="POST", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/bulk-delete", method="POST", le="+Inf"}'
+        values: "0+20x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "API p95 latency (interactive) at or above 1s"
+              description:
+                "95th-percentile latency of interactive API requests has been at
+                or above 1s for 10 minutes (2.425s). Tile and bulk-read
+                endpoints are excluded; see GeoLensApiTileLatencyMean and
+                GeoLensApiBulkLatencyMean."
+
+  # --------------------------------------------------------------------------
+  # 4c. A path is not a request. /datasets/{dataset_id}/features answers GET and
+  #     POST off one template, so a handler-only selector would have taken
+  #     feature CREATION out of interactive monitoring and judged it against the
+  #     bulk rule's 5s bound instead. Here POST is slow and GET is healthy on
+  #     the same handler: the interactive rule has to fire on the POST, and the
+  #     bulk rule has to stay quiet even though the POST mean is 20s.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "slow feature creation stays under the interactive bound"
+    input_series:
+      # POST: 20/min, all of them over 1s.
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features", method="POST", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features", method="POST", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features", method="POST", le="+Inf"}'
+        values: "0+20x30"
+      # GET on the same handler: bulk, slow, and correctly excluded.
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features", method="GET", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features", method="GET", le="2.5"}'
+        values: "0+60x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/features", method="GET", le="+Inf"}'
+        values: "0+60x30"
+      # The POST averages 20s. The bulk rule must not see it at all; if it did,
+      # 20s is far over the 5s bound and it would fire.
+      - series: 'http_request_duration_seconds_sum{handler="/datasets/{dataset_id}/features", method="POST"}'
+        values: "0+400x30"
+      - series: 'http_request_duration_seconds_count{handler="/datasets/{dataset_id}/features", method="POST"}'
+        values: "0+20x30"
+      # Healthy GET reads on the same handler, well under the bulk bound.
+      - series: 'http_request_duration_seconds_sum{handler="/datasets/{dataset_id}/features", method="GET"}'
+        values: "0+78x30"
+      - series: 'http_request_duration_seconds_count{handler="/datasets/{dataset_id}/features", method="GET"}'
+        values: "0+60x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiBulkLatencyMean
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "API p95 latency (interactive) at or above 1s"
+              description:
+                "95th-percentile latency of interactive API requests has been at
+                or above 1s for 10 minutes (2.425s). Tile and bulk-read
+                endpoints are excluded; see GeoLensApiTileLatencyMean and
+                GeoLensApiBulkLatencyMean."
+
+  # --------------------------------------------------------------------------
+  # 4d. HEAD is a read. _register_standards_head_routes() clones the GET route
+  #     with the same endpoint, so a HEAD on a collection runs the same query
+  #     and only drops the body on the wire. It belongs on the bulk side, and a
+  #     `method="GET"` matcher would have quietly put it back on the 1s bound.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "HEAD on a bulk collection is treated as a bulk read"
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="HEAD", le="1.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="HEAD", le="2.5"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/collections/{dataset_id}/items", method="HEAD", le="+Inf"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_sum{handler="/collections/{dataset_id}/items", method="HEAD"}'
+        values: "0+26x30"
+      - series: 'http_request_duration_seconds_count{handler="/collections/{dataset_id}/items", method="HEAD"}'
+        values: "0+20x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts: []
+      - eval_time: 25m
+        alertname: GeoLensApiBulkLatencyMean
+        exp_alerts: []
+
+  # --------------------------------------------------------------------------
+  # 5. Tiles keep their own rule, unchanged by the split.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "tile latency still has its own bound"
+    input_series:
+      - series: 'http_request_duration_seconds_sum{handler="/tiles/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf", method="GET", le="+Inf"}'
+        values: "0+240x30"
+      - series: 'http_request_duration_seconds_count{handler="/tiles/{table_path:path}/{z:int}/{x:int}/{y:int}.pbf", method="GET", le="+Inf"}'
+        values: "0+100x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiTileLatencyMean
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "Mean tile latency above 2s"
+              description:
+                "Requests under /tiles/ have averaged 2.4s over the last 10
+                minutes — vector-tile queries or the raster proxy are grinding."
+
+  # --------------------------------------------------------------------------
+  # 6. The rules #1517 did not touch. They were uncovered when this file was
+  #    added; a coverage guard that exempts whatever is inconvenient is not a
+  #    coverage guard. Each gets a firing case and a below-threshold case, so
+  #    neither direction passes for free.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "scrape target down"
+    input_series:
+      - series: 'up{job="geolens-api", instance="api:8000"}'
+        values: "1 1 1 0 0 0 0 0 0 0 0 0"
+      - series: 'up{job="geolens-worker", instance="worker:8001"}'
+        values: "1 1 1 1 1 1 1 1 1 1 1 1"
+    alert_rule_test:
+      - eval_time: 4m
+        alertname: GeoLensTargetDown
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: GeoLensTargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: geolens-api
+              instance: "api:8000"
+            exp_annotations:
+              summary: "geolens-api scrape target is down"
+              description:
+                "Prometheus has failed to scrape geolens-api (api:8000) for more
+                than 2 minutes — the API or worker process may be down."
+
+  - interval: 1m
+    name: "5xx ratio over 5%"
+    input_series:
+      - series: 'http_requests_total{status="200", handler="/datasets/{dataset_id}", method="GET"}'
+        values: "0+90x30"
+      - series: 'http_requests_total{status="500", handler="/datasets/{dataset_id}", method="GET"}'
+        values: "0+10x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GeoLensApiHigh5xxRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+            exp_annotations:
+              summary: "API 5xx error ratio above 5%"
+              description:
+                "10% of API requests returned 5xx over the last 5 minutes."
+
+  - interval: 1m
+    name: "5xx ratio under 5% stays quiet"
+    input_series:
+      - series: 'http_requests_total{status="200", handler="/datasets/{dataset_id}", method="GET"}'
+        values: "0+98x30"
+      - series: 'http_requests_total{status="500", handler="/datasets/{dataset_id}", method="GET"}'
+        values: "0+2x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GeoLensApiHigh5xxRate
+        exp_alerts: []
+
+  - interval: 1m
+    name: "job queue backlog"
+    input_series:
+      - series: 'geolens_jobs_queue_depth{queue="ingest"}'
+        values: "150x30"
+      - series: 'geolens_jobs_queue_depth{queue="tiles"}'
+        values: "4x30"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: GeoLensJobQueueBacklog
+        exp_alerts: []
+      - eval_time: 20m
+        alertname: GeoLensJobQueueBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              queue: ingest
+            exp_annotations:
+              summary: "Job queue 'ingest' backlog above 100"
+              description:
+                "150 jobs have been waiting in the 'ingest' queue for more than
+                15 minutes — the worker may be stuck or under-provisioned.
+                Threshold is tunable."
+
+  - interval: 1m
+    name: "job failures"
+    input_series:
+      - series: 'geolens_jobs_failed_total{queue="ingest"}'
+        values: "0+1x30"
+      - series: 'geolens_jobs_failed_total{queue="tiles"}'
+        values: "0+0x30"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: GeoLensJobFailures
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              queue: ingest
+            exp_annotations:
+              summary: "Jobs failing in queue 'ingest'"
+              description:
+                "15 jobs failed in the 'ingest' queue in the last 15 minutes."
+
+  - interval: 1m
+    name: "db pool overflow in sustained use"
+    input_series:
+      - series: "geolens_db_pool_overflow"
+        values: "0 0 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3 3"
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: GeoLensDbPoolSaturated
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: GeoLensDbPoolSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "DB connection pool saturated (overflow in use)"
+              description:
+                "The base connection pool has been full and using overflow
+                connections for more than 10 minutes. Consider raising the pool
+                size or investigating slow queries."

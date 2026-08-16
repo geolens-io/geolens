@@ -65,6 +65,7 @@ jobs:
       alembic: ${{ steps.filter.outputs.alembic }}
       installer: ${{ steps.filter.outputs.installer }}
       backup: ${{ steps.filter.outputs.backup }}
+      monitoring: ${{ steps.filter.outputs.monitoring }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -175,6 +176,13 @@ jobs:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/init-db.sh'
               - 'scripts/lib/configure-runtime-db-role.sh'
+              # fix(#1517): test_alert_rules.py reads both of these by literal
+              # path — it checks the alert rules' handler selectors against the
+              # app's real route table, and that every rule has a promtool case.
+              # Without this, an alerts-only PR skips the only gate that would
+              # catch a selector matching nothing.
+              - 'infra/monitoring/alerts.yml'
+              - 'infra/monitoring/alerts.test.yml'
               # fix(#561): a change to this workflow can alter HOW Backend Tests
               # runs (e.g. the -n4 parallelization / coverage core), so the suite
               # must run on PRs that touch it — otherwise CI-config changes ship
@@ -321,6 +329,15 @@ jobs:
               - '.github/workflows/publish.yml'
               # The round-trip proof itself is ~220 inline lines of THIS
               # workflow — a ci.yml-only edit to those steps must run them.
+              - '.github/workflows/ci.yml'
+            # fix(#1521 review): the promtool suite. Separate from `backend`
+            # because it needs no Python at all and should not run on every
+            # backend PR; the alerts files are in BOTH filters on purpose, since
+            # backend/tests/test_alert_rules.py reads them too.
+            monitoring:
+              - 'infra/monitoring/**'
+              # The job is defined in this workflow, so a change to its steps
+              # must run them.
               - '.github/workflows/ci.yml'
 
   # ---------- backend ----------
@@ -913,6 +930,53 @@ jobs:
       # a few seconds.
       - name: Check committed README image dimensions
         run: npm run check:readme-assets
+
+  # ---------- monitoring ----------
+  # fix(#1521 review): infra/monitoring/alerts.test.yml replays every alert rule
+  # against synthetic series, and until this job existed nothing ran it. A
+  # PromQL expression that no longer parses, or an expected-alert case that
+  # stopped holding, would have shipped green — the backend suite only reads
+  # those files as text. promtool is the only thing that can evaluate a rule.
+  monitoring-rules:
+    name: Monitoring Rules
+    needs: changes
+    if: needs.changes.outputs.monitoring == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
+    runs-on: ubuntu-latest
+    env:
+      # Same image RUNBOOK.md §4 tells operators to run Prometheus from, pinned
+      # by digest so the gate cannot change under us on a tag re-push.
+      PROMETHEUS_IMAGE: prom/prometheus:v3.6.0@sha256:76947e7ef22f8a698fc638f706685909be425dbe09bd7a2cd7aca849f79b5f64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      # `promtool test rules` reports SUCCESS on a file that declares no cases
+      # at all, and `check rules` is happy with a rule nothing exercises. Both
+      # would be a green step asserting nothing, which is the failure mode this
+      # whole job exists to close, so count the cases before trusting the run.
+      - name: Guard against an empty rule or case list
+        run: |
+          set -euo pipefail
+          alerts=$(grep -c '^      - alert:' infra/monitoring/alerts.yml)
+          cases=$(grep -c '^        alertname:' infra/monitoring/alerts.test.yml)
+          echo "alerts.yml declares $alerts rules; alerts.test.yml asserts on $cases"
+          if [ "$alerts" -lt 8 ]; then
+            echo "::error::alerts.yml declares $alerts rules, expected at least 8"
+            exit 1
+          fi
+          if [ "$cases" -lt "$alerts" ]; then
+            echo "::error::alerts.test.yml has $cases alertname assertions for $alerts rules"
+            exit 1
+          fi
+
+      - name: promtool check rules
+        run: |
+          docker run --rm -v "$PWD/infra/monitoring:/w:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" check rules /w/alerts.yml
+
+      - name: promtool test rules
+        run: |
+          docker run --rm -v "$PWD/infra/monitoring:/w:ro" \
+            --entrypoint promtool "$PROMETHEUS_IMAGE" test rules /w/alerts.test.yml
 
   # ---------- CLI ----------
   # Structural enforcement that the CLI never grows
@@ -1536,6 +1600,9 @@ jobs:
       - frontend-lint
       - frontend-test
       - security-scan
+      # fix(#1521 review): the promtool suite gates nothing unless it is here —
+      # branch protection only sees CI OK.
+      - monitoring-rules
       # fix(#824): always-run jobs must feed the aggregator too — before this,
       # a failure in version-coherence or docs-contract could not block a
       # merge (branch protection only sees CI OK). changes and pre-commit are

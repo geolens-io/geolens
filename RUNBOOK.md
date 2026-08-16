@@ -1093,7 +1093,8 @@ targets just need network reach to `api:8000` and `worker:8001`.
 |---|---|---|
 | `GeoLensTargetDown` | API or worker unscrapeable for >2m | critical |
 | `GeoLensApiHigh5xxRate` | 5xx share of requests >5% over 5m | critical |
-| `GeoLensApiInteractiveLatencyP95` | non-tile p95 at the 1s histogram ceiling for 10m | warning |
+| `GeoLensApiInteractiveLatencyP95` | interactive p95 ≥1s for 10m (tile and bulk-read handlers excluded) | warning |
+| `GeoLensApiBulkLatencyMean` | mean latency of a bulk read >5s for 10m | warning |
 | `GeoLensApiTileLatencyMean` | mean `/tiles/*` latency >2s for 10m | warning |
 | `GeoLensJobQueueBacklog` | any queue >100 jobs for 15m | warning |
 | `GeoLensJobFailures` | >5 job failures in 15m | warning |
@@ -1102,6 +1103,27 @@ targets just need network reach to `api:8000` and `worker:8001`.
 > Under an external pooler (`DB_USE_EXTERNAL_POOLER=true` → SQLAlchemy `NullPool`),
 > the `geolens_db_pool_*` gauges are not emitted and `GeoLensDbPoolSaturated`
 > never fires — pool health is the provider's responsibility there.
+
+Feature and item collections, dataset exports and COG downloads return whatever
+the caller asked for — `?limit=2000` on a feature collection is roughly 10MB — so
+they get a mean-based bound of their own rather than counting toward the
+interactive percentile, the same treatment `/tiles/*` has had since #658.
+`GeoLensApiBulkLatencyMean` reports which handler crossed the bound.
+
+To check the rules after editing them (`prom/prometheus` ships `promtool`):
+
+```bash
+docker run --rm -v "$PWD/infra/monitoring:/w" --entrypoint promtool \
+  prom/prometheus:v3.6.0 check rules /w/alerts.yml
+docker run --rm -v "$PWD/infra/monitoring:/w" --entrypoint promtool \
+  prom/prometheus:v3.6.0 test rules /w/alerts.test.yml
+```
+
+`alerts.test.yml` replays each rule against synthetic series, including the
+traffic shape that made `GeoLensApiInteractiveLatencyP95` page three times in a
+week (#1517). A threshold changed without a matching expectation there fails the
+second command. CI runs both commands in the Monitoring Rules job, so you get
+the same answer on a PR that touches `infra/monitoring/`.
 
 ### API worker memory & recycling
 
