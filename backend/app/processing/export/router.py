@@ -4,8 +4,9 @@ import os
 import re
 import shutil
 import uuid
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,7 +23,11 @@ from app.core.db.tenant_session import current_tenant_var
 from app.platform.extensions import get_permission_extension, get_processing_port
 from app.processing.export.ogr import ExportError, bbox_where_sql
 from app.processing.export.schemas import ExportFormat
-from app.processing.export.service import export_dataset, validate_where_clause
+from app.processing.export.service import (
+    export_dataset,
+    export_descriptor,
+    validate_where_clause,
+)
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
 from app.standards.ogc.errors import (
@@ -136,6 +141,116 @@ async def _count_selected_features(
     return result.scalar_one()
 
 
+def _file_response_content_disposition(filename: str) -> str:
+    """Restate starlette ``FileResponse``'s Content-Disposition rule.
+
+    The GET half of this route hands ``filename=`` to ``FileResponse``, which
+    derives the header itself (``starlette/responses.py``, ``FileResponse
+    .__init__``): a quoted ``filename=`` for names that survive percent-
+    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
+    file to hand it, so the rule is restated here.
+
+    Not ``safe_content_disposition()`` from ``export/service.py``: that one
+    always appends ``filename*``, so HEAD would advertise a different header
+    than the GET delivers. ``test_head_export_content_disposition_matches_get``
+    pins the two byte-for-byte, over both branches, so a starlette change
+    fails a test instead of shipping the mismatch.
+    """
+    quoted = quote(filename)
+    if quoted != filename:
+        return f"attachment; filename*=utf-8''{quoted}"
+    return f'attachment; filename="{filename}"'
+
+
+def _head_export_response(dataset_title: str, format_key: str) -> Response:
+    """fix(#1513): the HEAD half of the export route.
+
+    Every check that can decide the status WITHOUT producing bytes has already
+    run in the shared handler above: access control, the export capability,
+    bbox/CRS validation, the raster and geometry gates, the feature-count
+    ceiling, filter validation, and for parquet the live-column check and the
+    bounded count. The conversion itself is skipped, which is the whole point:
+    a HEAD that ran ogr2ogr and discarded the bytes would hand any anonymous
+    caller a way to spend a worker per request on a public dataset.
+
+    Two statuses HEAD therefore cannot promise, and does not claim to: 500
+    (ogr2ogr or the parquet build fails) and 503 (the staging volume is
+    unavailable). Both are knowable only by attempting the export, so a HEAD
+    answers 200 for a request whose GET would fail that way. That limit is
+    deliberate and pinned by
+    ``test_head_cannot_promise_conversion_failure_status``; everything else a
+    GET can reject, HEAD rejects identically.
+
+    An earlier revision claimed full parity while filter validation still lived
+    inside ``export_dataset``/``export_parquet``, below the HEAD return, so a
+    bad filter got 200 from HEAD and 400 from the GET (codex P2 on #1522).
+    Those checks are hoisted now; the parity claim above is the narrower one
+    the code actually supports.
+
+    ``Accept-Ranges: bytes`` says the endpoint serves byte ranges. It does NOT
+    say the representation is stable across requests, and here it is not: every
+    range GET re-enters this endpoint and converts the dataset again, so a
+    probing client is reading a sequence of freshly built artifacts rather than
+    slices of one (fix(#1532)). While the data is unchanged that is only
+    wasteful — the export is byte-deterministic, so consecutive conversions are
+    identical. While the data changes mid-read the sequence is incoherent, and
+    it fails LOUDLY: a spliced GeoJSON dies with ``ERROR 4: Failed to read
+    GeoJSON data`` and no output file, rather than yielding a plausible wrong
+    answer. Keeping that loud failure is a constraint on the real fix, which is
+    to serve ranges from a cached artifact.
+
+    The header stays. GDAL ranges because a size-less HEAD gives it no length,
+    not because it read this header, and the GET has advertised ``accept-ranges``
+    from starlette's ``FileResponse`` on main all along — dropping it here would
+    change nothing about the exposure and would break the size discovery this
+    HEAD depends on.
+
+    Content-Length is deliberately absent. An export's length is knowable only
+    after the conversion, and RFC 9110 section 9.3.2 lets a HEAD omit header
+    fields "for which a value is determined only while generating the
+    content". Measured against GDAL 3.13.0 ``/vsicurl/``, omitting it costs
+    nothing: HEAD without a length logs "HEAD did not provide file size.
+    Retrying with limited range GET", and the 206's Content-Range supplies the
+    size — same request count as a HEAD that carried Content-Length, and one
+    fewer full-body GET than the 405 this replaces.
+    """
+    filename, media_type = export_descriptor(dataset_title, format_key)
+    response = Response(
+        status_code=status.HTTP_200_OK,
+        media_type=media_type,
+        headers={
+            "content-disposition": _file_response_content_disposition(filename),
+            # The GET this describes is a FileResponse, which serves 206 byte
+            # ranges, and this is also what lets a size-less HEAD work: vsicurl
+            # learns the length from the first range response. It promises
+            # range SERVICE, not a stable representation — see the docstring
+            # and fix(#1532).
+            "accept-ranges": "bytes",
+        },
+    )
+    # Starlette gives every non-204 response a Content-Length from its body,
+    # which for an empty body is `content-length: 0` — a WRONG answer about the
+    # export's size rather than no answer, and strictly worse than the 405 it
+    # replaces: a client would read the export as an empty file. Strip it.
+    response.raw_headers = [
+        (key, value) for key, value in response.raw_headers if key != b"content-length"
+    ]
+    return response
+
+
+# fix(#1513): HEAD alongside GET. FastAPI's APIRoute does not add it the way
+# starlette's plain Route does, so this answered `405 allow: GET` — which RFC
+# 9110 forbids for a GET-able resource, and which breaks every client that
+# probes before downloading (GDAL/QGIS `/vsicurl/`, resumable downloaders,
+# link checkers). `_register_standards_head_routes` in app/api/main.py closes
+# the same gap for the standards surface, but by CLONING the route, which
+# would run the full conversion here; this route needs a handler that stops
+# before it, so it is registered explicitly instead.
+#
+# include_in_schema=False for the reason `_clone_api_route` gives: a derived
+# route documents nothing the canonical one does not, and publishing it would
+# churn both SDKs and the CLI.
+@router.head("/{dataset_id}/export", include_in_schema=False)
 @router.get("/{dataset_id}/export", response_class=FileResponse)
 async def export_dataset_endpoint(
     dataset_id: uuid.UUID,
@@ -156,7 +271,7 @@ async def export_dataset_endpoint(
     # per-role matrix check below.
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+) -> Response:
     """Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
@@ -315,31 +430,74 @@ async def export_dataset_endpoint(
                 ),
             )
 
+    # 6c. fix(#1513, codex P2 on #1522): the remaining checks that decide the
+    # STATUS, hoisted above the HEAD return. These used to live inside
+    # export_dataset()/export_parquet(), i.e. below it, so HEAD answered 200
+    # for a filter GET rejects with 400 and for a parquet selection GET rejects
+    # with 413. A probing client accepted that HEAD and then failed its range
+    # GET, which is worse than the 405 this route replaced: the 405 did not
+    # lie. Validation only — running the conversion to learn a status is the
+    # denial-of-service foot-gun the HEAD branch exists to avoid.
+    parquet_plan = None
+    if format == ExportFormat.parquet:
+        # Parquet validates the filter against the LIVE columns, not the
+        # nullable dataset.column_info (see plan_parquet_export), and owns the
+        # bounded count the cap guard above deliberately skips for it.
+        from app.processing.export.parquet import (
+            ExportTooLargeError,
+            plan_parquet_export,
+        )
+
+        try:
+            parquet_plan = await plan_parquet_export(
+                db,
+                dataset.table_name,
+                schema=data_schema,
+                bbox=bbox_parsed,
+                where=where,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except ExportTooLargeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=str(e),
+            )
+    elif where is not None:
+        # ogr2ogr path: same check export_dataset runs, against the same
+        # column_info, just early enough for HEAD to see it.
+        try:
+            validate_where_clause(where, dataset.column_info)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+
+    # 6d. HEAD stops here — after every gate that decides the status, before
+    # the conversion that decides the bytes. No audit event either: nothing was
+    # exported, and a `dataset.export` row for a probe would misreport who
+    # downloaded what.
+    if request.method == "HEAD":
+        return _head_export_response(dataset.record.title, format)
+
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.
     try:
         if format == ExportFormat.parquet:
-            from app.processing.export.parquet import (
-                ExportTooLargeError,
-                export_parquet,
-            )
+            from app.processing.export.parquet import export_parquet
 
-            try:
-                file_path, filename, media_type = await export_parquet(
-                    db,
-                    dataset.table_name,
-                    dataset.record.title,
-                    schema=data_schema,
-                    bbox=bbox_parsed,
-                    where=where,
-                )
-            except ExportTooLargeError as e:
-                # In-memory parquet build exceeded the cap (covers datasets with a
-                # NULL feature_count that skipped the guard above).
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=str(e),
-                )
+            assert parquet_plan is not None  # set by the parquet branch above
+            file_path, filename, media_type = await export_parquet(
+                db,
+                dataset.table_name,
+                dataset.record.title,
+                schema=data_schema,
+                plan=parquet_plan,
+            )
         else:
             file_path, filename, media_type = await export_dataset(
                 dataset.table_name,

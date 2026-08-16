@@ -29,6 +29,7 @@ structure, and runs wherever the backend suite runs.
 
 from __future__ import annotations
 
+import collections
 import pathlib
 import re
 from typing import Any
@@ -143,22 +144,46 @@ def _bulk_selector() -> str:
     assert len(excluded) == 1, (
         f"expected exactly one handler!~ in the interactive rule, got {excluded}"
     )
-    assert len(covered) == 3, (
-        "expected the bulk selector three times (interactive union arm, bulk "
-        f"_sum, bulk _count), got {len(covered)}"
+
+    # fix(#1513): there are now TWO distinct handler selectors, each written
+    # exactly three times, and the count is partitioned by value rather than
+    # relaxed. The bulk set appears in the interactive union arm and both halves
+    # of the bulk ratio; the export-HEAD carve-out appears in its own
+    # interactive union arm and in the `unless` on each half of that ratio.
+    #
+    # A second selector is forced, not stylistic: Prometheus ANDs the matchers
+    # inside one selector and RE2 has no lookahead, so "the bulk paths except
+    # HEAD on export" cannot be spelled as a single handler matcher. Holding
+    # each spelling to three copies keeps the original invariant — every copy
+    # of a selector is identical — which a `>= 3` would give up entirely.
+    spellings = collections.Counter(covered)
+    assert sorted(spellings.values()) == [3, 3], (
+        "expected exactly two handler selectors written three times each (the "
+        "bulk set, and the export-HEAD carve-out), got "
+        f"{ {value: count for value, count in spellings.items()} }"
     )
-    selector = _sole(covered, "the bulk handler selector")
 
     tile_prefix = "/tiles/.*|"
     assert excluded[0].startswith(tile_prefix), (
         "the interactive rule's exclusion no longer starts with the tile "
         f"selector from #658: {excluded[0]!r}"
     )
-    assert excluded[0][len(tile_prefix) :] == selector, (
+    selector = excluded[0][len(tile_prefix) :]
+    assert spellings.get(selector) == 3, (
         "the interactive rule excludes a different set of paths than the bulk "
         "rule covers, so something is double-alerted or unmonitored.\n"
-        f"  interactive excludes: {excluded[0][len(tile_prefix) :]!r}\n"
-        f"  bulk rule covers:     {selector!r}"
+        f"  interactive excludes: {selector!r}\n"
+        f"  selectors found:      { {v: c for v, c in spellings.items()} }"
+    )
+
+    # The other spelling must be one of the alternatives the bulk selector
+    # covers. A carve-out for a path the bulk rule never claimed would move
+    # nothing and quietly leave the handler in both rules or neither.
+    carve_outs = [value for value in spellings if value != selector]
+    assert len(carve_outs) == 1, f"expected one carve-out selector, got {carve_outs}"
+    assert carve_outs[0] in selector.split("|"), (
+        "the carved-out handler is not one of the paths the bulk selector "
+        f"covers: {carve_outs[0]!r} not in {selector.split('|')}"
     )
     assert selector.count("|") >= 4, (
         f"bulk selector has fewer alternatives than expected: {selector!r}"

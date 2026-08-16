@@ -324,12 +324,23 @@ class TestAntimeridianExportEndToEnd:
         )
         features_names = sorted(r["properties"]["name"] for r in rows)
 
+        # fix(#1513): planning (introspection + filter validation + the bounded
+        # count) is a separate phase from writing, so the route can decide a
+        # HEAD's status without producing bytes. Same two steps here.
+        from app.processing.export.parquet import plan_parquet_export
+
+        parquet_plan = await plan_parquet_export(
+            test_db_session,
+            antimeridian_table,
+            schema="data",
+            bbox=CROSSING_BBOX,
+        )
         parquet_path, _fn, _mt = await export_parquet(
             test_db_session,
             antimeridian_table,
             "AM Dataset",
             schema="data",
-            bbox=CROSSING_BBOX,
+            plan=parquet_plan,
         )
         try:
             import pyarrow.parquet as pq

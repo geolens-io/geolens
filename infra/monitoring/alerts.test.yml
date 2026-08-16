@@ -491,6 +491,48 @@ tests:
         exp_alerts: []
 
   # --------------------------------------------------------------------------
+  # 4e. ...but the export HEAD is not that kind of HEAD. fix(#1513) gave the
+  #     export route an EXPLICIT HEAD handler that stops before the ogr2ogr
+  #     conversion, so it answers from metadata alone. Unlike 4d's cloned
+  #     standards route it does not run the read it describes, which is exactly
+  #     the condition the interactive rule's comment names for moving a handler
+  #     back. Same traffic judged both ways: 6s per request is a screaming
+  #     interactive regression and an unremarkable bulk download.
+  # --------------------------------------------------------------------------
+  - interval: 1m
+    name: "HEAD on the export route is interactive, not a bulk read"
+    input_series:
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/export", method="HEAD", le="5.0"}'
+        values: "0+0x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/export", method="HEAD", le="10.0"}'
+        values: "0+20x30"
+      - series: 'http_request_duration_seconds_bucket{handler="/datasets/{dataset_id}/export", method="HEAD", le="+Inf"}'
+        values: "0+20x30"
+      # 20 requests/min averaging 6s: over the bulk rule's 5s bound, so if this
+      # handler were still on the bulk side that rule would fire. Both
+      # assertions below therefore flip if the partition regresses.
+      - series: 'http_request_duration_seconds_sum{handler="/datasets/{dataset_id}/export", method="HEAD"}'
+        values: "0+120x30"
+      - series: 'http_request_duration_seconds_count{handler="/datasets/{dataset_id}/export", method="HEAD"}'
+        values: "0+20x30"
+    alert_rule_test:
+      - eval_time: 25m
+        alertname: GeoLensApiInteractiveLatencyP95
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+            exp_annotations:
+              summary: "API p95 latency (interactive) at or above 1s"
+              description:
+                "95th-percentile latency of interactive API requests has been at
+                or above 1s for 10 minutes (9.75s). Tile and bulk-read
+                endpoints are excluded; see GeoLensApiTileLatencyMean and
+                GeoLensApiBulkLatencyMean."
+      - eval_time: 25m
+        alertname: GeoLensApiBulkLatencyMean
+        exp_alerts: []
+
+  # --------------------------------------------------------------------------
   # 5. Tiles keep their own rule, unchanged by the split.
   # --------------------------------------------------------------------------
   - interval: 1m

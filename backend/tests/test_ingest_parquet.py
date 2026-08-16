@@ -485,8 +485,12 @@ class TestParquetRoundTrip:
         import shutil
         from pathlib import Path
 
+        # fix(#1513): plan then write — the two phases the export route uses.
+        from app.processing.export.parquet import plan_parquet_export
+
+        plan = await plan_parquet_export(test_db_session, seeded_table, schema="data")
         file_path, _, _ = await export_parquet(
-            test_db_session, seeded_table, "roundtrip", schema="data"
+            test_db_session, seeded_table, "roundtrip", schema="data", plan=plan
         )
         try:
             info = await run_ogrinfo(file_path)

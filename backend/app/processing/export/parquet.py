@@ -13,9 +13,9 @@ embedded PROJJSON is needed here.
 
 import json
 import os
-import re
 import shutil
 import uuid
+from typing import NamedTuple
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -26,7 +26,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
 from app.processing.export.ogr import bbox_where_sql
-from app.processing.export.service import validate_where_clause
+from app.processing.export.service import export_descriptor, validate_where_clause
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info
 
@@ -137,23 +137,38 @@ def _write_geoparquet(
     pq.write_table(table, output_path)
 
 
-async def export_parquet(
+class ParquetExportPlan(NamedTuple):
+    """The validated selection a parquet export will read. No bytes produced."""
+
+    attr_names: list[str]
+    where_sql: str
+    params: dict
+
+
+async def plan_parquet_export(
     db: AsyncSession,
     table_name: str,
-    dataset_name: str,
     *,
     schema: str,
     bbox: list[float] | None = None,
     where: str | None = None,
-) -> tuple[str, str, str]:
-    """Export a PostGIS feature table to a GeoParquet file.
+) -> ParquetExportPlan:
+    """Everything that decides a parquet export's STATUS, producing no file.
 
-    Returns (file_path, download_filename, media_type). The caller owns the
-    returned file's parent directory (FileResponse background cleanup).
+    fix(#1513, codex P2 on #1522): split out of ``export_parquet`` so the route
+    can run it BEFORE it answers a HEAD. Live introspection, filter validation
+    and the bounded count are all queries, not conversion, so a HEAD can afford
+    them — and has to: while these lived inside ``export_parquet`` a HEAD
+    answered 200 and the caller's follow-up range GET then failed 400 or 413,
+    which is worse than the 405 the HEAD route replaced, because it lies.
 
-    Builds the whole selection in memory before writing one Parquet
-    file. Bounded by _MAX_EXPORT_FEATURES below; switch to a fixed-schema batched
-    ParquetWriter if that ceiling ever needs raising.
+    Split at the conversion boundary, not at an arbitrary point: everything
+    here is a read, and everything after it in ``export_parquet`` builds the
+    file. Returning the plan means a GET pays for this exactly once.
+
+    Raises:
+        ValueError: bad filter (unknown column, malformed clause) -> 400.
+        ExportTooLargeError: selection over the cap -> 413.
     """
     # Introspect the live table once and use it for BOTH column selection and
     # filter validation — dataset.column_info is nullable, and trusting it would
@@ -218,6 +233,33 @@ async def export_parquet(
             "with a bbox or attribute filter."
         )
 
+    return ParquetExportPlan(attr_names, where_sql, params)
+
+
+async def export_parquet(
+    db: AsyncSession,
+    table_name: str,
+    dataset_name: str,
+    *,
+    schema: str,
+    plan: ParquetExportPlan,
+) -> tuple[str, str, str]:
+    """Write the planned selection to a GeoParquet file.
+
+    Takes the plan from ``plan_parquet_export`` rather than deriving it, so the
+    route can decide the response status before it commits to producing bytes
+    (fix(#1513)). Every rejection this export can produce has already happened
+    by the time it is called.
+
+    Returns (file_path, download_filename, media_type). The caller owns the
+    returned file's parent directory (FileResponse background cleanup).
+
+    Builds the whole selection in memory before writing one Parquet file.
+    Bounded by the plan's count check; switch to a fixed-schema batched
+    ParquetWriter if that ceiling ever needs raising.
+    """
+    attr_names, where_sql, params = plan
+
     # Select the attribute columns directly (not via to_jsonb) so the async
     # driver returns native Python values — dates, timestamps, UUIDs, numerics —
     # and Arrow infers real column types instead of everything-as-string. Geometry
@@ -247,8 +289,8 @@ async def export_parquet(
     )
     temp_dir = str(exports_root / uuid.uuid4().hex)
     os.mkdir(temp_dir)
-    safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
-    filename = f"{safe_name}.parquet"
+    # fix(#1513): one naming rule for both verbs — see export_descriptor.
+    filename, _ = export_descriptor(dataset_name, "parquet")
     output_path = os.path.join(temp_dir, filename)
     geom_col = _geometry_column_name(attr_names)
     try:
