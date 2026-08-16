@@ -151,27 +151,34 @@ async def test_head_export_agrees_with_get(
 
 
 @pytest.mark.parametrize(
-    "name",
+    ("name", "expected_prefix"),
     [
-        "HeadExportDisposition",
-        # Non-ASCII title: starlette's FileResponse switches to the RFC 5987
-        # filename* form here, so this catches a HEAD that only handles the
-        # easy branch.
-        "Zürich Höhenmodell",
+        # ASCII-safe title: quote() leaves it unchanged, so starlette emits the
+        # plain quoted form.
+        ("HeadExportDisposition", 'attachment; filename="'),
+        # Non-ASCII title survives the [^\w\-.] sanitizer (\w is unicode-aware),
+        # so quote() changes it and starlette switches to RFC 5987.
+        ("Zürich Höhenmodell", "attachment; filename*=utf-8''"),
     ],
 )
 async def test_head_export_content_disposition_matches_get(
     name,
+    expected_prefix,
     client: AsyncClient,
     test_db_session,
     mock_export_service,
 ):
-    """Byte-for-byte parity on content-disposition.
+    """Byte-for-byte parity on content-disposition, over BOTH branches.
 
     GET's value is derived by starlette's ``FileResponse``; HEAD's is derived
     by the route. This is the anti-drift guard for that duplication — if
     starlette changes its rule, this fails rather than shipping a HEAD that
     advertises a different filename than the GET delivers.
+
+    ``expected_prefix`` is what stops the parity check from going vacuous. The
+    two cases are only meaningful if they land on DIFFERENT branches of that
+    rule, and nothing in the parity assertion itself would notice if a change
+    to the filename sanitizer collapsed both onto the quoted form.
     """
     ds = await _public_dataset(test_db_session, name)
 
@@ -184,6 +191,11 @@ async def test_head_export_content_disposition_matches_get(
         f"HEAD/GET content-disposition disagree for {name!r}: "
         f"{head.headers.get('content-disposition')!r} vs "
         f"{get.headers.get('content-disposition')!r}"
+    )
+    assert head.headers.get("content-disposition", "").startswith(expected_prefix), (
+        f"{name!r} was meant to exercise the {expected_prefix!r} branch but "
+        f"produced {head.headers.get('content-disposition')!r}; the two "
+        f"parameters are no longer covering both branches."
     )
 
 
