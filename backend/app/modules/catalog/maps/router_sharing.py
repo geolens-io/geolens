@@ -166,6 +166,21 @@ async def get_shared_map_endpoint(
         embed_token=embed_token,
         request=request,
     )
+    # fix(#1518): CAPABILITY obligation, applied once for all three outcomes.
+    # The embed token is the only thing here that can authorize independently of
+    # who is asking; the share token in the path selects the map but does not
+    # vouch for a dead session bearer. A missing or revoked link was authorized
+    # by nothing either, so all three arms below are "no capability authorized"
+    # and the rule applies before any of them.
+    #
+    # fix(#1518 codex P2 round 3): previously this ran only after a SUCCESSFUL
+    # unpack, so the 404 and 410 answered a caller whose credential was dead
+    # without ever telling them — the silent scope reduction #1518 is about,
+    # wearing a resource-status code.
+    embed_authorized = isinstance(result, tuple) and result[3]
+    if not embed_authorized:
+        reject_unresolvable_credentials(request, user)
+
     if result is None:
         raise HTTPException(status_code=404, detail="Shared map not found")
     if result == "expired":
@@ -173,16 +188,7 @@ async def get_shared_map_endpoint(
             status_code=status.HTTP_410_GONE,
             detail="This shared map link has expired or been revoked",
         )
-    map_data, layers, allowed_origins, embed_authorized = result
-    if not embed_authorized:
-        # fix(#1518): CAPABILITY obligation. The embed token is the only thing
-        # here that can authorize independently of who is asking; the share
-        # token in the path selects the map but does not vouch for a dead
-        # session bearer. When the capability authorized nothing, the caller's
-        # own credential was load-bearing, so a supplied-but-unresolvable one
-        # gets the fail-closed 401 rather than the public layer subset — which
-        # is the silent scope reduction #1518 is about.
-        reject_unresolvable_credentials(request, user)
+    map_data, layers, allowed_origins, _embed_authorized = result
     response.headers["Content-Security-Policy"] = _build_frame_ancestors(
         allowed_origins
     )

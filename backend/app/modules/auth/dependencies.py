@@ -4,7 +4,7 @@ import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
 from collections.abc import Mapping
-from typing import Annotated
+from typing import Annotated, NoReturn
 
 import jwt
 import structlog
@@ -345,6 +345,31 @@ def reject_unresolvable_credentials(request: Request, user: Identity | None) -> 
             detail="Not authenticated",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def capability_declined(
+    request: Request, user: Identity | None, exc: HTTPException
+) -> NoReturn:
+    """Report a capability that did not authorize — after the #1518 rule.
+
+    fix(#1518 codex P2 round 3): the rule was applied at ONE exit point per
+    handler, but a CAPABILITY handler has SEVERAL paths on which no capability
+    authorized. An invalid embed token raised 403 and a missing signed template
+    raised 403 without the rule ever running, so a caller with a dead bearer got
+    a resource-status answer and a refresh-on-401 client never fired.
+
+    Calling this instead of ``raise`` makes the ordering structural rather than
+    positional: the credential rule cannot be skipped by adding another exit,
+    because the exit itself goes through here. That is also what makes it
+    checkable — a test can require every capability-declined raise in these
+    handlers to route through this function, which it could not do for "the
+    handler calls the helper somewhere".
+
+    ``exc`` is the answer for a caller whose credential is fine: an invalid
+    capability really is 403, a missing resource really is 404.
+    """
+    reject_unresolvable_credentials(request, user)
+    raise exc
 
 
 async def _resolve_optional_identity(

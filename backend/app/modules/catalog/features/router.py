@@ -186,13 +186,12 @@ async def get_features_geojson_z_endpoint(
     # body runs — the embed token is an independent capability and has to be
     # evaluated first. `reject_unresolvable_credentials` below re-applies the
     # rule on the path where the embed token did not authorize the request.
-    dataset = await get_dataset(db, dataset_id)
-    if dataset is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found",
-        )
-
+    # fix(#1518 codex P2 round 3): the capability is evaluated FIRST, above the
+    # dataset lookup, so the rule covers every later exit rather than one. The
+    # token is validated against the path's dataset_id and needs no lookup, so
+    # nothing is lost by asking here. Previously the "dataset not found" 404
+    # below ran before this check, and a caller with a dead credential got that
+    # 404 with the rule never applied.
     embed_ok = bool(embed_token) and await validate_embed_token_access(
         embed_token,  # type: ignore[arg-type]  # bool() guard above
         dataset_id,
@@ -205,6 +204,15 @@ async def get_features_geojson_z_endpoint(
         # 401 rather than the anonymous path's 404 (fix(#390) codex P2,
         # resequenced by fix(#1518)).
         reject_unresolvable_credentials(request, user)
+
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature

@@ -35,6 +35,7 @@ from app.core.geo import (
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
+    capability_declined,
     get_optional_user,
     get_optional_user_fail_open,
     reject_unresolvable_credentials,
@@ -909,7 +910,15 @@ async def _resolve_raster_access(
     Raises HTTPException on any auth or lookup failure.
     """
     # PERF-002: metadata resolved from cache; auth checks always run per-request.
-    meta = await _resolve_raster_meta(db, dataset_id, requested_version)
+    #
+    # fix(#1518 codex P2 round 3): a 404 here is reached before any capability
+    # can be evaluated — the embed token is validated against a dataset id that
+    # resolves to nothing — so no capability authorized this request and the
+    # credential rule applies to the answer.
+    try:
+        meta = await _resolve_raster_meta(db, dataset_id, requested_version)
+    except HTTPException as exc:
+        capability_declined(request, user, exc)
 
     visibility = meta.visibility
     record_status = meta.record_status
@@ -923,9 +932,13 @@ async def _resolve_raster_access(
             embed_token_header, dataset_id, db, request
         )
         if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or expired embed token",
+            capability_declined(
+                request,
+                user,
+                HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid or expired embed token",
+                ),
             )
     elif _tile_signature_authorizes(request, dataset_id):
         # fix(#688) auth priority 2: a valid signed template, mirroring the
@@ -1936,17 +1949,25 @@ async def _authorize_vector_tile_request(
             embed_token_header, meta.dataset_id, db, request
         )
         if not is_valid:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or expired embed token, or dataset not in scope",
+            capability_declined(
+                request,
+                user,
+                HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid or expired embed token, or dataset not in scope",
+                ),
             )
         return "private"
 
     if meta.visibility != "public":
         if not sig or not exp or not scope:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Signature required for non-public tiles",
+            capability_declined(
+                request,
+                user,
+                HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Signature required for non-public tiles",
+                ),
             )
         # WR-03 (Phase 1209-CR): expected scope mirrors _build_tile_token_for_dataset:
         # in multi_tenant the scope is "{tid}:{table_name}" to prevent cross-tenant
@@ -1955,13 +1976,21 @@ async def _authorize_vector_tile_request(
 
         _expected_scope = tenant_bound_scope(meta.table_name)
         if scope != _expected_scope:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
+            capability_declined(
+                request,
+                user,
+                HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN, detail="Scope mismatch"
+                ),
             )
         if not verify_tile_signature(scope, exp, sig):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid or expired signature",
+            capability_declined(
+                request,
+                user,
+                HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid or expired signature",
+                ),
             )
         # SEC-009: a valid signature authorizes a single caller for this
         # non-public dataset; the tile bytes must not be retained by a shared

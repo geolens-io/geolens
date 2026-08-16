@@ -984,3 +984,251 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
         "no get_optional_user_no_security_schema operations found — this test "
         "would pass by checking nothing."
     )
+
+
+class TestEveryNoCapabilityExitAppliesTheRule:
+    """One row per no-capability EXIT CLASS, not per handler (codex P2 round 3).
+
+    The first two rounds applied the rule at one exit point per handler and
+    tested the success and plain-invalid rows, so whole classes of exit went
+    unexamined: a capability that DECLINED, a signed template that was missing
+    or wrong, and a resource that was absent or revoked. Each of those answered
+    403/404/410 to a caller whose credential was dead, so a refresh-on-401
+    client never fired — the silent-credential-failure #1518 exists to remove,
+    wearing a resource-status code.
+
+    The classes, and the handler each is exercised through:
+
+    1. capability DECLINED        — invalid embed token          (tiles, features, shared map)
+    2. signed template MISSING    — non-public tile, no sig       (vector tiles)
+    3. signed template INVALID    — non-public tile, bad sig      (vector tiles)
+    4. resource ABSENT            — no such dataset / share link  (features, shared map)
+    5. resource REVOKED           — expired share link            (shared map)
+
+    Every row sends a dead bearer, because that is the only caller whose answer
+    changes. A caller with no credential still gets the resource answer, which
+    the paired assertions below pin so the rule cannot be mistaken for a blanket
+    refusal.
+    """
+
+    @staticmethod
+    async def _public_dataset(test_db_session):
+        from tests.factories import create_dataset, get_user_id
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        return await create_dataset(
+            test_db_session,
+            created_by=user_id,
+            name="Exit Class DS",
+            visibility="public",
+            record_status="published",
+            geometry_type="Point",
+            feature_count=1,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "geom", "type": "geometry"},
+            ],
+        )
+
+    # -- class 1: the capability declined -----------------------------------
+
+    async def test_class1_features_invalid_embed_token(
+        self, client: AsyncClient, test_db_session
+    ):
+        dataset = await self._public_dataset(test_db_session)
+        resp = await client.get(
+            f"/datasets/{dataset.id}/features.geojson",
+            headers={
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+                "X-Embed-Token": "et_not-a-real-token",
+            },
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_class1_shared_map_invalid_embed_token_on_missing_link(
+        self, client: AsyncClient
+    ):
+        """Declined capability AND an absent resource — the rule wins."""
+        resp = await client.get(
+            "/maps/shared/no-such-share-token",
+            headers={
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+                "X-Embed-Token": "et_not-a-real-token",
+            },
+        )
+        assert resp.status_code == 401, resp.text
+
+    # -- classes 2 and 3: the signed template ------------------------------
+
+    async def test_class2_vector_tile_non_public_without_a_signature(
+        self, client: AsyncClient, test_db_session
+    ):
+        """A non-public tile with no signed template: 403 before, 401 now."""
+        from tests.factories import create_dataset, get_user_id
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user_id,
+            name="Exit Class Private DS",
+            visibility="private",
+            record_status="published",
+            geometry_type="Point",
+            feature_count=1,
+        )
+        resp = await client.get(
+            f"/tiles/data.{dataset.table_name}/10/0/0.pbf",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_class3_vector_tile_non_public_with_a_bad_signature(
+        self, client: AsyncClient, test_db_session
+    ):
+        from tests.factories import create_dataset, get_user_id
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user_id,
+            name="Exit Class Private DS 2",
+            visibility="private",
+            record_status="published",
+            geometry_type="Point",
+            feature_count=1,
+        )
+        resp = await client.get(
+            f"/tiles/data.{dataset.table_name}/10/0/0.pbf"
+            f"?sig=deadbeef&exp=9999999999&scope={dataset.table_name}",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    # -- class 4: the resource is absent ------------------------------------
+
+    async def test_class4_features_absent_dataset(self, client: AsyncClient):
+        """Not named by codex — found by walking the exits (fourth site)."""
+        import uuid as _uuid
+
+        resp = await client.get(
+            f"/datasets/{_uuid.uuid4()}/features.geojson",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_class4_shared_map_absent_link(self, client: AsyncClient):
+        resp = await client.get(
+            "/maps/shared/no-such-share-token",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    # -- class 5: the resource is revoked -----------------------------------
+
+    async def test_class5_shared_map_revoked_link(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        from tests.factories import get_user_id
+        from tests.test_embed_tokens import _create_map_with_layer
+
+        dataset = await self._public_dataset(test_db_session)
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        map_obj, _layer = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+        map_obj.visibility = "public"
+        test_db_session.add(map_obj)
+        await test_db_session.commit()
+
+        share = await client.post(
+            f"/maps/{map_obj.id}/share/", json={}, headers=admin_auth_header
+        )
+        assert share.status_code in (200, 201), share.text
+        token = share.json()["token"]
+
+        revoke = await client.delete(
+            f"/maps/{map_obj.id}/share/", headers=admin_auth_header
+        )
+        assert revoke.status_code == 204, revoke.text
+
+        # A credential-less caller still learns the link is gone...
+        anon = await client.get(f"/maps/shared/{token}")
+        assert anon.status_code in (404, 410), anon.text
+
+        # ...and a caller with a dead credential is told about the credential.
+        resp = await client.get(
+            f"/maps/shared/{token}",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    # -- the other half: no credential keeps the resource answer -------------
+
+    async def test_credentialless_callers_still_get_the_resource_answer(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Without this, a handler that simply refused everything would pass."""
+        import uuid as _uuid
+
+        absent = await client.get(f"/datasets/{_uuid.uuid4()}/features.geojson")
+        assert absent.status_code == 404, absent.text
+
+        missing_link = await client.get("/maps/shared/no-such-share-token")
+        assert missing_link.status_code == 404, missing_link.text
+
+        # This fixture creates the catalog rows but no backing PostGIS table, so
+        # the honest answer here is 503 "Dataset table is unavailable". What the
+        # assertion is for is that it is a RESOURCE answer and not the credential
+        # refusal — a 200 for an anonymous caller is pinned on a real dataset by
+        # TestPreviouslyFailOpenEndpoint above.
+        dataset = await self._public_dataset(test_db_session)
+        ok = await client.get(f"/datasets/{dataset.id}/features.geojson")
+        assert ok.status_code != 401, ok.text
+
+
+@pytest.mark.architecture
+def test_capability_declines_route_through_the_helper() -> None:
+    """No bare 403 may remain on a capability path in the tile authorizers.
+
+    The previous structural test could only require that a CAPABILITY handler
+    CALLS ``reject_unresolvable_credentials`` somewhere reachable — it could not
+    check that the call is on every no-capability path, which is exactly how
+    three exit classes shipped uncovered (codex P2 round 3).
+
+    Routing the declines through ``capability_declined`` makes that checkable:
+    the ordering is a property of the call rather than of where a line sits, so
+    this test can require that the two centralised authorizers raise no 403 of
+    their own. Adding a new capability arm with a bare ``raise`` fails here
+    instead of silently skipping the rule.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    from app.processing.tiles.router import (
+        _authorize_vector_tile_request,
+        _resolve_raster_access,
+    )
+
+    offenders: list[str] = []
+    for fn in (_authorize_vector_tile_request, _resolve_raster_access):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Raise) or not isinstance(node.exc, ast.Call):
+                continue
+            func = node.exc.func
+            name = getattr(func, "id", None) or getattr(func, "attr", None)
+            if name != "HTTPException":
+                continue
+            code = ""
+            for keyword in node.exc.keywords:
+                if keyword.arg == "status_code":
+                    code = ast.unparse(keyword.value)
+            if "403" in code:
+                offenders.append(f"{fn.__name__} line {node.lineno}: {code}")
+
+    assert not offenders, (
+        "capability declines must go through capability_declined() so the "
+        "#1518 credential rule runs before the 403:\n"
+        + "\n".join(f"  {o}" for o in offenders)
+    )

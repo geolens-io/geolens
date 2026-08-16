@@ -2023,6 +2023,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_assets.py": 142,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
+    # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
+    # of all three arms. It had run only after a SUCCESSFUL unpack, so a missing
+    # (404) or revoked (410) link answered a caller whose credential was dead
+    # without ever telling them.
     # fix(#1518): 387 -> 398. +11 for the CAPABILITY obligation on the shared-map
     # endpoint: it takes the deferring dependency so the embed token is judged
     # first, unpacks the capability verdict get_shared_map now reports, and
@@ -2030,7 +2034,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # verdict comes from the service because that is where the scope is
     # resolved; re-deriving it here would be a second lookup that could
     # disagree with the first.
-    "backend/app/modules/catalog/maps/router_sharing.py": 398,
+    "backend/app/modules/catalog/maps/router_sharing.py": 404,
     "backend/app/modules/catalog/search/query_params.py": 225,
     "backend/app/modules/catalog/search/router_saved.py": 100,
     # fix(#821): +14 lines — admin key mint accepts expires_at (audit
@@ -2093,6 +2097,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
 #     schema STAC operations must gain the status without gaining the auth
 #     markers #430 removed.
+#   tiles/router.py 2528 -> 2557. fix(#1518 codex P2 round 3): +29 for routing
+#     every capability DECLINE through `capability_declined` instead of a bare
+#     raise, plus wrapping the raster meta lookup. The rule had been applied at
+#     one exit point per handler while each has several no-capability paths, so
+#     an invalid embed token and a missing signed template both answered 403
+#     with the credential rule never running. Going through the helper makes the
+#     ordering structural rather than positional, which is also what lets
+#     test_capability_declines_route_through_the_helper check it statically.
 #   tiles/router.py 2505 -> 2528. fix(#1518 codex P2): +23 for the post-loop
 #     capability pass in the batch token handler. The flag it replaces was only
 #     set on the fallback arm, so a batch of PUBLIC datasets never consulted the
@@ -3251,7 +3263,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2528,
+    "backend/app/processing/tiles/router.py": 2557,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
