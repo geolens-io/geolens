@@ -77,8 +77,9 @@ export function readSessionStorage(key: string): string | null {
   } catch {
     // Denied: fall through to the mirror.
   }
-  // A successful read returning null also lands here, which covers the write
-  // that failed on quota rather than on denial.
+  // A successful read returning null also lands here. That is the full-store
+  // case: `writeSessionStorage` clears the key when its write fails, precisely
+  // so the read reaches this line instead of returning a stale value.
   return memoryFallback.get(key) ?? null;
 }
 
@@ -96,10 +97,28 @@ export function writeSessionStorage(key: string, value: string): void {
     // The store is authoritative once it accepts the value; drop any stale
     // mirror entry so the two cannot diverge.
     memoryFallback.delete(key);
+    return;
   } catch {
     // Denied (opaque origin / private mode) or full (quota). Keep it in memory
     // so a reader one navigation later still sees the caller's intent.
     memoryFallback.set(key, value);
+  }
+
+  // fix(#1535 codex P2): the write failed, so whatever was persisted under
+  // this key BEFORE is now stale — and it would win, because the read prefers
+  // a non-null store value and only then consults the mirror. Worse, it
+  // outlives the mirror: the OAuth round trip is a full document load, so
+  // `OAuthCallbackPage` would read a route the user has already navigated
+  // away from and send them there.
+  //
+  // Drop it, so a post-reload read finds nothing and the caller degrades to
+  // "/" instead of to something false. Only the full-store case has anything
+  // to clear; a denied store never persisted a value, so this throws and the
+  // catch is the whole handling.
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Denied: nothing was ever persisted, so nothing can be stale.
   }
 }
 

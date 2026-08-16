@@ -14,18 +14,8 @@
  *
  * Returns a restore function; call it in a `finally` or `afterEach`.
  */
-export function denySessionStorage(): () => void {
+function replaceSessionStorage(descriptor: PropertyDescriptor): () => void {
   const original = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
-  const descriptor: PropertyDescriptor = {
-    configurable: true,
-    get() {
-      throw new DOMException(
-        "Failed to read the 'sessionStorage' property from 'Window': The document " +
-          "is sandboxed and lacks the 'allow-same-origin' flag.",
-        'SecurityError',
-      );
-    },
-  };
   Object.defineProperty(window, 'sessionStorage', descriptor);
   if (globalThis !== (window as unknown as typeof globalThis)) {
     Object.defineProperty(globalThis, 'sessionStorage', descriptor);
@@ -37,4 +27,52 @@ export function denySessionStorage(): () => void {
       Object.defineProperty(globalThis, 'sessionStorage', original);
     }
   };
+}
+
+/**
+ * A store that WORKS but is full: reads and removes succeed, and `setItem`
+ * throws QuotaExceededError for anything longer than `maxValueLength`.
+ *
+ * This is a different failure from denial and it has to be tested separately,
+ * because it is the only one where a PREVIOUS value is still sitting in the
+ * store when the new write fails. Denial has nothing persisted to go stale.
+ *
+ * Returns a restore function; call it in a `finally` or `afterEach`.
+ */
+export function limitSessionStorage(maxValueLength: number): () => void {
+  const backing = new Map<string, string>();
+  const store: Storage = {
+    get length() {
+      return backing.size;
+    },
+    clear: () => backing.clear(),
+    getItem: (key: string) => backing.get(key) ?? null,
+    key: (index: number) => [...backing.keys()][index] ?? null,
+    removeItem: (key: string) => {
+      backing.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      if (value.length > maxValueLength) {
+        throw new DOMException(
+          `Setting the value of '${key}' exceeded the quota.`,
+          'QuotaExceededError',
+        );
+      }
+      backing.set(key, value);
+    },
+  };
+  return replaceSessionStorage({ configurable: true, get: () => store });
+}
+
+export function denySessionStorage(): () => void {
+  return replaceSessionStorage({
+    configurable: true,
+    get() {
+      throw new DOMException(
+        "Failed to read the 'sessionStorage' property from 'Window': The document " +
+          "is sandboxed and lacks the 'allow-same-origin' flag.",
+        'SecurityError',
+      );
+    },
+  });
 }
