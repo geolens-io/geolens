@@ -106,6 +106,8 @@ PostGIS und pgvector teilen sich eine Datenbank. Bei aktivierter semantischer Su
 
 Direkt aus QGIS verbinden: **Layer > Add WFS / OGC API Features**, Ziel `http://localhost:8080/api/`.
 
+Dieselben Endpunkte aus einer Kartenbibliothek: [geolens-examples](https://github.com/geolens-io/geolens-examples) enthält Ein-Datei-Seiten für MapLibre, Leaflet, OpenLayers und das ArcGIS SDK, eine Python/GeoPandas-Analyse und eine MCP-Konfiguration. Jedes Beispiel läuft gegen die öffentliche Demo, und die CI führt sie wöchentlich erneut dagegen aus. Was Sie kopieren, hat also diese Woche funktioniert. [Galerie ansehen](https://geolens-io.github.io/geolens-examples/).
+
 ## Funktionen
 
 Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](https://docs.getgeolens.com/guides/). GeoLens liest, schreibt und veröffentlicht:
@@ -352,6 +354,7 @@ API und Worker exportieren sofort Prometheus-Metriken (HTTP-Rate/Latenz/Fehler, 
 | [CLI & Manifeste](https://docs.getgeolens.com/guides/cli/) | Dateien veröffentlichen und Kataloge mit `geolens` verwalten |
 | [API-Referenz](https://docs.getgeolens.com/guides/api/) | Automatisch erzeugte Referenz; interaktive Swagger UI unter `/api/docs` zur Laufzeit |
 | [Manifestbeispiele](examples/manifests/) | Anpassbare `geolens.yaml`-Vorlagen: public-cog (entferntes COG), url-source, s3-source, publication-states |
+| [Client-Beispiele](https://github.com/geolens-io/geolens-examples) | Lauffähige Beispiele für MapLibre, Leaflet, OpenLayers, ArcGIS JS, Python/GeoPandas und MCP, in der CI gegen die öffentliche Demo geprüft ([Galerie](https://geolens-io.github.io/geolens-examples/)) |
 
 ## Community
 
