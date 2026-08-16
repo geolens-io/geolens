@@ -165,13 +165,27 @@ def _file_response_content_disposition(filename: str) -> str:
 def _head_export_response(dataset_title: str, format_key: str) -> Response:
     """fix(#1513): the HEAD half of the export route.
 
-    Everything that decides the RESPONSE STATUS — access control, the export
-    capability, bbox/CRS validation, the raster and geometry gates, the
-    feature-count ceiling — has already run in the shared handler above, so
-    HEAD's status matches what GET would answer. Only the conversion is
-    skipped, which is the whole point: a HEAD that ran ogr2ogr and discarded
-    the bytes would hand any anonymous caller a way to spend a worker per
-    request on a public dataset.
+    Every check that can decide the status WITHOUT producing bytes has already
+    run in the shared handler above: access control, the export capability,
+    bbox/CRS validation, the raster and geometry gates, the feature-count
+    ceiling, filter validation, and for parquet the live-column check and the
+    bounded count. The conversion itself is skipped, which is the whole point:
+    a HEAD that ran ogr2ogr and discarded the bytes would hand any anonymous
+    caller a way to spend a worker per request on a public dataset.
+
+    Two statuses HEAD therefore cannot promise, and does not claim to: 500
+    (ogr2ogr or the parquet build fails) and 503 (the staging volume is
+    unavailable). Both are knowable only by attempting the export, so a HEAD
+    answers 200 for a request whose GET would fail that way. That limit is
+    deliberate and pinned by
+    ``test_head_cannot_promise_conversion_failure_status``; everything else a
+    GET can reject, HEAD rejects identically.
+
+    An earlier revision claimed full parity while filter validation still lived
+    inside ``export_dataset``/``export_parquet``, below the HEAD return, so a
+    bad filter got 200 from HEAD and 400 from the GET (codex P2 on #1522).
+    Those checks are hoisted now; the parity claim above is the narrower one
+    the code actually supports.
 
     Content-Length is deliberately absent. An export's length is knowable only
     after the conversion, and RFC 9110 section 9.3.2 lets a HEAD omit header
@@ -396,10 +410,57 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 6c. fix(#1513): HEAD stops here — after every gate that decides the
-    # status, before the conversion that decides the bytes. No audit event
-    # either: nothing was exported, and a `dataset.export` row for a probe
-    # would misreport who downloaded what.
+    # 6c. fix(#1513, codex P2 on #1522): the remaining checks that decide the
+    # STATUS, hoisted above the HEAD return. These used to live inside
+    # export_dataset()/export_parquet(), i.e. below it, so HEAD answered 200
+    # for a filter GET rejects with 400 and for a parquet selection GET rejects
+    # with 413. A probing client accepted that HEAD and then failed its range
+    # GET, which is worse than the 405 this route replaced: the 405 did not
+    # lie. Validation only — running the conversion to learn a status is the
+    # denial-of-service foot-gun the HEAD branch exists to avoid.
+    parquet_plan = None
+    if format == ExportFormat.parquet:
+        # Parquet validates the filter against the LIVE columns, not the
+        # nullable dataset.column_info (see plan_parquet_export), and owns the
+        # bounded count the cap guard above deliberately skips for it.
+        from app.processing.export.parquet import (
+            ExportTooLargeError,
+            plan_parquet_export,
+        )
+
+        try:
+            parquet_plan = await plan_parquet_export(
+                db,
+                dataset.table_name,
+                schema=data_schema,
+                bbox=bbox_parsed,
+                where=where,
+            )
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+        except ExportTooLargeError as e:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=str(e),
+            )
+    elif where is not None:
+        # ogr2ogr path: same check export_dataset runs, against the same
+        # column_info, just early enough for HEAD to see it.
+        try:
+            validate_where_clause(where, dataset.column_info)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(e),
+            )
+
+    # 6d. HEAD stops here — after every gate that decides the status, before
+    # the conversion that decides the bytes. No audit event either: nothing was
+    # exported, and a `dataset.export` row for a probe would misreport who
+    # downloaded what.
     if request.method == "HEAD":
         return _head_export_response(dataset.record.title, format)
 
@@ -407,27 +468,16 @@ async def export_dataset_endpoint(
     # build has no Arrow driver); all other formats use the ogr2ogr path.
     try:
         if format == ExportFormat.parquet:
-            from app.processing.export.parquet import (
-                ExportTooLargeError,
-                export_parquet,
-            )
+            from app.processing.export.parquet import export_parquet
 
-            try:
-                file_path, filename, media_type = await export_parquet(
-                    db,
-                    dataset.table_name,
-                    dataset.record.title,
-                    schema=data_schema,
-                    bbox=bbox_parsed,
-                    where=where,
-                )
-            except ExportTooLargeError as e:
-                # In-memory parquet build exceeded the cap (covers datasets with a
-                # NULL feature_count that skipped the guard above).
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=str(e),
-                )
+            assert parquet_plan is not None  # set by the parquet branch above
+            file_path, filename, media_type = await export_parquet(
+                db,
+                dataset.table_name,
+                dataset.record.title,
+                schema=data_schema,
+                plan=parquet_plan,
+            )
         else:
             file_path, filename, media_type = await export_dataset(
                 dataset.table_name,

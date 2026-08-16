@@ -33,6 +33,7 @@ Requirements:
 import os
 import shutil
 import tempfile
+import uuid
 
 import pytest
 from httpx import AsyncClient
@@ -257,10 +258,17 @@ async def test_head_export_does_not_run_the_conversion(
 
 async def test_head_export_does_not_run_the_parquet_conversion(
     client: AsyncClient,
-    test_db_session,
+    real_table_dataset,
     monkeypatch,
 ):
-    """Same guard for the second, non-ogr2ogr conversion path (pyarrow)."""
+    """Same guard for the second, non-ogr2ogr conversion path (pyarrow).
+
+    Needs the real-table dataset: since fix(#1513 codex P2) a parquet HEAD runs
+    ``plan_parquet_export``, which introspects the live table and counts the
+    selection. That is the point — those are the queries that decide the status
+    — but it means a metadata-only dataset with no backing table now fails here
+    for both verbs alike, so it cannot be used to prove the writer stayed idle.
+    """
     calls: list[str] = []
 
     async def _fake_parquet(*args, **kwargs):
@@ -268,13 +276,196 @@ async def test_head_export_does_not_run_the_parquet_conversion(
         raise AssertionError("parquet writer must not run for a HEAD")
 
     monkeypatch.setattr("app.processing.export.parquet.export_parquet", _fake_parquet)
-    ds = await _public_dataset(test_db_session, "HeadExportParquet")
 
-    head = await client.head(f"/datasets/{ds.id}/export?format=parquet")
+    head = await client.head(f"/datasets/{real_table_dataset.id}/export?format=parquet")
 
     assert head.status_code == 200
     assert calls == [], "HEAD ran the GeoParquet writer"
     assert "content-length" not in head.headers
+
+
+@pytest.fixture
+async def real_table_dataset(test_db_session):
+    """A dataset backed by a REAL 3-row table.
+
+    The filter and cap checks on the parquet path introspect the live table and
+    run a bounded COUNT against it, so they cannot be exercised against the
+    metadata-only datasets the other tests use.
+    """
+    from sqlalchemy import text
+
+    table_name = f"head1513_{uuid.uuid4().hex[:12]}"
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} "
+            "(gid serial PRIMARY KEY, pop integer, "
+            "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326))"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (pop, geom, geom_4326) VALUES "
+            "(10, ST_SetSRID(ST_MakePoint(0, 0), 4326), "
+            " ST_SetSRID(ST_MakePoint(0, 0), 4326)), "
+            "(20, ST_SetSRID(ST_MakePoint(1, 1), 4326), "
+            " ST_SetSRID(ST_MakePoint(1, 1), 4326)), "
+            "(30, ST_SetSRID(ST_MakePoint(2, 2), 4326), "
+            " ST_SetSRID(ST_MakePoint(2, 2), 4326))"
+        )
+    )
+    await test_db_session.commit()
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name="HeadExportRealTable",
+        table_name=table_name,
+        visibility="public",
+        record_status="published",
+        geometry_type="Point",
+        feature_count=3,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "pop", "type": "integer"},
+        ],
+    )
+    yield ds
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+    await test_db_session.commit()
+
+
+# ---------------------------------------------------------------------------
+# fix(#1513, codex P2 on #1522): status parity per FAILURE CLASS.
+#
+# The original HEAD branch returned before the filter validation that lives
+# inside export_dataset()/export_parquet(), so a bad filter got 200 from HEAD
+# and 400 from the GET that followed. Measured before the fix, against a real
+# server: HEAD=200 GET=400 for an unknown column on both geojson and parquet,
+# and for a malformed clause. A probing client accepting that HEAD and then
+# failing its range GET is worse than the 405, which at least did not lie.
+#
+# These do NOT mock the export service: the real path is what produces the
+# GET's error, and for a bad filter it raises before ogr2ogr or pyarrow is
+# ever reached, so nothing here runs a conversion.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("fmt", "where", "label"),
+    [
+        ("geojson", "nosuchcol > 1", "unknown column, ogr2ogr path"),
+        ("geojson", "pop >", "malformed clause, ogr2ogr path"),
+        ("parquet", "nosuchcol > 1", "unknown column, pyarrow path"),
+        ("parquet", "pop >", "malformed clause, pyarrow path"),
+    ],
+)
+async def test_head_matches_get_on_bad_where(
+    fmt,
+    where,
+    label,
+    client: AsyncClient,
+    real_table_dataset,
+):
+    """400 parity: a filter GET rejects must be rejected by HEAD too."""
+    url = f"/datasets/{real_table_dataset.id}/export?format={fmt}&where={where}"
+
+    head = await client.head(url)
+    get = await client.get(url)
+
+    assert get.status_code == 400, (
+        f"precondition for {label!r}: GET should reject this filter, "
+        f"got {get.status_code}"
+    )
+    assert head.status_code == get.status_code, (
+        f"HEAD/GET status disagree for {label!r}: HEAD {head.status_code} vs "
+        f"GET {get.status_code}. A client that trusts the HEAD will fail its "
+        f"range GET."
+    )
+
+
+async def test_head_matches_get_on_feature_count_ceiling(
+    client: AsyncClient,
+    test_db_session,
+):
+    """413 parity on the ogr2ogr path's unfiltered-export ceiling."""
+    ds = await _public_dataset(
+        test_db_session, "HeadExportOversized", feature_count=5_000_001
+    )
+
+    head = await client.head(f"/datasets/{ds.id}/export?format=geojson")
+    get = await client.get(f"/datasets/{ds.id}/export?format=geojson")
+
+    assert get.status_code == 413, (
+        f"precondition: GET should 413, got {get.status_code}"
+    )
+    assert head.status_code == get.status_code, (
+        f"HEAD/GET disagree on the feature-count ceiling: "
+        f"{head.status_code} vs {get.status_code}"
+    )
+
+
+async def test_head_matches_get_on_parquet_bounded_count(
+    client: AsyncClient,
+    real_table_dataset,
+    monkeypatch,
+):
+    """413 parity on the parquet path's own bounded count.
+
+    Parquet is exempt from the router's feature_count ceiling and runs its own
+    COUNT against the live table, so this ceiling is reachable only here. The
+    cap is lowered to 1 against a real 3-row table rather than inserting 5M
+    rows.
+    """
+    from app.processing.export import parquet as parquet_mod
+
+    monkeypatch.setattr(parquet_mod, "_MAX_EXPORT_FEATURES", 1)
+
+    url = f"/datasets/{real_table_dataset.id}/export?format=parquet"
+    head = await client.head(url)
+    get = await client.get(url)
+
+    assert get.status_code == 413, (
+        f"precondition: GET should 413, got {get.status_code}"
+    )
+    assert head.status_code == get.status_code, (
+        f"HEAD/GET disagree on the parquet bounded count: "
+        f"{head.status_code} vs {get.status_code}"
+    )
+
+
+async def test_head_cannot_promise_conversion_failure_status(
+    client: AsyncClient,
+    test_db_session,
+    monkeypatch,
+):
+    """The documented LIMIT, pinned so it cannot drift silently.
+
+    A conversion that fails (ogr2ogr non-zero exit -> 500, staging gone -> 503)
+    is knowable only by running the conversion, which HEAD must not do. HEAD
+    answers 200 in that case, and the docstring on ``_head_export_response``
+    says so. This test exists so that if someone later makes HEAD detect it,
+    or makes it worse, the documented contract is what fails.
+    """
+    from app.processing.export.ogr import ExportError
+
+    async def _boom(*args, **kwargs):
+        raise ExportError("ogr2ogr exploded")
+
+    monkeypatch.setattr("app.processing.export.router.export_dataset", _boom)
+    ds = await _public_dataset(test_db_session, "HeadExportConversionFailure")
+
+    head = await client.head(f"/datasets/{ds.id}/export?format=geojson")
+    get = await client.get(f"/datasets/{ds.id}/export?format=geojson")
+
+    assert get.status_code == 500, (
+        f"precondition: GET should 500, got {get.status_code}"
+    )
+    assert head.status_code == 200, (
+        "Documented limit: HEAD reports the request as servable because it "
+        "does not run the conversion that would fail. If this changed, update "
+        "the _head_export_response docstring in the same commit."
+    )
 
 
 async def test_head_export_denial_matches_get(
