@@ -60,21 +60,84 @@ UNRESOLVABLE = "not-a-real-credential-1518"
 # The named exceptions to the fail-closed rule
 # ---------------------------------------------------------------------------
 
-# Keyed by "<module>.<qualname>", valued by the justification that earned the
-# entry. A handler here is one where refusing an unresolvable credential is
-# WORSE than serving the request anonymously — not one where 401 is merely
-# inconvenient. Adding an entry is a review decision; the exact-in-both-
-# directions assertion below is what makes it one.
-FAIL_OPEN_ALLOWLIST: dict[str, str] = {
+# Keyed by "<module>.<qualname>", valued by (category, justification). A
+# handler here is one where refusing an unresolvable credential is WORSE than
+# serving the request anonymously — not one where 401 is merely inconvenient.
+# Adding an entry is a review decision; the exact-in-both-directions assertion
+# below is what makes it one.
+#
+# There are exactly two categories, and they are not equivalent:
+#
+# RECOVERY   — the endpoint's job IS to recover from a dead credential, so the
+#              rule cannot apply to it at all without being circular.
+# CAPABILITY — the endpoint can be authorized by something other than the
+#              caller's identity. The rule is not waived, only RESEQUENCED: the
+#              handler must still apply it on the path where no capability
+#              authorized the request. ``test_capability_entries_reapply_the_rule``
+#              enforces that, so the category is evidence rather than a waiver.
+#              Without that test a CAPABILITY label would be a way to opt out of
+#              #1518 by writing a word in a dict, which is worse than the 8/58
+#              split it replaced, because it would look reviewed.
+RECOVERY = "RECOVERY"
+CAPABILITY = "CAPABILITY"
+
+FAIL_OPEN_ALLOWLIST: dict[str, tuple[str, str]] = {
     "app.modules.auth.router.logout": (
-        "Category: credential RECOVERY. The credential logout is being asked "
-        "to discard is frequently the one that expired, so refusing the call "
-        "because it did not resolve makes the dead session permanent — the "
-        "user cannot clear it and the browser keeps replaying it. The handler "
-        "is not fail-open in effect: it falls back to the refresh cookie and "
-        "then a body token (fix(#1446)) and raises its own 401 when NOTHING "
-        "presented resolves, so an entirely credential-less caller is still "
-        "refused. See app/modules/auth/router.py."
+        RECOVERY,
+        "The credential logout is being asked to discard is frequently the one "
+        "that expired, so refusing the call because it did not resolve makes "
+        "the dead session permanent — the user cannot clear it and the browser "
+        "keeps replaying it. The handler is not fail-open in effect: it falls "
+        "back to the refresh cookie and then a body token (fix(#1446)) and "
+        "raises its own 401 when NOTHING presented resolves, so an entirely "
+        "credential-less caller is still refused. See app/modules/auth/router.py.",
+    ),
+    "app.modules.catalog.features.router.get_features_geojson_z_endpoint": (
+        CAPABILITY,
+        "Accepts X-Embed-Token as an independent capability (fix(#390)). The "
+        "embed branch runs first; reject_unresolvable_credentials is applied on "
+        "the `not embed_ok` path, so a stale bearer alongside a VALID embed "
+        "token is served and the same bearer alongside an invalid or absent one "
+        "is refused.",
+    ),
+    "app.modules.catalog.maps.router_sharing.get_shared_map_endpoint": (
+        CAPABILITY,
+        "Accepts X-Embed-Token to widen the layer scope (fix(#394) SH-01). "
+        "get_shared_map now reports whether that capability authorized anything, "
+        "and the handler applies the rule when it did not. The share token in "
+        "the path selects the map but does not vouch for a dead session bearer, "
+        "so it is not the capability for this purpose.",
+    ),
+    "app.processing.tiles.router.get_tile_tokens_batch": (
+        CAPABILITY,
+        "Accepts X-Embed-Token as a per-dataset fallback (fix(#394) SH-04). The "
+        "capability authorizes a SCOPE, so whether it authorized THIS request is "
+        "only known after the id loop; the rule is applied after it when nothing "
+        "in the batch was authorized by the token.",
+    ),
+    "app.processing.tiles.router.tile_endpoint": (
+        CAPABILITY,
+        "Vector tiles are authorized by X-Embed-Token or by a signed template, "
+        "neither of which depends on who is asking. Both arms are evaluated in "
+        "_authorize_vector_tile_request, which applies the rule once both have "
+        "declined.",
+    ),
+    "app.processing.tiles.router.cluster_tile_endpoint": (
+        CAPABILITY,
+        "Same capability arms and the same shared decision point as "
+        "tile_endpoint (_authorize_vector_tile_request).",
+    ),
+    "app.processing.tiles.router.raster_tile_proxy": (
+        CAPABILITY,
+        "Raster tiles are authorized by X-Embed-Token or by a signed template. "
+        "The decision is centralised in _resolve_raster_access, reached through "
+        "raster_auth_check, which applies the rule on the arm where neither "
+        "capability authorized.",
+    ),
+    "app.processing.tiles.router.raster_auth_check": (
+        CAPABILITY,
+        "The in-process auth resolver raster_tile_proxy calls, and a mounted "
+        "route in its own right. Same decision point (_resolve_raster_access).",
     ),
 }
 
@@ -219,7 +282,158 @@ def test_fail_open_handlers_are_allowlisted() -> None:
         "Stale FAIL_OPEN_ALLOWLIST entries — these handlers no longer use "
         "get_optional_user_fail_open, or were renamed or removed. Delete them "
         "so the list stays exact:\n"
-        + "\n".join(f"  {key}: {FAIL_OPEN_ALLOWLIST[key]}" for key in stale)
+        + "\n".join(f"  {key}: {FAIL_OPEN_ALLOWLIST[key][0]}" for key in stale)
+    )
+
+
+@pytest.mark.architecture
+def test_every_allowlist_entry_has_a_known_category() -> None:
+    """A typo in the category would silently skip the obligation test below."""
+    unknown = {
+        key: category
+        for key, (category, _why) in FAIL_OPEN_ALLOWLIST.items()
+        if category not in {RECOVERY, CAPABILITY}
+    }
+    assert not unknown, (
+        f"unknown fail-open categories: {unknown}. Use RECOVERY or CAPABILITY; "
+        "an unrecognized one would not be checked by "
+        "test_capability_entries_reapply_the_rule."
+    )
+
+
+def _calls_reject_helper(fn: object, *, depth: int = 3) -> bool:
+    """Whether ``fn`` reaches a call to ``reject_unresolvable_credentials``.
+
+    Follows calls into functions defined in ``app.`` modules, because the tile
+    handlers do not apply the rule inline — the decision is centralised in
+    ``_authorize_vector_tile_request`` and ``_resolve_raster_access``, and
+    ``raster_tile_proxy`` reaches the latter through ``raster_auth_check``, two
+    hops away. A check that only read the handler's own body would report a
+    violation for correct code, and the obvious fix for that (matching the name
+    anywhere in the module text) would pass for a handler that never calls it.
+
+    Matched as an AST Call rather than a substring so a mention in a comment or
+    a docstring cannot satisfy the obligation.
+    """
+    import ast
+    import inspect
+    import textwrap
+
+    seen: set[int] = set()
+
+    def visit(target: object, remaining: int) -> bool:
+        if remaining < 0 or id(target) in seen:
+            return False
+        seen.add(id(target))
+        unwrapped = _unwrap_callable(target)
+        try:
+            source = textwrap.dedent(inspect.getsource(unwrapped))
+        except (OSError, TypeError):
+            return False
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            return False
+
+        callees: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = (
+                func.id
+                if isinstance(func, ast.Name)
+                else func.attr
+                if isinstance(func, ast.Attribute)
+                else None
+            )
+            if name == "reject_unresolvable_credentials":
+                return True
+            if name:
+                callees.append(name)
+
+        module_globals = getattr(
+            __import__(unwrapped.__module__, fromlist=["*"]), "__dict__", {}
+        )
+        for name in callees:
+            candidate = module_globals.get(name)
+            if candidate is None or not callable(candidate):
+                continue
+            candidate_module = (
+                getattr(_unwrap_callable(candidate), "__module__", "") or ""
+            )
+            if not candidate_module.startswith("app."):
+                continue
+            if visit(candidate, remaining - 1):
+                return True
+        return False
+
+    return visit(fn, depth)
+
+
+def _unwrap_callable(fn: object) -> object:
+    """Strip decorator wrappers (slowapi's ``@limiter`` most importantly).
+
+    Mirrors ``_unwrap`` in tests/test_rule1_structural.py. Reading the wrapper
+    instead of the handler is how this scope was under-counted twice: the
+    decorated tile routes report the wrapper's tiny body, which mentions none of
+    the authorization the real handler performs.
+    """
+    seen: set[int] = set()
+    while hasattr(fn, "__wrapped__") and id(fn) not in seen:
+        seen.add(id(fn))
+        fn = fn.__wrapped__  # type: ignore[union-attr]
+    return fn
+
+
+@pytest.mark.architecture
+def test_capability_entries_reapply_the_rule() -> None:
+    """A CAPABILITY entry must still apply the rule where no capability won.
+
+    This is the load-bearing half of the category. RECOVERY genuinely opts out
+    of #1518; CAPABILITY only reorders it, and the difference is invisible in
+    the allowlist itself. Without this test, "CAPABILITY" would be a word that
+    turns the fail-closed rule off — the 8-vs-58 split again, with a comment
+    explaining why it is fine.
+    """
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import app
+
+    handlers: dict[str, object] = {}
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute):
+            continue
+        fn = route.endpoint
+        handlers[f"{fn.__module__}.{fn.__qualname__}"] = fn
+
+    capability_keys = sorted(
+        key
+        for key, (category, _why) in FAIL_OPEN_ALLOWLIST.items()
+        if category == CAPABILITY
+    )
+    assert capability_keys, (
+        "no CAPABILITY entries found — if the category is gone, delete this "
+        "test rather than letting it pass by checking nothing."
+    )
+
+    missing = []
+    for key in capability_keys:
+        fn = handlers.get(key)
+        if fn is None:
+            missing.append(f"{key} (not found in the route table)")
+        elif not _calls_reject_helper(fn):
+            missing.append(key)
+
+    assert not missing, (
+        "CAPABILITY entries that never re-apply the fail-closed rule:\n"
+        + "\n".join(f"  {key}" for key in missing)
+        + "\n\nA CAPABILITY handler takes get_optional_user_fail_open so it can "
+        "evaluate its capability FIRST, not so it can skip the rule. It must "
+        "call reject_unresolvable_credentials on the path where no capability "
+        "authorized the request, or an unresolvable credential is silently "
+        "downgraded to anonymous there — which is #1518."
     )
 
 
@@ -375,3 +589,153 @@ class TestLogoutKeepsWorkingWithADeadAccessToken:
             "/auth/logout/", headers={"Authorization": f"Bearer {UNRESOLVABLE}"}
         )
         assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# The CAPABILITY truth table, driven end to end
+# ---------------------------------------------------------------------------
+
+
+class TestCapabilityOutranksADeadCredential:
+    """``GET /maps/shared/{token}`` with an embed token — the codex P2 pairing.
+
+    The frontend produces it: ``getSharedMap()`` sends ``X-Embed-Token`` through
+    ``apiFetch``, which also attaches whatever bearer the auth store persisted.
+    A viewer whose session died last night therefore arrives with a dead bearer
+    and a live capability.
+
+    All four rows are here on purpose. Rows 1 and 2 differ only in whether the
+    capability is valid, and a change that simply skipped the rule whenever an
+    embed header was PRESENT would pass row 1 while silently reopening #1518 —
+    that is precisely the header-presence proxy this design rejected. Row 2 is
+    what proves the hole was not widened.
+    """
+
+    @staticmethod
+    async def _setup(client: AsyncClient, admin_auth_header: dict, test_db_session):
+        """A map with a private layer, a share link, and a valid embed token."""
+        from tests.test_embed_tokens import (
+            _create_map_with_layer,
+            _create_private_dataset,
+        )
+        from tests.factories import get_user_id
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        dataset = await _create_private_dataset(test_db_session, created_by=user_id)
+        map_obj, _layer = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+
+        # The map itself must be public to be shared; its LAYER stays private,
+        # which is the whole point — that layer is what the embed token's scope
+        # unlocks and what an anonymous caller does not get.
+        map_obj.visibility = "public"
+        test_db_session.add(map_obj)
+        await test_db_session.commit()
+
+        share = await client.post(
+            f"/maps/{map_obj.id}/share/", json={}, headers=admin_auth_header
+        )
+        assert share.status_code in (200, 201), share.text
+        share_token = share.json()["token"]
+
+        embed = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=admin_auth_header
+        )
+        assert embed.status_code == 201, embed.text
+        return share_token, embed.json()["raw_token"], dataset
+
+    async def test_row1_dead_bearer_with_a_valid_capability_is_served(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The capability authorized the request, so the dead bearer is noise."""
+        share_token, embed_token, dataset = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}",
+            headers={
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+                "X-Embed-Token": embed_token,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        # Served ON the capability: the scoped private layer is present, which
+        # an anonymous caller does not get.
+        layer_ids = {layer["dataset_id"] for layer in resp.json()["layers"]}
+        assert str(dataset.id) in layer_ids, (
+            "the embed token's scoped private layer is missing, so the request "
+            "was not actually served on the capability"
+        )
+
+    async def test_row2_dead_bearer_with_an_invalid_capability_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """No capability authorized, so the credential really was load-bearing.
+
+        The row that proves this is a resequencing and not a hole. If the
+        implementation keyed on the PRESENCE of ``X-Embed-Token`` rather than on
+        its validity, this would return 200 and anyone holding a dead API key
+        could suppress the 401 with a junk header.
+        """
+        share_token, _embed_token, _dataset = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}",
+            headers={
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+                "X-Embed-Token": "et_not-a-real-embed-token",
+            },
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_row2b_dead_bearer_with_no_capability_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The plain #1518 case on a CAPABILITY handler, unchanged by the category."""
+        share_token, _embed_token, _dataset = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_row3_no_bearer_with_a_valid_capability_is_served(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Unchanged behaviour: the embed viewer that never had a session."""
+        share_token, embed_token, dataset = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.get(
+            f"/maps/shared/{share_token}",
+            headers={"X-Embed-Token": embed_token},
+        )
+        assert resp.status_code == 200, resp.text
+        layer_ids = {layer["dataset_id"] for layer in resp.json()["layers"]}
+        assert str(dataset.id) in layer_ids
+
+    async def test_row4_no_credential_at_all_keeps_the_anonymous_path(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Unchanged behaviour: a credential-less caller still gets the map.
+
+        Without this row a handler that had simply started refusing everything
+        would satisfy the two 401 rows above.
+        """
+        share_token, _embed_token, dataset = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.get(f"/maps/shared/{share_token}")
+        assert resp.status_code == 200, resp.text
+        # ...but without the private layer the capability would have unlocked.
+        layer_ids = {layer["dataset_id"] for layer in resp.json()["layers"]}
+        assert str(dataset.id) not in layer_ids

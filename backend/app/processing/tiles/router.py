@@ -34,7 +34,11 @@ from app.core.geo import (
 )
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import (
+    get_optional_user,
+    get_optional_user_fail_open,
+    reject_unresolvable_credentials,
+)
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import validate_embed_token_access
@@ -939,42 +943,53 @@ async def _resolve_raster_access(
         # signature already attests that someone authorized minted it for this
         # dataset, which is the same thing it attests on the vector path.
         pass
-    elif visibility != "public":
-        # Auth priority 3: require authenticated user for non-public datasets
-        if user is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Authentication required",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-
-        # fix(#929 review): route through the permission extension rather
-        # than an inline policy mirror. The default extension grants the
-        # creator exemption on restricted datasets; an overlay policy that
-        # deliberately denies the creator (revoked clearance, ABAC) must
-        # still win here, exactly as it does on the token path below.
-        port = get_processing_port()
-        dataset = await port.get_dataset(db, dataset_id)
-        if dataset is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-            )
-        await port.check_dataset_access(db, dataset, dataset_id, user)
     else:
-        # Public dataset: still block non-published for unauthenticated users
-        if record_status != "published":
-            # Unauthenticated users cannot see unpublished public datasets
+        # fix(#1518): CAPABILITY obligation, placed where the control flow makes
+        # the rule readable rather than inferred. Reaching this arm means
+        # NEITHER capability authorized the request: no embed token was sent,
+        # and no valid signed template was presented. What remains is decided by
+        # who is asking, so a supplied-but-unresolvable credential was
+        # load-bearing and earns the fail-closed 401.
+        reject_unresolvable_credentials(request, user)
+
+        if visibility != "public":
+            # Auth priority 3: require authenticated user for non-public datasets
             if user is None:
                 raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Authentication required",
+                    headers={"WWW-Authenticate": "Bearer"},
                 )
-            # Authenticated non-owners cannot see unpublished
+
+            # fix(#929 review): route through the permission extension rather
+            # than an inline policy mirror. The default extension grants the
+            # creator exemption on restricted datasets; an overlay policy that
+            # deliberately denies the creator (revoked clearance, ABAC) must
+            # still win here, exactly as it does on the token path below.
             port = get_processing_port()
-            user_roles = await port.get_user_roles(db, user)
-            if "admin" not in user_roles and created_by != user.id:
+            dataset = await port.get_dataset(db, dataset_id)
+            if dataset is None:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
                 )
+            await port.check_dataset_access(db, dataset, dataset_id, user)
+        else:
+            # Public dataset: still block non-published for unauthenticated users
+            if record_status != "published":
+                # Unauthenticated users cannot see unpublished public datasets
+                if user is None:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Dataset not found",
+                    )
+                # Authenticated non-owners cannot see unpublished
+                port = get_processing_port()
+                user_roles = await port.get_user_roles(db, user)
+                if "admin" not in user_roles and created_by != user.id:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail="Dataset not found",
+                    )
 
     return meta, storage_backend
 
@@ -993,7 +1008,7 @@ async def _resolve_raster_access(
 async def raster_auth_check(
     request: Request,
     dataset_id: uuid.UUID,
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """Resolve RBAC and the COG open-path for a raster dataset.
@@ -1146,7 +1161,7 @@ async def raster_tile_proxy(
             "Absent = current 2.0σ behavior. Must be > 0."
         ),
     ),
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
     """API-side raster tile proxy: auth check + fetch from Titiler.
@@ -1581,7 +1596,7 @@ async def get_tile_token(
 async def get_tile_tokens_batch(
     body: TileTokenBatchRequest,
     request: Request,
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
     embed_token: str | None = Header(default=None, alias="X-Embed-Token"),
     db: AsyncSession = Depends(get_db),
 ) -> TileTokenBatchResponse:
@@ -1627,6 +1642,12 @@ async def get_tile_tokens_batch(
             asset.dataset_id: asset for asset in raster_asset_result.scalars().all()
         }
 
+    # fix(#1518): CAPABILITY obligation. This handler resolves many ids, so
+    # "did a capability authorize this request" is only answerable after the
+    # loop: the embed token authorizes a SCOPE, and whether any requested
+    # dataset falls in it is exactly what the loop is working out.
+    capability_authorized = False
+
     tokens: dict[str, VectorTileToken | RasterTileToken | dict] = {}
     for dataset_id in unique_ids:
         dataset = datasets_by_id.get(dataset_id)
@@ -1646,11 +1667,19 @@ async def get_tile_tokens_batch(
             if not embed_ok:
                 tokens[key] = {"error": exc.detail}
                 continue
+            capability_authorized = True
 
         tokens[key] = _build_tile_token_for_dataset(
             dataset,
             raster_assets_by_dataset_id.get(dataset.id),
         )
+
+    # No dataset in this batch was authorized by the embed capability, so the
+    # caller's own credential was load-bearing. A supplied one that failed to
+    # resolve gets the fail-closed 401 rather than a response full of
+    # per-dataset errors that reads like an empty catalog (fix(#1518)).
+    if not capability_authorized:
+        reject_unresolvable_credentials(request, user)
 
     return TileTokenBatchResponse(tokens=tokens)
 
@@ -1918,6 +1947,14 @@ async def _authorize_vector_tile_request(
         # private vector tiles under an auth-less key).
         return "private"
 
+    # fix(#1518): CAPABILITY obligation. Both capability arms above have
+    # declined — the embed branch returns or raises, and a non-public dataset
+    # either satisfied the signed template or was refused. Everything from here
+    # is decided by WHO is asking, so a credential that was supplied and failed
+    # to resolve was load-bearing after all and gets the fail-closed 401 rather
+    # than the anonymous path's 404.
+    reject_unresolvable_credentials(request, user)
+
     # Public dataset: still block non-published for unauthenticated users
     if meta.record_status != "published":
         # Unauthenticated users cannot see unpublished public datasets
@@ -2150,7 +2187,7 @@ async def cluster_tile_endpoint(
     cluster_radius: int = Query(48, ge=1, le=256),
     cluster_max_zoom: int = Query(14, ge=0, le=22),
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
 ) -> Response:
     """Serve a server-side clustered vector tile for point datasets.
 
@@ -2307,7 +2344,7 @@ async def tile_endpoint(
     scope: str | None = None,
     cols: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
 ) -> Response:
     """Serve a vector tile as gzipped MVT binary.
 

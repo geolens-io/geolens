@@ -2023,7 +2023,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_assets.py": 142,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
-    "backend/app/modules/catalog/maps/router_sharing.py": 387,
+    # fix(#1518): 387 -> 398. +11 for the CAPABILITY obligation on the shared-map
+    # endpoint: it takes the deferring dependency so the embed token is judged
+    # first, unpacks the capability verdict get_shared_map now reports, and
+    # re-applies the fail-closed rule when nothing was authorized by it. The
+    # verdict comes from the service because that is where the scope is
+    # resolved; re-deriving it here would be a second lookup that could
+    # disagree with the first.
+    "backend/app/modules/catalog/maps/router_sharing.py": 398,
     "backend/app/modules/catalog/search/query_params.py": 225,
     "backend/app/modules/catalog/search/router_saved.py": 100,
     # fix(#821): +14 lines — admin key mint accepts expires_at (audit
@@ -2078,6 +2085,15 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   tiles/router.py 2468 -> 2505. fix(#1518): +37 for the CAPABILITY obligation.
+#     `_authorize_vector_tile_request` and `_resolve_raster_access` are the two
+#     centralised decision points for the six tile handlers, so the rule is
+#     applied there rather than six times; most of the cost is re-indenting the
+#     raster auth arms under an explicit `else` so the control flow SHOWS that
+#     the rule fires only when neither capability authorized, instead of leaving
+#     a reader to infer it from an elif chain. The rest is the batch handler's
+#     post-loop application, which cannot be hoisted because the embed token
+#     authorizes a scope and the loop is what resolves it.
 #   tiles/router.py 2341 -> 2468. fix(#1451): +127 for `_assert_dataset_still_registered`
 #     and its single call site in `_acquire_and_serve_tile`. GH-1443 closed the
 #     half a caller could reach; direct DDL on the `data` schema can still put a
@@ -3220,7 +3236,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2468,
+    "backend/app/processing/tiles/router.py": 2505,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

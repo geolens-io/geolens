@@ -320,6 +320,33 @@ def request_carries_credentials(request: Request) -> bool:
     )
 
 
+def reject_unresolvable_credentials(request: Request, user: Identity | None) -> None:
+    """Apply the #1518 fail-closed rule at a point the CALLER chooses.
+
+    The single implementation of the rule, so the dependency and the handlers
+    that have to sequence it themselves cannot drift into two answers — which
+    is the shape of the bug #1518 reported in the first place.
+
+    ``get_optional_user`` calls this immediately, which is right for the ~62
+    endpoints whose only authorization input is the caller's identity. A
+    handler in the CAPABILITY category (see ``get_optional_user_fail_open``)
+    calls it later instead: after its capability check has declined to
+    authorize the request, and never before.
+
+    Deliberately NOT capability-aware itself. It would have to be handed the
+    verdict, and a header-presence proxy for that verdict is worse than
+    useless: it would let any caller suppress the 401 by sending a junk
+    ``X-Embed-Token``, restoring the silent downgrade through a header anyone
+    can set.
+    """
+    if user is None and request_carries_credentials(request):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 async def _resolve_optional_identity(
     request: Request,
     token: str | None,
@@ -425,12 +452,7 @@ async def get_optional_user(
     users are pinned by ``tests/test_optional_auth_failure_mode_1518.py``.
     """
     user = await _resolve_optional_identity(request, token, db)
-    if user is None and request_carries_credentials(request):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    reject_unresolvable_credentials(request, user)
     return user
 
 
@@ -439,26 +461,44 @@ async def get_optional_user_fail_open(
     token: Annotated[str | None, Depends(oauth2_scheme_optional)],
     db: AsyncSession = Depends(get_db),
 ) -> Identity | None:
-    """``get_optional_user`` for handlers that must NOT 401 on a dead credential.
+    """The named exceptions to the fail-closed rule above (#1518).
 
-    THE named exception to the fail-closed rule above (#1518). A
-    supplied-but-unresolvable credential resolves to ``None`` here and the
-    request continues anonymously.
+    This dependency does not judge the credential. A supplied-but-unresolvable
+    one resolves to ``None`` here and the handler decides what that means.
 
-    The category, stated so a future entry is judged against a bar rather than
-    against how inconvenient a 401 would be: **an endpoint whose job is to
-    recover from a dead credential**. Refusing the caller because the very
-    credential they are trying to discard is dead is circular — it makes the
-    broken state permanent. ``/auth/logout`` is the case this exists for: it
-    accepts the refresh cookie or a body token when the access JWT has aged out
-    (fix(#1446)) and raises its own 401 when nothing presented resolves, so it
-    stays fail-closed on its own terms rather than becoming anonymous.
+    There are exactly TWO sanctioned categories, stated so a future entry is
+    judged against a bar rather than against how inconvenient a 401 would be.
+
+    **RECOVERY** — an endpoint whose job is to recover from a dead credential.
+    Refusing the caller because the very credential they are trying to discard
+    is dead is circular: it makes the broken state permanent. ``/auth/logout``
+    is the case. It accepts the refresh cookie or a body token when the access
+    JWT has aged out (fix(#1446)) and raises its own 401 when nothing presented
+    resolves, so it stays fail-closed on its own terms.
+
+    **CAPABILITY** — an endpoint that can be authorized by something OTHER than
+    the caller's identity, currently an embed token. A capability authorizes a
+    specific resource on its own and does not depend on who is asking, so a
+    stale session bearer sent alongside it is noise rather than a failed
+    authorization attempt. The rule is not waived for these, only RESEQUENCED:
+    the handler evaluates the capability first and calls
+    ``reject_unresolvable_credentials`` on the path where no capability
+    authorized the request. A CAPABILITY entry that does not call it is a hole,
+    so the structural test requires the call rather than trusting the label.
+
+    Why the resequencing lives in the handlers and not in
+    ``request_carries_credentials``: deciding whether a capability is VALID
+    needs a DB session and the resource id (``validate_embed_token_access``
+    takes both, and ``/tiles/tokens/`` resolves many ids in a loop), neither of
+    which a header predicate has. Degrading it to "an embed header is present"
+    would let any caller suppress the 401 with a junk header, which is #1518
+    again wearing a different hat.
 
     Every user of this dependency must be listed in ``FAIL_OPEN_ALLOWLIST`` in
-    ``tests/test_optional_auth_failure_mode_1518.py`` with its justification.
-    That test walks the route table and fails on an unlisted one, which is what
-    keeps the exception list from growing by accident — the way the 8/58 split
-    grew in the first place.
+    ``tests/test_optional_auth_failure_mode_1518.py`` with its category and
+    justification. That test walks the route table and fails on an unlisted
+    one, which is what keeps the exception list from growing by accident — the
+    way the 8/58 split grew in the first place.
     """
     return await _resolve_optional_identity(request, token, db)
 
