@@ -25,6 +25,16 @@ import { legendEntryName } from '@/components/map-plugins/builtin/LegendPlugin';
 import { getPersistedFolderGroup, prepareLayersForPersistence, stampPersistedFolderGroupExpanded, type FolderGroupMeta } from '@/components/builder/folder-groups';
 import { normalizeDemStyleConfig } from '@/lib/dem-render-mode';
 import { MAP_COLORS } from '@/lib/map-colors';
+// feat(#1486): the three rendered-image paths all composite from the WebGL
+// canvas, which no DOM attribution control can reach. See lib/map-image-attribution.
+import {
+  drawAttributionBand,
+  drawAttributionOverlay,
+  measureAttributionBand,
+  readRenderedAttribution,
+  OG_ATTRIBUTION,
+  THUMBNAIL_ATTRIBUTION,
+} from '@/lib/map-image-attribution';
 // fix(#430 V-01): capability gate used to detect fields the builder has no editor
 // for on a given layer type (see unmanagedNullableFields below).
 import { getLayerCapabilities, isFolderGroupLayer } from '@/lib/layer-capabilities';
@@ -271,8 +281,21 @@ function doCapture(
         return;
       }
 
+      // feat(#1486): both crops carry the credit line. Read once — the entries
+      // are identical for the two targets, only the type size differs — and
+      // draw into each finished crop. This has to be a canvas draw: the crops
+      // composite from the WebGL canvas, so MapLibre's own DOM attribution
+      // control is invisible to them by construction.
+      //
+      // Deliberately AFTER the blank-frame guard above, which measures
+      // srcCanvas: drawing a credit onto the crops must not be able to make an
+      // unpainted frame read as painted.
+      const credits = readRenderedAttribution(map);
+
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
+      drawAttributionOverlay(thumb, credits, THUMBNAIL_ATTRIBUTION);
       const og = cropResize(srcCanvas, 1200, 630, backdrop);
+      drawAttributionOverlay(og, credits, OG_ATTRIBUTION);
 
       uploadThumbnail(mapId, thumb.toDataURL('image/jpeg', 0.7)).then(() => {
         // chore(#1021): this refetches nothing on the builder route, and that is
@@ -1072,17 +1095,35 @@ export function useBuilderSave(state: SaveState) {
           const showBranding = !isEnterprise;
           const footerH = showBranding ? 32 * dpr : 0;
 
-          const totalH = Math.round(titleBlockH + mapHeight + legendBlockH + footerH);
           const totalW = Math.round(mapWidth);
 
           const off = document.createElement('canvas');
           off.width = totalW;
-          off.height = totalH;
           const ctx = off.getContext('2d');
           if (!ctx) {
             toast.error(t('toasts.exportFailed'));
             return;
           }
+
+          // feat(#1486): the attribution band has to be MEASURED before the
+          // canvas is sized, since its height feeds totalH. It measures on this
+          // same context rather than a scratch canvas — `off` has its width but
+          // not yet its height, and setting the height below resets the context
+          // state (not the measurement, which is already a number).
+          //
+          // NOT gated on showBranding: "Powered by GeoLens" is promotion an
+          // enterprise licence may suppress, a basemap or dataset credit is a
+          // licensing obligation and is drawn either way.
+          const attributionBand = measureAttributionBand(
+            ctx,
+            readRenderedAttribution(map),
+            { maxWidth: totalW - pad * 2, dpr },
+          );
+
+          const totalH = Math.round(
+            titleBlockH + mapHeight + legendBlockH + attributionBand.height + footerH,
+          );
+          off.height = totalH;
 
           ctx.fillStyle = MAP_COLORS.exportImage.background;
           ctx.fillRect(0, 0, totalW, totalH);
@@ -1180,9 +1221,24 @@ export function useBuilderSave(state: SaveState) {
             }
           }
 
+          // feat(#1486): between the legend and the branding footer, on white
+          // rather than over imagery — so no scrim, and no credit is ever
+          // dropped for want of room (it wraps to a second line instead).
+          //
+          // Positioned off the block heights rather than off `cursorY`: the
+          // legend loop leaves the cursor 12*dpr above its own block bottom
+          // (it never adds legendBlockH's trailing pad), so following the
+          // cursor would draw the band into the legend's bottom padding and
+          // leave the same 12*dpr of dead white at the foot of the canvas.
+          drawAttributionBand(ctx, attributionBand, {
+            x: pad,
+            y: titleBlockH + mapHeight + legendBlockH,
+            dpr,
+          });
+
           if (showBranding) {
             const footerText = t('export.poweredBy', { defaultValue: 'Powered by GeoLens' });
-            ctx.fillStyle = MAP_COLORS.exportImage.attribution;
+            ctx.fillStyle = MAP_COLORS.exportImage.branding;
             ctx.font = `400 ${12 * dpr}px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
             ctx.textBaseline = 'middle';
             const metrics = ctx.measureText(footerText);

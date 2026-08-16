@@ -105,6 +105,11 @@ function createMockCanvas() {
     fill: vi.fn(),
     stroke: vi.fn(),
     createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    // feat(#1486): the attribution overlay measures before it draws. Constant
+    // width is enough here — the fitter's real behaviour (size ladder, elide
+    // boundary) is exercised in lib/__tests__/map-image-attribution.test.ts
+    // against a length-proportional stub.
+    measureText: vi.fn((text: string) => ({ width: text.length * 5 })),
   };
   return {
     width: 800,
@@ -117,11 +122,27 @@ function createMockCanvas() {
   };
 }
 
-function createMockMap(overrides: { loaded?: boolean; globeSpace?: boolean } = {}) {
+/** feat(#1486): what MapLibre's attribution control shows on a default mock. */
+export const MOCK_ATTRIBUTION = '© OpenFreeMap | © OpenStreetMap contributors';
+
+function createMockMap(
+  overrides: { loaded?: boolean; globeSpace?: boolean; attribution?: string | null } = {},
+) {
   // fix(#1479): capture paths ask the container whether the space backdrop is
   // on screen. Every mock map has one; only an opted-in map is marked.
   const container = document.createElement('div');
   if (overrides.globeSpace) container.setAttribute('data-globe-space', 'true');
+  // feat(#1486): every real map renders MapLibre's attribution control, and
+  // all three capture paths now read it, so the default mock carries one too.
+  // Pass `attribution: null` for the no-credit-available case.
+  const attribution =
+    overrides.attribution === undefined ? MOCK_ATTRIBUTION : overrides.attribution;
+  if (attribution !== null) {
+    const inner = document.createElement('div');
+    inner.className = 'maplibregl-ctrl-attrib-inner';
+    inner.textContent = attribution;
+    container.appendChild(inner);
+  }
   return {
     getContainer: vi.fn(() => container),
     getCenter: vi.fn(() => ({ lng: -73.9, lat: 40.7 })),
@@ -1611,8 +1632,76 @@ describe('useBuilderSave', () => {
       act(() => { vi.advanceTimersByTime(500); });
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
 
-      expect(canvases.some((c) => c.fills.length > 0)).toBe(false);
+      // feat(#1486): names the backdrop rather than counting fills — the
+      // attribution scrim is also a fillRect, and it is drawn on every crop.
+      expect(
+        canvases.some((c) =>
+          c.fills.some((f) => f.style === MAP_COLORS.exportImage.globeBackground),
+        ),
+      ).toBe(false);
       expect(canvases.some((c) => c.ctx.drawImage.mock.calls.length > 0)).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    // feat(#1486): the crops composite from the WebGL canvas, so MapLibre's own
+    // attribution control — a DOM overlay — is invisible to them by
+    // construction. The credit reaches a distributed image only if it is drawn
+    // INTO the canvas, which is what these two assert.
+    it('draws the map credit into BOTH the thumbnail and the OG crop (#1486)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({ loaded: true });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      const credited = canvases.filter((c) =>
+        c.ctx.fillText.mock.calls.some((call: unknown[]) => call[0] === MOCK_ATTRIBUTION),
+      );
+      expect(credited).toHaveLength(2);
+      for (const crop of credited) {
+        // Over the map, not under it: the reverse order would bury the credit.
+        expect(crop.ctx.drawImage.mock.invocationCallOrder[0])
+          .toBeLessThan(crop.ctx.fillText.mock.invocationCallOrder[0]);
+        // A scrim behind it, so it stays legible over arbitrary tiles.
+        expect(crop.fills.some((f) => f.style === MAP_COLORS.exportImage.attributionScrim))
+          .toBe(true);
+      }
+
+      vi.useRealTimers();
+    });
+
+    it('draws no credit when the map exposes none (#1486)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({ loaded: true, attribution: null });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Still captured and uploaded — a missing credit never blocks a capture.
+      expect(mockUploadThumbnail).toHaveBeenCalled();
+      expect(canvases.some((c) => c.ctx.fillText.mock.calls.length > 0)).toBe(false);
+      expect(
+        canvases.some((c) =>
+          c.fills.some((f) => f.style === MAP_COLORS.exportImage.attributionScrim),
+        ),
+      ).toBe(false);
 
       vi.useRealTimers();
     });
@@ -2214,6 +2303,13 @@ describe('SHARE-09 export PNG composition', () => {
   let addColorStopSpy: ReturnType<typeof vi.fn>;
   let toBlobSpy: ReturnType<typeof vi.fn>;
   let createElementSpy: ReturnType<typeof vi.spyOn>;
+  // feat(#1486): hoisted so a test can read the height the export reserved.
+  let offscreenCanvas: {
+    width: number;
+    height: number;
+    getContext: ReturnType<typeof vi.fn>;
+    toBlob: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -2245,7 +2341,7 @@ describe('SHARE-09 export PNG composition', () => {
       measureText: vi.fn(() => ({ width: 120 })),
     };
 
-    const offscreenCanvas = {
+    offscreenCanvas = {
       width: 800,
       height: 600,
       getContext: vi.fn(() => ctx2d),
@@ -2516,5 +2612,81 @@ describe('SHARE-09 export PNG composition', () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  /* feat(#1486): the exported PNG carries the map's credit line. */
+
+  it('draws the map credit in its own band (#1486)', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(fillTextSpy).toHaveBeenCalledWith(
+      MOCK_ATTRIBUTION,
+      expect.any(Number),
+      expect.any(Number),
+    );
+    // Its own band on the white chrome, not a scrim over the map: the credit
+    // is drawn below the map region (the canvas is 600px of map plus chrome).
+    const call = fillTextSpy.mock.calls.find((c: unknown[]) => c[0] === MOCK_ATTRIBUTION)!;
+    expect(call[2] as number).toBeGreaterThanOrEqual(600);
+  });
+
+  // The whole point of a separate band. "Powered by GeoLens" is promotion an
+  // enterprise licence may suppress; a basemap or dataset credit is a
+  // licensing obligation and must survive the same toggle.
+  it('still draws the map credit when branding is suppressed (#1486)', () => {
+    mockEdition.isEnterprise = true;
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const texts = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(texts).toContain(MOCK_ATTRIBUTION);
+    expect(texts.some((t) => /export\.poweredBy|Powered by GeoLens/.test(t))).toBe(false);
+  });
+
+  it('reserves canvas height for the credit band, and none when there is no credit (#1486)', () => {
+    const withCredit = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: withCredit } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(withCredit); });
+    const creditedHeight = offscreenCanvas.height;
+
+    const bare = createMockMap({ loaded: true, attribution: null });
+    const bareState = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: bare } as unknown as SaveState['mapInstanceRef'],
+    });
+    const bareHook = renderHook(() => useBuilderSave(bareState));
+    act(() => { bareHook.result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(bare); });
+
+    // 12 gap + 16 line + 12 gap at dpr 1.
+    expect(creditedHeight - offscreenCanvas.height).toBe(40);
   });
 });

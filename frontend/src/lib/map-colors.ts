@@ -94,12 +94,24 @@ export const MAP_COLORS = {
     outline: '#666666',
     invalidColor: '#333333',
   },
-  /** Fixed colors for the exported map-image title, legend, and attribution. */
+  /** Fixed colors for the exported map-image title, legend, attribution and
+   *  branding footer. Deliberately a fixed LIGHT palette: an exported artifact
+   *  has no theme to follow. */
   exportImage: {
     background: '#ffffff',
     text: '#0a0a0a',
     mutedText: '#666666',
-    attribution: '#999999',
+    /** "Powered by GeoLens". fix(#1486): renamed from `attribution`, which it
+     *  never was — it paints branding, and the name became actively misleading
+     *  once real map attribution existed. Real attribution uses `mutedText`,
+     *  because #999999 on white is about 2.8:1 and a licence-required credit
+     *  is not somewhere to reuse a decorative contrast. */
+    branding: '#999999',
+    /** feat(#1486): ground for the credit line drawn over map imagery in the
+     *  thumbnail and OG crops. 0.78 alpha establishes its own ground, so one
+     *  fixed light-scrim/dark-text pair stays legible over both light and dark
+     *  tiles — and over the globe's space backdrop (#1479). */
+    attributionScrim: 'rgba(255,255,255,0.78)',
     /** fix(#1479 Codex P2 round 1): the void a globe leaves around itself is
      *  transparent in the WebGL canvas, so a capture composited over
      *  `background` puts the sphere back on white — the exact problem #1479
