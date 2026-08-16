@@ -50,8 +50,8 @@ async def _snapshot_embedding_config(
     and shows up as a difference; only a change-and-revert inside the same few
     milliseconds slips through, which is not a case worth more code.
 
-    fix(#1525): the endpoint is captured and compared the same way, in a
-    window of its own (see below). It is resolved through the provider rather
+    fix(#1525): the endpoint is captured and compared inside that same single
+    window, for the reason below. It is resolved through the provider rather
     than read here, because the fallback chain and the credential binding
     belong to whichever provider extension is registered (see
     `resolve_embedding_base_url`).
@@ -92,33 +92,26 @@ async def _snapshot_embedding_config(
             "once the AI configuration resolves."
         )
     dimensions = await EMBEDDING_DIMS.get(session)
+    base_url = await resolve_embedding_base_url(session)
 
+    # fix(#1525 review, codex P1): ONE window over all three, not a window per
+    # value. An earlier revision gave the endpoint its own capture-and-compare
+    # after the pair had already been compared, which left a gap between the
+    # two: an admin updating model and endpoint together in that gap produced
+    # old model + new endpoint, a configuration that never existed, and neither
+    # comparison could see it. Splitting a race guard by value does not close
+    # the race, it relocates it. If values are pinned as a unit they have to be
+    # verified as a unit.
     if (
         await resolve_embedding_model_name(session) != model_name
         or await EMBEDDING_DIMS.get(session) != dimensions
+        or await resolve_embedding_base_url(session) != base_url
     ):
         logger.error("backfill_aborted_embedding_config_changed")
         raise RuntimeError(
-            "Cannot regenerate embeddings: the embedding model or dimensions "
-            "changed while the run was starting. Existing vectors were left "
-            "untouched; re-run to use the new configuration."
-        )
-
-    # fix(#1525): the endpoint is captured the same way but in its own window,
-    # not folded into the pair above. Resolving it calls the provider
-    # extension, which is an arbitrarily long await — a third-party provider
-    # may do I/O — and putting that between the model capture and the model
-    # re-read would widen the coupled pair's window by the length of a provider
-    # call, making a spurious abort likelier for the two values that actually
-    # have to agree with each other. The endpoint has no partner to be mixed
-    # with; it only has to equal itself across its own window.
-    base_url = await resolve_embedding_base_url(session)
-    if await resolve_embedding_base_url(session) != base_url:
-        logger.error("backfill_aborted_embedding_endpoint_changed")
-        raise RuntimeError(
-            "Cannot regenerate embeddings: the embedding endpoint changed while "
-            "the run was starting. Existing vectors were left untouched; re-run "
-            "to use the new configuration."
+            "Cannot regenerate embeddings: the embedding model, dimensions or "
+            "endpoint changed while the run was starting. Existing vectors were "
+            "left untouched; re-run to use the new configuration."
         )
 
     return model_name, dimensions, base_url

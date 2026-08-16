@@ -54,8 +54,12 @@ class _RecordingProvider:
 
     def __init__(self):
         self.calls: list[dict] = []
+        # Stashed for the subclass that has to write config from inside a
+        # provider call; `embed` is not handed a session.
+        self._session = None
 
     async def resolve_runtime_config(self, session):
+        self._session = session
         return {
             "default_model": "provider-fallback-model",
             "default_dims": 1536,
@@ -111,18 +115,40 @@ class _ExplodingProvider(_RecordingProvider):
 
 
 class _SwitchingProvider(_RecordingProvider):
-    """Flips the live config from inside the provider call.
+    """Flips the live config from inside the first provider call.
 
-    `resolve_runtime_config` is the one await `service.py` makes after backfill
-    has captured its own values and before the service would re-read them, so
-    this covers the late window: a swap that lands once the run is already
-    generating.
+    Covers the late window: a swap that lands once the run is already
+    generating, after the snapshot has captured its own values and before the
+    service would re-read them.
+
+    The flip hangs on `embed` rather than on `resolve_runtime_config`, which is
+    where it used to sit. fix(#1525) made `_snapshot_embedding_config` resolve
+    the endpoint through `resolve_runtime_config`, so a flip there now lands
+    INSIDE the capture window and the snapshot's comparison aborts the run.
+    That is a real behaviour and it has its own coverage
+    (`test_an_edit_inside_the_snapshot_window_aborts_the_run`), but it is not
+    the scenario this file is about. `embed` is the first await after the
+    snapshot completes on both paths, and it is where a run actually spends its
+    time, so it is the more faithful place for an admin edit to land.
     """
 
-    async def resolve_runtime_config(self, session):
-        await EMBEDDING_MODEL.set(session, _MODEL_B)
-        await EMBEDDING_DIMS.set(session, _DIMS_B)
-        return await super().resolve_runtime_config(session)
+    def __init__(self):
+        super().__init__()
+        self._switched = False
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        vectors = await super().embed(
+            texts=texts,
+            model=model,
+            dimensions=dimensions,
+            base_url=base_url,
+            timeout=timeout,
+        )
+        if not self._switched:
+            self._switched = True
+            await EMBEDDING_MODEL.set(self._session, _MODEL_B)
+            await EMBEDDING_DIMS.set(self._session, _DIMS_B)
+        return vectors
 
 
 async def _embedding_count(session) -> int:
@@ -157,6 +183,14 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     dataset = await create_dataset(
         test_db_session, created_by=user_id, name=f"Model Pinning {force}"
     )
+    # A second record, so the non-force path always has work for a second
+    # batch. It selects only records with no vector under the ACTIVE model, and
+    # a sibling run that already embedded the catalog under _MODEL_A leaves
+    # exactly one: this test's own new dataset. One call is one call too few to
+    # catch a swap that lands during the first.
+    await create_dataset(
+        test_db_session, created_by=user_id, name=f"Model Pinning Second {force}"
+    )
 
     await EMBEDDING_MODEL.set(test_db_session, _MODEL_A)
     await EMBEDDING_DIMS.set(test_db_session, _DIMS_A)
@@ -168,12 +202,21 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     monkeypatch.setattr(
         service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
     )
+    # One record per provider call. The swap lands during the first call, so
+    # the run needs a second one for it to be in front of; at the default batch
+    # size of 128 the non-force path makes exactly one and the assertions below
+    # would hold on an unpinned tree too.
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
 
     await backfill_module.backfill_embeddings(test_db_session, force=force)
 
-    # Non-vacuity: with no provider call there is no argument to compare, and
-    # with no stored row there is no label. Both would pass silently below.
-    assert provider.calls, "the provider was never called"
+    # Non-vacuity: with fewer than two provider calls there is no post-swap call
+    # to catch, and with no stored row there is no label. Both would pass
+    # silently below.
+    assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B, (
+        "the admin swap never landed"
+    )
     stored_label = (
         await test_db_session.execute(
             select(RecordEmbedding.model_name).where(
@@ -182,13 +225,13 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
         )
     ).scalar_one()
 
-    call = provider.calls[0]
-    # The finding itself: the row's label has to describe the vector in it.
-    assert call["model"] == stored_label
+    # The finding itself: the row's label has to describe the vector in it, and
+    # EVERY call has to agree, not just the one before the swap.
+    assert {call["model"] for call in provider.calls} == {stored_label}
     # And both halves have to come from the run's own resolution, not from
     # whatever the config happened to say by the time the provider was called.
-    assert call["model"] == _MODEL_A
-    assert call["dimensions"] == _DIMS_A
+    assert {call["model"] for call in provider.calls} == {_MODEL_A}
+    assert {call["dimensions"] for call in provider.calls} == {_DIMS_A}
 
 
 @pytest.mark.anyio

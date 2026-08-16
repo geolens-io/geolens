@@ -23,6 +23,30 @@ class EmbeddingUnavailableError(Exception):
     """Raised when no embedding provider is configured."""
 
 
+class _Unset:
+    """Sentinel type: "the caller pinned nothing", distinct from a pinned None.
+
+    fix(#1525 review, codex P2): `None` is a legitimate RESOLVED endpoint. The
+    provider interface lets an extension answer `{"base_url": None}`, meaning
+    "use the client default", and a run that snapshots that has pinned a real
+    value. Testing `base_url is None` would read that pin as an omission and
+    re-resolve per batch, so the providers most likely to have an unusual
+    endpoint config are exactly the ones the pin would stop protecting.
+
+    `model` and `dimensions` keep their `is None` test: for those, `None` is
+    not something the config resolves to, and the falsy fallback below already
+    covers the resolved-but-empty case.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid only
+        return "<unset>"
+
+
+_UNSET = _Unset()
+
+
 async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     """Generate an embedding vector for the given text.
 
@@ -70,7 +94,7 @@ async def generate_embeddings_batch(
     *,
     model: str | None = None,
     dimensions: int | None = None,
-    base_url: str | None = None,
+    base_url: str | None | _Unset = _UNSET,
 ) -> list[list[float]]:
     """Generate embedding vectors for many texts in ONE provider call.
 
@@ -84,7 +108,9 @@ async def generate_embeddings_batch(
     resolved the pair pin it for the whole run instead of having this function
     re-read the config on every call. fix(#1525): ``base_url`` completes the
     set — the label a run writes names a model, and which endpoint served that
-    model is part of what the label promises.
+    model is part of what the label promises. It is pinned by presence rather
+    than by not-None, because ``None`` is a value the config can resolve TO
+    (see ``_Unset``); omit the argument to keep the old per-call resolution.
 
     **A caller that writes its own ``model_name`` label MUST pass all three.**
     Such a caller resolves the model once to label its rows; without pinning,
@@ -131,7 +157,7 @@ async def generate_embeddings_batch(
     # The gate is the exact set of conditions under which a value is taken from
     # `runtime_config` below, so nothing else about resolution order changes.
     runtime_config: dict[str, object] = {}
-    if not model or not dimensions or base_url is None:
+    if not model or not dimensions or isinstance(base_url, _Unset):
         runtime_config = await provider_ext.resolve_runtime_config(session)
     # `is None` rather than falsy: a pinned value the caller supplied is
     # honored as given, and only an absent one re-reads the config. Both then
@@ -142,7 +168,7 @@ async def generate_embeddings_batch(
     if dimensions is None:
         dimensions = await EMBEDDING_DIMS.get(session)
     dimensions = dimensions or runtime_config.get("default_dims")
-    if base_url is None:
+    if isinstance(base_url, _Unset):
         base_url = runtime_config.get("base_url")
 
     # Truncate very long inputs

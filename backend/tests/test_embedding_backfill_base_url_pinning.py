@@ -56,6 +56,7 @@ from app.processing.embeddings.models import RecordEmbedding
 from tests.factories import create_dataset, get_user_id
 
 _MODEL = "endpoint-pin-model"
+_MODEL_AFTER = "endpoint-pin-model-after"
 # Matches the fixed vector column, so every row this run writes still inserts
 # and the assertions stay on the endpoint rather than on storage.
 _DIMS = 1536
@@ -131,6 +132,61 @@ class _SnapshotWindowProvider(_EndpointRecordingProvider):
             "default_dims": _DIMS,
             "base_url": current,
         }
+
+
+class _AtomicSwitchProvider(_EndpointRecordingProvider):
+    """Repoints model AND endpoint together, from inside the first resolve.
+
+    fix(#1525 review, codex P1). An admin who changes both in one PUT is the
+    case a per-value guard cannot see: with the endpoint captured in a window
+    of its own, after the model had already been compared, the model comparison
+    passed on the old value and the endpoint comparison saw the new one twice,
+    so the run pinned old-model-plus-new-endpoint. That pairing never existed
+    in config, and if the new endpoint happens to accept the old model nothing
+    downstream rejects it.
+
+    Returning the post-edit endpoint from this very call is what makes the two
+    implementations distinguishable: a split window agrees with itself, and a
+    single window over all three sees the model move.
+    """
+
+    async def resolve_runtime_config(self, session):
+        self._session = session
+        if not self._edited:
+            self._edited = True
+            await EMBEDDING_MODEL.set(session, _MODEL_AFTER)
+            await EMBEDDING_BASE_URL.set(session, _URL_B)
+        return {
+            "default_model": "provider-fallback-model",
+            "default_dims": _DIMS,
+            "base_url": await EMBEDDING_BASE_URL.get(session),
+        }
+
+
+class _NullEndpointProvider:
+    """Resolves its endpoint to None, which the provider interface permits.
+
+    fix(#1525 review, codex P2). `None` is a resolved value, not an omission,
+    so a run that snapshots it has pinned something. Counting resolves is what
+    shows whether the pin held: a gate testing `base_url is None` reads the pin
+    as absent and re-resolves per batch.
+    """
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.resolves = 0
+
+    async def resolve_runtime_config(self, session):
+        self.resolves += 1
+        return {
+            "default_model": "provider-fallback-model",
+            "default_dims": _DIMS,
+            "base_url": None,
+        }
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append({"model": model, "base_url": base_url})
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
 
 
 @pytest.fixture
@@ -322,3 +378,118 @@ async def test_an_edit_inside_the_snapshot_window_aborts_the_run(
     # the comparison to catch, and the run would have aborted for some other
     # reason or not at all.
     assert await EMBEDDING_BASE_URL.get(test_db_session) == _URL_B
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("force", [True, False], ids=["force", "non_force"])
+async def test_an_atomic_model_and_endpoint_swap_cannot_pin_a_mixed_pair(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+    force,
+):
+    """Both values move together, so the snapshot has to look at both again.
+
+    fix(#1525 review, codex P1): the values are pinned as a unit, so they have
+    to be verified as a unit. Capturing and comparing the endpoint separately,
+    after the model had already been compared, left a gap between the two
+    comparisons that a single PUT changing model and endpoint together lands
+    in. The pinned result is the old model against the new endpoint, which no
+    admin ever chose, and nothing downstream can tell: the model still names a
+    real model and the endpoint still names a real endpoint.
+
+    On the force path the snapshot runs ahead of the DELETE, so the abort also
+    has to leave the existing vectors alone.
+    """
+    await _seed_two_records(test_db_session, f"Atomic Swap {force}")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+    await EMBEDDING_BASE_URL.set(test_db_session, _URL_A)
+
+    user_id = await get_user_id(test_db_session, "admin")
+    seeded = await create_dataset(
+        test_db_session, created_by=user_id, name=f"Atomic Swap Seed {force}"
+    )
+    test_db_session.add(
+        RecordEmbedding(
+            record_id=seeded.record_id,
+            embedding=[1.0] + [0.0] * (_DIMS - 1),
+            model_name=_MODEL,
+            content_hash=uuid.uuid4().hex[:64],
+        )
+    )
+    await test_db_session.commit()
+    before = (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
+    assert before > 0
+
+    provider = _AtomicSwitchProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    aborted = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=force)
+    except RuntimeError:
+        aborted = True
+
+    # Checked first: a tree that pins the mixed pair fails here, on the vectors
+    # it went on to write from an endpoint the run never validated the model
+    # against. That is the damage; the missing raise is only how it happened.
+    assert provider.calls == []
+    assert (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one() == before
+    assert aborted
+    # Non-vacuity: both halves have to have actually moved, or there was no
+    # mixed pair available to pin and the run aborted for some other reason.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_AFTER
+    assert await EMBEDDING_BASE_URL.get(test_db_session) == _URL_B
+
+
+@pytest.mark.anyio
+async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """A resolved None is a pin, not an omission.
+
+    fix(#1525 review, codex P2): the provider interface lets an extension
+    answer `{"base_url": None}`, meaning "use the client default". Testing
+    `base_url is None` to decide whether the caller pinned anything reads that
+    as an omission and resolves the live config again on every batch, so the
+    providers most likely to have an unusual endpoint config are exactly the
+    ones the pin stops protecting.
+
+    Resolve calls are the observable. The snapshot makes two, to capture and to
+    compare; a batch loop that adds one per batch is the bug.
+    """
+    await _seed_two_records(test_db_session, "Null Endpoint")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+
+    provider = _NullEndpointProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
+
+    await backfill_module.backfill_embeddings(test_db_session, force=False)
+
+    # Non-vacuity: with fewer than two batches there is no per-batch growth to
+    # detect, and the count below would hold on the unfixed tree too.
+    assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
+    # Two, and only two: `_snapshot_embedding_config` captures then re-reads.
+    # Anything more means a batch resolved the config for itself.
+    assert provider.resolves == 2
+    # And the pinned value actually reached the provider as itself.
+    assert {call["base_url"] for call in provider.calls} == {None}
