@@ -2254,10 +2254,21 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
         self, test_db_session, raster_storage, tmp_path
     ) -> None:
         """The lifecycle question: what happens to the kept original when the
-        dataset is replaced again. They coexist, keyed by uploaded filename, so
-        a differently-named upload adds and a same-named one overwrites. Both
-        are reaped together when the dataset is deleted, because
-        `delete_dataset` already cleans the whole `originals/<id>/` prefix."""
+        dataset is replaced again. Two uploads that differ in CONTENT coexist,
+        because the archive's identity is its content hash and nothing else
+        (`archived_original_uri`) — the uploaded name rides along on the row's
+        description, where no equality depends on it. Both are reaped together
+        when the dataset is deleted, because `delete_dataset` already cleans the
+        whole `originals/<id>/` prefix.
+
+        fix(#1526): the two payloads were seeded `hash(name) % 500`, and `hash`
+        on a str is salted per interpreter, so about one process in 500 drew the
+        same seed for both names. Identical bytes are one archive key by design,
+        the upsert collapses them into a single row, and the assertion below
+        then read `['second.tif']` — an intermittent CI failure landing on
+        whatever PR happened to be running, with nothing to do with its diff.
+        Fixed seeds, and the precondition asserted rather than assumed.
+        """
         admin_id = (
             await test_db_session.execute(
                 select(User.id).where(User.username == "admin")
@@ -2269,10 +2280,23 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
 
+        # Written up front so the precondition can be checked before either
+        # replace runs: a collapse here is a broken test, not a broken product,
+        # and it should say so at the top rather than through the final assert.
+        sources = []
+        for name, seed in (("first.tif", 401), ("second.tif", 402)):
+            source = tmp_path / name
+            source.write_bytes(_geotiff_bytes(seed=seed))
+            sources.append(source)
+        assert len({sha256_file(str(s)) for s in sources}) == 2, (
+            "precondition: the two uploads must carry different bytes. One "
+            "content hash is one archive, so identical payloads would make the "
+            "assertion below a statement about the upsert rather than about "
+            "two originals coexisting."
+        )
+
         try:
-            for name in ("first.tif", "second.tif"):
-                source = tmp_path / name
-                source.write_bytes(_geotiff_bytes(seed=hash(name) % 500))
+            for source in sources:
                 job = await _queue_replace_job(
                     test_db_session,
                     dataset_id=dataset_id,
