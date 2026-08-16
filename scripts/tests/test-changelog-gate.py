@@ -20,6 +20,7 @@ import importlib.util
 import pathlib
 import re
 import subprocess
+import textwrap
 import sys
 import tempfile
 
@@ -180,12 +181,64 @@ else:
     else:
         bad("the git-log fallback does not report in the job summary")
 
-    # The published body has to carry it too. A warning only reaches whoever
+    # The published body has to carry it too — a warning only reaches whoever
     # opens the workflow log; the marker reaches whoever reads the release.
-    if "NOTES=" in branch and "commit subjects" in branch:
-        ok("the git-log fallback marks the published notes as auto-generated")
+    #
+    # EXECUTE the branch rather than grepping it. fix(#1534 review): the first
+    # version of this case asserted `"NOTES=" in branch and "commit subjects"
+    # in branch`, and both are true with the marker assignment deleted — the
+    # original `NOTES=$(git log ...)` line supplies the first and the ::warning
+    # text supplies the second. It reported the notes as marked while a release
+    # reader saw nothing. Running the branch and reading what it actually
+    # produces cannot pass that way.
+    _if = branch[branch.index("if [ -z"):] if "if [ -z" in branch else ""
+    _fallback_block = release_text[release_text.index("if [ -z"):]
+    _fallback_block = _fallback_block[: re.search(
+        r"^\s*fi\s*$", _fallback_block, re.MULTILINE
+    ).end()]
+
+    def _run_fallback(block: str) -> str:
+        """Execute the fallback branch and return the NOTES it publishes."""
+        script = f"""
+        set -e
+        git() {{ echo "- feat(x): a thing"; echo "- fix(y): another"; }}
+        CHANGELOG_VERSION="1.9.9"; PREV="v1.0.0"; TAG="v1.9.9"; NOTES=""
+        GITHUB_STEP_SUMMARY="$(mktemp)"
+        {textwrap.dedent(block)}
+        printf '@@NOTES@@%s' "$NOTES"
+        """
+        # Sentinel because the branch also echoes its ::warning to stdout, and
+        # that text contains "commit subjects" too — reading raw stdout made
+        # the counterfactual below pass with the marker stripped.
+        out = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=False
+        ).stdout
+        return out.split("@@NOTES@@", 1)[1] if "@@NOTES@@" in out else ""
+
+    published = _run_fallback(_fallback_block)
+    if "commit subjects" in published and "1.9.9" in published:
+        ok("the executed fallback publishes a marker in the release body")
     else:
-        bad("the published notes carry no marker that they are auto-generated")
+        bad(f"executed fallback published no marker: {published[:120]!r}")
+
+    # And the case must be able to fail: strip the marker assignment and the
+    # same execution has to come back unmarked. A check nobody has watched fail
+    # is not a check — this one had already passed while asserting nothing.
+    _stripped = "\n".join(
+        line
+        for line in _fallback_block.splitlines()
+        if "> **Note**" not in line
+    )
+    if "commit subjects" not in _run_fallback(_stripped):
+        ok("removing the marker assignment makes the executed check fail")
+    else:
+        bad("the executed check still passes without the marker assignment")
+
+    # The generated notes themselves must survive the marker being prepended.
+    if "- feat(x): a thing" in published:
+        ok("the fallback keeps the git-log notes beneath the marker")
+    else:
+        bad("the marker replaced the generated notes instead of prefixing them")
 
 print(f"1..{PASS + FAIL}")
 print(f"# {PASS} passed, {FAIL} failed")
