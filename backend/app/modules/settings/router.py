@@ -21,6 +21,7 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.edition import is_enterprise
 from app.core.persistent_config import (
     EMBEDDING_DIMS,
+    EMBEDDING_MODEL,
     ENTERPRISE_ONLY_TABS,
     PASSWORD_LOGIN_ENABLED,
     _registry,
@@ -70,7 +71,7 @@ router = APIRouter(prefix="/settings", tags=["Admin"], responses=ERROR_RESPONSES
 
 # Phase 279 ADMIN-09 (L-01): The PUT/RESET handlers below intentionally end with
 # `return await get_all_settings(...)` to capture side-effects from
-# rebuild_embedding_column rollback, _auto_detect_embedding_dims write, and
+# rebuild_embedding_column rollback, validator coercion, and
 # request-derived URL computation (public_app_url / public_api_url, computed
 # from `request` in get_all_settings — NOT stored in AppSetting). An inline
 # response construction would have to duplicate get_all_settings's body
@@ -155,23 +156,126 @@ def _require_enterprise_for_key(key: str) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
 
-async def _auto_detect_embedding_dims(
-    db: AsyncSession, user_id: uuid.UUID, ip: str | None
-) -> None:
-    """Probe the current embedding model and persist its dimension count."""
-    try:
-        from app.processing.embeddings.service import probe_embedding_dimensions
+async def _probe_base_url(
+    db: AsyncSession, provider_ext: object, requested: dict[str, object]
+) -> object:
+    """Endpoint the probe should call, honoring a URL this request publishes.
 
-        dims = await probe_embedding_dimensions(db)
-        await EMBEDDING_DIMS.set(db, dims, user_id=user_id, ip_address=ip)
-    except Exception:  # broad: embedding probe spans third-party SDK calls; non-fatal so admin can set manually
-        # Non-fatal — admin can still set manually. Log with traceback so
-        # operators can diagnose embedding probe failures (bad API key,
-        # provider outage, network timeout) instead of seeing a silent skip.
-        logger.warning(
-            "Failed to auto-detect embedding dimensions",
-            exc_info=True,
+    When the request names neither URL key this is exactly
+    ``resolve_runtime_config(db)["base_url"]``. When it names either, the
+    provider's own chain is reproduced with each half taken from the request
+    where present: EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> None, then bound to
+    the operator-approved destination. Clearing ``embedding_base_url`` in the
+    same PUT therefore falls through to the ``openai_base_url`` that PUT sets,
+    exactly as it will once the batch commits.
+
+    ``resolve_runtime_config`` is deliberately not called on that branch. It
+    reads COMMITTED configuration, which is the value the request is replacing,
+    and it *raises* when that value is a stale row bound to a different
+    destination than the environment credential.
+    """
+    if not ({"embedding_base_url", "openai_base_url"} & requested.keys()):
+        runtime_config = await provider_ext.resolve_runtime_config(db)  # type: ignore[attr-defined]
+        return runtime_config.get("base_url")
+
+    from app.core.ai_credentials import bind_openai_credential_base_url
+    from app.core.persistent_config import EMBEDDING_BASE_URL, OPENAI_BASE_URL
+
+    embedding_url = (
+        requested["embedding_base_url"]
+        if "embedding_base_url" in requested
+        else await EMBEDDING_BASE_URL.get_uncached(db)
+    )
+    openai_url = (
+        requested["openai_base_url"]
+        if "openai_base_url" in requested
+        else await OPENAI_BASE_URL.get_uncached(db)
+    )
+    return bind_openai_credential_base_url(
+        str(embedding_url or openai_url or "") or None, purpose="embedding"
+    )
+
+
+async def _probe_embedding_dims_for_model(
+    db: AsyncSession, model: str, requested: dict[str, object]
+) -> int:
+    """Ask the provider for the natural output width of an explicitly named model.
+
+    fix(#1529): ``probe_embedding_dimensions`` resolves the model from
+    PersistentConfig, so it can only probe a model that is ALREADY published —
+    which is the publish-then-probe ordering the issue is about. ``update_settings``
+    needs the width of the model it is about to publish, at a point where nothing
+    has been committed, so the model name is passed in rather than read back out.
+
+    fix(#1538 review): the endpoint comes from ``requested`` too. Everything the
+    probe resolves has to describe the configuration being published, not the
+    one being replaced — the model was only half of that.
+
+    Raises:
+        EmbeddingUnavailableError: no embedding provider is configured, or the
+            provider answered with an empty vector.
+        Exception: whatever the provider SDK raises for a failed call.
+    """
+    from app.platform.extensions import get_embedding_provider
+    from app.processing.embeddings.service import EmbeddingUnavailableError
+
+    if not app_settings.openai_api_key:
+        raise EmbeddingUnavailableError(
+            "Embedding generation requires an OpenAI-compatible API key."
         )
+
+    provider_ext = get_embedding_provider("openai_compatible")
+    # dimensions=None means "discover the model's natural width" (Phase 231 D-02).
+    # `model` carries no fallback to the runtime default on purpose: this path is
+    # only reached when the request names embedding_model, and the community
+    # provider's default_model IS the committed EMBEDDING_MODEL, so falling back
+    # to it would probe the very model being replaced.
+    vectors = await provider_ext.embed(
+        texts=["dimension probe"],
+        model=model,
+        dimensions=None,
+        base_url=await _probe_base_url(db, provider_ext, requested),
+        timeout=30.0,
+    )
+    embedding = vectors[0] if vectors else []
+    if not embedding:
+        raise EmbeddingUnavailableError(
+            f"Embedding probe for model '{model}' returned empty vector."
+        )
+    return len(embedding)
+
+
+async def _detect_dims_for_requested_model(
+    db: AsyncSession, model: str, requested: dict[str, object]
+) -> int:
+    """Probe ``model`` for ``update_settings``, mapping failures to HTTP status.
+
+    Same mapping as POST /settings/detect-embedding-dims: a missing provider is
+    a 422, any other provider failure is a 502. Both are raised BEFORE anything
+    is committed, so a failed probe leaves the previous model/dimension pair
+    exactly as it was.
+    """
+    from app.processing.embeddings.service import EmbeddingUnavailableError
+
+    try:
+        return await _probe_embedding_dims_for_model(db, model, requested)
+    except EmbeddingUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"Cannot detect the dimension count for embedding model '{model}': "
+                f"{exc} Send embedding_dims alongside embedding_model to publish "
+                "the pair explicitly."
+            ),
+        ) from exc
+    except Exception as exc:  # broad: third-party embedding SDK can throw provider-specific errors; map to 502
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                f"Embedding probe for model '{model}' failed: {exc}. Neither "
+                "embedding_model nor embedding_dims was changed."
+            ),
+        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -302,6 +406,44 @@ async def update_settings(
 
         validated_settings[key] = _canonicalize_setting_value(key, value, cfg)
 
+    # fix(#1529): publish embedding_model and its detected width ATOMICALLY.
+    # The probe runs HERE — before the provider row locks below, before any
+    # value is staged, and before the batch commit — and its result joins the
+    # same batch, so the pair lands in one transaction. A reader therefore sees
+    # the old pair or the new pair and never the new model beside the old
+    # model's dimension count, and a failed probe leaves both values untouched.
+    #
+    # Folding the detected width into validated_settings also puts auto-detect
+    # on the SAME commit-and-rebuild path as an explicitly named embedding_dims.
+    # The two used to be mutually exclusive branches, which is how a detected
+    # width could be persisted while the vector column kept the old one.
+    #
+    # Probing ahead of the SSO guard is deliberate: that guard row-locks the
+    # enabled OAuth providers, and holding those locks across a provider
+    # network call would serialize unrelated provider mutations behind it.
+    #
+    # The whole validated batch is handed to the probe, not just the model:
+    # a PUT can change the endpoint in the same request, and the probe has to
+    # describe the configuration being published (see _probe_base_url).
+    if (
+        "embedding_model" in validated_settings
+        and "embedding_dims" not in validated_settings
+        # In ENV_ONLY_CONFIG mode every cfg.set() below raises 403, so probing
+        # would only burn a provider call on a request that cannot land.
+        and not _is_env_only()
+    ):
+        requested_model = str(validated_settings["embedding_model"])
+        # Uncached on purpose: a stale cache entry naming the requested model
+        # would skip the probe and publish that model with an unrelated width.
+        if requested_model != await EMBEDDING_MODEL.get_uncached(db):
+            validated_settings["embedding_dims"] = _canonicalize_setting_value(
+                "embedding_dims",
+                await _detect_dims_for_requested_model(
+                    db, requested_model, validated_settings
+                ),
+                registry_map["embedding_dims"],
+            )
+
     # SSO-04 (Phase 1236 Plan 02): lockout guard — refuse to disable password
     # login when zero enabled OAuth providers exist.  This runs AFTER Pass-1
     # validation but BEFORE the apply loop so nothing is persisted on rejection.
@@ -324,10 +466,21 @@ async def update_settings(
                 ),
             )
 
-    # Capture old embedding_dims before any changes (needed for rollback)
+    # Capture the previous embedding pair before any changes (rollback source
+    # for the column rebuild below). Uncached so the rollback restores what is
+    # actually committed rather than a cache entry that may already be stale.
     old_dims_value: int | None = None
+    old_model_value: str | None = None
+    rollback_model = False
     if "embedding_dims" in validated_settings:
-        old_dims_value = await EMBEDDING_DIMS.get(db)
+        old_dims_value = await EMBEDDING_DIMS.get_uncached(db)
+        # fix(#1529): a request that publishes both halves has to roll back
+        # both halves. Restoring embedding_dims alone would leave the NEW model
+        # standing beside the OLD width — the mismatched pair, reached through
+        # the failure path instead of the probe window.
+        rollback_model = "embedding_model" in validated_settings
+        if rollback_model:
+            old_model_value = await EMBEDDING_MODEL.get_uncached(db)
 
     ip = get_client_ip(request)
     for key, value in validated_settings.items():
@@ -344,14 +497,10 @@ async def update_settings(
     for key, value in validated_settings.items():
         await registry_map[key].apply_side_effects(value)
 
-    # Auto-detect embedding dimensions when embedding_model changes
-    if (
-        "embedding_model" in validated_settings
-        and "embedding_dims" not in validated_settings
-    ):
-        await _auto_detect_embedding_dims(db, user.id, ip)
-
-    # Rebuild column + index when embedding dimensions change
+    # Rebuild column + index when embedding dimensions change. An auto-detected
+    # width reaches this branch too (#1529): it was added to validated_settings
+    # above, so the column follows every published width, not only the ones an
+    # admin typed.
     if "embedding_dims" in validated_settings:
         from app.processing.embeddings.service import rebuild_embedding_column
 
@@ -359,26 +508,43 @@ async def update_settings(
         try:
             await rebuild_embedding_column(db, new_dims)
         except Exception as exc:  # broad: DDL rebuild can fail for schema/lock reasons; roll setting back atomically
-            # Roll back the persisted embedding_dims setting to the previous value
-            await EMBEDDING_DIMS.set(db, old_dims_value, user_id=user.id, ip_address=ip)
+            # Roll the published pair back to its previous value(s) in ONE
+            # transaction — same reason the forward publish is one transaction.
+            # Side effects follow the commit, never precede it (fix #430 codex
+            # r3): invalidating the cache first lets a concurrent reader
+            # repopulate it with the value being rolled back.
+            await EMBEDDING_DIMS.set(
+                db, old_dims_value, user_id=user.id, ip_address=ip, commit=False
+            )
+            if rollback_model:
+                await EMBEDDING_MODEL.set(
+                    db, old_model_value, user_id=user.id, ip_address=ip, commit=False
+                )
             await db.commit()
+            await EMBEDDING_DIMS.apply_side_effects(old_dims_value)
+            if rollback_model:
+                await EMBEDDING_MODEL.apply_side_effects(old_model_value)
             logger.exception(
-                "Embedding column rebuild failed, rolling back embedding_dims",
+                "Embedding column rebuild failed, rolling back the embedding pair",
                 old_dims=old_dims_value,
                 new_dims=new_dims,
+                old_model=old_model_value if rollback_model else None,
+                rolled_back_model=rollback_model,
             )
             raise HTTPException(
                 status_code=503,
-                detail="Embedding column rebuild failed. The embedding_dims setting has been reverted.",
+                detail=(
+                    "Embedding column rebuild failed. The embedding settings have "
+                    "been reverted to their previous values."
+                ),
             ) from exc
 
     # Phase 279 ADMIN-09 (L-01): The second get_all_settings() call is INTENTIONAL.
-    # update_settings runs three side-effect pathways that mutate AppSetting AFTER
-    # the main registry loop:
-    #   1. _auto_detect_embedding_dims (above) -- writes EMBEDDING_DIMS via .set()
-    #      when embedding_model changes without an explicit dims value.
-    #   2. rebuild_embedding_column failure (above) -- rolls back the
-    #      requested embedding_dims to old_dims_value if the DDL fails.
+    # update_settings can persist values the request body does not name:
+    #   1. an auto-detected embedding_dims (#1529) joins validated_settings
+    #      before the apply loop when embedding_model changes on its own.
+    #   2. rebuild_embedding_column failure (above) -- rolls the published
+    #      embedding pair back to its previous value(s) if the DDL fails.
     #   3. .set() with commit=False above batches the writes; the final commit
     #      may differ from the request body if a validator coerced the value.
     # Additionally, get_all_settings computes public_app_url / public_api_url from
