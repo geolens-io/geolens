@@ -58,8 +58,15 @@ function denyStorage(): () => void {
   };
 }
 
-/** Fire the error event a blocked/404 hashed asset produces. */
-function failAsset(url = 'http://localhost/assets/index-abc123.js'): void {
+/**
+ * Fire the error event a blocked/404 hashed asset produces.
+ *
+ * The src is RELATIVE, matching what the shell actually emits, and the guard
+ * reads `el.src`, which the DOM resolves against the document base. An absolute
+ * `http://` literal here worked equally well but tripped CodeQL's
+ * "script loaded using unencrypted connection" rule on a test fixture.
+ */
+function failAsset(url = '/assets/index-abc123.js'): void {
   const el = document.createElement('script');
   el.setAttribute('src', url);
   document.body.appendChild(el);
@@ -94,7 +101,7 @@ describe('asset-guard.js', () => {
   });
 
   it('ignores failures that are not hashed assets', () => {
-    failAsset('http://localhost/some-other-script.js');
+    failAsset('/some-other-script.js');
     expect(reload).not.toHaveBeenCalled();
   });
 
