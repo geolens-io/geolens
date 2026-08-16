@@ -690,7 +690,7 @@
     "iframeErrorTitle": "Aperçu indisponible",
     "iframeErrorBody": "Vérifiez que le jeton d'intégration est valide et que le lien de partage est actif. Rechargez pour réessayer.",
     "iframeReload": "Recharger",
-    "iframeSandboxNote": "L’aperçu intégré s’exécute dans un environnement restreint qui autorise uniquement les scripts.",
+    "iframeSandboxNote": "L’aperçu intégré s’exécute dans le même environnement restreint que l’extrait que vous copiez.",
     "embedTokenMissing": "Cette carte contient des calques non publics. Les visiteurs pourraient ne pas voir tous les calques sans jeton d'intégration.",
     "embedTokenNotAvailable": "Le jeton d'intégration a été créé lors d'une session précédente. Régénérez-le pour obtenir le code d'intégration.",
     "embedTokenRegenerated": "Jeton d'intégration régénéré",

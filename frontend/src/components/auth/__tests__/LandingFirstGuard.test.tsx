@@ -167,6 +167,89 @@ describe('LandingFirstGuard', () => {
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
   });
 
+  /**
+   * fix(#1515): the guest-browse marker is read DURING RENDER, so a throw here
+   * is a blank page. `typeof sessionStorage !== 'undefined'` did not protect
+   * it — the property exists and the READ is what raises. Observed as
+   * "SecurityError: Failed to read the 'sessionStorage' property from 'Window'"
+   * inside a sandboxed frame, surfaced by React Router as a page error.
+   *
+   * Deny the way the browser denies: a getter that throws on property access.
+   * Mocking getItem to return null would prove nothing, because the old code
+   * never reached getItem.
+   */
+  function denyStorage(): () => void {
+    const original = Object.getOwnPropertyDescriptor(window, 'sessionStorage');
+    const descriptor: PropertyDescriptor = {
+      configurable: true,
+      get() {
+        throw new DOMException(
+          "Failed to read the 'sessionStorage' property from 'Window': The document " +
+            "is sandboxed and lacks the 'allow-same-origin' flag.",
+          'SecurityError',
+        );
+      },
+    };
+    Object.defineProperty(window, 'sessionStorage', descriptor);
+    if (globalThis !== (window as unknown as typeof globalThis)) {
+      Object.defineProperty(globalThis, 'sessionStorage', descriptor);
+    }
+    return () => {
+      if (original) {
+        Object.defineProperty(window, 'sessionStorage', original);
+        if (globalThis !== (window as unknown as typeof globalThis)) {
+          Object.defineProperty(globalThis, 'sessionStorage', original);
+        }
+      }
+    };
+  }
+
+  function renderWithConfig(landingFirst: boolean) {
+    const queryClient = createTestClient();
+    queryClient.setQueryData(['auth', 'config'], {
+      registration_enabled: false,
+      landing_first: landingFirst,
+      auth_methods: [],
+    });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/']}>
+          <Routes>
+            <Route index element={<LandingFirstGuard />} />
+            <Route path="/login" element={<LoginSpy />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  }
+
+  it('F) #1515 — storage denied + flag OFF: renders SearchPage instead of throwing', () => {
+    const restore = denyStorage();
+    try {
+      act(() => {
+        useAuthStore.setState({ token: null, user: null, refreshToken: null, expiresAt: null });
+      });
+      renderWithConfig(false);
+      expect(screen.getByTestId('search-page')).toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  it('F2) #1515 — storage denied + flag ON + anon: redirects, treating the marker as absent', () => {
+    const restore = denyStorage();
+    try {
+      act(() => {
+        useAuthStore.setState({ token: null, user: null, refreshToken: null, expiresAt: null });
+      });
+      renderWithConfig(true);
+      expect(screen.getByTestId('login-page')).toBeInTheDocument();
+      expect(screen.queryByTestId('search-page')).not.toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
   it('config absent (undefined) — defaults to flag OFF → SearchPage', () => {
     const queryClient = createTestClient();
     // No query data seeded — config will be undefined

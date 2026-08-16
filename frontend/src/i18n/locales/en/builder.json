@@ -690,7 +690,7 @@
     "iframeErrorTitle": "Preview unavailable",
     "iframeErrorBody": "Check that the embed token is valid and the share link is active. Reload to retry.",
     "iframeReload": "Reload",
-    "iframeSandboxNote": "The embed preview runs in a restricted sandbox that permits scripts only.",
+    "iframeSandboxNote": "The embed preview runs in the same restricted sandbox as the snippet you copy.",
     "embedTokenMissing": "This map contains non-public layers. Viewers may not be able to see all layers without an embed token.",
     "embedTokenNotAvailable": "The embed token was created in a previous session. Regenerate to get the embed code.",
     "embedTokenRegenerated": "Embed token regenerated",

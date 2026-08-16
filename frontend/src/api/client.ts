@@ -1,5 +1,6 @@
 import { API_BASE } from '@/lib/constants';
 import { cookieAuthAvailable } from '@/lib/auth-transport';
+import { isEmbedViewer } from '@/lib/embed-context';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import { logoutSession, refreshAccessToken } from './auth';
@@ -188,15 +189,21 @@ export async function authenticatedRawFetch(
   options: RequestInit = {},
   prepareHeaders?: (headers: Headers) => void,
 ): Promise<Response> {
+  // fix(#1515): the embedded viewer does not participate in the session. See
+  // isEmbedViewer's docstring — the share token is the capability, and once the
+  // frame is same-origin an embed on a third-party page would otherwise run as
+  // whoever is signed in, and could sign them out.
+  const embedded = isEmbedViewer();
+
   // Proactively refresh if token expires within 30 seconds
   const { token: currentToken, expiresAt } = useAuthStore.getState();
-  if (currentToken && expiresAt && Date.now() > expiresAt - 30_000) {
+  if (!embedded && currentToken && expiresAt && Date.now() > expiresAt - 30_000) {
     await tryRefresh();
   }
 
   function buildHeaders(): Headers {
     const headers = new Headers(options.headers);
-    const token = useAuthStore.getState().token;
+    const token = embedded ? null : useAuthStore.getState().token;
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
@@ -210,6 +217,13 @@ export async function authenticatedRawFetch(
   });
 
   if (response.status === 401) {
+    // fix(#1515): an embed never sent a session, so a 401 here is the share or
+    // embed token failing to authorize — not an expired login. Returning it
+    // keeps the viewer's own error handling and, more importantly, keeps a
+    // frame on someone else's page from refreshing or destroying the session
+    // of whoever is signed in.
+    if (embedded) return response;
+
     // fix(#628): only a session that existed can expire; an anonymous 401 must
     // not raise the signed-out prompt. Captured BEFORE tryRefresh so every
     // concurrent failure holds the same dead value.

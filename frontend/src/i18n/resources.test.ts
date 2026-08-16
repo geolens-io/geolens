@@ -83,7 +83,6 @@ const IDENTICAL_ACROSS_LOCALES = new Set([
   // Code samples and input placeholders
   'admin:settings.network.corsAllowedOriginsPlaceholder', // https://example.com, ...
   'builder:popup.expressionPlaceholder', // {city}, {state}
-  'builder:share.iframeSandboxNote', // sandbox="allow-scripts" only — SEC-07 contract
   'dataset:schema.columnNamePlaceholder', // column_name
 ]);
 

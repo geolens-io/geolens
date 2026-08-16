@@ -690,7 +690,7 @@
     "iframeErrorTitle": "Vista previa no disponible",
     "iframeErrorBody": "Verifique que el token de incrustación sea válido y que el enlace compartido esté activo. Recargue para reintentar.",
     "iframeReload": "Recargar",
-    "iframeSandboxNote": "La vista previa insertada se ejecuta en un entorno restringido que solo permite scripts.",
+    "iframeSandboxNote": "La vista previa insertada se ejecuta en el mismo entorno restringido que el fragmento que copias.",
     "embedTokenMissing": "Este mapa contiene capas no públicas. Los visitantes puede que no vean todas las capas sin un token de inserción.",
     "embedTokenNotAvailable": "El token de inserción se creó en una sesión anterior. Regénéralo para obtener el código de inserción.",
     "embedTokenRegenerated": "Token de inserción regenerado",

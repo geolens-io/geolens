@@ -18,6 +18,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
 import { queryKeys } from '@/lib/query-keys';
+import { readSessionStorage } from '@/lib/storage';
 import { SearchPage } from '@/pages/SearchPage';
 
 const GUEST_BROWSE_KEY = 'gl-guest-browse';
@@ -32,10 +33,13 @@ export function LandingFirstGuard() {
   });
 
   const landingFirst = config?.landing_first ?? false;
-  const guestBrowse =
-    typeof sessionStorage !== 'undefined'
-      ? sessionStorage.getItem(GUEST_BROWSE_KEY) === 'true'
-      : false;
+  // fix(#1515): this read happens during render, so an exception here is a blank
+  // page, not a lost preference. The previous `typeof sessionStorage !==
+  // 'undefined'` guard did not prevent one: the property exists in every context
+  // that matters, and it is READING it that throws — SecurityError in a frame
+  // with an opaque origin, and in some private-browsing modes. Same defect shape
+  // as the two reload latches in this fix; third site.
+  const guestBrowse = readSessionStorage(GUEST_BROWSE_KEY) === 'true';
 
   // Redirect ONLY when: flag ON + unauthenticated + no guest-browse marker
   if (landingFirst && !token && !guestBrowse) {

@@ -38,3 +38,20 @@ export function removeStorage(key: string): void {
     // storage unavailable — ignore.
   }
 }
+
+/**
+ * fix(#1515): sessionStorage counterpart, for the same reason the file exists.
+ *
+ * A `typeof sessionStorage !== 'undefined'` check does NOT make a read safe:
+ * the property exists, and it is reading it that raises. In a frame with an
+ * opaque origin (sandboxed without `allow-same-origin`) the getter throws
+ * `SecurityError`, so a caller reading during render takes the whole page
+ * down rather than losing one preference.
+ */
+export function readSessionStorage(key: string): string | null {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
