@@ -43,10 +43,45 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
     Returns:
         Dict with counts: processed, created, skipped, errors.
+
+    Raises:
+        RuntimeError: On force=True when the active embedding model cannot be
+            resolved. Nothing is deleted in that case.
     """
     port = get_processing_port()
 
+    forced_model_name: str | None = None
+
     if force:
+        # fix(#1511): resolve the model BEFORE the delete below commits. Every
+        # row this run writes back is stamped with the active model and
+        # `model_name` is NOT NULL, so a force run started while
+        # persistent-config resolution is failing clears the whole table and
+        # then cannot insert a single replacement — a Regenerate All clicked
+        # during a config blip converts full coverage into zero coverage.
+        # This is the same fail-closed call documented in
+        # DefaultProcessingPort.get_records_without_embeddings (#1506), which
+        # could not cover this branch: by the time that query runs on the force
+        # path the vectors are already gone, so the check has to happen here.
+        # Imported in-function, as the port does, so patching the module
+        # attribute reaches this call site.
+        from app.processing.embeddings.helpers import (
+            UNKNOWN_EMBEDDING_MODEL,
+            resolve_embedding_model_name,
+        )
+
+        forced_model_name = await resolve_embedding_model_name(session)
+        if forced_model_name == UNKNOWN_EMBEDDING_MODEL:
+            # Loud, not silent: the admin route maps this to a 502 and a
+            # "failed" audit entry. Returning zero counts would look like a
+            # completed run over an empty catalog.
+            logger.error("backfill_force_aborted_unresolved_embedding_model")
+            raise RuntimeError(
+                "Cannot regenerate embeddings: the active embedding model "
+                "could not be resolved. Existing vectors were left untouched; "
+                "retry once the AI configuration resolves."
+            )
+
         # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
         # force=True we just clear the active tenant's rows; no need to drop
@@ -106,7 +141,11 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         logger.info("Backfill: AI disabled, skipping", total_records=total)
         return {"processed": 0, "created": 0, "skipped": total, "errors": 0}
 
-    model_name = await EMBEDDING_MODEL.get(session)
+    # fix(#1511): on the force path, stamp rows with the name the guard above
+    # already validated. A second read here would reopen the window the guard
+    # closes — resolution can fail between the two calls, and by then the
+    # delete has committed.
+    model_name = forced_model_name or await EMBEDDING_MODEL.get(session)
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped = 0
