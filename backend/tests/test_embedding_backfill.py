@@ -38,7 +38,15 @@ def _make_query_result(records):
 
 
 def _patch_backfill_gates(stack: ExitStack, *, ai_enabled=True):
-    """Patch the run-level PersistentConfig gates the backfill reads once."""
+    """Patch the run-level PersistentConfig gates the backfill reads once.
+
+    fix(#1511 review r2): the model and dimensions are now captured as one
+    snapshot that re-reads both and aborts if either moved, so a stubbed run
+    has to answer both keys and answer them consistently. EMBEDDING_MODEL is
+    patched on `persistent_config` because backfill reaches it through
+    `resolve_embedding_model_name` rather than importing the name itself.
+    """
+    from app.core.persistent_config import EMBEDDING_MODEL
     from app.processing.embeddings import backfill as backfill_module
 
     stack.enter_context(
@@ -47,10 +55,11 @@ def _patch_backfill_gates(stack: ExitStack, *, ai_enabled=True):
         )
     )
     stack.enter_context(
+        patch.object(EMBEDDING_MODEL, "get", AsyncMock(return_value="test-model"))
+    )
+    stack.enter_context(
         patch.object(
-            backfill_module.EMBEDDING_MODEL,
-            "get",
-            AsyncMock(return_value="test-model"),
+            backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
         )
     )
 

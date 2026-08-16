@@ -65,11 +65,22 @@ async def generate_embeddings_batch(
 
     fix(#1511 review): ``model`` and ``dimensions`` let a caller that already
     resolved the pair pin it for the whole run instead of having this function
-    re-read the config on every call. A multi-call caller that does not pin
-    straddles an admin model swap: it labels rows from its own resolution while
-    the provider generates from a later one, so vectors land under a model that
-    did not produce them. Pass both or neither — pinning only the model would
-    call model A with model B's dimensions.
+    re-read the config on every call.
+
+    **A caller that writes its own ``model_name`` label MUST pass both.** Such
+    a caller resolves the model once to label its rows; without pinning, this
+    function re-reads the config per call, so an admin swap mid-run has the
+    provider generate from model B while the rows are labelled model A. Search
+    reads only active-model rows, so those vectors are invisible to the model
+    that supposedly produced them. Passing only one is worse than passing
+    neither: model A with model B's dimensions is a pair that never existed in
+    config. Today `processing/embeddings/backfill.py` is the only such caller;
+    `generate_embedding` above makes a single call and labels nothing, so it
+    deliberately does not pin.
+
+    Omitting both keeps the pre-existing per-call resolution, which is correct
+    for a single-call caller and silently racy for a multi-call labelling one.
+    Nothing enforces that distinction mechanically, so it is stated here.
 
     Returns vectors in the same order as ``texts``.
 

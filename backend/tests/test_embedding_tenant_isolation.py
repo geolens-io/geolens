@@ -267,15 +267,19 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
             get_records_without_embeddings=AsyncMock(return_value=[]),
         )
         monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
-        # fix(#1511): the force path resolves the active model before it
-        # deletes, and this session runs as geolens_reader, which cannot read
-        # app_settings — the real resolver would return the unknown sentinel
-        # and abort the run. This test is about the DELETE's tenant scope, so
-        # supply the precondition and keep asserting the thing it asserts.
+        # fix(#1511): the force path snapshots the active model and dimensions
+        # before it deletes, and this session runs as geolens_reader, which
+        # cannot read app_settings. Unpinned, the resolver returns the unknown
+        # sentinel and the dimensions read raises outright, either of which
+        # aborts the run before the DELETE this test exists to check. Supply
+        # the precondition and keep asserting the thing it asserts.
         monkeypatch.setattr(
             helpers,
             "resolve_embedding_model_name",
             AsyncMock(return_value="tenant-isolation-model"),
+        )
+        monkeypatch.setattr(
+            backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
         )
 
         from app.core.db.tenant_session import current_tenant_var

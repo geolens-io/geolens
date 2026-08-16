@@ -25,10 +25,11 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
 from app.processing.embeddings import backfill as backfill_module
@@ -46,16 +47,13 @@ _DIMS_A = 1536
 _DIMS_B = 768
 
 
-class _SwitchingProvider:
-    """Records provider arguments, and flips the live config mid-call."""
+class _RecordingProvider:
+    """Records the arguments each provider call received."""
 
     def __init__(self):
         self.calls: list[dict] = []
 
     async def resolve_runtime_config(self, session):
-        # The admin's model swap lands exactly here.
-        await EMBEDDING_MODEL.set(session, _MODEL_B)
-        await EMBEDDING_DIMS.set(session, _DIMS_B)
         return {
             "default_model": "provider-fallback-model",
             "default_dims": 1536,
@@ -65,6 +63,28 @@ class _SwitchingProvider:
     async def embed(self, *, texts, model, dimensions, base_url, timeout):
         self.calls.append({"model": model, "dimensions": dimensions})
         return [[1.0] + [0.0] * 1535 for _ in texts]
+
+
+class _SwitchingProvider(_RecordingProvider):
+    """Flips the live config from inside the provider call.
+
+    `resolve_runtime_config` is the one await `service.py` makes after backfill
+    has captured its own values and before the service would re-read them, so
+    this covers the late window: a swap that lands once the run is already
+    generating.
+    """
+
+    async def resolve_runtime_config(self, session):
+        await EMBEDDING_MODEL.set(session, _MODEL_B)
+        await EMBEDDING_DIMS.set(session, _DIMS_B)
+        return await super().resolve_runtime_config(session)
+
+
+async def _embedding_count(session) -> int:
+    """Count every embedding row a force delete would clear."""
+    return (
+        await session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
 
 
 @pytest.fixture
@@ -124,3 +144,83 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     # whatever the config happened to say by the time the provider was called.
     assert call["model"] == _MODEL_A
     assert call["dimensions"] == _DIMS_A
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("force", [True, False], ids=["force", "non_force"])
+async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+    force,
+):
+    """A swap landing between the two capture reads must not pin a mixed pair.
+
+    The earlier test flips the config once both values are already captured,
+    so it is blind to the window *inside* the capture. The model and the
+    dimensions come from separate `PersistentConfig` reads; a swap landing
+    between them pins model A with model B's dimensions, a pairing that never
+    existed in config. A provider that rejects it fails every insert, and one
+    that accepts it writes vectors under a configuration nobody chose.
+
+    The flip is hung on the dimensions read itself, which is the one call that
+    sits between the two captures on both paths. It goes through the real
+    `PersistentConfig.set`, and it fires once so the re-read observes the new
+    value rather than flipping again underneath it.
+    """
+    user_id = await get_user_id(test_db_session, "admin")
+    await create_dataset(
+        test_db_session, created_by=user_id, name=f"Capture Window {force}"
+    )
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL_A)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS_A)
+
+    # A row to lose. On the force path the snapshot sits ahead of the DELETE,
+    # so an abort has to leave this untouched.
+    seeded = await create_dataset(
+        test_db_session, created_by=user_id, name=f"Capture Window Seed {force}"
+    )
+    test_db_session.add(
+        RecordEmbedding(
+            record_id=seeded.record_id,
+            embedding=[1.0] + [0.0] * 1535,
+            model_name=_MODEL_A,
+            content_hash=uuid.uuid4().hex[:64],
+        )
+    )
+    await test_db_session.commit()
+    before = await _embedding_count(test_db_session)
+    assert before > 0
+
+    original_dims_get = EMBEDDING_DIMS.get
+    flipped = False
+
+    async def _flip_then_read(session):
+        nonlocal flipped
+        if not flipped:
+            flipped = True
+            await EMBEDDING_MODEL.set(session, _MODEL_B)
+            await EMBEDDING_DIMS.set(session, _DIMS_B)
+        return await original_dims_get(session)
+
+    monkeypatch.setattr(EMBEDDING_DIMS, "get", _flip_then_read)
+
+    provider = _RecordingProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    aborted = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=force)
+    except RuntimeError:
+        aborted = True
+
+    # Checked before the abort flag: an unfixed tree fails showing the mixed
+    # pair it handed the provider, which is the damage, not the missing raise.
+    assert provider.calls == []
+    assert await _embedding_count(test_db_session) == before
+    assert aborted
