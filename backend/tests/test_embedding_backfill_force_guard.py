@@ -26,7 +26,6 @@ from sqlalchemy import func, select
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings import helpers
 from app.processing.embeddings.models import RecordEmbedding
-from app.processing.embeddings.service import EmbeddingUnavailableError
 
 from tests.factories import create_dataset, get_user_id
 
@@ -39,19 +38,30 @@ async def _embedding_count(session) -> int:
     return result.scalar_one()
 
 
-async def _seed_embedding(session, name: str) -> None:
-    """Create one dataset with one embedding row under a resolvable model."""
+async def _seed_embedding(session, name: str, model_name: str = _RESOLVABLE_MODEL):
+    """Create one dataset with one embedding row under the given model."""
     user_id = await get_user_id(session, "admin")
     dataset = await create_dataset(session, created_by=user_id, name=name)
     session.add(
         RecordEmbedding(
             record_id=dataset.record_id,
             embedding=[1.0] + [0.0] * 1535,
-            model_name=_RESOLVABLE_MODEL,
+            model_name=model_name,
             content_hash=uuid.uuid4().hex[:64],
         )
     )
     await session.commit()
+    return dataset
+
+
+async def _count_under(session, model_name: str) -> int:
+    """Count embedding rows carrying a given model label."""
+    result = await session.execute(
+        select(func.count())
+        .select_from(RecordEmbedding)
+        .where(RecordEmbedding.model_name == model_name)
+    )
+    return result.scalar_one()
 
 
 def _pin_model(monkeypatch, name: str) -> None:
@@ -100,24 +110,34 @@ async def test_force_backfill_with_a_resolvable_model_still_clears(
     test_db_session,
     monkeypatch,
 ):
-    """The guard must not turn Regenerate All into a no-op.
+    """The guards must not turn Regenerate All into a no-op.
 
     Counterfactual for the test above: the surviving rows there are the
     sentinel's doing, not a force path that stopped deleting.
+
+    fix(#1511 review r3): this used to assert that force clears even when the
+    provider is unavailable. That is now the opposite of the contract — an
+    unusable provider must abort before the delete, which is what the
+    pre-flight is for — so the counterfactual has to run with a WORKING
+    provider. The intent is unchanged: prove the delete still happens. The old
+    setup asserted behavior the fix deliberately removed, so keeping it would
+    have pinned the bug.
     """
-    await _seed_embedding(test_db_session, "Force Guard Resolvable")
-    assert await _embedding_count(test_db_session) > 0
+    superseded = "force-guard-superseded-model"
+    await _seed_embedding(test_db_session, "Force Guard Resolvable", superseded)
+    assert await _count_under(test_db_session, superseded) > 0
 
     _pin_model(monkeypatch, _RESOLVABLE_MODEL)
 
-    # Provider work is out of scope here, and an ambient OPENAI_API_KEY would
-    # otherwise buy real vectors. The regenerate half failing is the harshest
-    # case for the assertion below anyway.
-    async def _unavailable(*_args, **_kwargs):
-        raise EmbeddingUnavailableError("no provider in tests")
+    async def _vector(texts, *_args, **_kwargs):
+        return [[1.0] + [0.0] * 1535 for _ in texts]
 
-    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _unavailable)
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _vector)
 
     await backfill_module.backfill_embeddings(test_db_session, force=True)
 
-    assert await _embedding_count(test_db_session) == 0
+    # The stale-labelled rows are gone, so the DELETE ran, and rows exist under
+    # the active model, so the regenerate ran. Counting all rows could not tell
+    # those apart now that the run actually writes vectors back.
+    assert await _count_under(test_db_session, superseded) == 0
+    assert await _count_under(test_db_session, _RESOLVABLE_MODEL) > 0

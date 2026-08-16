@@ -105,6 +105,14 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         get_records_without_embeddings=AsyncMock(return_value=[]),
     )
     monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
+    # fix(#1511 review r3): the force path now proves it can embed before it
+    # deletes. This test is about the DELETE's record scoping, so give it a
+    # working provider rather than letting the pre-flight abort the run.
+    monkeypatch.setattr(
+        backfill_module,
+        "generate_embeddings_batch",
+        AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
+    )
     backfill_session = AsyncMock()
 
     result = await backfill_module.backfill_embeddings(backfill_session, force=True)
@@ -280,6 +288,18 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         )
         monkeypatch.setattr(
             backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
+        )
+        # fix(#1511 review r3): likewise for the AI gate, which force now
+        # checks before its delete, and the pre-flight embedding. Either would
+        # otherwise abort this run before the DELETE under test — the gate by
+        # raising on the same app_settings denial as the keys above.
+        monkeypatch.setattr(
+            backfill_module.AI_ENABLED, "get", AsyncMock(return_value=True)
+        )
+        monkeypatch.setattr(
+            backfill_module,
+            "generate_embeddings_batch",
+            AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
         )
 
         from app.core.db.tenant_session import current_tenant_var

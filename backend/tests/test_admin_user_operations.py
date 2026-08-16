@@ -130,8 +130,22 @@ async def test_delete_user_404_for_nonexistent(
 async def test_backfill_embeddings_force_admin(
     client: AsyncClient,
     admin_auth_header: dict,
+    monkeypatch,
 ):
     """POST /admin/backfill-embeddings/?force=true returns 200 for admin."""
+    # fix(#1511 review r3): force now generates one pre-flight embedding before
+    # its delete, so without a provider the route correctly answers 502. This
+    # test is about admin authorization and the audit trail, so supply a
+    # provider instead of asserting the no-provider outcome.
+    from unittest.mock import AsyncMock
+
+    from app.processing.embeddings import backfill as backfill_module
+
+    monkeypatch.setattr(
+        backfill_module,
+        "generate_embeddings_batch",
+        AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
+    )
     resp = await client.post(
         "/admin/backfill-embeddings/?force=true",
         headers=admin_auth_header,

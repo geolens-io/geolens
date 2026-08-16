@@ -32,6 +32,10 @@ logger = structlog.stdlib.get_logger(__name__)
 # Groq, Together) while still collapsing a 10K-record backfill to ~80 calls.
 _BATCH_SIZE = 128
 
+# Text for the force-path pre-flight embedding. Short, so the call is cheap,
+# and constant, so a provider's cache can serve it.
+_PREFLIGHT_TEXT = "geolens embedding preflight"
+
 
 async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | None]:
     """Capture (model, dimensions) as one consistent pair, or refuse the run.
@@ -94,6 +98,53 @@ async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | 
     return model_name, dimensions
 
 
+async def _preflight_embedding(
+    session: AsyncSession, pinned: tuple[str, int | None]
+) -> None:
+    """Generate one throwaway embedding to prove regeneration can work.
+
+    fix(#1511 review r3, codex P1): three rounds of this review each guarded a
+    different way for a force run to destroy vectors it then could not rebuild
+    — unresolvable model, model and dimensions disagreeing across reads, model
+    and dimensions disagreeing in a committed and stable state. Guarding modes
+    one at a time keeps finding another mode. This proves the capability
+    instead: if the provider returns a vector for the pinned pair right now,
+    regeneration works with the configuration as it actually stands, whatever
+    the mode would have been.
+
+    It subsumes the stable-mismatch case that no amount of re-reading can
+    catch, and also provider outages, revoked keys, exhausted quota and
+    dimensions the model rejects. The cost is one provider call per force run,
+    against regenerating the entire catalog.
+
+    The earlier guards are kept rather than replaced. They are cheaper, they
+    fail before any provider round trip, and they name the problem better than
+    a provider rejection would.
+
+    Raises:
+        RuntimeError: If the embedding cannot be generated. The caller must run
+            this BEFORE deleting anything.
+    """
+    model_name, dimensions = pinned
+    try:
+        await generate_embeddings_batch(
+            [_PREFLIGHT_TEXT], session, model=model_name, dimensions=dimensions
+        )
+    except Exception as exc:  # broad: any provider/config failure means the regenerate cannot be promised
+        logger.error(
+            "backfill_preflight_embedding_failed",
+            model=model_name,
+            dimensions=dimensions,
+            exc_info=True,
+        )
+        raise RuntimeError(
+            "Cannot regenerate embeddings: a test embedding failed with the "
+            f"active configuration (model {model_name!r}, dimensions "
+            f"{dimensions!r}). Existing vectors were left untouched; fix the "
+            "embedding configuration or provider and re-run."
+        ) from exc
+
+
 async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> dict:
     """Generate embeddings for records.
 
@@ -106,28 +157,50 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         Dict with counts: processed, created, skipped, errors.
 
     Raises:
-        RuntimeError: If the active embedding model cannot be resolved, or if
-            the model/dimensions change while the run is starting. On
-            force=True nothing is deleted in either case.
+        RuntimeError: On force=True, if AI is disabled, if the embedding config
+            cannot be resolved or moves while the run is starting, or if the
+            pre-flight embedding fails. Nothing is deleted in any of those
+            cases.
     """
     port = get_processing_port()
 
     pinned: tuple[str, int | None] | None = None
 
     if force:
-        # fix(#1511): snapshot the config BEFORE the delete below commits.
-        # Every row this run writes back is stamped with the active model and
-        # `model_name` is NOT NULL, so a force run started while
-        # persistent-config resolution is failing clears the whole table and
-        # then cannot insert a single replacement — a Regenerate All clicked
-        # during a config blip converts full coverage into zero coverage.
-        # This is the same fail-closed call documented in
+        # fix(#1511): everything that could stop this run from regenerating has
+        # to happen BEFORE the delete below commits. Every row this run writes
+        # back is stamped with the active model and `model_name` is NOT NULL,
+        # so a force run started while the config is unusable clears the whole
+        # table and then cannot insert a single replacement — a Regenerate All
+        # clicked during a config blip converts full coverage into zero.
+        #
+        # The AI gate further down runs after the delete, which on this path
+        # would mean deleting everything and then declining to regenerate it.
+        if not await AI_ENABLED.get(session):
+            logger.error("backfill_force_aborted_ai_disabled")
+            raise RuntimeError(
+                "Cannot regenerate embeddings: AI features are disabled. "
+                "Existing vectors were left untouched; enable AI and re-run."
+            )
+
+        # Fail-closed on an unresolvable model, as documented in
         # DefaultProcessingPort.get_records_without_embeddings (#1506), which
         # could not cover this branch: by the time that query runs on the force
-        # path the vectors are already gone, so the check has to happen here.
-        # Placing it ahead of the DELETE is also what makes the snapshot's
-        # abort-on-change free: there is nothing to undo.
+        # path the vectors are already gone.
         pinned = await _snapshot_embedding_config(session)
+
+        # fix(#1511 review r3, codex P1): the checks above test proxies for
+        # "regeneration will work". This one tests the property itself, because
+        # the proxies keep running out. `update_settings` commits a new
+        # embedding_model and only then probes for its dimensions
+        # (settings/router.py), so between those two steps the stored pair is
+        # mismatched, committed and STABLE — re-reading it agrees with itself
+        # and learns nothing. That window opens exactly when an admin has just
+        # switched models, which is exactly when someone clicks Regenerate All.
+        # One real embedding proves the live config can produce a vector, and
+        # covers the modes nobody has enumerated yet: provider down, revoked
+        # key, exhausted quota, dimensions the model rejects.
+        await _preflight_embedding(session, pinned)
 
         # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
@@ -184,7 +257,10 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
     # Gate once for the whole run (the per-record path checked this per call).
-    if not await AI_ENABLED.get(session):
+    # fix(#1511): force already gated above, ahead of its delete. Re-reading
+    # here could only produce the one outcome that path must never have —
+    # everything deleted, then skipped — so force does not ask twice.
+    if not force and not await AI_ENABLED.get(session):
         logger.info("Backfill: AI disabled, skipping", total_records=total)
         return {"processed": 0, "created": 0, "skipped": total, "errors": 0}
 

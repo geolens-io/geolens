@@ -35,6 +35,7 @@ from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings import service as service_module
 from app.processing.embeddings.models import RecordEmbedding
+from app.processing.embeddings.service import EmbeddingUnavailableError
 
 from tests.factories import create_dataset, get_user_id
 
@@ -62,6 +63,26 @@ class _RecordingProvider:
 
     async def embed(self, *, texts, model, dimensions, base_url, timeout):
         self.calls.append({"model": model, "dimensions": dimensions})
+        return [[1.0] + [0.0] * 1535 for _ in texts]
+
+
+class _StrictProvider(_RecordingProvider):
+    """Rejects a (model, dimensions) pair the model does not support.
+
+    Real embedding endpoints do this: asking a 768-dimension model for 1536
+    is an error, not a silently truncated vector. Without that, a fake
+    provider would happily accept the mismatched pair and the scenario would
+    prove nothing.
+    """
+
+    _SUPPORTED = {_MODEL_A: _DIMS_A, _MODEL_B: _DIMS_B}
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append({"model": model, "dimensions": dimensions})
+        if self._SUPPORTED.get(model) != dimensions:
+            raise EmbeddingUnavailableError(
+                f"model {model} does not support {dimensions} dimensions"
+            )
         return [[1.0] + [0.0] * 1535 for _ in texts]
 
 
@@ -224,3 +245,75 @@ async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
     assert provider.calls == []
     assert await _embedding_count(test_db_session) == before
     assert aborted
+
+
+@pytest.mark.anyio
+async def test_a_model_published_before_its_dimensions_does_not_destroy_vectors(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """The settings window: a committed, stable, mismatched pair.
+
+    `update_settings` commits a new `embedding_model` and only then awaits the
+    external dimension probe (`settings/router.py`), so for the length of that
+    probe the stored pair is the new model with the old dimensions. It is
+    committed and it is stable, so re-reading it agrees with itself and learns
+    nothing. No comparison-based guard can see this one.
+
+    That window opens the moment an admin switches models, which is the moment
+    someone clicks Regenerate All. This is the sequence the whole issue is
+    about, reached through the door the guards do not cover.
+
+    The pre-flight catches it by not reasoning about it at all: it asks the
+    provider for one vector using the live configuration, and the provider
+    rejects the pair.
+    """
+    user_id = await get_user_id(test_db_session, "admin")
+    await create_dataset(test_db_session, created_by=user_id, name="Settings Window")
+
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL_A)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS_A)
+
+    seeded = await create_dataset(
+        test_db_session, created_by=user_id, name="Settings Window Seed"
+    )
+    test_db_session.add(
+        RecordEmbedding(
+            record_id=seeded.record_id,
+            embedding=[1.0] + [0.0] * 1535,
+            model_name=_MODEL_A,
+            content_hash=uuid.uuid4().hex[:64],
+        )
+    )
+    await test_db_session.commit()
+    before = await _embedding_count(test_db_session)
+    assert before > 0
+
+    # The intermediate state itself: model B published, dimensions still A's.
+    # Nothing is racing after this line; the pair simply sits there wrong.
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL_B)
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS_A
+
+    provider = _StrictProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    aborted = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=True)
+    except RuntimeError:
+        aborted = True
+
+    # Survival first: an unguarded tree fails on the vectors it destroyed.
+    assert await _embedding_count(test_db_session) == before
+    assert aborted
+    # The pre-flight has to have actually reached the provider. A pre-flight
+    # that quietly no-ops would satisfy both assertions above while proving
+    # nothing, since this run aborts either way.
+    assert provider.calls == [{"model": _MODEL_B, "dimensions": _DIMS_A}]
