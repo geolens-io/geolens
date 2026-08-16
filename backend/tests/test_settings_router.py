@@ -491,19 +491,26 @@ async def restore_embedding_settings(test_db_session):
     The per-worker database is shared across the whole session, and these tests
     change global configuration and run real DDL.
     """
-    from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
+    from app.core.persistent_config import (
+        EMBEDDING_BASE_URL,
+        EMBEDDING_DIMS,
+        EMBEDDING_MODEL,
+        OPENAI_BASE_URL,
+    )
     from app.processing.embeddings.service import rebuild_embedding_column
 
-    before = (
-        await EMBEDDING_MODEL.get(test_db_session),
-        await EMBEDDING_DIMS.get(test_db_session),
-        await _column_dims(test_db_session),
-    )
+    # The base URLs are restored too: the endpoint tests below stage a stale one,
+    # and leaving it behind would break every later test that resolves the
+    # embedding runtime config on this worker's database.
+    keys = (EMBEDDING_MODEL, EMBEDDING_DIMS, EMBEDDING_BASE_URL, OPENAI_BASE_URL)
+    before = [await cfg.get(test_db_session) for cfg in keys]
+    before_column = await _column_dims(test_db_session)
     yield
-    await EMBEDDING_MODEL.set(test_db_session, before[0])
-    await EMBEDDING_DIMS.set(test_db_session, before[1])
-    if before[2] is not None and before[2] > 0:
-        await rebuild_embedding_column(test_db_session, before[2])
+    for cfg, value in zip(keys, before):
+        if await cfg.get_uncached(test_db_session) != value:
+            await cfg.set(test_db_session, value)
+    if before_column is not None and before_column > 0:
+        await rebuild_embedding_column(test_db_session, before_column)
 
 
 @pytest.mark.anyio
@@ -774,3 +781,178 @@ async def test_a_probed_width_out_of_range_publishes_neither_half(
     assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _OLD_MODEL
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _OLD_DIMS
     rebuild.assert_not_awaited()
+
+
+# ---------------------------------------------------------------------------
+# #1538 review: the probe must call the endpoint THIS request publishes
+# ---------------------------------------------------------------------------
+#
+# `resolve_runtime_config(db)` reads COMMITTED configuration, and the probe runs
+# before anything in the batch is staged. So a PUT that changes the endpoint and
+# the model together resolved the endpoint from the value it was replacing.
+#
+# Destination binding bounds the damage: with an API key present, a DB base URL
+# that disagrees with the operator-approved one is rejected at validation, so a
+# width from a foreign endpoint cannot be published. What it does NOT bound is a
+# stale row staged while no key existed. Repairing that row and changing the
+# model in one request made `resolve_runtime_config` raise on the value being
+# repaired, and the repair was refused with a 502.
+
+_APPROVED_URL = "https://approved-endpoint.example.com/v1"
+_STALE_URL = "https://stale-staged-endpoint.example.com/v1"
+_APPROVED_WIDTH = 768
+_STALE_WIDTH = 1536
+
+
+class _PerEndpointProvider(_ProbeProvider):
+    """Different widths at different endpoints, and the REAL config resolution.
+
+    Same-named models on two deployments can have different output widths, so
+    the width alone identifies which endpoint answered. `resolve_runtime_config`
+    delegates to the real provider on purpose: the committed-config read is the
+    thing under test, and a stubbed one would answer with whatever this file
+    hardcoded and never ask the question.
+    """
+
+    def __init__(self, widths: dict[str, int]):
+        super().__init__()
+        self._widths = widths
+
+    async def resolve_runtime_config(self, session):
+        from app.platform.extensions.defaults_ai_openai import (
+            DefaultOpenAIEmbeddingProvider,
+        )
+
+        return await DefaultOpenAIEmbeddingProvider().resolve_runtime_config(session)
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append(
+            {"model": model, "dimensions": dimensions, "base_url": base_url}
+        )
+        width = self._widths.get(base_url)
+        if width is None:
+            raise RuntimeError(f"no endpoint at {base_url!r}")
+        return [[0.0] * width for _ in texts]
+
+
+@pytest.mark.anyio
+async def test_the_probe_calls_the_endpoint_this_request_publishes(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """Repairing a stale endpoint and switching model in one PUT must work.
+
+    Before the fix the probe resolved its endpoint from committed config, which
+    is the stale row being repaired, so `resolve_runtime_config` raised against
+    the operator-approved destination and the request 502'd without ever
+    reaching a provider.
+    """
+    from app.core.ai_credentials import operator_openai_base_url
+    from app.core.config import settings as core_settings
+    from app.core.persistent_config import (
+        EMBEDDING_BASE_URL,
+        EMBEDDING_DIMS,
+        EMBEDDING_MODEL,
+    )
+
+    # Non-vacuity: identical widths would pass whichever endpoint answered.
+    assert _APPROVED_WIDTH != _STALE_WIDTH
+
+    # Stage a stale endpoint the way an operator can before supplying a key.
+    monkeypatch.setattr(core_settings, "openai_api_key", None)
+    await EMBEDDING_BASE_URL.set(test_db_session, _STALE_URL)
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _STALE_WIDTH)
+
+    # The operator now supplies a credential bound to a DIFFERENT endpoint.
+    monkeypatch.setattr(core_settings, "openai_api_key", SecretStr("probe-test-key"))
+    monkeypatch.setattr(core_settings, "embedding_base_url", _APPROVED_URL)
+    monkeypatch.setattr(core_settings, "openai_base_url", _APPROVED_URL)
+
+    # Non-vacuity: the two endpoints have to actually differ, or there is no
+    # committed-versus-requested divergence for the probe to get wrong.
+    assert await EMBEDDING_BASE_URL.get_uncached(test_db_session) == _STALE_URL
+    assert operator_openai_base_url(purpose="embedding") == _APPROVED_URL
+
+    provider = _PerEndpointProvider(
+        {_APPROVED_URL: _APPROVED_WIDTH, _STALE_URL: _STALE_WIDTH}
+    )
+    _install_probe_provider(monkeypatch, provider)
+    monkeypatch.setattr(core_settings, "openai_api_key", SecretStr("probe-test-key"))
+    rebuild = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        "app.processing.embeddings.service.rebuild_embedding_column", rebuild
+    )
+
+    resp = await client.put(
+        "/settings/",
+        json={
+            "settings": {
+                "embedding_model": _NEW_MODEL,
+                "embedding_base_url": _APPROVED_URL,
+            }
+        },
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    # The probe reached a provider at all, and reached the REQUESTED endpoint.
+    assert provider.calls == [
+        {"model": _NEW_MODEL, "dimensions": None, "base_url": _APPROVED_URL}
+    ]
+    # The published width is the requested endpoint's, not the replaced one's.
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _APPROVED_WIDTH
+    assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _NEW_MODEL
+    assert await EMBEDDING_BASE_URL.get_uncached(test_db_session) == _APPROVED_URL
+
+
+@pytest.mark.anyio
+async def test_a_url_free_request_still_resolves_the_committed_endpoint(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    restore_embedding_settings,
+):
+    """A model-only PUT keeps using the provider's own config resolution.
+
+    Counterfactual for the test above: the request-aware branch must not take
+    over when the request names no endpoint, or the committed configuration
+    would stop being consulted at all.
+    """
+    from app.core.config import settings as core_settings
+    from app.core.persistent_config import (
+        EMBEDDING_BASE_URL,
+        EMBEDDING_DIMS,
+        EMBEDDING_MODEL,
+    )
+
+    monkeypatch.setattr(core_settings, "openai_api_key", SecretStr("probe-test-key"))
+    monkeypatch.setattr(core_settings, "embedding_base_url", _APPROVED_URL)
+    monkeypatch.setattr(core_settings, "openai_base_url", _APPROVED_URL)
+    await EMBEDDING_BASE_URL.set(test_db_session, _APPROVED_URL)
+    await EMBEDDING_MODEL.set(test_db_session, _OLD_MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _STALE_WIDTH)
+
+    provider = _PerEndpointProvider({_APPROVED_URL: _APPROVED_WIDTH})
+    _install_probe_provider(monkeypatch, provider)
+    monkeypatch.setattr(core_settings, "openai_api_key", SecretStr("probe-test-key"))
+    rebuild = AsyncMock(return_value=True)
+    monkeypatch.setattr(
+        "app.processing.embeddings.service.rebuild_embedding_column", rebuild
+    )
+
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {"embedding_model": _NEW_MODEL}},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    assert provider.calls == [
+        {"model": _NEW_MODEL, "dimensions": None, "base_url": _APPROVED_URL}
+    ]
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _APPROVED_WIDTH

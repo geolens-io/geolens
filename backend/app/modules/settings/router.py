@@ -156,7 +156,49 @@ def _require_enterprise_for_key(key: str) -> None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND)
 
 
-async def _probe_embedding_dims_for_model(db: AsyncSession, model: str) -> int:
+async def _probe_base_url(
+    db: AsyncSession, provider_ext: object, requested: dict[str, object]
+) -> object:
+    """Endpoint the probe should call, honoring a URL this request publishes.
+
+    When the request names neither URL key this is exactly
+    ``resolve_runtime_config(db)["base_url"]``. When it names either, the
+    provider's own chain is reproduced with each half taken from the request
+    where present: EMBEDDING_BASE_URL -> OPENAI_BASE_URL -> None, then bound to
+    the operator-approved destination. Clearing ``embedding_base_url`` in the
+    same PUT therefore falls through to the ``openai_base_url`` that PUT sets,
+    exactly as it will once the batch commits.
+
+    ``resolve_runtime_config`` is deliberately not called on that branch. It
+    reads COMMITTED configuration, which is the value the request is replacing,
+    and it *raises* when that value is a stale row bound to a different
+    destination than the environment credential.
+    """
+    if not ({"embedding_base_url", "openai_base_url"} & requested.keys()):
+        runtime_config = await provider_ext.resolve_runtime_config(db)  # type: ignore[attr-defined]
+        return runtime_config.get("base_url")
+
+    from app.core.ai_credentials import bind_openai_credential_base_url
+    from app.core.persistent_config import EMBEDDING_BASE_URL, OPENAI_BASE_URL
+
+    embedding_url = (
+        requested["embedding_base_url"]
+        if "embedding_base_url" in requested
+        else await EMBEDDING_BASE_URL.get_uncached(db)
+    )
+    openai_url = (
+        requested["openai_base_url"]
+        if "openai_base_url" in requested
+        else await OPENAI_BASE_URL.get_uncached(db)
+    )
+    return bind_openai_credential_base_url(
+        str(embedding_url or openai_url or "") or None, purpose="embedding"
+    )
+
+
+async def _probe_embedding_dims_for_model(
+    db: AsyncSession, model: str, requested: dict[str, object]
+) -> int:
     """Ask the provider for the natural output width of an explicitly named model.
 
     fix(#1529): ``probe_embedding_dimensions`` resolves the model from
@@ -164,6 +206,10 @@ async def _probe_embedding_dims_for_model(db: AsyncSession, model: str) -> int:
     which is the publish-then-probe ordering the issue is about. ``update_settings``
     needs the width of the model it is about to publish, at a point where nothing
     has been committed, so the model name is passed in rather than read back out.
+
+    fix(#1538 review): the endpoint comes from ``requested`` too. Everything the
+    probe resolves has to describe the configuration being published, not the
+    one being replaced — the model was only half of that.
 
     Raises:
         EmbeddingUnavailableError: no embedding provider is configured, or the
@@ -179,13 +225,16 @@ async def _probe_embedding_dims_for_model(db: AsyncSession, model: str) -> int:
         )
 
     provider_ext = get_embedding_provider("openai_compatible")
-    runtime_config = await provider_ext.resolve_runtime_config(db)
     # dimensions=None means "discover the model's natural width" (Phase 231 D-02).
+    # `model` carries no fallback to the runtime default on purpose: this path is
+    # only reached when the request names embedding_model, and the community
+    # provider's default_model IS the committed EMBEDDING_MODEL, so falling back
+    # to it would probe the very model being replaced.
     vectors = await provider_ext.embed(
         texts=["dimension probe"],
-        model=model or str(runtime_config.get("default_model") or ""),
+        model=model,
         dimensions=None,
-        base_url=runtime_config.get("base_url"),
+        base_url=await _probe_base_url(db, provider_ext, requested),
         timeout=30.0,
     )
     embedding = vectors[0] if vectors else []
@@ -196,7 +245,9 @@ async def _probe_embedding_dims_for_model(db: AsyncSession, model: str) -> int:
     return len(embedding)
 
 
-async def _detect_dims_for_requested_model(db: AsyncSession, model: str) -> int:
+async def _detect_dims_for_requested_model(
+    db: AsyncSession, model: str, requested: dict[str, object]
+) -> int:
     """Probe ``model`` for ``update_settings``, mapping failures to HTTP status.
 
     Same mapping as POST /settings/detect-embedding-dims: a missing provider is
@@ -207,7 +258,7 @@ async def _detect_dims_for_requested_model(db: AsyncSession, model: str) -> int:
     from app.processing.embeddings.service import EmbeddingUnavailableError
 
     try:
-        return await _probe_embedding_dims_for_model(db, model)
+        return await _probe_embedding_dims_for_model(db, model, requested)
     except EmbeddingUnavailableError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -370,6 +421,10 @@ async def update_settings(
     # Probing ahead of the SSO guard is deliberate: that guard row-locks the
     # enabled OAuth providers, and holding those locks across a provider
     # network call would serialize unrelated provider mutations behind it.
+    #
+    # The whole validated batch is handed to the probe, not just the model:
+    # a PUT can change the endpoint in the same request, and the probe has to
+    # describe the configuration being published (see _probe_base_url).
     if (
         "embedding_model" in validated_settings
         and "embedding_dims" not in validated_settings
@@ -383,7 +438,9 @@ async def update_settings(
         if requested_model != await EMBEDDING_MODEL.get_uncached(db):
             validated_settings["embedding_dims"] = _canonicalize_setting_value(
                 "embedding_dims",
-                await _detect_dims_for_requested_model(db, requested_model),
+                await _detect_dims_for_requested_model(
+                    db, requested_model, validated_settings
+                ),
                 registry_map["embedding_dims"],
             )
 
