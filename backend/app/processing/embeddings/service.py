@@ -48,29 +48,12 @@ async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
     return vectors[0]
 
 
-async def resolve_embedding_base_url(session: AsyncSession) -> str | None:
-    """Resolve the provider endpoint exactly as generate_embeddings_batch does.
-
-    fix(#1525): a caller pinning a configuration for a whole run needs the
-    endpoint too, and has to get it from the provider rather than reading
-    ``EMBEDDING_BASE_URL`` itself. The fallback chain (EMBEDDING_BASE_URL ->
-    OPENAI_BASE_URL -> the operator-approved default, plus the credential
-    binding in ``app/core/ai_credentials.py``) belongs to the provider
-    extension; a second copy of it in the caller would drift from whatever
-    provider is actually registered.
-    """
-    provider_ext = get_embedding_provider("openai_compatible")
-    runtime_config = await provider_ext.resolve_runtime_config(session)
-    return runtime_config.get("base_url")
-
-
 async def generate_embeddings_batch(
     texts: list[str],
     session: AsyncSession,
     *,
     model: str | None = None,
     dimensions: int | None = None,
-    base_url: str | None = None,
 ) -> list[list[float]]:
     """Generate embedding vectors for many texts in ONE provider call.
 
@@ -82,23 +65,20 @@ async def generate_embeddings_batch(
 
     fix(#1511 review): ``model`` and ``dimensions`` let a caller that already
     resolved the pair pin it for the whole run instead of having this function
-    re-read the config on every call. fix(#1525): ``base_url`` completes the
-    set — the label a run writes names a model, and which endpoint served that
-    model is part of what the label promises.
+    re-read the config on every call.
 
-    **A caller that writes its own ``model_name`` label MUST pass all three.**
-    Such a caller resolves the model once to label its rows; without pinning,
-    this function re-reads the config per call, so an admin swap mid-run has the
+    **A caller that writes its own ``model_name`` label MUST pass both.** Such
+    a caller resolves the model once to label its rows; without pinning, this
+    function re-reads the config per call, so an admin swap mid-run has the
     provider generate from model B while the rows are labelled model A. Search
     reads only active-model rows, so those vectors are invisible to the model
-    that supposedly produced them. Passing a subset is worse than passing none:
-    model A with model B's dimensions is a pair that never existed in config,
-    and model A against a repointed endpoint is a vector space nothing in the
-    catalog can name. Today `processing/embeddings/backfill.py` is the only such
-    caller; `generate_embedding` above makes a single call and labels nothing,
-    so it deliberately does not pin.
+    that supposedly produced them. Passing only one is worse than passing
+    neither: model A with model B's dimensions is a pair that never existed in
+    config. Today `processing/embeddings/backfill.py` is the only such caller;
+    `generate_embedding` above makes a single call and labels nothing, so it
+    deliberately does not pin.
 
-    Omitting them keeps the pre-existing per-call resolution, which is correct
+    Omitting both keeps the pre-existing per-call resolution, which is correct
     for a single-call caller and silently racy for a multi-call labelling one.
     Nothing enforces that distinction mechanically, so it is stated here.
 
@@ -118,21 +98,7 @@ async def generate_embeddings_batch(
     # Phase 231 D-12: hardcode "openai_compatible" — community ships one
     # embedding provider; overlays add more under different names.
     provider_ext = get_embedding_provider("openai_compatible")
-    # fix(#1525): resolve the live config only when something below would still
-    # come out of it. A fully pinned call needs nothing from it, and asking
-    # anyway reopens the window the pin exists to close: the shipped provider's
-    # resolve RAISES (not diverges) once an admin repoints the endpoint, because
-    # `bind_openai_credential_base_url` refuses to aim the environment API key at
-    # a database-supplied URL. Every batch after such an edit then failed, was
-    # retried per record, failed again and counted as an error — a run pinned to
-    # a configuration it had already validated, abandoning the catalog over a
-    # value it was no longer going to use.
-    #
-    # The gate is the exact set of conditions under which a value is taken from
-    # `runtime_config` below, so nothing else about resolution order changes.
-    runtime_config: dict[str, object] = {}
-    if not model or not dimensions or base_url is None:
-        runtime_config = await provider_ext.resolve_runtime_config(session)
+    runtime_config = await provider_ext.resolve_runtime_config(session)
     # `is None` rather than falsy: a pinned value the caller supplied is
     # honored as given, and only an absent one re-reads the config. Both then
     # fall back to the provider default exactly as an empty config value does.
@@ -142,8 +108,7 @@ async def generate_embeddings_batch(
     if dimensions is None:
         dimensions = await EMBEDDING_DIMS.get(session)
     dimensions = dimensions or runtime_config.get("default_dims")
-    if base_url is None:
-        base_url = runtime_config.get("base_url")
+    base_url = runtime_config.get("base_url")
 
     # Truncate very long inputs
     texts = [t[:_MAX_INPUT_CHARS] if len(t) > _MAX_INPUT_CHARS else t for t in texts]
