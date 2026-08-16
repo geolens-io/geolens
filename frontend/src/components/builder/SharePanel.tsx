@@ -90,11 +90,14 @@ export function buildEmbedSrc({
  * was reported, additionally permits forms, popups, top-level navigation,
  * downloads and pointer lock.
  *
- * What it does cost, and the reason this was Ian's call rather than a header
- * change: the frame regains the GeoLens origin, so a signed-in viewer's embed
- * runs with their session — `authenticatedRawFetch` attaches the persisted
- * bearer token on every call. The embedding page is still cross-origin to the
- * frame and cannot read those responses.
+ * What it costs, and the reason this was a decision rather than a header
+ * change: the frame regains the GeoLens origin, and with it the viewer's
+ * persisted session. So embed mode is deliberately anonymous — `isEmbedViewer`
+ * in lib/embed-context.ts, read by `authenticatedRawFetch`, withholds the
+ * bearer token, skips the proactive refresh, and returns a 401 untouched
+ * instead of refreshing or logging out. The share token is the capability and
+ * authorizes the map on its own; an embed on someone else's page has no
+ * business spending, refreshing, or destroying a viewer's login.
  *
  * Exported so SharePanel.test.tsx can pin the rendered snippet shape
  * without mounting the full ShareDialog component.
