@@ -2254,10 +2254,21 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
         self, test_db_session, raster_storage, tmp_path
     ) -> None:
         """The lifecycle question: what happens to the kept original when the
-        dataset is replaced again. They coexist, keyed by uploaded filename, so
-        a differently-named upload adds and a same-named one overwrites. Both
-        are reaped together when the dataset is deleted, because
-        `delete_dataset` already cleans the whole `originals/<id>/` prefix."""
+        dataset is replaced again. Two uploads that differ in CONTENT coexist,
+        because the archive's identity is its content hash and nothing else
+        (`archived_original_uri`) — the uploaded name rides along on the row's
+        description, where no equality depends on it. Both are reaped together
+        when the dataset is deleted, because `delete_dataset` already cleans the
+        whole `originals/<id>/` prefix.
+
+        fix(#1526): the two payloads were seeded `hash(name) % 500`, and `hash`
+        on a str is salted per interpreter, so about one process in 500 drew the
+        same seed for both names. Identical bytes are one archive key by design,
+        the upsert collapses them into a single row, and the assertion below
+        then read `['second.tif']` — an intermittent CI failure landing on
+        whatever PR happened to be running, with nothing to do with its diff.
+        Fixed seeds, and the precondition asserted rather than assumed.
+        """
         admin_id = (
             await test_db_session.execute(
                 select(User.id).where(User.username == "admin")
@@ -2270,9 +2281,31 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
         record_id = live.dataset.record_id
 
         try:
-            for name in ("first.tif", "second.tif"):
+            # Written up front so the precondition can be checked before either
+            # replace runs: a collapse here is a broken test, not a broken
+            # product, and it should say so at the top rather than through the
+            # final assert.
+            #
+            # fix(#1537 review): inside the try, not before it. `_make_live_raster`
+            # has already committed the record, dataset and asset, and
+            # `test_db_session` has no rollback teardown — isolation on this
+            # suite is explicit per-test cleanup. So a precondition that fired
+            # out there would skip `_purge` and leave those rows in the shared
+            # per-worker database, which is this test's own regression leaving
+            # residue for somebody else's to trip over.
+            sources = []
+            for name, seed in (("first.tif", 401), ("second.tif", 402)):
                 source = tmp_path / name
-                source.write_bytes(_geotiff_bytes(seed=hash(name) % 500))
+                source.write_bytes(_geotiff_bytes(seed=seed))
+                sources.append(source)
+            assert len({sha256_file(str(s)) for s in sources}) == 2, (
+                "precondition: the two uploads must carry different bytes. One "
+                "content hash is one archive, so identical payloads would make "
+                "the assertion below a statement about the upsert rather than "
+                "about two originals coexisting."
+            )
+
+            for source in sources:
                 job = await _queue_replace_job(
                     test_db_session,
                     dataset_id=dataset_id,
@@ -2686,11 +2719,15 @@ class TestArchiveCannotDestroyThePreviousOriginal:
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
 
-        first_bytes = _geotiff_bytes(seed=141)
-        second_bytes = _geotiff_bytes(seed=142)
-        assert first_bytes != second_bytes
-
         try:
+            # fix(#1537 review): inside the cleanup scope. `_make_live_raster`
+            # has committed and `test_db_session` has no rollback teardown, so
+            # a precondition firing above the `try` would leak those rows into
+            # the shared per-worker database.
+            first_bytes = _geotiff_bytes(seed=141)
+            second_bytes = _geotiff_bytes(seed=142)
+            assert first_bytes != second_bytes
+
             # A successful lossy replace, archiving "scene.tif".
             source = tmp_path / "scene.tif"
             source.write_bytes(first_bytes)
@@ -3511,10 +3548,13 @@ class TestEveryKeptOriginalIsCounted:
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
 
-        payloads = [_geotiff_bytes(seed=201), _geotiff_bytes(seed=202)]
-        assert payloads[0] != payloads[1]
-
         try:
+            # fix(#1537 review): inside the cleanup scope, for the same reason
+            # as its siblings — the rows are already committed by here and
+            # nothing rolls them back if the precondition fires.
+            payloads = [_geotiff_bytes(seed=201), _geotiff_bytes(seed=202)]
+            assert payloads[0] != payloads[1]
+
             for i, payload in enumerate(payloads):
                 source = tmp_path / f"r{i}" / "scene.tif"
                 source.parent.mkdir()
