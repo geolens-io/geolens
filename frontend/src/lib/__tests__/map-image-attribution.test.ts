@@ -3,8 +3,8 @@
  *
  * The fitter is the only piece with real logic, so it carries most of these
  * tests. Its stub context measures LENGTH-PROPORTIONALLY (`chars * 0.5 *
- * fontPx`), unlike the constant-width stub the hook suite uses — a constant
- * cannot exercise a size ladder or an elide boundary at all.
+ * fontPx`): a constant-width stub cannot exercise a wrap boundary at all,
+ * which is how #1541's dropped credits went unseen at this level.
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
@@ -24,7 +24,7 @@ function fontPxOf(font: string): number {
 }
 
 /** A 2D context whose text metrics respond to both the string and the font
- *  size, so a shrink ladder and an entry-boundary elide are observable. */
+ *  size, so wrapping and line growth are observable. */
 function makeCtx() {
   const ctx = {
     font: '',
@@ -131,80 +131,113 @@ describe('readRenderedAttribution', () => {
   });
 });
 
+/* fix(#1541 codex P1 x2): every output used to elide — the export band via a
+ * two-line budget that contradicted its own docstring, the two crops via
+ * `maxLines: 1`. The measured live failure was five credits on a 1056px export
+ * losing two, the basemap's included. There is no elision path left, and these
+ * pin that to behaviour rather than to a comment. */
+
+/** The exact credit set that produced the measured live failure. */
+const REAL_CREDITS = [
+  'MapLibre',
+  '© OpenStreetMap contributors, climbing route geometry retrieved via the Overpass API, licensed under ODbL 1.0',
+  '© U.S. Geological Survey Earthquake Hazards Program, ANSS Comprehensive Earthquake Catalog (ComCat), public domain',
+  '© swisstopo swissALTI3D, 2m lidar digital elevation model, Federal Office of Topography, reproduced with authorisation',
+  'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+];
+
+/** Every character of every entry survived, and nothing was marked as dropped. */
+function expectTotal(lines: string[], entries: string[]) {
+  const rendered = lines.join(' ');
+  for (const entry of entries) {
+    expect(rendered, `missing credit: ${entry}`).toContain(entry);
+  }
+  expect(rendered).not.toContain('…');
+}
+
 describe('fitAttributionText', () => {
   const entries = ['© OpenFreeMap', '© OpenMapTiles', '© OpenStreetMap contributors'];
 
-  it('keeps the requested size when everything fits on one line', () => {
+  it('keeps everything on one line when it fits', () => {
     const ctx = makeCtx();
     const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, entries, {
       maxWidth: 1000,
       fontPx: 16,
-      minFontPx: 13,
-      maxLines: 1,
     });
     expect(fitted.fontPx).toBe(16);
-    expect(fitted.elided).toBe(false);
     expect(fitted.lines).toEqual([entries.join(' | ')]);
   });
 
-  it('shrinks down the ladder before it drops anything', () => {
-    const ctx = makeCtx();
-    // 61 chars joined; 61 * 0.5 * 16 = 488 wide at 16px, 397 at 13px.
-    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, entries, {
-      maxWidth: 420,
-      fontPx: 16,
-      minFontPx: 13,
-      maxLines: 1,
-    });
-    expect(fitted.elided).toBe(false);
-    expect(fitted.fontPx).toBeLessThan(16);
-    expect(fitted.lines).toEqual([entries.join(' | ')]);
-  });
-
-  it('wraps to a second line rather than dropping a credit when allowed', () => {
+  it('wraps on entry boundaries, so a provider name is never split needlessly', () => {
     const ctx = makeCtx();
     const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, entries, {
       maxWidth: 200,
       fontPx: 12,
-      minFontPx: 10,
-      maxLines: 2,
     });
-    expect(fitted.elided).toBe(false);
     expect(fitted.lines.length).toBeGreaterThan(1);
-    // Every credit survives the wrap.
-    const rendered = fitted.lines.join(' | ');
-    for (const entry of entries) expect(rendered).toContain(entry);
+    expectTotal(fitted.lines, entries);
+    // Each line is made of whole entries joined by the separator.
+    for (const line of fitted.lines) {
+      for (const part of line.split(' | ')) expect(entries).toContain(part);
+    }
   });
 
-  it('elides at an entry boundary, never mid-name', () => {
+  it('never shrinks below the requested size', () => {
     const ctx = makeCtx();
-    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, entries, {
-      maxWidth: 120,
-      fontPx: 10,
-      minFontPx: 9,
-      maxLines: 1,
-    });
-    expect(fitted.elided).toBe(true);
-    expect(fitted.lines).toHaveLength(1);
-    expect(fitted.lines[0]).toMatch(/…$/);
-    // The surviving entries are whole: no truncated provider name.
-    const kept = fitted.lines[0].split(' | ').filter((s) => s !== '…');
-    for (const part of kept) expect(entries).toContain(part);
+    for (const maxWidth of [1000, 300, 120, 40]) {
+      const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, entries, {
+        maxWidth,
+        fontPx: 12,
+      });
+      expect(fitted.fontPx).toBe(12);
+    }
   });
 
-  it('character-truncates only when a single entry cannot fit at the floor', () => {
+  it('keeps every provider at the real export width, past the old two-line cap', () => {
     const ctx = makeCtx();
-    const long = '© An Extremely Long Single Data Provider Name That Cannot Fit';
-    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, [long], {
-      maxWidth: 60,
-      fontPx: 10,
-      minFontPx: 9,
-      maxLines: 1,
+    // 1056px canvas at dpr 1 less 20px padding a side: the measured export.
+    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, REAL_CREDITS, {
+      maxWidth: 1016,
+      fontPx: 12,
     });
-    expect(fitted.elided).toBe(true);
-    expect(fitted.lines[0]).toMatch(/…$/);
-    expect(fitted.lines[0].length).toBeLessThan(long.length);
-    expect(long.startsWith(fitted.lines[0].replace(/…$/, ''))).toBe(true);
+    expect(fitted.lines.length).toBeGreaterThan(2);
+    expectTotal(fitted.lines, REAL_CREDITS);
+  });
+
+  it('keeps every provider under an absurd credit count', () => {
+    const ctx = makeCtx();
+    const many = Array.from(
+      { length: 25 },
+      (_, i) => `© Provider Number ${i} With A Reasonably Long Attribution String`,
+    );
+    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, many, {
+      maxWidth: 1016,
+      fontPx: 12,
+    });
+    expectTotal(fitted.lines, many);
+  });
+
+  it('wraps a single credit wider than the band mid-string without losing a word', () => {
+    const ctx = makeCtx();
+    const huge = `© ${'Extremely Long Provider Name '.repeat(12)}End`;
+    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, [huge], {
+      maxWidth: 300,
+      fontPx: 12,
+    });
+    expect(fitted.lines.length).toBeGreaterThan(1);
+    expect(fitted.lines.join(' ').replace(/\s+/g, ' ').trim()).toBe(
+      huge.replace(/\s+/g, ' ').trim(),
+    );
+  });
+
+  it('breaks an unbreakable word rather than dropping it', () => {
+    const ctx = makeCtx();
+    const word = 'A'.repeat(200);
+    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, [word], {
+      maxWidth: 100,
+      fontPx: 12,
+    });
+    expect(fitted.lines.join('')).toBe(word);
   });
 
   it('returns nothing for no entries or no room', () => {
@@ -213,32 +246,26 @@ describe('fitAttributionText', () => {
       fitAttributionText(ctx as unknown as CanvasRenderingContext2D, [], {
         maxWidth: 400,
         fontPx: 12,
-        minFontPx: 10,
-        maxLines: 1,
       }).lines,
     ).toEqual([]);
     expect(
       fitAttributionText(ctx as unknown as CanvasRenderingContext2D, ['© A'], {
         maxWidth: 0,
         fontPx: 12,
-        minFontPx: 10,
-        maxLines: 1,
       }).lines,
     ).toEqual([]);
   });
 
   it('terminates on a degenerate context that measures everything as too wide', () => {
-    // Guards the one shape that could hang an export: a shrink loop driven off
-    // measureText rather than a bounded ladder (a font that fails to load
-    // measures like this).
+    // A font that fails to load is the realistic version of this. It must not
+    // spin: every loop here is bounded by the string length, not by a width
+    // comparison that can never become true.
     const ctx = { ...makeCtx(), measureText: vi.fn(() => ({ width: Infinity })) };
-    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, entries, {
+    const fitted = fitAttributionText(ctx as unknown as CanvasRenderingContext2D, ['ABC'], {
       maxWidth: 100,
-      fontPx: 16,
-      minFontPx: 9,
-      maxLines: 2,
+      fontPx: 12,
     });
-    expect(fitted.lines).toEqual(['…']);
+    expect(fitted.lines.join('')).toBe('ABC');
   });
 });
 
@@ -252,7 +279,6 @@ describe('drawAttributionOverlay', () => {
 
     expect(ctx.fillRect).toHaveBeenCalledTimes(1);
     const [x, y, w, h] = ctx.fillRect.mock.calls[0] as unknown as number[];
-    // Bottom-right, inside the inset.
     expect(x + w).toBe(400 - THUMBNAIL_ATTRIBUTION.inset);
     expect(y + h).toBe(250 - THUMBNAIL_ATTRIBUTION.inset);
     expect(x).toBeGreaterThan(0);
@@ -270,6 +296,39 @@ describe('drawAttributionOverlay', () => {
     const ctx = makeCtx();
     drawAttributionOverlay(makeCanvas(1200, 630, ctx), ['© A', '© B'], OG_ATTRIBUTION);
     expect(ctx.fillText).toHaveBeenCalledWith('© A | © B', expect.any(Number), expect.any(Number));
+  });
+
+  // The second codex P1. These crops cannot grow, so they spend map pixels.
+  it('wraps to multiple lines rather than dropping a credit on the thumbnail', () => {
+    const ctx = makeCtx();
+    const canvas = makeCanvas(400, 250, ctx);
+    expect(drawAttributionOverlay(canvas, REAL_CREDITS, THUMBNAIL_ATTRIBUTION)).toBe(true);
+
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(drawn.length).toBeGreaterThan(1);
+    expectTotal(drawn, REAL_CREDITS);
+
+    // The scrim covers every line and still sits inside the frame.
+    const [x, y, w, h] = ctx.fillRect.mock.calls[0] as unknown as number[];
+    expect(h).toBe(drawn.length * THUMBNAIL_ATTRIBUTION.lineHeight + THUMBNAIL_ATTRIBUTION.paddingY * 2);
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(x + w).toBeLessThanOrEqual(400);
+    expect(y + h).toBeLessThanOrEqual(250);
+  });
+
+  it('wraps to multiple lines rather than dropping a credit on the OG card', () => {
+    const ctx = makeCtx();
+    const canvas = makeCanvas(1200, 630, ctx);
+    expect(drawAttributionOverlay(canvas, REAL_CREDITS, OG_ATTRIBUTION)).toBe(true);
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+    expectTotal(drawn, REAL_CREDITS);
+  });
+
+  it('renders at the documented size and never smaller', () => {
+    const ctx = makeCtx();
+    drawAttributionOverlay(makeCanvas(400, 250, ctx), REAL_CREDITS, THUMBNAIL_ATTRIBUTION);
+    expect(ctx.font).toContain(`${THUMBNAIL_ATTRIBUTION.fontPx}px`);
   });
 
   it('draws nothing when there is no credit to draw', () => {
@@ -296,8 +355,7 @@ describe('measureAttributionBand / drawAttributionBand', () => {
       { maxWidth: 2000, dpr: 2 },
     );
     expect(measured.lines).toEqual(['© OpenStreetMap contributors']);
-    // 12*2 + 1 line * 16*2 + 12*2
-    expect(measured.height).toBe(80);
+    expect(measured.height).toBe(80); // 12*2 + 1 * 16*2 + 12*2
     expect(measured.fontPx).toBe(24); // 12 * dpr
   });
 
@@ -311,16 +369,20 @@ describe('measureAttributionBand / drawAttributionBand', () => {
     ).toBe(0);
   });
 
-  it('grows to two lines rather than dropping a credit', () => {
+  it('grows the band height with the line count, dropping nothing', () => {
     const ctx = makeCtx();
+    const credits = Array.from(
+      { length: 12 },
+      (_, i) => `© Data Provider ${i} With A Long Attribution Line`,
+    );
     const measured = measureAttributionBand(
       ctx as unknown as CanvasRenderingContext2D,
-      ['© Provider One', '© Provider Two', '© Provider Three', '© Provider Four'],
+      credits,
       { maxWidth: 300, dpr: 1 },
     );
-    expect(measured.lines).toHaveLength(2);
-    expect(measured.height).toBe(12 + 2 * 16 + 12);
-    expect(measured.lines.join(' | ')).toContain('© Provider Four');
+    expect(measured.lines.length).toBeGreaterThan(2);
+    expect(measured.height).toBe(12 + measured.lines.length * 16 + 12);
+    expectTotal(measured.lines, credits);
   });
 
   it('draws each line at the muted contrast, stepping by the line height', () => {

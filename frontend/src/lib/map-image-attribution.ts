@@ -40,7 +40,6 @@ import { MAP_COLORS } from '@/lib/map-colors';
 
 /** The separator MapLibre's AttributionControl joins entries with. */
 const SEPARATOR = ' | ';
-const ELLIPSIS = '…';
 const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 /** Only the two methods this module needs, so tests can pass a plain object
@@ -125,19 +124,45 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
   return [];
 }
 
-/** Descending integer font sizes, `from` down to `to`. Bounded by
- *  construction: the fitter must never drive a shrink loop off `measureText`,
- *  or a font that fails to load hangs the export. */
-function fontLadder(from: number, to: number): number[] {
-  const top = Math.max(1, Math.round(from));
-  const bottom = Math.max(1, Math.min(Math.round(to), top));
-  const sizes: number[] = [];
-  for (let px = top; px >= bottom; px--) sizes.push(px);
-  return sizes;
-}
+/* ── Layout ────────────────────────────────────────────────────────────────
+ *
+ * NO OUTPUT EVER DROPS A CREDIT, and none shrinks below its documented size.
+ *
+ * fix(#1541 codex P1 x2): both halves of this module used to elide. The export
+ * band passed a two-line budget while its docstring promised the opposite, and
+ * the two crops passed `maxLines: 1`. Measured on a real export: five credits
+ * on a 1056px canvas lost two of them, the basemap's included, replaced by "…".
+ * An ellipsis credits nobody, and a truncated line is a worse artifact than a
+ * missing one because it reads as a complete statement of provenance.
+ *
+ * The fix is that the elision path no longer exists, rather than being gated
+ * behind a flag some future caller can re-enable. Text wraps to as many lines
+ * as it needs; the export canvas grows, and the two fixed-size crops spend map
+ * pixels instead of provider names. The image is fixed, the band inside it is
+ * not.
+ *
+ * Legibility floor, with numbers. Every output renders at ONE documented size
+ * and never below it:
+ *
+ *   PNG export   12px on white         (no scrim needed, not over imagery)
+ *   OG card      16px over a scrim     (1200x630 JPEG, quality 0.85)
+ *   Thumbnail    10px over a scrim     (400x250 JPEG, quality 0.7)
+ *
+ * There is deliberately no shrink ladder. Shrinking traded legibility for area,
+ * and now that spending area is allowed, the trade is the wrong way round: 10px
+ * over a scrim is legible at 1:1, 9px under JPEG chroma subsampling is where
+ * small text starts to mush. The gallery displays the thumbnail at 176x112, but
+ * that is a display-size decision and not an argument about the file.
+ *
+ * The one residual limit: a single credit longer than a full line wraps
+ * MID-STRING, on word boundaries, and on characters for a word that still does
+ * not fit. That splits a provider's name across lines, which is legible and
+ * complete. It never truncates one.
+ */
 
-/** Greedy wrap on entry boundaries. Returns null when any single entry is
- *  wider than `maxWidth` — the caller decides whether to shrink or elide. */
+/** Greedy wrap on entry boundaries, so a provider's name stays on one line.
+ *  Returns null when a single entry is wider than `maxWidth`, which is the one
+ *  case entry-boundary wrapping cannot resolve on its own. */
 function wrapEntries(
   ctx: CanvasRenderingContext2D,
   entries: string[],
@@ -163,49 +188,74 @@ function wrapEntries(
   return lines;
 }
 
-/** Character-level truncation, reserved for a single entry too long for the
- *  smallest size. Binary search, so the number of `measureText` calls is
- *  logarithmic in the string length and always terminates. */
-function truncateToWidth(
+/** Break a word wider than `maxWidth` into pieces that are not. Loses nothing:
+ *  the pieces continue on the following lines. Binary search per piece, and
+ *  each piece takes at least one character, so it always terminates. */
+function breakLongWord(
+  ctx: CanvasRenderingContext2D,
+  word: string,
+  maxWidth: number,
+): string[] {
+  const pieces: string[] = [];
+  let rest = word;
+  while (rest && ctx.measureText(rest).width > maxWidth) {
+    let lo = 1;
+    let hi = rest.length;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (ctx.measureText(rest.slice(0, mid)).width <= maxWidth) lo = mid;
+      else hi = mid - 1;
+    }
+    pieces.push(rest.slice(0, lo));
+    rest = rest.slice(lo);
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
+}
+
+/** Greedy word wrap that never drops a character. The fallback for a single
+ *  credit too long to fit a line whole. */
+function wrapWords(
   ctx: CanvasRenderingContext2D,
   text: string,
   maxWidth: number,
-): string {
-  if (ctx.measureText(text).width <= maxWidth) return text;
-  let lo = 0;
-  let hi = text.length;
-  while (lo < hi) {
-    const mid = Math.ceil((lo + hi) / 2);
-    if (ctx.measureText(text.slice(0, mid) + ELLIPSIS).width <= maxWidth) {
-      lo = mid;
+): string[] {
+  const lines: string[] = [];
+  let current = '';
+  for (const word of text.split(' ').filter(Boolean)) {
+    const candidate = current ? `${current} ${word}` : word;
+    if (!current || ctx.measureText(candidate).width <= maxWidth) {
+      current = candidate;
     } else {
-      hi = mid - 1;
+      lines.push(current);
+      current = word;
+    }
+    if (ctx.measureText(current).width > maxWidth) {
+      const pieces = breakLongWord(ctx, current, maxWidth);
+      lines.push(...pieces.slice(0, -1));
+      current = pieces[pieces.length - 1] ?? '';
     }
   }
-  return lo > 0 ? text.slice(0, lo) + ELLIPSIS : ELLIPSIS;
+  if (current) lines.push(current);
+  return lines;
 }
 
 export interface FitAttributionOptions {
   maxWidth: number;
   fontPx: number;
-  minFontPx: number;
-  maxLines: number;
 }
 
 export interface FittedAttribution {
   lines: string[];
   fontPx: number;
-  elided: boolean;
 }
 
 /**
- * Fit `entries` into at most `maxLines` lines of at most `maxWidth`.
+ * Lay `entries` out at `fontPx`, wrapping to as many lines as they need.
  *
- * Overflow is resolved at ENTRY boundaries, never mid-name: "© OpenFreeMap |
- * …" credits everything it names correctly, while "© OpenFreeMap, ©
- * OpenMapTil…" mangles a provider's name, which is worse than showing fewer.
- *
- * Leaves `ctx.font` set to the size it chose.
+ * Total by construction: the returned lines always contain every character of
+ * every entry. There is no code path that drops one, which is the property the
+ * whole module exists to hold. Leaves `ctx.font` set.
  */
 export function fitAttributionText(
   ctx: CanvasRenderingContext2D,
@@ -213,34 +263,15 @@ export function fitAttributionText(
   opts: FitAttributionOptions,
 ): FittedAttribution {
   const clean = dedupe(entries);
-  if (clean.length === 0 || opts.maxWidth <= 0) {
-    return { lines: [], fontPx: opts.fontPx, elided: false };
+  if (clean.length === 0 || !(opts.maxWidth > 0)) {
+    return { lines: [], fontPx: opts.fontPx };
   }
-  const maxLines = Math.max(1, opts.maxLines);
-
-  for (const fontPx of fontLadder(opts.fontPx, opts.minFontPx)) {
-    ctx.font = attributionFont(fontPx);
-    const lines = wrapEntries(ctx, clean, opts.maxWidth);
-    if (lines && lines.length <= maxLines) {
-      return { lines, fontPx, elided: false };
-    }
-  }
-
-  // Nothing fits whole. Drop whole entries from the end at the smallest size,
-  // marking the loss with a trailing ellipsis entry.
-  const fontPx = Math.max(1, Math.min(Math.round(opts.minFontPx), Math.round(opts.fontPx)));
-  ctx.font = attributionFont(fontPx);
-  for (let keep = clean.length - 1; keep >= 1; keep--) {
-    const lines = wrapEntries(ctx, [...clean.slice(0, keep), ELLIPSIS], opts.maxWidth);
-    if (lines && lines.length <= maxLines) {
-      return { lines, fontPx, elided: true };
-    }
-  }
-
+  ctx.font = attributionFont(opts.fontPx);
+  const byEntry = wrapEntries(ctx, clean, opts.maxWidth);
+  if (byEntry) return { lines: byEntry, fontPx: opts.fontPx };
   return {
-    lines: [truncateToWidth(ctx, clean[0], opts.maxWidth)],
-    fontPx,
-    elided: true,
+    lines: wrapWords(ctx, clean.join(SEPARATOR), opts.maxWidth),
+    fontPx: opts.fontPx,
   };
 }
 
@@ -248,7 +279,8 @@ export function fitAttributionText(
 
 export interface AttributionOverlaySpec {
   fontPx: number;
-  minFontPx: number;
+  /** Baseline-to-baseline step for a wrapped credit. */
+  lineHeight: number;
   /** Distance from the canvas edge to the scrim. */
   inset: number;
   paddingX: number;
@@ -256,15 +288,12 @@ export interface AttributionOverlaySpec {
   radius: number;
 }
 
-/** 400x250. 10px over a scrim reads fine at 1:1; the gallery renders it into
- *  176x112 with object-cover, which is a display-size decision and not an
- *  argument about what the file should contain. It has to carry the credit
- *  because `get_share_card_image_url` falls back to the thumbnail as the
- *  og:image for every map captured before SHARE-08 — that surface has no
- *  adjacent text at all. */
+/** 400x250. It has to carry the credit because `get_share_card_image_url`
+ *  falls back to the thumbnail as the og:image for every map captured before
+ *  SHARE-08 — that surface has no adjacent text at all. */
 export const THUMBNAIL_ATTRIBUTION: AttributionOverlaySpec = {
   fontPx: 10,
-  minFontPx: 9,
+  lineHeight: 13,
   inset: 6,
   paddingX: 5,
   paddingY: 3,
@@ -275,7 +304,7 @@ export const THUMBNAIL_ATTRIBUTION: AttributionOverlaySpec = {
  *  adding a band would change the 1.91:1 ratio social platforms crop against. */
 export const OG_ATTRIBUTION: AttributionOverlaySpec = {
   fontPx: 16,
-  minFontPx: 13,
+  lineHeight: 20,
   inset: 12,
   paddingX: 8,
   paddingY: 5,
@@ -311,14 +340,15 @@ function fillScrim(
 }
 
 /**
- * Draw the credit into the bottom-right of an already-composited crop.
+ * Draw the credit into the bottom-right of an already-composited crop, over as
+ * many lines as it takes.
  *
- * A light scrim with dark text, not a glyph halo: stroking at 9-10px roughly
- * doubles apparent weight, and the thumbnail is a JPEG — halo plus chroma
- * subsampling is exactly where small text turns to mush. One fixed pair works
- * over both light and dark tiles because the scrim establishes its own ground,
- * which also covers the globe case (#1479), where the bottom-right may be
- * space rather than tiles.
+ * A light scrim with dark text, not a glyph halo: stroking at 10px roughly
+ * doubles apparent weight, and these are JPEGs — halo plus chroma subsampling
+ * is exactly where small text turns to mush. One fixed pair works over both
+ * light and dark tiles because the scrim establishes its own ground, which also
+ * covers the globe case (#1479), where the bottom-right may be space rather
+ * than tiles.
  *
  * Returns whether anything was drawn.
  */
@@ -332,19 +362,16 @@ export function drawAttributionOverlay(
   if (!ctx) return false;
 
   const maxWidth = canvas.width - spec.inset * 2 - spec.paddingX * 2;
-  const fitted = fitAttributionText(ctx, entries, {
-    maxWidth,
-    fontPx: spec.fontPx,
-    minFontPx: spec.minFontPx,
-    maxLines: 1,
-  });
-  const line = fitted.lines[0];
-  if (!line) return false;
+  const fitted = fitAttributionText(ctx, entries, { maxWidth, fontPx: spec.fontPx });
+  if (fitted.lines.length === 0) return false;
 
   ctx.font = attributionFont(fitted.fontPx);
-  const textWidth = ctx.measureText(line).width;
+  const textWidth = fitted.lines.reduce(
+    (widest, line) => Math.max(widest, ctx.measureText(line).width),
+    0,
+  );
   const boxW = textWidth + spec.paddingX * 2;
-  const boxH = fitted.fontPx + spec.paddingY * 2;
+  const boxH = fitted.lines.length * spec.lineHeight + spec.paddingY * 2;
   const boxX = Math.max(0, canvas.width - spec.inset - boxW);
   const boxY = Math.max(0, canvas.height - spec.inset - boxH);
 
@@ -354,7 +381,9 @@ export function drawAttributionOverlay(
   ctx.fillStyle = MAP_COLORS.exportImage.text;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
-  ctx.fillText(line, boxX + spec.paddingX, boxY + spec.paddingY);
+  fitted.lines.forEach((line, i) => {
+    ctx.fillText(line, boxX + spec.paddingX, boxY + spec.paddingY + i * spec.lineHeight);
+  });
   return true;
 }
 
@@ -363,8 +392,6 @@ export function drawAttributionOverlay(
 /** Unscaled band metrics; every one is multiplied by `dpr` at use, because
  *  `handleExportPNG` works entirely in srcCanvas pixel space. */
 const BAND_FONT_PX = 12;
-const BAND_MIN_FONT_PX = 10;
-const BAND_MAX_LINES = 2;
 const BAND_LINE_HEIGHT = 16;
 const BAND_GAP = 12;
 
@@ -384,11 +411,11 @@ export interface MeasuredAttributionBand {
  * enterprise case (`showBranding === false`) would need a special case. A
  * separate band makes that path fall out for free — the attribution band
  * renders and the branding band does not. It also sits on white rather than on
- * imagery, so it needs no scrim, which matters most for the path most likely
- * to be printed or pasted into a report.
+ * imagery, so it needs no scrim, which matters most for the path most likely to
+ * be printed or pasted into a report.
  *
- * Wraps to two lines rather than eliding: the full-resolution export has the
- * room, and it is the one output that should never drop a credit.
+ * The height follows the line count, so the canvas grows to fit the credits
+ * rather than the credits being cut to fit the canvas.
  */
 export function measureAttributionBand(
   ctx: CanvasRenderingContext2D,
@@ -402,8 +429,6 @@ export function measureAttributionBand(
   const fitted = fitAttributionText(ctx, entries, {
     maxWidth: opts.maxWidth,
     fontPx: BAND_FONT_PX * dpr,
-    minFontPx: BAND_MIN_FONT_PX * dpr,
-    maxLines: BAND_MAX_LINES,
   });
   if (fitted.lines.length === 0) return fallback;
 

@@ -2338,7 +2338,11 @@ describe('SHARE-09 export PNG composition', () => {
       strokeRect: vi.fn(() => { strokeStyleAtStroke.push(ctx2d.strokeStyle); }),
       createLinearGradient: createGradientSpy,
       drawImage: vi.fn(),
-      measureText: vi.fn(() => ({ width: 120 })),
+      // fix(#1541 codex P1): length-proportional, not a constant 120. A
+      // constant makes every string "fit" on one line, so it cannot exercise
+      // the band's line growth — which is precisely how the two-line cap that
+      // dropped credits went unnoticed here.
+      measureText: vi.fn((text: string) => ({ width: text.length * 6 })),
     };
 
     offscreenCanvas = {
@@ -2660,6 +2664,38 @@ describe('SHARE-09 export PNG composition', () => {
     const texts = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
     expect(texts).toContain(MOCK_ATTRIBUTION);
     expect(texts.some((t) => /export\.poweredBy|Powered by GeoLens/.test(t))).toBe(false);
+  });
+
+  // fix(#1541 codex P1): five real credits on a 1056px export used to lose two
+  // of them, the basemap's included, because the band was capped at two lines.
+  // The canvas has no height constraint, so it grows instead.
+  it('exports every credit for a credit-heavy map, growing the band (#1541)', () => {
+    const credits = [
+      'MapLibre',
+      '© OpenStreetMap contributors, climbing route geometry retrieved via the Overpass API, licensed under ODbL 1.0',
+      '© U.S. Geological Survey Earthquake Hazards Program, ANSS Comprehensive Earthquake Catalog (ComCat), public domain',
+      '© swisstopo swissALTI3D, 2m lidar digital elevation model, Federal Office of Topography, reproduced with authorisation',
+      'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+    ];
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(' ');
+    for (const credit of credits) {
+      expect(drawn, `missing credit: ${credit}`).toContain(credit);
+    }
+    expect(drawn).not.toContain('…');
+    // The band grew past the old two-line ceiling, and the canvas with it.
+    expect(offscreenCanvas.height).toBeGreaterThan(600 + 12 + 2 * 16 + 12 + 32);
   });
 
   it('reserves canvas height for the credit band, and none when there is no credit (#1486)', () => {
