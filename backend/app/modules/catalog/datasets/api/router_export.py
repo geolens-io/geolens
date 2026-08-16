@@ -1,5 +1,6 @@
 """Dataset export endpoints: DCAT JSON-LD catalog and COG download."""
 
+import re
 import uuid
 
 import jwt
@@ -713,6 +714,96 @@ async def get_geodcat_ap_record(
 # COG download
 # ---------------------------------------------------------------------------
 
+# fix(#1528): chunk size for a streamed byte range. A range can be most of a
+# multi-GB COG, so it is read in bounded pieces rather than buffered whole —
+# the same reason the full-object path streams via get_stream() (ING-03).
+_COG_RANGE_CHUNK_BYTES = 1024 * 1024  # 1 MiB
+
+# One anchored pattern, deliberately strict about what it accepts:
+#   bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX
+# `[0-9]` rather than `\d` because Python's `\d` is unicode-aware, and
+# int("٣") succeeds while int("²") raises — a header parser should not have
+# opinions about Arabic-Indic digits. Anything this does not match (a second
+# range, an unknown unit, a reversed pair) is IGNORED per RFC 9110 section
+# 14.2, which is the safe direction: the client gets the whole representation
+# it can already handle, never a partial one mislabelled as something else.
+_BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
+
+# The Range named no byte of the representation (first-byte-pos at or past the
+# end, or a zero-length suffix). RFC 9110 section 15.5.17 wants a 416 carrying
+# the real size, NOT a 200 with the whole object: a client that asked for one
+# tile and silently received the entire COG splices it at the wrong offset.
+_RANGE_UNSATISFIABLE = "unsatisfiable"
+
+
+def _parse_cog_range(raw: str | None, size: int) -> tuple[int, int] | str | None:
+    """Resolve a Range header to an inclusive ``(start, end)`` byte pair.
+
+    Returns ``None`` when there is no usable range and the caller should serve
+    the complete representation, ``_RANGE_UNSATISFIABLE`` when it must answer
+    416, and otherwise the resolved pair — already clamped to the object, so
+    callers never have to re-check the bounds.
+
+    Multi-range requests return ``None``. RFC 9110 section 14.2 lets a server
+    answer a multi-range request with a single range or with the whole
+    representation; ``multipart/byteranges`` is not implemented here, and
+    answering the FIRST range while echoing only its Content-Range would be
+    the corrupt-download failure — a client expecting two parts writes one of
+    them over both offsets.
+    """
+    if not raw:
+        return None
+    match = _BYTE_RANGE_RE.match(raw.strip())
+    if match is None:
+        return None
+    first, last, suffix = match.groups()
+
+    if suffix is not None:
+        # bytes=-N: the final N bytes. A zero-length suffix names nothing.
+        if int(suffix) == 0 or size == 0:
+            return _RANGE_UNSATISFIABLE
+        return (max(0, size - int(suffix)), size - 1)
+
+    start = int(first)
+    if size == 0 or start >= size:
+        return _RANGE_UNSATISFIABLE
+    if last == "":
+        # bytes=N-: from N to the end.
+        return (start, size - 1)
+    end = int(last)
+    if end < start:
+        return None  # reversed pair: invalid, so ignore rather than reject
+    # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
+    # not know the size ask for more than exists on purpose.
+    return (start, min(end, size - 1))
+
+
+async def _iter_storage_range(storage, key: str, start: int, length: int):
+    """Yield exactly ``length`` bytes from ``start``, in bounded chunks.
+
+    ``storage.get_range`` returns bytes rather than a stream, so a single call
+    for a whole range would materialize it in memory — fine for the 16 KB
+    header read a COG client opens with, not for a caller that asks for a
+    gigabyte. The loop keeps resident memory at one chunk regardless of the
+    range's size.
+
+    A short read ends the stream instead of looping forever: if the object
+    shrank under us the response is truncated against its Content-Length, which
+    every HTTP client reports as a failed transfer. That is the loud failure;
+    padding to length would be the quiet corrupt one.
+    """
+    remaining = length
+    offset = start
+    while remaining > 0:
+        chunk = await storage.get_range(
+            key, offset, min(remaining, _COG_RANGE_CHUNK_BYTES)
+        )
+        if not chunk:
+            return
+        yield chunk
+        offset += len(chunk)
+        remaining -= len(chunk)
+
 
 async def _resolve_download_user(
     request: Request,
@@ -828,6 +919,26 @@ async def _resolve_download_user(
     )
 
 
+# fix(#1528): HEAD alongside GET. FastAPI's APIRoute does not add it the way
+# starlette's plain Route does, so this answered `405 allow: GET` — refusing
+# every client that probes before downloading (GDAL/QGIS `/vsicurl/`, resumable
+# downloaders, link checkers). Same gap fix(#1513) closed for the export route,
+# and `_register_standards_head_routes` in app/api/main.py for the standards
+# surface.
+#
+# The HEAD is stronger than the export route's, and the difference is the
+# point. That route runs a live conversion, so its length is unknowable before
+# generating the content and its HEAD omits Content-Length under RFC 9110
+# section 9.3.2. This one serves STORED bytes: one storage.size() gives a real
+# Content-Length, and the `Accept-Ranges: bytes` it advertises is backed by an
+# actual 206 below rather than by starlette's FileResponse re-running a
+# conversion per range (the instability fix(#1532) tracks). A COG endpoint that
+# could not serve ranges would be a COG endpoint in name only.
+#
+# include_in_schema=False for the reason `_clone_api_route` gives: a derived
+# route documents nothing the canonical one does not, and publishing it would
+# churn both SDKs and the CLI.
+@router.head("/{dataset_id}/download/cog", include_in_schema=False)
 @router.get(
     "/{dataset_id}/download/cog",
     response_class=Response,
@@ -909,21 +1020,35 @@ async def download_cog(
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
     # uuid.UUID | None to match.
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id if user is not None else None,
-            action="dataset.download_cog",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            details={
-                "filename": filename,
-                "storage_backend": raster_asset.storage_backend,
-            },
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
-    await db.commit()
+    #
+    # fix(#1528): not for HEAD. Nothing is transferred, so a
+    # `dataset.download_cog` row for a probe misreports who downloaded what,
+    # and every /vsicurl/ open begins with one. Same call fix(#1513) made on
+    # the export route.
+    #
+    # Range GETs ARE audited, each one. That is a deliberate volume cost — a
+    # COG client reading tiles emits a row per read where it used to emit one
+    # per download — taken because the alternative is an audit blind spot: a
+    # caller could otherwise pull an entire COG in ranges and appear in the log
+    # zero times. `details.range` is what separates a tile read from a full
+    # download when reading the log back.
+    if request.method != "HEAD":
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id if user is not None else None,
+                action="dataset.download_cog",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                details={
+                    "filename": filename,
+                    "storage_backend": raster_asset.storage_backend,
+                    "range": request.headers.get("range"),
+                },
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
+        await db.commit()
 
     # 7. Storage-backend branching
     storage = get_storage()
@@ -964,6 +1089,34 @@ async def download_cog(
         url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
         return RedirectResponse(url=url, status_code=302)
 
+    return await _local_cog_response(
+        request,
+        storage,
+        physical_asset_key=physical_asset_key,
+        filename=filename,
+        dataset_id=dataset_id,
+    )
+
+
+async def _local_cog_response(
+    request: Request,
+    storage,
+    *,
+    physical_asset_key: str,
+    filename: str,
+    dataset_id: uuid.UUID,
+) -> Response:
+    """Serve stored COG bytes: HEAD, a byte range, or the whole object.
+
+    Split out of ``download_cog`` in fix(#1528) — folding three response
+    shapes into a handler that already branches over three storage backends put
+    it past ruff's complexity ceiling (C901, 17 > 15).
+
+    Everything that decides the STATUS has already run in the caller: access
+    control, the raster-type gate, and the RasterAsset lookup. This function
+    only decides which representation to send, which is why it is safe for HEAD
+    and GET to share it.
+    """
     # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
     # The full file is NOT buffered into memory — a 5 GB COG no longer pins
     # 5 GB of resident memory before the first byte streams.
@@ -973,12 +1126,19 @@ async def download_cog(
     # iterator after returning the response, so a deferred raise inside the
     # generator would produce a 500 (or a broken Transfer-Encoding chunk)
     # rather than a clean 404.
+    #
+    # fix(#1528): the size is read in the same guarded block. It is what makes
+    # both halves of this fix honest — a real Content-Length on HEAD and on the
+    # full GET, and the denominator of every Content-Range below — and a
+    # backend that throws on size() must map to the same 503 as one that throws
+    # on exists(), not to a raw 500.
     try:
         if not await storage.exists(physical_asset_key):
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="COG file not found",
             )
+        total_bytes = await storage.size(physical_asset_key)
     except HTTPException:
         raise
     except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
@@ -988,10 +1148,77 @@ async def download_cog(
             detail="COG download temporarily unavailable",
         )
 
+    # fix(#1528): `accept-ranges` goes on every response from this branch,
+    # including the 416 — RFC 9110 section 14.3 scopes it to the RESOURCE, not
+    # to the one response carrying it, and a client that just got a 416 is
+    # precisely the one that needs telling it may retry with a corrected range.
+    #
+    # Content-Disposition does NOT go on the 416, which is why these are two
+    # dicts and not one. That response's body is the JSON error, not the
+    # raster; naming it `attachment; filename="....cog.tif"` would have a
+    # browser save an error document under the COG's filename.
+    cog_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": get_catalog_port().safe_content_disposition(filename),
+    }
+
+    if request.method == "HEAD":
+        # Answered entirely from metadata: one stat, no read. A HEAD that
+        # streamed the object to learn its length would make every /vsicurl/
+        # open cost a full download — the amplification the export route's HEAD
+        # avoids by not running its conversion.
+        #
+        # A Range on a HEAD is deliberately ignored. HEAD describes the
+        # selected representation, so answering 206 here would report a tile's
+        # length as the size of the COG.
+        #
+        # Passing content-length explicitly also suppresses starlette's own:
+        # `init_headers` populates it from the body, which for this empty one
+        # is `content-length: 0` — a confident wrong answer that reads as an
+        # empty COG, and strictly worse than the 405 this replaces. fix(#1513)
+        # had to strip that header for the same reason; here the real value
+        # displaces it. `test_head_cog_carries_the_real_content_length` fails
+        # if this is ever dropped back to the default.
+        return Response(
+            status_code=status.HTTP_200_OK,
+            media_type="image/tiff",
+            headers={**cog_headers, "Content-Length": str(total_bytes)},
+        )
+
+    byte_range = _parse_cog_range(request.headers.get("range"), total_bytes)
+
+    if byte_range == _RANGE_UNSATISFIABLE:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Requested range not satisfiable",
+            headers={
+                "Accept-Ranges": "bytes",
+                # The size is the whole point of the 416: it is how a client
+                # that guessed at the length learns the real one and retries.
+                "Content-Range": f"bytes */{total_bytes}",
+            },
+        )
+
+    if byte_range is not None:
+        # The reason the format exists: a client reads the COG header, then
+        # fetches only the tiles it needs. Served through get_range() so the
+        # bytes outside the window are never read — see
+        # `test_range_request_does_not_read_the_whole_object`, which fails if
+        # this is ever implemented by slicing a full-object stream.
+        start, end = byte_range
+        return StreamingResponse(
+            _iter_storage_range(storage, physical_asset_key, start, end - start + 1),
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type="image/tiff",
+            headers={
+                **cog_headers,
+                "Content-Range": f"bytes {start}-{end}/{total_bytes}",
+                "Content-Length": str(end - start + 1),
+            },
+        )
+
     return StreamingResponse(
         storage.get_stream(physical_asset_key),
         media_type="image/tiff",
-        headers={
-            "Content-Disposition": get_catalog_port().safe_content_disposition(filename)
-        },
+        headers={**cog_headers, "Content-Length": str(total_bytes)},
     )

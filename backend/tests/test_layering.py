@@ -3370,6 +3370,27 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # otherwise a stable set of CRUD helpers over the record's related tables
     # and is not where new domains should land.
     "backend/app/modules/catalog/records/service.py": 1007,
+    # fix(#1528): crossed the inclusion threshold, and this is the file the
+    # inclusion rule's own comment named as one of the two "routers-by-role the
+    # glob's filename match cannot see ... watched by nothing until they cross
+    # 1000". It just did.
+    #
+    # What the lines bought: HEAD and byte-range service on
+    # /datasets/{id}/download/cog. A COG exists to be read by range — client
+    # reads the header, fetches only the tiles it needs — and this endpoint
+    # served neither, so GDAL /vsicurl/ could not open it at all (measured:
+    # ERROR 4, not a slow download). The additions are the Range parser and its
+    # RFC 9110 ignore/clamp/416 rules, a chunked range streamer that keeps a
+    # multi-GB range off the heap, the 200/206/416 response shapes, and
+    # _local_cog_response, which exists because folding three representations
+    # into a handler that already branches over three storage backends put
+    # download_cog past ruff's C901 ceiling.
+    #
+    # Roughly half the diff is comment: which starlette behaviour each explicit
+    # header displaces, and why HEAD here carries a Content-Length where the
+    # export route's deliberately omits one. Cap at the exact size. The DCAT
+    # feed handlers above are the natural split if this grows again.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1224,
 }
 
 
