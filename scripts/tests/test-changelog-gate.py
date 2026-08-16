@@ -20,6 +20,7 @@ import importlib.util
 import pathlib
 import re
 import subprocess
+import textwrap
 import sys
 import tempfile
 
@@ -149,6 +150,95 @@ for tag in ("v1.5.0", "v1.5.0-rc.1", "v1.5.0-beta.2"):
         ok(f"{tag} resolves to real release notes, not the git-log fallback")
     else:
         bad(f"{tag} still falls back to the git log")
+
+# --- 4. the fallback must announce itself (#1530) ---------------------------
+# Three separate occasions had the fallback fire when it should not have: every
+# prerelease tag (#715), a whitespace-only section (#715 review), and a
+# CHANGELOG edit that deleted the `## [1.13.1]` header (#1518). Each was fixed
+# by sharpening the matching. The residual defect is that a fallback release is
+# indistinguishable from a curated one once published, so it keeps being found
+# by accident rather than reported. These assertions pin the announcement, not
+# the matching.
+_fallback = release_text.split("# Fallback: generate from git log", 1)
+if len(_fallback) != 2:
+    bad("release.yml no longer has the git-log fallback this test describes")
+else:
+    # Scope to the fallback branch: a warning elsewhere in the file would
+    # satisfy a whole-file search while the fallback stayed silent.
+    # Anchor the terminator to a line of its own — a bare "fi" substring also
+    # matches inside "fix(#NNNN)", which truncated the branch before the very
+    # lines these cases check and made them fail against a correct workflow.
+    _end = re.search(r"^\s*fi\s*$", _fallback[1], re.MULTILINE)
+    branch = _fallback[1][: _end.start()] if _end else _fallback[1]
+
+    if "::warning" in branch:
+        ok("the git-log fallback emits a ::warning annotation")
+    else:
+        bad("the git-log fallback is silent — no ::warning in its branch")
+
+    if "GITHUB_STEP_SUMMARY" in branch:
+        ok("the git-log fallback writes to the job summary")
+    else:
+        bad("the git-log fallback does not report in the job summary")
+
+    # The published body has to carry it too — a warning only reaches whoever
+    # opens the workflow log; the marker reaches whoever reads the release.
+    #
+    # EXECUTE the branch rather than grepping it. fix(#1534 review): the first
+    # version of this case asserted `"NOTES=" in branch and "commit subjects"
+    # in branch`, and both are true with the marker assignment deleted — the
+    # original `NOTES=$(git log ...)` line supplies the first and the ::warning
+    # text supplies the second. It reported the notes as marked while a release
+    # reader saw nothing. Running the branch and reading what it actually
+    # produces cannot pass that way.
+    _if = branch[branch.index("if [ -z"):] if "if [ -z" in branch else ""
+    _fallback_block = release_text[release_text.index("if [ -z"):]
+    _fallback_block = _fallback_block[: re.search(
+        r"^\s*fi\s*$", _fallback_block, re.MULTILINE
+    ).end()]
+
+    def _run_fallback(block: str) -> str:
+        """Execute the fallback branch and return the NOTES it publishes."""
+        script = f"""
+        set -e
+        git() {{ echo "- feat(x): a thing"; echo "- fix(y): another"; }}
+        CHANGELOG_VERSION="1.9.9"; PREV="v1.0.0"; TAG="v1.9.9"; NOTES=""
+        GITHUB_STEP_SUMMARY="$(mktemp)"
+        {textwrap.dedent(block)}
+        printf '@@NOTES@@%s' "$NOTES"
+        """
+        # Sentinel because the branch also echoes its ::warning to stdout, and
+        # that text contains "commit subjects" too — reading raw stdout made
+        # the counterfactual below pass with the marker stripped.
+        out = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=False
+        ).stdout
+        return out.split("@@NOTES@@", 1)[1] if "@@NOTES@@" in out else ""
+
+    published = _run_fallback(_fallback_block)
+    if "commit subjects" in published and "1.9.9" in published:
+        ok("the executed fallback publishes a marker in the release body")
+    else:
+        bad(f"executed fallback published no marker: {published[:120]!r}")
+
+    # And the case must be able to fail: strip the marker assignment and the
+    # same execution has to come back unmarked. A check nobody has watched fail
+    # is not a check — this one had already passed while asserting nothing.
+    _stripped = "\n".join(
+        line
+        for line in _fallback_block.splitlines()
+        if "> **Note**" not in line
+    )
+    if "commit subjects" not in _run_fallback(_stripped):
+        ok("removing the marker assignment makes the executed check fail")
+    else:
+        bad("the executed check still passes without the marker assignment")
+
+    # The generated notes themselves must survive the marker being prepended.
+    if "- feat(x): a thing" in published:
+        ok("the fallback keeps the git-log notes beneath the marker")
+    else:
+        bad("the marker replaced the generated notes instead of prefixing them")
 
 print(f"1..{PASS + FAIL}")
 print(f"# {PASS} passed, {FAIL} failed")
