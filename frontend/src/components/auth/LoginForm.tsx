@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
+import { removeSessionStorage } from '@/lib/storage';
 
 /**
  * Login form for username + password authentication.
@@ -38,7 +39,11 @@ export function LoginForm() {
       // CLEAN-N3: the search workspace lives at "/" after the landing page
       // removal; no more redirect through the legacy "/search" shim.
       const target = from && from.startsWith('/') ? from : '/';
-      sessionStorage.removeItem('geolens-login-redirect');
+      // fix(#1527): this sits between a SUCCESSFUL login and the navigation
+      // that follows, inside the try. A bare removeItem that throws is caught
+      // below and rendered as a login error — so the user is signed in, told
+      // sign-in failed, and left on /login.
+      removeSessionStorage('geolens-login-redirect');
       navigate(target, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : t('loginFailed'));

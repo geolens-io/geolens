@@ -7,6 +7,7 @@ import { SessionExpiredDialog } from '@/components/auth/SessionExpiredDialog';
 import { notifySessionExpired } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import { queryKeys } from '@/lib/query-keys';
+import { denySessionStorage } from '@/test/deny-storage';
 import type { AuthConfigResponse } from '@/types/api';
 
 // fix(#628): the global signed-out host — one dismissable prompt when the
@@ -112,5 +113,42 @@ describe('SessionExpiredDialog', () => {
     act(() => notifySessionExpired(nextDeadToken()));
 
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  /**
+   * fix(#1527): both halves of this component touch sessionStorage, and both
+   * used to do it bare. The guest-browse READ runs inside the expiry handler,
+   * which `notifySessionExpired` invokes synchronously from the fetch core's
+   * 401 path — a throw there escapes into the API client, so a dead session in
+   * a storage-denied context fails as an unhandled error instead of a prompt.
+   */
+  it('prompts on "/" under landing-first when sessionStorage access throws', () => {
+    const restore = denySessionStorage();
+    try {
+      renderAt('/', { landingFirst: true });
+      act(() => notifySessionExpired(nextDeadToken()));
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  /**
+   * fix(#1527): the sign-in action WRITES the redirect key. Guarding only the
+   * read would leave the button that recovers the session throwing.
+   */
+  it('signs in from the prompt when sessionStorage access throws', async () => {
+    renderAt('/datasets/abc?tab=preview');
+    act(() => notifySessionExpired(nextDeadToken()));
+
+    const restore = denySessionStorage();
+    try {
+      await userEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      expect(screen.getByTestId('login-probe')).toHaveTextContent('/datasets/abc?tab=preview');
+    } finally {
+      restore();
+    }
   });
 });
