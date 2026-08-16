@@ -29,7 +29,7 @@ import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
 from app.processing.embeddings import backfill as backfill_module
@@ -84,6 +84,21 @@ class _StrictProvider(_RecordingProvider):
                 f"model {model} does not support {dimensions} dimensions"
             )
         return [[1.0] + [0.0] * 1535 for _ in texts]
+
+
+class _WidthProvider(_RecordingProvider):
+    """Returns vectors of the width it was asked for.
+
+    `_RecordingProvider` always answers 1536 regardless of `dimensions`, which
+    is fine for the labelling scenarios but cannot express "the provider
+    succeeded and the result does not fit the column". A real endpoint asked
+    for 768 returns 768.
+    """
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append({"model": model, "dimensions": dimensions})
+        width = dimensions or 1536
+        return [[1.0] + [0.0] * (width - 1) for _ in texts]
 
 
 class _SwitchingProvider(_RecordingProvider):
@@ -317,3 +332,88 @@ async def test_a_model_published_before_its_dimensions_does_not_destroy_vectors(
     # that quietly no-ops would satisfy both assertions above while proving
     # nothing, since this run aborts either way.
     assert provider.calls == [{"model": _MODEL_B, "dimensions": _DIMS_A}]
+
+
+@pytest.mark.anyio
+async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """Generating is only half the promise: the vector has to fit the column.
+
+    fix(#1511 review r4, codex P1): `update_settings` runs
+    `_auto_detect_embedding_dims()` and `rebuild_embedding_column()` on
+    MUTUALLY EXCLUSIVE branches — the first when `embedding_dims` is absent
+    from the request, the second when it is present
+    (`modules/settings/router.py:348-360`). So an admin who switches model
+    without naming dimensions gets the detected width persisted and the column
+    left at its old one.
+
+    Every earlier guard passes here, and that is the point. Model and
+    dimensions are consistent with each other, they are stable, and the
+    provider answers happily at the new width. Only storage disagrees, and it
+    is the one thing no config check looks at.
+
+    Against a tree without the storage half of the pre-flight this fails on the
+    survival assertion, not on the missing raise: the DELETE commits and every
+    replacement insert dies on the typmod.
+    """
+    user_id = await get_user_id(test_db_session, "admin")
+
+    column_dims = (
+        await test_db_session.execute(
+            text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding' AND NOT attisdropped"
+            )
+        )
+    ).scalar_one()
+    # Non-vacuity: an unconstrained `vector` column (atttypmod -1) accepts any
+    # width, so there would be no mismatch to detect and the test would assert
+    # nothing. The scenario needs a declared width that is NOT what the model
+    # produces.
+    assert column_dims > 0
+    assert column_dims != _DIMS_B
+
+    seeded = await create_dataset(
+        test_db_session, created_by=user_id, name="Storage Width Seed"
+    )
+    test_db_session.add(
+        RecordEmbedding(
+            record_id=seeded.record_id,
+            embedding=[1.0] + [0.0] * (column_dims - 1),
+            model_name=_MODEL_A,
+            content_hash=uuid.uuid4().hex[:64],
+        )
+    )
+    await test_db_session.commit()
+    before = await _embedding_count(test_db_session)
+    assert before > 0
+
+    # A *consistent* pair, unlike the settings-window scenario: the model and
+    # its dimensions agree, so the snapshot and re-read guards are satisfied.
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL_B)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS_B)
+
+    provider = _WidthProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    aborted = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=True)
+    except RuntimeError:
+        aborted = True
+
+    assert await _embedding_count(test_db_session) == before
+    assert aborted
+    # The provider must have been reached and must have succeeded — if it had
+    # rejected the pair this would be the round-3 scenario over again, and the
+    # storage check would never have been the thing that saved the vectors.
+    assert provider.calls == [{"model": _MODEL_B, "dimensions": _DIMS_B}]

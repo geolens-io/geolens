@@ -114,6 +114,14 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
         AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
     )
     backfill_session = AsyncMock()
+    # fix(#1511 review r4): the pre-flight also reads the embedding column's
+    # declared width off pg_attribute, so a bare AsyncMock hands it a coroutine
+    # instead of a number. Return the width the stubbed provider above actually
+    # produces — a mismatch here would abort the run before the DELETE this
+    # test exists to inspect.
+    preflight_result = MagicMock()
+    preflight_result.scalar_one_or_none.return_value = 1536
+    backfill_session.execute.return_value = preflight_result
 
     result = await backfill_module.backfill_embeddings(backfill_session, force=True)
 

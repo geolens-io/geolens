@@ -13,7 +13,7 @@ Can be run as a module: python -m app.embeddings.backfill
 """
 
 import structlog
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS
@@ -122,12 +122,13 @@ async def _preflight_embedding(
     a provider rejection would.
 
     Raises:
-        RuntimeError: If the embedding cannot be generated. The caller must run
-            this BEFORE deleting anything.
+        RuntimeError: If the embedding cannot be generated, or cannot be stored
+            in the column as it currently stands. The caller must run this
+            BEFORE deleting anything.
     """
     model_name, dimensions = pinned
     try:
-        await generate_embeddings_batch(
+        vectors = await generate_embeddings_batch(
             [_PREFLIGHT_TEXT], session, model=model_name, dimensions=dimensions
         )
     except Exception as exc:  # broad: any provider/config failure means the regenerate cannot be promised
@@ -143,6 +144,47 @@ async def _preflight_embedding(
             f"{dimensions!r}). Existing vectors were left untouched; fix the "
             "embedding configuration or provider and re-run."
         ) from exc
+
+    # fix(#1511 review r4, codex P1): generating a vector is only half the
+    # promise — it also has to fit the column. `update_settings` runs
+    # _auto_detect_embedding_dims() and rebuild_embedding_column() on MUTUALLY
+    # EXCLUSIVE branches (`embedding_dims` absent from the request versus
+    # present, modules/settings/router.py:348-360), so an admin who switches
+    # model without naming dimensions gets the detected width persisted and the
+    # column left at its old one. The provider then answers happily at the new
+    # width, this pre-flight passed, the DELETE committed, and every insert
+    # failed on the typmod. Zero coverage, by the exact route the pre-flight
+    # exists to close.
+    #
+    # Read the width off the live column rather than trusting EMBEDDING_DIMS:
+    # the setting is what disagreed with storage in the first place. pgvector
+    # puts the declared dimension straight in atttypmod (no -4 offset), and -1
+    # means an unconstrained `vector`, which accepts any width.
+    column_dims = (
+        await session.execute(
+            text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding' AND NOT attisdropped"
+            )
+        )
+    ).scalar_one_or_none()
+
+    generated = len(vectors[0])
+    if column_dims is not None and column_dims > 0 and generated != column_dims:
+        logger.error(
+            "backfill_preflight_storage_mismatch",
+            model=model_name,
+            generated_dims=generated,
+            column_dims=column_dims,
+        )
+        raise RuntimeError(
+            f"Cannot regenerate embeddings: model {model_name!r} produces "
+            f"{generated}-dimension vectors but catalog.record_embeddings."
+            f"embedding is vector({column_dims}). Existing vectors were left "
+            "untouched. Set the embedding dimensions explicitly in Settings so "
+            "the column is rebuilt, then re-run."
+        )
 
 
 async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> dict:
