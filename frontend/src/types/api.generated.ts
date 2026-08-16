@@ -2104,10 +2104,10 @@ export interface paths {
          *     client clustering for anonymous public-map viewers.
          *
          *     fix(#390) codex P2: a request that *supplied* credentials which failed to
-         *     resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-         *     gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-         *     fires instead of a private layer permanently failing as "not found".
-         *     Truly credentialless requests keep the anonymous public path.
+         *     resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+         *     frontend's refresh-on-401 retry fires instead of a private layer
+         *     permanently failing as "not found". Truly credentialless requests keep the
+         *     anonymous public path.
          */
         get: operations["get_features_geojson_z_endpoint_datasets__dataset_id__features_geojson_get"];
         put?: never;
