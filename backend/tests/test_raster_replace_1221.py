@@ -2280,22 +2280,31 @@ class TestRetainedOriginalLivesOutsideThePurgesDomain:
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
 
-        # Written up front so the precondition can be checked before either
-        # replace runs: a collapse here is a broken test, not a broken product,
-        # and it should say so at the top rather than through the final assert.
-        sources = []
-        for name, seed in (("first.tif", 401), ("second.tif", 402)):
-            source = tmp_path / name
-            source.write_bytes(_geotiff_bytes(seed=seed))
-            sources.append(source)
-        assert len({sha256_file(str(s)) for s in sources}) == 2, (
-            "precondition: the two uploads must carry different bytes. One "
-            "content hash is one archive, so identical payloads would make the "
-            "assertion below a statement about the upsert rather than about "
-            "two originals coexisting."
-        )
-
         try:
+            # Written up front so the precondition can be checked before either
+            # replace runs: a collapse here is a broken test, not a broken
+            # product, and it should say so at the top rather than through the
+            # final assert.
+            #
+            # fix(#1537 review): inside the try, not before it. `_make_live_raster`
+            # has already committed the record, dataset and asset, and
+            # `test_db_session` has no rollback teardown — isolation on this
+            # suite is explicit per-test cleanup. So a precondition that fired
+            # out there would skip `_purge` and leave those rows in the shared
+            # per-worker database, which is this test's own regression leaving
+            # residue for somebody else's to trip over.
+            sources = []
+            for name, seed in (("first.tif", 401), ("second.tif", 402)):
+                source = tmp_path / name
+                source.write_bytes(_geotiff_bytes(seed=seed))
+                sources.append(source)
+            assert len({sha256_file(str(s)) for s in sources}) == 2, (
+                "precondition: the two uploads must carry different bytes. One "
+                "content hash is one archive, so identical payloads would make "
+                "the assertion below a statement about the upsert rather than "
+                "about two originals coexisting."
+            )
+
             for source in sources:
                 job = await _queue_replace_job(
                     test_db_session,
@@ -2710,11 +2719,15 @@ class TestArchiveCannotDestroyThePreviousOriginal:
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
 
-        first_bytes = _geotiff_bytes(seed=141)
-        second_bytes = _geotiff_bytes(seed=142)
-        assert first_bytes != second_bytes
-
         try:
+            # fix(#1537 review): inside the cleanup scope. `_make_live_raster`
+            # has committed and `test_db_session` has no rollback teardown, so
+            # a precondition firing above the `try` would leak those rows into
+            # the shared per-worker database.
+            first_bytes = _geotiff_bytes(seed=141)
+            second_bytes = _geotiff_bytes(seed=142)
+            assert first_bytes != second_bytes
+
             # A successful lossy replace, archiving "scene.tif".
             source = tmp_path / "scene.tif"
             source.write_bytes(first_bytes)
@@ -3535,10 +3548,13 @@ class TestEveryKeptOriginalIsCounted:
         dataset_id = live.dataset.id
         record_id = live.dataset.record_id
 
-        payloads = [_geotiff_bytes(seed=201), _geotiff_bytes(seed=202)]
-        assert payloads[0] != payloads[1]
-
         try:
+            # fix(#1537 review): inside the cleanup scope, for the same reason
+            # as its siblings — the rows are already committed by here and
+            # nothing rolls them back if the precondition fires.
+            payloads = [_geotiff_bytes(seed=201), _geotiff_bytes(seed=202)]
+            assert payloads[0] != payloads[1]
+
             for i, payload in enumerate(payloads):
                 source = tmp_path / f"r{i}" / "scene.tif"
                 source.parent.mkdir()
