@@ -23,6 +23,7 @@ from app.processing.embeddings.service import (
     build_content_text,
     compute_content_hash,
     generate_embeddings_batch,
+    resolve_embedding_base_url,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -37,15 +38,23 @@ _BATCH_SIZE = 128
 _PREFLIGHT_TEXT = "geolens embedding preflight"
 
 
-async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | None]:
-    """Capture (model, dimensions) as one consistent pair, or refuse the run.
+async def _snapshot_embedding_config(
+    session: AsyncSession,
+) -> tuple[str, int | None, str | None]:
+    """Capture (model, dimensions, endpoint) as one consistent set, or refuse.
 
-    The two values come from separate `PersistentConfig` reads — there is no
+    The values come from separate `PersistentConfig` reads — there is no
     combined read, and building one would bypass the per-key validation and
-    cache machinery in `PersistentConfig.get`. So capture both, then read both
-    again and compare. Any single admin change lands inside one of the two
-    windows and shows up as a difference; only a change-and-revert inside the
-    same few milliseconds slips through, which is not a case worth more code.
+    cache machinery in `PersistentConfig.get`. So capture them, then read them
+    again and compare. Any single admin change lands inside one of the windows
+    and shows up as a difference; only a change-and-revert inside the same few
+    milliseconds slips through, which is not a case worth more code.
+
+    fix(#1525): the endpoint is captured and compared the same way, in a
+    window of its own (see below). It is resolved through the provider rather
+    than read here, because the fallback chain and the credential binding
+    belong to whichever provider extension is registered (see
+    `resolve_embedding_base_url`).
 
     fix(#1511 review r2, codex P1): without the comparison a run could pin
     model A with model B's dimensions, a pairing that never existed in config.
@@ -95,11 +104,28 @@ async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | 
             "untouched; re-run to use the new configuration."
         )
 
-    return model_name, dimensions
+    # fix(#1525): the endpoint is captured the same way but in its own window,
+    # not folded into the pair above. Resolving it calls the provider
+    # extension, which is an arbitrarily long await — a third-party provider
+    # may do I/O — and putting that between the model capture and the model
+    # re-read would widen the coupled pair's window by the length of a provider
+    # call, making a spurious abort likelier for the two values that actually
+    # have to agree with each other. The endpoint has no partner to be mixed
+    # with; it only has to equal itself across its own window.
+    base_url = await resolve_embedding_base_url(session)
+    if await resolve_embedding_base_url(session) != base_url:
+        logger.error("backfill_aborted_embedding_endpoint_changed")
+        raise RuntimeError(
+            "Cannot regenerate embeddings: the embedding endpoint changed while "
+            "the run was starting. Existing vectors were left untouched; re-run "
+            "to use the new configuration."
+        )
+
+    return model_name, dimensions, base_url
 
 
 async def _preflight_embedding(
-    session: AsyncSession, pinned: tuple[str, int | None]
+    session: AsyncSession, pinned: tuple[str, int | None, str | None]
 ) -> None:
     """Generate one throwaway embedding to prove regeneration can work.
 
@@ -126,10 +152,14 @@ async def _preflight_embedding(
             in the column as it currently stands. The caller must run this
             BEFORE deleting anything.
     """
-    model_name, dimensions = pinned
+    model_name, dimensions, base_url = pinned
     try:
         vectors = await generate_embeddings_batch(
-            [_PREFLIGHT_TEXT], session, model=model_name, dimensions=dimensions
+            [_PREFLIGHT_TEXT],
+            session,
+            model=model_name,
+            dimensions=dimensions,
+            base_url=base_url,
         )
     except Exception as exc:  # broad: any provider/config failure means the regenerate cannot be promised
         logger.error(
@@ -206,7 +236,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     """
     port = get_processing_port()
 
-    pinned: tuple[str, int | None] | None = None
+    pinned: tuple[str, int | None, str | None] | None = None
 
     if force:
         Record = port.get_record_orm_class()
@@ -325,14 +355,17 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # resolution can fail between the two calls, and by then the delete has
     # committed. The non-force path has nothing to destroy, so it snapshots
     # here, where the original read lived.
-    # fix(#1511 review, codex P1): both halves are pinned into every provider
+    # fix(#1511 review, codex P1): all three parts are pinned into every provider
     # call below. generate_embeddings_batch would otherwise re-read the config
     # per call, so an admin swapping models mid-run gets model B's vectors
     # stored under model A's label — search on the active model then skips rows
-    # it believes it wrote.
+    # it believes it wrote. fix(#1525): the endpoint is the third part. The rows
+    # name a model, and a model served by two endpoints is two vector spaces
+    # under one label; on the shipped provider the same edit instead makes every
+    # remaining batch raise, which abandons the rest of the catalog.
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
-    model_name, embedding_dims = pinned
+    model_name, embedding_dims, base_url = pinned
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped = 0
@@ -363,6 +396,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 session,
                 model=model_name,
                 dimensions=embedding_dims,
+                base_url=base_url,
             )
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
@@ -393,6 +427,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                         session,
                         model=model_name,
                         dimensions=embedding_dims,
+                        base_url=base_url,
                     )
                     session.add(
                         RecordEmbedding(

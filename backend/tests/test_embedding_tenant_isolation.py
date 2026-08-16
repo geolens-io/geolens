@@ -309,6 +309,14 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
             "generate_embeddings_batch",
             AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
         )
+        # fix(#1525): and for the endpoint, the third value the force path now
+        # snapshots before it deletes. It resolves through the provider, whose
+        # first act is another app_settings read this role is denied.
+        monkeypatch.setattr(
+            backfill_module,
+            "resolve_embedding_base_url",
+            AsyncMock(return_value=None),
+        )
 
         from app.core.db.tenant_session import current_tenant_var
 
