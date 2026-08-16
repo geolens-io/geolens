@@ -775,6 +775,7 @@ from app.standards.ogc.errors import (  # noqa: E402
     INTERNAL_SERVER_ERROR_RESPONSE,
     ProblemDetail,
     RATE_LIMIT_RESPONSE,
+    UNRESOLVABLE_CREDENTIAL_RESPONSE,
     register_error_handlers,
 )
 
@@ -1262,6 +1263,63 @@ def _document_rate_limits(schema: dict) -> None:
                 )
 
 
+def _document_unresolvable_credential_401(schema: dict) -> None:
+    """Publish the #1518 401 on every operation that can now raise it.
+
+    ``get_optional_user`` refuses a supplied-but-unresolvable credential, so a
+    401 is normal runtime behaviour on routes that were previously documented as
+    only ever answering anonymously. Generated SDK error unions are built from
+    these response blocks, so an undocumented 401 is one a typed client cannot
+    represent (codex P2 on #1524). #1518 asked for the docs to state what an
+    unresolvable credential does; the ``info.description`` prose is the human
+    half and this is the half the SDKs consume.
+
+    All THREE optional dependencies are targeted, which is one more than
+    ``_normalize_security_contract`` uses:
+
+    - ``get_optional_user`` raises it directly.
+    - ``get_optional_user_fail_open`` defers rather than waives — its CAPABILITY
+      handlers call ``reject_unresolvable_credentials`` themselves, and the
+      RECOVERY one (logout) raises its own 401, so both can answer 401.
+    - ``get_optional_user_no_security_schema`` delegates to
+      ``get_optional_user`` and answers identically. It is EXCLUDED from the
+      security-marker set on purpose (fix(#430): no bearer markers on genuinely
+      public STAC operations), and it belongs here anyway. A 401 *response* is
+      not a security *requirement*: this function only writes into
+      ``responses``, never into ``security``, so documenting the status cannot
+      stamp an auth block back onto those operations.
+      ``test_no_security_schema_ops_get_401_without_security`` pins that.
+    """
+
+    from app.modules.auth.dependencies import (
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    )
+
+    credential_aware = {
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    }
+
+    for ctx in _iter_api_routes(app):
+        route = ctx.route
+        if not route.include_in_schema:
+            continue
+        if not _dependency_uses(route.dependant, credential_aware):
+            continue
+        for method in route.methods or ():
+            operation = _route_operation(schema, ctx, method)
+            if operation is None:
+                continue
+            # setdefault: a route that already documents its own 401 with a
+            # more specific description keeps it.
+            operation.setdefault("responses", {}).setdefault(
+                "401", UNRESOLVABLE_CREDENTIAL_RESPONSE
+            )
+
+
 def _document_global_failures(schema: dict) -> None:
     """Document exception handlers that apply outside individual routers."""
 
@@ -1327,6 +1385,7 @@ def _standards_aware_openapi() -> dict:
         schemas[event_model.__name__] = event_schema
 
     _normalize_security_contract(schema)
+    _document_unresolvable_credential_401(schema)
     _document_rate_limits(schema)
     _document_global_failures(schema)
 

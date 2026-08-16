@@ -1674,10 +1674,33 @@ async def get_tile_tokens_batch(
             raster_assets_by_dataset_id.get(dataset.id),
         )
 
-    # No dataset in this batch was authorized by the embed capability, so the
-    # caller's own credential was load-bearing. A supplied one that failed to
-    # resolve gets the fail-closed 401 rather than a response full of
-    # per-dataset errors that reads like an empty catalog (fix(#1518)).
+    # fix(#1518 codex P2): the flag above is only ever set on the FALLBACK arm,
+    # which a batch of public datasets never reaches — `_enforce_tile_token_access`
+    # simply succeeds, the embed check never runs, and a valid scoped token
+    # looked identical to no capability at all. Since a shared map of public
+    # datasets is the ordinary embed, that rejected the common case. Ask the
+    # question the flag stands in for, independently of whether normal access
+    # raised.
+    #
+    # A post-loop pass rather than a check on each success: it runs only when
+    # nothing has already established the capability, stops at the first id the
+    # token covers, and costs nothing at all for a caller that sent no embed
+    # token. Validating on every successful entry would spend a check per
+    # dataset on every batch, including the ones with no token to check.
+    #
+    # Still the real validator against a real dataset id — presence of the
+    # header is deliberately NOT sufficient, or any holder of a dead API key
+    # could suppress the 401 with a junk header.
+    if not capability_authorized and embed_token:
+        for dataset_id in unique_ids:
+            if await validate_embed_token_access(embed_token, dataset_id, db, request):
+                capability_authorized = True
+                break
+
+    # No capability authorized any part of this batch, so the caller's own
+    # credential was load-bearing. A supplied one that failed to resolve gets
+    # the fail-closed 401 rather than a response full of per-dataset errors
+    # that reads like an empty catalog (fix(#1518)).
     if not capability_authorized:
         reject_unresolvable_credentials(request, user)
 

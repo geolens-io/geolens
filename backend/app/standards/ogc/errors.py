@@ -75,6 +75,16 @@ BAD_REQUEST_RESPONSE = {
     "description": "Bad request — invalid query parameters or payload",
 }
 
+UNRESOLVABLE_CREDENTIAL_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": (
+        "Unauthenticated — a credential was supplied and could not be resolved "
+        "(expired, revoked, or malformed). Sending no credential at all is not "
+        "an error on these operations; they answer anonymously with the public "
+        "subset."
+    ),
+}
+
 FORBIDDEN_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Forbidden — caller lacks access to this resource",

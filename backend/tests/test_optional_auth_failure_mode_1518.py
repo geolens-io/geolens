@@ -739,3 +739,248 @@ class TestCapabilityOutranksADeadCredential:
         # ...but without the private layer the capability would have unlocked.
         layer_ids = {layer["dataset_id"] for layer in resp.json()["layers"]}
         assert str(dataset.id) not in layer_ids
+
+
+class TestCapabilityOnAPublicOnlyTileTokenBatch:
+    """``POST /tiles/tokens/`` — the shape the shared-map table cannot see.
+
+    The two endpoints reach the capability by opposite routes. On
+    ``/maps/shared/{token}`` the embed scope is resolved unconditionally, so a
+    public map still exercises it. Here the embed check lives in the fallback
+    arm for a dataset whose NORMAL access was refused, so a batch of public
+    datasets never reaches it — ``_enforce_tile_token_access`` simply succeeds.
+
+    A shared map of public datasets is the ordinary embed, so this is the common
+    case rather than a corner: the first fix rejected a valid scoped
+    ``X-Embed-Token`` there whenever a stale bearer rode along, which is the bug
+    this PR exists to remove (codex P2 at ec1332583).
+    """
+
+    @staticmethod
+    async def _setup(client: AsyncClient, admin_auth_header: dict, test_db_session):
+        """A map whose only layer is a PUBLIC published dataset, plus tokens."""
+        from tests.factories import create_dataset, get_user_id
+        from tests.test_embed_tokens import _create_map_with_layer
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user_id,
+            name="Public Embed Batch DS",
+            visibility="public",
+            record_status="published",
+            geometry_type="Point",
+            feature_count=1,
+            column_info=[
+                {"name": "gid", "type": "integer"},
+                {"name": "geom", "type": "geometry"},
+            ],
+        )
+        map_obj, _layer = await _create_map_with_layer(
+            test_db_session, client, admin_auth_header, dataset, created_by=user_id
+        )
+        embed = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=admin_auth_header
+        )
+        assert embed.status_code == 201, embed.text
+        assert str(dataset.id) in embed.json()["scoped_dataset_ids"]
+        return dataset, embed.json()["raw_token"]
+
+    async def test_row1_dead_bearer_with_a_valid_capability_is_served(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The row codex found. Red before the fix: 401 for a valid capability."""
+        dataset, embed_token = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.post(
+            "/tiles/tokens/",
+            json={"dataset_ids": [str(dataset.id)]},
+            headers={
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+                "X-Embed-Token": embed_token,
+            },
+        )
+        assert resp.status_code == 200, resp.text
+        assert str(dataset.id) in resp.json()["tokens"]
+
+    async def test_row2_dead_bearer_with_an_invalid_capability_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The row that proves the fix did not become "a header was sent"."""
+        dataset, _embed_token = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.post(
+            "/tiles/tokens/",
+            json={"dataset_ids": [str(dataset.id)]},
+            headers={
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+                "X-Embed-Token": "et_not-a-real-embed-token",
+            },
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_row2b_dead_bearer_with_no_capability_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        dataset, _embed_token = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.post(
+            "/tiles/tokens/",
+            json={"dataset_ids": [str(dataset.id)]},
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        assert resp.status_code == 401, resp.text
+
+    async def test_row3_no_bearer_with_a_valid_capability_is_served(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        dataset, embed_token = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.post(
+            "/tiles/tokens/",
+            json={"dataset_ids": [str(dataset.id)]},
+            headers={"X-Embed-Token": embed_token},
+        )
+        assert resp.status_code == 200, resp.text
+        assert str(dataset.id) in resp.json()["tokens"]
+
+    async def test_row4_no_credential_at_all_keeps_the_anonymous_path(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Public datasets are mintable anonymously; that must not change."""
+        dataset, _embed_token = await self._setup(
+            client, admin_auth_header, test_db_session
+        )
+
+        resp = await client.post(
+            "/tiles/tokens/", json={"dataset_ids": [str(dataset.id)]}
+        )
+        assert resp.status_code == 200, resp.text
+        assert str(dataset.id) in resp.json()["tokens"]
+
+
+# ---------------------------------------------------------------------------
+# The published contract
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def _schema() -> dict:
+    from app.api.main import app
+
+    return app.openapi()
+
+
+def _optional_auth_operations() -> dict[str, dict]:
+    """Every schema operation whose route reaches an optional-auth dependency."""
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import _dependency_uses, _route_operation, app
+    from app.modules.auth.dependencies import (
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    )
+
+    targets = {
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    }
+    schema = _schema()
+    found: dict[str, dict] = {}
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        if not _dependency_uses(route.dependant, targets):
+            continue
+        for method in route.methods or ():
+            operation = _route_operation(schema, ctx, method)
+            if operation is not None:
+                found[f"{method} {ctx.path or route.path}"] = operation
+    return found
+
+
+@pytest.mark.architecture
+def test_optional_auth_operations_document_the_401() -> None:
+    """#1518 made 401 normal runtime behaviour; the schema has to say so.
+
+    SDK error unions are generated from these blocks, so an undocumented 401 is
+    one a typed client cannot represent (codex P2 on #1524).
+    """
+    operations = _optional_auth_operations()
+    assert len(operations) >= 50, (
+        f"only {len(operations)} optional-auth operations found — the walk or "
+        "the dependency detection has broken, and an empty set would satisfy "
+        "the assertion below by checking nothing."
+    )
+
+    missing = sorted(
+        key for key, op in operations.items() if "401" not in op.get("responses", {})
+    )
+    assert not missing, (
+        "optional-auth operations that can return 401 but do not document it:\n"
+        + "\n".join(f"  {key}" for key in missing)
+    )
+
+
+@pytest.mark.architecture
+def test_no_security_schema_ops_get_401_without_security() -> None:
+    """Documenting the status must not stamp auth back onto public operations.
+
+    ``get_optional_user_no_security_schema`` exists so genuinely public STAC
+    operations carry no bearer markers in generated clients (fix(#430)). A 401
+    RESPONSE is not a security REQUIREMENT, and this is the test that keeps the
+    two from being conflated — without it, moving the 401 into
+    ``_normalize_security_contract`` (the obvious place) would quietly
+    reintroduce the markers #430 removed.
+    """
+    from fastapi.routing import APIRoute, iter_route_contexts
+
+    from app.api.main import _dependency_uses, _route_operation, app
+    from app.modules.auth.dependencies import (
+        get_optional_user_no_security_schema,
+    )
+
+    schema = _schema()
+    checked = 0
+    for ctx in iter_route_contexts(app.routes):
+        route = ctx.route
+        if not isinstance(route, APIRoute) or not route.include_in_schema:
+            continue
+        if not _dependency_uses(
+            route.dependant, {get_optional_user_no_security_schema}
+        ):
+            continue
+        for method in route.methods or ():
+            operation = _route_operation(schema, ctx, method)
+            if operation is None:
+                continue
+            checked += 1
+            path = ctx.path or route.path
+            assert "401" in operation.get("responses", {}), (
+                f"{method} {path} can 401 but does not document it"
+            )
+            for alternative in operation.get("security", []):
+                assert not any(
+                    key in alternative
+                    for key in ("OAuth2PasswordBearer", "ApiKeyHeader", "ApiKeyQuery")
+                ), (
+                    f"{method} {path} gained a credential security requirement. "
+                    "The 401 response must be documented WITHOUT marking these "
+                    "public operations as authenticated (fix(#430))."
+                )
+
+    assert checked > 0, (
+        "no get_optional_user_no_security_schema operations found — this test "
+        "would pass by checking nothing."
+    )

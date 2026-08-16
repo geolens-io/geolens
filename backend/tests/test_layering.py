@@ -2085,6 +2085,21 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
+#     `_document_unresolvable_credential_401`, which publishes the 401 that
+#     #1518 made normal runtime behaviour on every credential-aware anonymous
+#     operation. Most of it is the docstring explaining why it targets all
+#     THREE optional dependencies while `_normalize_security_contract` targets
+#     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
+#     schema STAC operations must gain the status without gaining the auth
+#     markers #430 removed.
+#   tiles/router.py 2505 -> 2528. fix(#1518 codex P2): +23 for the post-loop
+#     capability pass in the batch token handler. The flag it replaces was only
+#     set on the fallback arm, so a batch of PUBLIC datasets never consulted the
+#     embed token at all and a valid capability was rejected. The pass runs only
+#     when nothing has already established the capability and stops at the first
+#     covered id, so it costs one cached validation on exactly the requests that
+#     need it and nothing on the ones that sent no token.
 #   tiles/router.py 2468 -> 2505. fix(#1518): +37 for the CAPABILITY obligation.
 #     `_authorize_vector_tile_request` and `_resolve_raster_access` are the two
 #     centralised decision points for the six tile handlers, so the rule is
@@ -2235,7 +2250,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # openapi.json and the rendered /docs page), and the answer could not be
     # written down before #1518 because it depended on which router you hit.
     # Cap 1470 -> 1499, exact.
-    "backend/app/api/main.py": 1499,
+    "backend/app/api/main.py": 1558,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3236,7 +3251,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2505,
+    "backend/app/processing/tiles/router.py": 2528,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
