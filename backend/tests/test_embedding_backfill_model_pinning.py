@@ -27,6 +27,7 @@ Requirements:
 
 import uuid
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from sqlalchemy import func, select, text
@@ -99,6 +100,14 @@ class _WidthProvider(_RecordingProvider):
         self.calls.append({"model": model, "dimensions": dimensions})
         width = dimensions or 1536
         return [[1.0] + [0.0] * (width - 1) for _ in texts]
+
+
+class _ExplodingProvider(_RecordingProvider):
+    """Fails every call, so needing the provider at all is observable."""
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append({"model": model, "dimensions": dimensions})
+        raise EmbeddingUnavailableError("no provider configured")
 
 
 class _SwitchingProvider(_RecordingProvider):
@@ -417,3 +426,54 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
     # rejected the pair this would be the round-3 scenario over again, and the
     # storage check would never have been the thing that saved the vectors.
     assert provider.calls == [{"model": _MODEL_B, "dimensions": _DIMS_B}]
+
+
+@pytest.mark.anyio
+async def test_force_on_an_empty_catalog_does_not_need_a_working_provider():
+    """Nothing at risk means nothing to guard.
+
+    fix(#1511 review r5, codex P2): the force guards exist to protect rows from
+    the DELETE, and that DELETE is bounded by the record foreign key. A tenant
+    with no visible records cannot lose one, so demanding a working provider
+    just to discover that turned a harmless no-op into a 502 on a fresh
+    install.
+
+    Driven through a mock session — the same shape
+    `test_admin_stats_and_force_delete_are_record_scoped` uses for this path —
+    because "the catalog is empty" is not a state the shared worker DB can be
+    held in: sibling tests create datasets, and an emptiness assertion against
+    the real session passes alone and fails in a suite.
+
+    The provider raises on any call, which is what makes this mean something:
+    on a tree that pre-flights before checking, the run aborts instead.
+    """
+    empty_result = MagicMock()
+    empty_result.first.return_value = None
+    session = AsyncMock()
+    session.execute.return_value = empty_result
+
+    port = SimpleNamespace(
+        get_record_orm_class=lambda: SimpleNamespace(id=RecordEmbedding.record_id),
+        get_records_without_embeddings=AsyncMock(
+            side_effect=AssertionError(
+                "the force path kept going after finding no visible records"
+            )
+        ),
+    )
+
+    provider = _ExplodingProvider()
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(backfill_module, "get_processing_port", lambda: port)
+        mp.setattr(service_module, "get_embedding_provider", lambda _name: provider)
+        mp.setattr(
+            service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+        )
+        result = await backfill_module.backfill_embeddings(session, force=True)
+
+    assert result == {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
+    # Non-vacuity: surviving the run is not the claim — never needing the
+    # provider is. Reintroducing the call would raise before this line, so
+    # assert the absence rather than relying on the run having completed.
+    assert provider.calls == []
+    # And nothing was deleted or committed on the way to that answer.
+    session.commit.assert_not_awaited()

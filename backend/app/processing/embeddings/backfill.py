@@ -209,6 +209,20 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     pinned: tuple[str, int | None] | None = None
 
     if force:
+        Record = port.get_record_orm_class()
+
+        # fix(#1511 review r5, codex P2): every guard below exists to protect
+        # rows from the DELETE. That DELETE is bounded by the record foreign
+        # key, so a tenant with no visible records has nothing it could remove
+        # and nothing to regenerate. Demanding a working provider just to
+        # discover that turned a harmless no-op into a 502 on a fresh install.
+        # Returning here matches what the old code produced by the longer route
+        # (an empty select, then the `total == 0` return below) minus the
+        # pointless provider call, delete and commit.
+        if (await session.execute(select(Record.id).limit(1))).first() is None:
+            logger.info("Backfill: no visible records, nothing to regenerate")
+            return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
+
         # fix(#1511): everything that could stop this run from regenerating has
         # to happen BEFORE the delete below commits. Every row this run writes
         # back is stamped with the active model and `model_name` is NOT NULL,
@@ -248,8 +262,8 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # by service.rebuild_embedding_column on dimension change). On
         # force=True we just clear the active tenant's rows; no need to drop
         # the index. RecordEmbedding is not RLS-scoped itself, so the Record
-        # subquery is the required tenant boundary in hosted mode.
-        Record = port.get_record_orm_class()
+        # subquery is the required tenant boundary in hosted mode. `Record` is
+        # resolved at the top of this branch, for the emptiness check.
         await session.execute(
             delete(RecordEmbedding).where(
                 RecordEmbedding.record_id.in_(select(Record.id))
