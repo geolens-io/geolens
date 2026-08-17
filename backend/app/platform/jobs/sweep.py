@@ -25,7 +25,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import (
-    EMBEDDING_BACKFILL_AUDIT_ACTION,
     EMBEDDING_BACKFILL_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
@@ -1473,7 +1472,10 @@ async def audit_settled_embedding_backfill(
         session,
         AuditEvent(
             user_id=created_by,
-            action=EMBEDDING_BACKFILL_AUDIT_ACTION,
+            # Literal, not the constant: test_audit_action_registry checks
+            # every emit site statically and cannot resolve a name. The
+            # other writer of this action is the admin backfill task.
+            action="embedding.backfill",
             resource_type="record_embedding",
             details={
                 "force": bool(marker.get("force")),
