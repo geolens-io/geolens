@@ -81,7 +81,10 @@ UNRESOLVABLE_CREDENTIAL_RESPONSE = {
         "Unauthenticated — a credential was supplied and could not be resolved "
         "(expired, revoked, or malformed). Sending no credential at all is not "
         "an error on these operations; they answer anonymously with the public "
-        "subset."
+        "subset. Neither is sending an unresolvable credential alongside a "
+        "capability that authorizes the request on its own — a valid "
+        "X-Embed-Token or a valid signed tile template (sig, exp, scope). Those "
+        "are served and the unrelated credential is ignored."
     ),
 }
 

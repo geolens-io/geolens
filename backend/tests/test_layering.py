@@ -2097,6 +2097,12 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
 #     schema STAC operations must gain the status without gaining the auth
 #     markers #430 removed.
+#   api/main.py 1558 -> 1573. fix(#1518 codex P2 round 4): +15 of `info.description`
+#     prose. The docs promised a 401 for every unresolvable credential while the
+#     capability lanes deliberately serve one, so the published contract was
+#     wrong about behaviour that is right. It states the three exceptions
+#     instead: logout, a capability that authorized on its own, and a shared-map
+#     link that no credential could have opened.
 #   tiles/router.py 2557 -> 2590. fix(#1518 codex P2 round 4): +33 for
 #     `_resolve_dataset_meta_for_serving`, which routes the vector tile lookup's
 #     404 through `capability_declined`, and for moving the clusterable gate
@@ -2270,7 +2276,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # openapi.json and the rendered /docs page), and the answer could not be
     # written down before #1518 because it depended on which router you hit.
     # Cap 1470 -> 1499, exact.
-    "backend/app/api/main.py": 1558,
+    "backend/app/api/main.py": 1573,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

@@ -584,9 +584,24 @@ nothing more, so a client whose key died overnight would go on working
 against a smaller view of the data and never be told. The `401` is also the
 signal a client needs to refresh and retry.
 
-`POST /auth/logout` is the one exception. It accepts a dead access token so
-a stale session can still be cleared, and falls back to the refresh
-credential. It still answers `401` when nothing you present resolves.
+Three cases sit outside that rule.
+
+`POST /auth/logout` accepts a dead access token so a stale session can still
+be cleared, and falls back to the refresh credential. It still answers `401`
+when nothing you present resolves.
+
+A request that something other than your identity already authorized is
+served, and the dead credential is ignored: a valid `X-Embed-Token`, or a
+valid signed tile template (`sig`, `exp`, `scope`). Each authorizes one
+specific resource on its own, so an embed viewer carrying a stale browser
+session still renders. An invalid or absent capability puts the request back
+under the rule above, so a junk `X-Embed-Token` cannot be used to suppress
+the `401`.
+
+`GET /maps/shared/{token}` answers `404` for an unknown share link and `410`
+for a revoked one whatever you send. No credential could have made that link
+work, and reporting the credential instead would hide the answer you can act
+on.
 
 A few endpoints read no credential at all, such as the landing page and the
 conformance declaration, and answer `200` either way.

@@ -17,8 +17,17 @@ and releases use semantic versioning.
   overnight kept working against a quietly smaller view of the data. Which
   answer you got depended on which route you hit, so the behaviour could not
   be documented. Requests that send no credential are unaffected and still
-  get the public view. `POST /auth/logout` is the one exception, so a session
-  whose access token has already expired can still be cleared (#1518, #401).
+  get the public view.
+
+  Three cases sit outside the rule. `POST /auth/logout` accepts a dead access
+  token, so a session whose token has already expired can still be cleared. A
+  request that a capability authorized on its own is served and the unrelated
+  dead credential is ignored rather than refused, so an embed viewer with a
+  stale browser session still renders: a valid `X-Embed-Token`, or a valid
+  signed tile template (`sig`, `exp`, `scope`). An invalid or missing one puts
+  the request back under the rule. And a shared-map link that is unknown or
+  revoked still answers 404 or 410 for every caller, because no credential
+  could have made that link work (#1518, #401).
 
 ## [1.13.1] - 2026-08-14
 
