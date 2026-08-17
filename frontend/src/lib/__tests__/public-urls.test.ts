@@ -229,17 +229,53 @@ describe('the shared PUBLIC_APP_URL shape rule', () => {
     expect(spec.invalid.length).toBeGreaterThan(0);
   });
 
-  it.each(
-    // Blank strings are `unset`, not `malformed` — a distinct state, asserted
-    // above. Here we only care that they are not trusted.
-    spec.valid,
-  )('accepts %j', (value) => {
-    expect(asState(value)).toEqual({ kind: 'trusted', baseUrl: value });
+  it.each(spec.valid)('accepts %j', (value) => {
+    // Only the KIND: the stored form is the CANONICAL spelling, not the
+    // operator's, which the canonicalization cases below pin exactly.
+    expect(asState(value).kind).toBe('trusted');
   });
 
   it.each(spec.invalid)('rejects %j', (value) => {
     expect(asState(value).kind).not.toBe('trusted');
   });
+
+  /**
+   * fix(#1548 review r9): same place is not the same STRING.
+   *
+   * A browser serializes the shell's Origin with an IDNA ASCII host,
+   * lowercased, no userinfo, default port dropped — and the backend compares
+   * the configured value against exactly that. `https://máp.example` stored as
+   * typed was issued a domain lock and then missed on every request. Both sides
+   * canonicalize now, against this one table.
+   */
+  const canonical = (
+    JSON.parse(
+      readFileSync(
+        join(process.cwd(), 'src/lib/__tests__/public-app-url-shape.cases.json'),
+        'utf-8',
+      ),
+    ) as { canonical_origin: Record<string, string> }
+  ).canonical_origin;
+
+  it('has canonicalization cases', () => {
+    expect(Object.keys(canonical).length).toBeGreaterThan(0);
+  });
+
+  it.each(Object.entries(canonical))(
+    'stores %j as the browser spells it, %j',
+    (raw, expected) => {
+      expect(asState(raw)).toEqual({ kind: 'trusted', baseUrl: expected });
+    },
+  );
+
+  it.each([...new Set(Object.values(canonical))])(
+    'canonicalizing %j again changes nothing',
+    (value) => {
+      // The value is canonicalized when stored AND when compared; a
+      // non-idempotent rule would match once and miss afterwards.
+      expect(asState(value)).toEqual({ kind: 'trusted', baseUrl: value });
+    },
+  );
 });
 
 /**

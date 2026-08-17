@@ -19,7 +19,9 @@ class TileConfigResponse:
     """
     Attributes:
         cdn_base_url (None | str | Unset): CDN origin URL for tile delivery, if configured.
-        public_app_url (None | str | Unset): Browser-facing app URL used for share links and OAuth redirects.
+        public_app_url (None | str | Unset): Explicitly configured PUBLIC_APP_URL, or null when unset. Never derived
+            from PUBLIC_API_URL or from the request, because a share or embed URL built on a derived value points at a host
+            that does not serve the app.
         public_api_url (None | str | Unset): Externally-reachable API base URL used in OGC self-links.
         public_base_url (None | str | Unset): Deprecated alias for public_api_url. Will be removed in a future release.
         mvt_source_layer_prefix (None | str | Unset): Schema prefix emitted inside vector-tile source-layer names. Null

@@ -26,7 +26,7 @@ def _self_origin_is_configured(monkeypatch):
     """fix(#1548 review P2): stand in for the #1531 self-origin lookup.
 
     These tests pass an ``AsyncMock`` database. Since #1531 the domain-lock
-    check resolves the deployment's own origin through ``get_public_app_url``,
+    check resolves the deployment's own origin through ``get_configured_public_app_url``,
     which reads an AppSetting row, so on a cold public-URL cache the mock DB
     reaches ``_load_public_url_overrides`` and raises. The service now fails
     closed on that, which means these tests would still report False and pass
@@ -36,11 +36,14 @@ def _self_origin_is_configured(monkeypatch):
     test_embed_domain_lock_self_origin_1531.py.
     """
 
-    async def _fake_get_public_app_url(db, **kwargs):
+    async def _fake_get_configured_public_app_url(db, **kwargs):
         return "https://maps.geolens.example"
 
     monkeypatch.setattr(
-        embed_service, "get_public_app_url", _fake_get_public_app_url, raising=True
+        embed_service,
+        "get_configured_public_app_url",
+        _fake_get_configured_public_app_url,
+        raising=True,
     )
 
 

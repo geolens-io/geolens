@@ -74,6 +74,16 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if not parts.hostname:
         return False
+    # fix(#1548 review r9): percent-encoding is refused OUTRIGHT, and the reason
+    # is that the two sides decode it differently — Python's urlsplit leaves
+    # `https://%6Daps.example.com` with the literal host `%6daps.example.com`,
+    # while the browser URL parser decodes it to `maps.example.com`. Either
+    # spelling could be defended; a value the two halves disagree about cannot,
+    # because that disagreement IS the bug class this rule exists to close.
+    # Unicode hosts are NOT refused: they are canonicalized to their IDNA ASCII
+    # form, which is what a browser sends (see _normalize_origin).
+    if "%" in candidate:
+        return False
     return not parts.query and not parts.fragment
 
 
@@ -435,6 +445,44 @@ async def get_public_urls(
         for_external_use=for_external_use,
     )
     return app_url, api_url
+
+
+async def get_configured_public_app_url(db: AsyncSession) -> str | None:
+    """The explicitly configured ``PUBLIC_APP_URL``, or None. No derivation.
+
+    fix(#1548 review r9): ``get_public_app_url`` is a RESOLVER — when
+    ``PUBLIC_APP_URL`` is unset it derives an app URL from ``PUBLIC_API_URL`` by
+    stripping an ``/api`` suffix, and failing that from the caller's own request
+    headers. Both are the right behaviour for producing a link when any link is
+    better than none (OGC self-links, response bodies).
+
+    Both are wrong for the two callers that ask "what origin does a browser
+    present when it loads our embed shell", because neither derived value is
+    that origin:
+
+    * A deployment serving the API at ``https://api.example.com/api`` and the
+      app at ``https://maps.example.com`` derives ``https://api.example.com``.
+      That is a real, non-loopback host, so the domain-lock gate reads the
+      deployment as configured and issues a lock — and then every shell request
+      arrives from ``https://maps.example.com``, misses the allowlist, and the
+      map is empty. The original defect of this PR wearing a different hat.
+    * The request-header fallback is the vacuous-``self`` trap #1531 already
+      avoided: an origin taken from the caller is one every caller satisfies.
+
+    So domain locking and share-URL generation require the operator to say it.
+    Unset is a legitimate answer here, and every consumer already knows what to
+    do with it — refuse the lock, fall back for ordinary shares, suppress the
+    locked preview.
+
+    Returns the value with any trailing slash trimmed, or None when unset,
+    blank, or not a usable public origin (see ``is_usable_public_origin``).
+    """
+    overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
+    configured = overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url)
+    normalized = normalize_public_url(configured)
+    if normalized is None or not is_usable_public_origin(normalized):
+        return None
+    return normalized
 
 
 async def get_public_app_url(

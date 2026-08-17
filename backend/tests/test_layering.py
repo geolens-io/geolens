@@ -3488,7 +3488,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ftp://maps.example.com arrived as the plausible non-loopback origin
     # https://ftp: and convinced the domain-lock gate the deployment was
     # configured. Cap 1029 -> 1038, exact.
-    "backend/app/modules/embed_tokens/service.py": 1038,
+    # fix(#1548 review r9): +4 — depend on get_configured_public_app_url and
+    # bail when it is None. get_public_app_url is a RESOLVER: with PUBLIC_APP_URL
+    # unset it derives an app URL from an /api-stripped PUBLIC_API_URL, and a
+    # split app/API deployment then had the API host accepted as a self-origin,
+    # so a lock was issued that every shell request missed. Cap 1038 -> 1042.
+    "backend/app/modules/embed_tokens/service.py": 1042,
 }
 
 

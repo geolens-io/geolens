@@ -175,7 +175,7 @@ async def test_the_shipped_default_really_denies_the_shell(
 ):
     """The measurement the corrected-config suites cannot make.
 
-    A real database, the real ``get_public_app_url`` stack, and
+    A real database, the real ``get_configured_public_app_url`` stack, and
     ``PUBLIC_APP_URL`` exactly as compose leaves it. The request is the one
     #1531 taught the check to accept — the embed shell's own — and it is still
     denied, because the origin it is compared against is localhost. This is the
@@ -581,3 +581,118 @@ async def test_neither_status_is_reachable_without_ownership(
     detail = resp.json()["detail"]
     assert "PUBLIC_APP_URL" not in detail
     assert "Embed token not found" not in detail
+
+
+# ---------------------------------------------------------------------------
+# r9: a value that passes validation but is not what the browser will present
+# ---------------------------------------------------------------------------
+
+
+async def test_an_api_derived_app_url_cannot_authorize_a_domain_lock(
+    test_db_session: AsyncSession, public_app_url, enterprise_edition, monkeypatch
+):
+    """fix(#1548 review r9): a split app/API deployment.
+
+    With only ``PUBLIC_API_URL`` set, ``get_public_app_url`` derives an app URL
+    from it by stripping the ``/api`` suffix. That is a real, non-loopback host
+    — so the shape rule passes and the loopback rule passes — but it is the API
+    host, not the one the embed shell is served from. Trusting it issued a lock
+    whose every subsequent request came from somewhere else.
+    """
+    public_app_url(None)
+    monkeypatch.setattr(settings, "public_api_url", "https://api.example.com/api")
+    public_urls.invalidate_public_url_cache()
+
+    # The resolver still derives one — that behaviour is deliberate elsewhere.
+    assert await public_urls.get_public_app_url(test_db_session) == (
+        "https://api.example.com"
+    )
+    # The domain lock does not see it.
+    assert await public_urls.get_configured_public_app_url(test_db_session) is None
+    assert (
+        await embed_service._request_origin_is_allowed(
+            test_db_session, _browser_at(SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+        )
+        is False
+    )
+
+    with pytest.raises(embed_service.DomainLockNotEnforceableError) as exc:
+        await embed_service.assert_domain_lock_is_enforceable(
+            test_db_session, _browser_at(SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+        )
+    assert "PUBLIC_APP_URL" in str(exc.value)
+
+
+async def test_tile_config_reports_only_an_explicitly_configured_app_url(
+    client: AsyncClient, test_db_session: AsyncSession, public_app_url, monkeypatch
+):
+    """The same value reaches the frontend's share builder through tile-config,
+    so the derivation had to be closed on that path too — otherwise /m/ and
+    /card links point at the API host."""
+    public_app_url(None)
+    monkeypatch.setattr(settings, "public_api_url", "https://api.example.com/api")
+    public_urls.invalidate_public_url_cache()
+
+    resp = await client.get("/settings/tile-config/")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["public_app_url"] is None
+
+    public_app_url(SELF_HOSTED_ORIGIN)
+    resp = await client.get("/settings/tile-config/")
+    assert resp.json()["public_app_url"] == SELF_HOSTED_ORIGIN
+
+
+async def test_a_unicode_hostname_matches_what_the_browser_sends(
+    test_db_session: AsyncSession, public_app_url, enterprise_edition
+):
+    """fix(#1548 review r9): IDNA, canonicalized rather than rejected.
+
+    A browser serializes the shell's Origin in IDNA ASCII, so
+    ``https://máp.example`` arrives as ``https://xn--mp-mia.example``. Storing
+    the Unicode spelling issued a lock that then missed on every request. Both
+    sides are canonicalized now, so the operator may write either spelling.
+    """
+    public_app_url("https://máp.example")
+
+    request = _browser_at("https://xn--mp-mia.example")
+    assert (
+        await embed_service._request_origin_is_allowed(
+            test_db_session, request, [CUSTOMER_ORIGIN]
+        )
+        is True
+    ), "the browser's ASCII spelling must match a Unicode-configured origin"
+
+    # And the operator may equally configure the ASCII form.
+    public_app_url("https://xn--mp-mia.example")
+    assert (
+        await embed_service._request_origin_is_allowed(
+            test_db_session,
+            _browser_at("https://xn--mp-mia.example"),
+            [CUSTOMER_ORIGIN],
+        )
+        is True
+    )
+
+
+async def test_userinfo_never_reaches_a_stored_origin(
+    test_db_session: AsyncSession, public_app_url, enterprise_edition
+):
+    """Credentials in the setting are dropped, not stored and not handed out.
+
+    A browser never sends userinfo in Origin, so keeping it guaranteed a miss —
+    and it would have travelled into any CSP header or copied link built from
+    the value.
+    """
+    public_app_url("https://ops:secret@maps.example.com")
+
+    assert (
+        await embed_service._request_origin_is_allowed(
+            test_db_session, _browser_at(SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+        )
+        is True
+    )
+    origins = await embed_service._resolve_self_origins(
+        test_db_session, _browser_at(SELF_HOSTED_ORIGIN)
+    )
+    assert origins == {SELF_HOSTED_ORIGIN}
+    assert not any("secret" in o for o in origins), "credentials must not be stored"

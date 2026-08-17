@@ -1,5 +1,5 @@
 {
-  "_rule": "PUBLIC_APP_URL is usable only as an absolute HTTP(S) URL with a host and no query or fragment. This file is the ONE statement of that rule; the Python and TypeScript validators are each tested against it so they cannot drift. Backend: is_usable_public_origin() in backend/app/core/public_urls.py. Frontend: parseUsablePublicUrl() in frontend/src/lib/public-urls.ts.",
+  "_rule": "PUBLIC_APP_URL is usable only as an absolute HTTP(S) URL with a host, no query or fragment, and no percent-encoding. This file is the ONE statement of that rule; the Python and TypeScript validators are each tested against it so they cannot drift. Backend: is_usable_public_origin() in backend/app/core/public_urls.py. Frontend: parseUsablePublicUrl() in frontend/src/lib/public-urls.ts.",
   "_scope": "SHAPE only. Whether a shape-valid value is TRUSTED in context is a separate question — a loopback origin is shape-valid but untrusted when the browser is elsewhere — so loopback entries appear under valid here on purpose.",
   "valid": [
     "https://maps.example.com",
@@ -8,7 +8,9 @@
     "https://example.com/geolens",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
-    "http://[::1]:8080"
+    "http://[::1]:8080",
+    "https://xn--mp-mia.example",
+    "https://ops:secret@maps.example.com"
   ],
   "invalid": [
     "",
@@ -24,6 +26,23 @@
     "https://maps.example.com?tenant=a",
     "https://maps.example.com#section",
     "https://maps.example.com/path?a=1",
-    "https://maps.example.com/path#f"
-  ]
+    "https://maps.example.com/path#f",
+    "https://%6Daps.example.com",
+    "https://maps.example.com/%2Fpath",
+    "http://",
+    "https://"
+  ],
+  "_canonical_note": "canonical_origin maps a path-less configured value to the spelling a BROWSER presents, which is the string both sides must compare against: IDNA ASCII host, lowercased, no userinfo, default port dropped. Backend: _normalize_origin(). Frontend: new URL(x).origin. A value and an origin that name the same place but spell it differently never match, which is how a Unicode hostname used to be issued a lock and then miss every request.",
+  "canonical_origin": {
+    "https://maps.example.com": "https://maps.example.com",
+    "https://MAPS.Example.com": "https://maps.example.com",
+    "https://máp.example": "https://xn--mp-mia.example",
+    "https://xn--mp-mia.example": "https://xn--mp-mia.example",
+    "https://ops:secret@maps.example.com": "https://maps.example.com",
+    "https://maps.example.com:443": "https://maps.example.com",
+    "http://maps.example.com:80": "http://maps.example.com",
+    "https://maps.example.com:8443": "https://maps.example.com:8443",
+    "http://localhost:8080": "http://localhost:8080",
+    "http://[::1]:8080": "http://[::1]:8080"
+  }
 }

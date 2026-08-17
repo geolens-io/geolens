@@ -24,17 +24,27 @@ def _normalize_origin(origin: str) -> str:
         raise ValueError(f"Invalid origin: {origin}")
 
     scheme = parsed.scheme or "https"
-    # parsed.hostname strips square brackets from IPv6 addresses (e.g. '::1'),
-    # producing an invalid CSP source expression like 'http://::1:8080'.
-    # RFC 9116 / W3C CSP3 §2.6.1 requires IPv6 literals to be enclosed in
-    # brackets. Extract the bracket-safe host string from parsed.netloc instead:
-    # netloc for 'http://[::1]:8080' is '[::1]:8080' — strip the port suffix.
-    if parsed.port is not None:
-        # Split off ':port' suffix from the right. For IPv6 '[::1]:8080' this
-        # gives '[::1]'; for DNS 'example.com:8080' this gives 'example.com'.
-        netloc_host = parsed.netloc.rsplit(":", 1)[0]
-    else:
-        netloc_host = parsed.netloc
+    # fix(#1548 review r9): the host is taken from parsed.hostname and rebuilt,
+    # NOT sliced out of netloc. netloc carries userinfo, so 'https://u:p@host'
+    # used to store 'https://u:p@host' as an origin — a spelling no browser ever
+    # sends, and one that would leak the credentials into any CSP header or
+    # copied link built from it. hostname drops userinfo and lowercases for us.
+    #
+    # parsed.hostname also strips the square brackets from IPv6 literals (e.g.
+    # '::1'), producing an invalid CSP source expression like 'http://::1:8080'
+    # — RFC 3986 / W3C CSP3 §2.6.1 require them bracketed — so they go back on.
+    host = parsed.hostname or ""
+    # A browser serializes an internationalized host in its IDNA ASCII form:
+    # the shell's Origin for https://máp.example arrives as
+    # https://xn--mp-mia.example. Storing the Unicode spelling meant the domain
+    # lock was issued and then missed on every request. Canonicalize to the
+    # spelling the browser will present, rather than rejecting the value.
+    if not host.isascii():
+        try:
+            host = host.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise ValueError(f"Invalid origin: {origin}") from exc
+    netloc_host = f"[{host}]" if ":" in host else host
     port = parsed.port
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):
         port = None

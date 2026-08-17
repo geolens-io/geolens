@@ -12802,7 +12802,7 @@ export interface components {
             cdn_base_url?: string | null;
             /**
              * Public App Url
-             * @description Browser-facing app URL used for share links and OAuth redirects.
+             * @description Explicitly configured PUBLIC_APP_URL, or null when unset. Never derived from PUBLIC_API_URL or from the request, because a share or embed URL built on a derived value points at a host that does not serve the app.
              */
             public_app_url?: string | null;
             /**

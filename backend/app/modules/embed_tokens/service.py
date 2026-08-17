@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.edition import is_enterprise
-from app.core.public_urls import get_public_app_url, is_usable_public_origin
+from app.core.public_urls import get_configured_public_app_url, is_usable_public_origin
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
@@ -119,11 +119,13 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     client-forwarded embedder origin would replace a check that visibly fails
     with one that only appears to work.
 
-    * The configured public app URL (``PUBLIC_APP_URL`` / ``PUBLIC_API_URL`` env
-      or the matching AppSetting row). ``request`` is deliberately NOT forwarded
-      to ``get_public_app_url``: its unconfigured fallback derives an origin from
-      the caller's own ``Origin`` / ``Referer`` headers, which would make EVERY
-      origin "self" and the allowlist vacuous.
+    * The EXPLICITLY configured ``PUBLIC_APP_URL``, via
+      ``get_configured_public_app_url``. Deliberately not ``get_public_app_url``:
+      that one is a resolver, and both of its fallbacks name something other
+      than the host our embed shell is served from — an ``/api``-stripped
+      ``PUBLIC_API_URL``, or (fix #1531) the caller's own ``Origin`` / ``Referer``
+      headers, which would make EVERY origin "self" and the allowlist vacuous.
+      See its docstring for why an unset value is a legitimate answer here.
     * In hosted multi-tenant, the tenant origin that the tenant-context
       middleware derived from a Host that resolved against the tenant registry
       (``request.state.tenant_public_origin`` is set only after that lookup, and
@@ -152,9 +154,11 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     # a bool, and letting a DB error escape would turn a routine deny into a
     # 500 on the tile path. Resolving no self-origins denies, which is correct.
     try:
-        app_url = await get_public_app_url(db)
+        app_url = await get_configured_public_app_url(db)
     except Exception:  # broad: any lookup failure must deny, never raise
         logger.warning("embed_self_origin_lookup_failed", exc_info=True)
+        return origins
+    if app_url is None:
         return origins
 
     # fix(#1548 review r8): the shape gate runs BEFORE normalization, because

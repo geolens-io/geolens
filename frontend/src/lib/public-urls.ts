@@ -73,7 +73,31 @@ function parseUsablePublicUrl(url: string): URL | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   if (!parsed.hostname) return null;
   if (parsed.search || parsed.hash) return null;
+  // Checked on the RAW string, not on `parsed.hostname`: this parser has
+  // already decoded `%6D` to `m`, while Python's urlsplit leaves it literal.
+  // Refusing outright is what keeps the two halves from disagreeing.
+  if (url.includes('%')) return null;
   return parsed;
+}
+
+/**
+ * The browser's own spelling of a usable value, or null.
+ *
+ * fix(#1548 review r9): the configured value and the origin a browser presents
+ * have to be the same STRING, not merely the same place. `https://máp.example`
+ * is serialized by every browser as `https://xn--mp-mia.example`, and userinfo
+ * is never sent at all — so storing the operator's spelling meant the domain
+ * lock was issued and then missed on every request. `URL.origin` does IDNA and
+ * drops userinfo for us; the backend does the same in `_normalize_origin`.
+ *
+ * A configured sub-path is preserved, since it is part of where the app lives
+ * and both sides drop it before comparing origins.
+ */
+function canonicalizePublicUrl(url: string): string | null {
+  const parsed = parseUsablePublicUrl(url);
+  if (parsed === null) return null;
+  const path = parsed.pathname.replace(/\/+$/, '');
+  return `${parsed.origin}${path}`;
 }
 
 /**
@@ -109,6 +133,8 @@ export function resolvePublicAppUrl(
   // check's failure mode.
   const parsed = parseUsablePublicUrl(raw);
   if (parsed === null) return { kind: 'malformed', value: raw };
+  const canonical = canonicalizePublicUrl(raw);
+  if (canonical === null) return { kind: 'malformed', value: raw };
 
   const currentIsLoopback = (() => {
     const current = parseUsablePublicUrl(currentOrigin);
@@ -116,10 +142,10 @@ export function resolvePublicAppUrl(
   })();
 
   if (LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase()) && !currentIsLoopback) {
-    return { kind: 'loopback-default', value: raw };
+    return { kind: 'loopback-default', value: canonical };
   }
 
-  return { kind: 'trusted', baseUrl: raw };
+  return { kind: 'trusted', baseUrl: canonical };
 }
 
 /**

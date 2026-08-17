@@ -79,6 +79,44 @@ def test_every_shape_the_spec_calls_invalid_is_refused():
     )
 
 
+def test_every_canonical_origin_matches_the_browsers_spelling():
+    """fix(#1548 review r9): same place is not the same STRING.
+
+    A browser serializes the shell's Origin with an IDNA ASCII host, lowercased,
+    no userinfo and the default port dropped. The configured value is compared
+    against that string, so a Unicode hostname stored as typed was issued a lock
+    and then missed on every request. Both sides canonicalize now — the frontend
+    through ``new URL(x).origin``, this side through ``_normalize_origin`` — and
+    the fixture is the one statement of what they must agree on.
+    """
+    from app.modules.embed_tokens.schemas import _normalize_origin
+
+    spec = _spec()
+    assert spec["canonical_origin"], "no canonicalization cases"
+    wrong = {
+        raw: (_normalize_origin(raw), expected)
+        for raw, expected in spec["canonical_origin"].items()
+        if _normalize_origin(raw) != expected
+    }
+    assert not wrong, (
+        "_normalize_origin disagrees with the shared canonical spelling, so a "
+        "configured origin and the browser's Origin header would not match:\n"
+        + "\n".join(f"  {r!r}: got {g!r}, want {w!r}" for r, (g, w) in wrong.items())
+    )
+
+
+def test_canonicalization_is_idempotent():
+    """A canonical value must survive a second pass unchanged.
+
+    Not decoration: the value is normalized when stored AND when compared, so a
+    non-idempotent rule would match on the first request and miss afterwards.
+    """
+    from app.modules.embed_tokens.schemas import _normalize_origin
+
+    for expected in set(_spec()["canonical_origin"].values()):
+        assert _normalize_origin(expected) == expected, expected
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "configured",
@@ -106,10 +144,14 @@ async def test_a_non_http_setting_cannot_authorize_a_domain_lock(
 
     from app.modules.embed_tokens import service as embed_service
 
-    async def _fake_get_public_app_url(db, **kwargs):
+    async def _fake_get_configured_public_app_url(db, **kwargs):
         return configured
 
-    monkeypatch.setattr(embed_service, "get_public_app_url", _fake_get_public_app_url)
+    monkeypatch.setattr(
+        embed_service,
+        "get_configured_public_app_url",
+        _fake_get_configured_public_app_url,
+    )
     monkeypatch.setattr(embed_service, "is_enterprise", lambda: True)
 
     request = MagicMock()

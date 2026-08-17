@@ -195,9 +195,7 @@ async def test_put_settings_embedding_rebuild_failure_propagates_as_503(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.anyio
-async def test_get_tile_config_exposes_resolved_public_urls():
-    """The public tile-config payload should expose the resolved app/API URLs."""
+async def _tile_config_with(app_url_mock, api_url_mock):
     from app.modules.settings import router as settings_router
 
     with (
@@ -207,26 +205,61 @@ async def test_get_tile_config_exposes_resolved_public_urls():
             SimpleNamespace(cdn_base_url="https://cdn.example.com"),
         ),
         patch(
-            "app.modules.settings.router.get_public_app_url",
-            AsyncMock(return_value="https://catalog.example.com"),
+            "app.modules.settings.router.get_configured_public_app_url",
+            app_url_mock,
         ),
         patch(
             "app.modules.settings.router.get_public_api_url",
-            AsyncMock(return_value="https://catalog.example.com/api"),
+            api_url_mock,
         ),
     ):
-        response = await settings_router.get_tile_config(
+        return await settings_router.get_tile_config(
             request=SimpleNamespace(
                 headers={}, url=SimpleNamespace(scheme="https"), scope={}
             ),
             db=object(),
         )
 
+
+@pytest.mark.anyio
+async def test_get_tile_config_exposes_the_public_urls():
+    """The payload exposes the API URL resolved, and the app URL as configured."""
+    response = await _tile_config_with(
+        AsyncMock(return_value="https://catalog.example.com"),
+        AsyncMock(return_value="https://catalog.example.com/api"),
+    )
+
     assert response.cdn_base_url == "https://cdn.example.com"
     assert response.public_app_url == "https://catalog.example.com"
     assert response.public_api_url == "https://catalog.example.com/api"
     assert response.public_base_url == "https://catalog.example.com/api"
     assert response.mvt_source_layer_prefix == "data"
+
+
+@pytest.mark.anyio
+async def test_get_tile_config_never_derives_the_app_url():
+    """fix(#1548 review r9): app_url comes from get_configured_public_app_url,
+    NOT the resolver.
+
+    This field's only consumer builds share and embed URLs from it, and the
+    resolver's fallbacks name something else — an ``/api``-stripped
+    PUBLIC_API_URL, or the caller's own request headers. Either produces /m/ and
+    /card links pointing at a host that does not serve them, so an unset setting
+    must arrive as null and let the frontend fall back for itself.
+    """
+    configured = AsyncMock(return_value=None)
+    response = await _tile_config_with(
+        configured, AsyncMock(return_value="https://api.example.com/api")
+    )
+
+    assert response.public_app_url is None, (
+        "an unset PUBLIC_APP_URL must not be back-filled from the API URL"
+    )
+    assert response.public_api_url == "https://api.example.com/api"
+    # And it is asked without a request, so no caller-controlled origin can
+    # reach it — the vacuous-self trap in a different layer.
+    assert configured.await_args.kwargs == {}
+    assert len(configured.await_args.args) == 1
 
 
 @pytest.mark.anyio

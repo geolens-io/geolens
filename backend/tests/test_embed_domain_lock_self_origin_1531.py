@@ -95,17 +95,55 @@ def _token_row(allowed_origins: list[str] | None) -> SimpleNamespace:
 def _self_origin_is_configured(monkeypatch):
     """Our own public origin comes from configuration, never from the request."""
 
-    async def _fake_get_public_app_url(db, **kwargs):
-        assert kwargs.get("request") is None, (
-            "fix(#1531): _resolve_self_origins must NOT forward the request to "
-            "get_public_app_url. Its unconfigured fallback derives an origin "
-            "from the caller's own Origin/Referer, which would make EVERY "
-            "origin 'self' and the allowlist vacuous."
+    async def _fake_get_configured_public_app_url(db, **kwargs):
+        assert not kwargs, (
+            "fix(#1531/#1548 r9): _resolve_self_origins must pass nothing but the "
+            "session. A request-derived origin is one every caller satisfies, "
+            "which would make the allowlist vacuous."
         )
         return APP_ORIGIN
 
     monkeypatch.setattr(
-        embed_service, "get_public_app_url", _fake_get_public_app_url, raising=True
+        embed_service,
+        "get_configured_public_app_url",
+        _fake_get_configured_public_app_url,
+        raising=True,
+    )
+
+
+def test_the_self_origin_lookup_cannot_be_told_about_the_request():
+    """fix(#1548 review r9): the #1531 invariant, now structural.
+
+    It used to be asserted by a fixture watching for a ``request=`` kwarg, which
+    the switch to ``get_configured_public_app_url`` quietly made vacuous — that
+    function has no such parameter to pass. Assert the real property instead:
+    the accessor the service depends on takes the session and nothing else, so
+    there is no argument through which a caller-controlled origin could reach
+    it, and it is not the resolver that has those fallbacks.
+    """
+    import inspect
+
+    from app.core import public_urls
+
+    params = list(
+        inspect.signature(public_urls.get_configured_public_app_url).parameters
+    )
+    assert params == ["db"], (
+        "get_configured_public_app_url must take only the session; a request or "
+        f"fallback parameter reopens the vacuous-self trap. Got: {params}"
+    )
+    # Read the import from source: the autouse fixture above has replaced the
+    # live attribute, so an identity check here would only inspect the stub.
+    from pathlib import Path
+
+    service_src = Path(embed_service.__file__).read_text(encoding="utf-8")
+    assert "get_configured_public_app_url" in service_src, (
+        "the embed service must depend on the explicit accessor"
+    )
+    assert "import get_public_app_url" not in service_src, (
+        "the embed service must NOT import the resolver: its fallbacks name an "
+        "/api-stripped PUBLIC_API_URL or the caller's own headers, neither of "
+        "which is the origin our embed shell is served from"
     )
 
 
@@ -358,7 +396,9 @@ class TestUnresolvableSelfOriginFailsClosed:
         async def _boom(db, **kwargs):
             raise RuntimeError("public_app_url lookup failed")
 
-        monkeypatch.setattr(embed_service, "get_public_app_url", _boom, raising=True)
+        monkeypatch.setattr(
+            embed_service, "get_configured_public_app_url", _boom, raising=True
+        )
 
     @pytest.mark.anyio
     async def test_resolve_self_origins_returns_empty_instead_of_raising(
@@ -397,8 +437,8 @@ class TestUnresolvableSelfOriginFailsClosed:
         # exactly what used to mask this.
         monkeypatch.setattr(
             embed_service,
-            "get_public_app_url",
-            public_urls.get_public_app_url,
+            "get_configured_public_app_url",
+            public_urls.get_configured_public_app_url,
             raising=True,
         )
         public_urls.invalidate_public_url_cache()
@@ -425,7 +465,10 @@ class TestMisconfiguredDeploymentIsDiagnosable:
             return "http://localhost:8080"
 
         monkeypatch.setattr(
-            embed_service, "get_public_app_url", _default_compose_value, raising=True
+            embed_service,
+            "get_configured_public_app_url",
+            _default_compose_value,
+            raising=True,
         )
         events: list[dict] = []
         monkeypatch.setattr(
@@ -487,13 +530,16 @@ class TestDomainLockIsRefusedWhenUnenforceable:
         ``_resolve_self_origins`` swallows into an empty set.
         """
 
-        async def _fake_get_public_app_url(db, **kwargs):
+        async def _fake_get_configured_public_app_url(db, **kwargs):
             if value is None:
                 raise RuntimeError("AppSetting lookup failed")
             return value
 
         monkeypatch.setattr(
-            embed_service, "get_public_app_url", _fake_get_public_app_url, raising=True
+            embed_service,
+            "get_configured_public_app_url",
+            _fake_get_configured_public_app_url,
+            raising=True,
         )
 
     # -- the reported bug -------------------------------------------------
@@ -698,12 +744,15 @@ async def test_the_refusal_message_matches_the_frontend_matcher(monkeypatch):
     if not error_map.is_file():
         pytest.skip("frontend tree not present in this checkout")
 
-    async def _fake_get_public_app_url(db, **kwargs):
+    async def _fake_get_configured_public_app_url(db, **kwargs):
         return COMPOSE_DEFAULT_APP_URL
 
     monkeypatch.setattr(embed_service, "is_enterprise", lambda: True)
     monkeypatch.setattr(
-        embed_service, "get_public_app_url", _fake_get_public_app_url, raising=True
+        embed_service,
+        "get_configured_public_app_url",
+        _fake_get_configured_public_app_url,
+        raising=True,
     )
 
     with pytest.raises(embed_service.DomainLockNotEnforceableError) as exc:
@@ -741,7 +790,7 @@ def test_mock_db_suites_that_exercise_a_domain_lock_stub_the_lookup():
     ``TypeError`` on a cold public-URL cache. That used to surface as an error;
     now that the service fails closed it surfaces as a *silent* deny, so such a
     test would assert "foreign origin rejected" and pass without exercising the
-    rule at all. Any suite in that shape must stub ``get_public_app_url``.
+    rule at all. Any suite in that shape must stub ``get_configured_public_app_url``.
     """
     from pathlib import Path
 
@@ -762,13 +811,13 @@ def test_mock_db_suites_that_exercise_a_domain_lock_stub_the_lookup():
                 "allowed_origins, [",
             )
         )
-        if mocks_the_db and sets_a_lock and "get_public_app_url" not in text:
+        if mocks_the_db and sets_a_lock and "get_configured_public_app_url" not in text:
             offenders.append(path.name)
 
     assert not offenders, (
         "These suites drive a domain-locked embed token against a mock database "
-        "without stubbing get_public_app_url, so the self-origin lookup fails and "
+        "without stubbing get_configured_public_app_url, so the self-origin lookup fails and "
         "the check denies for the wrong reason. Add a fixture that patches "
-        "embed_service.get_public_app_url (see test_embed_tokens_origin_bypass.py):\n"
+        "embed_service.get_configured_public_app_url (see test_embed_tokens_origin_bypass.py):\n"
         + "\n".join(f"  {name}" for name in offenders)
     )
