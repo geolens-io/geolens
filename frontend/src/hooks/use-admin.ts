@@ -416,7 +416,12 @@ export function useBackfillJobStatus(jobId: string | null) {
     queryFn: () => getJobStatus(jobId as string),
     enabled: Boolean(jobId),
     refetchInterval: (q) => {
-      const status = q.state.data?.status;
+      // fix(#1550 review): no data is the absence of an answer, not the answer
+      // that the run is over. Treating undefined as terminal meant one
+      // exhausted first read — a blip while the API restarts — stopped the
+      // polling permanently, and the coverage figure never updated again.
+      if (!q.state.data) return 4_000;
+      const status = q.state.data.status;
       return status === 'pending' || status === 'running' ? 4_000 : false;
     },
     refetchIntervalInBackground: false,

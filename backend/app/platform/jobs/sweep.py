@@ -1429,6 +1429,40 @@ async def fail_stale_jobs(
     return outcome.pending_failed, outcome.running_failed
 
 
+async def terminal_backfill_audit_exists(session: AsyncSession, job_id: str) -> bool:
+    """Has this backfill run already had its outcome recorded by anyone?
+
+    fix(#1550 review): three actors can close a run's trail — the worker, the
+    status poll and the stale sweeper — and more than one can be right about
+    the same run. A poll that expires a live worker's lease records
+    `worker_lost`; the worker then returns, loses its fenced finalize, and
+    records `unresolved`. Two terminal entries for one operation, with
+    conflicting outcomes.
+
+    Idempotency rather than coordination: one operation gets one terminal
+    entry, whoever writes it first. Teaching each actor to check the other two
+    is the shape that keeps finding a next case.
+
+    A simultaneous dead heat could still produce two rows — this is a read
+    before a write, not a constraint. The actors are separated by the lease
+    window in every path that has come up, and the cost of losing that race is
+    a duplicate record rather than a wrong one, which is the opposite trade
+    from the concurrency guard on the runs themselves.
+    """
+    from app.modules.audit.models import AuditLog
+
+    existing = await session.execute(
+        select(AuditLog.id)
+        .where(
+            AuditLog.action == "embedding.backfill",
+            AuditLog.details["job_id"].astext == job_id,
+            AuditLog.details["outcome"].astext != "requested",
+        )
+        .limit(1)
+    )
+    return existing.first() is not None
+
+
 async def audit_settled_embedding_backfill(
     session: AsyncSession,
     *,
@@ -1463,6 +1497,10 @@ async def audit_settled_embedding_backfill(
     """
     marker = (user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY)
     if not marker:
+        return
+    if await terminal_backfill_audit_exists(session, str(job_id)):
+        # Another actor already closed this run. One operation, one terminal
+        # entry — see `terminal_backfill_audit_exists`.
         return
     # Deferred by design to preserve the platform -> modules layer boundary,
     # matching `cleanup_stale_jobs` above.

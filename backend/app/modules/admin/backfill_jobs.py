@@ -192,9 +192,22 @@ async def _emit_outcome_audit(
     # final state rather than the one this worker intended. See
     # `_emit_terminal_audit` for the rule and the module's tests for the
     # enumeration of paths it covers.
+    from app.core.db import async_session
     from app.modules.audit.service import AuditEvent, audit_emit_durable
+    from app.platform.jobs.sweep import terminal_backfill_audit_exists
 
     try:
+        # One operation, one terminal entry, whoever writes it first. The poll
+        # and the sweeper can both legitimately close a run this worker is
+        # still inside — see `terminal_backfill_audit_exists`.
+        async with async_session() as probe:
+            if await terminal_backfill_audit_exists(probe, job_id):
+                logger.info(
+                    "embedding_backfill_outcome_already_recorded",
+                    job_id=job_id,
+                    skipped_outcome=outcome,
+                )
+                return
         await audit_emit_durable(
             AuditEvent(
                 user_id=uuid.UUID(user_id) if user_id else None,
@@ -504,22 +517,31 @@ async def run_embedding_backfill(
     async with async_session() as session:
         job = await session.get(IngestJob, job_uuid)
         metadata = dict(job.user_metadata or {}) if job is not None else {}
-        heartbeat = await claim_job_attempt_and_start_heartbeat(
-            session, job_uuid, attempt_uuid
-        )
-        if heartbeat is None:
-            # The row was not `pending` under this attempt — the stale-pending
-            # reaper got there first, or a retry rotated the token. This worker
-            # never took the run, and nothing else will emit its outcome.
-            logger.warning("embedding_backfill_attempt_no_longer_owned", job_id=job_id)
-            await _emit_outcome_audit(
-                **audit_context,
-                outcome=UNRESOLVED_OUTCOME,
-                extra={"error_code": "attempt_not_owned"},
-            )
-            return
         state = _TerminalState()
+        heartbeat = None
         try:
+            # fix(#1550 review): the claim is INSIDE the guarded region. Its
+            # own commit is a lost-acknowledgement window at the other end of
+            # the run — a shutdown cancelling `pending`->`running` mid-commit
+            # can apply it without returning, and with the claim outside, the
+            # recovery never ran: the row stayed `running`, held the unique
+            # slot until the stale sweep, and kept only its `requested` entry.
+            heartbeat = await claim_job_attempt_and_start_heartbeat(
+                session, job_uuid, attempt_uuid
+            )
+            if heartbeat is None:
+                # The row was not `pending` under this attempt — the
+                # stale-pending reaper got there first, or a retry rotated the
+                # token. This worker never took the run.
+                logger.warning(
+                    "embedding_backfill_attempt_no_longer_owned", job_id=job_id
+                )
+                await _emit_outcome_audit(
+                    **audit_context,
+                    outcome=UNRESOLVED_OUTCOME,
+                    extra={"error_code": "attempt_not_owned"},
+                )
+                return
             try:
                 result = await backfill_embeddings(session, force=force)
             except Exception:  # broad: the backfill spans the embedding SDK and DB writes; every failure ends the run the same way

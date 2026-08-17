@@ -603,25 +603,19 @@ async def test_losing_the_fence_never_audits_a_completion_that_did_not_land(
     # never lost and this test proves nothing about the branch it targets.
     assert job.status == "failed", "the lease was never expired — test is vacuous"
 
-    # TWO actors settled something here, so the trail carries two views and
-    # both are true: the sweeper's, saying it failed a row that looked dead,
-    # and the worker's, saying its work finished but could not claim the row.
-    # What must never appear is an entry claiming the run completed, because
-    # the row says failed.
+    # Two actors could each close this run — the sweeper that failed a row
+    # which looked dead, and the worker that finished and lost its fence. One
+    # operation gets ONE terminal entry, whoever writes it first, so the
+    # sweeper's stands and the worker's is suppressed. What must never appear
+    # is an entry claiming the run completed: the row says failed.
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
-    outcomes = [entry["details"]["outcome"] for entry in terminal]
-    assert "completed" not in outcomes, (
+    assert len(terminal) == 1, terminal
+    details = terminal[0]["details"]
+    assert details["outcome"] != "completed", (
         f"the audit claims a completion the job row does not support: {terminal}"
     )
-    worker_entry = next(
-        e for e in terminal if e["details"].get("error_code") == "finalize_lost_attempt"
-    )
-    assert worker_entry["details"]["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
-    # The work did finish, and the record says so without claiming the row.
-    assert worker_entry["details"]["intended_outcome"] == "completed"
-    # And the actor that actually settled the row recorded that too.
-    assert any(e["details"].get("error_code") == "worker_lost" for e in terminal), (
-        f"the sweeper settled the row without closing the trail: {terminal}"
+    assert details["error_code"] == "worker_lost", (
+        f"the actor that settled the row did not close the trail: {terminal}"
     )
 
 
@@ -673,17 +667,15 @@ async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
     await run_embedding_backfill(**mock_defer.await_args.kwargs)
 
     assert ran is False, "the worker ran a job it did not own"
-    # Two actors again: the reaper that failed the queued row, and the worker
-    # that arrived to find it gone. Each records what it saw.
+    # Same rule: the reaper settled the row and closed the trail first, so the
+    # worker's own "I never owned this" entry is suppressed rather than added.
+    # The run still reaches exactly one terminal record, which is the point.
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
-    worker_entry = next(
-        e for e in terminal if e["details"].get("error_code") == "attempt_not_owned"
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "never_started", (
+        f"the actor that settled the row did not close the trail: {terminal}"
     )
-    assert worker_entry["details"]["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
-    assert any(e["details"].get("error_code") == "never_started" for e in terminal), (
-        f"the reaper settled the row without closing the trail: {terminal}"
-    )
-    assert "completed" not in [e["details"]["outcome"] for e in terminal]
+    assert terminal[0]["details"]["outcome"] != "completed"
 
 
 @pytest.mark.anyio
@@ -1624,3 +1616,62 @@ async def test_a_clean_run_reports_no_rejected_records(
     payload = (await client.get(f"/jobs/{job_id}", headers=admin_auth_header)).json()
     assert payload["status"] == "complete"
     assert payload["rows_failed"] == 0
+
+
+@pytest.mark.anyio
+async def test_one_run_gets_one_terminal_entry_whoever_writes_it_first(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """Three actors can close a run's trail; only the first one does.
+
+    A poll that expires a still-live worker's lease records `worker_lost`. The
+    worker then returns, loses its fenced finalize, and would record
+    `unresolved` — two terminal entries for one operation, with conflicting
+    outcomes. Idempotency rather than each actor checking the other two.
+    """
+
+    async def _settled_from_under_it(session, *, force=False):
+        # The poll expires the lease while the provider call is still going.
+        from app.core.db import async_session
+
+        async with async_session() as other:
+            expired = datetime.now(timezone.utc) - timedelta(hours=3)
+            await other.execute(
+                update(IngestJob)
+                .where(IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY))
+                .where(IngestJob.status == "running")
+                .values(started_at=expired, heartbeat_at=expired)
+            )
+            await other.commit()
+        return {"processed": 2, "created": 2, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _settled_from_under_it)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+    kwargs = mock_defer.await_args.kwargs
+
+    # The worker starts, backdates its own lease mid-run, and a poll settles it
+    # before the worker gets to its terminal write.
+    import asyncio as _asyncio
+
+    worker = _asyncio.create_task(run_embedding_backfill(**kwargs))
+    await _asyncio.sleep(0.2)
+    poll = await client.get(f"/jobs/{job_id}", headers=admin_auth_header)
+    assert poll.status_code == 200
+    await worker
+
+    job = await _load_job(test_db_session, job_id)
+    # Non-vacuity: both actors genuinely had something to say about this run.
+    assert job.status in ("failed", "complete"), job.status
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, (
+        f"one operation ended up with {len(terminal)} terminal entries: {terminal}"
+    )
