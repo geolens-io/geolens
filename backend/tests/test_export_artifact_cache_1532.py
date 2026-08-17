@@ -22,6 +22,7 @@ Requirements:
               uv run pytest tests/test_export_artifact_cache_1532.py -v
 """
 
+import json
 import os
 import shutil
 import tempfile
@@ -911,4 +912,123 @@ async def test_the_sweep_keeps_what_is_still_published(test_db_session):
     assert await storage.exists(young_orphan), (
         "the sweep deleted an object younger than the horizon. A publish is two "
         "writes, and a sweep that raced the second one would delete the first."
+    )
+
+
+async def test_a_publish_racing_the_sweeps_listing_survives(
+    test_db_session, monkeypatch
+):
+    """fix(#1532 review r2): the sweep must not delete on the strength of a snapshot.
+
+    An earlier revision read a selection's pointer, found it older than the
+    horizon, declared the whole PREFIX stale, and deleted every key under it. On
+    a multi-worker deployment that takes the young artifact another worker
+    uploaded moments ago and the pointer it published — so the request doing the
+    publishing streams a missing key, and the next lookup rebuilds what was
+    already there.
+
+    That is r1's eviction bug one level up: one actor's cleanup deleting
+    another's truth, this time on the strength of a NEIGHBOURING key's age. The
+    fix is that no key is ever judged by its prefix — an artifact is aged from
+    its own name and re-checked against the pointer at delete time, and a
+    pointer is judged on the artifact it names now.
+
+    The race is constructed rather than hoped for: the publish lands inside the
+    sweep, between its listing and its deletions, via a hook on ``list``. A
+    sweep run before or after a publish proves nothing about the window between.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Sweep Race")
+    selection = "contested"
+    storage = get_storage()
+    old = time.time() - 7200
+
+    stale_artifact = cache._artifact_key(dataset.id, selection, "a" * 64, old)
+    await storage.put(stale_artifact, b"the artifact nobody has rebuilt")
+    await storage.put(
+        cache._pointer_key(dataset.id, selection),
+        json.dumps(
+            {
+                "key": stale_artifact,
+                "digest": "a" * 64,
+                "size": 31,
+                "built_at": old,
+                "filename": "x.geojson",
+                "media_type": "application/geo+json",
+            }
+        ).encode(),
+    )
+
+    fresh_artifact = cache._artifact_key(dataset.id, selection, "b" * 64, time.time())
+    published: dict = {}
+
+    class _RacingStorage:
+        """A rebuild landing INSIDE the sweep, in two stages.
+
+        The upload lands during the listing, so the sweep's snapshot contains the
+        young artifact — which is what let the prefix rule delete it. The pointer
+        flip lands on the first deletion, by which point the sweep has already
+        formed whatever judgement it is acting on. Both stages are needed: a
+        publish entirely before or entirely after the sweep never meets the
+        window between the listing and the deletions.
+        """
+
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def list(self, prefix):
+            keys = await self._inner.list(prefix)
+            if "uploaded" not in published:
+                published["uploaded"] = True
+                await self._inner.put(fresh_artifact, b"a rebuild landing right now")
+                keys = await self._inner.list(prefix)
+            return keys
+
+        async def delete(self, key):
+            if "at" not in published:
+                published["at"] = time.time()
+                await self._inner.put(
+                    cache._pointer_key(dataset.id, selection),
+                    json.dumps(
+                        {
+                            "key": fresh_artifact,
+                            "digest": "b" * 64,
+                            "size": 27,
+                            "built_at": published["at"],
+                            "filename": "x.geojson",
+                            "media_type": "application/geo+json",
+                        }
+                    ).encode(),
+                )
+            return await self._inner.delete(key)
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _RacingStorage(storage),
+    )
+
+    await cache.sweep(age_threshold_seconds=3600)
+
+    assert published, (
+        "the publish never landed inside the sweep, so this test says nothing "
+        "about the window it is named for"
+    )
+    assert await storage.exists(fresh_artifact), (
+        "the sweep deleted an artifact uploaded moments earlier because a "
+        "neighbouring pointer was old. The request that published it is now "
+        "streaming a key that does not exist."
+    )
+    pointer = await cache.lookup_raw(dataset.id, selection)
+    assert pointer is not None and pointer.key == fresh_artifact, (
+        f"the freshly published pointer was deleted or reverted; lookup resolves "
+        f"to {pointer.key if pointer else None}"
+    )
+    assert not await storage.exists(stale_artifact), (
+        "the genuinely superseded artifact survived, so the sweep reclaims "
+        "nothing and the prefix grows without bound"
     )

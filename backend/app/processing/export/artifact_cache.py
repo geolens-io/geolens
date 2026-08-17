@@ -414,24 +414,51 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
     what was removed and why). Three populations, because they go stale for
     different reasons:
 
-    - **Abandoned selections.** A pointer older than the horizon means nobody has
-      rebuilt this selection in an hour, so the pointer and everything under it
-      goes. Age comes from the pointer's own ``built_at`` rather than from object
-      mtime, which is what makes this portable: ``StorageProvider`` exposes no
-      modified time, S3 and the local provider would answer differently if it
-      did, and a copy resets it.
+    - **Abandoned selections.** Nobody has rebuilt this selection in an hour, so
+      its pointer and its artifact both go.
 
     - **Superseded artifacts.** A rebuild publishes a new object and leaves the
       previous one unreferenced. It is kept until the horizon so a reader that
-      resolved the old pointer can finish, which is the margin the removed
-      eviction step could not offer.
+      resolved the old pointer can finish.
 
     - **Orphans.** An upload that succeeded while its pointer write did not
       leaves a ``.bin`` no pointer mentions. Deriving every deletion from
-      pointers, as the first revision did, leaked those forever. They are aged
-      from the timestamp in their own key instead, and only removed when no LIVE
-      pointer names them — so an object published seconds ago is safe even though
-      the sweep has not seen its pointer yet.
+      pointers, as the first revision did, leaked those forever.
+
+    **Every judgement is per KEY, and none is per prefix** (fix(#1532 review r2)).
+    An earlier revision read a selection's pointer, found it older than the
+    horizon, declared the whole prefix stale and deleted everything under it.
+    On a multi-worker deployment that removes the young artifact another worker
+    uploaded moments ago and the pointer it published — so the request that was
+    publishing streams a missing key, and the next lookup rebuilds what was
+    already there. It is r1's eviction bug one level up: one actor's cleanup
+    deleting another actor's truth, this time on the strength of a neighbouring
+    key's age.
+
+    The rule is chosen so a concurrent publish cannot satisfy it, which is what
+    makes this race-free without a lock rather than merely narrow: an artifact
+    goes when the timestamp IN ITS OWN NAME is past the horizon. A publish mints
+    its key from ``time.time()``, so an aged key can never become fresh and a
+    fresh one can never look aged. Nothing else is consulted, so there is no read
+    that can be stale by the time the delete runs.
+
+    **Pointers are never deleted.** Reclaiming one means reading it, deciding it
+    is dead, and then deleting it, and a publish landing in that window loses the
+    pointer it just wrote — the same shape as the bug this rule closes, moved
+    into the check meant to be safe. Two attempts at narrowing that window are in
+    this file's history; neither closes it, because ``StorageProvider`` offers no
+    compare-and-delete and nothing else can make a read-then-delete atomic.
+
+    Leaving them costs one JSON of a few hundred bytes per selection that is
+    never rebuilt, and nothing else: a pointer whose artifact this sweep removed
+    reads as a miss through ``lookup``, which is the behaviour it already had for
+    an expired one. Reclaiming them needs a conditional delete on the provider
+    protocol, which is a port signature change and a decision of its own.
+
+    Ages come from the artifacts and pointers themselves rather than from object
+    mtime, which is what makes this portable: ``StorageProvider`` exposes no
+    modified time, S3 and the local provider would answer differently if it did,
+    and a copy resets it.
 
     An hour rather than the TTL because expiry and reclamation are different
     questions. Expiry asks whether an artifact may answer a NEW request;
@@ -446,36 +473,20 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
         logger.warning("export_cache_sweep_list_failed", exc_info=True)
         return 0
 
-    stale_prefixes: list[str] = []
-    live_artifacts: set[str] = set()
+    removed = 0
     for key in keys:
-        if not key.endswith("current.json"):
-            continue
-        try:
-            pointer = json.loads(await storage.get(key))
-            if float(pointer["built_at"]) < cutoff:
-                stale_prefixes.append(key[: -len("current.json")])
-            else:
-                live_artifacts.add(str(pointer["key"]))
-        except Exception:  # broad: an unreadable pointer is left for a human
-            continue
-
-    doomed: list[str] = []
-    for key in keys:
-        if any(key.startswith(prefix) for prefix in stale_prefixes):
-            doomed.append(key)
-            continue
-        if key in live_artifacts or key.endswith("current.json"):
+        if key.endswith("current.json"):
             continue
         built_at = _key_built_at(key)
         if built_at is not None and built_at < cutoff:
-            doomed.append(key)
-
-    removed = 0
-    for key in doomed:
-        try:
-            await storage.delete(key)
-            removed += 1
-        except Exception:  # broad: leave it for the next sweep
-            logger.warning("export_cache_sweep_delete_failed", key=key, exc_info=True)
+            removed += await _delete(storage, key)
     return removed
+
+
+async def _delete(storage, key: str) -> int:
+    try:
+        await storage.delete(key)
+        return 1
+    except Exception:  # broad: leave it for the next sweep
+        logger.warning("export_cache_sweep_delete_failed", key=key, exc_info=True)
+        return 0
