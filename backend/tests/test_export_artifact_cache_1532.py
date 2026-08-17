@@ -3591,3 +3591,102 @@ async def test_the_fallback_path_carries_and_evaluates_the_validator(
         if os.path.isdir(os.path.join(conversions.root, name))
     ]
     assert leftovers == [], f"the conversion directory {leftovers} was stranded"
+
+
+# ---------------------------------------------------------------------------
+# Review r19
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "range_value,if_range,expected",
+    [
+        ("bytes=100-199", "current", 206),
+        ("bytes=100-199", "other", 200),
+        ("bytes=100-199", None, 200),
+        ("bytes=END-", "current", 416),
+    ],
+)
+async def test_the_fallback_honours_a_proven_if_range_with_a_local_slice(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+    range_value,
+    if_range,
+    expected,
+):
+    """On the fallback, a Range behind THIS file's ETag is a local 206 or a 416.
+
+    fix(#1532 review r19): r18 gave the fallback the same validator the artifact
+    path sends, and then still answered every Range with the whole file. A
+    client whose `If-Range` names that ETag has proved its offsets belong to
+    these bytes — the export is byte-deterministic — and got a multi-gigabyte
+    200 on every resume attempt for as long as publication stayed unavailable.
+    r12's rule for the stored branch applies here too: proven, slice; a bare
+    Range or a mismatched `If-Range` still gets the whole thing, and a proven
+    Range naming nothing is a 416 that strands no directory and audits nothing.
+
+    Forced onto the fallback by exhausting the budget after the first build.
+    """
+    from app.modules.audit.models import AuditLog
+    from app.processing.export import artifact_cache as cache
+    from sqlalchemy import func, select
+
+    dataset = await _dataset(test_db_session, f"Fallback Slice {expected} {if_range}")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200, first.text
+    etag = first.headers["etag"]
+    size = int(first.headers["content-length"])
+    assert conversions.count == 1
+
+    async def _export_rows() -> int:
+        return (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "dataset.export")
+                .where(AuditLog.resource_id == str(dataset.id))
+            )
+        ).scalar_one()
+
+    before = await _export_rows()
+
+    headers = {**admin_auth_header, "Range": range_value.replace("END", str(size))}
+    if if_range == "current":
+        headers["If-Range"] = etag
+    elif if_range == "other":
+        headers["If-Range"] = '"an-export-from-last-week"'
+
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 0)  # nothing fits: store() -> None
+    cache._ttl_seconds = lambda: 0  # force the next request to rebuild
+    try:
+        resp = await client.get(url, headers=headers)
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert resp.status_code == expected, resp.text
+    assert resp.headers.get("etag") == etag
+    if expected == 206:
+        assert resp.content == conversions.body[100:200]
+        assert resp.headers["content-range"] == f"bytes 100-199/{size}"
+        assert resp.headers["content-length"] == "100"
+        assert await _export_rows() == before + 1
+    elif expected == 200:
+        assert resp.content == conversions.body
+        assert "content-range" not in resp.headers
+        assert await _export_rows() == before + 1
+    else:
+        assert resp.headers["content-range"] == f"bytes */{size}"
+        assert await _export_rows() == before, "a fallback 416 wrote an audit row"
+
+    leftovers = [
+        name
+        for name in os.listdir(conversions.root)
+        if os.path.isdir(os.path.join(conversions.root, name))
+    ]
+    assert leftovers == [], f"the conversion directory {leftovers} was stranded"

@@ -770,18 +770,20 @@ async def export_dataset_endpoint(
     # to anything), and the audit row is written only once a response that
     # carries bytes exists — the same order the hit path uses, for the same
     # reason r16 gave for moving the audit below the 412 and 304 exits.
-    if stored is not None:
-        # may_serve_range=False: this request BUILT the artifact, so it cannot
-        # know which representation the client's offsets were measured against.
-        # Ignoring the Range and answering with the whole thing is the safe half
-        # of RFC 9110 section 14.2 and is what keeps a rebuild from splicing.
-        #
-        # The cleanup rides the response, exactly as fix(#435) arranged it for
-        # the FileResponse this replaced. Deleting eagerly here — the bytes are
-        # in storage, so it looked safe — is what an earlier revision did, and
-        # test_export_antimeridian caught it: a caller whose temp directory is
-        # not per-export loses more than the export.
-        try:
+    #
+    # The cleanup rides the response, exactly as fix(#435) arranged it for the
+    # FileResponse this replaced. Deleting eagerly — the bytes are in storage,
+    # so it looked safe — is what an earlier revision did, and
+    # test_export_antimeridian caught it: a caller whose temp directory is not
+    # per-export loses more than the export.
+    try:
+        if stored is not None:
+            # may_serve_range=False: this request BUILT the artifact, so it
+            # cannot know which representation the client's offsets were
+            # measured against. Ignoring the Range and answering with the whole
+            # thing is the safe half of RFC 9110 section 14.2 and is what keeps
+            # a rebuild from splicing; only a matching If-Range (r12) overrides
+            # it, because that client has named these exact bytes.
             response = artifact_response.read_response(
                 get_storage(),
                 stored,
@@ -790,38 +792,46 @@ async def export_dataset_endpoint(
                 may_serve_range=False,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
-        except BaseException:
-            _cleanup_export(temp_dir)
-            raise
-    else:
-        # 9. Serve the conversion itself, with background cleanup.
-        # fix(#1435 codex round 2): touch the file's mtime right before handing
-        # it to the response. sweep_orphaned_exports (periodic + boot) reads it
-        # as "most recent activity" — ogr2ogr's writes already keep it fresh
-        # while the file is being generated, but once ogr2ogr closes it the
-        # mtime freezes for the rest of a (possibly long, possibly slow-client)
-        # download. This resets the age-threshold clock to "streaming is about
-        # to begin" instead of "generation finished sometime earlier."
-        try:
-            os.utime(file_path, None)
-        except OSError:
-            pass  # best-effort freshness signal; a failure must not block the download
-        # fix(#1532 review, internal): NOT a FileResponse. Starlette parses
-        # `Range` inside it — single and multipart, no `If-Range` needed — so
-        # this path answered a resuming client with a 206 of a fresh conversion
-        # at offsets measured against a previous one. That is #1532's defect
-        # alive on the degraded path, and the degraded path is the one that
-        # fires under load: a full store, a contested selection, an exhausted
-        # budget. It also sent an mtime ETag and a Last-Modified the artifact
-        # path never sends, so one URL disagreed with itself about which
-        # validators it has.
-        response = artifact_response.temp_file_response(
-            file_path,
-            filename=filename,
-            media_type=media_type,
-            etag=etag,
-            background=BackgroundTask(_cleanup_export, temp_dir),
-        )
+        else:
+            # 9. Serve the conversion itself, with background cleanup.
+            # fix(#1435 codex round 2): touch the file's mtime right before
+            # handing it to the response. sweep_orphaned_exports (periodic +
+            # boot) reads it as "most recent activity" — ogr2ogr's writes
+            # already keep it fresh while the file is being generated, but once
+            # ogr2ogr closes it the mtime freezes for the rest of a (possibly
+            # long, possibly slow-client) download. This resets the
+            # age-threshold clock to "streaming is about to begin" instead of
+            # "generation finished sometime earlier."
+            try:
+                os.utime(file_path, None)
+            except OSError:
+                pass  # best-effort freshness signal; must not block the download
+            # fix(#1532 review, internal): NOT a FileResponse. Starlette parses
+            # `Range` inside it — single and multipart, no `If-Range` needed —
+            # so this path answered a resuming client with a 206 of a fresh
+            # conversion at offsets measured against a previous one. That is
+            # #1532's defect alive on the degraded path, and the degraded path
+            # is the one that fires under load: a full store, a contested
+            # selection, an exhausted budget. It also sent an mtime ETag and a
+            # Last-Modified the artifact path never sends, so one URL disagreed
+            # with itself about which validators it has.
+            #
+            # fix(#1532 review r19): the same range inputs the stored branch
+            # gets, under the same rule — a Range is honoured only behind an
+            # If-Range naming this file's ETag, and then it is a slice of the
+            # local file rather than the whole of it on every resume.
+            response = artifact_response.temp_file_response(
+                file_path,
+                filename=filename,
+                media_type=media_type,
+                etag=etag,
+                range_header=request.headers.get("range"),
+                if_range=request.headers.get("if-range"),
+                background=BackgroundTask(_cleanup_export, temp_dir),
+            )
+    except BaseException:
+        _cleanup_export(temp_dir)
+        raise
 
     # 8c. Audit log. user_id may be None for anonymous exports (EXP-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed

@@ -153,20 +153,7 @@ def read_response(
         return _whole(storage, artifact, headers, background)
 
     if byte_range == RANGE_UNSATISFIABLE:
-        raise HTTPException(
-            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
-            detail="Requested range not satisfiable",
-            headers={
-                "accept-ranges": "bytes",
-                # The size is the point of the 416: it is how a client that
-                # guessed at the length learns the real one. Content-Disposition
-                # is deliberately NOT here — this body is the JSON error, and
-                # naming it with the export's filename would have a browser save
-                # an error document as the download.
-                "content-range": f"bytes */{artifact.size}",
-                "etag": artifact.etag,
-            },
-        )
+        raise _unsatisfiable(artifact.size, artifact.etag)
 
     start, end = byte_range
     return StreamingResponse(
@@ -188,9 +175,11 @@ def temp_file_response(
     filename: str,
     media_type: str,
     etag: str | None,
+    range_header: str | None = None,
+    if_range: str | None = None,
     background: BackgroundTask | None = None,
 ) -> Response:
-    """Serve a just-converted file whole, without letting starlette see the Range.
+    """Serve a just-converted file, without letting starlette see the Range.
 
     fix(#1532 review, internal): this replaces a ``FileResponse`` on the path
     taken when publication does not happen — a storage outage, a contested
@@ -213,37 +202,100 @@ def temp_file_response(
     None when the file could not be hashed, and then no validator goes out at
     all rather than one that names nothing.
 
-    A 200 with the complete representation is the only safe answer here: this
-    process cannot know which bytes the client already holds, and nothing in the
-    request can tell it.
+    fix(#1532 review r19): the one exception, and it is ``read_response``'s
+    r12 rule applied here. A client whose ``If-Range`` names THIS file's strong
+    ETag has proved its offsets belong to these bytes — the export is
+    byte-deterministic, so a resumer of the previous artifact holds exactly this
+    representation — and gets a 206 sliced from the local file, or a 416 if the
+    range names nothing. Refusing it here sent the whole, possibly multi-gigabyte,
+    file on every resume attempt for as long as publication stayed unavailable,
+    which is precisely when the volume is under the most pressure. A bare Range
+    or a mismatched ``If-Range`` still gets the whole thing: this request BUILT
+    the file, so nothing else in the request can say which bytes the client
+    already holds.
     """
+    size = os.path.getsize(file_path)
     headers = {
         "accept-ranges": "bytes",
         "content-disposition": file_response_content_disposition(filename),
-        "content-length": str(os.path.getsize(file_path)),
     }
     if etag is not None:
         headers["etag"] = etag
+
+    proven = (
+        etag is not None
+        and if_range is not None
+        and range_bound_to_this_version(if_range, etag)
+    )
+    byte_range = parse_byte_range(range_header, size) if proven else None
+    if byte_range == RANGE_UNSATISFIABLE:
+        raise _unsatisfiable(size, etag)
+    if byte_range is not None:
+        start, end = byte_range
+        return StreamingResponse(
+            _iter_file(file_path, start, end - start + 1),
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type=media_type,
+            headers={
+                **headers,
+                "content-range": f"bytes {start}-{end}/{size}",
+                "content-length": str(end - start + 1),
+            },
+            background=background,
+        )
     return StreamingResponse(
         _iter_file(file_path),
         media_type=media_type,
-        headers=headers,
+        headers={**headers, "content-length": str(size)},
         background=background,
     )
 
 
-async def _iter_file(file_path: str) -> AsyncIterator[bytes]:
-    """Read a local file in bounded chunks, off the event loop.
+def _unsatisfiable(size: int, etag: str | None) -> HTTPException:
+    """The 416, built once for both the stored and the local representation."""
+    headers = {
+        "accept-ranges": "bytes",
+        # The size is the point of the 416: it is how a client that guessed at
+        # the length learns the real one. Content-Disposition is deliberately
+        # NOT here — this body is the JSON error, and naming it with the
+        # export's filename would have a browser save an error document as the
+        # download.
+        "content-range": f"bytes */{size}",
+    }
+    if etag is not None:
+        headers["etag"] = etag
+    return HTTPException(
+        status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+        detail="Requested range not satisfiable",
+        headers=headers,
+    )
 
-    Same shape as ``LocalStorageProvider.get_stream``: a multi-gigabyte export
-    must not be materialized, and the reads must not block the loop.
+
+async def _iter_file(
+    file_path: str, start: int = 0, length: int | None = None
+) -> AsyncIterator[bytes]:
+    """Read a local file, or a window of it, in bounded chunks off the event loop.
+
+    Same shape as ``LocalStorageProvider.get_stream`` and ``get_range_stream``:
+    a multi-gigabyte export must not be materialized, and the reads must not
+    block the loop. ``length`` None means to the end.
     """
     handle = await asyncio.to_thread(open, file_path, "rb")
     try:
-        while True:
-            chunk = await asyncio.to_thread(handle.read, _FILE_CHUNK_BYTES)
+        if start:
+            await asyncio.to_thread(handle.seek, start)
+        remaining = length
+        while remaining is None or remaining > 0:
+            want = (
+                _FILE_CHUNK_BYTES
+                if remaining is None
+                else min(_FILE_CHUNK_BYTES, remaining)
+            )
+            chunk = await asyncio.to_thread(handle.read, want)
             if not chunk:
                 return
+            if remaining is not None:
+                remaining -= len(chunk)
             yield chunk
     finally:
         await asyncio.to_thread(handle.close)
