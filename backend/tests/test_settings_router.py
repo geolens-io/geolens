@@ -205,7 +205,7 @@ async def _tile_config_with(app_url_mock, api_url_mock):
             SimpleNamespace(cdn_base_url="https://cdn.example.com"),
         ),
         patch(
-            "app.modules.settings.router.get_configured_public_app_url",
+            "app.modules.settings.router.get_shareable_app_url",
             app_url_mock,
         ),
         patch(
@@ -256,10 +256,13 @@ async def test_get_tile_config_never_derives_the_app_url():
         "an unset PUBLIC_APP_URL must not be back-filled from the API URL"
     )
     assert response.public_api_url == "https://api.example.com/api"
-    # And it is asked without a request, so no caller-controlled origin can
-    # reach it — the vacuous-self trap in a different layer.
-    assert configured.await_args.kwargs == {}
-    assert len(configured.await_args.args) == 1
+    # fix(#1548 review r10): it IS given the request, because a hosted tenant's
+    # middleware-validated origin is the right answer there and the fleet-wide
+    # setting cannot represent a tenant host. What it must never do is INFER an
+    # origin from that request — get_shareable_app_url reads only
+    # request.state.tenant_public_origin, which TenantContextMiddleware sets
+    # after the Host resolves against the tenant registry, never a header.
+    assert set(configured.await_args.kwargs) == {"request"}
 
 
 @pytest.mark.anyio

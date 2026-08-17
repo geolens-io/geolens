@@ -11,6 +11,13 @@ ADVANCED_SHARING_ERROR = "Advanced sharing controls are not enabled for this dep
 
 def _normalize_origin(origin: str) -> str:
     normalized = origin.strip().lower().rstrip("/")
+    # fix(#1548 review r10): a backslash is an origin-confusion primitive, not a
+    # formatting nit — 'https://maps.example.com\\@evil.com' parses as host
+    # 'maps.example.com\\' here and as host 'evil.com' in a browser. Refused for
+    # the same reason as in is_usable_public_origin (app/core/public_urls.py):
+    # the two parsers disagree, and that disagreement is the bug.
+    if "\\" in normalized:
+        raise ValueError(f"Invalid origin: {origin}")
     # Reject wildcard entries — CSP frame-ancestors NEVER '*'.
     # Check is performed after strip+lower so leading/trailing whitespace cannot
     # smuggle wildcards. Covers '*', '*.example.com', 'https://*.example.com'.
@@ -34,16 +41,16 @@ def _normalize_origin(origin: str) -> str:
     # '::1'), producing an invalid CSP source expression like 'http://::1:8080'
     # — RFC 3986 / W3C CSP3 §2.6.1 require them bracketed — so they go back on.
     host = parsed.hostname or ""
-    # A browser serializes an internationalized host in its IDNA ASCII form:
-    # the shell's Origin for https://máp.example arrives as
-    # https://xn--mp-mia.example. Storing the Unicode spelling meant the domain
-    # lock was issued and then missed on every request. Canonicalize to the
-    # spelling the browser will present, rather than rejecting the value.
+    # fix(#1548 review r10): a non-ASCII host is REFUSED, not converted. Python's
+    # built-in idna codec is IDNA2003 and maps `faß.de` to `fass.de`, while
+    # browsers follow WHATWG/UTS #46 and send `xn--fa-hia.de` — so converting
+    # here would produce a near match, which denies every request while looking
+    # correct. Supply the punycode form, which is what the browser sends anyway.
     if not host.isascii():
-        try:
-            host = host.encode("idna").decode("ascii")
-        except UnicodeError as exc:
-            raise ValueError(f"Invalid origin: {origin}") from exc
+        raise ValueError(
+            f"Invalid origin: {origin}. An internationalized domain must be "
+            "given in its punycode (xn--) form, which is what browsers send."
+        )
     netloc_host = f"[{host}]" if ":" in host else host
     port = parsed.port
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):

@@ -642,35 +642,58 @@ async def test_tile_config_reports_only_an_explicitly_configured_app_url(
     assert resp.json()["public_app_url"] == SELF_HOSTED_ORIGIN
 
 
-async def test_a_unicode_hostname_matches_what_the_browser_sends(
+async def test_a_unicode_hostname_is_refused_rather_than_translated(
     test_db_session: AsyncSession, public_app_url, enterprise_edition
 ):
-    """fix(#1548 review r9): IDNA, canonicalized rather than rejected.
+    """fix(#1548 review r10): IDN is refused, not approximated.
 
-    A browser serializes the shell's Origin in IDNA ASCII, so
-    ``https://máp.example`` arrives as ``https://xn--mp-mia.example``. Storing
-    the Unicode spelling issued a lock that then missed on every request. Both
-    sides are canonicalized now, so the operator may write either spelling.
+    An earlier round converted the host with Python's built-in ``idna`` codec so
+    it would match what the browser sends. That codec is IDNA2003: it maps
+    ``faß.de`` to ``fass.de``, while browsers follow WHATWG/UTS #46 and send
+    ``xn--fa-hia.de``. A near match is worse than none — it denies every request
+    while looking correct — so the value is refused and the operator supplies
+    the punycode form, which is unambiguous and is what the browser sends.
     """
-    public_app_url("https://máp.example")
+    public_app_url("https://faß.de")
 
-    request = _browser_at("https://xn--mp-mia.example")
+    assert await public_urls.get_configured_public_app_url(test_db_session) is None
+    with pytest.raises(embed_service.DomainLockNotEnforceableError) as exc:
+        await embed_service.assert_domain_lock_is_enforceable(
+            test_db_session, _browser_at(SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+        )
+    assert "PUBLIC_APP_URL" in str(exc.value)
+
+    # The punycode spelling is accepted and matches the browser byte for byte.
+    public_app_url("https://xn--fa-hia.de")
     assert (
         await embed_service._request_origin_is_allowed(
-            test_db_session, request, [CUSTOMER_ORIGIN]
+            test_db_session, _browser_at("https://xn--fa-hia.de"), [CUSTOMER_ORIGIN]
         )
         is True
-    ), "the browser's ASCII spelling must match a Unicode-configured origin"
+    )
 
-    # And the operator may equally configure the ASCII form.
-    public_app_url("https://xn--mp-mia.example")
+
+async def test_a_backslash_cannot_smuggle_a_second_host(
+    test_db_session: AsyncSession, public_app_url, enterprise_edition
+):
+    """fix(#1548 review r10): origin confusion, not a formatting nit.
+
+    ``https://maps.example.com\\@evil.com`` is host ``maps.example.com\\`` to
+    urlsplit and host ``evil.com`` to a browser. Whichever reading is "right",
+    the two halves disagreeing is the primitive, so the character is refused.
+    """
+    public_app_url("https://maps.example.com\\@evil.com")
+
+    assert await public_urls.get_configured_public_app_url(test_db_session) is None
+    origins = await embed_service._resolve_self_origins(
+        test_db_session, _browser_at(SELF_HOSTED_ORIGIN)
+    )
+    assert origins == set(), "a value the two parsers read differently is no origin"
     assert (
         await embed_service._request_origin_is_allowed(
-            test_db_session,
-            _browser_at("https://xn--mp-mia.example"),
-            [CUSTOMER_ORIGIN],
+            test_db_session, _browser_at("https://evil.com"), [CUSTOMER_ORIGIN]
         )
-        is True
+        is False
     )
 
 
@@ -696,3 +719,99 @@ async def test_userinfo_never_reaches_a_stored_origin(
     )
     assert origins == {SELF_HOSTED_ORIGIN}
     assert not any("secret" in o for o in origins), "credentials must not be stored"
+
+
+# ---------------------------------------------------------------------------
+# r10 P1: "derived" names two things, and only one of them is untrustworthy
+# ---------------------------------------------------------------------------
+
+
+class TestHostedTenantKeepsItsOwnOrigin:
+    """fix(#1548 review r10): requiring the EXPLICIT fleet setting broke hosted.
+
+    ``PUBLIC_APP_URL`` is fleet-wide and cannot represent a tenant host, so
+    demanding it made share and embed URLs on ``acme.geolens.example`` come out
+    on the fleet host — where the anonymous request carries no Host-derived
+    tenant context and fails closed.
+
+    ``tenant_public_origin`` is not the same kind of value as an ``/api``-stripped
+    ``PUBLIC_API_URL`` or a caller's header. ``TenantContextMiddleware`` sets it
+    only after the Host resolves against the tenant registry, and rejects the
+    request outright when it cannot form a trusted origin. Validated
+    infrastructure state, not an inference.
+    """
+
+    TENANT_ORIGIN = "https://acme.geolens.example"
+
+    @staticmethod
+    def _tenant_request(origin: str | None, tenant_id: object = "t-1"):
+        request = MagicMock()
+        request.headers = {"origin": origin} if origin else {}
+        request.client = SimpleNamespace(host="172.18.0.5")
+        request.state = SimpleNamespace(
+            tenant_id=tenant_id,
+            tenant_public_origin=TestHostedTenantKeepsItsOwnOrigin.TENANT_ORIGIN,
+        )
+        return request
+
+    async def test_a_tenant_host_shares_on_its_own_origin(
+        self, test_db_session: AsyncSession, public_app_url, monkeypatch
+    ):
+        public_app_url("https://fleet.geolens.example")
+        monkeypatch.setattr(public_urls, "is_multi_tenant", lambda: True)
+
+        assert (
+            await public_urls.get_shareable_app_url(
+                test_db_session, request=self._tenant_request(self.TENANT_ORIGIN)
+            )
+            == self.TENANT_ORIGIN
+        ), "a copied /card link on the fleet host arrives without tenant context"
+
+    async def test_single_tenant_still_gets_explicit_only(
+        self, test_db_session: AsyncSession, public_app_url, monkeypatch
+    ):
+        """The tenant branch is gated on the mode that populates it, so nothing
+        about single-tenant changes — including that an unset value stays None
+        rather than being back-filled from PUBLIC_API_URL."""
+        public_app_url(None)
+        monkeypatch.setattr(settings, "public_api_url", "https://api.example.com/api")
+        public_urls.invalidate_public_url_cache()
+
+        assert (
+            await public_urls.get_shareable_app_url(
+                test_db_session, request=self._tenant_request(SELF_HOSTED_ORIGIN)
+            )
+            is None
+        )
+
+    async def test_a_service_host_request_falls_back_to_the_fleet_setting(
+        self, test_db_session: AsyncSession, public_app_url, monkeypatch
+    ):
+        """Hosted, but no resolved tenant — a JWT-scoped request on a trusted
+        service host. The middleware left no tenant_id, so there is no validated
+        tenant origin and the explicit fleet value is the honest answer."""
+        public_app_url("https://fleet.geolens.example")
+        monkeypatch.setattr(public_urls, "is_multi_tenant", lambda: True)
+
+        assert (
+            await public_urls.get_shareable_app_url(
+                test_db_session,
+                request=self._tenant_request(SELF_HOSTED_ORIGIN, tenant_id=None),
+            )
+            == "https://fleet.geolens.example"
+        )
+
+    async def test_the_tenant_origin_still_has_to_pass_the_shape_rule(
+        self, test_db_session: AsyncSession, public_app_url, monkeypatch
+    ):
+        """Validated by middleware is not a reason to skip the shape check —
+        that is how a narrower guarantee gets substituted for a wider one."""
+        public_app_url(None)
+        monkeypatch.setattr(public_urls, "is_multi_tenant", lambda: True)
+        request = self._tenant_request(SELF_HOSTED_ORIGIN)
+        request.state.tenant_public_origin = "ftp://acme.geolens.example"
+
+        assert (
+            await public_urls.get_shareable_app_url(test_db_session, request=request)
+            is None
+        )

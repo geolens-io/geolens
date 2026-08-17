@@ -73,22 +73,39 @@ function parseUsablePublicUrl(url: string): URL | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   if (!parsed.hostname) return null;
   if (parsed.search || parsed.hash) return null;
-  // Checked on the RAW string, not on `parsed.hostname`: this parser has
-  // already decoded `%6D` to `m`, while Python's urlsplit leaves it literal.
-  // Refusing outright is what keeps the two halves from disagreeing.
-  if (url.includes('%')) return null;
+  // fix(#1548 review r9/r10): three refusals, all on the RAW string rather than
+  // on `parsed`, because this parser has already decoded and punycoded by the
+  // time we could look — the raw string is the only view Python can compare
+  // against identically.
+  //
+  //  - PERCENT-ENCODING: this parser decodes `%6D` to `m`; Python's urlsplit
+  //    leaves it literal.
+  //  - BACKSLASH: `https://maps.example.com\@evil.com` is host `evil.com` here
+  //    and host `maps.example.com\` in Python. An origin-confusion primitive,
+  //    not a formatting nit.
+  //  - NON-ASCII: this parser punycodes per WHATWG/UTS #46, while Python's
+  //    built-in idna codec is IDNA2003 and maps `faß.de` to `fass.de` where a
+  //    browser sends `xn--fa-hia.de`. Rather than approximate one from the
+  //    other — a NEAR match denies every request while looking correct — an
+  //    internationalized domain must be configured in its punycode form, which
+  //    is what the browser sends anyway.
+  if (url.includes('%') || url.includes('\\')) return null;
+  // Code-point iteration, matching Python's str.isascii(); a character-class
+  // regex here would need a no-control-regex suppression to say the same thing.
+  if ([...url].some((c) => (c.codePointAt(0) ?? 0) > 127)) return null;
   return parsed;
 }
 
 /**
  * The browser's own spelling of a usable value, or null.
  *
- * fix(#1548 review r9): the configured value and the origin a browser presents
- * have to be the same STRING, not merely the same place. `https://máp.example`
- * is serialized by every browser as `https://xn--mp-mia.example`, and userinfo
- * is never sent at all — so storing the operator's spelling meant the domain
- * lock was issued and then missed on every request. `URL.origin` does IDNA and
- * drops userinfo for us; the backend does the same in `_normalize_origin`.
+ * fix(#1548 review r9/r10): the configured value and the origin a browser
+ * presents have to be the same STRING, not merely the same place. Userinfo is
+ * never sent, a default port is never sent, and the host is lowercased — so
+ * storing the operator's spelling meant the domain lock was issued and then
+ * missed on every request. `URL.origin` normalizes all of that, and the backend
+ * does the same in `_normalize_origin`. An internationalized host is refused
+ * upstream rather than converted, so no IDNA translation happens here.
  *
  * A configured sub-path is preserved, since it is part of where the app lives
  * and both sides drop it before comparing origins.

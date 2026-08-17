@@ -74,15 +74,31 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if not parts.hostname:
         return False
-    # fix(#1548 review r9): percent-encoding is refused OUTRIGHT, and the reason
-    # is that the two sides decode it differently — Python's urlsplit leaves
-    # `https://%6Daps.example.com` with the literal host `%6daps.example.com`,
-    # while the browser URL parser decodes it to `maps.example.com`. Either
-    # spelling could be defended; a value the two halves disagree about cannot,
-    # because that disagreement IS the bug class this rule exists to close.
-    # Unicode hosts are NOT refused: they are canonicalized to their IDNA ASCII
-    # form, which is what a browser sends (see _normalize_origin).
-    if "%" in candidate:
+    # fix(#1548 review r9/r10): three characters/classes are refused OUTRIGHT,
+    # each because the two URL parsers disagree about it — and a value the two
+    # halves read differently is the whole bug class, whichever reading one
+    # prefers.
+    #
+    # * PERCENT-ENCODING. Python's urlsplit leaves `%6Daps.example.com` literal;
+    #   the browser decodes it to `maps.example.com`.
+    # * BACKSLASH. `https://maps.example.com\@evil.com` parses as host
+    #   `maps.example.com\` here and as host `evil.com` in a browser, which
+    #   makes it an origin-confusion primitive rather than a formatting nit.
+    # * NON-ASCII HOST. Refused rather than converted. Python's built-in idna
+    #   codec is IDNA2003: it maps `faß.de` to `fass.de`, while browsers follow
+    #   WHATWG/UTS #46 and send `xn--fa-hia.de`. Approximating that from here
+    #   means deviation characters, transitional processing and registry rules,
+    #   and a NEAR match is worse than none — it denies every request while
+    #   looking correct. An operator with an internationalized domain supplies
+    #   the punycode form, which is unambiguous and is what the browser sends.
+    #
+    # All three are checked on the RAW candidate rather than on the parsed host,
+    # because the browser parser has already decoded and punycoded by the time
+    # its equivalent could look — so the raw string is the only view the two
+    # sides can compare identically.
+    if "%" in candidate or "\\" in candidate:
+        return False
+    if not candidate.isascii():
         return False
     return not parts.query and not parts.fragment
 
@@ -483,6 +499,49 @@ async def get_configured_public_app_url(db: AsyncSession) -> str | None:
     if normalized is None or not is_usable_public_origin(normalized):
         return None
     return normalized
+
+
+async def get_shareable_app_url(
+    db: AsyncSession, *, request: Request | None = None
+) -> str | None:
+    """The origin a browser is served THIS deployment's app from, or None.
+
+    fix(#1548 review r10): "derived" turned out to name two different things,
+    and only one of them is untrustworthy.
+
+    * An ``/api``-stripped ``PUBLIC_API_URL``, or an origin read off the
+      caller's own headers, is INFERRED — nobody checked that a browser is
+      served the app there, and in the header case the caller chose it. Those
+      stay excluded; see ``get_configured_public_app_url``.
+    * ``request.state.tenant_public_origin`` is VALIDATED INFRASTRUCTURE STATE.
+      ``TenantContextMiddleware`` sets it only after the request's Host resolves
+      against the tenant registry, and rejects the request outright when it
+      cannot form a trusted origin. It is the one origin that is definitely
+      right for a hosted tenant, and the fleet-wide ``PUBLIC_APP_URL`` cannot
+      represent a tenant host at all.
+
+    So a hosted tenant request answers with its own validated origin, and
+    everything else answers with the explicit fleet setting or nothing. The
+    condition mirrors the tenant branch of ``get_public_urls`` deliberately,
+    rather than drawing a second line a little differently.
+
+    Callers: share and embed URL generation, which must name a host the
+    RECIPIENT can open. On a tenant host that is the tenant's own origin — a
+    copied ``/card`` link on the fleet host arrives without the tenant context
+    its Host would have carried, and fails closed.
+    """
+    if is_multi_tenant() and request is not None:
+        tenant_id = getattr(request.state, "tenant_id", None)
+        tenant_origin = normalize_public_url(
+            getattr(request.state, "tenant_public_origin", None)
+        )
+        if (
+            tenant_id is not None
+            and tenant_origin is not None
+            and is_usable_public_origin(tenant_origin)
+        ):
+            return tenant_origin
+    return await get_configured_public_app_url(db)
 
 
 async def get_public_app_url(

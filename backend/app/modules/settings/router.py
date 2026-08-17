@@ -30,9 +30,9 @@ from app.core.persistent_config import (
 from app.platform.ratelimit import limiter
 from app.core.public_urls import (
     _is_env_only,
-    get_configured_public_app_url,
     get_public_api_url,
     get_public_app_url,
+    get_shareable_app_url,
 )
 from app.core.db.models import AppSetting
 from app.core.db.tenant_schema import tenant_data_schema
@@ -1168,15 +1168,18 @@ async def get_tile_config(
     db: AsyncSession = Depends(get_db),
 ) -> TileConfigResponse:
     """Return tile delivery configuration (public, no auth required)."""
-    # fix(#1548 review r9): the EXPLICIT setting, not the resolver. This field's
-    # only consumer is share-URL generation (frontend/src/lib/public-urls.ts),
-    # and a resolver-derived value is not the origin a browser presents when it
-    # loads the embed shell: it can be an ``/api``-stripped PUBLIC_API_URL for a
-    # split app/API deployment, or the caller's own request headers. Handing
-    # either to the share builder produces /m/ and /card links pointing at a host
-    # that does not serve them. Null when unset, which that module treats as
-    # unconfigured — fall back for ordinary shares, suppress a locked preview.
-    public_app_url = await get_configured_public_app_url(db)
+    # fix(#1548 review r9/r10): not the resolver. This field's only consumer is
+    # share-URL generation (frontend/src/lib/public-urls.ts), and a resolver
+    # INFERRED value is not the origin a browser presents when it loads the
+    # embed shell: it can be an ``/api``-stripped PUBLIC_API_URL for a split
+    # app/API deployment, or the caller's own request headers. Handing either to
+    # the share builder produces /m/ and /card links pointing at a host that does
+    # not serve them. A hosted tenant's ``tenant_public_origin`` is a different
+    # thing — middleware-validated against the tenant registry, and the only
+    # origin that is right there — so get_shareable_app_url returns it and falls
+    # back to the explicit fleet setting otherwise. Null when neither exists,
+    # which that module treats as unconfigured.
+    public_app_url = await get_shareable_app_url(db, request=request)
     public_api_url = await get_public_api_url(db, request=request)
     tenant_id = getattr(getattr(request, "state", None), "tenant_id", None)
     mvt_source_layer_prefix = (
