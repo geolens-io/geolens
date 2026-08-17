@@ -2875,8 +2875,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # function (#1579's drift check has to run while the write still holds its
     # lock). fix(#1581): the batch counts the rows it wrote rather than the
     # texts it was handed, and hands the unanswered tail to the per-record
-    # retry. Cap 1225 -> 1371, exact.
-    "backend/app/processing/embeddings/backfill.py": 1371,
+    # retry. fix(#1549 review): +36 more — a strict zip, so a provider that
+    # skips a middle input fails the batch into the alignment-safe per-record
+    # retry instead of pairing a record with someone else's vector; and the
+    # end-of-run reclamation bounded to rows that predate the run, so a vector
+    # the ingest path wrote mid-run survives it. fix(#1583 review): +23 more —
+    # writes stamp `updated_at` with `clock_timestamp()` on BOTH the insert and
+    # the conflict branch, because `now()` is transaction-start time and a batch
+    # that spends a provider call in its transaction would otherwise record a
+    # time from before it asked, which #1583's `updated_at DESC` anchor reads as
+    # the wrong row. Cap 1225 -> 1430, exact.
+    "backend/app/processing/embeddings/backfill.py": 1430,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

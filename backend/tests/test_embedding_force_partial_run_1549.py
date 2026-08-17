@@ -24,7 +24,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
@@ -238,17 +238,22 @@ async def test_a_short_provider_response_is_counted_and_retried(
     restore_embedding_config,
     monkeypatch,
 ):
-    """fix(#1581): `zip` truncates silently, so `created` has to count rows.
+    """fix(#1581): a short provider answer fails the batch and is retried.
 
-    A provider that answers with fewer vectors than it was given texts drops
-    the tail: `zip(batch, vectors)` stops at the shorter side. Counting
-    `len(batch)` then reported coverage for records that never got a row, and
-    #1550's "errors and nothing created" guard cannot fire on a run that claims
-    it created everything, so the overstatement survives the one check that
-    would have caught it.
+    `zip` stopping at the shorter side had two consequences and the quiet one
+    is worse. Counting `len(batch)` reported coverage for records that never
+    got a row, and #1550's "errors and nothing created" guard cannot fire on a
+    run claiming it created everything. But a provider that skips a MIDDLE
+    input answers `[v1, v3]` for `[t1, t2, t3]`, and a truncating zip then
+    pairs the second record with the third vector: a permanently wrong vector
+    under a valid content hash and a valid stamp, which nothing downstream can
+    detect.
 
-    Both halves are asserted: the count equals the rows that actually exist,
-    and the record the provider skipped is retried rather than abandoned.
+    fix(#1581 review): so a length mismatch is a batch FAILURE now
+    (`zip(..., strict=True)`), and the batch goes to the per-record retry where
+    `[vector] = ...` cannot pair a text with another text's vector. This test
+    drives the short answer and asserts the outcome that matters either way:
+    every record ends up covered, and `created` equals what was written.
     """
     session = test_db_session
     await EMBEDDING_MODEL.set(session, _MODEL)
@@ -263,23 +268,27 @@ async def test_a_short_provider_response_is_counted_and_retried(
         batch_size=2,
     )
 
-    calls = {"batched": 0}
+    calls = {"batched": 0, "singles": 0}
 
     async def _fake_batch(texts, sess, *, model, dimensions, base_url):
         if texts == [backfill_module._PREFLIGHT_TEXT]:
             return [[1.0] + [0.0] * (_DIMS - 1)]
         if len(texts) > 1:
-            # The batch call: one vector short, which is what `zip` swallows.
+            # The batch call: one vector short, which is what a truncating zip
+            # swallowed and a strict one refuses.
             calls["batched"] += 1
             return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts[:-1]]
+        calls["singles"] += 1
         return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
 
     monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
 
     result = await backfill_module.backfill_embeddings(session, force=True)
 
-    # Non-vacuity: the short answer really was served.
+    # Non-vacuity: the short answer really was served, and the batch really did
+    # fall through to the per-record retry rather than writing a partial batch.
     assert calls["batched"] == 1
+    assert calls["singles"] == 2
 
     # Count records this run actually WROTE a vector for, which is not the same
     # as counting rows: the skipped record still holds its seeded one, so a
@@ -380,6 +389,215 @@ async def test_a_completed_force_run_drops_a_vector_it_cannot_regenerate(
     assert result["skipped"] == 1
     await _assert_replaced(session, embeddable, marker="Still Embeddable")
     assert await _rows_for(session, emptied) == []
+
+
+@pytest.mark.anyio
+async def test_reclamation_spares_a_vector_written_during_the_run(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1549 review): the end-of-run pass acts on a start-of-run observation.
+
+    A record with no embeddable text is noted as skipped when the run reads the
+    catalog, and its stale vector is reclaimed at the END so an aborted run does
+    not touch it. Between those two moments an editor can give the record a
+    title, and the ingest path then writes it a fresh, correctly stamped vector.
+    Deleting that row would throw away a current vector on the strength of an
+    observation made minutes earlier. The old bulk delete could not reach this
+    case because it ran before any such write could exist.
+
+    `started_at` is what bounds the delete to rows that predate the run. The
+    write is simulated by touching `updated_at` to now, which is exactly what
+    the ingest path's write does to that column.
+
+    Counterfactual: drop `written_before=started_at` and the fresh row is
+    deleted.
+    """
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    embeddable = await _seed(session, "Reclaim Keeps Embeddable")
+    edited = await _seed(session, "Reclaim Edited Mid Run")
+    _pin_run(
+        monkeypatch,
+        [
+            _as_record(embeddable, title="Reclaim Keeps Embeddable"),
+            # Read as empty when the run took its view of the catalog.
+            _as_record(edited, title=None),
+        ],
+    )
+
+    async def _fake_batch(texts, sess, *, model, dimensions, base_url):
+        if texts != [backfill_module._PREFLIGHT_TEXT]:
+            # Mid-run: the record the run wrote off as empty gets edited, and
+            # the ingest path writes it a current vector. `updated_at` moving to
+            # now is what that write leaves behind.
+            # `clock_timestamp()`, matching what a write actually stamps
+            # (fix(#1583 review)). Writing `now()` here made this test fail, and
+            # instructively: `now()` is transaction-START time, the session's
+            # transaction was already open when the run read `started_at`, so
+            # the "mid-run" write got a stamp EARLIER than the run began and was
+            # reclaimed. That is precisely the inversion #1583 hit through the
+            # related-items anchor, reproduced by accident.
+            await sess.execute(
+                text(
+                    "UPDATE catalog.record_embeddings "
+                    "SET updated_at = clock_timestamp(), "
+                    "content_hash = 'written-during-the-run' "
+                    "WHERE record_id = :record_id"
+                ),
+                {"record_id": edited},
+            )
+            await sess.commit()
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
+
+    result = await backfill_module.backfill_embeddings(session, force=True)
+
+    assert result["skipped"] == 1
+    # The record that still had content was replaced, as always.
+    await _assert_replaced(session, embeddable, marker="Reclaim Keeps Embeddable")
+    # And the vector written DURING the run survived the reclamation.
+    assert await _rows_for(session, edited) == [
+        (_MODEL_BEFORE, "written-during-the-run")
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_written_row_is_stamped_when_it_was_written_not_when_the_run_began(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1583 review): `updated_at` has to be wall-clock, not transaction-start.
+
+    PostgreSQL's `now()` is the start of the enclosing TRANSACTION. A batch
+    opens one, spends the length of a provider call inside it, and only then
+    writes, so a row stamped with `now()` claims a time from before the provider
+    was even asked. Any job that started and committed while this one was
+    waiting then looks NEWER. #1583 orders the related-items anchor by
+    `updated_at DESC`, which turns that inversion into the wrong anchor.
+
+    The provider call runs inside the batch's transaction, so reading both
+    clocks from there gives the two candidate stamps directly: `now()` is what
+    the defect would record, `clock_timestamp()` is the truth. The row has to be
+    strictly later than the first.
+
+    Counterfactual: set `updated_at` back to `func.now()` in
+    `_upsert_embeddings` and the assertion below fails with the two equal.
+    """
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    dataset = await _seed(session, "Clock Stamp DS")
+    _pin_run(monkeypatch, [_as_record(dataset, title="Clock Stamp DS")])
+
+    seen: dict[str, object] = {}
+
+    async def _fake_batch(texts, sess, *, model, dimensions, base_url):
+        if texts != [backfill_module._PREFLIGHT_TEXT]:
+            # Inside the batch's transaction, which is the whole point.
+            seen["transaction_start"] = (
+                await sess.execute(text("SELECT now()"))
+            ).scalar_one()
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
+
+    result = await backfill_module.backfill_embeddings(session, force=True)
+    assert result["created"] == 1
+
+    stamped = (
+        await session.execute(
+            select(RecordEmbedding.updated_at).where(
+                RecordEmbedding.record_id == dataset
+            )
+        )
+    ).scalar_one()
+
+    # Non-vacuity: the run really did pass through the batch path.
+    assert "transaction_start" in seen
+    # The row is stamped for when it was written, so it sorts after anything
+    # that committed while this transaction was open.
+    assert stamped > seen["transaction_start"]
+
+
+@pytest.mark.anyio
+async def test_a_retry_write_that_aborts_leaves_the_row_it_was_replacing(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """The retry path's delete and write roll back together, like the batch's.
+
+    Every other test on this path rejects BEFORE the write, so none of them
+    exercises a rollback that has to undo a delete already issued in the same
+    transaction. This one lets the write happen and then trips the drift check
+    that #1579 placed between the write and the commit, which is the only point
+    where the delete is on the wire and uncommitted.
+
+    The drift is injected rather than published through `PersistentConfig.set`,
+    and that is not a shortcut: the setter COMMITS. Calling it here would commit
+    the pending delete and row it is supposed to prove get rolled back, and the
+    test would pass while asserting the opposite of what it claims. Every other
+    test in this file lands its edit inside the provider call, where nothing is
+    pending yet, which is why they can use the real setter and this one cannot.
+    `_PinDrift` is the exact exception the production path raises at this point,
+    and what is under test is the rollback, not the detection that precedes it.
+    """
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    dataset = await _seed(session, "Retry Rollback DS")
+    _pin_run(monkeypatch, [_as_record(dataset, title="Retry Rollback DS")])
+
+    original_replace = backfill_module._replace_embeddings
+    original_drift = backfill_module._raise_on_pin_drift
+    tripped = {"written": False}
+
+    async def _replace_and_arm(sess, rows, *, record_orm=None):
+        await original_replace(sess, rows, record_orm=record_orm)
+        tripped["written"] = True
+
+    async def _drift_after_write(sess, pinned_config, processed, **kwargs):
+        if tripped["written"]:
+            # The delete and the row are both on the wire and uncommitted; this
+            # is the only moment where that is true.
+            raise backfill_module._PinDrift(
+                f"the embedding model changed to {_MODEL_AFTER!r}"
+            )
+        return await original_drift(sess, pinned_config, processed, **kwargs)
+
+    monkeypatch.setattr(backfill_module, "_replace_embeddings", _replace_and_arm)
+    monkeypatch.setattr(backfill_module, "_raise_on_pin_drift", _drift_after_write)
+
+    calls = {"n": 0}
+
+    async def _fake_batch(texts, sess, *, model, dimensions, base_url):
+        if texts == [backfill_module._PREFLIGHT_TEXT]:
+            return [[1.0] + [0.0] * (_DIMS - 1)]
+        calls["n"] += 1
+        if calls["n"] == 1:
+            # Fail the batch so the run reaches the per-record retry, which is
+            # the path under test.
+            raise RuntimeError("batch rejected")
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
+
+    with pytest.raises(RuntimeError):
+        await backfill_module.backfill_embeddings(session, force=True)
+
+    # Non-vacuity: the retry really did write before the abort.
+    assert tripped["written"]
+    # The delete rolled back with the row it was paired with, so the record
+    # still holds what it started with.
+    await _assert_untouched(session, dataset, marker="Retry Rollback DS")
 
 
 @pytest.mark.anyio
