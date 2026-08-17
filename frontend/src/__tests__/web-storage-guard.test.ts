@@ -104,6 +104,76 @@ function isGuarded(node: ts.Node): boolean {
   return false;
 }
 
+/**
+ * fix(#1545 codex P2): destructuring evaluates the getter too.
+ *
+ * `const { sessionStorage: store } = window` throws exactly like
+ * `window.sessionStorage` does, because binding the property reads it. The
+ * storage name sits in a key position there, which `isNonValuePosition` below
+ * classifies as a name rather than a read, so the whole family slipped through
+ * as a FALSE NEGATIVE. That contradicted this file's own invariant, and false
+ * negatives are the one thing this walk promises not to have.
+ *
+ * Five forms were missed, not the one that was reported:
+ *   const { sessionStorage: s } = window          BindingElement.propertyName
+ *   function f({ sessionStorage: s } = window)    BindingElement.propertyName
+ *   const { a: { sessionStorage: s } } = obj      BindingElement.propertyName
+ *   const { ['sessionStorage']: s } = window      ComputedPropertyName
+ *   ({ sessionStorage: s } = window)              PropertyAssignment.name
+ *
+ * The unrenamed forms (`const { sessionStorage } = window`) were already caught,
+ * by falling through this function rather than by design, and the fixtures now
+ * pin that so it cannot regress silently.
+ *
+ * Deliberately NOT conditioned on the initializer being a global. The review
+ * suggested flagging only when destructuring from `window`/`globalThis`, which
+ * is more precise and reintroduces the same class of hole: `const w = window;
+ * const { sessionStorage: s } = w;` would read as safe. A destructuring key
+ * named `sessionStorage`/`localStorage` on a non-global object is close to
+ * nonexistent in real code, and flagging it is a false positive, which this
+ * walk already accepts. Precision here would be bought with the invariant.
+ */
+function isDestructuringTarget(node: ts.Node): boolean {
+  let child: ts.Node = node;
+  let parent: ts.Node | undefined = node.parent;
+  while (parent) {
+    // `({ sessionStorage: s } = window)` — the pattern is the assignment's LHS.
+    if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      return child === parent.left;
+    }
+    // Keep climbing through nested patterns; anything else means this object
+    // literal is a value, not a target, so `const o = { localStorage: 1 }` stays
+    // unflagged.
+    if (
+      ts.isObjectLiteralExpression(parent) ||
+      ts.isArrayLiteralExpression(parent) ||
+      ts.isPropertyAssignment(parent) ||
+      ts.isSpreadAssignment(parent) ||
+      ts.isParenthesizedExpression(parent)
+    ) {
+      child = parent;
+      parent = parent.parent;
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
+
+/** The storage name in a property-key position, in any of the spellings a key takes. */
+function storageNameOfKey(key: ts.Node): string | null {
+  if (ts.isIdentifier(key) && STORAGE_NAMES.has(key.text)) return key.text;
+  if (ts.isStringLiteralLike(key) && STORAGE_NAMES.has(key.text)) return key.text;
+  if (
+    ts.isComputedPropertyName(key) &&
+    ts.isStringLiteralLike(key.expression) &&
+    STORAGE_NAMES.has(key.expression.text)
+  ) {
+    return key.expression.text;
+  }
+  return null;
+}
+
 /** Identifier positions that are names rather than value reads. */
 function isNonValuePosition(node: ts.Identifier): boolean {
   const p = node.parent;
@@ -112,6 +182,12 @@ function isNonValuePosition(node: ts.Identifier): boolean {
   if (ts.isPropertySignature(p) && p.name === node) return true;
   if (ts.isPropertyDeclaration(p) && p.name === node) return true;
   if (ts.isBindingElement(p) && p.propertyName === node) return true;
+  // `const { foo: sessionStorage } = cfg` binds a local that merely shares the
+  // name; the key `foo` is what gets read. Only the SHORTHAND form
+  // (`const { sessionStorage } = window`, no propertyName) has the name double
+  // as the key, and that one must stay a read. Both sit at BindingElement.name,
+  // so this distinction is the only thing separating them.
+  if (ts.isBindingElement(p) && p.name === node && p.propertyName !== undefined) return true;
   if (ts.isImportSpecifier(p) || ts.isExportSpecifier(p)) return true;
   if (ts.isTypeReferenceNode(p)) return true;
   if (ts.isVariableDeclaration(p) && p.name === node) return true;
@@ -128,8 +204,11 @@ interface Access {
 
 /**
  * Every form that reads the storage property, since reading it is the throw:
- * `sessionStorage.x`, `window.sessionStorage`, `window['sessionStorage']`, and
- * a bare `const s = sessionStorage` alias.
+ * `sessionStorage.x`, `window.sessionStorage`, `window['sessionStorage']`, a
+ * bare `const s = sessionStorage` alias, and every destructuring spelling
+ * (`const { sessionStorage: s } = window` and friends) — see
+ * `isDestructuringTarget` for why that family needed its own handling, and for
+ * the one it deliberately over-flags.
  */
 function collectAccesses(file: string, source: string): Access[] {
   const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -147,6 +226,19 @@ function collectAccesses(file: string, source: string): Access[] {
       STORAGE_NAMES.has(node.argumentExpression.text)
     ) {
       hit = node;
+    }
+    // Destructuring key positions. A BindingElement is always a pattern, so its
+    // propertyName needs no further test; an object literal is only a pattern
+    // when it is an assignment target.
+    if (ts.isBindingElement(node) && node.propertyName && storageNameOfKey(node.propertyName)) {
+      hit = node.propertyName;
+    }
+    if (
+      ts.isPropertyAssignment(node) &&
+      storageNameOfKey(node.name) &&
+      isDestructuringTarget(node)
+    ) {
+      hit = node.name;
     }
     if (hit) {
       const { line } = sf.getLineAndCharacterOfPosition(hit.getStart(sf));
@@ -217,6 +309,18 @@ describe('#1536: detector fixtures', () => {
     ['callback declared inside try', `try { on('x', () => sessionStorage.getItem('k')); } catch {}`],
     ['inside catch block', `try { g(); } catch { sessionStorage.setItem('k', 'v'); }`],
     ['inside finally block', `try { g(); } finally { sessionStorage.setItem('k', 'v'); }`],
+    // fix(#1545 codex P2): the destructuring family. Binding the property runs
+    // the getter, so every one of these throws under an opaque origin. The
+    // renamed forms were the false negative; the unrenamed ones are pinned here
+    // because they passed by falling through rather than by design.
+    ['renamed destructuring', `const { sessionStorage: store } = window;`],
+    ['unrenamed destructuring', `const { sessionStorage } = window;`],
+    ['renamed destructuring in a parameter', `function f({ sessionStorage: s } = window) { return s; }`],
+    ['unrenamed destructuring in a parameter', `function f({ sessionStorage } = window) {}`],
+    ['nested destructuring', `const { a: { sessionStorage: s } } = obj;`],
+    ['computed-key destructuring', `const { ['sessionStorage']: s } = window;`],
+    ['assignment destructuring', `let s; ({ sessionStorage: s } = window);`],
+    ['shorthand assignment destructuring', `let sessionStorage; ({ sessionStorage } = window);`],
   ])('flags %s', (_name, src) => {
     expect(detected(src)).toBe(1);
     expect(unguarded(src)).toBe(1);
@@ -229,6 +333,7 @@ describe('#1536: detector fixtures', () => {
       'a function whose body is a try',
       `function f() { try { return sessionStorage.getItem('k'); } catch { return null; } }`,
     ],
+    ['destructuring inside a try', `try { const { sessionStorage: s } = window; use(s); } catch {}`],
   ])('accepts %s', (_name, src) => {
     expect(detected(src)).toBe(1);
     expect(unguarded(src)).toBe(0);
@@ -240,6 +345,12 @@ describe('#1536: detector fixtures', () => {
     ['a string literal', `const msg = 'sessionStorage.getItem failed';`],
     ['a helper call', `import { readSessionStorage } from '@/lib/storage'; readSessionStorage('k');`],
     ['an object literal key', `const o = { localStorage: 1 };`],
+    ['a nested object literal key', `const o = { cfg: { sessionStorage: 'off' } };`],
+    // The counterpart to the renamed-destructuring fix: here the KEY is `foo`,
+    // so nothing reads the global. Both this and the shorthand form put the
+    // storage word at BindingElement.name, so this pins the one distinction
+    // that separates a false positive from a real access.
+    ['a local renamed FROM a non-storage key', `const { foo: sessionStorage } = cfg;`],
     ['a type annotation', `let s: Storage | null = null;`],
   ])('ignores %s', (_name, src) => {
     expect(detected(src)).toBe(0);
