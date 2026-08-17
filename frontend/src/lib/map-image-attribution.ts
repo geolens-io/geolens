@@ -61,6 +61,9 @@ export interface AttributionMapLike {
   /** The 3D terrain in effect, whose source renders with no style layer of its
    *  own. Public MapLibre API; see `shownSourceIds`. */
   getTerrain?: () => { source?: unknown } | null | undefined;
+  /** The current zoom, against which a layer's zoom range is judged. Also
+   *  public, also only used to order; see `shownSourceIds`. */
+  getZoom?: () => number | undefined;
 }
 
 function attributionFont(fontPx: number): string {
@@ -82,8 +85,8 @@ function attributionFont(fontPx: number): string {
  * the accessible alternatives a sighted user is reading:
  *
  *   text nodes        as written
- *   <img>             alt, else aria-label, else title, else a placeholder
- *   any element       its own text; if it has none, aria-label then title
+ *   <img>             aria-label, else alt, else title, else a placeholder
+ *   any element       its own text; if it has none, the same three attributes
  *   <br> and blocks   a visual break, so credits do not run together
  *
  * The generic element rule is what makes `<svg role="img" aria-label="…">`
@@ -115,10 +118,24 @@ const BLOCK_CREDIT_TAGS = new Set([
  *  the way a printable delimiter would. */
 const BREAK = '\u0000';
 
-/** The text alternative an assistive technology would announce for `el`, in
- *  the order the accessible name is computed from these three attributes. */
+/**
+ * The text alternative an assistive technology would announce for `el`.
+ *
+ * fix(#1541 codex P2 round 7): `aria-label` OVERRIDES `alt`, it does not follow
+ * it. The accessible name computation takes ARIA first, the host-language
+ * attribute second, `title` only as a fallback, and the realistic markup for a
+ * provider logo is exactly the case the old order got wrong:
+ * `<img alt="Provider logo" aria-label="© Provider 2026">` drew "Provider logo"
+ * into every exported image while the credit sat in the label.
+ *
+ * `aria-labelledby` outranks all three in the real algorithm and is NOT
+ * resolved here: it points at element ids, which for the string path would have
+ * to resolve inside a parsed fragment that has no document to resolve against.
+ * A credit that names itself only by id reference is unattested in practice,
+ * and it degrades to the `alt`/`title` it is layered over rather than vanishing.
+ */
 function textAlternative(el: Element): string | null {
-  for (const attr of ['alt', 'aria-label', 'title']) {
+  for (const attr of ['aria-label', 'alt', 'title']) {
     const value = el.getAttribute(attr);
     if (value !== null && value.trim()) return value;
   }
@@ -308,12 +325,12 @@ function dedupe(entries: string[]): string[] {
  * there is room — the over-crediting property is intact — and what the marker
  * elides first is now the hidden sources, which is the correct thing to lose.
  *
- * `shownSourceIds` is a deliberately coarse approximation of `used`, from
- * public signals: the terrain source plus every source referenced by a layer
- * that is not `visibility: none`. It ignores zoom ranges, so it over-reports.
- * That costs nothing, because the answer only ORDERS the list — a source it
- * gets wrong is mis-sorted, never dropped. See its own comment for why the
- * internal `used`/`usedForTerrain` flags are not read.
+ * `shownSourceIds` is an explicit approximation of `used`/`usedForTerrain` from
+ * public signals — layer visibility, layer zoom range, terrain — with the gaps
+ * it does not model named in its own comment rather than left to be discovered.
+ * Every one of them errs toward calling a source shown, which costs nothing:
+ * the answer only ORDERS the list, so a source it gets wrong is mis-sorted,
+ * never dropped.
  *
  * One cost of preferring (1), accepted:
  *
@@ -332,37 +349,75 @@ function dedupe(entries: string[]): string[] {
  */
 interface AttributionStyle {
   sources?: Record<string, { attribution?: string | null } | null>;
-  layers?: ({ source?: unknown; layout?: { visibility?: string } | null } | null)[];
+  layers?: ({
+    source?: unknown;
+    layout?: { visibility?: string } | null;
+    minzoom?: unknown;
+    maxzoom?: unknown;
+  } | null)[];
 }
 
 /**
- * Source ids that are rendering, from PUBLIC MapLibre signals: the terrain
- * source, plus every source a style layer references that is not
- * `visibility: none`.
+ * Source ids that are rendering. AN APPROXIMATION OF MAPLIBRE'S `used` /
+ * `usedForTerrain`, computed from public signals, and stated as one so the next
+ * gap in it is a known limit rather than a bug report.
  *
- * fix(#1541 codex P2 round 6): layer references alone missed the one kind of
- * source that renders without a layer. `ensureRasterDemTerrainSource`
- * (map-sync.ts) creates an attributed source with no layer and lets MapLibre
- * count it through `usedForTerrain`, so a 3D-terrain credit — for content
- * plainly visible in the image — sat in the hidden group and could lose its
- * slot to a credit for something invisible.
+ * The live flags are NOT reachable as public API. They live on the internal
+ * per-source cache reached through `map.style`, and the collection holding them
+ * is `Style.tileManagers` in maplibre-gl 5.24 where it was `sourceCaches`
+ * before — an internal name that has already been renamed once under us. So
+ * this recomputes them from what `getStyle()`, `getZoom()` and `getTerrain()`
+ * expose.
  *
- * Which signal, and why this one. MapLibre's own `used`/`usedForTerrain` is the
- * thing itself rather than a proxy, and it is NOT reachable as public API: the
- * flags live on the internal per-source cache, reached through `map.style`, and
- * the collection holding them is `Style.tileManagers` in maplibre-gl 5.24 where
- * it was `sourceCaches` before — an internal name that has already been renamed
- * once under us. Set against that, reading it buys nothing here. The answer
- * only ORDERS, so a signal can help only by marking a source shown, and every
- * source `used` marks is one a visible layer references, while every source
- * `usedForTerrain` marks is the one `getTerrain()` names. The internal flags
- * would differ only by DEMOTING a source whose layers are all out of the
- * current zoom range — the one direction that can cost a real credit its
- * place, in exchange for a dependency on a name that moves between versions.
+ * WHAT IT MODELS, which is MapLibre's own definition of the flag — "at least
+ * one of its layers becomes visible in style sense (inside the layer's zoom
+ * range and with layout.visibility set to 'visible')", and in the source
+ * `!layer.isHidden(zoom) && layer.source && tileManagers[layer.source].used =
+ * true`, where `isHidden` is `zoom < minzoom || zoom >= maxzoom || visibility
+ * === 'none'`:
  *
- * So this over-reports (it ignores zoom ranges) and that is the safe way to be
- * wrong: a source it misjudges is mis-sorted, never dropped.
+ *   - `layout.visibility` (fix(#1541 codex P1))
+ *   - the layer's zoom range (fix(#1541 codex P2 round 7)), with MapLibre's own
+ *     boundary semantics: minzoom inclusive, maxzoom exclusive, and a zero
+ *     treated as absent exactly as its truthiness test does. Read from the
+ *     serialized `minzoom`/`maxzoom`, not the builder-private
+ *     `_minzoom`/`_maxzoom`, which `stripPrivateLayoutKeys` removes before
+ *     MapLibre sees them and which reach the style through `setLayerZoomRange`.
+ *   - terrain (fix(#1541 codex P2 round 6)), whose source renders with NO style
+ *     layer at all: `ensureRasterDemTerrainSource` creates an attributed source
+ *     that only `usedForTerrain` counts, so layer references alone put a credit
+ *     for plainly visible 3D relief in the hidden group.
+ *
+ * WHAT IT DOES NOT MODEL. Neither does `used` — these make a source render
+ * nothing while MapLibre still counts it used, so reading the live flag would
+ * not close them either:
+ *
+ *   - a layer `filter` that matches no feature
+ *   - zero opacity, or paint that renders invisibly
+ *   - tiles that are empty, absent, or outside the viewport
+ *
+ * And two that are ours alone:
+ *
+ *   - anything not in the serialized style, since `getStyle()` is the input
+ *   - timing: MapLibre recomputes per frame, this reads once at capture
+ *
+ * Every one of those errs toward calling a source SHOWN, which is the safe way
+ * to be wrong: the answer only ORDERS the credit list, so a source it misjudges
+ * is mis-sorted, never dropped.
  */
+function layerHiddenAtZoom(
+  layer: { minzoom?: unknown; maxzoom?: unknown },
+  zoom: number | undefined,
+): boolean {
+  if (typeof zoom !== 'number' || !Number.isFinite(zoom)) return false;
+  const { minzoom, maxzoom } = layer;
+  // The `&&` mirrors MapLibre's own truthiness test, under which a zero bound
+  // is no bound at all.
+  if (typeof minzoom === 'number' && minzoom && zoom < minzoom) return true;
+  if (typeof maxzoom === 'number' && maxzoom && zoom >= maxzoom) return true;
+  return false;
+}
+
 function shownSourceIds(
   map: AttributionMapLike,
   style: AttributionStyle | null | undefined,
@@ -370,8 +425,11 @@ function shownSourceIds(
   const shown = new Set<string>();
   const terrainSource = map.getTerrain?.()?.source;
   if (typeof terrainSource === 'string') shown.add(terrainSource);
+  // Absent `getZoom` leaves every layer in range, per the over-report rule.
+  const zoom = map.getZoom?.();
   for (const layer of style?.layers ?? []) {
     if (!layer || layer.layout?.visibility === 'none') continue;
+    if (layerHiddenAtZoom(layer, zoom)) continue;
     if (typeof layer.source === 'string') shown.add(layer.source);
   }
   return shown;

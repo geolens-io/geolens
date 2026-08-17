@@ -233,12 +233,29 @@ describe('readRenderedAttribution', () => {
     ]);
   });
 
-  it('prefers alt over aria-label over title', () => {
+  it('prefers aria-label over alt over title', () => {
+    // fix(#1541 codex P2 round 7): ARIA OVERRIDES the host-language attribute
+    // in the accessible name computation; it does not follow it.
     expect(
       readRenderedAttribution(
         sourcesMap('<img src="https://a.example/l.png" alt="© Alt" aria-label="© Aria" title="© Title">'),
       ),
+    ).toEqual(['© Aria']);
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<img src="https://a.example/l.png" alt="© Alt" title="© Title">'),
+      ),
     ).toEqual(['© Alt']);
+  });
+
+  it('draws the ARIA credit, not the generic alt text a logo carries', () => {
+    // The realistic markup: alt names the picture, aria-label carries the
+    // credit. The old order drew "Provider logo" into every exported image.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<img src="https://a.example/l.png" alt="Provider logo" aria-label="© Provider 2026">'),
+      ),
+    ).toEqual(['© Provider 2026']);
   });
 
   it('keeps text around an image credit rather than replacing it', () => {
@@ -491,6 +508,83 @@ describe('readRenderedAttribution', () => {
       ),
     );
     expect(credits).toEqual(['© Other', '© Shared']);
+  });
+
+  /* fix(#1541 codex P2 round 7): the zoom range is the other half of
+   * MapLibre's own `isHidden`, so a visible layer outside its range leaves its
+   * source unused — and could displace the credit for what IS rendering. */
+
+  function zoomedMap(
+    sources: Record<string, string>,
+    layers: { source: string; minzoom?: number; maxzoom?: number }[],
+    zoom: number,
+  ) {
+    return {
+      ...mapWithControl(null),
+      getZoom: () => zoom,
+      getStyle: () => ({
+        sources: Object.fromEntries(
+          Object.entries(sources).map(([id, attribution]) => [id, { attribution }]),
+        ),
+        layers: layers.map(({ source, minzoom, maxzoom }, i) => ({
+          id: `layer-${i}`,
+          source,
+          layout: {},
+          ...(minzoom === undefined ? {} : { minzoom }),
+          ...(maxzoom === undefined ? {} : { maxzoom }),
+        })),
+      }),
+    };
+  }
+
+  it('treats a visible layer outside its zoom range as not shown', () => {
+    const credits = readRenderedAttribution(
+      zoomedMap(
+        { tooDeep: '© Out Of Range', live: '© In Range' },
+        [
+          { source: 'tooDeep', minzoom: 14 },
+          { source: 'live' },
+        ],
+        8,
+      ),
+    );
+    expect(credits).toEqual(['© In Range', '© Out Of Range']);
+  });
+
+  it('uses MapLibre\'s own boundary semantics: minzoom inclusive, maxzoom exclusive', () => {
+    // At zoom 10 exactly: a layer with minzoom 10 renders, one with maxzoom 10
+    // does not. Mirrors `isHidden`: zoom < minzoom || zoom >= maxzoom.
+    const atBoundary = readRenderedAttribution(
+      zoomedMap(
+        { ending: '© Ends Here', starting: '© Starts Here' },
+        [
+          { source: 'ending', maxzoom: 10 },
+          { source: 'starting', minzoom: 10 },
+        ],
+        10,
+      ),
+    );
+    expect(atBoundary).toEqual(['© Starts Here', '© Ends Here']);
+  });
+
+  it('treats a zero bound as no bound, as MapLibre does', () => {
+    // `!!(this.minzoom && ...)` — a zero minzoom is falsy and never hides.
+    const credits = readRenderedAttribution(
+      zoomedMap({ zeroBound: '© Zero Min', other: '© Other' }, [
+        { source: 'zeroBound', minzoom: 0 },
+        { source: 'other' },
+      ], 0),
+    );
+    expect(credits).toEqual(['© Zero Min', '© Other']);
+  });
+
+  it('leaves every layer in range when the map exposes no zoom', () => {
+    // Over-report rather than demote: the partial mocks the builder suites
+    // pass have no getZoom, and a missing signal must not hide a credit.
+    const credits = readRenderedAttribution(
+      layeredMap({ a: '© Shown', b: '© Also Shown' }, [{ source: 'a' }, { source: 'b' }]),
+    );
+    expect(credits).toEqual(['© Shown', '© Also Shown']);
   });
 
   it('leaves a style with no layers in its declared order', () => {
