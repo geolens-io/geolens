@@ -25,6 +25,7 @@ from app.core.persistent_config import (
     ENTERPRISE_ONLY_TABS,
     PASSWORD_LOGIN_ENABLED,
     _registry,
+    apply_side_effects_batch,
 )
 from app.platform.ratelimit import limiter
 from app.core.public_urls import _is_env_only, get_public_api_url, get_public_app_url
@@ -494,8 +495,12 @@ async def update_settings(
     # invalidation, _on_change runtime hooks, sync rate-limit warm) so a
     # rollback can't leave process-local state diverged from the DB. Apply
     # them now that the batch is durable.
-    for key, value in validated_settings.items():
-        await registry_map[key].apply_side_effects(value)
+    # fix(#1543): as ONE step, not a per-key loop — the loop left a window in
+    # which a reader saw the already-evicted keys at their new values and the
+    # rest at their cached old ones.
+    await apply_side_effects_batch(
+        [(registry_map[key], value) for key, value in validated_settings.items()]
+    )
 
     # Rebuild column + index when embedding dimensions change. An auto-detected
     # width reaches this branch too (#1529): it was added to validated_settings
@@ -521,9 +526,14 @@ async def update_settings(
                     db, old_model_value, user_id=user.id, ip_address=ip, commit=False
                 )
             await db.commit()
-            await EMBEDDING_DIMS.apply_side_effects(old_dims_value)
+            # fix(#1543): and in ONE step, for the same reason the rollback is
+            # one transaction. Evicting the two keys in sequence would put the
+            # mismatched pair back into readable state on the way out of a
+            # rollback whose whole purpose is to prevent it.
+            rolled_back: list[tuple] = [(EMBEDDING_DIMS, old_dims_value)]
             if rollback_model:
-                await EMBEDDING_MODEL.apply_side_effects(old_model_value)
+                rolled_back.append((EMBEDDING_MODEL, old_model_value))
+            await apply_side_effects_batch(rolled_back)
             logger.exception(
                 "Embedding column rebuild failed, rolling back the embedding pair",
                 old_dims=old_dims_value,
@@ -609,10 +619,10 @@ async def reset_settings(
         )
 
     # The setting deletes and their audit rows form one transaction. Runtime
-    # caches/hooks are changed only after that transaction is durable.
+    # caches/hooks are changed only after that transaction is durable, and in
+    # one step so no reader sees a half-reset batch (fix #1543).
     await db.commit()
-    for cfg in configs_to_reset:
-        await cfg.apply_side_effects(cfg.env_default)
+    await apply_side_effects_batch([(cfg, cfg.env_default) for cfg in configs_to_reset])
 
     # Phase 279 ADMIN-09 (L-01): Intentional second SELECT. cfg.reset() writes
     # the env_default value back to AppSetting; we re-read to capture the

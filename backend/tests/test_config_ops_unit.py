@@ -523,7 +523,7 @@ async def test_import_result_and_audit_report_exact_account_link_deletions():
             AsyncMock(),
         ),
         patch(
-            "app.core.persistent_config.PersistentConfig.apply_side_effects",
+            "app.core.persistent_config.apply_side_effects_batch",
             AsyncMock(),
         ),
         patch("app.modules.audit.service.audit_emit", AsyncMock()) as audit_emit,

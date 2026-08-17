@@ -2581,7 +2581,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # carve-out history, because none of them has ever had to argue for a
     # line: that is the gap #958 was filed about. The next change to any of
     # them writes the first entry.
-    "backend/app/platform/config_ops/service.py": 1201,
+    # fix(#1543): +6 — config import applies the whole batch's post-commit side
+    # effects through apply_side_effects_batch instead of a per-key loop, so its
+    # cache eviction is one step. Four of the six are the widened import; the
+    # other two say why the loop is gone, which matters most here: an import
+    # touches far more keys than a settings PUT, so it held the widest version
+    # of the mismatch window. Cap 1201 -> 1207, exact.
+    "backend/app/platform/config_ops/service.py": 1207,
     # fix(#1335): jobs/router.py's 2047 lines carried the sweep SQL
     # constants and every stale-job recovery/sweep handler alongside the
     # plain CRUD routes. The two were split along that seam: the sweep
@@ -2646,6 +2652,25 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # security posture was once keyed off a flag documented as log-format only;
     # an under-documented coupling is the same mistake. Cap 1104 -> 1107, exact.
     "backend/app/core/config.py": 1107,
+    # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
+    # that gave PersistentConfig a batch eviction. The code is small
+    # (apply_side_effects_batch, plus splitting the process-local half of
+    # apply_side_effects out into a synchronous _apply_local_side_effects so a
+    # batch of them cannot interleave). Most of the lines are the docstring,
+    # and deliberately: it records the two fixes that look right and are not —
+    # reordering the deletes, which mismatches the other way, and evicting
+    # before the commit, which lets a reader repopulate the cache with the
+    # pre-commit value for a full TTL — and the limit of what a writer-side fix
+    # can do, since a reader calling get() once per key still samples at two
+    # instants and can straddle the whole step.
+    # fix(#1543 follow-up): +11 recording which half of #1539's endpoint
+    # residue this closes. #1543 is that residue's named owner, and the split
+    # is not guessable from the code: the eviction span is fixed here, while
+    # the cached-vs-uncached TTL lag that dominates it is not an eviction
+    # problem at all and needs EmbeddingProviderExtension widened. Without the
+    # note the next reader assumes an atomic eviction covered both.
+    # Cap 1007 -> 1018, exact.
+    "backend/app/core/persistent_config.py": 1018,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

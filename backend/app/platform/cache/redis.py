@@ -102,6 +102,26 @@ class RedisCacheProvider:
             self._record_failure()
             await self._fallback.delete(key)
 
+    async def delete_many(self, *keys: str) -> None:
+        # fix(#1543): DEL is variadic and executes as one command, so the whole
+        # batch is evicted in a single round-trip that no concurrent client can
+        # observe half-applied. Looping over `delete` instead would put a
+        # network round-trip between every pair of keys.
+        if not keys:
+            return
+        if self._is_circuit_open():
+            await self._fallback.delete_many(*keys)
+            return
+        try:
+            await self._client.delete(*keys)
+            self._record_success()
+        except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
+            logger.warning(
+                "redis_cache_delete_many_failed", keys=list(keys), exc_info=True
+            )
+            self._record_failure()
+            await self._fallback.delete_many(*keys)
+
     async def delete_pattern(self, pattern: str) -> None:
         if self._is_circuit_open():
             await self._fallback.delete_pattern(pattern)
