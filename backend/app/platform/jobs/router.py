@@ -28,7 +28,7 @@ from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobStatusResponse,
@@ -420,6 +420,17 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         return (
             False,
             "Analysis runs cannot be replayed as imports. Start the analysis again from the map builder.",
+        )
+    if (job.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY):
+        # fix(#1542): embedding backfill runs carry file_path="" for the same
+        # reason analysis runs do, and would otherwise be offered as replayable
+        # imports of a source that never existed. Restarting one is a POST to
+        # /admin/backfill-embeddings/, which re-runs its own pre-flight and
+        # concurrency guards — replaying it through the ingest retry path would
+        # skip both.
+        return (
+            False,
+            "Embedding backfill runs cannot be replayed as imports. Start the backfill again from Settings.",
         )
     if job.source_url and not job.file_path:
         return True, None

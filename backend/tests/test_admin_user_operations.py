@@ -14,8 +14,32 @@ import uuid
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 
 from tests.conftest import _create_test_user
+
+
+@pytest.fixture
+async def backfill_slot(test_db_session: AsyncSession):
+    """Free the one in-flight backfill slot around a test that takes it.
+
+    fix(#1542): the backfill is queued now, and a second run is refused while
+    one is in flight. Nothing here runs a worker, so each enqueue would leave a
+    pending row behind and 409 the next test in this file for the wrong reason.
+    """
+    yield
+    await test_db_session.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY),
+            IngestJob.status.in_(("pending", "running")),
+        )
+        .values(status="failed")
+    )
+    await test_db_session.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -130,15 +154,19 @@ async def test_delete_user_404_for_nonexistent(
 async def test_backfill_embeddings_force_admin(
     client: AsyncClient,
     admin_auth_header: dict,
+    backfill_slot,
     monkeypatch,
 ):
-    """POST /admin/backfill-embeddings/?force=true returns 200 for admin."""
-    # fix(#1511 review r3): force now generates one pre-flight embedding before
-    # its delete, so without a provider the route correctly answers 502. This
-    # test is about admin authorization and the audit trail, so supply a
-    # provider instead of asserting the no-provider outcome.
-    from unittest.mock import AsyncMock
+    """POST /admin/backfill-embeddings/?force=true queues a run for an admin.
 
+    fix(#1542): the run happens on the job queue, so the response is a job id
+    and the completion audit is emitted by the worker (covered in
+    test_embedding_backfill_queue_1542.py). This test is about admin
+    authorization and the request half of the audit trail.
+    """
+    from unittest.mock import AsyncMock, patch
+
+    from app.modules.admin import router as admin_router
     from app.processing.embeddings import backfill as backfill_module
 
     monkeypatch.setattr(
@@ -146,15 +174,15 @@ async def test_backfill_embeddings_force_admin(
         "generate_embeddings_batch",
         AsyncMock(return_value=[[1.0] + [0.0] * 1535]),
     )
-    resp = await client.post(
-        "/admin/backfill-embeddings/?force=true",
-        headers=admin_auth_header,
-    )
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        resp = await client.post(
+            "/admin/backfill-embeddings/?force=true",
+            headers=admin_auth_header,
+        )
     assert resp.status_code == 200
     data = resp.json()
-    assert "processed" in data
-    assert "created" in data
-    assert "errors" in data
+    assert data["status"] == "pending"
+    job_id = data["job_id"]
 
     audit_resp = await client.get(
         "/admin/audit-logs/",
@@ -163,19 +191,13 @@ async def test_backfill_embeddings_force_admin(
     )
     assert audit_resp.status_code == 200
     entries = audit_resp.json()["logs"]
-    completed = next(
-        entry for entry in entries if entry["details"]["outcome"] == "completed"
-    )
     requested = next(
         entry
         for entry in entries
         if entry["details"]["outcome"] == "requested"
-        and entry["details"]["operation_id"] == completed["details"]["operation_id"]
+        and entry["details"].get("job_id") == job_id
     )
-    assert completed["resource_type"] == "record_embedding"
-    assert completed["details"]["force"] is True
-    assert completed["details"]["processed"] == data["processed"]
-    assert completed["ip_address"] is not None
+    assert requested["resource_type"] == "record_embedding"
     assert requested["details"]["force"] is True
     assert requested["ip_address"] is not None
 
@@ -184,11 +206,23 @@ async def test_backfill_embeddings_force_admin(
 async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
     client: AsyncClient,
     admin_auth_header: dict,
+    backfill_slot,
     monkeypatch,
 ):
-    """A committed force-delete remains bracketed by requested/failed audits."""
+    """A committed force-delete remains bracketed by requested/failed audits.
+
+    fix(#1542): the delete now happens in the worker, so the bracket spans the
+    queue hop — the route commits "requested" with the job row before anything
+    can pick the run up, and the worker emits "failed" after. The
+    requested-before-delete ordering is what makes a destroyed catalog
+    attributable, so it is still asserted from inside the delete itself.
+    """
+    from unittest.mock import AsyncMock, patch
+
     from sqlalchemy import delete, select
 
+    from app.modules.admin import router as admin_router
+    from app.modules.admin.backfill_jobs import run_embedding_backfill
     from app.modules.audit.models import AuditLog
     from app.processing.embeddings import backfill as backfill_module
     from app.processing.embeddings.models import RecordEmbedding
@@ -218,16 +252,18 @@ async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
         backfill_module, "backfill_embeddings", fail_after_committed_delete
     )
 
-    response = await client.post(
-        "/admin/backfill-embeddings/?force=true",
-        headers=admin_auth_header,
-    )
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        response = await client.post(
+            "/admin/backfill-embeddings/?force=true",
+            headers=admin_auth_header,
+        )
+    assert response.status_code == 200, response.text
+    job_id = response.json()["job_id"]
 
-    assert response.status_code == 502
-    assert response.json()["detail"] == (
-        "Embedding backfill failed. See server logs for details."
-    )
-    assert secret_error not in response.text
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
     assert requested_was_durable is True
 
     audit_response = await client.get(
@@ -237,7 +273,12 @@ async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
     )
     assert audit_response.status_code == 200
     entries = audit_response.json()["logs"]
-    failed = next(entry for entry in entries if entry["details"]["outcome"] == "failed")
+    failed = next(
+        entry
+        for entry in entries
+        if entry["details"]["outcome"] == "failed"
+        and entry["details"].get("job_id") == job_id
+    )
     operation_id = failed["details"]["operation_id"]
     requested = next(
         entry
@@ -248,15 +289,18 @@ async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
     assert requested["details"] == {
         "force": True,
         "operation_id": operation_id,
+        "job_id": job_id,
         "outcome": "requested",
     }
     assert failed["details"] == {
         "force": True,
         "operation_id": operation_id,
+        "job_id": job_id,
         "outcome": "failed",
         "error_code": "backfill_failed",
     }
     assert secret_error not in str(failed["details"])
+    assert secret_error not in audit_response.text
 
 
 @pytest.mark.anyio
@@ -276,18 +320,22 @@ async def test_backfill_embeddings_forbidden_for_non_admin(
 async def test_backfill_embeddings_without_force(
     client: AsyncClient,
     admin_auth_header: dict,
+    backfill_slot,
 ):
-    """POST /admin/backfill-embeddings/ (no force) returns 200 with counts."""
-    resp = await client.post(
-        "/admin/backfill-embeddings/",
-        headers=admin_auth_header,
-    )
+    """POST /admin/backfill-embeddings/ (no force) queues a run (fix(#1542))."""
+    from unittest.mock import AsyncMock, patch
+
+    from app.modules.admin import router as admin_router
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        resp = await client.post(
+            "/admin/backfill-embeddings/",
+            headers=admin_auth_header,
+        )
     assert resp.status_code == 200
     data = resp.json()
-    assert "processed" in data
-    assert "created" in data
-    assert "skipped" in data
-    assert "errors" in data
+    assert uuid.UUID(data["job_id"])
+    assert data["status"] == "pending"
 
 
 @pytest.mark.anyio

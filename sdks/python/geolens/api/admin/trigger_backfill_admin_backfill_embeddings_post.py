@@ -60,6 +60,11 @@ def _parse_response(
 
         return response_404
 
+    if response.status_code == 409:
+        response_409 = ProblemDetail.from_dict(response.json())
+
+        return response_409
+
     if response.status_code == 422:
         response_422 = ProblemDetail.from_dict(response.json())
 
@@ -74,11 +79,6 @@ def _parse_response(
         response_500 = ProblemDetail.from_dict(response.json())
 
         return response_500
-
-    if response.status_code == 502:
-        response_502 = ProblemDetail.from_dict(response.json())
-
-        return response_502
 
     if response.status_code == 503:
         response_503 = ProblemDetail.from_dict(response.json())
@@ -109,10 +109,16 @@ def sync_detailed(
 ) -> Response[BackfillResponse | ProblemDetail]:
     """Trigger Backfill
 
-     Trigger semantic-search embedding generation for records (admin only).
+     Queue semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
+
+    fix(#1542): the run happens on the job queue, not in this request. A full
+    regenerate is provider-bound and linear in catalog size, so it outgrew the
+    600s edge timeout somewhere below 59,000 records — and the request dying at
+    the proxy never stopped the work, it only hid it. Returns the job id;
+    poll ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.
@@ -143,10 +149,16 @@ def sync(
 ) -> BackfillResponse | ProblemDetail | None:
     """Trigger Backfill
 
-     Trigger semantic-search embedding generation for records (admin only).
+     Queue semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
+
+    fix(#1542): the run happens on the job queue, not in this request. A full
+    regenerate is provider-bound and linear in catalog size, so it outgrew the
+    600s edge timeout somewhere below 59,000 records — and the request dying at
+    the proxy never stopped the work, it only hid it. Returns the job id;
+    poll ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.
@@ -172,10 +184,16 @@ async def asyncio_detailed(
 ) -> Response[BackfillResponse | ProblemDetail]:
     """Trigger Backfill
 
-     Trigger semantic-search embedding generation for records (admin only).
+     Queue semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
+
+    fix(#1542): the run happens on the job queue, not in this request. A full
+    regenerate is provider-bound and linear in catalog size, so it outgrew the
+    600s edge timeout somewhere below 59,000 records — and the request dying at
+    the proxy never stopped the work, it only hid it. Returns the job id;
+    poll ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.
@@ -204,10 +222,16 @@ async def asyncio(
 ) -> BackfillResponse | ProblemDetail | None:
     """Trigger Backfill
 
-     Trigger semantic-search embedding generation for records (admin only).
+     Queue semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
+
+    fix(#1542): the run happens on the job queue, not in this request. A full
+    regenerate is provider-bound and linear in catalog size, so it outgrew the
+    600s edge timeout somewhere below 59,000 records — and the request dying at
+    the proxy never stopped the work, it only hid it. Returns the job id;
+    poll ``GET /jobs/{job_id}`` for the outcome.
 
     Args:
         force (bool | Unset):  Default: False.

@@ -46,14 +46,20 @@ from app.modules.auth.models import User
 from app.modules.auth.schemas import UserResponse
 from app.processing.export.service import safe_content_disposition
 from app.core.config import settings as app_settings
-from app.core.db.tenant_session import tenant_job_context
+from app.core.db.tenant_session import defer_async_with_tenant, tenant_job_context
 from app.core.dependencies import get_client_ip, get_db
 from app.modules.admin.router_operations import router as operations_router
+from app.platform.extensions import get_catalog_port
+from app.platform.jobs.defer_guard import (
+    defer_with_orphan_guard,
+    make_ingest_job_failed_rollback,
+)
+from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY
 from app.platform.jobs.router import get_retry_capability
 from app.standards.ogc.errors import (
-    BAD_GATEWAY_RESPONSE,
     CONFLICT_RESPONSE,
     ERROR_RESPONSES_AUTH,
+    SERVICE_UNAVAILABLE_RESPONSE,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -939,7 +945,7 @@ async def get_embedding_stats(
 @router.post(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
-    responses={502: BAD_GATEWAY_RESPONSE},
+    responses={409: CONFLICT_RESPONSE, 503: SERVICE_UNAVAILABLE_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def trigger_backfill(
@@ -948,16 +954,61 @@ async def trigger_backfill(
     force: bool = False,
     current_user: User = Depends(require_permission("manage_users")),
 ) -> BackfillResponse:
-    """Trigger semantic-search embedding generation for records (admin only).
+    """Queue semantic-search embedding generation for records (admin only).
 
     Pass ?force=true to delete all existing embeddings and regenerate from
     scratch (required after changing the embedding model or dimensions).
+
+    fix(#1542): the run happens on the job queue, not in this request. A full
+    regenerate is provider-bound and linear in catalog size, so it outgrew the
+    600s edge timeout somewhere below 59,000 records — and the request dying at
+    the proxy never stopped the work, it only hid it. Returns the job id;
+    poll ``GET /jobs/{job_id}`` for the outcome.
     """
-    from app.processing.embeddings.backfill import backfill_embeddings
+    from app.modules.admin.backfill_jobs import (
+        find_active_embedding_backfill,
+        run_embedding_backfill,
+    )
 
     operation_id = str(uuid.uuid4())
     current_user_id = current_user.id
     ip_address = get_client_ip(request)
+
+    # The guard that makes the retry safe. Before #1542 a 504'd operator
+    # retried and started a second full regenerate alongside the first, which
+    # on the force path meant a second DELETE — #1519's pre-flight guards do
+    # not see it, because each run passes its own pre-flight independently.
+    # This refusal happens before the job row exists, so nothing destructive
+    # has been queued, let alone run.
+    active = await find_active_embedding_backfill(db)
+    if active is not None:
+        logger.info(
+            "embedding_backfill_refused_run_in_flight",
+            user_id=str(current_user_id),
+            force=force,
+            active_job_id=str(active.id),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "An embedding backfill is already running (job "
+                f"{active.id}). Wait for it to finish, or poll /jobs/{active.id} "
+                "for its status."
+            ),
+        )
+
+    job = await get_catalog_port().create_ingest_job(
+        db, "embedding-backfill", "", current_user_id
+    )
+    job.user_metadata = {
+        EMBEDDING_BACKFILL_METADATA_KEY: {
+            "force": force,
+            "operation_id": operation_id,
+        }
+    }
+    # ux(#698), as analysis does: a pending job that says "queued" reads as
+    # waiting rather than as a job with nothing to say for itself.
+    job.current_step = "queued"
     await audit_emit(
         db,
         AuditEvent(
@@ -967,65 +1018,33 @@ async def trigger_backfill(
             details={
                 "force": force,
                 "operation_id": operation_id,
+                "job_id": str(job.id),
                 "outcome": "requested",
             },
             ip_address=ip_address,
         ),
     )
-    # Force mode commits a destructive DELETE before provider work starts.
-    # Make the operator's request durable before that first mutation.
+    # One commit for the job row and the operator's request: the row is what a
+    # concurrent request will be refused against, and it must be durable before
+    # anything can pick the run up.
     await db.commit()
 
-    try:
-        result = await backfill_embeddings(db, force=force)
-    except Exception:  # broad: backfill spans embedding SDK + DB writes — diverse errors map to 502 without leaking traceback
-        # RES-2: don't leak raw exception text (can contain asyncpg internals,
-        # file paths, DB server info) to admin clients. Log full traceback,
-        # return a generic 502.
-        logger.exception(
-            "Embedding backfill failed",
-            user_id=str(current_user_id),
+    async def _defer() -> None:
+        await defer_async_with_tenant(
+            run_embedding_backfill,
+            job_id=str(job.id),
+            attempt_id=str(job.attempt_id),
             force=force,
+            user_id=str(current_user_id),
+            ip_address=ip_address,
             operation_id=operation_id,
         )
-        await db.rollback()
-        try:
-            await audit_emit_durable(
-                AuditEvent(
-                    user_id=current_user_id,
-                    action="embedding.backfill",
-                    resource_type="record_embedding",
-                    details={
-                        "force": force,
-                        "operation_id": operation_id,
-                        "outcome": "failed",
-                        "error_code": "backfill_failed",
-                    },
-                    ip_address=ip_address,
-                ),
-            )
-        except Exception:  # broad: preserve the generic operation failure response
-            logger.exception(
-                "Failed to persist embedding backfill failure audit",
-                user_id=str(current_user_id),
-                operation_id=operation_id,
-            )
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Embedding backfill failed. See server logs for details.",
-        ) from None
-    await audit_emit_durable(
-        AuditEvent(
-            user_id=current_user_id,
-            action="embedding.backfill",
-            resource_type="record_embedding",
-            details={
-                "force": force,
-                "operation_id": operation_id,
-                "outcome": "completed",
-                **result,
-            },
-            ip_address=ip_address,
+
+    await defer_with_orphan_guard(
+        _defer,
+        rollback=make_ingest_job_failed_rollback(
+            job, message_prefix="Failed to queue embedding backfill"
         ),
+        db=db,
     )
-    return BackfillResponse(**result)
+    return BackfillResponse(job_id=job.id, status="pending")

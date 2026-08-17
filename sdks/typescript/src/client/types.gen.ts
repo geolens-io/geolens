@@ -1021,32 +1021,26 @@ export type AuditLogResponse = {
 
 /**
  * BackfillResponse
+ *
+ * Acknowledgement that a backfill run was queued (fix(#1542)).
+ *
+ * The run itself happens on the job queue, so this carries no counts — a full
+ * regenerate takes minutes and used to hold the HTTP request open past the
+ * 600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
  */
 export type BackfillResponse = {
     /**
-     * Processed
+     * Job Id
      *
-     * Number of records processed in this backfill batch.
+     * Identifier of the queued backfill job; poll /jobs/{job_id}.
      */
-    processed: number;
+    job_id: string;
     /**
-     * Created
+     * Status
      *
-     * Number of new embeddings created.
+     * Job status at enqueue time ('pending').
      */
-    created: number;
-    /**
-     * Skipped
-     *
-     * Number of records skipped because an embedding already existed.
-     */
-    skipped: number;
-    /**
-     * Errors
-     *
-     * Number of records that failed during embedding generation.
-     */
-    errors: number;
+    status: string;
 };
 
 /**
@@ -11542,6 +11536,10 @@ export type TriggerBackfillAdminBackfillEmbeddingsPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -11554,11 +11552,7 @@ export type TriggerBackfillAdminBackfillEmbeddingsPostErrors = {
      */
     500: ProblemDetail;
     /**
-     * Bad gateway — an upstream provider failed
-     */
-    502: ProblemDetail;
-    /**
-     * Service unavailable — the database could not serve the request
+     * Service unavailable — required publication metadata is missing
      */
     503: ProblemDetail;
 };

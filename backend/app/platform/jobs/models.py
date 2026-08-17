@@ -35,6 +35,14 @@ from app.core.db import Base
 # sweep.py) and the staging-orphan reconciliation both read it.
 STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 
+# `user_metadata` key that marks an ``IngestJob`` row as an admin embedding
+# backfill run (fix(#1542)). The run itself imports nothing — the row exists so
+# the operator can see a run in flight and so a second one can be refused
+# before it deletes anything. Three modules key off it (the admin dispatch, its
+# concurrency guard, and the retry contract in jobs/router.py), so it lives
+# here beside the other cross-reader marker rather than as a literal in each.
+EMBEDDING_BACKFILL_METADATA_KEY = "embedding_backfill"
+
 # `user_metadata` key the post-expiry presigned sweep sets once it has finished
 # with a row's `s3_key` for good — see `_sweep_expired_presigned_staging` in
 # sweep.py, which owns the whole story of when it may be written.

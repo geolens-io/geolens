@@ -174,10 +174,16 @@ export const exportAuditLogsAdminAuditLogsExportFormatGet = <ThrowOnError extend
 /**
  * Trigger Backfill
  *
- * Trigger semantic-search embedding generation for records (admin only).
+ * Queue semantic-search embedding generation for records (admin only).
  *
  * Pass ?force=true to delete all existing embeddings and regenerate from
  * scratch (required after changing the embedding model or dimensions).
+ *
+ * fix(#1542): the run happens on the job queue, not in this request. A full
+ * regenerate is provider-bound and linear in catalog size, so it outgrew the
+ * 600s edge timeout somewhere below 59,000 records — and the request dying at
+ * the proxy never stopped the work, it only hid it. Returns the job id;
+ * poll ``GET /jobs/{job_id}`` for the outcome.
  */
 export const triggerBackfillAdminBackfillEmbeddingsPost = <ThrowOnError extends boolean = false>(options?: Options<TriggerBackfillAdminBackfillEmbeddingsPostData, ThrowOnError>): RequestResult<TriggerBackfillAdminBackfillEmbeddingsPostResponses, TriggerBackfillAdminBackfillEmbeddingsPostErrors, ThrowOnError> => (options?.client ?? client).post<TriggerBackfillAdminBackfillEmbeddingsPostResponses, TriggerBackfillAdminBackfillEmbeddingsPostErrors, ThrowOnError>({
     security: [

@@ -385,6 +385,13 @@ export function useBackfillEmbeddings() {
     },
     onError: (err) => {
       logger.error('[useBackfillEmbeddings]', err);
+      // fix(#1542): a run already in flight is refused, not failed. Saying
+      // "backfill failed" there would read as "your catalog is broken" for the
+      // one case where the safe thing just happened.
+      if (err instanceof ApiError && err.status === 409) {
+        toast.warning(i18n.t('admin:errors.backfillAlreadyRunning'));
+        return;
+      }
       toast.error(i18n.t('admin:errors.backfillFailed'));
     },
   });

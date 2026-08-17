@@ -92,17 +92,13 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
 
   const handleBackfill = (force = false) => {
     if (!canManageUsers) return;
+    // fix(#1542): the run is queued now, not done by the time this resolves —
+    // a full regenerate takes minutes and used to hold the request open past
+    // the 600s edge timeout. There are no counts to report yet; the coverage
+    // figure above is the surface that reflects the finished run.
     backfill.mutate(force, {
-      onSuccess: (data) => {
-        if (data.errors > 0 && data.created === 0) {
-          toast.error(t('ai.backfillAllFailed', { errors: data.errors }));
-        } else if (data.errors > 0) {
-          toast.warning(t('ai.backfillPartial', { created: data.created, errors: data.errors }));
-        } else if (data.created > 0) {
-          toast.success(t('ai.backfillSuccess', { count: data.created }));
-        } else {
-          toast.info(t('ai.backfillEmpty'));
-        }
+      onSuccess: () => {
+        toast.info(t('ai.backfillQueued'));
       },
     });
   };

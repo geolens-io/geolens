@@ -2572,7 +2572,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # non-manifest ingests, and why `record` is duck-typed rather than annotated
     # `Record` (the annotation would add the processing -> modules.catalog edge
     # ProcessingPort exists to keep out). Cap 2178 -> 2207, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2207,
+    #
+    # fix(#1542): +4 — one `task_app.import_paths` entry for the queued admin
+    # embedding backfill, plus the three-line comment saying why that task
+    # module lives under modules/admin/ (it emits the run's audit events, which
+    # processing/ may not import) rather than beside the backfill it runs.
+    # Cap 2207 -> 2211, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2211,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed

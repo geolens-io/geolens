@@ -1567,11 +1567,13 @@ export interface EmbeddingStatsResponse {
   coverage_percent: number;
 }
 
+// fix(#1542): the backfill runs on the job queue, so this is an
+// acknowledgement, not a result. A full regenerate takes minutes and used to
+// hold the request open past the 600s edge timeout. Poll /jobs/{job_id} for
+// the run's outcome.
 export interface BackfillResponse {
-  processed: number;
-  created: number;
-  skipped: number;
-  errors: number;
+  job_id: string;
+  status: string;
 }
 
 // AI Map Generation

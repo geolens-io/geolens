@@ -345,16 +345,17 @@ class EmbeddingStatsResponse(BaseModel):
 
 
 class BackfillResponse(BaseModel):
-    processed: int = Field(
-        description="Number of records processed in this backfill batch."
+    """Acknowledgement that a backfill run was queued (fix(#1542)).
+
+    The run itself happens on the job queue, so this carries no counts — a full
+    regenerate takes minutes and used to hold the HTTP request open past the
+    600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
+    """
+
+    job_id: uuid.UUID = Field(
+        description="Identifier of the queued backfill job; poll /jobs/{job_id}."
     )
-    created: int = Field(description="Number of new embeddings created.")
-    skipped: int = Field(
-        description="Number of records skipped because an embedding already existed."
-    )
-    errors: int = Field(
-        description="Number of records that failed during embedding generation."
-    )
+    status: str = Field(description="Job status at enqueue time ('pending').")
 
 
 class ProviderHealth(BaseModel):
