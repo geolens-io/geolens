@@ -1134,17 +1134,17 @@ async def test_get_cog_advertises_ranges_and_length(
     documented: a fallback GET that carries no length leaves vsicurl deciding
     the object is empty.
 
-    ``Accept-Encoding: identity`` is not incidental — see
-    ``test_gzip_middleware_strips_content_length_from_the_full_cog_get`` for
-    what the global GZipMiddleware does to this same response when the client
-    offers gzip, which is the reason this assertion has to name an encoding at
-    all.
+    No ``Accept-Encoding`` workaround any more. This assertion used to need
+    ``identity`` because the global GZipMiddleware compressed the response and
+    deleted its length; fix(#1540 review P2) excluded ``image/tiff`` there, and
+    ``test_one_etag_names_one_byte_stream_whatever_the_client_accepts`` is what
+    now holds that ground — including for a client that does ask for gzip.
     """
     dataset, _ = local_cog
 
     get = await client.get(
         f"/datasets/{dataset.id}/download/cog",
-        headers={**admin_auth_header, "Accept-Encoding": "identity"},
+        headers=admin_auth_header,
     )
 
     assert get.status_code == 200
@@ -1159,57 +1159,60 @@ async def test_get_cog_advertises_ranges_and_length(
     assert get.content == _COG_BYTES, "the full GET must still deliver the object"
 
 
-async def test_gzip_middleware_strips_content_length_from_the_full_cog_get(
+async def test_one_etag_names_one_byte_stream_whatever_the_client_accepts(
     client: AsyncClient, admin_auth_header: dict, local_cog
 ):
-    """MEASURED LIMIT, pinned so it is a decision rather than a surprise.
+    """fix(#1540 review P2): a strong validator identifies ONE representation.
 
-    ``app/api/main.py`` installs ``GZipMiddleware(minimum_size=256)`` globally.
-    Starlette 1.6.0's responder compresses any streaming 200 whose client
-    offered gzip and DELETES the Content-Length while doing it
-    (``middleware/gzip.py``, the ``more_body`` branch). So the length this route
-    sets survives to the wire only for a client that does not ask for gzip.
+    ``GZipMiddleware`` compresses a 200 and skips a 206 by design
+    (``self.partial_response = status == 206``). While ``image/tiff`` was
+    missing from its exclusion list, that asymmetry made one strong ETag name
+    two different byte streams: gzip bytes on the full download, raw bytes on
+    every range. RFC 9110 section 8.8.3 requires a strong validator to change
+    when the representation does, and a content coding is part of the
+    representation — so a client that resumed the encoded one could have its
+    validator accepted and splice raw bytes at encoded offsets. Everything it
+    did was correct, and the file it assembled was not.
 
-    The COG path is unaffected, which is why this is recorded rather than
-    worked around here:
+    ``image/tiff`` is excluded at the middleware now, which is also free CPU: a
+    COG is internally compressed, so DEFLATE over one buys nearly nothing.
 
-      * HEAD keeps its length — an empty body is under ``minimum_size``, so the
-        responder passes it through, and HEAD is where /vsicurl/ learns the
-        size.
-      * 206 keeps its length AND its Content-Range — the responder skips
-        partial responses outright (``self.partial_response = status == 206``).
-
-    What remains is a plain full-file download that is chunked instead of
-    length-delimited, and a COG — already-compressed pixel data — being run
-    through DEFLATE for no gain. Fixing that means excluding image types at the
-    middleware, which is ``app/api/main.py``, outside this change.
-
-    If someone later excludes ``image/tiff`` there, THIS test fails and the one
-    above stops needing its ``identity`` header. That is the intended signal.
+    The assertion is the invariant, not the mechanism: the same request that
+    used to come back gzipped returns the raw object with its real length, and
+    a range of it is a slice of exactly those bytes.
     """
-    dataset, _ = local_cog
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
 
-    get = await client.get(
-        f"/datasets/{dataset.id}/download/cog",
-        headers={**admin_auth_header, "Accept-Encoding": "gzip"},
+    whole = await client.get(
+        url, headers={**admin_auth_header, "Accept-Encoding": "gzip"}
+    )
+    sliced = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Accept-Encoding": "gzip",
+            "Range": "bytes=1000-1099",
+        },
     )
 
-    assert get.status_code == 200
-    assert get.content == _COG_BYTES, "the bytes are still correct once decoded"
-    assert get.headers.get("accept-ranges") == "bytes", (
-        "the range advertisement must survive compression — it is what tells "
-        "the client it can skip the full download next time"
+    assert whole.status_code == 200
+    assert "content-encoding" not in whole.headers, (
+        f"the full COG came back {whole.headers.get('content-encoding')!r}-"
+        f"encoded while a 206 of the same resource does not, so the ETag both "
+        f"carry describes two different byte streams."
     )
-    assert get.headers.get("content-encoding") == "gzip", (
-        "Expected the global GZipMiddleware to compress this response. If it "
-        "no longer does, image types were excluded at the middleware and this "
-        "test should be deleted along with the Accept-Encoding: identity "
-        "header in test_get_cog_advertises_ranges_and_length."
+    assert whole.headers.get("content-length") == str(len(_COG_BYTES)), (
+        f"content-length={whole.headers.get('content-length')!r} for "
+        f"{len(_COG_BYTES)} raw bytes; compression is what used to delete it."
     )
-    assert "content-length" not in get.headers, (
-        "GZipMiddleware kept a Content-Length on a compressed streaming "
-        "response; if starlette changed that, the identity workaround above is "
-        "no longer needed."
+    assert whole.content == _COG_BYTES
+
+    assert sliced.status_code == 206
+    assert whole.headers["etag"] == sliced.headers["etag"] == f'"{raster_asset.sha256}"'
+    assert sliced.content == whole.content[1000:1100], (
+        "the 206 must be a slice of the bytes the 200 delivers — that is the "
+        "whole promise the shared ETag makes to a resuming client."
     )
 
 
@@ -1988,6 +1991,164 @@ async def test_if_none_match_answers_304_for_every_request_shape(
             f"the 304 for {name} carried content-length="
             f"{resp.headers.get('content-length')!r}"
         )
+
+
+async def test_a_stale_if_match_refuses_the_range_instead_of_splicing(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+):
+    """fix(#1540 review P2): the same splice, through the other spelling.
+
+    ``If-Match`` and ``If-Range`` are two ways for a resuming client to say the
+    same thing: only give me bytes if this is still the representation I have.
+    Evaluating one and ignoring the other meant a conforming client that chose
+    ``If-Match`` had its precondition dropped, the absent ``If-Range`` read as
+    permission, and a 206 of the replacement appended to a prefix of the COG it
+    started with.
+
+    A failed If-Match is 412, not a degradation. Unlike If-Range, RFC 9110 gives
+    it no "ignore the condition and serve the whole thing" fallback — section
+    13.1.1 says do not perform the method.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+    stale = f'"{raster_asset.sha256}"'
+
+    await _complete_a_replacement(test_db_session, raster_asset, _REPLACEMENT_BYTES)
+
+    resumed = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199", "If-Match": stale}
+    )
+
+    assert _COG_BYTES[100:200] != _REPLACEMENT_BYTES[100:200]
+    assert resumed.status_code == 412, (
+        f"a stale If-Match answered {resumed.status_code}. A 206 here is bytes "
+        f"100-199 of the replacement, on their way to being appended to bytes "
+        f"0-99 of the COG this client already has."
+    )
+    assert resumed.headers.get("etag") == f'"{raster_asset.sha256}"', (
+        "the 412 should name the version that IS current, so the client can "
+        "restart against it without a second round trip"
+    )
+
+
+async def test_a_matching_if_match_still_serves_the_range(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """The vacuity guard: If-Match must admit the requests it should.
+
+    An implementation that answered 412 to every If-Match would pass the test
+    above and break every conforming client that uses the header correctly,
+    which is the population it exists for.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    matching = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            "If-Match": f'"{raster_asset.sha256}"',
+        },
+    )
+    star = await client.get(url, headers={**admin_auth_header, "If-Match": "*"})
+
+    assert matching.status_code == 206, (
+        f"a matching If-Match returned {matching.status_code}; resumable "
+        f"downloads through this header are broken."
+    )
+    assert matching.content == _COG_BYTES[100:200]
+    assert star.status_code == 200, (
+        f"If-Match: * asks whether a current representation exists at all, and "
+        f"one does; got {star.status_code}."
+    )
+
+
+async def test_if_match_is_evaluated_before_if_none_match(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+):
+    """RFC 9110 section 13.2.2 fixes the order, and the order is observable.
+
+    A client holding an old copy can send both: ``If-Match`` naming the version
+    it wants to act on, ``If-None-Match`` naming the copy it has cached — here
+    the same stale tag. Evaluating If-None-Match first answers 304, telling the
+    client its stale copy is current. Evaluating If-Match first answers 412,
+    which is the truth: the representation moved.
+    """
+    dataset, raster_asset = local_cog
+    stale = f'"{raster_asset.sha256}"'
+
+    await _complete_a_replacement(test_db_session, raster_asset, _REPLACEMENT_BYTES)
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "If-Match": stale, "If-None-Match": stale},
+    )
+
+    assert resp.status_code == 412, (
+        f"got {resp.status_code}. A 304 here tells a client whose copy is out "
+        f"of date that it is current, which is the more expensive lie: it stops "
+        f"asking."
+    )
+
+
+async def test_a_row_with_no_digest_refuses_a_specific_if_match_but_allows_star(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Unverifiable is not a pass, but ``*`` is asking something else.
+
+    A specific tag against a row with no ``sha256`` cannot be compared, and the
+    safe answer is 412 — the same call ``_range_bound_to_this_version`` makes
+    for a conditional range. ``*`` is a different question: does a current
+    representation exist at all? It does, digest or no digest.
+    """
+    dataset, raster_asset = await _raster_dataset(test_db_session, sha256=None)
+    await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    specific = await client.get(
+        url, headers={**admin_auth_header, "If-Match": '"a-cog-from-last-week"'}
+    )
+    star = await client.get(url, headers={**admin_auth_header, "If-Match": "*"})
+
+    assert specific.status_code == 412, (
+        f"a tag this route cannot check returned {specific.status_code}; "
+        f"unverifiable must not mean honoured."
+    )
+    assert star.status_code == 200, (
+        f"If-Match: * returned {star.status_code} for an object that exists"
+    )
+    assert star.content == _COG_BYTES
+
+
+async def test_a_remote_cog_leaves_if_match_to_the_origin(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """The blank row stays blank, in both directions.
+
+    This service publishes no validator for a ``remote`` asset, so any
+    ``If-Match`` a client sends was issued by the origin at the other end of
+    the redirect — and it travels there with the request. Answering 412 on its
+    behalf would refuse a precondition this service is in no position to
+    evaluate, using a digest recorded at import time.
+    """
+    dataset, _ = await _raster_dataset(
+        test_db_session,
+        storage_backend="remote",
+        asset_uri="https://example.com/remote.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "If-Match": '"issued-by-the-origin"'},
+        follow_redirects=False,
+    )
+
+    assert resp.status_code == 302, (
+        f"a conditional GET on the remote branch returned {resp.status_code}; "
+        f"the origin owns those bytes and their validators."
+    )
 
 
 async def test_the_two_conditionals_use_their_own_comparison_functions(

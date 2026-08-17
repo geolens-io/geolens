@@ -1069,12 +1069,26 @@ async def download_cog(
     # was supposed to save.
     #
     # Before the audit row, and above the storage branching, for the reason
-    # HEAD skips the audit: a 304 transfers no bytes, so recording it as
-    # `dataset.download_cog` would misreport who downloaded what. It is also
-    # the order RFC 9110 section 13.2.2 requires — If-None-Match is evaluated
-    # ahead of Range and If-Range, so a client that already holds this exact
-    # representation gets 304 whether or not it asked for a range.
+    # HEAD skips the audit: neither a 412 nor a 304 transfers bytes, so
+    # recording either as `dataset.download_cog` would misreport who downloaded
+    # what. The sequence is the one RFC 9110 section 13.2.2 fixes: If-Match,
+    # then If-None-Match, then Range and If-Range.
     etag = _cog_etag(raster_asset)
+    if _this_service_owns_the_bytes(raster_asset) and not _if_match_passes(
+        request.headers.get("if-match"), etag
+    ):
+        # fix(#1540 review P2): a resuming client may say "only if this is still
+        # the representation I have" with If-Match instead of If-Range. Ignoring
+        # it left the absent If-Range reading as permission, so a replacement
+        # mid-download was answered with a 206 of the new COG at the old offsets
+        # — the same splice, through the header the client happened to choose.
+        # A failed If-Match is a 412, not a degradation: unlike If-Range, the
+        # RFC gives it no "ignore and serve the whole thing" fallback.
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="COG has changed since the version you hold",
+            headers={"ETag": etag} if etag is not None else None,
+        )
     if etag is not None and _if_none_match_matches(
         request.headers.get("if-none-match"), etag
     ):
@@ -1240,6 +1254,45 @@ async def _s3_cog_response(
     return RedirectResponse(url=url, status_code=302)
 
 
+def _this_service_owns_the_bytes(raster_asset) -> bool:
+    """Is this asset's content ours to make claims about?
+
+    The ``remote`` backend is a redirect to a third-party origin whose bytes
+    this service never reads. It publishes no validator (see ``_cog_etag``) and
+    evaluates no precondition: a client's ``If-Match`` there was issued by that
+    origin, travels to it across the redirect, and is answered by the only party
+    that can answer it. Managed backends are the opposite case — this service is
+    the origin server, so an unverifiable precondition is a 412 rather than a
+    shrug.
+    """
+    return raster_asset.storage_backend != "remote"
+
+
+def _if_match_passes(if_match: str | None, etag: str | None) -> bool:
+    """May this request proceed, given the client's ``If-Match``? Section 13.1.1.
+
+    STRONG comparison, like ``If-Range`` and unlike ``If-None-Match``: the
+    client is saying "only act on the representation I already hold", and a
+    weak validator cannot promise byte-for-byte identity.
+
+    ``*`` passes whenever a current representation exists, which by this point
+    is what the RasterAsset row asserts — deliberately including a row with no
+    digest, because ``*`` asks whether there is a representation at all, not
+    whether it is the one the client remembers.
+
+    A specific tag against a row with no ``sha256`` is False: unverifiable is
+    not a pass. That is the same call ``_range_bound_to_this_version`` makes,
+    and it costs those rows nothing a conditional request was going to give
+    them anyway.
+    """
+    if not if_match:
+        return True
+    candidates = [tag.strip() for tag in if_match.split(",")]
+    if "*" in candidates:
+        return True
+    return etag is not None and etag in candidates
+
+
 def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
     """Does the client already hold this representation? RFC 9110 section 13.1.2.
 
@@ -1309,7 +1362,7 @@ def _cog_etag(raster_asset) -> str | None:
     unchanged on the strength of a measurement that may be months old, and the
     origin already answers with validators of its own.
     """
-    if raster_asset.storage_backend == "remote":
+    if not _this_service_owns_the_bytes(raster_asset):
         return None
     sha = raster_asset.sha256
     return f'"{sha}"' if sha else None

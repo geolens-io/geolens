@@ -2276,7 +2276,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # openapi.json and the rendered /docs page), and the answer could not be
     # written down before #1518 because it depended on which router you hit.
     # Cap 1470 -> 1499, exact.
-    "backend/app/api/main.py": 1573,
+    # fix(#1540 review P2): +20 — image/tiff joins starlette's default gzip
+    # exclusions, and the comment says why it is a correctness fix rather than a
+    # CPU one: the middleware compresses a 200 and skips a 206, so one strong
+    # ETag named gzip bytes on the full download and raw bytes on every range,
+    # and a client resuming the encoded representation could splice raw bytes at
+    # encoded offsets. Cap 1573 -> 1593, exact.
+    "backend/app/api/main.py": 1593,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3438,7 +3444,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # once and stream the answer, so `get_range_stream` is where the bound lives
     # now; what is left here is the note saying why a helper that turns one range
     # into N reads was removed rather than retuned.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1536,
+    #
+    # +53 for If-Match. A resuming client may spell "only if this is still my
+    # representation" as If-Match rather than If-Range, and honouring one while
+    # ignoring the other left the absent If-Range reading as permission — the
+    # same splice through the other header. _if_match_passes is strong comparison
+    # with * handling, _this_service_owns_the_bytes names the rule that already
+    # governed the remote branch's blank validator row, and the 412 carries the
+    # ETag that IS current so a refused client can restart in one round trip.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1589,
 }
 
 
