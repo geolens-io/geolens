@@ -3390,7 +3390,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # header displaces, and why HEAD here carries a Content-Length where the
     # export route's deliberately omits one. Cap at the exact size. The DCAT
     # feed handlers above are the natural split if this grows again.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1224,
+    #
+    # +93 for the two fix(#1540) review findings. P1 pulled the object stat and
+    # the HEAD response out of _local_cog_response into _cog_object_size /
+    # _cog_headers / _cog_head_response so the `s3` branch can answer HEAD from
+    # metadata instead of redirecting to a URL signed for GET — sharing them is
+    # what makes HEAD provably identical on both backends, and it moved the long
+    # explanatory comments from inline into three docstrings. P2 added
+    # _range_int, which saturates every Range numeric field before int() so a
+    # 4301-digit header cannot raise ValueError into a 500.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1317,
 }
 
 

@@ -735,6 +735,39 @@ _BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
 # tile and silently received the entire COG splices it at the wrong offset.
 _RANGE_UNSATISFIABLE = "unsatisfiable"
 
+# fix(#1540 review P2): every numeric field is saturated at this many digits
+# before it reaches int(). CPython refuses to convert an integer literal longer
+# than sys.get_int_max_str_digits() (4300 by default) and raises ValueError, so
+# an unbounded `int(group)` turns `Range: bytes=<4301 digits>-` — which fits
+# comfortably inside the 8 KiB per-header budget nginx and uvicorn both allow —
+# into a 500 on a header RFC 9110 lets a server ignore.
+#
+# Saturating rather than rejecting because the RFC answer to each of these is
+# already defined and none of them is "serve the whole object": a first-byte-pos
+# past the end is a 416 carrying the real size (section 15.5.17), and a
+# last-byte-pos or suffix past the end clamps to the object (section 14.1.1).
+# Dropping an over-long value on the floor and replying 200 would hand a client
+# that asked for one tile the entire COG — the corrupt-splice failure
+# `_RANGE_UNSATISFIABLE` exists to prevent.
+#
+# 19 digits because 2**63-1 has 19 and no object is that large; every value
+# above it compares against `size` identically.
+_MAX_RANGE_DIGITS = 19
+
+
+def _range_int(digits: str, size: int) -> int:
+    """``int(digits)``, saturated above any size a stored object can have.
+
+    Leading zeros are stripped before the length test so that a padded literal
+    is measured by its value and not by its typing: ``bytes=-0000...0`` is a
+    zero-length suffix and must reach the 416 branch, not be mistaken for an
+    astronomically large one.
+    """
+    trimmed = digits.lstrip("0") or "0"
+    if len(trimmed) > _MAX_RANGE_DIGITS:
+        return size + 1
+    return int(trimmed)
+
 
 def _parse_cog_range(raw: str | None, size: int) -> tuple[int, int] | str | None:
     """Resolve a Range header to an inclusive ``(start, end)`` byte pair.
@@ -760,17 +793,18 @@ def _parse_cog_range(raw: str | None, size: int) -> tuple[int, int] | str | None
 
     if suffix is not None:
         # bytes=-N: the final N bytes. A zero-length suffix names nothing.
-        if int(suffix) == 0 or size == 0:
+        wanted = _range_int(suffix, size)
+        if wanted == 0 or size == 0:
             return _RANGE_UNSATISFIABLE
-        return (max(0, size - int(suffix)), size - 1)
+        return (max(0, size - wanted), size - 1)
 
-    start = int(first)
+    start = _range_int(first, size)
     if size == 0 or start >= size:
         return _RANGE_UNSATISFIABLE
     if last == "":
         # bytes=N-: from N to the end.
         return (start, size - 1)
-    end = int(last)
+    end = _range_int(last, size)
     if end < start:
         return None  # reversed pair: invalid, so ignore rather than reject
     # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
@@ -962,6 +996,13 @@ async def download_cog(
     user-None to enforce public visibility and emit the audit row with
     user_id=NULL.
     """
+    # The docstring above is the published OpenAPI description for the GET
+    # operation, so it describes the GET only — the HEAD route is
+    # include_in_schema=False and, since fix(#1540) review P1, answers the s3
+    # backend from object metadata rather than redirecting. Adding that to the
+    # docstring moves openapi.json and churns both SDKs and the CLI for prose
+    # about an operation the schema does not carry, so it lives on the branch
+    # itself instead.
     from slugify import slugify
 
     from app.modules.auth.permissions import get_effective_permissions
@@ -1086,6 +1127,32 @@ async def download_cog(
     )
 
     if raster_asset.storage_backend == "s3":
+        # fix(#1540 review P1): HEAD is answered here, from object metadata,
+        # instead of falling through to the presigned redirect below.
+        #
+        # `generate_presigned_get_url` signs `get_object`, and the HTTP method
+        # is part of an S3/MinIO SigV4 canonical request. A redirect-following
+        # client keeps HEAD across a 302 (RFC 9110 section 15.4 only rewrites
+        # the method for 303), so the redirected HEAD arrives at the bucket
+        # signed for the wrong verb and is refused. MEASURED against MinIO
+        # RELEASE.2025-09-07: a presigned get_object URL answers GET 200 and
+        # HEAD 403, and the mirror image — a head_object URL fetched with GET —
+        # returns `SignatureDoesNotMatch` in the body, which is the same
+        # rejection with a readable payload. That is the whole point of this
+        # PR failing on every S3 deployment: /vsicurl/ probes with HEAD.
+        #
+        # Answering directly rather than signing a second URL for `head_object`
+        # is the better of the two fixes: one round trip instead of two, no
+        # dependence on the client preserving its method across the hop, and
+        # HEAD then behaves identically on `local` and `s3` because it runs the
+        # same `_cog_object_size` and returns the same `_cog_head_response`.
+        # The GET keeps redirecting — the bytes still come from the bucket, and
+        # a presigned GET honours a Range once the client gets there.
+        if request.method == "HEAD":
+            total_bytes = await _cog_object_size(
+                storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+            )
+            return _cog_head_response(total_bytes, filename)
         url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
         return RedirectResponse(url=url, status_code=302)
 
@@ -1095,6 +1162,89 @@ async def download_cog(
         physical_asset_key=physical_asset_key,
         filename=filename,
         dataset_id=dataset_id,
+    )
+
+
+async def _cog_object_size(
+    storage, *, physical_asset_key: str, dataset_id: uuid.UUID
+) -> int:
+    """Stat the stored COG: 404 when it is gone, 503 when the backend is not.
+
+    Probing existence upfront is what lets ``FileNotFoundError`` surface as a
+    404 BEFORE an async iterator is handed to ``StreamingResponse``. Starlette
+    consumes that iterator after returning the response, so a deferred raise
+    inside the generator would produce a 500 (or a broken Transfer-Encoding
+    chunk) rather than a clean 404.
+
+    The size comes from the same guarded block because it is what makes both
+    halves of fix(#1528) honest — a real Content-Length on HEAD and on the full
+    GET, and the denominator of every Content-Range — and a backend that throws
+    on ``size()`` must map to the same 503 as one that throws on ``exists()``,
+    not to a raw 500.
+
+    fix(#1540 review P1): shared with the ``s3`` branch rather than living
+    inside the local one, so a HEAD gets the same 200/404/503 answer whichever
+    backend holds the bytes.
+    """
+    try:
+        if not await storage.exists(physical_asset_key):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="COG file not found",
+            )
+        return await storage.size(physical_asset_key)
+    except HTTPException:
+        raise
+    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
+        logger.exception("cog_storage_error", dataset_id=str(dataset_id))
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="COG download temporarily unavailable",
+        )
+
+
+def _cog_headers(filename: str) -> dict[str, str]:
+    """Headers every stored-bytes response from this route carries.
+
+    fix(#1528): ``accept-ranges`` goes on all of them, including the 416 — RFC
+    9110 section 14.3 scopes it to the RESOURCE, not to the one response
+    carrying it, and a client that just got a 416 is precisely the one that
+    needs telling it may retry with a corrected range.
+
+    Content-Disposition does NOT go on the 416, which is why the caller merges
+    this dict rather than the 416 reusing it. That response's body is the JSON
+    error, not the raster; naming it ``attachment; filename="....cog.tif"``
+    would have a browser save an error document under the COG's filename.
+    """
+    return {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": get_catalog_port().safe_content_disposition(filename),
+    }
+
+
+def _cog_head_response(total_bytes: int, filename: str) -> Response:
+    """The HEAD answer: one stat, no read, a real length.
+
+    A HEAD that streamed the object to learn its length would make every
+    /vsicurl/ open cost a full download — the amplification the export route's
+    HEAD avoids by not running its conversion.
+
+    A Range on a HEAD is deliberately ignored. HEAD describes the selected
+    representation, so answering 206 here would report a tile's length as the
+    size of the COG.
+
+    Passing content-length explicitly also suppresses starlette's own:
+    ``init_headers`` populates it from the body, which for this empty one is
+    ``content-length: 0`` — a confident wrong answer that reads as an empty COG,
+    and strictly worse than the 405 this replaces. fix(#1513) had to strip that
+    header for the same reason; here the real value displaces it.
+    ``test_head_cog_carries_the_real_content_length`` fails if this is ever
+    dropped back to the default.
+    """
+    return Response(
+        status_code=status.HTTP_200_OK,
+        media_type="image/tiff",
+        headers={**_cog_headers(filename), "Content-Length": str(total_bytes)},
     )
 
 
@@ -1120,70 +1270,13 @@ async def _local_cog_response(
     # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
     # The full file is NOT buffered into memory — a 5 GB COG no longer pins
     # 5 GB of resident memory before the first byte streams.
-    #
-    # Probe existence upfront so FileNotFoundError surfaces as 404 BEFORE the
-    # async iterator is handed to StreamingResponse. Starlette consumes the
-    # iterator after returning the response, so a deferred raise inside the
-    # generator would produce a 500 (or a broken Transfer-Encoding chunk)
-    # rather than a clean 404.
-    #
-    # fix(#1528): the size is read in the same guarded block. It is what makes
-    # both halves of this fix honest — a real Content-Length on HEAD and on the
-    # full GET, and the denominator of every Content-Range below — and a
-    # backend that throws on size() must map to the same 503 as one that throws
-    # on exists(), not to a raw 500.
-    try:
-        if not await storage.exists(physical_asset_key):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="COG file not found",
-            )
-        total_bytes = await storage.size(physical_asset_key)
-    except HTTPException:
-        raise
-    except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
-        logger.exception("cog_storage_error", dataset_id=str(dataset_id))
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="COG download temporarily unavailable",
-        )
-
-    # fix(#1528): `accept-ranges` goes on every response from this branch,
-    # including the 416 — RFC 9110 section 14.3 scopes it to the RESOURCE, not
-    # to the one response carrying it, and a client that just got a 416 is
-    # precisely the one that needs telling it may retry with a corrected range.
-    #
-    # Content-Disposition does NOT go on the 416, which is why these are two
-    # dicts and not one. That response's body is the JSON error, not the
-    # raster; naming it `attachment; filename="....cog.tif"` would have a
-    # browser save an error document under the COG's filename.
-    cog_headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Disposition": get_catalog_port().safe_content_disposition(filename),
-    }
+    total_bytes = await _cog_object_size(
+        storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+    )
+    cog_headers = _cog_headers(filename)
 
     if request.method == "HEAD":
-        # Answered entirely from metadata: one stat, no read. A HEAD that
-        # streamed the object to learn its length would make every /vsicurl/
-        # open cost a full download — the amplification the export route's HEAD
-        # avoids by not running its conversion.
-        #
-        # A Range on a HEAD is deliberately ignored. HEAD describes the
-        # selected representation, so answering 206 here would report a tile's
-        # length as the size of the COG.
-        #
-        # Passing content-length explicitly also suppresses starlette's own:
-        # `init_headers` populates it from the body, which for this empty one
-        # is `content-length: 0` — a confident wrong answer that reads as an
-        # empty COG, and strictly worse than the 405 this replaces. fix(#1513)
-        # had to strip that header for the same reason; here the real value
-        # displaces it. `test_head_cog_carries_the_real_content_length` fails
-        # if this is ever dropped back to the default.
-        return Response(
-            status_code=status.HTTP_200_OK,
-            media_type="image/tiff",
-            headers={**cog_headers, "Content-Length": str(total_bytes)},
-        )
+        return _cog_head_response(total_bytes, filename)
 
     byte_range = _parse_cog_range(request.headers.get("range"), total_bytes)
 

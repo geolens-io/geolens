@@ -353,17 +353,25 @@ async def test_head_cog_matches_get_on_non_raster(
     )
 
 
-@pytest.mark.parametrize("backend", ["s3", "remote"])
+@pytest.mark.parametrize("backend", ["remote"])
 async def test_head_cog_redirect_matches_get(
     backend, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):
-    """302 parity on both redirecting backends.
+    """302 parity on the ``remote`` backend.
 
-    These branches hand the client off to storage that serves its own HEAD and
-    its own ranges, so the honest HEAD here is the same redirect the GET sends —
-    not a fabricated 200 carrying a length this service never measured. A HEAD
-    that answered 200 here would be inventing metadata for bytes it does not
-    hold.
+    This branch hands the client off to a third-party origin that serves its
+    own HEAD and its own ranges, at a URL this service never signed. The honest
+    HEAD is therefore the same redirect the GET sends — not a fabricated 200
+    carrying a length this service never measured, which would be inventing
+    metadata for bytes it does not hold.
+
+    ``s3`` used to be parametrized here too and no longer is: fix(#1540) review
+    P1. That URL IS signed by this service, for ``get_object``, and the HTTP
+    method is part of an S3/MinIO SigV4 signature — so the redirect a HEAD
+    followed landed on a 403. See
+    ``test_head_cog_on_s3_is_answered_from_object_metadata`` for the fix, and
+    ``test_s3_head_and_get_are_deliberately_asymmetric`` for the invariant that
+    replaces this one on that backend.
 
     The presign is stubbed because the test storage singleton is a
     ``LocalStorageProvider``, which raises NotImplementedError for it; the
@@ -415,6 +423,188 @@ async def test_head_cog_redirect_matches_get(
     ), (
         "A redirect describes no representation; HEAD must not attach a size "
         "to one it never measured."
+    )
+
+
+@pytest.fixture
+def s3_storage(monkeypatch):
+    """Point the storage singleton at a real ``S3StorageProvider`` on moto.
+
+    A stub would let this suite assert whatever it liked about the object's
+    size. moto runs the actual boto3 ``head_object`` against a bucket holding
+    the actual bytes, so the Content-Length the route reports below is measured
+    the same way a MinIO deployment would measure it.
+
+    What moto CANNOT show is the failure itself: it does not verify SigV4
+    signatures, so a presigned URL it mints is accepted for any method. The 403
+    was measured against a real MinIO instead — see the module docstring of
+    ``test_cog_s3_head_wire_1540.py``, which replays the whole route over a
+    socket against one.
+    """
+    import boto3
+    from moto import mock_aws
+
+    import app.platform.storage.provider as storage_provider_module
+    from app.platform.storage.s3 import S3StorageProvider
+
+    for var in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"):
+        monkeypatch.setenv(var, "testing")
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
+
+    with mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="cog-1540")
+        provider = S3StorageProvider(
+            bucket="cog-1540",
+            region="us-east-1",
+            access_key_id="testing",
+            secret_access_key="testing",
+        )
+        monkeypatch.setattr(storage_provider_module, "_storage", provider)
+        yield provider
+
+
+async def test_head_cog_on_s3_is_answered_from_object_metadata(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """fix(#1540) review P1: the S3 HEAD must not be a redirect.
+
+    ``generate_presigned_get_url`` signs ``get_object``, and the HTTP method is
+    part of an S3/MinIO SigV4 canonical request. A 302 does not rewrite the
+    method (RFC 9110 section 15.4 reserves that for 303), so a redirect-
+    following client re-issued its HEAD against a URL signed for GET and was
+    refused — MEASURED at 403 against MinIO RELEASE.2025-09-07. Every
+    ``/vsicurl/`` open starts with that probe, so the feature this PR exists to
+    deliver was broken on exactly the deployments that store COGs in a bucket.
+
+    The assertion is the feature, not the plumbing: a real client, following
+    redirects the way curl and GDAL do, gets 200 with ``Accept-Ranges`` and the
+    object's true length. ``head.history == []`` is the sharp half — it fails if
+    this ever regresses to answering with a redirect, whether or not whatever
+    sits behind that redirect happens to reply 200.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    head = await client.head(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=True,
+    )
+
+    assert head.status_code == 200, (
+        f"HEAD on the s3 backend returned {head.status_code} after "
+        f"{len(head.history)} redirect(s); a presigned GET URL refuses HEAD, so "
+        f"this route has to answer the probe itself."
+    )
+    assert head.history == [], (
+        f"HEAD was answered with a redirect to "
+        f"{[r.headers.get('location') for r in head.history]}. That URL is "
+        f"signed for get_object and rejects HEAD with 403."
+    )
+    assert head.headers.get("content-length") == str(len(_COG_BYTES)), (
+        f"HEAD reported content-length="
+        f"{head.headers.get('content-length')!r} for a "
+        f"{len(_COG_BYTES)}-byte object"
+    )
+    assert head.headers.get("accept-ranges") == "bytes"
+
+
+async def test_s3_head_and_get_are_deliberately_asymmetric(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """HEAD 200 / GET 302 on s3, on purpose. This replaces a parity assertion.
+
+    ``test_head_cog_redirect_matches_get`` used to run for ``s3`` as well and
+    asserted that HEAD and GET agree on status. fix(#1540) review P1 retires
+    that invariant for this backend rather than dropping it silently, because
+    the asymmetry IS the fix: HEAD no longer travels the redirect, since the
+    presigned URL at the end of it is signed for GET and answers a HEAD with
+    403. Parity with a broken GET-shaped answer was the bug.
+
+    The GET is deliberately untouched. The bytes must keep coming from the
+    bucket rather than through this process — a presigned GET honours a Range
+    once the client gets there, and proxying multi-GB COGs through the API to
+    avoid one redirect would trade a signature bug for a bandwidth bill.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    head = await client.head(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=False,
+    )
+    get = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=False,
+    )
+
+    assert (head.status_code, get.status_code) == (200, 302), (
+        f"expected the deliberate HEAD 200 / GET 302 split on s3, got "
+        f"HEAD {head.status_code} / GET {get.status_code}. Equal statuses here "
+        f"mean HEAD is back on the redirect."
+    )
+    assert "location" not in head.headers
+    location = get.headers["location"]
+    assert raster_asset.asset_uri in location, (
+        f"the GET redirected to {location!r}, which does not name the object"
+    )
+    # Signature parameter, not a specific one: boto3 picks SigV2 or SigV4 from
+    # the endpoint it is talking to, and this assertion is about the redirect
+    # still being presigned, not about which scheme signed it.
+    assert "Signature=" in location, (
+        f"the GET redirected to an UNSIGNED url ({location!r}); a public URL "
+        f"to a private bucket object is either broken or a leak."
+    )
+
+
+async def test_head_cog_on_a_missing_s3_object_is_404(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """A HEAD for bytes the bucket does not hold answers 404, like local does.
+
+    Routing both branches through ``_cog_object_size`` is what stops the S3
+    HEAD drifting into its own error vocabulary — the local counterpart is
+    ``test_head_cog_matches_get_on_missing_object``. Before fix(#1540) the S3
+    branch stat'd nothing at all: it answered 302 to a presigned URL for a key
+    with no object behind it, so the 404 arrived from the bucket one hop later
+    and only for a client that followed.
+    """
+    dataset, _ = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/absent.cog.tif",
+    )
+
+    head = await client.head(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=True,
+    )
+
+    # The 404 alone is NOT the assertion. Before the fix this test passed for
+    # the wrong reason: the route answered 302 to an s3.amazonaws.com URL,
+    # ASGITransport handed that back to the same app, no route matched, and the
+    # 404 came from the router rather than from the object store. `history`
+    # is what separates "this endpoint stat'd the bucket and found nothing"
+    # from "a redirect fell off the end of the world".
+    assert head.history == [], (
+        f"HEAD was redirected to "
+        f"{[r.headers.get('location') for r in head.history]} instead of "
+        f"stat'ing the object; any 404 after that is the redirect's, not this "
+        f"route's."
+    )
+    assert head.status_code == 404, (
+        f"HEAD on a missing s3 object returned {head.status_code}, not 404"
     )
 
 
@@ -759,6 +949,151 @@ async def test_unusable_range_is_ignored_and_serves_the_whole_object(
         f"response this is not."
     )
     assert resp.content == _COG_BYTES
+
+
+# A digit string one longer than CPython's default int-from-string limit
+# (sys.get_int_max_str_digits() == 4300). ~4.2 KB of header, comfortably inside
+# the 8 KiB per-header budget nginx's `large_client_header_buffers 4 8k` and
+# uvicorn's h11 limit both allow, so it reaches the app on a real deployment.
+_OVERLONG_DIGITS = "9" * 4301
+
+
+@pytest.mark.parametrize(
+    ("header", "expected_status", "expected_content_range"),
+    [
+        # first-byte-pos beyond any object: RFC 9110 section 15.5.17 wants a 416
+        # carrying the real size so the client can retry.
+        (f"bytes={_OVERLONG_DIGITS}-", 416, f"bytes */{len(_COG_BYTES)}"),
+        # last-byte-pos beyond the end: clamped, section 14.1.1. Clients that do
+        # not know the size ask for more than exists on purpose.
+        (
+            f"bytes=0-{_OVERLONG_DIGITS}",
+            206,
+            f"bytes 0-{len(_COG_BYTES) - 1}/{len(_COG_BYTES)}",
+        ),
+        # suffix longer than the object: also clamped, to the whole object.
+        (
+            f"bytes=-{_OVERLONG_DIGITS}",
+            206,
+            f"bytes 0-{len(_COG_BYTES) - 1}/{len(_COG_BYTES)}",
+        ),
+    ],
+    ids=["first-byte-pos", "last-byte-pos", "suffix-length"],
+)
+async def test_an_overlong_range_number_does_not_500(
+    header,
+    expected_status,
+    expected_content_range,
+    client: AsyncClient,
+    admin_auth_header: dict,
+    local_cog,
+):
+    """fix(#1540) review P2: a huge Range digit string must not reach ``int()``.
+
+    CPython refuses to convert an integer literal longer than
+    ``sys.get_int_max_str_digits()`` (4300 by default) and raises ValueError.
+    Each of these headers is syntactically valid under RFC 9110 section 14.1.1
+    (``first-pos = 1*DIGIT``), so it matched the route's pattern and went
+    straight into ``int()`` — turning a header the RFC lets a server handle in
+    stride into a 500.
+
+    One case per numeric field, because the three do not share a code path:
+    ``first`` decides 416-vs-206, ``last`` is clamped against the size, and the
+    suffix is subtracted from it. A guard on only the one a reviewer happened to
+    anchor to would leave the other two live.
+
+    The status is asserted exactly rather than as "not 500". Saturating instead
+    of ignoring matters: ignoring an unusable Range and replying 200 is the
+    right answer for a MALFORMED header, but these are well-formed and merely
+    enormous, and handing a client that asked for one tile the entire COG is the
+    corrupt-splice failure the 416 branch exists to prevent.
+    """
+    dataset, _ = local_cog
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "Range": header},
+    )
+
+    assert resp.status_code != 500, (
+        f"Range with a {len(_OVERLONG_DIGITS)}-digit number produced a 500; "
+        f"int() raised on the header instead of it being bounded first."
+    )
+    assert resp.status_code == expected_status, (
+        f"Range {header[:24]}...{header[-4:]!r} produced {resp.status_code}, "
+        f"expected {expected_status}"
+    )
+    assert resp.headers.get("content-range") == expected_content_range
+
+
+@pytest.mark.parametrize(
+    "form",
+    ["bytes={n}-", "bytes=0-{n}", "bytes=-{n}"],
+    ids=["first-byte-pos", "last-byte-pos", "suffix-length"],
+)
+async def test_an_overlong_range_agrees_with_a_merely_large_one(
+    form, client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """The bound must not invent a THIRD behaviour for each range form.
+
+    This is the trap in fixing P2 by rejecting instead of saturating. "Too many
+    digits" is not a synonym for "unsatisfiable": only the first form earns a
+    416, and a single length check that bails out before branching per form
+    would turn the other two valid 206s into 416s. A suffix longer than the
+    representation IS the representation — ``bytes=-<huge>`` means "give me all
+    of it", not "I asked for something impossible".
+
+    So the assertion is agreement rather than three hardcoded answers: whatever
+    the route already does for a merely-too-big number, it must do for an
+    astronomical one. That cannot drift out of sync with the non-overlong tests
+    the way a duplicated expectation can, and it fails for whichever form a
+    future "simplification" of the guard breaks.
+    """
+    dataset, _ = local_cog
+    big = len(_COG_BYTES) + 5000
+
+    async def fetch(n: str):
+        return await client.get(
+            f"/datasets/{dataset.id}/download/cog",
+            headers={**admin_auth_header, "Range": form.format(n=n)},
+        )
+
+    overlong = await fetch(_OVERLONG_DIGITS)
+    merely_large = await fetch(str(big))
+
+    assert overlong.status_code == merely_large.status_code, (
+        f"{form.format(n='<4301 digits>')} answered {overlong.status_code} but "
+        f"{form.format(n=big)} answered {merely_large.status_code}. The digit "
+        f"bound changed this form's semantics instead of only its arithmetic."
+    )
+    assert overlong.headers.get("content-range") == merely_large.headers.get(
+        "content-range"
+    )
+    assert len(overlong.content) == len(merely_large.content)
+
+
+async def test_a_zero_padded_suffix_is_still_a_zero_length_suffix(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """The bound is on the VALUE, not on how many characters express it.
+
+    ``bytes=-0000...0`` is 4301 characters and names zero bytes. A length check
+    that ran before stripping the padding would read it as astronomically large
+    and clamp it to the whole object — a 206 where the RFC wants a 416, which is
+    the one direction ``_RANGE_UNSATISFIABLE`` was added to rule out.
+    """
+    dataset, _ = local_cog
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "Range": f"bytes=-{'0' * 4301}"},
+    )
+
+    assert resp.status_code == 416, (
+        f"a zero-length suffix written with 4301 zeros produced "
+        f"{resp.status_code}, not the 416 a zero-length suffix earns"
+    )
+    assert resp.headers.get("content-range") == f"bytes */{len(_COG_BYTES)}"
 
 
 async def test_head_with_a_range_header_still_describes_the_whole_object(
