@@ -43,6 +43,13 @@ STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 # here beside the other cross-reader marker rather than as a literal in each.
 EMBEDDING_BACKFILL_METADATA_KEY = "embedding_backfill"
 
+# Audit action for an embedding backfill run. Named here rather than in the
+# admin module because the STALE-JOB SWEEPER also has to write it: after a hard
+# kill there is no worker process left to close the run's audit trail, so the
+# actor that settles the row is the actor that must record the outcome
+# (fix(#1550 review)). One owner for the string, two writers.
+EMBEDDING_BACKFILL_AUDIT_ACTION = "embedding.backfill"
+
 # Name of the partial unique index that enforces "at most one embedding
 # backfill in flight per tenant" (migration 0050). The admin route matches on
 # it to tell its own concurrency refusal apart from any other constraint

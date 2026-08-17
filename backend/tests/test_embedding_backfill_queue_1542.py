@@ -603,16 +603,26 @@ async def test_losing_the_fence_never_audits_a_completion_that_did_not_land(
     # never lost and this test proves nothing about the branch it targets.
     assert job.status == "failed", "the lease was never expired — test is vacuous"
 
+    # TWO actors settled something here, so the trail carries two views and
+    # both are true: the sweeper's, saying it failed a row that looked dead,
+    # and the worker's, saying its work finished but could not claim the row.
+    # What must never appear is an entry claiming the run completed, because
+    # the row says failed.
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
-    assert len(terminal) == 1, terminal
-    details = terminal[0]["details"]
-    assert details["outcome"] != "completed", (
-        "the audit claims a completion the job row does not support"
+    outcomes = [entry["details"]["outcome"] for entry in terminal]
+    assert "completed" not in outcomes, (
+        f"the audit claims a completion the job row does not support: {terminal}"
     )
-    assert details["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
-    assert details["error_code"] == "finalize_lost_attempt"
+    worker_entry = next(
+        e for e in terminal if e["details"].get("error_code") == "finalize_lost_attempt"
+    )
+    assert worker_entry["details"]["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
     # The work did finish, and the record says so without claiming the row.
-    assert details["intended_outcome"] == "completed"
+    assert worker_entry["details"]["intended_outcome"] == "completed"
+    # And the actor that actually settled the row recorded that too.
+    assert any(e["details"].get("error_code") == "worker_lost" for e in terminal), (
+        f"the sweeper settled the row without closing the trail: {terminal}"
+    )
 
 
 @pytest.mark.anyio
@@ -663,10 +673,17 @@ async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
     await run_embedding_backfill(**mock_defer.await_args.kwargs)
 
     assert ran is False, "the worker ran a job it did not own"
+    # Two actors again: the reaper that failed the queued row, and the worker
+    # that arrived to find it gone. Each records what it saw.
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
-    assert len(terminal) == 1, terminal
-    assert terminal[0]["details"]["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
-    assert terminal[0]["details"]["error_code"] == "attempt_not_owned"
+    worker_entry = next(
+        e for e in terminal if e["details"].get("error_code") == "attempt_not_owned"
+    )
+    assert worker_entry["details"]["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
+    assert any(e["details"].get("error_code") == "never_started" for e in terminal), (
+        f"the reaper settled the row without closing the trail: {terminal}"
+    )
+    assert "completed" not in [e["details"]["outcome"] for e in terminal]
 
 
 @pytest.mark.anyio
@@ -1307,3 +1324,167 @@ async def test_recovery_does_not_block_on_the_transaction_it_is_recovering_from(
 
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
     assert len(terminal) == 1, terminal
+
+
+# ---------------------------------------------------------------------------
+# The last actor: after a hard kill, the sweeper closes the trail (#1550)
+# ---------------------------------------------------------------------------
+#
+# Every other exit is closed inside the worker. A SIGKILL has no in-process
+# path to close, because there is no process. Whoever settles the row is the
+# only one left that can record the outcome.
+
+
+@pytest.mark.anyio
+async def test_the_sweeper_closes_the_trail_of_a_hard_killed_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The worker is killed after claiming the job. Nothing in it ever runs.
+
+    No `except` clause and no `finally` can help here — the process is gone.
+    The stale sweeper later flips the row to `failed`, and unless it also
+    records the outcome the trail sits at `requested` forever while the job is
+    terminal. On the force path that can be a catalog whose vectors are gone.
+    """
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+    kwargs = mock_defer.await_args.kwargs
+
+    # The worker claims the job and is then killed: no exception, no unwind,
+    # no cleanup — just a row left `running` and a process that is gone.
+    claimed = await _load_job(test_db_session, job_id)
+    claimed.status = "running"
+    hard_killed = datetime.now(timezone.utc) - timedelta(hours=3)
+    claimed.started_at = hard_killed
+    claimed.heartbeat_at = hard_killed
+    await test_db_session.commit()
+
+    assert await _terminal_audit_entries(client, admin_auth_header, job_id) == [], (
+        "the run already had a terminal entry before the sweep — vacuous"
+    )
+
+    await fail_stale_jobs(test_db_session)
+
+    job = await _load_job(test_db_session, job_id)
+    assert job.status == "failed", "the sweeper did not settle the row"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    details = terminal[0]["details"]
+    assert details["outcome"] == "failed"
+    assert details["error_code"] == "worker_lost"
+    # Correlated: the `requested` entry the route committed must be closable by
+    # this one, or the operation still reads as unresolved.
+    requested = next(
+        e
+        for e in (
+            await client.get(
+                "/admin/audit-logs/",
+                params={"action": "embedding.backfill"},
+                headers=admin_auth_header,
+            )
+        ).json()["logs"]
+        if e["details"].get("job_id") == job_id
+        and e["details"]["outcome"] == "requested"
+    )
+    assert details["operation_id"] == requested["details"]["operation_id"]
+    assert details["force"] is True
+    # Unused kwargs: the worker never ran, which is the whole point.
+    assert kwargs["job_id"] == job_id
+
+
+@pytest.mark.anyio
+async def test_a_status_poll_that_settles_a_dead_run_also_closes_the_trail(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """`/jobs/{id}` auto-fails an expired lease, so it settles rows too.
+
+    It is the path that actually fires when anything is polling, so leaving it
+    out would mean the trail closes only when the background sweep happens to
+    get there first.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    claimed = await _load_job(test_db_session, job_id)
+    claimed.status = "running"
+    expired = datetime.now(timezone.utc) - timedelta(hours=3)
+    claimed.started_at = expired
+    claimed.heartbeat_at = expired
+    await test_db_session.commit()
+
+    status_resp = await client.get(f"/jobs/{job_id}", headers=admin_auth_header)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "failed", (
+        "the poll did not settle the row — nothing to close the trail for"
+    )
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "worker_lost"
+
+
+@pytest.mark.anyio
+async def test_the_sweeper_does_not_audit_ordinary_ingest_jobs(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    """The helper is a no-op for every other kind of job.
+
+    A blanket "audit whatever the sweep touched" would put embedding-backfill
+    entries over uploads, which is a different fabricated record.
+    """
+    from app.modules.audit.models import AuditLog
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    stale = IngestJob(
+        source_filename="ordinary-upload.geojson",
+        file_path="",
+        created_by=await get_user_id(test_db_session, "admin"),
+        status="running",
+        started_at=datetime.now(timezone.utc) - timedelta(hours=3),
+        heartbeat_at=datetime.now(timezone.utc) - timedelta(hours=3),
+        user_metadata={"file_type": "vector"},
+    )
+    test_db_session.add(stale)
+    await test_db_session.commit()
+    await test_db_session.refresh(stale)
+
+    before = (
+        await test_db_session.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "embedding.backfill")
+        )
+    ).scalar_one()
+
+    await fail_stale_jobs(test_db_session)
+
+    settled = await _load_job(test_db_session, stale.id)
+    # Non-vacuity: the sweep really did settle a row, it just was not a backfill.
+    assert settled.status == "failed"
+    after = (
+        await test_db_session.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.action == "embedding.backfill")
+        )
+    ).scalar_one()
+    assert after == before

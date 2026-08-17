@@ -39,6 +39,7 @@ from app.platform.jobs.schemas import (
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,
+    audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
     STALE_PENDING_UNBOUND_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     StaleCleanupOutcome,  # noqa: F401 -- re-exported, see __all__
@@ -337,6 +338,17 @@ async def get_job_status(
                     completed_at=now,
                 )
             )
+            # fix(#1550 review): this poll is one of the actors that can settle
+            # a job, so it is one of the actors that has to close the audit
+            # trail. Same transaction as the status change, so the two records
+            # of one state cannot disagree.
+            await audit_settled_embedding_backfill(
+                db,
+                job_id=job.id,
+                user_metadata=job.user_metadata,
+                created_by=job.created_by,
+                error_code="worker_lost",
+            )
             await db.commit()
             await db.refresh(job)
 
@@ -380,6 +392,13 @@ async def get_job_status(
                 )
             )
             if result.rowcount:
+                await audit_settled_embedding_backfill(
+                    db,
+                    job_id=job.id,
+                    user_metadata=job.user_metadata,
+                    created_by=job.created_by,
+                    error_code="never_started",
+                )
                 await db.commit()
                 await db.refresh(job)
                 break

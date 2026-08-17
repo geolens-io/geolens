@@ -2699,7 +2699,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # says what the branch still guards (pre-#1327 rows, any future writer of
     # the link table) so the next reader does not delete a check whose FALSE
     # side went quiet. Cap 1380 -> 1403, exact.
-    "backend/app/platform/jobs/sweep.py": 1403,
+    # fix(#1550 review): +86 for `audit_settled_embedding_backfill` and its
+    # three call sites. After a hard kill there is no worker process left to
+    # close an embedding backfill's audit trail, so the actor that settles the
+    # row — this sweep — is the only one that can, and it emits on the caller's
+    # session so the status change and the audit entry commit as one. Most of
+    # the lines are the docstring recording why the trail cannot be closed
+    # anywhere else, and why `audit_emit_durable` would be the wrong tool here.
+    # Cap 1403 -> 1489, exact.
+    "backend/app/platform/jobs/sweep.py": 1489,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
