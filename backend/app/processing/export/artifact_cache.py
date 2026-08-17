@@ -83,6 +83,7 @@ from dataclasses import dataclass
 import structlog
 
 from app.core.db.tenant_session import current_tenant_var
+from app.core.runtime.staging import EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
 from app.platform.storage import get_storage
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -101,7 +102,17 @@ _DEFAULT_TTL_SECONDS = 60
 # reclamation answer different questions: expiry asks whether an artifact may
 # answer a NEW request, reclamation asks whether a request that started before
 # expiry could still be streaming from it.
-_SWEEP_AGE_SECONDS = 3600
+#
+# fix(#1532 review r4): the SAME horizon the temp-export sweeper uses, and
+# reused rather than restated so the two cannot drift. `staging.py` already
+# worked this out for the identical hazard: at one hour, "an in-flight export
+# survives a restart" becomes "any export whose generation plus client download
+# time exceeds an hour is deleted out from under it on the very next cycle" —
+# guaranteed, not an unlucky coincidence. A full cached export still streaming
+# after an hour would have had its object removed by the next build's sweep,
+# and on Azure `downloader.chunks()` fetches later chunks as it goes, so an
+# already-started 200 dies truncated rather than failing to start.
+_SWEEP_AGE_SECONDS = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
 
 # How often one process will bother sweeping. The sweep is cheap next to the
 # conversion it rides along with, and running it more often buys nothing: the
@@ -348,13 +359,23 @@ async def store(
     directory until a response takes it, and swallowing a cancel here would leave
     it stranded.
     """
+    global _last_sweep_at
     try:
         digest, size = await _digest_and_size(file_path)
-        built_at = time.time()
-        key = _artifact_key(dataset_id, selection, digest, size, built_at)
-        with open(file_path, "rb") as handle:
-            await get_storage().put(key, handle)
-        artifact = ExportArtifact(
+        # fix(#1532 review r4): reclaim BEFORE writing, not after. This is the
+        # only production call to the sweep, so a `put` that raises on a full
+        # store used to exit before it — and with nothing else sweeping
+        # `export-cache/`, the aged artifacts that filled the volume could never
+        # be reclaimed by a later request. Caching stayed dead, and on the local
+        # backend the shared staging volume stayed too full to generate larger
+        # exports at all, until an operator deleted files by hand. Sweeping
+        # first turns a full store into a self-healing condition instead of a
+        # deadlock.
+        await _sweep_occasionally()
+        built_at, key = await _put_with_reclaim(
+            dataset_id, selection, digest, size, file_path
+        )
+        return ExportArtifact(
             key=key,
             digest=digest,
             size=size,
@@ -362,15 +383,53 @@ async def store(
             filename=filename,
             media_type=media_type,
         )
-        await _sweep_occasionally()
-        return artifact
     except Exception:  # broad: caching is best-effort; the conversion succeeded
+        # And let the NEXT attempt sweep whatever the interval says. A store
+        # that failed is the one signal available that the horizon may need
+        # applying sooner than the fifteen-minute cadence, so recovery from a
+        # full store takes one request rather than up to a quarter of an hour.
+        _last_sweep_at = 0.0
         logger.warning(
             "export_artifact_store_failed",
             dataset_id=str(dataset_id),
             exc_info=True,
         )
         return None
+
+
+async def _put_with_reclaim(
+    dataset_id: uuid.UUID, selection: str, digest: str, size: int, file_path: str
+) -> tuple[float, str]:
+    """Write the artifact, reclaiming and retrying once if the store is full.
+
+    fix(#1532 review r4): sweeping before the write is not enough on its own,
+    because ``_sweep_occasionally`` is interval-guarded — a store that fills
+    between two cadence ticks would fail without any reclamation having been
+    attempted, and with nothing else sweeping ``export-cache/`` the volume stays
+    full. So a failed write forces an unconditional sweep and tries once more,
+    which makes a full store heal inside the request that hit it rather than
+    fifteen minutes later.
+
+    Once, not in a loop. If reclaiming everything past the horizon does not make
+    room, the store is full of something this cache does not own and retrying is
+    just a slower way to fail.
+    """
+    global _last_sweep_at
+
+    async def _write() -> tuple[float, str]:
+        built_at = time.time()
+        key = _artifact_key(dataset_id, selection, digest, size, built_at)
+        with open(file_path, "rb") as handle:
+            await get_storage().put(key, handle)
+        return built_at, key
+
+    try:
+        return await _write()
+    except Exception:  # broad: any write failure is worth one reclaim-and-retry
+        logger.warning("export_artifact_put_failed_reclaiming", exc_info=True)
+        await sweep()
+        _last_sweep_at = time.time()
+        return await _write()
 
 
 async def _digest_and_size(file_path: str) -> tuple[str, int]:

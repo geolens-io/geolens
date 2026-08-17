@@ -27,6 +27,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -1068,3 +1069,167 @@ async def test_a_cancel_during_publication_does_not_strand_the_conversion(
         f"Nothing owns it now: the response never existed, so no background task "
         f"will clean it up."
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r4
+# ---------------------------------------------------------------------------
+
+
+async def test_a_full_store_reclaims_and_then_succeeds(test_db_session, monkeypatch):
+    """fix(#1532 review r4): a full store must not deadlock the cache.
+
+    ``_sweep_occasionally`` ran AFTER the upload, and it is the only production
+    call to it. A ``put`` that raised on a full volume therefore exited ``store``
+    before any reclamation, and with nothing else sweeping ``export-cache/`` the
+    aged artifacts that filled the volume could never be removed by a later
+    request: caching stayed dead, and on the local backend the shared staging
+    volume stayed too full to generate larger exports at all, until an operator
+    deleted files by hand.
+
+    Sweeping first makes a full store self-healing. The quota here is a stand-in
+    for ENOSPC — what matters is that the write fails while aged artifacts are
+    sitting there reclaimable, and that the next attempt gets them back.
+    """
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Full Store")
+    storage = get_storage()
+    aged = time.time() - 5 * 3600
+    for n in range(3):
+        await storage.put(
+            cache._artifact_key(dataset.id, f"old-{n}", f"{n:064d}", 6, aged),
+            b"abcdef",
+        )
+
+    root = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+    quota = 3
+
+    class _QuotaStorage:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def put(self, key, data):
+            if len(await self._inner.list(root)) >= quota:
+                raise OSError("No space left on device")
+            return await self._inner.put(key, data)
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _QuotaStorage(storage),
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"a new export")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "fresh",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+
+    assert stored is not None, (
+        "the store failed on a volume whose aged artifacts were reclaimable. "
+        "Nothing else sweeps this prefix, so it stays full and caching stays "
+        "dead for every later request."
+    )
+    assert await storage.exists(stored.key)
+
+
+def test_the_sweep_horizon_matches_the_temp_export_sweeper():
+    """fix(#1532 review r4): one horizon, imported rather than restated.
+
+    ``staging.py`` already worked this hazard out for the temp-export sweeper:
+    at one hour, "an in-flight export survives a restart" becomes "any export
+    whose generation plus client download time exceeds an hour is deleted out
+    from under it on the very next cycle". The same applies to a cached artifact
+    still being streamed, and worse on Azure, where ``downloader.chunks()``
+    fetches later chunks as the response goes — so an already-started 200 dies
+    truncated rather than failing to start.
+
+    Asserted by identity, not by value: a test comparing against 14400 would
+    keep passing if `staging.py` revised its reasoning and this module did not.
+    """
+    from app.core.runtime.staging import EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
+    from app.processing.export import artifact_cache as cache
+
+    assert cache._SWEEP_AGE_SECONDS == EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
+    assert cache._SWEEP_AGE_SECONDS > 3600, (
+        "an hour is the horizon staging.py explicitly rejected for a periodic "
+        "pass, because it deletes long downloads out from under themselves"
+    )
+
+
+async def test_a_cached_parquet_probe_does_not_replan_per_range(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """fix(#1532 review r4): the expensive plan is behind the cache, not in front.
+
+    ``plan_parquet_export`` introspects the live table and runs a bounded count
+    up to a million rows, and it sat ABOVE the artifact lookup — so every HEAD
+    and every range slice of an artifact that already existed repeated that
+    scan, preserving most of the load the cache exists to remove.
+
+    Counted rather than timed, and across a request SEQUENCE, for the same
+    reason the conversion-count test is: the defect is per-request work that
+    should be per-artifact, and one response cannot show it.
+
+    The planner is stubbed rather than run. What is being asserted is that the
+    ROUTE stops calling it once an artifact exists; running the real one would
+    need a materialized feature table and would measure pyarrow rather than the
+    ordering under test.
+    """
+    import tempfile
+
+    import app.processing.export.parquet as parquet_module
+
+    plans = {"count": 0}
+    root = tempfile.mkdtemp(prefix="test_parquet_1532_")
+
+    async def _counted_plan(*args, **kwargs):
+        plans["count"] += 1
+        return SimpleNamespace(columns=["gid"], where=None, bbox=None)
+
+    async def _fake_export(*args, **kwargs):
+        directory = os.path.join(root, uuid.uuid4().hex)
+        os.makedirs(directory)
+        path = os.path.join(directory, "Parquet Probe.parquet")
+        with open(path, "wb") as handle:
+            handle.write(b"PAR1" + bytes(range(256)) * 4)
+        return path, "Parquet Probe.parquet", parquet_module.PARQUET_MEDIA_TYPE
+
+    monkeypatch.setattr(parquet_module, "plan_parquet_export", _counted_plan)
+    monkeypatch.setattr(parquet_module, "export_parquet", _fake_export)
+
+    dataset = await _dataset(test_db_session, "Parquet Probe")
+    url = f"/datasets/{dataset.id}/export?format=parquet"
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200, first.text
+    assert plans["count"] == 1, (
+        f"precondition: the cold request plans once, saw {plans['count']}"
+    )
+
+    await client.head(url, headers=admin_auth_header)
+    for start in range(0, 400, 100):
+        resp = await client.get(
+            url, headers={**admin_auth_header, "Range": f"bytes={start}-{start + 99}"}
+        )
+        assert resp.status_code in (200, 206), resp.text
+
+    assert plans["count"] == 1, (
+        f"a HEAD and four ranges against a cached parquet export ran "
+        f"{plans['count']} planner invocations. Each introspects the table and "
+        f"counts up to a million rows for an artifact that already exists."
+    )
+
+    shutil.rmtree(root, ignore_errors=True)

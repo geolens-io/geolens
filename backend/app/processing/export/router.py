@@ -455,7 +455,81 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 6c. fix(#1513, codex P2 on #1522): the remaining checks that decide the
+    # 6c. fix(#1532): the cached artifact this selection would be served from,
+    # if there is a usable one.
+    #
+    # fix(#1532 review r4): resolved BEFORE the expensive planning below, not
+    # after. `plan_parquet_export` introspects the live table and runs a bounded
+    # count up to a million rows, and it ran on every request including every
+    # range slice of an artifact that already existed — so a range-probing
+    # client repeated that scan per slice and kept most of the load this cache
+    # exists to remove.
+    #
+    # Skipping those gates on a hit is safe by construction rather than by
+    # argument: an artifact only exists because an earlier request with THIS
+    # key passed every one of them and produced bytes. The key carries
+    # table_name, the dataset title and tile_cache_version, so a schema change,
+    # a replace or a feature edit all move it — a stored artifact cannot
+    # outlive the validation that produced it.
+    #
+    # The gates above stay above: access control, the raster and geometry
+    # checks, bbox and CRS parsing. Those decide whether the CALLER may have
+    # this representation, which a previous request cannot answer on their
+    # behalf.
+    selection = artifact_cache.selection_key(
+        dataset_id=dataset_id,
+        table_name=dataset.table_name,
+        dataset_title=dataset.record.title,
+        tile_cache_version=dataset.tile_cache_version,
+        format_key=str(format),
+        target_crs=target_crs,
+        bbox=bbox,
+        where=where,
+    )
+    # fix(#1532 review r3): filename and media_type are derived, not stored.
+    # `export_descriptor` answers both from the title and the format without
+    # touching the database or the filesystem, and the HEAD branch below already
+    # calls it — persisting them alongside the artifact would have been a second
+    # copy of a value cheaper to recompute than to keep consistent.
+    cached_filename, cached_media_type = export_descriptor(
+        dataset.record.title, str(format)
+    )
+    artifact = await artifact_cache.lookup(
+        dataset_id,
+        selection,
+        filename=cached_filename,
+        media_type=cached_media_type,
+    )
+
+    if artifact is not None:
+        # fix(#1532 review r4): the HEAD answer for a hit lives HERE, above the
+        # planning, not below it. Left below, every cached parquet PROBE ran the
+        # planner — which is the request a range-reading client makes first and
+        # most often.
+        if request.method == "HEAD":
+            return artifact_response.head_response(artifact)
+        # A cache hit still audits: bytes are being transferred, and the audit
+        # row is what makes a range read distinguishable from a full download
+        # when the log is read back.
+        await _emit_export_audit(
+            db,
+            request,
+            user=user,
+            dataset_id=dataset_id,
+            format=format,
+            target_crs=target_crs,
+            bbox=bbox,
+            where=where,
+        )
+        return artifact_response.read_response(
+            get_storage(),
+            artifact,
+            range_header=request.headers.get("range"),
+            if_range=request.headers.get("if-range"),
+            may_serve_range=True,
+        )
+
+    # 6d. fix(#1513, codex P2 on #1522): the remaining checks that decide the
     # STATUS, hoisted above the HEAD return. These used to live inside
     # export_dataset()/export_parquet(), i.e. below it, so HEAD answered 200
     # for a filter GET rejects with 400 and for a parquet selection GET rejects
@@ -502,39 +576,6 @@ async def export_dataset_endpoint(
                 detail=str(e),
             )
 
-    # 6d. fix(#1532): the cached artifact this selection would be served from,
-    # if there is a usable one. Resolved before the HEAD return because HEAD is
-    # the request that most wants it — a length is what GDAL is probing for —
-    # and before the conversion because a hit is the whole point.
-    #
-    # `served_from_cache` is carried into the response as the answer to "did
-    # this artifact exist before this request", which is what decides whether a
-    # Range may be honoured. See artifact_response.read_response.
-    selection = artifact_cache.selection_key(
-        dataset_id=dataset_id,
-        table_name=dataset.table_name,
-        dataset_title=dataset.record.title,
-        tile_cache_version=dataset.tile_cache_version,
-        format_key=str(format),
-        target_crs=target_crs,
-        bbox=bbox,
-        where=where,
-    )
-    # fix(#1532 review r3): filename and media_type are derived, not stored.
-    # `export_descriptor` answers both from the title and the format without
-    # touching the database or the filesystem, and the HEAD branch below already
-    # calls it — persisting them alongside the artifact would have been a second
-    # copy of a value cheaper to recompute than to keep consistent.
-    cached_filename, cached_media_type = export_descriptor(
-        dataset.record.title, str(format)
-    )
-    artifact = await artifact_cache.lookup(
-        dataset_id,
-        selection,
-        filename=cached_filename,
-        media_type=cached_media_type,
-    )
-
     # 6e. HEAD stops here — after every gate that decides the status, before
     # the conversion that decides the bytes. No audit event either: nothing was
     # exported, and a `dataset.export` row for a probe would misreport who
@@ -548,31 +589,8 @@ async def export_dataset_endpoint(
     # with a limited range GET). So a first open costs one conversion on the
     # range GET, and every open after that gets its length for free.
     if request.method == "HEAD":
-        if artifact is not None:
-            return artifact_response.head_response(artifact)
+        # Only the cold case reaches here; a hit returned above.
         return _head_export_response(dataset.record.title, format)
-
-    if artifact is not None:
-        # A cache hit still audits: bytes are being transferred, and the audit
-        # row is what makes a range read distinguishable from a full download
-        # when the log is read back.
-        await _emit_export_audit(
-            db,
-            request,
-            user=user,
-            dataset_id=dataset_id,
-            format=format,
-            target_crs=target_crs,
-            bbox=bbox,
-            where=where,
-        )
-        return artifact_response.read_response(
-            get_storage(),
-            artifact,
-            range_header=request.headers.get("range"),
-            if_range=request.headers.get("if-range"),
-            may_serve_range=True,
-        )
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.
