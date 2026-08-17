@@ -14,15 +14,79 @@ from app.processing.export.where_validator import validate_where_ast
 from app.core.runtime.staging import ensure_staging_ready
 
 
+# fix(#1532 review r13): THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
+# conversions of unchanged data must produce identical bytes. #1532 keys its
+# cached artifact on the digest of those bytes, so a writer that stamps the
+# moment of conversion makes every rebuild look like a new representation: the
+# selection is permanently `contested`, and a contested selection refuses every
+# range. A format that loses this property does not fail loudly, it just stops
+# being rangeable. `test_export_artifact_cache_1532.py` pins it per format
+# against the real driver; a new format needs a row there.
+
+# The DOS epoch, the earliest a ZIP directory entry can represent. Chosen for
+# the same reason as the GeoPackage constant below: it reads as "deliberately
+# not a time" rather than as a wrong one.
+_ZIP_FIXED_DATE_TIME = (1980, 1, 1, 0, 0, 0)
+
+# Regular file, 0644. Pinned rather than copied from the member's own stat so
+# the archive cannot move with the worker's umask.
+#
+# The DEFLATE level is deliberately NOT pinned alongside these. zlib's default
+# already resolves to a fixed level, and naming that level would not buy what it
+# appears to: level 6 output can itself change between zlib releases, so the pin
+# would read as a guarantee against an upgrade while providing none. The honest
+# statement is the residual below.
+_ZIP_FIXED_EXTERNAL_ATTR = 0o100644 << 16
+
+# dBASE III header: byte 0 is the version, bytes 1..3 are the date of last
+# update as (year-1900, month, day). ogr2ogr writes TODAY, so two shapefile
+# exports of unchanged data differ across a midnight boundary. Rewritten to
+# 1970-01-01 for the reason above. Nothing reads this field — verified with
+# `ogrinfo` against a normalized file — and it is three bytes at a fixed offset,
+# so it is patched in place rather than by reopening the layer through GDAL.
+_DBF_LAST_UPDATE_OFFSET = 1
+_DBF_FIXED_LAST_UPDATE = bytes((70, 1, 1))
+
+
+def _normalize_dbf_date(path: str) -> None:
+    """Blank the dBASE last-update date so it cannot vary by build day."""
+    with open(path, "r+b") as handle:
+        handle.seek(_DBF_LAST_UPDATE_OFFSET)
+        handle.write(_DBF_FIXED_LAST_UPDATE)
+
+
 def _zip_export_files(temp_dir: str, zip_path: str) -> None:
     """DEFLATE every ``export.*`` sidecar in *temp_dir* into *zip_path*.
 
+    Byte-deterministic for unchanged data, per the rule above. Three inputs had
+    to be pinned: members are added in sorted order rather than ``os.listdir``
+    order, which is the filesystem's and is not stable across filesystems; each
+    entry carries a fixed ``date_time`` instead of the member's mtime, which is
+    the moment of conversion; and the mode and compression level are stated.
+    The ``.dbf`` member's own header date is normalized first, because pinning
+    the archive metadata would not reach a timestamp inside a member.
+
     Blocking; call via ``asyncio.to_thread``.
     """
+    members = sorted(f for f in os.listdir(temp_dir) if f.startswith("export."))
+    for fname in members:
+        if fname.endswith(".dbf"):
+            _normalize_dbf_date(os.path.join(temp_dir, fname))
+
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname in os.listdir(temp_dir):
-            if fname.startswith("export."):
-                zf.write(os.path.join(temp_dir, fname), fname)
+        for fname in members:
+            member = os.path.join(temp_dir, fname)
+            info = zipfile.ZipInfo(fname, date_time=_ZIP_FIXED_DATE_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = _ZIP_FIXED_EXTERNAL_ATTR
+            # ZipFile.open() decides ZIP64 from `file_size` alone, which
+            # ZipFile.write() would have filled in from stat. Set here for the
+            # same reason: a multi-GB shapefile is exactly this route's payload
+            # (#435), and without it a >2 GiB member raises instead of writing.
+            info.file_size = os.path.getsize(member)
+            with open(member, "rb") as src, zf.open(info, "w") as dest:
+                # Streamed rather than read whole, for the same size reason.
+                shutil.copyfileobj(src, dest)
 
 
 # fix(#1532 review r12): the timestamp ogr2ogr stamps into every GeoPackage, and

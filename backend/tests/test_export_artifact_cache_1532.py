@@ -26,9 +26,11 @@ import hashlib
 from datetime import UTC, datetime
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import uuid
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -2826,4 +2828,274 @@ async def test_a_matching_if_range_resumes_even_on_a_contested_selection(
         f"a non-matching If-Range returned {unproven.status_code}; section "
         f"13.1.5 says ignore the Range, and on a contested selection that is the "
         f"only safe answer"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r13 — byte-determinism, enumerated per format
+# ---------------------------------------------------------------------------
+#
+# r12 fixed GeoPackage in isolation. That was the wrong shape of fix: the
+# property "two conversions of unchanged data produce identical bytes" is what
+# #1532's whole safety model rests on, and it has to hold for EVERY format the
+# route can emit, not for the one that happened to be reported. Shapefile was
+# broken in exactly the same way and nobody had looked.
+#
+# So the parametrization is DERIVED from FORMAT_MAP rather than listed, and
+# `test_no_export_format_escapes_the_determinism_check` fails when a format
+# exists that this file does not build twice. A new format joins by existing.
+
+_DETERMINISM_FORMATS = sorted(FORMAT_MAP) + ["parquet"]
+
+# How far apart two builds have to be for a writer that stamps wall-clock time
+# to be CAUGHT stamping it. Set by the coarsest field any of these formats
+# carries: the ZIP directory's DOS timestamp, whose seconds are stored halved,
+# so two builds 1.1s apart can land in the same value and hash identically with
+# nothing pinned. Measured, not assumed — at 1.1s the shapefile red below
+# reproduced only when the suite happened to straddle a bucket, which is a
+# flake in the direction that hides the bug.
+_DISTINGUISHABLE_BUILD_GAP_SECONDS = 2.2
+
+_SAMPLE_GEOJSON = (
+    '{"type":"FeatureCollection","features":['
+    '{"type":"Feature","properties":{"n":1,"s":"alpha"},'
+    '"geometry":{"type":"Point","coordinates":[1.5,2.5]}},'
+    '{"type":"Feature","properties":{"n":2,"s":"beta"},'
+    '"geometry":{"type":"Point","coordinates":[3.5,4.5]}}]}'
+)
+
+
+def _require_ogr2ogr():
+    if shutil.which("ogr2ogr") is None:
+        pytest.skip("ogr2ogr not available")
+
+
+def _build_export(format_key: str, work_dir: Path, tag: str) -> Path:
+    """Produce one export the way the route produces it, and return its path.
+
+    Goes through the real writers — the driver named in ``FORMAT_MAP``, then
+    that format's production post-step (`normalize_gpkg_timestamps` for GPKG,
+    `_zip_export_files` for shapefile, none for the rest). A test that packaged
+    the bytes its own way would be pinning its own mirror of the export path
+    rather than the export path.
+    """
+    from app.processing.export.service import _zip_export_files
+    from app.processing.export.service import normalize_gpkg_timestamps
+
+    stage = work_dir / tag
+    stage.mkdir()
+
+    if format_key == "parquet":
+        # The route's parquet writer is not ogr2ogr; it is this function, which
+        # is deliberately DB-free so it can be driven directly.
+        from app.processing.export.parquet import _write_geoparquet
+
+        out = stage / "export.parquet"
+        _write_geoparquet(
+            geom=[b"\x01\x01\x00\x00\x00", None],
+            cols={"n": [1, 2], "s": ["alpha", "beta"]},
+            attr_names=["n", "s"],
+            geom_col="geometry",
+            output_path=str(out),
+        )
+        return out
+
+    source = work_dir / "source.geojson"
+    if not source.exists():
+        source.write_text(_SAMPLE_GEOJSON)
+
+    fmt = FORMAT_MAP[format_key]
+    ogr_output = stage / f"export{fmt['ext']}"
+    subprocess.run(
+        ["ogr2ogr", "-f", fmt["driver"], str(ogr_output), str(source)],
+        check=True,
+        capture_output=True,
+    )
+
+    if format_key == "gpkg":
+        normalize_gpkg_timestamps(str(ogr_output))
+        return ogr_output
+    if format_key == "shp":
+        archive = stage / "export.zip"
+        _zip_export_files(str(stage), str(archive))
+        return archive
+    return ogr_output
+
+
+@pytest.mark.parametrize("format_key", _DETERMINISM_FORMATS)
+def test_every_export_format_is_byte_deterministic(format_key, tmp_path):
+    """Two builds of unchanged data must hash the same, for every format.
+
+    When they do not, the cache's `contested` rule — correctly — refuses every
+    range for that selection, because a slice of each spliced together is a
+    corrupt file. So a format that loses byte-determinism does not break
+    visibly. It silently stops being rangeable, which for the formats GDAL
+    opens over `/vsicurl/` is the entire point of #1532.
+
+    Run against the real writers, not a stub: the claim is about what ogr2ogr
+    and pyarrow put on disk, and no fake can be evidence for that.
+
+    The gap between the two builds is set by the COARSEST clock any of these
+    formats records, not by a round number — see the constant.
+    """
+    _require_ogr2ogr()
+
+    first = _build_export(format_key, tmp_path, "first")
+    time.sleep(_DISTINGUISHABLE_BUILD_GAP_SECONDS)
+    second = _build_export(format_key, tmp_path, "second")
+
+    digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in (first, second)]
+    assert digests[0] == digests[1], (
+        f"two {format_key} exports of unchanged data differ ({digests[0][:12]} vs "
+        f"{digests[1][:12]}); every rebuild registers as a new representation, "
+        f"the selection is permanently contested, and no range is ever served "
+        f"for this format"
+    )
+
+
+def test_the_source_files_a_shapefile_zip_wraps_really_did_move(tmp_path):
+    """Counterfactual for the shapefile row above.
+
+    The zip is deterministic because its entries are pinned, not because the
+    two builds happened to be identical events. If ogr2ogr's own output files
+    came out with the same mtimes anyway, the parametrized test would pass with
+    the pinning removed and would be proving nothing. This asserts the input
+    the pinning is there to absorb.
+
+    Compared at the DOS bucket the ZIP directory actually stores — seconds
+    halved — rather than at whole seconds. Two mtimes one second apart occupy
+    the same bucket half the time, so a whole-second comparison would certify a
+    gap that the format cannot see, and the determinism test it guards would go
+    quietly vacuous.
+    """
+    _require_ogr2ogr()
+
+    (tmp_path / "source.geojson").write_text(_SAMPLE_GEOJSON)
+    _build_export("shp", tmp_path, "first")
+    time.sleep(_DISTINGUISHABLE_BUILD_GAP_SECONDS)
+    _build_export("shp", tmp_path, "second")
+
+    def _dos_buckets(tag):
+        stage = tmp_path / tag
+        return {
+            p.name: int(p.stat().st_mtime) // 2
+            for p in stage.iterdir()
+            if p.suffix != ".zip"
+        }
+
+    before, after = _dos_buckets("first"), _dos_buckets("second")
+    assert before.keys() == after.keys(), "the two builds wrote different members"
+    assert any(before[n] != after[n] for n in before), (
+        f"both shapefile builds landed in the same DOS timestamp bucket "
+        f"({before}), so the zip would hash the same with the date_time pin "
+        f"removed and the determinism test above is vacuous"
+    )
+
+
+def test_the_shapefile_zip_pins_order_date_and_mode(tmp_path):
+    """Name the three inputs, so a partial revert fails here and says which.
+
+    A digest comparison alone reports "they differ" and leaves the next reader
+    to rediscover why. These are the three the archive carries: member order
+    (`os.listdir` returns the filesystem's, which is not stable across
+    filesystems), each entry's `date_time` (the member's mtime, i.e. the moment
+    of conversion), and the mode (the worker's umask).
+    """
+    _require_ogr2ogr()
+
+    (tmp_path / "source.geojson").write_text(_SAMPLE_GEOJSON)
+    archive = _build_export("shp", tmp_path, "only")
+
+    with zipfile.ZipFile(archive) as zf:
+        infos = zf.infolist()
+        names = [i.filename for i in infos]
+        assert names == sorted(names), (
+            f"zip members are in filesystem order {names}; two servers on "
+            f"different filesystems would produce different bytes for the same "
+            f"export"
+        )
+        assert {i.date_time for i in infos} == {(1980, 1, 1, 0, 0, 0)}, (
+            f"zip entries carry real timestamps "
+            f"{sorted({i.date_time for i in infos})}, so every rebuild differs"
+        )
+        assert {i.external_attr for i in infos} == {0o100644 << 16}, (
+            "zip entries carry the member's own mode, so the archive moves with "
+            "the worker's umask"
+        )
+
+
+def test_the_dbf_date_is_normalized_inside_the_archive(tmp_path):
+    """The member's own header, which pinning the archive metadata cannot reach.
+
+    dBASE stores the date of last update in the file itself (bytes 1..3 of the
+    header). ogr2ogr writes today, so a shapefile export rebuilt after midnight
+    hashes differently from the one before it — the same failure as GeoPackage's
+    `last_change`, at one-day granularity instead of one-millisecond, which
+    means one contested window per day per selection rather than a permanent
+    one. Bounded is not the same as absent.
+    """
+    _require_ogr2ogr()
+
+    (tmp_path / "source.geojson").write_text(_SAMPLE_GEOJSON)
+    archive = _build_export("shp", tmp_path, "only")
+
+    with zipfile.ZipFile(archive) as zf:
+        header = zf.read("export.dbf")[:4]
+
+    assert header[1:4] == bytes((70, 1, 1)), (
+        f"the dbf header carries the build date {1900 + header[1]}-{header[2]}-"
+        f"{header[3]}, so this export will hash differently tomorrow"
+    )
+
+
+def test_a_normalized_shapefile_still_opens(tmp_path):
+    """Determinism must not be bought by producing a file nothing can read.
+
+    Every constant here is written into bytes a GDAL reader parses. Asserting
+    only that two builds match would be satisfied just as well by two identical
+    corrupt archives, so the round trip is the assertion that matters: extract
+    what the route would have served, and open it with the driver that wrote it.
+    """
+    _require_ogr2ogr()
+
+    (tmp_path / "source.geojson").write_text(_SAMPLE_GEOJSON)
+    archive = _build_export("shp", tmp_path, "only")
+
+    with zipfile.ZipFile(archive) as zf:
+        assert zf.testzip() is None, "a member failed its CRC"
+        extracted = tmp_path / "extracted"
+        extracted.mkdir()
+        zf.extractall(extracted)
+
+    probe = subprocess.run(
+        ["ogrinfo", "-al", "-so", str(extracted / "export.shp")],
+        capture_output=True,
+        text=True,
+    )
+    assert probe.returncode == 0, (
+        f"ogrinfo refused the normalized shapefile: {probe.stderr.strip()}"
+    )
+    assert "Feature Count: 2" in probe.stdout, (
+        f"the normalized shapefile lost features: {probe.stdout}"
+    )
+
+
+def test_no_export_format_escapes_the_determinism_check():
+    """A new format must not be able to join the route silently.
+
+    Written as "every format in FORMAT_MAP is covered here" rather than as a
+    list of the ones known to be broken. A predicate that enumerates the known
+    failures is a blocklist: it answers "no problem" for everything it has not
+    heard of, which is precisely how shapefile survived r12.
+    """
+    from app.processing.export.ogr import PARQUET_MEDIA_TYPE
+
+    covered = set(_DETERMINISM_FORMATS)
+    assert set(FORMAT_MAP) <= covered, (
+        f"{sorted(set(FORMAT_MAP) - covered)} can be exported but is never built "
+        f"twice here; if it stamps the moment of conversion, ranges are dead for "
+        f"it and nothing says so"
+    )
+    assert PARQUET_MEDIA_TYPE and "parquet" in covered, (
+        "the route emits parquet outside FORMAT_MAP, so it has to be named"
     )
