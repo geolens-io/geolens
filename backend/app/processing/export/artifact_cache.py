@@ -8,12 +8,50 @@ artifacts served under one URL, with two probes reporting different total sizes.
 This module is the other half of the fix: the conversion output is stored once
 and every subsequent range is a slice of that one object.
 
-Why freshness rests on a TTL and not on an invalidation list
-------------------------------------------------------------
+Everything is in the key
+------------------------
+An artifact is named ``{built_at}-{size}-{digest}.bin`` and there is nothing
+else — no pointer, no index, no metadata object. Lookup lists the selection's
+prefix and takes the newest key still inside the freshness window; publishing is
+one ``put``; the sweep deletes any key past the horizon. Nothing is ever
+rewritten, so there is no flip to race and no read-decide-delete to lose.
+
+fix(#1532 review r3) arrived at that by removing the last piece of mutable state.
+A ``current.json`` pointer per selection was the previous design, and it failed
+in three ways across two review rounds: r2 found a sweep deleting a pointer
+another worker had just published, r2's own fix could only narrow that window
+rather than close it (``StorageProvider`` has no compare-and-delete), and leaving
+pointers undeleted turned them into an amplification — anonymous callers can
+export a public dataset with arbitrary ``bbox``/``where``, so every distinct
+selection left one small object forever and the sweep's listing grew with them.
+Removing the pointer answers all three at once, and the properties the earlier
+rounds fought for now hold by construction:
+
+- **Two concurrent builders need no lock.** Both publish, under different keys
+  because the timestamp differs; readers take the newer. Neither can delete the
+  other's object, because publishing deletes nothing.
+- **A reader mid-stream keeps its object** until the horizon, which is chosen to
+  be well past any download.
+- **A sweep cannot race a publish.** An aged key can never become fresh and a
+  fresh key can never look aged, so no judgement depends on a read that another
+  worker can invalidate.
+- **Total objects are bounded by build rate times horizon**, not by the number of
+  distinct selections ever requested.
+
+The size in the name is what makes this safe on a provider whose ``put`` writes
+in place. ``LocalStorageProvider.put`` streams straight to the destination, so a
+process killed mid-copy leaves a truncated file at the final key, and a
+"newest wins" reader would serve it. Lookup compares the stored object's real
+size against the size the key claims and skips a mismatch — the pointer only ever
+avoided naming such a file, where this detects it. The check is free: the
+response needs the length anyway.
+
+Why freshness rests on a TTL
+----------------------------
 #1532 is explicit that the tempting fix is the dangerous one. Anything that lets
 one request's range be answered from bytes another request built is only correct
 if the cache is invalidated on *every* path that can change the exported bytes,
-and this repository already has the cautionary example: ``bump_tile_cache_version``
+and this repository has the cautionary example already: ``bump_tile_cache_version``
 is called from fourteen places and was designed for tile cache-busting, where a
 missed call costs a stale tile. Keying export freshness on a hand-audited list
 like that would make a missed call cost a *wrong download that looks right*,
@@ -21,48 +59,19 @@ which is strictly worse than the bug, because today's failure is loud (a spliced
 GeoJSON dies with ``ERROR 4: Failed to read GeoJSON data``).
 
 So correctness rests on ``_ttl_seconds()``, a property nobody can forget to
-maintain: an artifact is usable for a bounded window and then it is not, whatever
-anyone did or did not remember to call. The counter still earns its keep — it is
-folded into ``selection_key``, where a bump moves the request to a different key
-and invalidates instantly — but as a key input it can only ever invalidate MORE
-often than the TTL already forces. A missed bump costs one TTL of staleness, not
-a wrong answer. That inversion is the whole design: the audited list is an
-optimization by construction rather than by promise.
+maintain. The counter still earns its keep — it is folded into ``selection_key``,
+where a bump moves the request to a different key and invalidates instantly — but
+as a key input it can only ever invalidate MORE often than the TTL already
+forces. A missed bump costs one TTL of staleness, not a wrong answer. That
+inversion is the whole design: the audited list is an optimization by
+construction rather than by promise.
 
 A data-derived version (``count(*)`` plus ``max(xmin)`` over the selection) was
 the other candidate and is rejected on cost, not on correctness: it is complete
 for INSERT/UPDATE/DELETE, but ``max(xmin)`` has no index, so every range request
 on the cache-HIT path would pay a sequential scan — 509 ms on the 5M-row table
 #905 measured. Ten of those to save ten conversions is the wrong trade against a
-timestamp comparison that costs nothing.
-
-Who cleans up
--------------
-One mechanism: the sweep. fix(#1532 review r1) removed an eviction-on-build step
-that ran alongside it, because the two answered the same question with different
-safety margins and the cheaper one was racy. Two builders publishing at once —
-which for a non-deterministic format means two different objects — each computed
-"everything but mine and the one I superseded" and deleted the other's, so the
-surviving pointer could name a key that was already gone.
-
-That was fixable by preserving more, but not worth keeping once the sweep had to
-learn about orphans anyway: reclamation is exactly the question "could anything
-still be reading this", it has one right answer (an age horizon well past any
-download), and having two mechanisms answer it meant the stricter one was
-deciding while the looser one was the one that mattered. So the horizon is the
-only rule, and nothing deletes an object a request might still be streaming.
-
-Why the artifact is content-addressed
--------------------------------------
-The stored object is named by the SHA-256 of its own bytes, and a small pointer
-object names the current one. Two concurrent builders are not a race to be locked
-out of: for a deterministic format they compute the same digest and write the same
-object, and for a non-deterministic one (GPKG stamps ``gpkg_contents.last_change``,
-so its bytes differ between two conversions of identical data) they write two
-different objects and one pointer flip picks a winner. Either way a reader that
-resolved the pointer earlier keeps slicing an object that still exists, which is
-the property a single mutable key cannot offer: there, the loser's write would
-replace bytes a reader was midway through.
+prefix listing.
 """
 
 import hashlib
@@ -78,9 +87,8 @@ from app.platform.storage import get_storage
 
 logger = structlog.stdlib.get_logger(__name__)
 
-# The prefix every cached export lives under, so the sweep and the per-dataset
-# invalidation both have one place to look and no other subsystem's objects can
-# be reached by either.
+# The prefix every cached export lives under, so the sweep has one place to look
+# and no other subsystem's objects can be reached by it.
 _ROOT = "export-cache"
 
 # How long a stored artifact may answer for. Deliberately short: this is the
@@ -89,16 +97,15 @@ _ROOT = "export-cache"
 # /vsicurl/ open, which is seconds.
 _DEFAULT_TTL_SECONDS = 60
 
-# Sweep anything older than this. Larger than the TTL by a wide margin because a
-# reader that resolved a pointer just before its artifact expired is still
-# streaming from it, and deleting the object underneath a download is the one
-# failure this module must not introduce.
+# Reclaim anything older than this. Well past the TTL, because expiry and
+# reclamation answer different questions: expiry asks whether an artifact may
+# answer a NEW request, reclamation asks whether a request that started before
+# expiry could still be streaming from it.
 _SWEEP_AGE_SECONDS = 3600
 
-
 # How often one process will bother sweeping. The sweep is cheap next to the
-# conversion it rides along with, and running it more often than this buys
-# nothing: the objects it reclaims have been abandoned for an hour.
+# conversion it rides along with, and running it more often buys nothing: the
+# objects it reclaims have been unusable for an hour.
 _SWEEP_INTERVAL_SECONDS = 900
 
 _last_sweep_at = 0.0
@@ -117,7 +124,14 @@ def _ttl_seconds() -> int:
 
 @dataclass(frozen=True)
 class ExportArtifact:
-    """A stored export and everything a response needs to describe it."""
+    """A stored export and everything a response needs to describe it.
+
+    ``filename`` and ``media_type`` are supplied by the caller rather than
+    stored: ``export_descriptor`` derives both from the dataset title and the
+    format without touching the database or the filesystem, and both verbs of
+    the route already call it. Persisting them would have been a second copy of
+    a value that is cheaper to recompute than to keep consistent.
+    """
 
     key: str
     digest: str
@@ -138,12 +152,6 @@ class ExportArtifact:
         dataset.
         """
         return f'"{self.digest}"'
-
-    def is_fresh(self, *, now: float | None = None) -> bool:
-        ttl = _ttl_seconds()
-        if ttl <= 0:
-            return False
-        return ((now if now is not None else time.time()) - self.built_at) < ttl
 
 
 def _tenant_segment() -> str:
@@ -217,91 +225,102 @@ def selection_key(
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
-def _dataset_prefix(dataset_id: uuid.UUID) -> str:
-    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}"
-
-
-def _pointer_key(dataset_id: uuid.UUID, selection: str) -> str:
-    return f"{_dataset_prefix(dataset_id)}/{selection}/current.json"
+def _selection_prefix(dataset_id: uuid.UUID, selection: str) -> str:
+    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/{selection}/"
 
 
 def _artifact_key(
-    dataset_id: uuid.UUID, selection: str, digest: str, built_at: float
+    dataset_id: uuid.UUID, selection: str, digest: str, size: int, built_at: float
 ) -> str:
-    """``{built_at}-{digest}.bin``.
+    """``{built_at}-{size}-{digest}.bin`` — the whole of an artifact's metadata.
 
-    fix(#1532 review r1): the timestamp is in the NAME because the sweep has to
-    be able to age an object whose pointer never landed. An upload that succeeds
-    and a pointer write that does not — a failed request, a process killed
-    between the two — leaves a ``.bin`` no ``current.json`` mentions, and a sweep
-    that derives every deletion from pointers leaks it forever. Multi-gigabyte,
-    for a one-off bbox export nobody repeats.
-
-    ``StorageProvider`` exposes no modified time, and adding one is a port
-    signature change, so the object carries its own age. The digest stays in the
-    name: it is still what makes the object content-addressed and it is still the
-    ETag.
+    Three facts, each earning its place. ``built_at`` is what makes every
+    freshness and reclamation decision a pure function of the name, so no
+    judgement depends on a read another worker can invalidate. ``size`` is what
+    detects a truncated object on a provider that writes in place. ``digest`` is
+    the strong ETag, and it is what makes two artifacts with identical content
+    distinguishable from two with different content.
     """
-    return f"{_dataset_prefix(dataset_id)}/{selection}/{int(built_at)}-{digest}.bin"
+    return (
+        f"{_selection_prefix(dataset_id, selection)}{int(built_at)}-{size}-{digest}.bin"
+    )
 
 
-def _key_built_at(key: str) -> float | None:
-    """The build time encoded in an artifact key, or None if it has none.
+def parse_artifact_key(key: str) -> tuple[float, int, str] | None:
+    """``(built_at, size, digest)`` from a key, or None if it is not one of ours.
 
-    None means "not one of ours" and the sweep leaves it alone. A key it cannot
-    date is a key it cannot prove is abandoned, and deleting on a parse failure
-    is how a sweep turns a naming change into data loss.
+    None means "not one of ours" and every caller leaves it alone. A key this
+    cannot read is a key it cannot age, and acting on a parse failure is how a
+    naming change turns into data loss.
     """
     name = key.rsplit("/", 1)[-1]
-    stamp, _, rest = name.partition("-")
-    if not rest.endswith(".bin") or not stamp.isdigit():
+    if not name.endswith(".bin"):
         return None
-    return float(stamp)
-
-
-async def lookup_raw(dataset_id: uuid.UUID, selection: str) -> ExportArtifact | None:
-    """Whatever the pointer names, with no freshness or existence judgement.
-
-    Only ``store`` wants this, to learn which object it is superseding so
-    eviction can spare one generation for readers already streaming it. Requests
-    go through ``lookup``.
-    """
-    try:
-        pointer = json.loads(
-            await get_storage().get(_pointer_key(dataset_id, selection))
-        )
-        return ExportArtifact(
-            key=pointer["key"],
-            digest=pointer["digest"],
-            size=int(pointer["size"]),
-            built_at=float(pointer["built_at"]),
-            filename=pointer["filename"],
-            media_type=pointer["media_type"],
-        )
-    except Exception:  # broad: any unreadable/absent/corrupt pointer is "none"
+    parts = name[: -len(".bin")].split("-")
+    if len(parts) != 3:
         return None
+    stamp, size, digest = parts
+    if not stamp.isdigit() or not size.isdigit() or not digest:
+        return None
+    return float(stamp), int(size), digest
 
 
-async def lookup(dataset_id: uuid.UUID, selection: str) -> ExportArtifact | None:
-    """The current artifact for this selection, or None if there is not a usable one.
+async def lookup(
+    dataset_id: uuid.UUID,
+    selection: str,
+    *,
+    filename: str,
+    media_type: str,
+) -> ExportArtifact | None:
+    """The newest usable artifact for this selection, or None.
 
-    "Usable" means the pointer resolves, it is inside the TTL, AND the object it
-    names still exists. The last check is not paranoia: eviction and the sweep
-    both delete artifacts, and a pointer whose object is gone must read as a miss
-    and rebuild rather than produce a 404 for a resource that plainly exists.
+    "Usable" means inside the TTL and intact. Both are decided from the key plus
+    one ``size()``, so a request that goes on to transfer bytes has already
+    learned its Content-Length.
+
+    The size check is not belt-and-braces. ``LocalStorageProvider.put`` streams
+    to the destination, so a process killed mid-copy leaves a truncated file at
+    the final key, and taking the newest key without verifying it would serve
+    that truncation to every reader until the horizon. Comparing against the size
+    the key claims turns it into a miss and a rebuild.
 
     Every failure here is a miss. This is a cache in front of a conversion that
     still works, so a storage hiccup should cost a rebuild, not the download.
     """
-    artifact = await lookup_raw(dataset_id, selection)
-    if artifact is None or not artifact.is_fresh():
-        return None
+    cutoff = time.time() - _ttl_seconds()
     try:
-        if not await get_storage().exists(artifact.key):
-            return None
-    except Exception:  # broad: same reasoning as above
+        storage = get_storage()
+        keys = await storage.list(_selection_prefix(dataset_id, selection))
+    except Exception:  # broad: an unreachable store is a miss, not a failure
         return None
-    return artifact
+
+    candidates: list[tuple[float, int, str, str]] = []
+    for key in keys:
+        parsed = parse_artifact_key(key)
+        if parsed is None:
+            continue
+        built_at, size, digest = parsed
+        if built_at >= cutoff:
+            candidates.append((built_at, size, digest, key))
+
+    for built_at, size, digest, key in sorted(candidates, reverse=True):
+        try:
+            if await storage.size(key) != size:
+                # A truncated or otherwise altered object. Skip it rather than
+                # serve it, and let an older sibling answer if there is one.
+                logger.warning("export_artifact_size_mismatch", key=key)
+                continue
+        except Exception:  # broad: cannot verify means cannot use
+            continue
+        return ExportArtifact(
+            key=key,
+            digest=digest,
+            size=size,
+            built_at=built_at,
+            filename=filename,
+            media_type=media_type,
+        )
+    return None
 
 
 async def store(
@@ -312,24 +331,29 @@ async def store(
     filename: str,
     media_type: str,
 ) -> ExportArtifact | None:
-    """Publish a freshly converted file as this selection's current artifact.
+    """Publish a freshly converted file. One ``put``, nothing rewritten.
 
-    Digest first, then the object, then the pointer. That order is what makes a
-    crash safe in the only direction that matters: a published pointer always
-    names bytes that are already there, while an orphaned object with no pointer
-    is invisible and the sweep reclaims it.
+    Publishing is a single write to a key nothing else can be using, so two
+    builders racing the same selection simply both succeed and readers take the
+    newer. There is no pointer to flip, so there is no window in which a
+    half-published state exists.
 
     Returns None if anything goes wrong. The caller has the converted file in
     hand and can serve it directly, so a cache that cannot store must not be able
     to fail a download.
+
+    Only ``Exception`` is caught, deliberately. A ``CancelledError`` is a
+    ``BaseException`` and must keep propagating so the caller's cleanup runs —
+    the same distinction fix(#1550) turned on. The caller owns the conversion
+    directory until a response takes it, and swallowing a cancel here would leave
+    it stranded.
     """
     try:
         digest, size = await _digest_and_size(file_path)
         built_at = time.time()
-        key = _artifact_key(dataset_id, selection, digest, built_at)
-        storage = get_storage()
+        key = _artifact_key(dataset_id, selection, digest, size, built_at)
         with open(file_path, "rb") as handle:
-            await storage.put(key, handle)
+            await get_storage().put(key, handle)
         artifact = ExportArtifact(
             key=key,
             digest=digest,
@@ -337,19 +361,6 @@ async def store(
             built_at=built_at,
             filename=filename,
             media_type=media_type,
-        )
-        await storage.put(
-            _pointer_key(dataset_id, selection),
-            json.dumps(
-                {
-                    "key": artifact.key,
-                    "digest": artifact.digest,
-                    "size": artifact.size,
-                    "built_at": artifact.built_at,
-                    "filename": artifact.filename,
-                    "media_type": artifact.media_type,
-                }
-            ).encode(),
         )
         await _sweep_occasionally()
         return artifact
@@ -391,7 +402,7 @@ async def _sweep_occasionally() -> None:
     existing ``sweep_orphaned_exports`` runs before ``init_storage``, so a
     storage-backed sweep cannot join it without reordering boot; and a process
     that has just converted a dataset is one that demonstrably has a working
-    object store. The cost is a listing next to an ogr2ogr run.
+    object store. The cost is a paged listing next to an ogr2ogr run.
 
     Failures are swallowed for the same reason everything else here is: this is
     housekeeping attached to a request that has already succeeded.
@@ -410,83 +421,48 @@ async def _sweep_occasionally() -> None:
 async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
     """Reclaim what nothing can still be reading. Returns how many keys went.
 
-    The only reclamation path (fix(#1532 review r1); see the module docstring for
-    what was removed and why). Three populations, because they go stale for
-    different reasons:
+    One rule, and it is chosen so a concurrent publish cannot satisfy it rather
+    than so the window is merely small: an object goes when the timestamp IN ITS
+    OWN NAME is past the horizon. A publish mints its key from ``time.time()``,
+    so an aged key can never become fresh and a fresh one can never look aged.
+    Nothing else is consulted, so there is no read that another worker can make
+    stale before the delete runs.
 
-    - **Abandoned selections.** Nobody has rebuilt this selection in an hour, so
-      its pointer and its artifact both go.
+    That is the third shape this sweep has had, and the earlier two are why the
+    rule is phrased that way. It deleted by PREFIX first, so a selection whose
+    pointer looked old took a neighbouring worker's just-uploaded artifact with
+    it (review r2). It then read each pointer to decide, which merely narrowed
+    the same window (review r2 again). Both are gone with the pointer itself
+    (review r3).
 
-    - **Superseded artifacts.** A rebuild publishes a new object and leaves the
-      previous one unreferenced. It is kept until the horizon so a reader that
-      resolved the old pointer can finish.
-
-    - **Orphans.** An upload that succeeded while its pointer write did not
-      leaves a ``.bin`` no pointer mentions. Deriving every deletion from
-      pointers, as the first revision did, leaked those forever.
-
-    **Every judgement is per KEY, and none is per prefix** (fix(#1532 review r2)).
-    An earlier revision read a selection's pointer, found it older than the
-    horizon, declared the whole prefix stale and deleted everything under it.
-    On a multi-worker deployment that removes the young artifact another worker
-    uploaded moments ago and the pointer it published — so the request that was
-    publishing streams a missing key, and the next lookup rebuilds what was
-    already there. It is r1's eviction bug one level up: one actor's cleanup
-    deleting another actor's truth, this time on the strength of a neighbouring
-    key's age.
-
-    The rule is chosen so a concurrent publish cannot satisfy it, which is what
-    makes this race-free without a lock rather than merely narrow: an artifact
-    goes when the timestamp IN ITS OWN NAME is past the horizon. A publish mints
-    its key from ``time.time()``, so an aged key can never become fresh and a
-    fresh one can never look aged. Nothing else is consulted, so there is no read
-    that can be stale by the time the delete runs.
-
-    **Pointers are never deleted.** Reclaiming one means reading it, deciding it
-    is dead, and then deleting it, and a publish landing in that window loses the
-    pointer it just wrote — the same shape as the bug this rule closes, moved
-    into the check meant to be safe. Two attempts at narrowing that window are in
-    this file's history; neither closes it, because ``StorageProvider`` offers no
-    compare-and-delete and nothing else can make a read-then-delete atomic.
-
-    Leaving them costs one JSON of a few hundred bytes per selection that is
-    never rebuilt, and nothing else: a pointer whose artifact this sweep removed
-    reads as a miss through ``lookup``, which is the behaviour it already had for
-    an expired one. Reclaiming them needs a conditional delete on the provider
-    protocol, which is a port signature change and a decision of its own.
-
-    Ages come from the artifacts and pointers themselves rather than from object
-    mtime, which is what makes this portable: ``StorageProvider`` exposes no
-    modified time, S3 and the local provider would answer differently if it did,
-    and a copy resets it.
+    Ages come from the keys rather than from object mtime, which is what makes
+    this portable: ``StorageProvider`` exposes no modified time on ``list``, S3
+    and the local provider would answer differently if it did, and a copy resets
+    it. ``iter_object_pages`` does expose one, and is used here only to PAGE —
+    the whole cache is not materialized in memory to be swept (review r3), and
+    the age still comes from the name.
 
     An hour rather than the TTL because expiry and reclamation are different
     questions. Expiry asks whether an artifact may answer a NEW request;
     reclamation asks whether a request that started before expiry could still be
     streaming from it.
     """
-    storage = get_storage()
     cutoff = time.time() - age_threshold_seconds
+    removed = 0
     try:
-        keys = await storage.list(f"{_ROOT}/")
+        storage = get_storage()
+        async for page in storage.iter_object_pages(f"{_ROOT}/"):
+            for obj in page:
+                parsed = parse_artifact_key(obj.key)
+                if parsed is None or parsed[0] >= cutoff:
+                    continue
+                try:
+                    await storage.delete(obj.key)
+                    removed += 1
+                except Exception:  # broad: leave it for the next sweep
+                    logger.warning(
+                        "export_cache_sweep_delete_failed", key=obj.key, exc_info=True
+                    )
     except Exception:  # broad: a sweep that cannot list is a no-op, not an error
         logger.warning("export_cache_sweep_list_failed", exc_info=True)
-        return 0
-
-    removed = 0
-    for key in keys:
-        if key.endswith("current.json"):
-            continue
-        built_at = _key_built_at(key)
-        if built_at is not None and built_at < cutoff:
-            removed += await _delete(storage, key)
     return removed
-
-
-async def _delete(storage, key: str) -> int:
-    try:
-        await storage.delete(key)
-        return 1
-    except Exception:  # broad: leave it for the next sweep
-        logger.warning("export_cache_sweep_delete_failed", key=key, exc_info=True)
-        return 0

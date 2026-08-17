@@ -520,7 +520,20 @@ async def export_dataset_endpoint(
         bbox=bbox,
         where=where,
     )
-    artifact = await artifact_cache.lookup(dataset_id, selection)
+    # fix(#1532 review r3): filename and media_type are derived, not stored.
+    # `export_descriptor` answers both from the title and the format without
+    # touching the database or the filesystem, and the HEAD branch below already
+    # calls it — persisting them alongside the artifact would have been a second
+    # copy of a value cheaper to recompute than to keep consistent.
+    cached_filename, cached_media_type = export_descriptor(
+        dataset.record.title, str(format)
+    )
+    artifact = await artifact_cache.lookup(
+        dataset_id,
+        selection,
+        filename=cached_filename,
+        media_type=cached_media_type,
+    )
 
     # 6e. HEAD stops here — after every gate that decides the status, before
     # the conversion that decides the bytes. No audit event either: nothing was
@@ -639,13 +652,25 @@ async def export_dataset_endpoint(
     # A store failure is not a download failure: the file is in hand and the
     # FileResponse below still works, which is why `store` returns None instead
     # of raising.
-    stored = await artifact_cache.store(
-        dataset_id,
-        selection,
-        file_path=file_path,
-        filename=filename,
-        media_type=media_type,
-    )
+    # fix(#1532 review r3): publication runs under the same cancellation
+    # ownership as the audit step above. `store` catches Exception, and a
+    # CancelledError is a BaseException — a client disconnect or a worker
+    # shutdown during the hash, the upload or the sweep therefore propagates
+    # through an await that sits OUTSIDE any cleanup, stranding a conversion
+    # directory that can be multiple gigabytes until the four-hour orphan sweep.
+    # Repeated cancels fill the staging volume. Same distinction fix(#1550)
+    # turned on: CancelledError is not an Exception.
+    try:
+        stored = await artifact_cache.store(
+            dataset_id,
+            selection,
+            file_path=file_path,
+            filename=filename,
+            media_type=media_type,
+        )
+    except BaseException:
+        _cleanup_export(temp_dir)
+        raise
     if stored is not None:
         # may_serve_range=False: this request BUILT the artifact, so it cannot
         # know which representation the client's offsets were measured against.

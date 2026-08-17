@@ -22,7 +22,6 @@ Requirements:
               uv run pytest tests/test_export_artifact_cache_1532.py -v
 """
 
-import json
 import os
 import shutil
 import tempfile
@@ -32,6 +31,7 @@ import uuid
 import pytest
 from httpx import AsyncClient
 
+from app.platform.storage import get_storage
 from app.processing.export import artifact_cache
 from app.processing.export.ogr import FORMAT_MAP
 
@@ -735,31 +735,25 @@ async def test_a_provider_without_presigning_serves_cold_and_hit(
 # ---------------------------------------------------------------------------
 
 
-async def test_two_publishers_do_not_evict_each_others_artifacts(
-    test_db_session, monkeypatch
-):
-    """fix(#1532 review r1): cleanup must not delete another writer's truth.
+# ---------------------------------------------------------------------------
+# Review r3: nothing is rewritten, so nothing races
+# ---------------------------------------------------------------------------
 
-    An eviction-on-build step used to run here and computed "delete everything
-    but mine and the one I superseded". Two builders racing a cold or expired
-    selection — which for a non-deterministic format like GPKG really do produce
-    different bytes, and so different keys — each read the same previous pointer,
-    published their own, and then evicted. Interleaved, each deleted the other's
-    object and the surviving pointer could name a key that was already gone: a
-    404 for a resource that plainly exists, from a cache whose whole job is to
-    make the URL stable.
 
-    The step is gone; the sweep's age horizon is the only reclamation rule now,
-    and it is chosen so nothing deletes an object a request might still be
-    streaming. This test is what keeps it gone. Anything that reintroduces
-    delete-on-publish fails here, because the losing builder's object is exactly
-    what such a step would remove.
+async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypatch):
+    """Two builders racing a selection publish side by side and readers take the newer.
 
-    The overlap is FORCED, not hoped for. A barrier holds both builders at their
-    pre-publish pointer read until both have arrived, so neither can have seen
-    the other's publish — which is the state that made the bug reachable. A
-    sequence of two ``store`` calls proves nothing about a race; the assertion
-    below that both arrived is what makes this one about concurrency.
+    This started as fix(#1532 review r1)'s bug: an eviction-on-build step deleted
+    "everything but mine and the one I superseded", so interleaved builders each
+    removed the other's object and the surviving pointer could name a key that
+    was already gone. r2 found the same shape in the sweep. r3 removed the last
+    piece of mutable state, and the property now holds because publishing is one
+    ``put`` to a key nothing else can be using — there is no flip to race and
+    nothing deletes on the publish path at all.
+
+    The overlap is FORCED, not hoped for. A barrier holds both builders after
+    hashing and before publishing, and the test asserts both arrived; a sequence
+    of two ``store`` calls proves nothing about concurrency.
     """
     import asyncio
     import tempfile
@@ -776,12 +770,6 @@ async def test_two_publishers_do_not_evict_each_others_artifacts(
     real_digest = cache._digest_and_size
 
     async def _barriered(file_path):
-        """Hold both builders after hashing and before publishing.
-
-        The digest is the last thing that happens before an object and a pointer
-        are written, so releasing both here puts the two publishes inside each
-        other — the interleaving the removed eviction step could not survive.
-        """
         nonlocal waiting
         result = await real_digest(file_path)
         if waiting < 2:
@@ -815,127 +803,115 @@ async def test_two_publishers_do_not_evict_each_others_artifacts(
     )
     assert first is not None and second is not None
     assert first.key != second.key, (
-        "precondition: the two builders must produce different objects, which is "
-        "what a non-deterministic format does and what makes eviction a race"
-    )
-
-    pointer = await cache.lookup_raw(dataset.id, selection)
-    assert pointer is not None
-    assert await storage.exists(pointer.key), (
-        f"the surviving pointer names {pointer.key}, which the other publisher's "
-        f"eviction deleted. Every request for this selection now 404s on an "
-        f"object the catalog says exists."
+        "precondition: two builders must land on different keys, which is what "
+        "makes neither able to overwrite the other"
     )
     for artifact in (first, second):
         assert await storage.exists(artifact.key), (
-            f"{artifact.key} was evicted while a reader could still be streaming "
-            f"it; both in-flight downloads have to survive the other's cleanup"
+            f"{artifact.key} is gone; a publish deleted another writer's object, "
+            f"and a reader mid-stream on it would be truncated"
         )
 
-
-# ---------------------------------------------------------------------------
-# Review r1: orphans
-# ---------------------------------------------------------------------------
-
-
-async def test_the_sweep_reclaims_an_artifact_whose_pointer_never_landed(
-    test_db_session,
-):
-    """fix(#1532 review r1): an upload that outlived its pointer is not immortal.
-
-    ``store`` writes the object and then the pointer, which is the safe order —
-    a published pointer always names bytes that are already there. The residue is
-    the other case: a pointer write that fails, or a process killed between the
-    two, leaves a ``.bin`` no ``current.json`` mentions. The first revision
-    derived every deletion from pointers, so those leaked forever, at whatever
-    size a one-off bbox export happens to be.
-
-    They are aged from the timestamp in their own key now, because
-    ``StorageProvider`` exposes no modified time and adding one is a port
-    signature change.
-    """
-    from app.processing.export import artifact_cache as cache
-    from app.platform.storage import get_storage
-
-    dataset = await _dataset(test_db_session, "Orphan Sweep")
-    storage = get_storage()
-    old = time.time() - 7200
-    orphan = cache._artifact_key(dataset.id, "abandoned", "d" * 64, old)
-    await storage.put(orphan, b"bytes nobody points at")
-
-    assert await storage.exists(orphan), "precondition: the orphan is there"
-
-    removed = await cache.sweep(age_threshold_seconds=3600)
-
-    assert not await storage.exists(orphan), (
-        f"the sweep removed {removed} key(s) and left the orphan. Nothing else "
-        f"will ever reclaim it: no pointer names it, so a pointer-derived sweep "
-        f"cannot see it."
-    )
-
-
-async def test_the_sweep_keeps_what_is_still_published(test_db_session):
-    """The vacuity guard for the orphan sweep, and the sharper half.
-
-    A sweep that reclaimed every object no pointer named would delete an artifact
-    published one second ago, because it scans a listing rather than a
-    transaction — and it would do it while that artifact is being downloaded.
-    Live pointers are consulted first, and an object too young to have aged out
-    is kept regardless.
-    """
-    from app.processing.export import artifact_cache as cache
-    from app.platform.storage import get_storage
-
-    dataset = await _dataset(test_db_session, "Sweep Keeps")
-    storage = get_storage()
-
-    with tempfile.NamedTemporaryFile(delete=False) as handle:
-        handle.write(b"a freshly published export")
-        path = handle.name
-    artifact = await cache.store(
+    resolved = await cache.lookup(
         dataset.id,
-        "live",
-        file_path=path,
+        selection,
         filename="x.geojson",
         media_type="application/geo+json",
     )
-    assert artifact is not None
-
-    young_orphan = cache._artifact_key(dataset.id, "live", "e" * 64, time.time())
-    await storage.put(young_orphan, b"published moments ago, pointer pending")
-
-    await cache.sweep(age_threshold_seconds=3600)
-
-    assert await storage.exists(artifact.key), (
-        "the sweep deleted a published artifact; a live pointer names it"
-    )
-    assert await storage.exists(young_orphan), (
-        "the sweep deleted an object younger than the horizon. A publish is two "
-        "writes, and a sweep that raced the second one would delete the first."
+    assert resolved is not None and resolved.key == max(first.key, second.key), (
+        "a reader must resolve to the newer of the two, deterministically"
     )
 
 
-async def test_a_publish_racing_the_sweeps_listing_survives(
-    test_db_session, monkeypatch
-):
-    """fix(#1532 review r2): the sweep must not delete on the strength of a snapshot.
+async def test_a_truncated_artifact_is_skipped_rather_than_served(test_db_session):
+    """A half-written object must not become "the newest" and be served.
 
-    An earlier revision read a selection's pointer, found it older than the
-    horizon, declared the whole PREFIX stale, and deleted every key under it. On
-    a multi-worker deployment that takes the young artifact another worker
-    uploaded moments ago and the pointer it published — so the request doing the
-    publishing streams a missing key, and the next lookup rebuilds what was
-    already there.
+    ``LocalStorageProvider.put`` streams straight to the destination, so a process
+    killed mid-copy leaves a truncated file at the final key. The pointer design
+    avoided that by never naming such a file; taking the newest key instead has
+    to DETECT it, which is what the size in the key is for.
 
-    That is r1's eviction bug one level up: one actor's cleanup deleting
-    another's truth, this time on the strength of a NEIGHBOURING key's age. The
-    fix is that no key is ever judged by its prefix — an artifact is aged from
-    its own name and re-checked against the pointer at delete time, and a
-    pointer is judged on the artifact it names now.
+    Free, too: the response needs the length anyway, so verifying it costs the
+    call that was already being made. Without the check a truncated export is
+    served to every reader until the horizon — a persistent version of exactly
+    the corrupt download this PR exists to prevent.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
 
-    The race is constructed rather than hoped for: the publish lands inside the
-    sweep, between its listing and its deletions, via a hook on ``list``. A
-    sweep run before or after a publish proves nothing about the window between.
+    dataset = await _dataset(test_db_session, "Truncated")
+    selection = "torn"
+    storage = get_storage()
+    now = time.time()
+
+    good = cache._artifact_key(dataset.id, selection, "a" * 64, 11, now - 5)
+    await storage.put(good, b"good bytes\n")
+    torn = cache._artifact_key(dataset.id, selection, "b" * 64, 4096, now)
+    await storage.put(torn, b"half a f")  # 8 bytes where the key claims 4096
+
+    resolved = await cache.lookup(
+        dataset.id, selection, filename="x.geojson", media_type="application/geo+json"
+    )
+
+    assert resolved is not None, "the intact older artifact should still answer"
+    assert resolved.key == good, (
+        f"lookup resolved to {resolved.key}, whose stored length does not match "
+        f"the size in its own name. Serving it hands every reader a truncated "
+        f"export until the horizon."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r3: reclamation
+# ---------------------------------------------------------------------------
+
+
+async def test_the_sweep_reclaims_aged_artifacts_and_keeps_young_ones(test_db_session):
+    """One rule, both directions, asserted together.
+
+    A sweep that deleted nothing would pass a "young survives" test; one that
+    deleted everything would pass an "aged goes" test. The pair is what pins the
+    rule, and the rule is the whole safety argument: an object goes when the
+    timestamp in its own name is past the horizon, and a publish mints its key
+    from ``time.time()``, so an aged key can never become fresh and a fresh key
+    can never look aged.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Sweep Rule")
+    storage = get_storage()
+
+    aged = cache._artifact_key(dataset.id, "old", "a" * 64, 6, time.time() - 7200)
+    young = cache._artifact_key(dataset.id, "new", "b" * 64, 6, time.time())
+    await storage.put(aged, b"abcdef")
+    await storage.put(young, b"abcdef")
+
+    removed = await cache.sweep(age_threshold_seconds=3600)
+
+    assert not await storage.exists(aged), (
+        f"the sweep removed {removed} key(s) and left an artifact two hours past "
+        f"the horizon; nothing else reclaims it"
+    )
+    assert await storage.exists(young), (
+        "the sweep deleted an artifact published moments ago, which is a "
+        "download in progress"
+    )
+
+
+async def test_a_publish_racing_the_sweep_survives(test_db_session, monkeypatch):
+    """The sweep must not delete on the strength of a snapshot (review r2, r3).
+
+    An earlier revision read a selection's pointer, found it past the horizon,
+    declared the whole PREFIX stale and removed every key under it — including
+    the young artifact another worker had just uploaded. The next revision judged
+    per key but still read the pointer to decide the pointer's own fate, which
+    merely narrowed the window.
+
+    Now no read is involved at all: the age is in the name, so a publish landing
+    anywhere inside the sweep is invisible to its decisions. The race is still
+    constructed, because a property that holds by construction is exactly the
+    kind that stops being tested.
     """
     from app.platform.storage import get_storage
     from app.processing.export import artifact_cache as cache
@@ -943,37 +919,14 @@ async def test_a_publish_racing_the_sweeps_listing_survives(
     dataset = await _dataset(test_db_session, "Sweep Race")
     selection = "contested"
     storage = get_storage()
-    old = time.time() - 7200
 
-    stale_artifact = cache._artifact_key(dataset.id, selection, "a" * 64, old)
-    await storage.put(stale_artifact, b"the artifact nobody has rebuilt")
-    await storage.put(
-        cache._pointer_key(dataset.id, selection),
-        json.dumps(
-            {
-                "key": stale_artifact,
-                "digest": "a" * 64,
-                "size": 31,
-                "built_at": old,
-                "filename": "x.geojson",
-                "media_type": "application/geo+json",
-            }
-        ).encode(),
-    )
-
-    fresh_artifact = cache._artifact_key(dataset.id, selection, "b" * 64, time.time())
+    aged = cache._artifact_key(dataset.id, selection, "a" * 64, 6, time.time() - 7200)
+    await storage.put(aged, b"abcdef")
+    fresh = cache._artifact_key(dataset.id, selection, "b" * 64, 6, time.time())
     published: dict = {}
 
     class _RacingStorage:
-        """A rebuild landing INSIDE the sweep, in two stages.
-
-        The upload lands during the listing, so the sweep's snapshot contains the
-        young artifact — which is what let the prefix rule delete it. The pointer
-        flip lands on the first deletion, by which point the sweep has already
-        formed whatever judgement it is acting on. Both stages are needed: a
-        publish entirely before or entirely after the sweep never meets the
-        window between the listing and the deletions.
-        """
+        """A publish landing inside the sweep, between its paging and its deletes."""
 
         def __init__(self, inner):
             self._inner = inner
@@ -981,31 +934,17 @@ async def test_a_publish_racing_the_sweeps_listing_survives(
         def __getattr__(self, name):
             return getattr(self._inner, name)
 
-        async def list(self, prefix):
-            keys = await self._inner.list(prefix)
-            if "uploaded" not in published:
-                published["uploaded"] = True
-                await self._inner.put(fresh_artifact, b"a rebuild landing right now")
-                keys = await self._inner.list(prefix)
-            return keys
+        def iter_object_pages(self, prefix, **kwargs):
+            inner_pages = self._inner.iter_object_pages(prefix, **kwargs)
 
-        async def delete(self, key):
-            if "at" not in published:
-                published["at"] = time.time()
-                await self._inner.put(
-                    cache._pointer_key(dataset.id, selection),
-                    json.dumps(
-                        {
-                            "key": fresh_artifact,
-                            "digest": "b" * 64,
-                            "size": 27,
-                            "built_at": published["at"],
-                            "filename": "x.geojson",
-                            "media_type": "application/geo+json",
-                        }
-                    ).encode(),
-                )
-            return await self._inner.delete(key)
+            async def _paged():
+                async for page in inner_pages:
+                    if "at" not in published:
+                        published["at"] = time.time()
+                        await self._inner.put(fresh, b"abcdef")
+                    yield page
+
+            return _paged()
 
     monkeypatch.setattr(
         "app.processing.export.artifact_cache.get_storage",
@@ -1018,17 +957,114 @@ async def test_a_publish_racing_the_sweeps_listing_survives(
         "the publish never landed inside the sweep, so this test says nothing "
         "about the window it is named for"
     )
-    assert await storage.exists(fresh_artifact), (
-        "the sweep deleted an artifact uploaded moments earlier because a "
-        "neighbouring pointer was old. The request that published it is now "
-        "streaming a key that does not exist."
+    assert await storage.exists(fresh), (
+        "the sweep deleted an artifact published while it was running. The "
+        "request that published it is now streaming a key that does not exist."
     )
-    pointer = await cache.lookup_raw(dataset.id, selection)
-    assert pointer is not None and pointer.key == fresh_artifact, (
-        f"the freshly published pointer was deleted or reverted; lookup resolves "
-        f"to {pointer.key if pointer else None}"
+    assert not await storage.exists(aged), (
+        "the genuinely aged artifact survived, so the sweep reclaims nothing"
     )
-    assert not await storage.exists(stale_artifact), (
-        "the genuinely superseded artifact survived, so the sweep reclaims "
-        "nothing and the prefix grows without bound"
+
+
+async def test_one_off_selections_do_not_accumulate(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """Storage is bounded by build rate times horizon, not by all-time selections.
+
+    fix(#1532 review r3): the previous design left a ``current.json`` per
+    selection forever, and a selection is (dataset, format, filters) — anonymous
+    callers can export a public dataset with arbitrary ``bbox`` and ``where``, so
+    the set is caller-controlled and unbounded. Storage grew without limit after
+    every artifact had expired, and each sweep's listing grew with it.
+
+    Driven through the endpoint rather than by seeding keys, because what is
+    being asserted is that the ROUTE leaves nothing behind — a helper-level test
+    would describe whatever the helper happens to write, which is the thing that
+    changed.
+
+    A negative horizon puts every object past it, which is the same state the
+    real threshold reaches an hour later without making the test wait.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Bounded")
+    base = f"/datasets/{dataset.id}/export?format=geojson"
+    for n in range(8):
+        resp = await client.get(f"{base}&where=pop+%3E+{n}", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+
+    root = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+    before = await get_storage().list(root)
+    assert len(before) >= 8, f"precondition: eight selections were stored, saw {before}"
+
+    await cache.sweep(age_threshold_seconds=-1)
+
+    after = await get_storage().list(root)
+    assert after == [], (
+        f"{len(after)} object(s) outlived the horizon: {after[:3]}. A caller who "
+        f"varies bbox or where can otherwise grow this prefix without bound, and "
+        f"every later sweep pays to list it."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r3: cancellation
+# ---------------------------------------------------------------------------
+
+
+async def test_a_cancel_during_publication_does_not_strand_the_conversion(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """A client disconnect mid-publish must not leave a multi-GB directory behind.
+
+    ``store`` catches ``Exception``, and ``CancelledError`` is a
+    ``BaseException`` — the same distinction fix(#1550) turned on. The await sat
+    outside the ``except BaseException`` that owns the conversion directory and
+    before any response had taken it, so a cancel during the hash, the upload or
+    the sweep stranded the directory until the four-hour orphan sweep, and
+    repeated cancels fill the staging volume.
+
+    Cancelled at the hash because that is where a large export spends its time,
+    and because it is the first await inside ``store`` — a fix that only guarded
+    the upload would pass a test that cancelled the upload.
+    """
+    import asyncio
+
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Cancelled Publish")
+
+    async def _cancelled(file_path):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(cache, "_digest_and_size", _cancelled)
+
+    # The ASGI stack turns the cancel into "No response returned" by the time it
+    # reaches httpx, so the abort is asserted by NAME rather than by type — and
+    # asserted at all, because a request that quietly succeeded would leave no
+    # directory either (the response's background task would have taken it) and
+    # this test would pass having exercised nothing.
+    outcome = "completed"
+    try:
+        await client.get(_url(dataset.id), headers=admin_auth_header)
+    except (asyncio.CancelledError, RuntimeError) as exc:
+        outcome = type(exc).__name__
+
+    assert outcome in ("CancelledError", "RuntimeError"), (
+        f"the request {outcome}; this test needs it aborted mid-publication"
+    )
+    assert conversions.count == 1, "precondition: the conversion ran"
+    leftovers = [
+        name
+        for name in os.listdir(conversions.root)
+        if os.path.isdir(os.path.join(conversions.root, name))
+    ]
+    assert leftovers == [], (
+        f"the conversion directory {leftovers} outlived a cancelled request. "
+        f"Nothing owns it now: the response never existed, so no background task "
+        f"will clean it up."
     )
