@@ -27,16 +27,20 @@
  * is the kind of thing someone later widens. If you are here because you want
  * to add one, the answer is almost certainly a `try` block instead.
  *
- * THE FALSE-NEGATIVE PROMISE. This gate claims false positives are possible and
- * false negatives are not. It broke that claim six times: renamed destructuring
- * (five spellings, not the one that was reported), instance field initializers,
- * a `try` with no `catch`, assignment targets in for-of and for-in, every `.ts`
- * file being parsed as TSX, and keys behind transparent wrappers such as
- * `window[('sessionStorage')]` (ten spellings, not the two reported). Every fix
- * was correct and every one was incomplete, because each answered "is this X?"
- * by listing the shapes it recognised and calling the rest safe. A list of
- * TypeScript shapes is never finished, and twice now the reported spelling has
- * turned out to be a sample of a family rather than the family.
+ * THE FALSE-NEGATIVE PROMISE. This gate claimed false positives are possible
+ * and false negatives are not. It broke that claim seven times: renamed
+ * destructuring (five spellings, not the one that was reported), instance field
+ * initializers, a `try` with no `catch`, assignment targets in for-of and
+ * for-in, every `.ts` file being parsed as TSX, keys behind transparent wrappers
+ * such as `window[('sessionStorage')]` (ten spellings, not the two reported),
+ * and `Reflect.get(window, 'sessionStorage')`. Every fix was correct and every
+ * one was incomplete, because each answered "is this X?" by listing the shapes
+ * it recognised and calling the rest safe. A list of TypeScript shapes is never
+ * finished, and twice the reported spelling turned out to be a sample of a
+ * family rather than the family.
+ *
+ * An unbounded promise is what made each of those a surprise, so it has been
+ * replaced by a stated scope and three checkable properties, below.
  *
  * What makes the claim defensible now is not a longer list, it is the failure
  * direction. Every membership predicate here answers "report" when it meets
@@ -79,7 +83,32 @@
  * are adding one to silence a report, you are removing the finding, not fixing
  * it.
  *
- * WHAT THE PROMISE IS WORTH NOW. Six rounds is a poor advertisement for the
+ * SCOPE: STATICALLY DETERMINABLE ACCESS ONLY. This is the boundary, and it is
+ * stated here because seven findings arrived as "here is another form" while
+ * this file described only what it catches and never what it cannot.
+ *
+ * The gate detects access to `sessionStorage`/`localStorage` where the source
+ * says so: a named identifier, a property or element access with a literal key,
+ * a destructuring key, `Reflect.get` with a literal key, in any wrapping and any
+ * spelling of those. That is the claim, and adding another statically visible
+ * form is a bug in this file.
+ *
+ * It cannot detect access where the source does not say so, and no static
+ * analysis can:
+ *   - a runtime key: `window[k]`, `Reflect.get(window, k)`.
+ *   - a key assembled at runtime, or by a constant expression this file does not
+ *     fold: `window['session' + 'Storage']`.
+ *   - a reference reached through an untyped indirection: a helper that returns
+ *     the store, a value off `any`, a proxy, an aliased `Reflect`.
+ *   - the descriptor escape hatch, where the getter is pulled off the prototype
+ *     and invoked by hand.
+ * Some of those are statically visible in principle and would be reasonable
+ * additions; they belong in the follow-up issue, not in another round here. The
+ * rest are not decidable without running the program, so no amount of review
+ * closes them, and a reader who assumes otherwise will trust this gate for
+ * something it was never able to do.
+ *
+ * WHAT THE PROMISE IS WORTH NOW. Seven rounds is a poor advertisement for the
  * original claim, and the gate is nonetheless much harder to fool than when it
  * started. The honest version of the claim is not "there are no false
  * negatives" but this, which a reader can check for themselves:
@@ -95,10 +124,11 @@
  *      excluded count and the access count are all asserted, so a glob that
  *      matched nothing fails instead of sweeping zero files.
  *
- * Two known gaps remain, named under TWO PREDICATES below, and they are why
- * this says "bounded" rather than "closed". What is genuinely gone is the
- * failure mode all six rounds shared, where the gate's silence meant nothing at
- * all and read like evidence.
+ * Those three bound the risk; they do not eliminate it. The gaps are the ones
+ * named under SCOPE above and under TWO PREDICATES below, which is why this
+ * says "bounded" rather than "closed". What is genuinely gone is the failure
+ * mode all seven rounds shared, where the gate's silence meant nothing at all
+ * and read like evidence.
  *
  * WHAT THIS GATE DOES NOT PROVE. It proves an access cannot throw. It does
  * NOT prove the code degrades correctly when storage is denied, and those two
@@ -579,6 +609,37 @@ function storageNameOfKey(key: ts.Node): string | null {
 }
 
 /**
+ * fix(#1545 codex P2, round 7): `Reflect.get(window, 'sessionStorage')` invokes
+ * the getter exactly as `window.sessionStorage` does, and throws in the same
+ * contexts, but nothing else here sees it: there is no storage-named identifier
+ * and no element access, only a call whose second argument is a string.
+ *
+ * The receiver is deliberately unconstrained. Requiring `window`/`globalThis`/
+ * `self` would be more precise and would reintroduce the hole
+ * `isDestructuringTarget` rejects for the same reason — `const w = window;
+ * Reflect.get(w, 'sessionStorage')` would read as safe — and a list of global
+ * spellings is one more list that can be incomplete. The cost is flagging
+ * `Reflect.get(config, 'localStorage')` on a plain object, which is the trade
+ * this gate makes everywhere else.
+ *
+ * Only `get` is matched. `Reflect.has` is `in`, `Reflect.ownKeys` enumerates,
+ * and `Object.getOwnPropertyDescriptor` hands back the descriptor without
+ * calling the getter, so none of them can throw. Fixtures pin all three as
+ * ignored, so the exclusion is a checked decision rather than an omission.
+ */
+function isReflectiveStorageRead(node: ts.Node): boolean {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = unwrap(node.expression);
+  if (!ts.isPropertyAccessExpression(callee)) return false;
+  const receiver = unwrap(callee.expression);
+  if (!ts.isIdentifier(receiver) || receiver.text !== 'Reflect') return false;
+  if (callee.name.text !== 'get') return false;
+  if (node.arguments.length < 2) return false;
+  const key = unwrap(node.arguments[1]);
+  return ts.isStringLiteralLike(key) && STORAGE_NAMES.has(key.text);
+}
+
+/**
  * Identifier positions that are names rather than value reads.
  *
  * fix(#1545 codex P2, round 4): audited, and deliberately left as it is. This
@@ -728,6 +789,9 @@ function scanSource(file: string, source: string): ScanResult {
   const visit = (node: ts.Node): void => {
     let hit: ts.Node | null = null;
     if (ts.isIdentifier(node) && STORAGE_NAMES.has(node.text) && !isNonValuePosition(node)) {
+      hit = node;
+    }
+    if (isReflectiveStorageRead(node)) {
       hit = node;
     }
     if (ts.isElementAccessExpression(node) && node.argumentExpression) {
@@ -1206,5 +1270,69 @@ describe('#1536: transparent wrappers do not hide an access', () => {
     const r = scan(src);
     expect(r.failures).toEqual([]);
     expect(r.accesses).toEqual([]);
+  });
+});
+/**
+ * fix(#1545 codex P2, round 7): reflective reads.
+ *
+ * `Reflect.get(window, 'sessionStorage')` invokes the same getter as
+ * `window.sessionStorage` and throws in the same contexts, but the visitor saw
+ * neither a storage-named identifier nor an element access. The key is a string
+ * literal, so this is squarely inside what the gate claims to cover.
+ *
+ * The receiver is deliberately NOT required to be `window`/`globalThis`/`self`.
+ * Requiring it would reintroduce the hole isDestructuringTarget already rejected
+ * for the same reason: `const w = window; Reflect.get(w, 'sessionStorage')`
+ * would read as safe, and a list of global spellings is one more list to be
+ * incomplete. `Reflect.get(config, 'localStorage')` on a plain object is the
+ * false positive that buys it, and this gate takes that trade every time.
+ *
+ * Excluded on purpose, because they do not invoke the getter and so cannot
+ * throw: `Object.getOwnPropertyDescriptor(window, 'sessionStorage')` returns
+ * the descriptor without calling `get`, `Reflect.has` is `in`, and
+ * `Reflect.ownKeys` enumerates. Flagging them would be noise with no
+ * corresponding failure mode.
+ */
+describe('#1536: reflective reads', () => {
+  const scan = (src: string) => scanSource('/src/fixture.ts', src);
+  const unguardedCount = (src: string) => {
+    const r = scan(src);
+    expect(r.failures).toEqual([]);
+    return r.accesses.filter((a) => !a.guarded).length;
+  };
+
+  it.each([
+    ['a window receiver', `const s = Reflect.get(window, 'sessionStorage');`],
+    ['a globalThis receiver', `const s = Reflect.get(globalThis, 'localStorage');`],
+    ['a self receiver', `const s = Reflect.get(self, 'sessionStorage');`],
+    ['an aliased receiver', `const w = window; const s = Reflect.get(w, 'sessionStorage');`],
+    ['a wrapped key', `const s = Reflect.get(window, ('sessionStorage') as keyof Window);`],
+    ['an explicit third argument', `const s = Reflect.get(window, 'sessionStorage', window);`],
+  ])('flags Reflect.get with %s', (_name, src) => {
+    expect(unguardedCount(src)).toBe(1);
+  });
+
+  it('accepts a reflective read inside a try', () => {
+    const r = scan(`try { const s = Reflect.get(window, 'sessionStorage'); } catch {}`);
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+
+  // Already covered before this round; pinned so they cannot regress silently.
+  it.each([
+    ['optional element access', `const s = window?.['sessionStorage'];`],
+    ['a template-literal key', `const s = window[\`sessionStorage\`];`],
+  ])('flags %s', (_name, src) => {
+    expect(unguardedCount(src)).toBe(1);
+  });
+
+  it.each([
+    ['a descriptor read', `const d = Object.getOwnPropertyDescriptor(window, 'sessionStorage');`],
+    ['a presence check', `const h = Reflect.has(window, 'sessionStorage');`],
+    ['a key enumeration', `const k = Reflect.ownKeys(window);`],
+    ['a non-storage key', `const s = Reflect.get(window, 'somethingElse');`],
+    ['a runtime key', `const s = Reflect.get(window, key);`],
+  ])('ignores %s', (_name, src) => {
+    expect(scan(src).accesses).toEqual([]);
   });
 });
