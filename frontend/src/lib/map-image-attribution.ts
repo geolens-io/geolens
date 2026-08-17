@@ -128,9 +128,15 @@ function dedupe(entries: string[]): string[] {
  *  - The `used` gating. MapLibre hides a source whose layers are all hidden and
  *    the source list does not, so the image may credit a source the screen does
  *    not. Over-crediting is the safe direction.
- *  - MapLibre's own "MapLibre" self-credit is a control default rather than a
- *    source, so it is not in the list and does not reach the image. It is
- *    library branding, not a data credit, and no data licence turns on it.
+ *  - MapLibre's own "MapLibre" self-credit does not reach the image. It is a
+ *    control default rather than a source, so no structured list contains it,
+ *    and it was DECIDED on #1541 review that it should stay out rather than be
+ *    hardcoded back in: MapLibre GL JS is BSD-3-Clause, which requires its
+ *    notice in source and binary distributions, not in rendered output, so no
+ *    licence obligation turns on its presence in an exported PNG. Putting it
+ *    back would mean reintroducing the hardcoded vendor string this module
+ *    exists to remove, to satisfy an obligation that does not exist. The
+ *    interactive map still shows it — the control default is untouched.
  *
  * Both are the price of a credit list that cannot be mangled by its own
  * content, which is the property the whole marker count rests on.
