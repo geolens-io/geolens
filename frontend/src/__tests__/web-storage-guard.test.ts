@@ -27,6 +27,36 @@
  * is the kind of thing someone later widens. If you are here because you want
  * to add one, the answer is almost certainly a `try` block instead.
  *
+ * THE FALSE-NEGATIVE PROMISE. This gate claims false positives are possible and
+ * false negatives are not. It broke that claim four times: renamed
+ * destructuring (five spellings, not the one that was reported), instance field
+ * initializers, a `try` with no `catch`, and assignment targets in for-of and
+ * for-in. Every fix was correct and every one was incomplete, because each
+ * predicate decided membership by listing the shapes it recognised and calling
+ * the rest safe. A list of TypeScript shapes is never finished.
+ *
+ * What makes the claim defensible now is not a longer list, it is the failure
+ * direction. Every membership predicate here answers "report" when it meets
+ * something it does not recognise:
+ *   - RUNS_IN_ENCLOSING_FRAME — an unlisted node is an execution boundary, so
+ *     the access is reported instead of assumed synchronous.
+ *   - OBJECT_LITERAL_IS_A_VALUE — an unlisted position is a destructuring
+ *     target, so the key is reported instead of assumed to be data.
+ *   - isGuarded — every `try` it cannot prove catches keeps climbing, and
+ *     running out of enclosing nodes reports.
+ *   - isNonValuePosition — an unlisted identifier position is a value read.
+ *   - isProductionSource — an unrecognised path is production source and is
+ *     scanned.
+ * So a construct nobody anticipated makes this gate noisy rather than blind,
+ * and noisy is a bug report. Two predicates cannot be inverted; they are named
+ * below with the reason.
+ *
+ * Adding a kind to any of those allowlists widens what the gate calls safe.
+ * That is a deliberate act and must read like one: a one-line reason at the
+ * entry saying why the construct runs where the gate assumes it runs. If you
+ * are adding one to silence a report, you are removing the finding, not fixing
+ * it.
+ *
  * WHAT THIS GATE DOES NOT PROVE. It proves an access cannot throw. It does
  * NOT prove the code degrades correctly when storage is denied, and those two
  * came apart in this repo. Before #1515, `public/asset-guard.js` wrapped the
@@ -37,6 +67,16 @@
  * and deliberately so, since deciding whether a catch fails open is a
  * judgement about what the code does next and an AST rule that guessed would
  * only produce noise. Read the catch block yourself.
+ *
+ * TWO PREDICATES THAT DO NOT FAIL TOWARD REPORTING. `catchStopsTheThrow` calls
+ * a catch with no lexical `throw` protective, so `catch (e) { fail(e); }` where
+ * `fail` throws reads as safe. `storageNameOfKey`, and the element-access
+ * matcher beside it, need a literal name, so `const k = 'sessionStorage';
+ * window[k]` reads as nothing at all. Neither can be inverted at a price worth
+ * paying: the first would report every catch that calls anything, the second
+ * every dynamic property key in the codebase. Both would make the gate
+ * unsatisfiable, and an unsatisfiable gate is how a repo ends up with an
+ * exemption list. This one has none to give.
  *
  * SCOPE. Test files are excluded (`__tests__/`, `*.test.*`, `*.spec.*`,
  * `src/test/**`): tests legitimately drive storage directly, including the
@@ -318,32 +358,101 @@ function isGuarded(node: ts.Node): boolean {
  * named `sessionStorage`/`localStorage` on a non-global object is close to
  * nonexistent in real code, and flagging it is a false positive, which this
  * walk already accepts. Precision here would be bought with the invariant.
+ *
+ * fix(#1545 codex P2, round 4): INVERTED, for the reason given at
+ * RUNS_IN_ENCLOSING_FRAME. The old version asked "is the parent an `=`
+ * expression", answered false for everything else, and so missed
+ * `for ({ sessionStorage: store } of [window]) {}` — a target that binds the
+ * key on every iteration. That was the fourth false negative in four rounds,
+ * and the third produced by a predicate that recognises shapes and calls the
+ * rest safe.
+ *
+ * So the question is inverted here too. The positions where an object literal
+ * is a VALUE are enumerated below; everything else is treated as a target and
+ * gets reported. for-of, for-in, for-await-of and the array-wrapped forms all
+ * fall out of that without being named, as does the next spelling nobody has
+ * thought of.
+ *
+ * Note which nodes are NOT decisions. An object literal inside another object
+ * literal, an array literal, a property assignment, a spread or a paren is the
+ * same syntax whether it ends up a value or a nested target —
+ * `{ cfg: { sessionStorage: 'off' } }` against
+ * `({ a: { sessionStorage: s } } = window)` — so those keep climbing and the
+ * enclosing context decides.
  */
+const OBJECT_LITERAL_IS_A_VALUE: ReadonlySet<ts.SyntaxKind> = new Set([
+  // Initializer and argument positions.
+  ts.SyntaxKind.VariableDeclaration,
+  ts.SyntaxKind.PropertyDeclaration,
+  ts.SyntaxKind.Parameter,
+  ts.SyntaxKind.BindingElement,
+  ts.SyntaxKind.CallExpression,
+  ts.SyntaxKind.NewExpression,
+  ts.SyntaxKind.Decorator,
+  // Statements that consume an expression. None can take an assignment target
+  // without an `=`, which is handled as a position below.
+  ts.SyntaxKind.ExpressionStatement,
+  ts.SyntaxKind.ReturnStatement,
+  ts.SyntaxKind.ThrowStatement,
+  ts.SyntaxKind.ExportAssignment,
+  ts.SyntaxKind.IfStatement,
+  ts.SyntaxKind.WhileStatement,
+  ts.SyntaxKind.DoStatement,
+  ts.SyntaxKind.SwitchStatement,
+  ts.SyntaxKind.CaseClause,
+  // Expression contexts.
+  ts.SyntaxKind.ArrowFunction,
+  ts.SyntaxKind.ConditionalExpression,
+  ts.SyntaxKind.PropertyAccessExpression,
+  ts.SyntaxKind.ElementAccessExpression,
+  ts.SyntaxKind.AwaitExpression,
+  ts.SyntaxKind.YieldExpression,
+  ts.SyntaxKind.TypeOfExpression,
+  ts.SyntaxKind.VoidExpression,
+  ts.SyntaxKind.DeleteExpression,
+  ts.SyntaxKind.PrefixUnaryExpression,
+  ts.SyntaxKind.TemplateSpan,
+  ts.SyntaxKind.TaggedTemplateExpression,
+  ts.SyntaxKind.AsExpression,
+  ts.SyntaxKind.SatisfiesExpression,
+  ts.SyntaxKind.NonNullExpression,
+  ts.SyntaxKind.TypeAssertionExpression,
+  ts.SyntaxKind.JsxExpression,
+]);
+
 function isDestructuringTarget(node: ts.Node): boolean {
   let child: ts.Node = node;
   let parent: ts.Node | undefined = node.parent;
   while (parent) {
-    // `({ sessionStorage: s } = window)` — the pattern is the assignment's LHS.
-    if (ts.isBinaryExpression(parent) && parent.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-      return child === parent.left;
-    }
-    // Keep climbing through nested patterns; anything else means this object
-    // literal is a value, not a target, so `const o = { localStorage: 1 }` stays
-    // unflagged.
+    // Pattern-internal, so undecidable here. Climb.
     if (
       ts.isObjectLiteralExpression(parent) ||
       ts.isArrayLiteralExpression(parent) ||
       ts.isPropertyAssignment(parent) ||
       ts.isSpreadAssignment(parent) ||
+      ts.isSpreadElement(parent) ||
       ts.isParenthesizedExpression(parent)
     ) {
       child = parent;
       parent = parent.parent;
       continue;
     }
-    return false;
+    // Two positions where the same parent kind means either thing, so the kind
+    // alone cannot answer.
+    //   `({ sessionStorage: s } = window)` — only the left of a plain `=`.
+    if (ts.isBinaryExpression(parent)) {
+      return parent.operatorToken.kind === ts.SyntaxKind.EqualsToken && child === parent.left;
+    }
+    //   `for ({ sessionStorage: s } of [window])` — the initializer is the
+    //   target; the iterated expression is a value, so a config array like
+    //   `for (const c of [{ localStorage: 1 }])` stays unflagged.
+    if (ts.isForOfStatement(parent) || ts.isForInStatement(parent)) {
+      return child === parent.initializer;
+    }
+    return !OBJECT_LITERAL_IS_A_VALUE.has(parent.kind);
   }
-  return false;
+  // Ran out of enclosing nodes without finding a value position. Report.
+  return true;
 }
 
 /** The storage name in a property-key position, in any of the spellings a key takes. */
@@ -360,7 +469,33 @@ function storageNameOfKey(key: ts.Node): string | null {
   return null;
 }
 
-/** Identifier positions that are names rather than value reads. */
+/**
+ * Identifier positions that are names rather than value reads.
+ *
+ * fix(#1545 codex P2, round 4): audited, and deliberately left as it is. This
+ * one already fails the right way — the default is `false`, so an identifier in
+ * a position nobody enumerated counts as a read and gets reported. Inverting it
+ * would mean listing every position that IS a read, which is most of the
+ * grammar, and would turn a short list of exceptions into a long list of
+ * obligations with the same hole at the end.
+ *
+ * Two entries are silent only because another branch of `collectAccesses`
+ * covers them, and that split is what round 4 tripped over. The key of a
+ * `PropertyAssignment` and the `propertyName` of a `BindingElement` are skipped
+ * here and matched there instead, so a storage key in a destructuring pattern
+ * is seen exactly once. When the BindingElement branch says "always a pattern"
+ * it is stating a fact about the grammar; when the PropertyAssignment branch
+ * asks `isDestructuringTarget`, it is asking a question that used to be
+ * answered by a shape list, and a for-of target was not on it. The compensation
+ * is only as good as the predicate doing the compensating, which is why that
+ * one is now inverted.
+ *
+ * The other entries are safe for a reason that does not depend on any other
+ * branch: a property signature or declaration name, an import or export
+ * specifier, a type reference, a variable or parameter name, and a local
+ * renamed FROM a non-storage key all name something rather than read the
+ * global. Each is pinned by a fixture below.
+ */
 function isNonValuePosition(node: ts.Identifier): boolean {
   const p = node.parent;
   if (!p) return false;
@@ -492,6 +627,9 @@ describe('#1536: detector fixtures', () => {
     ['globalThis property read', `const s = globalThis.sessionStorage;`],
     ['bracket access', `const s = window['sessionStorage'];`],
     ['bare identifier alias', `const s = sessionStorage;`],
+    // isNonValuePosition's default direction: a position it does not list is a
+    // read. Nothing enumerates "call argument" anywhere, and it is still caught.
+    ['a bare identifier passed as an argument', `use(sessionStorage);`],
     ['callback declared inside try', `try { on('x', () => sessionStorage.getItem('k')); } catch {}`],
     ['inside catch block', `try { g(); } catch { sessionStorage.setItem('k', 'v'); }`],
     ['inside finally block', `try { g(); } finally { sessionStorage.setItem('k', 'v'); }`],
@@ -562,6 +700,25 @@ describe('#1536: detector fixtures', () => {
     [
       'a catch that rethrows from a nested block',
       `try { sessionStorage.getItem('k'); } catch (e) { if (a) { log(e); throw e; } }`,
+    ],
+    // fix(#1545 codex P2 round 4): assignment patterns outside an `=`. Each of
+    // these binds the storage key on every iteration, so each reads the getter.
+    [
+      'a for-of assignment target',
+      `let store; for ({ sessionStorage: store } of [window]) {}`,
+    ],
+    [
+      'a for-in assignment target',
+      `let store; for ({ sessionStorage: store } in obj) {}`,
+    ],
+    [
+      'a for-await-of assignment target',
+      `async function f() { for await ({ sessionStorage: s } of gen()) {} }`,
+    ],
+    ['an array-wrapped for-of target', `let s; for ([{ sessionStorage: s }] of xs) {}`],
+    [
+      'a parenthesized nested pattern',
+      `let s; ({ a: ({ sessionStorage: s }) } = window);`,
     ],
     // Deliberately over-reported: the throw is deferred, so this catch really
     // does contain the SecurityError. Distinguishing it needs to know whether
@@ -653,6 +810,27 @@ describe('#1536: detector fixtures', () => {
     // that separates a false positive from a real access.
     ['a local renamed FROM a non-storage key', `const { foo: sessionStorage } = cfg;`],
     ['a type annotation', `let s: Storage | null = null;`],
+    // fix(#1545 codex P2 round 4): the counterweight to inverting the
+    // destructuring-target test. Treating every unrecognised position as a
+    // target is only affordable if the positions where an object literal is a
+    // VALUE are enumerated properly, so each of these pins one of them. Without
+    // them the inversion would quietly become a false-positive machine and the
+    // next contributor would reach for the exemption list this gate refuses to
+    // have.
+    ['an object literal on the value side of for-of', `for (const c of [{ localStorage: 1 }]) { use(c); }`],
+    ['an object literal call argument', `f({ localStorage: 1 });`],
+    ['an object literal array element', `const a = [{ localStorage: 1 }];`],
+    ['an object literal returned from an arrow', `const f = () => ({ localStorage: 1 });`],
+    ['an object literal return value', `function f() { return { localStorage: 1 }; }`],
+    ['an object literal ternary branch', `const o = cond ? { localStorage: 1 } : null;`],
+    ['an object literal widened with as const', `const o = { localStorage: 1 } as const;`],
+    ['an object literal JSX prop value', `const el = <C cfg={{ localStorage: 1 }} />;`],
+    // The isNonValuePosition entries that stand on their own, one fixture each,
+    // so "audited and left as it is" is a checked claim rather than a note.
+    ['a class field named like storage', `class C { sessionStorage = 1; }`],
+    ['an interface member named like storage', `interface X { sessionStorage: Storage }`],
+    ['an import specifier', `import { sessionStorage } from './x';`],
+    ['a parameter named like storage', `function f(sessionStorage) { return 1; }`],
   ])('ignores %s', (_name, src) => {
     expect(detected(src)).toBe(0);
   });
