@@ -3755,3 +3755,57 @@ async def test_a_hash_that_fails_here_and_succeeds_in_store_still_yields_the_val
         f"answered {resp.status_code}; the route evaluated it against no validator"
     )
     assert resp.headers.get("etag") == etag
+
+
+# ---------------------------------------------------------------------------
+# Review r21
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "header,value,expected",
+    [
+        ("If-None-Match", "*", 304),
+        ("If-None-Match", '"some-tag"', 200),
+        ("If-Match", "*", 200),
+        ("If-Match", '"some-tag"', 412),
+    ],
+)
+async def test_a_cold_head_evaluates_preconditions_without_building(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    header,
+    value,
+    expected,
+):
+    """A cold HEAD answers conditionals the same way a warm one does — minus the tag.
+
+    fix(#1532 review r21): the cold HEAD returned above the precondition checks
+    that run on a hit and after a rebuild, so `HEAD If-None-Match: *` was 200
+    when the cache was cold and 304 when it was warm, and a specific `If-Match`
+    was accepted cold and refused warm. Conditional behaviour depended on cache
+    state the client cannot see.
+
+    Cold means no validator: `*` sees the representation the resource has (a
+    GET would produce it), and a specific tag is unverifiable, so it is refused
+    rather than guessed — the same call the shared helpers make for a COG row
+    with no stored digest. And still no conversion: `conversions.count == 0`
+    pins that answering the precondition did not build the export.
+    """
+    dataset = await _dataset(test_db_session, f"Cold HEAD {expected} {header}")
+
+    resp = await client.head(
+        _url(dataset.id), headers={**admin_auth_header, header: value}
+    )
+
+    assert conversions.count == 0, (
+        "a cold HEAD ran the conversion to answer a precondition"
+    )
+    assert resp.status_code == expected, resp.text
+    assert "etag" not in resp.headers, (
+        "a cold HEAD holds no validator and must not mint one"
+    )
+    if expected == 200:
+        assert "content-length" not in resp.headers

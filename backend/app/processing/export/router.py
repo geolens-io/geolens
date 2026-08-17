@@ -640,6 +640,24 @@ async def export_dataset_endpoint(
     # range GET, and every open after that gets its length for free.
     if request.method == "HEAD":
         # Only the cold case reaches here; a hit returned above.
+        #
+        # fix(#1532 review r21): the same preconditions, against NO validator.
+        # A cold HEAD builds nothing, so it holds no entity-tag — but the
+        # resource still has a current representation (a GET would produce
+        # one), and whether a conditional request is honoured must not depend
+        # on whether the cache happens to be warm. `*` therefore sees the
+        # representation (If-None-Match: * is a 304, If-Match: * passes) and a
+        # specific tag, which nothing here can verify, is refused rather than
+        # guessed — the call the shared helpers already make for a COG row
+        # with no stored digest, and the one the rebuild path makes when the
+        # file could not be hashed.
+        if not if_match_passes(request.headers.get("if-match"), None):
+            raise HTTPException(
+                status_code=status.HTTP_412_PRECONDITION_FAILED,
+                detail="Export has changed since the version you hold",
+            )
+        if if_none_match_matches(request.headers.get("if-none-match"), None):
+            return not_modified_response(None)
         return _head_export_response(dataset.record.title, format)
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
