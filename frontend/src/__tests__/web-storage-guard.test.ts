@@ -28,12 +28,13 @@
  * to add one, the answer is almost certainly a `try` block instead.
  *
  * THE FALSE-NEGATIVE PROMISE. This gate claims false positives are possible and
- * false negatives are not. It broke that claim four times: renamed
+ * false negatives are not. It broke that claim five times: renamed
  * destructuring (five spellings, not the one that was reported), instance field
- * initializers, a `try` with no `catch`, and assignment targets in for-of and
- * for-in. Every fix was correct and every one was incomplete, because each
- * predicate decided membership by listing the shapes it recognised and calling
- * the rest safe. A list of TypeScript shapes is never finished.
+ * initializers, a `try` with no `catch`, assignment targets in for-of and
+ * for-in, and every `.ts` file being parsed as TSX. Every fix was correct and
+ * every one was incomplete, because each answered "is this X?" by listing the
+ * shapes it recognised and calling the rest safe. A list of TypeScript shapes
+ * is never finished.
  *
  * What makes the claim defensible now is not a longer list, it is the failure
  * direction. Every membership predicate here answers "report" when it meets
@@ -47,9 +48,21 @@
  *   - isNonValuePosition — an unlisted identifier position is a value read.
  *   - isProductionSource — an unrecognised path is production source and is
  *     scanned.
+ *   - scriptKindFor — an extension with no kind is a scan failure, not a guess.
  * So a construct nobody anticipated makes this gate noisy rather than blind,
  * and noisy is a bug report. Two predicates cannot be inverted; they are named
  * below with the reason.
+ *
+ * The fifth break was a level below all of those, and it is the one worth
+ * remembering. No predicate was wrong: the PARSE was, and a file the analyser
+ * cannot read yields no identifiers, which yields no findings, which reads as
+ * clean. The worst possible input produced the most reassuring output. So parse
+ * failures are now fatal and name the file, and a half-read file contributes no
+ * accesses at all rather than the ones it happened to see before it gave up.
+ * That guard is worth more than the ScriptKind fix that prompted it, because it
+ * catches the whole class — a syntax the installed TypeScript cannot parse, a
+ * ScriptTarget that ages out, a file that is not what its extension says —
+ * without anyone having to anticipate the next member of it.
  *
  * Adding a kind to any of those allowlists widens what the gate calls safe.
  * That is a deliberate act and must read like one: a one-line reason at the
@@ -84,6 +97,11 @@
  * boundary, not an allowlist, which is why the excluded count is asserted
  * below rather than silently filtered. `public/*.js` is not TypeScript and is
  * out of the glob; both files there are already guarded.
+ *
+ * The glob itself reaches `.ts` and `.tsx`. Any other source extension under
+ * `src/` would be scanned by nothing and reported by nothing, so
+ * 'has no source file the glob cannot reach' asserts there are none rather
+ * than trusting that nobody adds a `.mts`.
  */
 import ts from 'typescript';
 
@@ -523,6 +541,57 @@ interface Access {
   guarded: boolean;
 }
 
+/** A file the analyser could not read. Never silent — see ScanFailure below. */
+interface ScanFailure {
+  file: string;
+  line: number;
+  message: string;
+}
+
+interface ScanResult {
+  accesses: Access[];
+  failures: ScanFailure[];
+}
+
+/**
+ * fix(#1545 codex P2, round 5): the kind is chosen from the extension, not
+ * assumed.
+ *
+ * Every file used to be parsed as TSX, which is wrong for `.ts` and wrong
+ * SILENTLY. In TSX, `const s = <Storage>sessionStorage;` is an unclosed JSX
+ * element rather than a type assertion, and a generic arrow like
+ * `const id = <T>(x: T) => x;` opens an element that swallows the rest of the
+ * file. Both produce a tree with no `sessionStorage` identifier in it at all,
+ * so an unguarded access in a `.ts` file could read as clean. Measured on this
+ * repo at the time of the fix: 0 of 511 files parsed badly, so this was a
+ * latent hole rather than an active blindness, which is exactly the kind that
+ * survives review.
+ *
+ * `null` means "no kind for this extension". That is a failure, not a guess:
+ * the glob and this map are widened together, deliberately, or the gate says
+ * so out loud.
+ */
+function scriptKindFor(file: string): ts.ScriptKind | null {
+  if (file.endsWith('.tsx')) return ts.ScriptKind.TSX;
+  if (file.endsWith('.ts') || file.endsWith('.mts') || file.endsWith('.cts')) {
+    return ts.ScriptKind.TS;
+  }
+  return null;
+}
+
+/**
+ * `parseDiagnostics` is not on the public `ts.SourceFile` type, so this reaches
+ * for it through a cast. If a TypeScript upgrade ever renames or drops it, the
+ * `?? []` would quietly restore the exact silence this guard exists to remove —
+ * so the fixture 'fails loudly on source it cannot parse' is not decoration.
+ * It is the assertion that this cast still finds something, and it goes red the
+ * day the internal shape changes.
+ */
+function parseErrorsOf(sf: ts.SourceFile): readonly ts.Diagnostic[] {
+  const internal = sf as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] };
+  return internal.parseDiagnostics ?? [];
+}
+
 /**
  * Every form that reads the storage property, since reading it is the throw:
  * `sessionStorage.x`, `window.sessionStorage`, `window['sessionStorage']`, a
@@ -530,9 +599,39 @@ interface Access {
  * (`const { sessionStorage: s } = window` and friends) — see
  * `isDestructuringTarget` for why that family needed its own handling, and for
  * the one it deliberately over-flags.
+ *
+ * A file that does not parse yields no accesses, so it must yield a failure
+ * instead. `setParentNodes` stays true because every predicate here walks
+ * `node.parent`; the `accepts` fixtures are the assertion for that, since
+ * `isGuarded` reports the moment a parent link is missing.
  */
-function collectAccesses(file: string, source: string): Access[] {
-  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+function scanSource(file: string, source: string): ScanResult {
+  const kind = scriptKindFor(file);
+  if (kind === null) {
+    return {
+      accesses: [],
+      failures: [
+        {
+          file,
+          line: 1,
+          message: `no ScriptKind for this extension; extend scriptKindFor and the glob together`,
+        },
+      ],
+    };
+  }
+  const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
+  const parseErrors = parseErrorsOf(sf);
+  if (parseErrors.length > 0) {
+    return {
+      accesses: [],
+      failures: parseErrors.map((d) => ({
+        file,
+        line:
+          d.start === undefined ? 1 : sf.getLineAndCharacterOfPosition(d.start).line + 1,
+        message: ts.flattenDiagnosticMessageText(d.messageText, ' '),
+      })),
+    };
+  }
   const found: Access[] = [];
 
   const visit = (node: ts.Node): void => {
@@ -573,10 +672,12 @@ function collectAccesses(file: string, source: string): Access[] {
     ts.forEachChild(node, visit);
   };
   visit(sf);
-  return found;
+  return { accesses: found, failures: [] };
 }
 
-const accesses = sources.flatMap(([path, source]) => collectAccesses(path, source));
+const scanned = sources.map(([path, source]) => scanSource(path, source));
+const accesses = scanned.flatMap((r) => r.accesses);
+const scanFailures = scanned.flatMap((r) => r.failures);
 
 describe('#1536: Web Storage access under src/ must be exception-safe', () => {
   // Vacuity guards. If a future glob or filter change silently matches
@@ -590,6 +691,42 @@ describe('#1536: Web Storage access under src/ must be exception-safe', () => {
 
   it('actually found storage accesses to classify', () => {
     expect(accesses.length).toBeGreaterThan(0);
+  });
+
+  // fix(#1545 codex P2 round 5): the finest-grained vacuity guard of the three.
+  // A file the parser could not read yields no identifiers, no identifiers
+  // yields no findings, and the gate reports clean — the worst possible input
+  // producing the most reassuring output. So an unreadable file is a gate
+  // failure naming the file, never an empty result folded in with the rest.
+  it('parsed every file it scanned', () => {
+    const detail = scanFailures.map((f) => `  ${f.file}:${f.line}  ${f.message}`).join('\n');
+    expect(
+      scanFailures,
+      scanFailures.length === 0
+        ? ''
+        : `Could not parse these files, so their storage access is UNKNOWN, not absent.\n` +
+            `${detail}\n\n` +
+            'Fix the source, or if the file is legitimately not TypeScript, keep it out ' +
+            'of the glob. Do not leave it unreadable: this gate reports nothing for a ' +
+            'file it cannot read, which is indistinguishable from a clean one.',
+    ).toEqual([]);
+  });
+
+  // The glob reaches `.ts` and `.tsx`. Anything else under src/ that a bundler
+  // would treat as source is invisible to this gate, and invisible is the one
+  // state it must never be in quietly. Adding a kind here means adding it to
+  // the glob AND to scriptKindFor, together and on purpose.
+  it('has no source file the glob cannot reach', () => {
+    const unreachable = Object.keys(
+      import.meta.glob('/src/**/*.{mts,cts,js,jsx,mjs,cjs}', { eager: false }),
+    );
+    expect(
+      unreachable,
+      unreachable.length === 0
+        ? ''
+        : `Source files under src/ that this gate never scans:\n  ${unreachable.join('\n  ')}\n\n` +
+            'Add the extension to the glob and to scriptKindFor, or move the file.',
+    ).toEqual([]);
   });
 
   it('has no unguarded access', () => {
@@ -615,7 +752,7 @@ describe('#1536: Web Storage access under src/ must be exception-safe', () => {
  * Each case is a shape observed in this codebase or a near miss of one.
  */
 describe('#1536: detector fixtures', () => {
-  const scan = (src: string) => collectAccesses('/src/fixture.tsx', src);
+  const scan = (src: string, file = '/src/fixture.tsx') => scanSource(file, src).accesses;
   const detected = (src: string) => scan(src).length;
   const unguarded = (src: string) => scan(src).filter((a) => !a.guarded).length;
 
@@ -833,5 +970,71 @@ describe('#1536: detector fixtures', () => {
     ['a parameter named like storage', `function f(sessionStorage) { return 1; }`],
   ])('ignores %s', (_name, src) => {
     expect(detected(src)).toBe(0);
+  });
+});
+
+/**
+ * The parse layer's own fixtures.
+ *
+ * Everything above assumes a tree that reflects the source. Round 5 was the
+ * round where that assumption broke instead of a predicate, so these pin the
+ * two halves of it: the right ScriptKind per extension, and a parse failure
+ * that is reported rather than swallowed.
+ */
+describe('#1536: the parse is asserted, not assumed', () => {
+  const at = (file: string, src: string) => scanSource(file, src);
+
+  it('reads a .ts angle-bracket assertion, which TSX turns into an unclosed tag', () => {
+    const result = at('/src/fixture.ts', `const s = <Storage>sessionStorage;`);
+    expect(result.failures).toEqual([]);
+    expect(result.accesses).toHaveLength(1);
+    expect(result.accesses[0].guarded).toBe(false);
+  });
+
+  it('does not let a generic arrow in a .ts file swallow a later access', () => {
+    const src = `const id = <T>(x: T) => x;\nconst v = sessionStorage.getItem('k');`;
+    const result = at('/src/fixture.ts', src);
+    expect(result.failures).toEqual([]);
+    expect(result.accesses).toHaveLength(1);
+  });
+
+  it('still parses JSX in a .tsx file', () => {
+    const result = at('/src/fixture.tsx', `const el = <div title={sessionStorage.getItem('k')} />;`);
+    expect(result.failures).toEqual([]);
+    expect(result.accesses).toHaveLength(1);
+  });
+
+  // The counterfactual for parseErrorsOf. If a TypeScript upgrade ever moves
+  // the internal parseDiagnostics field, this is what goes red — without it the
+  // cast would start returning [] and the gate would go quiet again.
+  it('fails loudly on source it cannot parse', () => {
+    const result = at('/src/fixture.ts', `const v = sessionStorage.getItem('k'`);
+    expect(result.failures.length).toBeGreaterThan(0);
+    expect(result.failures[0].file).toBe('/src/fixture.ts');
+    expect(result.failures[0].message).toBeTruthy();
+    // And the accesses it did manage to see are withheld, so a half-read file
+    // can never contribute a reassuring zero.
+    expect(result.accesses).toEqual([]);
+  });
+
+  it('reports the .ts-only syntax as a failure when the file really is .tsx', () => {
+    const result = at('/src/fixture.tsx', `const s = <Storage>sessionStorage;`);
+    expect(result.accesses).toEqual([]);
+    expect(result.failures.length).toBeGreaterThan(0);
+  });
+
+  it('fails loudly on an extension it has no ScriptKind for', () => {
+    const result = at('/src/fixture.js', `const v = sessionStorage.getItem('k');`);
+    expect(result.accesses).toEqual([]);
+    expect(result.failures).toHaveLength(1);
+    expect(result.failures[0].message).toContain('no ScriptKind');
+  });
+
+  it('maps .mts and .cts to TypeScript', () => {
+    for (const file of ['/src/fixture.mts', '/src/fixture.cts']) {
+      const result = at(file, `const s = <Storage>sessionStorage;`);
+      expect(result.failures).toEqual([]);
+      expect(result.accesses).toHaveLength(1);
+    }
   });
 });
