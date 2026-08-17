@@ -547,18 +547,29 @@ async def _put_with_reclaim(
             await get_storage().put(key, handle)
         return built_at, key
 
+    # fix(#1532 review, internal): BaseException on the outside, Exception on
+    # the inside. A CancelledError — a client disconnect, a worker shutdown — is
+    # not an Exception, so the first write's failure arm did not see it: it
+    # skipped the retry (correctly, a cancelled request wants no retry) AND the
+    # discard (not correctly, the attempt it made may have landed). The local
+    # provider is atomic now so its final key is safe either way, but a
+    # non-atomic backend keeps the partial, and even locally the scratch file's
+    # removal depends on `put` seeing the cancel itself rather than on anything
+    # here.
+    #
+    # So: clean up on ANY exit, retry only on the ones a retry can help.
     try:
-        return await _write()
-    except Exception:  # broad: any write failure is worth one reclaim-and-retry
-        logger.warning("export_artifact_put_failed_reclaiming", exc_info=True)
-        await _discard(attempted)
-        await sweep()
-        _last_sweep_at = time.time()
         try:
             return await _write()
-        except BaseException:
+        except Exception:  # broad: any write failure is worth one reclaim-and-retry
+            logger.warning("export_artifact_put_failed_reclaiming", exc_info=True)
             await _discard(attempted)
-            raise
+            await sweep()
+            _last_sweep_at = time.time()
+            return await _write()
+    except BaseException:
+        await _discard(attempted)
+        raise
 
 
 async def _discard(keys: list[str]) -> None:

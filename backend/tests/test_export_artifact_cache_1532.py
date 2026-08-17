@@ -1671,3 +1671,69 @@ async def test_a_cached_probe_does_not_recount_the_selection(
         f"bounded counts. Each is a scan to five million rows for an artifact "
         f"that already exists."
     )
+
+
+async def test_a_cancel_during_the_first_write_discards_its_attempt(
+    test_db_session, monkeypatch
+):
+    """A cancelled FIRST write must clean up after itself too.
+
+    `_put_with_reclaim` caught `Exception` around the first attempt, and a
+    `CancelledError` is not one — a client disconnect or a worker shutdown
+    therefore skipped the retry (right: a cancelled request wants no retry) AND
+    the discard (wrong: the attempt it made may have landed). Only the retry's
+    own arm cleaned up, so the failure mode was the FIRST write's partial
+    surviving.
+
+    The local provider is atomic now, so its final key is safe either way; a
+    non-atomic backend is not, and that is what the double here stands in for.
+    Nothing about the shape of `except Exception` announces which of the two
+    arms a cancel reaches, which is why this needs a test rather than a reading.
+    """
+    import asyncio
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Cancelled First Write")
+    storage = get_storage()
+    written: list[str] = []
+
+    class _WritesThenCancels:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def put(self, key, data):
+            await self._inner.put(key, b"a partial object")
+            written.append(key)
+            raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _WritesThenCancels(storage),
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"the export whose client hung up")
+        path = handle.name
+
+    with pytest.raises(asyncio.CancelledError):
+        await cache.store(
+            dataset.id,
+            "cancelled",
+            file_path=path,
+            filename="x.geojson",
+            media_type="application/geo+json",
+        )
+
+    assert len(written) == 1, (
+        f"a cancel must not be retried; the write was attempted {len(written)} time(s)"
+    )
+    assert not await storage.exists(written[0]), (
+        f"{written[0]} survived a cancelled write. Nothing else removes it: it "
+        f"carries a fresh timestamp, so the sweep leaves it alone for a horizon."
+    )
