@@ -923,8 +923,25 @@ async def test_a_persisted_row_outranks_the_environment(
     It is also the assumption whose absence turned this file red in CI: a
     database carrying the row answers with the row no matter what the
     environment says, and nothing here asserted that until it cost a build.
+
+    Every phase supplies the override layer directly, INCLUDING the no-row one.
+    That phase originally read the real database and was the last thing in this
+    file still coupled to it — which is what kept CI red after the fixture was
+    fixed, because another test in the same worker had committed a
+    ``public_app_url`` row and the "no row" precondition was simply false.
+    Deleting that row in setup would have gone green too, and would have meant
+    this test mutating a database its neighbours read: the same cross-test
+    coupling, pointed the other way. Supplying the input is hermetic, mutates
+    nothing, and is the convention the rest of this module's tests already use
+    (see test_public_urls.py, where the real loader is exercised once and every
+    other case stubs it).
     """
     monkeypatch.setattr(settings, "public_app_url", "https://from-env.example")
+
+    async def _no_rows(db):
+        return {}
+
+    monkeypatch.setattr(public_urls, "_load_public_url_overrides", _no_rows)
     public_urls.invalidate_public_url_cache()
     try:
         assert await public_urls.get_configured_public_app_url(test_db_session) == (
