@@ -404,21 +404,36 @@ async def _put_with_reclaim(
 
     fix(#1532 review r4): sweeping before the write is not enough on its own,
     because ``_sweep_occasionally`` is interval-guarded — a store that fills
-    between two cadence ticks would fail without any reclamation having been
-    attempted, and with nothing else sweeping ``export-cache/`` the volume stays
-    full. So a failed write forces an unconditional sweep and tries once more,
-    which makes a full store heal inside the request that hit it rather than
-    fifteen minutes later.
+    between two cadence ticks would fail without one having been attempted, and
+    with nothing else sweeping ``export-cache/`` the volume stays full. So a
+    failed write forces an unconditional sweep and tries once more, which makes a
+    full store heal inside the request that hit it rather than fifteen minutes
+    later.
 
     Once, not in a loop. If reclaiming everything past the horizon does not make
     room, the store is full of something this cache does not own and retrying is
     just a slower way to fail.
+
+    fix(#1532 review r5): every key this function attempts is deleted if its
+    write fails, and that is the difference between a failure and a leak. A
+    partial carries a FRESH timestamp, so the forced sweep cannot reclaim it — it
+    is young by every rule this module has — and the retry would then fail for
+    the same reason the first attempt did, on a volume the first attempt made
+    worse. Two attempts, two partials, and the space held for the whole horizon.
+
+    ``LocalStorageProvider.put`` is atomic now, so on the shipped backends a
+    failed write leaves nothing to delete and these calls are belt-and-braces.
+    They are here because this module cannot see which provider it has, and
+    because a cleanup that only runs on the backends known today is one a new
+    backend silently opts out of.
     """
     global _last_sweep_at
+    attempted: list[str] = []
 
     async def _write() -> tuple[float, str]:
         built_at = time.time()
         key = _artifact_key(dataset_id, selection, digest, size, built_at)
+        attempted.append(key)
         with open(file_path, "rb") as handle:
             await get_storage().put(key, handle)
         return built_at, key
@@ -427,9 +442,30 @@ async def _put_with_reclaim(
         return await _write()
     except Exception:  # broad: any write failure is worth one reclaim-and-retry
         logger.warning("export_artifact_put_failed_reclaiming", exc_info=True)
+        await _discard(attempted)
         await sweep()
         _last_sweep_at = time.time()
-        return await _write()
+        try:
+            return await _write()
+        except BaseException:
+            await _discard(attempted)
+            raise
+
+
+async def _discard(keys: list[str]) -> None:
+    """Remove whatever a failed write may have left behind.
+
+    Deletes are best-effort and a missing key is the expected case: an atomic
+    provider leaves nothing, and this exists for the ones that do not. What it
+    must not do is raise, because it runs on a path that is already failing and
+    whose caller has a working conversion to fall back on.
+    """
+    storage = get_storage()
+    for key in keys:
+        try:
+            await storage.delete(key)
+        except Exception:  # broad: an absent or unremovable key is the sweep's job
+            logger.debug("export_artifact_discard_failed", key=key, exc_info=True)
 
 
 async def _digest_and_size(file_path: str) -> tuple[str, int]:

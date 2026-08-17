@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
@@ -71,11 +72,37 @@ class LocalStorageProvider:
 
         def _put() -> str:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if isinstance(data, bytes):
-                dest.write_bytes(data)
-            else:
-                with open(dest, "wb") as out:
-                    shutil.copyfileobj(data, out, _STREAM_CHUNK_BYTES)
+            # fix(#1532 review r5): write beside the destination and rename into
+            # place, so the key never names a partial object. This used to open
+            # the FINAL path with "wb" and stream into it, which means an ENOSPC
+            # or a hard kill mid-copy leaves a truncated file under the name
+            # every reader resolves — and a reader has no way to tell it from a
+            # complete one.
+            #
+            # The export cache is where that surfaced (its keys carry the size,
+            # so it DETECTS the truncation and rebuilds, leaving the partial
+            # occupying the volume), but the exposure is not its own: ingest
+            # writes multi-gigabyte COGs and originals through here too, and a
+            # worker killed mid-upload left the same residue under the real key.
+            # S3 and Azure have nothing to fix — an object appears at its key
+            # only when its put completes.
+            #
+            # Same directory, so os.replace is an atomic rename rather than a
+            # cross-filesystem copy, and the temp file costs no extra space.
+            tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                if isinstance(data, bytes):
+                    tmp.write_bytes(data)
+                else:
+                    with open(tmp, "wb") as out:
+                        shutil.copyfileobj(data, out, _STREAM_CHUNK_BYTES)
+                os.replace(tmp, dest)
+            except BaseException:
+                # BaseException for the reason the caller below drains on
+                # cancellation: a cancelled write must not leave its scratch
+                # file behind either.
+                tmp.unlink(missing_ok=True)
+                raise
             return str(dest)
 
         # fix(#435 codex r2/r3/r4): drain the copy thread on cancellation so the caller

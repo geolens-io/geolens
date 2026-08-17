@@ -1233,3 +1233,134 @@ async def test_a_cached_parquet_probe_does_not_replan_per_range(
     )
 
     shutil.rmtree(root, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Review r5
+# ---------------------------------------------------------------------------
+
+
+async def test_an_enospc_mid_write_leaves_no_partial_object(
+    test_db_session, monkeypatch
+):
+    """fix(#1532 review r5): a failed write must not hold the volume it filled.
+
+    ``LocalStorageProvider.put`` opened the FINAL path with ``wb`` and streamed
+    into it, so an ENOSPC mid-copy left a truncated file under the name every
+    reader resolves — carrying a FRESH timestamp, which is what made it
+    unreclaimable. The forced sweep skips it because it is young by every rule
+    this module has, the retry then fails for the reason the first attempt did on
+    a volume the first attempt made worse, and the space is held for the whole
+    four-hour horizon while later exports 503.
+
+    This is the size-in-key detection revealing its own residue: lookup notices
+    the truncation and rebuilds, which is correct and which leaves another
+    partial behind every time. Detection without cleanup accumulates.
+
+    The write is broken partway rather than refused outright, because a ``put``
+    that never writes anything proves nothing about a partial.
+    """
+    import tempfile
+
+    import app.platform.storage.local as local_module
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "ENOSPC")
+    storage = get_storage()
+    real_copy = local_module.shutil.copyfileobj
+
+    def _fails_partway(src, dst, length=None):
+        dst.write(src.read(64))
+        dst.flush()
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(local_module.shutil, "copyfileobj", _fails_partway)
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(bytes(range(256)) * 8)
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "torn",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+
+    monkeypatch.setattr(local_module.shutil, "copyfileobj", real_copy)
+
+    assert stored is None, "precondition: the write failed"
+    residue = await storage.list(
+        f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+    )
+    assert residue == [], (
+        f"a failed write left {residue}. Each carries a fresh timestamp, so the "
+        f"sweep cannot reclaim it for four hours, and every rebuild in that "
+        f"window adds another."
+    )
+
+
+async def test_a_non_atomic_provider_has_its_partial_deleted(
+    test_db_session, monkeypatch
+):
+    """The belt-and-braces half, on the backend shape that needs it.
+
+    `LocalStorageProvider.put` is atomic now, so on the shipped backends a
+    failed write leaves nothing to delete and `_discard` is a no-op. That is
+    exactly why it needs its own test: a cleanup that only runs where nothing is
+    broken is a cleanup nobody notices has stopped working, and a future provider
+    that writes in place would opt out of it silently.
+
+    The double writes the object and THEN fails, which is what a non-atomic
+    provider does.
+    """
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Non Atomic")
+    storage = get_storage()
+    written: list[str] = []
+
+    class _WritesThenFails:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def put(self, key, data):
+            await self._inner.put(key, b"a partial object")
+            written.append(key)
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _WritesThenFails(storage),
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"the export that never landed")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "partial",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+
+    assert stored is None, "precondition: the write failed"
+    assert len(written) == 2, (
+        f"precondition: the write is attempted twice, once before the forced "
+        f"sweep and once after, saw {len(written)}"
+    )
+    for key in written:
+        assert not await storage.exists(key), (
+            f"{key} survived a failed write. Both attempts leave a partial, and "
+            f"neither is old enough for the sweep to reclaim."
+        )
