@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
 
-from azure.core.exceptions import ResourceNotFoundError
+from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import BlobServiceClient
 
 from app.platform.storage.provider import StoredObject
@@ -151,6 +151,55 @@ class AzureBlobStorageProvider:
             "never be reached."
         )
         yield b""  # unreachable, satisfies AsyncIterator return type
+
+    async def get_range_stream(
+        self, key: str, start: int, length: int
+    ) -> AsyncIterator[bytes]:
+        """Stream a byte window from ONE ``download_blob`` call.
+
+        fix(#1540 review P1): the same amplification S3 had. Serving a range by
+        calling ``get_range`` per 1 MiB chunk meant a separate download call per
+        chunk, and an Azure deployment reaches this code by the ordinary path —
+        managed rasters carry ``storage_backend="local"``, so their range
+        requests are served here rather than redirected.
+
+        One ``download_blob(offset, length)`` for the window, chunked as it
+        arrives. Precisely: one CALL, where S3's is one REQUEST. The Azure SDK
+        satisfies a download larger than its ``max_single_get_size`` with its
+        own internal chunking, so a very large window is still several requests
+        at the SDK's chunk size rather than one — bounded by the SDK's transfer
+        strategy instead of by a loop this code writes at 1 MiB.
+        """
+        blob = self._client.get_blob_client(container=self.container, blob=key)
+
+        def _open():
+            try:
+                return blob.download_blob(offset=start, length=length)
+            except ResourceNotFoundError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                raise FileNotFoundError(key) from e
+            except HttpResponseError as e:
+                # A window at or past the end: Azure raises where S3 answers
+                # 416 and a local seek-then-read simply reads nothing. The
+                # contract is the local one, so it is normalized here —
+                # MEASURED against Azurite 3.35.0, which answers this exact
+                # request with ErrorCode InvalidRange while the other two
+                # providers return empty.
+                if getattr(e, "error_code", None) == "InvalidRange":
+                    return None
+                raise
+
+        downloader = await asyncio.to_thread(_open)
+        if downloader is None:
+            return
+        chunks = await asyncio.to_thread(downloader.chunks)
+        iterator = iter(chunks)
+        sentinel = object()
+        while True:
+            chunk = await asyncio.to_thread(next, iterator, sentinel)
+            if chunk is sentinel or not chunk:
+                return
+            yield chunk
 
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Download key to a local file path. Creates parent dirs."""

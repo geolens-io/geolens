@@ -194,10 +194,63 @@ async def test_get_stream_raises_not_implemented(azurite_provider):
 
     get_stream is an async generator — the NotImplementedError is raised
     on first iteration, not on call. Mirror the s3.py pattern.
+
+    fix(#1540 review P1) found this is not merely unreached: a managed raster
+    on an Azure deployment carries ``storage_backend="local"``, so the COG
+    download route serves it here rather than redirecting, and its whole-object
+    GET calls this method. That is a pre-existing gap on ``main`` — the call
+    site predates #1528 — and it is filed rather than fixed here, because the
+    Azure SDK's chunked download needs its request behaviour measured the way
+    botocore's was. This test pins the CURRENT behaviour so the gap cannot be
+    mistaken for working; ``get_range_stream`` below is the half that is fixed.
     """
     with pytest.raises(NotImplementedError, match="SAS"):
         async for _ in azurite_provider.get_stream("any_key"):
             pass
+
+
+@pytest.mark.asyncio
+async def test_get_range_stream_round_trip(azurite_provider):
+    """A window streams back byte-exact, from one download call.
+
+    fix(#1540 review P1): the COG route used to serve a range by calling
+    ``get_range`` once per 1 MiB, which on this provider is a download call per
+    chunk. Azure reaches that path by the ordinary route, not an exotic one:
+    managed rasters are ``storage_backend="local"`` whatever the object store.
+    """
+    payload = bytes(range(256)) * 4096  # 1 MiB exactly
+    key = "test/range_stream.bin"
+    await azurite_provider.put(key, payload)
+
+    chunks = [
+        chunk async for chunk in azurite_provider.get_range_stream(key, 1000, 5000)
+    ]
+
+    assert b"".join(chunks) == payload[1000:6000]
+
+
+@pytest.mark.asyncio
+async def test_get_range_stream_missing_key_raises(azurite_provider):
+    """Same FileNotFoundError contract every provider normalizes to (#430 BA-24)."""
+    with pytest.raises(FileNotFoundError):
+        async for _ in azurite_provider.get_range_stream("nope.bin", 0, 10):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_get_range_stream_past_the_end_is_empty(azurite_provider):
+    """A window beyond the blob ends the stream instead of raising.
+
+    Matches ``get_range`` and the local/POSIX seek-then-read the other
+    providers give: the caller has already decided what an empty window means,
+    and for the COG route that decision is the 416 it computes from the size.
+    """
+    key = "test/range_stream_short.bin"
+    await azurite_provider.put(key, b"0123456789")
+
+    chunks = [chunk async for chunk in azurite_provider.get_range_stream(key, 50, 100)]
+
+    assert b"".join(chunks) == b""
 
 
 def test_presigned_methods_raise_not_implemented(azurite_provider):

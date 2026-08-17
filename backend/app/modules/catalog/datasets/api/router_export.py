@@ -714,10 +714,11 @@ async def get_geodcat_ap_record(
 # COG download
 # ---------------------------------------------------------------------------
 
-# fix(#1528): chunk size for a streamed byte range. A range can be most of a
-# multi-GB COG, so it is read in bounded pieces rather than buffered whole —
-# the same reason the full-object path streams via get_stream() (ING-03).
-_COG_RANGE_CHUNK_BYTES = 1024 * 1024  # 1 MiB
+# fix(#1528): a range can be most of a multi-GB COG, so it is read in bounded
+# pieces rather than buffered whole — the same reason the full-object path
+# streams via get_stream() (ING-03). fix(#1540 review P1): the chunk size that
+# used to live here belongs to the provider now, along with the loop that used
+# it; see the note where `_iter_storage_range` was.
 
 # One anchored pattern, deliberately strict about what it accepts:
 #   bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX
@@ -727,7 +728,20 @@ _COG_RANGE_CHUNK_BYTES = 1024 * 1024  # 1 MiB
 # range, an unknown unit, a reversed pair) is IGNORED per RFC 9110 section
 # 14.2, which is the safe direction: the client gets the whole representation
 # it can already handle, never a partial one mislabelled as something else.
-_BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$")
+#
+# fix(#1540 review P2): the unit match is case-INSENSITIVE. A range unit is a
+# token (RFC 9110 section 14.1), and tokens compare case-insensitively unless
+# the grammar says otherwise, so `Bytes=0-16383` is a conforming request. Being
+# strict about it did not reject that request — "ignore the Range" sent the
+# whole COG with a 200, turning a 16 KiB tile read into a multi-gigabyte
+# transfer. Strictness that fails toward MORE bytes is not strictness.
+#
+# Only the unit. The digits stay `[0-9]`, and the entity-tag comparisons in
+# `_range_bound_to_this_version` and `_if_none_match_matches` stay
+# case-SENSITIVE, because an entity-tag is opaque and section 8.8.3.2 compares
+# it octet by octet — and the weak prefix is `%s"W/"`, spelled with a
+# case-sensitive string literal in the grammar itself.
+_BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$", re.IGNORECASE)
 
 # The Range named no byte of the representation (first-byte-pos at or past the
 # end, or a zero-length suffix). RFC 9110 section 15.5.17 wants a 416 carrying
@@ -812,31 +826,21 @@ def _parse_cog_range(raw: str | None, size: int) -> tuple[int, int] | str | None
     return (start, min(end, size - 1))
 
 
-async def _iter_storage_range(storage, key: str, start: int, length: int):
-    """Yield exactly ``length`` bytes from ``start``, in bounded chunks.
-
-    ``storage.get_range`` returns bytes rather than a stream, so a single call
-    for a whole range would materialize it in memory — fine for the 16 KB
-    header read a COG client opens with, not for a caller that asks for a
-    gigabyte. The loop keeps resident memory at one chunk regardless of the
-    range's size.
-
-    A short read ends the stream instead of looping forever: if the object
-    shrank under us the response is truncated against its Content-Length, which
-    every HTTP client reports as a failed transfer. That is the loud failure;
-    padding to length would be the quiet corrupt one.
-    """
-    remaining = length
-    offset = start
-    while remaining > 0:
-        chunk = await storage.get_range(
-            key, offset, min(remaining, _COG_RANGE_CHUNK_BYTES)
-        )
-        if not chunk:
-            return
-        yield chunk
-        offset += len(chunk)
-        remaining -= len(chunk)
+# fix(#1540 review P1): `_iter_storage_range` used to live here, looping
+# `storage.get_range` at `_COG_RANGE_CHUNK_BYTES` a call. It kept resident
+# memory to one chunk, which was the point, and paid for it in object-store
+# requests: one per chunk, so `Range: bytes=0-` on a 5 GiB COG issued 5,120 of
+# them serially while the rate limiter counted one API request. That is the
+# same amplification the stale-resume fallback was fixed for a round earlier,
+# on the path an ordinary tile read takes — and on an S3 or Azure deployment
+# every managed raster takes it, because ingest writes `storage_backend="local"`
+# whatever the object store is.
+#
+# The bound belongs in the provider, which is the only layer that can ask for a
+# window once and hand back the response as it arrives. `get_range_stream` is
+# that method; see its contract in `platform/storage/provider.py`. Deleting the
+# loop rather than repairing it is deliberate: a helper that turns one range
+# into N reads has no correct chunk size, only less-wrong ones.
 
 
 async def _resolve_download_user(
@@ -1515,7 +1519,7 @@ async def _local_cog_response(
         # this is ever implemented by slicing a full-object stream.
         start, end = byte_range
         return StreamingResponse(
-            _iter_storage_range(storage, physical_asset_key, start, end - start + 1),
+            storage.get_range_stream(physical_asset_key, start, end - start + 1),
             status_code=status.HTTP_206_PARTIAL_CONTENT,
             media_type="image/tiff",
             headers={

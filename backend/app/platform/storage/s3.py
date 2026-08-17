@@ -212,6 +212,52 @@ class S3StorageProvider:
         finally:
             await asyncio.to_thread(body.close)
 
+    async def get_range_stream(
+        self, key: str, start: int, length: int
+    ) -> AsyncIterator[bytes]:
+        """Stream a byte window from ONE ranged ``get_object``.
+
+        fix(#1540 review P1): this is the method whose absence produced the
+        defect twice. Serving a range by calling ``get_range`` per 1 MiB chunk
+        issues a separate ``GetObject`` per chunk, so an ordinary
+        ``Range: bytes=0-`` against a 5 GiB COG became 5,120 serial object-store
+        requests — one API request by the rate limiter's count, thousands by the
+        bill's. The window is requested once here and the body is read off the
+        socket in chunks, which is what a range request should cost.
+
+        A window starting at or past the end is an empty stream rather than an
+        error, matching ``get_range`` and local/POSIX seek-then-read: the caller
+        has already decided what a zero-length window means.
+        """
+
+        def _open():
+            try:
+                return self.client.get_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    Range=f"bytes={start}-{start + length - 1}",
+                )["Body"]
+            except ClientError as e:
+                code = e.response.get("Error", {}).get("Code")
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if code in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(key) from e
+                if code in ("416", "InvalidRange", "RequestedRangeNotSatisfiable"):
+                    return None
+                raise
+
+        body = await asyncio.to_thread(_open)
+        if body is None:
+            return
+        try:
+            while True:
+                chunk = await asyncio.to_thread(body.read, _STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            await asyncio.to_thread(body.close)
+
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Download key to a local file path. Creates parent dirs."""
         dest.parent.mkdir(parents=True, exist_ok=True)

@@ -933,6 +933,52 @@ async def test_a_full_download_works_when_the_provider_is_s3(
     assert whole.headers.get("etag") == f'"{raster_asset.sha256}"'
 
 
+async def test_an_ordinary_range_makes_one_object_store_request(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """fix(#1540 review P1): the everyday tile read, not just the odd branch.
+
+    The stale-resume fallback was fixed a round earlier and this path was left
+    looping ``get_range`` at 1 MiB a call — and it is the path that matters
+    most, because on an S3 or Azure deployment ordinary ingested assets carry
+    ``storage_backend="local"`` and every range request lands here. No stale
+    validator needed: ``Range: bytes=0-`` on a 5 GiB COG issued 5,120 serial
+    object-store requests while the rate limiter counted one API call.
+
+    A 3 MiB object and a range spanning all of it, because at 204,800 bytes the
+    loop and the stream are indistinguishable — one chunk either way.
+    """
+    big = bytes(range(256)) * (3 * 1024 * 4)  # 3 MiB exactly
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="local",  # what ingest writes on an S3 deployment too
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/big.cog.tif",
+        sha256=hashlib.sha256(big).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, big)
+
+    calls: list[str] = []
+    s3_storage.client.meta.events.register(
+        "before-call.s3", lambda model, **kwargs: calls.append(model.name)
+    )
+
+    ranged = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "Range": "bytes=0-"},
+    )
+
+    assert ranged.status_code == 206, (
+        f"precondition: an open-ended range should be a 206, got {ranged.status_code}"
+    )
+    assert ranged.content == big
+    assert calls == ["HeadObject", "GetObject"], (
+        f"a single range request issued {len(calls)} object-store requests "
+        f"{calls}. One stat for the length and one ranged read: at a request "
+        f"per MiB this is 5,120 of them for a 5 GiB COG, and the rate limiter "
+        f"sees one."
+    )
+
+
 async def test_the_stale_resume_fallback_makes_one_object_store_request(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):
@@ -1250,10 +1296,15 @@ async def test_range_spanning_multiple_chunks_is_byte_exact(
     surface. The chunk size is shrunk here so an ordinary-sized range crosses
     many boundaries; at the production 1 MiB every range in this file would fit
     in a single read and the loop would never be exercised.
-    """
-    from app.modules.catalog.datasets.api import router_export
 
-    monkeypatch.setattr(router_export, "_COG_RANGE_CHUNK_BYTES", 997)
+    The knob moved in fix(#1540 review P1). The route used to do its own
+    chunking, one ``get_range`` call per chunk, which is what made an ordinary
+    range cost a request per MiB; the provider now streams the window from one
+    read and owns the chunk size. Same assertion, one layer down.
+    """
+    from app.platform.storage import local as local_storage
+
+    monkeypatch.setattr(local_storage, "_STREAM_CHUNK_BYTES", 997)
 
     dataset, _ = local_cog
     start, end = 1234, 40_000
@@ -1267,6 +1318,40 @@ async def test_range_spanning_multiple_chunks_is_byte_exact(
         "A multi-chunk range did not reassemble to the stored slice"
     )
     assert len(resp.content) == end - start + 1
+
+
+@pytest.mark.parametrize("unit", ["bytes", "Bytes", "BYTES", "bYtEs"])
+async def test_the_range_unit_is_matched_case_insensitively(
+    unit, client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """fix(#1540 review P2): ``Bytes=0-99`` is a conforming request.
+
+    A range unit is a token (RFC 9110 section 14.1) and tokens compare
+    case-insensitively. Matching only lowercase did not reject the odd-looking
+    request — "unusable Range" means ignore it and serve the whole
+    representation, so a 16 KiB tile read came back as the entire COG with a
+    200. The client cannot even tell: it asked for a window, got a valid
+    response, and reads gigabytes.
+
+    Every case pattern, not just the capitalized one the review named: a
+    ``.lower()`` on the header, a case-folded prefix check and an
+    ``re.IGNORECASE`` all pass the first two and only one of them passes
+    ``bYtEs``.
+    """
+    dataset, _ = local_cog
+
+    resp = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "Range": f"{unit}=0-99"},
+    )
+
+    assert resp.status_code == 206, (
+        f"Range unit {unit!r} answered {resp.status_code} with "
+        f"{len(resp.content)} bytes; a conforming range request must not be "
+        f"upgraded into a whole-object transfer."
+    )
+    assert resp.content == _COG_BYTES[:100]
+    assert resp.headers["content-range"] == f"bytes 0-99/{len(_COG_BYTES)}"
 
 
 async def test_unsatisfiable_range_returns_416_with_the_size(

@@ -3430,7 +3430,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # request per 1 MiB — 5,120 of them for a 5 GiB COG, selectable by any caller
     # willing to send a stale validator and counted by the rate limiter as one
     # request. The lines say which of the two streaming helpers belongs where.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1532,
+    #
+    # +4 net, and the code went DOWN: `_iter_storage_range` is deleted. Serving a
+    # range by calling get_range per 1 MiB issued an object-store request per
+    # chunk on the ORDINARY path this time, which on an S3 or Azure deployment is
+    # every managed raster's range request. Only the provider can ask for a window
+    # once and stream the answer, so `get_range_stream` is where the bound lives
+    # now; what is left here is the note saying why a helper that turns one range
+    # into N reads was removed rather than retuned.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1536,
 }
 
 

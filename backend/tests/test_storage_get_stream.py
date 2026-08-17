@@ -163,6 +163,64 @@ async def test_s3_get_stream_missing_key_raises(s3_provider) -> None:
 
 
 @pytest.mark.asyncio
+async def test_s3_get_range_stream_is_one_request(s3_provider) -> None:
+    """A range is one ranged GetObject, however many chunks it arrives in.
+
+    fix(#1540 review P1), second occurrence: the COG route served ranges by
+    calling ``get_range`` per 1 MiB, so ``Range: bytes=0-`` on a 5 GiB object
+    became 5,120 serial requests. This is the method that makes a range cost
+    one, and the count is measured at the botocore layer rather than inferred.
+    """
+    calls: list[str] = []
+    s3_provider.client.meta.events.register(
+        "before-call.s3", lambda model, **kwargs: calls.append(model.name)
+    )
+    await s3_provider.put("big.bin", _PAYLOAD_3MIB)
+    calls.clear()
+
+    window = 2 * 1024 * 1024 + 12345  # spans several chunks, ends mid-chunk
+    chunks = [
+        chunk async for chunk in s3_provider.get_range_stream("big.bin", 4096, window)
+    ]
+
+    assert b"".join(chunks) == _PAYLOAD_3MIB[4096 : 4096 + window]
+    assert len(chunks) >= 2, "a multi-MiB window must not arrive as one buffer"
+    assert calls == ["GetObject"], (
+        f"streaming one window issued {calls}; a request per chunk is the "
+        f"amplification this method exists to remove."
+    )
+
+
+@pytest.mark.asyncio
+async def test_range_stream_contract_matches_across_providers(
+    s3_provider, local_provider: LocalStorageProvider
+) -> None:
+    """Local and S3 answer a past-the-end window the same way: empty, not error.
+
+    The route never asks for one — ``_parse_cog_range`` turns a first-byte-pos
+    at or past the end into a 416 before any read — but a provider contract
+    that holds only for the caller who happens to avoid the edge is not a
+    contract. Azure needed normalizing to reach the same answer, which is what
+    ``test_get_range_stream_past_the_end_is_empty`` in ``test_storage_azure.py``
+    covers; this is the other two.
+    """
+    await local_provider.put("small.bin", b"0123456789")
+    await s3_provider.put("small.bin", b"0123456789")
+
+    local_chunks = [
+        c async for c in local_provider.get_range_stream("small.bin", 50, 100)
+    ]
+    s3_chunks = [c async for c in s3_provider.get_range_stream("small.bin", 50, 100)]
+
+    assert b"".join(local_chunks) == b""
+    assert b"".join(s3_chunks) == b""
+
+    for name, provider in (("local", local_provider), ("s3", s3_provider)):
+        with pytest.raises(FileNotFoundError):
+            _ = [c async for c in provider.get_range_stream("nope.bin", 0, 10)], name
+
+
+@pytest.mark.asyncio
 async def test_s3_get_stream_releases_the_body_on_abort(s3_provider) -> None:
     """A client that disconnects mid-download must not strand its connection.
 
