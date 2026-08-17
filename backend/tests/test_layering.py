@@ -3399,7 +3399,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # explanatory comments from inline into three docstrings. P2 added
     # _range_int, which saturates every Range numeric field before int() so a
     # 4301-digit header cannot raise ValueError into a 500.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1317,
+    #
+    # +7, all prose. The double-stat review finding DELETED code — _cog_object_size
+    # now calls size() once and maps its FileNotFoundError to 404 instead of asking
+    # exists() first — and the lines are the paragraph saying why the second
+    # head_object was worth removing: it doubled the round trips and the request
+    # charges on every /vsicurl/ probe, against a design chosen for costing one,
+    # and the gap between the two calls turned a deleted object into a 503.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1324,
 }
 
 

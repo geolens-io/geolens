@@ -1168,33 +1168,40 @@ async def download_cog(
 async def _cog_object_size(
     storage, *, physical_asset_key: str, dataset_id: uuid.UUID
 ) -> int:
-    """Stat the stored COG: 404 when it is gone, 503 when the backend is not.
+    """Stat the stored COG ONCE: 404 when it is gone, 503 when the backend is not.
 
-    Probing existence upfront is what lets ``FileNotFoundError`` surface as a
-    404 BEFORE an async iterator is handed to ``StreamingResponse``. Starlette
-    consumes that iterator after returning the response, so a deferred raise
-    inside the generator would produce a 500 (or a broken Transfer-Encoding
-    chunk) rather than a clean 404.
+    Stat'ing upfront is what lets a missing object surface as a 404 BEFORE an
+    async iterator is handed to ``StreamingResponse``. Starlette consumes that
+    iterator after returning the response, so a deferred raise inside the
+    generator would produce a 500 (or a broken Transfer-Encoding chunk) rather
+    than a clean 404. The size is that same call's answer, which is what makes
+    both halves of fix(#1528) honest — a real Content-Length on HEAD and on the
+    full GET, and the denominator of every Content-Range.
 
-    The size comes from the same guarded block because it is what makes both
-    halves of fix(#1528) honest — a real Content-Length on HEAD and on the full
-    GET, and the denominator of every Content-Range — and a backend that throws
-    on ``size()`` must map to the same 503 as one that throws on ``exists()``,
-    not to a raw 500.
+    fix(#1540 review P2): ONE ``size()``, not ``exists()`` then ``size()``. Every
+    provider normalizes a missing object to ``FileNotFoundError`` (the
+    ``StorageProvider`` protocol says so; S3 and Azure convert their native
+    not-found under fix(#430 BA-24)), so the existence answer was already inside
+    the size answer, and asking twice cost a second ``head_object`` per
+    ``/vsicurl/`` probe — against a PR whose argument for answering HEAD here
+    rather than signing a second URL was that it is ONE round trip. It also
+    opened a window: a delete landing between the calls made ``exists()`` say yes
+    and ``size()`` raise, which the handler below turned into a 503 for an object
+    that was merely gone. ``test_head_cog_issues_exactly_one_s3_metadata_call``
+    and ``test_a_delete_racing_the_stat_is_a_404_not_a_503`` fail if either half
+    comes back.
 
     fix(#1540 review P1): shared with the ``s3`` branch rather than living
     inside the local one, so a HEAD gets the same 200/404/503 answer whichever
     backend holds the bytes.
     """
     try:
-        if not await storage.exists(physical_asset_key):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="COG file not found",
-            )
         return await storage.size(physical_asset_key)
-    except HTTPException:
-        raise
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="COG file not found",
+        )
     except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
         logger.exception("cog_storage_error", dataset_id=str(dataset_id))
         raise HTTPException(

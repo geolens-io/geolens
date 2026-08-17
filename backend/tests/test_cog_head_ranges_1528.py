@@ -303,6 +303,12 @@ async def test_head_cog_matches_get_on_storage_failure(
     one is the backend erroring — and it is the class HEAD is most likely to
     miss, because HEAD reaches storage by a different call (``size``) than the
     GET's (``get_stream``).
+
+    ``size`` is the call to break, and since fix(#1540 review P2) it is the ONLY
+    one the stat makes: breaking ``exists`` used to fail both verbs here and now
+    fails neither, because nothing calls it. A ``RuntimeError`` rather than a
+    ``FileNotFoundError`` on purpose — the latter is the 404 the sibling test
+    covers, and this one is about the 503 the broad handler is for.
     """
     dataset, _ = local_cog
     storage = get_storage()
@@ -310,7 +316,7 @@ async def test_head_cog_matches_get_on_storage_failure(
     async def _boom(*args, **kwargs):
         raise RuntimeError("backend exploded")
 
-    monkeypatch.setattr(storage, "exists", _boom)
+    monkeypatch.setattr(storage, "size", _boom)
 
     head = await client.head(
         f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
@@ -325,6 +331,46 @@ async def test_head_cog_matches_get_on_storage_failure(
     assert head.status_code == get.status_code, (
         f"HEAD/GET disagree on a storage failure: {head.status_code} vs "
         f"{get.status_code}"
+    )
+
+
+async def test_a_delete_racing_the_stat_is_a_404_not_a_503(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """fix(#1540 review P2): an object that vanished is gone, not broken.
+
+    The stat used to be ``exists()`` and then ``size()``, and a delete landing
+    between them produced exactly the pair asserted here: ``exists()`` answering
+    yes about an object that was there when it looked, and ``size()`` raising
+    ``FileNotFoundError`` about the same key a moment later. The broad handler
+    caught that raise and called it 503 — telling the client the backend was
+    unwell and to come back later, about a COG that is never coming back.
+
+    ``exists`` is monkeypatched to the stale answer rather than the test trying
+    to win a real race; the ``FileNotFoundError`` is real, raised by ``stat()``
+    on a file that genuinely is not there. Since the fix, ``exists`` is not
+    consulted at all — which is why the lie changes nothing and the missing
+    bytes answer 404 on both verbs.
+    """
+    dataset, _ = await _raster_dataset(test_db_session)  # local backend, no bytes
+    storage = get_storage()
+
+    async def _stale_yes(key):
+        return True
+
+    monkeypatch.setattr(storage, "exists", _stale_yes)
+
+    head = await client.head(
+        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
+    )
+    get = await client.get(
+        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
+    )
+
+    assert (head.status_code, get.status_code) == (404, 404), (
+        f"HEAD {head.status_code} / GET {get.status_code} for bytes that are "
+        f"gone. 503 here means the existence check is back and the object "
+        f"disappeared inside the window between it and the size call."
     )
 
 
@@ -605,6 +651,49 @@ async def test_head_cog_on_a_missing_s3_object_is_404(
     )
     assert head.status_code == 404, (
         f"HEAD on a missing s3 object returned {head.status_code}, not 404"
+    )
+
+
+async def test_head_cog_issues_exactly_one_s3_metadata_call(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """fix(#1540 review P2): one ``HeadObject`` per probe, not two.
+
+    The reason this PR answers HEAD here instead of signing a second URL for
+    ``head_object`` is that it is ONE round trip. ``exists()`` then ``size()``
+    quietly made it two — both are ``head_object`` on the S3 provider — so every
+    ``/vsicurl/`` open paid two object-store round trips and two request charges
+    for one probe, and the argument the design was chosen on stopped being true.
+
+    Counted at the botocore layer rather than by patching the provider, so it is
+    requests that are counted and not method calls. The recorded sequence is
+    asserted whole: a ``GetObject`` appearing here would mean the HEAD had
+    started reading the object to learn its length, which is the amplification
+    ``_cog_head_response`` exists to avoid.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    calls: list[str] = []
+    s3_storage.client.meta.events.register(
+        "before-call.s3", lambda model, **kwargs: calls.append(model.name)
+    )
+
+    head = await client.head(
+        f"/datasets/{dataset.id}/download/cog",
+        headers=admin_auth_header,
+        follow_redirects=True,
+    )
+
+    assert head.status_code == 200, f"precondition: HEAD should 200, got {head}"
+    assert calls == ["HeadObject"], (
+        f"the HEAD made {len(calls)} S3 request(s) {calls}, not one HeadObject. "
+        f"exists() and size() are both head_object, so splitting the stat in two "
+        f"doubles the round trips and the request charges on every probe."
     )
 
 
