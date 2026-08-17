@@ -1737,3 +1737,133 @@ async def test_a_cancel_during_the_first_write_discards_its_attempt(
         f"{written[0]} survived a cancelled write. Nothing else removes it: it "
         f"carries a fresh timestamp, so the sweep leaves it alone for a horizon."
     )
+
+
+async def test_an_exhausted_budget_reclaims_and_then_publishes(
+    test_db_session, monkeypatch
+):
+    """fix(#1532 review r6): the budget check must not sit above the sweep.
+
+    It was an early return placed before the only thing that reclaims, so once
+    claimed sizes reached the ceiling every later publication left without
+    sweeping — and once those artifacts passed the horizon nothing was ever
+    going to reclaim them. Misses then rebuilt and served whole forever, until an
+    operator cleaned storage by hand.
+
+    The same deadlock r4 fixed for ENOSPC, re-created by a new early exit above
+    the same sweep. The artifacts here are past the horizon, so a sweep frees the
+    room; the point is whether one runs at all.
+    """
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Budget Reclaim")
+    storage = get_storage()
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 64)
+    aged = time.time() - 5 * 3600
+    for n in range(3):
+        await storage.put(
+            cache._artifact_key(dataset.id, f"old-{n}", f"{n:064d}", 30, aged),
+            b"a" * 30,
+        )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"a new export")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "fresh",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+
+    assert stored is not None, (
+        "the budget refused a publication whose room was sitting there past the "
+        "horizon. Nothing else sweeps this prefix, so it never comes back."
+    )
+    assert await storage.exists(stored.key)
+
+
+async def test_two_publishers_cannot_both_overshoot_the_budget(
+    test_db_session, monkeypatch
+):
+    """The ceiling is soft, and the overshoot is bounded rather than absent.
+
+    `StorageProvider` offers no way to claim space, so two workers list the same
+    total, both pass the pre-check and both write — two 6 GiB artifacts under an
+    8 GiB ceiling, retained for the horizon on the volume every conversion and
+    upload needs, and an anonymous caller can drive it.
+
+    Re-measuring after the write and dropping MY OWN artifact bounds the excess
+    to one in-flight publication per publisher. The key is writer-owned, so this
+    can never take a sibling's object — the property r6's other finding was
+    about.
+
+    Both requests still complete, which is the half that keeps this a caching
+    decision rather than a failure: each caller has its conversion and serves it
+    whole.
+    """
+    import asyncio
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Budget Race")
+    storage = get_storage()
+    payload = b"z" * 40
+    # Room for one of them, not two.
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 60)
+
+    arrived = asyncio.Event()
+    waiting = 0
+    real_digest = cache._digest_and_size
+
+    async def _barriered(file_path):
+        nonlocal waiting
+        result = await real_digest(file_path)
+        if waiting < 2:
+            waiting += 1
+            if waiting == 2:
+                arrived.set()
+            await asyncio.wait_for(arrived.wait(), timeout=5)
+        return result
+
+    monkeypatch.setattr(cache, "_digest_and_size", _barriered)
+
+    async def _publish(tag: bytes):
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(payload + tag)
+            path = handle.name
+        return await cache.store(
+            dataset.id,
+            "contended",
+            file_path=path,
+            filename="x.geojson",
+            media_type="application/geo+json",
+        )
+
+    results = await asyncio.gather(_publish(b"a"), _publish(b"b"))
+
+    assert waiting == 2, (
+        "the two publishers did not overlap, so this says nothing about the "
+        "race it is named for"
+    )
+    remaining = [
+        k
+        for k in await storage.list(
+            f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+        )
+        if cache.parse_artifact_key(k)
+    ]
+    assert len(remaining) <= 1, (
+        f"{len(remaining)} artifacts survived under a budget with room for one: "
+        f"{remaining}. Two publishers measuring the same total both passed."
+    )
+    assert all(r is None or r.key in remaining for r in results), (
+        "a publisher returned an artifact it had already discarded"
+    )

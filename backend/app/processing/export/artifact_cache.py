@@ -468,22 +468,48 @@ async def store(
         # conversion and upload on the instance. r4's reclaim-and-retry only
         # frees AGED artifacts, so a volume filled with FRESH ones has nothing to
         # give back — the budget is what keeps that from happening at all.
-        if not await _fits_in_budget(size):
-            logger.warning("export_cache_budget_exhausted", size=size)
-            return None
+        #
         # fix(#1532 review r4): reclaim BEFORE writing, not after. This is the
         # only production call to the sweep, so a `put` that raises on a full
         # store used to exit before it — and with nothing else sweeping
         # `export-cache/`, the aged artifacts that filled the volume could never
         # be reclaimed by a later request. Caching stayed dead, and on the local
         # backend the shared staging volume stayed too full to generate larger
-        # exports at all, until an operator deleted files by hand. Sweeping
-        # first turns a full store into a self-healing condition instead of a
-        # deadlock.
+        # exports at all, until an operator deleted files by hand.
+        #
+        # fix(#1532 review r6): and reclaim before the BUDGET CHECK, not after.
+        # The check was an early return sitting above the sweep, so once claimed
+        # sizes reached the ceiling every later publication left before the only
+        # thing that reclaims could run — and once those artifacts passed the
+        # horizon, nothing was ever going to. The exact deadlock r4 fixed for
+        # ENOSPC, re-created by a new early exit above the same sweep.
         await _sweep_occasionally()
+        if not await _fits_in_budget(size):
+            # The cadence guard means the sweep above may not have run at all,
+            # so a budget that looks exhausted has not necessarily been tested
+            # against the horizon yet. Force one pass and ask again — the same
+            # shape `_put_with_reclaim` uses, and for the same reason.
+            await sweep()
+            _last_sweep_at = time.time()
+            if not await _fits_in_budget(size):
+                logger.warning("export_cache_budget_exhausted", size=size)
+                return None
         built_at, key = await _put_with_reclaim(
             dataset_id, selection, digest, size, file_path
         )
+        # fix(#1532 review r6): enforce the ceiling AFTER the write as well.
+        # The pre-check is not atomic across publishers — two workers list the
+        # same total, both pass, both upload, and two 6 GiB artifacts land under
+        # an 8 GiB ceiling. Re-measuring afterwards and dropping MY OWN artifact
+        # bounds the overshoot to one in-flight publication per publisher, and
+        # the key is writer-owned so this can never take a sibling's object.
+        #
+        # The caller still has its conversion and serves it whole, so nothing is
+        # lost but the caching.
+        if not await _fits_in_budget(0):
+            logger.warning("export_cache_budget_exceeded_after_write", key=key)
+            await _discard([key])
+            return None
         return ExportArtifact(
             key=key,
             digest=digest,
@@ -593,6 +619,14 @@ async def _fits_in_budget(size: int) -> bool:
 
     Free to compute: every artifact's size is in its own key, so the current
     total is a listing and some string parsing rather than a stat per object.
+
+    A SOFT ceiling with bounded overshoot, not a reservation (fix(#1532 review
+    r6)). ``StorageProvider`` offers no way to claim space, so two publishers
+    can measure the same total, both pass, and both write. The caller therefore
+    asks again AFTER its write and drops its own artifact if the answer changed,
+    which bounds the excess to one in-flight publication per publisher rather
+    than eliminating it. A hard cap would need a shared reservation primitive or
+    a lock, and neither belongs in this fix.
 
     Failing OPEN on an unreadable listing. The budget bounds a resource this
     cache borrows; a cache that refused to work whenever it could not measure
