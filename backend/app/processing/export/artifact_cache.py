@@ -784,7 +784,23 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
             for obj in page:
                 parsed = parse_artifact_key(obj.key)
                 built_at = parsed[0] if parsed is not None else parse_tmp_key(obj.key)
-                if built_at is None or built_at >= cutoff:
+                if built_at is None:
+                    continue
+                # fix(#1532 review r10): age from the LATER of the two clocks.
+                # The key's stamp is taken before the upload, so once freshness
+                # moved onto `last_modified` the two diverged by however long the
+                # push took — an S3 or Azure upload that consumed most of the
+                # horizon could be reclaimed shortly after becoming visible,
+                # while a client was streaming it, and one that exceeded the
+                # horizon was eligible the moment it appeared.
+                #
+                # The key stamp stays as the portable floor (a backend that
+                # reports no useful modified time still gets an answer) and
+                # `last_modified` raises it to publication. Both are already in
+                # hand here, and neither moves for a writer-owned key that
+                # nothing copies.
+                built_at = max(built_at, obj.last_modified.timestamp())
+                if built_at >= cutoff:
                     continue
                 try:
                     await storage.delete(obj.key)

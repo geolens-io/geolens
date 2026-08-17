@@ -23,6 +23,7 @@ Requirements:
 """
 
 import hashlib
+from datetime import UTC, datetime
 import os
 import shutil
 import tempfile
@@ -132,6 +133,25 @@ async def _dataset(session, name: str, **kwargs):
         record_type="vector_dataset",
         **kwargs,
     )
+
+
+async def _seed_aged_artifact(storage, dataset_id, selection, digest, payload, age):
+    """Put an artifact and make it genuinely that old, mtime included.
+
+    fix(#1532 review r10): reclamation ages from `max(key stamp, last_modified)`,
+    so backdating only the key stamp seeds a state production cannot reach — an
+    object whose bytes landed seconds ago but whose name claims otherwise. The
+    file's modified time has to move too, or the test is describing a fiction and
+    asserting the sweep respects it.
+    """
+    key = artifact_cache._artifact_key(
+        dataset_id, selection, digest, len(payload), time.time() - age
+    )
+    await storage.put(key, payload)
+    path = Path(storage.base_dir) / key
+    when = time.time() - age
+    os.utime(path, (when, when))
+    return key
 
 
 def _url(dataset_id) -> str:
@@ -889,9 +909,10 @@ async def test_the_sweep_reclaims_aged_artifacts_and_keeps_young_ones(test_db_se
     dataset = await _dataset(test_db_session, "Sweep Rule")
     storage = get_storage()
 
-    aged = cache._artifact_key(dataset.id, "old", "a" * 64, 6, time.time() - 7200)
+    aged = await _seed_aged_artifact(
+        storage, dataset.id, "old", "a" * 64, b"abcdef", 7200
+    )
     young = cache._artifact_key(dataset.id, "new", "b" * 64, 6, time.time())
-    await storage.put(aged, b"abcdef")
     await storage.put(young, b"abcdef")
 
     removed = await cache.sweep(age_threshold_seconds=3600)
@@ -927,8 +948,9 @@ async def test_a_publish_racing_the_sweep_survives(test_db_session, monkeypatch)
     selection = "contested"
     storage = get_storage()
 
-    aged = cache._artifact_key(dataset.id, selection, "a" * 64, 6, time.time() - 7200)
-    await storage.put(aged, b"abcdef")
+    aged = await _seed_aged_artifact(
+        storage, dataset.id, selection, "a" * 64, b"abcdef", 7200
+    )
     fresh = cache._artifact_key(dataset.id, selection, "b" * 64, 6, time.time())
     published: dict = {}
 
@@ -1104,11 +1126,9 @@ async def test_a_full_store_reclaims_and_then_succeeds(test_db_session, monkeypa
 
     dataset = await _dataset(test_db_session, "Full Store")
     storage = get_storage()
-    aged = time.time() - 5 * 3600
     for n in range(3):
-        await storage.put(
-            cache._artifact_key(dataset.id, f"old-{n}", f"{n:064d}", 6, aged),
-            b"abcdef",
+        await _seed_aged_artifact(
+            storage, dataset.id, f"old-{n}", f"{n:064d}", b"abcdef", 5 * 3600
         )
 
     root = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
@@ -1769,11 +1789,9 @@ async def test_an_exhausted_budget_reclaims_and_then_publishes(
     dataset = await _dataset(test_db_session, "Budget Reclaim")
     storage = get_storage()
     monkeypatch.setattr(cache, "_BUDGET_BYTES", 64)
-    aged = time.time() - 5 * 3600
     for n in range(3):
-        await storage.put(
-            cache._artifact_key(dataset.id, f"old-{n}", f"{n:064d}", 30, aged),
-            b"a" * 30,
+        await _seed_aged_artifact(
+            storage, dataset.id, f"old-{n}", f"{n:064d}", b"a" * 30, 5 * 3600
         )
 
     with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -2003,11 +2021,9 @@ async def test_the_sweep_prunes_its_own_empty_selection_dirs(test_db_session):
 
     dataset = await _dataset(test_db_session, "Prune Dirs")
     storage = get_storage()
-    aged = time.time() - 10 * 3600
     for n in range(4):
-        await storage.put(
-            cache._artifact_key(dataset.id, f"one-off-{n}", f"{n:064d}", 6, aged),
-            b"abcdef",
+        await _seed_aged_artifact(
+            storage, dataset.id, f"one-off-{n}", f"{n:064d}", b"abcdef", 10 * 3600
         )
 
     root = Path(storage.base_dir) / "export-cache"
@@ -2403,4 +2419,117 @@ async def test_a_matching_if_match_still_serves_the_export(
 
     assert resp.status_code == 200, (
         f"a matching If-Match on a {method} returned {resp.status_code}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r10
+# ---------------------------------------------------------------------------
+
+
+async def test_a_slow_upload_is_not_reclaimed_the_moment_it_appears(
+    test_db_session, monkeypatch
+):
+    """Reclamation ages from publication too, not from the pre-upload stamp.
+
+    Once freshness moved onto `last_modified` (review r9) the two clocks
+    diverged by however long the push took. The sweep still read the key's
+    stamp, which is taken BEFORE the upload — so an S3 or Azure upload that
+    consumed most of the four-hour horizon could be reclaimed shortly after
+    becoming visible, with a client streaming it, and one that exceeded the
+    horizon was eligible the moment it appeared.
+
+    Reclamation asks "could anyone still be reading this", and a client can only
+    have started reading once the object existed. The key stamp stays as the
+    portable floor; `last_modified` raises it to publication.
+
+    The double reports a key stamped past the horizon and a modified time of
+    now, which is exactly the slow-upload shape.
+    """
+    from app.platform.storage import get_storage
+    from app.platform.storage.provider import StoredObject
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Slow Upload Sweep")
+    storage = get_storage()
+    stale_stamp = time.time() - 5 * 3600
+    key = cache._artifact_key(dataset.id, "slow", "a" * 64, 6, stale_stamp)
+    await storage.put(key, b"abcdef")
+
+    class _JustPublished:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def iter_object_pages(self, prefix, **kwargs):
+            async def _pages():
+                yield [
+                    StoredObject(
+                        key=key,
+                        last_modified=datetime.now(UTC),
+                    )
+                ]
+
+            return _pages()
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _JustPublished(storage),
+    )
+
+    await cache.sweep(age_threshold_seconds=3600)
+
+    assert await storage.exists(key), (
+        "an artifact whose upload finished seconds ago was reclaimed because "
+        "its key was stamped before the upload began. A client that resolved it "
+        "is mid-stream."
+    )
+
+
+@pytest.mark.parametrize("header,expected", [("If-None-Match", 304), ("If-Match", 412)])
+async def test_the_build_path_answers_validators_too(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    header,
+    expected,
+):
+    """Preconditions were evaluated on the hit branch only.
+
+    A rebuild is exactly when a client's version claim matters most, and it was
+    the one path that ignored it. The export is byte-deterministic for unchanged
+    data, so a client revalidating after its artifact expired sends a validator
+    that MATCHES what the rebuild produces — and was handed the whole export it
+    already had. A stale `If-Match` on a rebuild got the new representation
+    rather than a refusal.
+
+    Driven through an expiry rather than by seeding, so the request really is a
+    miss that builds: the first GET publishes, the TTL is dropped to nothing, and
+    the second request rebuilds and then has to answer the validator.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Build Path Validators")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    etag = first.headers["etag"]
+    assert conversions.count == 1
+
+    monkeypatch_value = '"an-export-from-last-week"' if header == "If-Match" else etag
+    cache._ttl_seconds = lambda: 0  # every later request is a miss that rebuilds
+    try:
+        resp = await client.get(
+            url, headers={**admin_auth_header, header: monkeypatch_value}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert resp.status_code == expected, (
+        f"a {header} on the build path returned {resp.status_code}, not "
+        f"{expected}; the rebuild ignored a claim the client was right to make"
     )

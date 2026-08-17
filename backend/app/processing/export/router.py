@@ -740,6 +740,27 @@ async def export_dataset_endpoint(
         _cleanup_export(temp_dir)
         raise
     if stored is not None:
+        # fix(#1532 review r10): the same preconditions the hit path evaluates.
+        # They were only on that branch, so a client whose validator matched
+        # what this request just built — the ordinary case, since the export is
+        # byte-deterministic for unchanged data — was handed the whole export it
+        # already had, and a stale If-Match got the new representation instead
+        # of a refusal. A rebuild is exactly when a client's version claim
+        # matters most.
+        #
+        # The audit row above stays: a conversion ran and produced bytes, which
+        # is what it records. The hit path's 304 transfers nothing and runs
+        # nothing, which is why its audit moved below the response.
+        if not if_match_passes(request.headers.get("if-match"), stored.etag):
+            _cleanup_export(temp_dir)
+            raise HTTPException(
+                status_code=status.HTTP_412_PRECONDITION_FAILED,
+                detail="Export has changed since the version you hold",
+                headers={"etag": stored.etag},
+            )
+        if if_none_match_matches(request.headers.get("if-none-match"), stored.etag):
+            _cleanup_export(temp_dir)
+            return not_modified_response(stored.etag)
         # may_serve_range=False: this request BUILT the artifact, so it cannot
         # know which representation the client's offsets were measured against.
         # Ignoring the Range and answering with the whole thing is the safe half
