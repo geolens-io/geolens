@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import {
   getCatalogStats,
@@ -28,7 +29,7 @@ import {
 import type { ApiKeyScope } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
-import { retryJob } from '@/api/ingest';
+import { getJobStatus, retryJob } from '@/api/ingest';
 import { ApiError } from '@/api/client';
 import { logger } from '@/lib/logger';
 
@@ -395,6 +396,48 @@ export function useBackfillEmbeddings() {
       toast.error(i18n.t('admin:errors.backfillFailed'));
     },
   });
+}
+
+// fix(#1550 review P2): track the queued run rather than promising coverage
+// updates on faith. The run happens on the job queue now (#1542), so the
+// mutation resolves before any work has been done — the panel used to toast
+// "coverage updates as it runs" and then never look again, so an operator who
+// stayed on the page saw a stale coverage figure for as long as they stood
+// there. This polls the one job it queued, refreshes coverage once it lands,
+// and says how it went. Deliberately not a progress bar or a job list: one
+// job, its terminal state, and the number the operator came here to read.
+export function useBackfillJobStatus(jobId: string | null) {
+  const qc = useQueryClient();
+  const settledFor = useRef<string | null>(null);
+
+  const query = useQuery({
+    queryKey: queryKeys.ingest.jobStatus(jobId),
+    queryFn: () => getJobStatus(jobId as string),
+    enabled: Boolean(jobId),
+    refetchInterval: (q) => {
+      const status = q.state.data?.status;
+      return status === 'pending' || status === 'running' ? 4_000 : false;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  const status = query.data?.status;
+  useEffect(() => {
+    if (!jobId || !status) return;
+    if (status === 'pending' || status === 'running') return;
+    // Once per job: the query stays mounted with terminal data, so without
+    // this the effect would re-toast on every unrelated re-render.
+    if (settledFor.current === jobId) return;
+    settledFor.current = jobId;
+    qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
+    if (status === 'complete') {
+      toast.success(i18n.t('admin:ai.backfillFinished'));
+    } else {
+      toast.error(i18n.t('admin:ai.backfillRunFailed'));
+    }
+  }, [jobId, status, qc]);
+
+  return query;
 }
 
 // Semantic search toggle

@@ -19956,7 +19956,7 @@
                 }
               }
             },
-            "description": "Service unavailable \u2014 required publication metadata is missing"
+            "description": "Service unavailable \u2014 the background job queue could not be reached"
           }
         },
         "security": [

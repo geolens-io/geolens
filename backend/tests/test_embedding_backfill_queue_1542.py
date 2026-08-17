@@ -34,7 +34,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin import backfill_jobs, router as admin_router
 from app.modules.admin.backfill_jobs import run_embedding_backfill
-from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    ACTIVE_BACKFILL_INDEX_NAME,
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    IngestJob,
+)
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings.models import RecordEmbedding
 
@@ -362,25 +366,42 @@ async def test_a_finished_run_releases_the_slot(
 
 
 @pytest.mark.anyio
-async def test_a_dead_workers_run_stops_holding_the_slot_after_its_lease(
+async def test_a_dead_workers_run_holds_the_slot_until_the_sweeper_settles_it(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
     monkeypatch,
 ):
-    """A worker that died mid-run must not lock the operator out forever."""
+    """A stale heartbeat is not proof the old worker is gone.
+
+    fix(#1542 review P1): an earlier revision admitted a new run as soon as the
+    lease lapsed. That cannot be expressed as a partial unique index — the
+    predicate has to be immutable, so it cannot consult `now()` — and for a
+    force run, "we have not heard from the worker" is the wrong evidence on
+    which to start a second DELETE of every embedding. The slot is released by
+    the row reaching a terminal status, which for an abandoned run is the
+    stale-job sweeper's job, on the same backstop every other ingest job uses.
+    """
+    from app.platform.jobs.sweep import fail_stale_jobs
+
     monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
     stale = await _in_flight_job(test_db_session)
-    expired = datetime.now(timezone.utc) - timedelta(
-        seconds=backfill_jobs._lease_seconds() + 60
-    )
+    expired = datetime.now(timezone.utc) - timedelta(hours=3)
     stale.started_at = expired
     stale.heartbeat_at = expired
     await test_db_session.commit()
 
     with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
-        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
-    assert resp.status_code == 200, resp.text
+        refused = await client.post(_FORCE_URL, headers=admin_auth_header)
+        assert refused.status_code == 409, refused.text
+
+        # The real release path, not a hand-written UPDATE.
+        await fail_stale_jobs(test_db_session)
+        settled = await _load_job(test_db_session, stale.id)
+        assert settled.status == "failed", "the sweeper did not settle the row"
+
+        allowed = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert allowed.status_code == 200, allowed.text
 
 
 @pytest.mark.anyio
@@ -550,9 +571,7 @@ async def test_losing_the_fence_never_audits_a_completion_that_did_not_land(
     async def _backfill_then_lose_the_lease(session, *, force=False):
         # A different actor, on its own connection, as the sweeper really is.
         async with async_session() as other:
-            expired = datetime.now(timezone.utc) - timedelta(
-                seconds=backfill_jobs._lease_seconds() + 120
-            )
+            expired = datetime.now(timezone.utc) - timedelta(hours=3)
             await other.execute(
                 update(IngestJob)
                 .where(
@@ -683,3 +702,178 @@ async def test_every_terminating_path_writes_exactly_one_terminal_audit_entry(
         terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
         assert len(terminal) == 1, terminal
         assert terminal[0]["details"]["outcome"] == expected_outcome
+
+
+# ---------------------------------------------------------------------------
+# The guard is the index, not the check (#1550 review P1)
+# ---------------------------------------------------------------------------
+#
+# A SELECT followed by an INSERT is a TOCTOU on exactly the invariant that
+# stops two concurrent force runs from each committing a DELETE of every
+# embedding. Two requests arriving together can both pass the check. The
+# pre-flight query is kept because it produces a readable 409 for the ordinary
+# retry; the thing that actually holds is the partial unique index from
+# migration 0050.
+
+
+@pytest.mark.anyio
+async def test_the_index_refuses_a_second_active_run_when_the_check_is_blind(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The race, made deterministic: the check passes and the insert must not.
+
+    Blinding the pre-flight query is a faithful stand-in for two transactions
+    interleaving — in the real race both requests SELECT before either commits,
+    so both see an empty slot, which is precisely what a query returning None
+    reproduces. What is left is the database, and the database is the guard.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+    in_flight_id = str((await _in_flight_job(test_db_session)).id)
+
+    async def _sees_nothing(_session):
+        return None
+
+    with (
+        # The route imports it per call, so the definition site is what to patch.
+        patch.object(backfill_jobs, "find_active_embedding_backfill", _sees_nothing),
+        patch.object(
+            admin_router, "defer_async_with_tenant", AsyncMock()
+        ) as mock_defer,
+    ):
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+
+    assert resp.status_code == 409, resp.text
+    mock_defer.assert_not_awaited()
+
+    # And exactly one active run survives — the one that was already there.
+    active = (
+        (
+            await test_db_session.execute(
+                select(IngestJob).where(
+                    IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY),
+                    IngestJob.status.in_(("pending", "running")),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert [str(job.id) for job in active] == [in_flight_id]
+
+
+@pytest.mark.anyio
+async def test_two_concurrent_transactions_cannot_both_create_an_active_run(
+    test_db_session: AsyncSession,
+):
+    """The invariant itself, at the level that enforces it.
+
+    Two sessions, two open transactions, neither having committed when the
+    other writes — the shape no application-level check can refuse. The second
+    commit must fail, whichever order they land in.
+    """
+    from sqlalchemy.exc import IntegrityError
+
+    from app.core.db import async_session
+
+    admin_id = await get_user_id(test_db_session, "admin")
+
+    def _row() -> IngestJob:
+        return IngestJob(
+            source_filename="embedding-backfill",
+            file_path="",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={
+                EMBEDDING_BACKFILL_METADATA_KEY: {"force": True, "operation_id": "race"}
+            },
+        )
+
+    async with async_session() as first, async_session() as second:
+        first.add(_row())
+        second.add(_row())
+        await first.flush()
+        # Non-vacuity: the second transaction is genuinely open and unaware —
+        # its own flush is what the index has to arbitrate, and it blocks on
+        # the first transaction's uncommitted key until that commit lands.
+        await first.commit()
+        with pytest.raises(IntegrityError) as caught:
+            await second.flush()
+            await second.commit()
+        assert ACTIVE_BACKFILL_INDEX_NAME in str(caught.value)
+        await second.rollback()
+
+    await _release_slot(test_db_session)
+
+
+@pytest.mark.anyio
+async def test_a_dispatch_whose_rollback_also_fails_does_not_claim_the_run_failed(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The nastier half of the dispatch failure, and the reason the guard reports.
+
+    When the queue is unreachable AND the orphan guard's own rollback fails, the
+    job row is left `pending` — and a pending row goes on holding the backfill
+    slot, so every later attempt is refused by the guard. Recording "failed"
+    there would tell an operator chasing "why is every backfill refused" that
+    this run is over, in an audit trail written on a different session that
+    survives the request's failure. The trail has to say what the row says.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    async def _queue_is_down(_task, /, **kwargs):
+        raise RuntimeError("procrastinate connector: connection refused")
+
+    def _rollback_also_fails(job, *, message_prefix=""):
+        async def _rollback(_exc):
+            raise RuntimeError("database went away during rollback")
+
+        return _rollback
+
+    with (
+        patch.object(
+            admin_router,
+            "defer_async_with_tenant",
+            AsyncMock(side_effect=_queue_is_down),
+        ),
+        patch.object(
+            admin_router, "make_ingest_job_failed_rollback", _rollback_also_fails
+        ),
+    ):
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+
+    assert resp.status_code == 503, resp.text
+
+    job = (
+        (
+            await test_db_session.execute(
+                select(IngestJob)
+                .where(IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY))
+                .order_by(IngestJob.created_at.desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert job is not None
+    # Non-vacuity: if the row had been reverted, the audit claim below would be
+    # about a state that never existed and the test would prove nothing.
+    assert job.status == "pending", "the rollback landed — wrong branch under test"
+    job_id = str(job.id)
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    details = terminal[0]["details"]
+    assert details["outcome"] != "failed", (
+        "the audit says the run failed while its row is still pending and still "
+        "blocking every later backfill"
+    )
+    assert details["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
+    assert details["error_code"] == "dispatch_rollback_failed"
+    assert details["intended_outcome"] == "failed"

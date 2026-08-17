@@ -6,12 +6,13 @@ import io
 import uuid
 from collections.abc import AsyncGenerator
 from datetime import datetime, timezone
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import anyio
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -51,15 +52,19 @@ from app.core.dependencies import get_client_ip, get_db
 from app.modules.admin.router_operations import router as operations_router
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
+    DeferFailed,
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
-from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY
+from app.platform.jobs.models import (
+    ACTIVE_BACKFILL_INDEX_NAME,
+    EMBEDDING_BACKFILL_METADATA_KEY,
+)
 from app.platform.jobs.router import get_retry_capability
 from app.standards.ogc.errors import (
     CONFLICT_RESPONSE,
     ERROR_RESPONSES_AUTH,
-    SERVICE_UNAVAILABLE_RESPONSE,
+    QUEUE_UNAVAILABLE_RESPONSE,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -87,6 +92,47 @@ def _user_response(user: User) -> UserResponse:
         last_login_at=user.last_login_at,
         created_at=user.created_at,
         roles=sorted(r.name for r in user.roles),
+    )
+
+
+def _refuse_backfill_in_flight(
+    *,
+    active_job_id: str | None,
+    user_id: str,
+    force: bool,
+    detected_by: str,
+) -> NoReturn:
+    """Refuse a backfill because one is already in flight.
+
+    Shared by the two halves of the guard so they cannot drift into telling an
+    operator two different stories about the same state: the pre-flight query,
+    which answers the ordinary retry, and the partial unique index, which is
+    what actually holds when two requests arrive together. ``detected_by`` is
+    logged, not returned — which half caught it is an operational detail, and
+    the caller's situation is identical either way.
+
+    ``active_job_id`` can be None only on the index path, when the winning run
+    finished between the violation and the re-read. Say less rather than
+    guessing an id.
+    """
+    logger.info(
+        "embedding_backfill_refused_run_in_flight",
+        user_id=user_id,
+        force=force,
+        active_job_id=active_job_id,
+        detected_by=detected_by,
+    )
+    if active_job_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="An embedding backfill is already running. Retry shortly.",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            f"An embedding backfill is already running (job {active_job_id}). "
+            f"Wait for it to finish, or poll /jobs/{active_job_id} for its status."
+        ),
     )
 
 
@@ -945,7 +991,7 @@ async def get_embedding_stats(
 @router.post(
     "/backfill-embeddings/",
     response_model=BackfillResponse,
-    responses={409: CONFLICT_RESPONSE, 503: SERVICE_UNAVAILABLE_RESPONSE},
+    responses={409: CONFLICT_RESPONSE, 503: QUEUE_UNAVAILABLE_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def trigger_backfill(
@@ -966,6 +1012,7 @@ async def trigger_backfill(
     poll ``GET /jobs/{job_id}`` for the outcome.
     """
     from app.modules.admin.backfill_jobs import (
+        UNRESOLVED_OUTCOME,
         find_active_embedding_backfill,
         run_embedding_backfill,
     )
@@ -980,54 +1027,79 @@ async def trigger_backfill(
     # not see it, because each run passes its own pre-flight independently.
     # This refusal happens before the job row exists, so nothing destructive
     # has been queued, let alone run.
+    #
+    # fix(#1542 review P1): the SELECT is the FRIENDLY half, not the guard. It
+    # answers the common case (an operator retrying seconds later) with a
+    # message naming the run to poll. The guard itself is the partial unique
+    # index from migration 0050 — a check followed by an insert is a TOCTOU,
+    # and two requests arriving together would both pass this and both create a
+    # job. Nothing in the application layer can serialize two transactions in
+    # two API processes; the database can, so it does.
     active = await find_active_embedding_backfill(db)
     if active is not None:
-        logger.info(
-            "embedding_backfill_refused_run_in_flight",
+        _refuse_backfill_in_flight(
+            active_job_id=str(active.id),
             user_id=str(current_user_id),
             force=force,
-            active_job_id=str(active.id),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "An embedding backfill is already running (job "
-                f"{active.id}). Wait for it to finish, or poll /jobs/{active.id} "
-                "for its status."
-            ),
+            detected_by="preflight_query",
         )
 
-    job = await get_catalog_port().create_ingest_job(
-        db, "embedding-backfill", "", current_user_id
-    )
-    job.user_metadata = {
-        EMBEDDING_BACKFILL_METADATA_KEY: {
-            "force": force,
-            "operation_id": operation_id,
-        }
-    }
-    # ux(#698), as analysis does: a pending job that says "queued" reads as
-    # waiting rather than as a job with nothing to say for itself.
-    job.current_step = "queued"
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=current_user_id,
-            action="embedding.backfill",
-            resource_type="record_embedding",
-            details={
+    # The whole insert is inside the guard, not just the commit: the row goes in
+    # with a null `user_metadata` and only becomes a backfill row when the marker
+    # is set, so the index rejects it at the UPDATE that flushes that marker —
+    # which happens as soon as anything else on this session flushes, well before
+    # the commit.
+    try:
+        job = await get_catalog_port().create_ingest_job(
+            db, "embedding-backfill", "", current_user_id
+        )
+        job.user_metadata = {
+            EMBEDDING_BACKFILL_METADATA_KEY: {
                 "force": force,
                 "operation_id": operation_id,
-                "job_id": str(job.id),
-                "outcome": "requested",
-            },
-            ip_address=ip_address,
-        ),
-    )
-    # One commit for the job row and the operator's request: the row is what a
-    # concurrent request will be refused against, and it must be durable before
-    # anything can pick the run up.
-    await db.commit()
+            }
+        }
+        # ux(#698), as analysis does: a pending job that says "queued" reads as
+        # waiting rather than as a job with nothing to say for itself.
+        job.current_step = "queued"
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=current_user_id,
+                action="embedding.backfill",
+                resource_type="record_embedding",
+                details={
+                    "force": force,
+                    "operation_id": operation_id,
+                    "job_id": str(job.id),
+                    "outcome": "requested",
+                },
+                ip_address=ip_address,
+            ),
+        )
+        # One commit for the job row and the operator's request: the row is what
+        # a concurrent request is refused against, and it must be durable before
+        # anything can pick the run up.
+        await db.commit()
+    except IntegrityError as exc:
+        await db.rollback()
+        if ACTIVE_BACKFILL_INDEX_NAME not in str(getattr(exc, "orig", exc)):
+            # Some other constraint. Dressing it up as a concurrency refusal
+            # would be a fabricated answer of exactly the kind this endpoint
+            # has already been corrected for once.
+            raise
+        # The index refused it: another request won the race between the SELECT
+        # above and this write. The whole transaction rolled back — job row and
+        # `requested` audit entry together — so the loser leaves no trace of a
+        # run that never started, which is the same state the friendly refusal
+        # produces.
+        winner = await find_active_embedding_backfill(db)
+        _refuse_backfill_in_flight(
+            active_job_id=str(winner.id) if winner is not None else None,
+            user_id=str(current_user_id),
+            force=force,
+            detected_by="unique_index",
+        )
 
     async def _defer() -> None:
         await defer_async_with_tenant(
@@ -1049,27 +1121,53 @@ async def trigger_backfill(
             ),
             db=db,
         )
-    except HTTPException:
-        # fix(#1550 review P2): the orphan guard has already marked the job
-        # failed and committed, then raised 503. No worker will ever pick this
-        # run up, so nothing else can close the trail — without this, the
+    except DeferFailed as dispatch_exc:
+        # fix(#1550 review P2, round 1): the orphan guard has already marked the
+        # job failed and committed, then raised 503. No worker will ever pick
+        # this run up, so nothing else can close the trail — without this, the
         # already-committed "requested" entry is the last word and the
         # operation reads as perpetually in flight. The job row and the audit
         # trail are two records of one state, and every path that terminates a
         # run has to write both.
+        #
+        # fix(#1550 review P2, round 2): condition on whether the rollback
+        # actually landed. When the queue AND the rollback both fail, the row is
+        # still `pending` — recording "failed" there would be the same lie in a
+        # nastier place, because `audit_emit_durable` uses its own session and
+        # can succeed after the request's has gone. A pending row keeps
+        # blocking later backfills through the guard above, so an operator
+        # chasing "why is every backfill refused" would be reading an audit
+        # trail that says this one is over.
+        if dispatch_exc.rolled_back:
+            details: dict[str, Any] = {
+                "force": force,
+                "operation_id": operation_id,
+                "job_id": job_id,
+                "outcome": "failed",
+                "error_code": "dispatch_failed",
+            }
+        else:
+            details = {
+                "force": force,
+                "operation_id": operation_id,
+                "job_id": job_id,
+                "outcome": UNRESOLVED_OUTCOME,
+                "error_code": "dispatch_rollback_failed",
+                "intended_outcome": "failed",
+            }
+            logger.error(
+                "embedding_backfill_dispatch_rollback_failed",
+                user_id=str(current_user_id),
+                operation_id=operation_id,
+                job_id=job_id,
+            )
         try:
             await audit_emit_durable(
                 AuditEvent(
                     user_id=current_user_id,
                     action="embedding.backfill",
                     resource_type="record_embedding",
-                    details={
-                        "force": force,
-                        "operation_id": operation_id,
-                        "job_id": job_id,
-                        "outcome": "failed",
-                        "error_code": "dispatch_failed",
-                    },
+                    details=details,
                     ip_address=ip_address,
                 ),
             )

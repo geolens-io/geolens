@@ -21,11 +21,11 @@ through ``task_app.import_paths`` in ``processing/ingest/tasks_common.py``.
 """
 
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import current_tenant_var, tenant_task
@@ -53,51 +53,49 @@ BACKFILL_FAILED_MESSAGE = "Embedding backfill failed. See server logs for detail
 UNRESOLVED_OUTCOME = "unresolved"
 
 
-def _lease_seconds() -> float:
-    """Seconds a ``running`` backfill row holds the slot without a heartbeat.
-
-    The shared 60-minute ingest backstop, deliberately: it is what
-    ``/jobs/{id}`` and the stale-job sweeper already apply to every non-analysis
-    job, so the guard here and the status those two report cannot disagree
-    about whether a dead worker's run is still in flight. A live run renews its
-    heartbeat every 30s, so the window only matters after a worker dies.
-
-    Imported inside the function because ``JOB_TIMEOUT_SECONDS`` lives in
-    ``platform/jobs/router.py`` — ``worker.py`` reaches it the same way.
-    """
-    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
-
-    return float(JOB_TIMEOUT_SECONDS)
+# The statuses that hold the slot. Must stay byte-identical to the predicate of
+# `uq_ingest_jobs_active_embedding_backfill` (migration 0050) — the index is the
+# guard, this query is only the friendly half that produces a readable 409, and
+# a query admitting a run the index then refuses would turn every such request
+# into a 409 the operator cannot act on.
+SLOT_HOLDING_STATUSES = ("pending", "running")
 
 
 async def find_active_embedding_backfill(session: AsyncSession) -> IngestJob | None:
-    """Return the embedding backfill run currently in flight, if any.
+    """Return the embedding backfill run currently holding the slot, if any.
 
-    "In flight" is queued, or running with a lease that has not expired —
-    matching the per-user analysis cap in ``router_analysis.py``, whose
-    heartbeat-or-nothing predicate is the shape that survives a dead worker
-    without pinning the slot forever.
+    Keyed on status alone, deliberately, and NOT on a heartbeat lease.
 
-    Scoped per tenant in hosted mode, for the same reason the analysis ceiling
-    is: the backfill only ever touches records the calling tenant can see, so
-    one tenant's run must not lock another's out. ``ingest_jobs.tenant_id`` is
-    stamped by the database and indexed, so the filter needs no schema work.
+    fix(#1542 review P1): an earlier revision admitted a new run once a
+    ``running`` row's heartbeat had gone stale, on the reasoning that a dead
+    worker should not lock an operator out forever. A partial unique index
+    cannot express that — its predicate has to be immutable, so it cannot
+    consult ``now()`` — and the two halves disagreeing is worse than either
+    rule: the query says go, the index says no, and the operator gets a 409
+    naming a job that by the query's own reckoning is not running.
+
+    Status-only is also the stronger rule, which is the right side to err on
+    for a force run that DELETEs every embedding before regenerating. A stale
+    heartbeat is not proof the old worker is gone; it is proof we have not
+    heard from it. Admitting a second regenerate on that evidence is exactly
+    the concurrent double-DELETE this guard exists to prevent.
+
+    The slot is released when the row reaches a terminal status — by the worker
+    finishing, or by the stale-job sweeper, which fails abandoned ``running``
+    rows on the shared 60-minute ingest backstop and runs every five minutes.
+    That is the same release path every other abandoned ingest job has.
+
+    Scoped per tenant in hosted mode, matching the index's key: the backfill
+    only ever touches records the calling tenant can see, so one tenant's run
+    must not lock another's out.
     """
     from app.core.tenancy import is_multi_tenant
 
-    lease_cutoff = datetime.now(timezone.utc) - timedelta(seconds=_lease_seconds())
     stmt = (
         select(IngestJob)
         .where(
             IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY),
-            or_(
-                IngestJob.status == "pending",
-                (IngestJob.status == "running")
-                & (
-                    func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
-                    >= lease_cutoff
-                ),
-            ),
+            IngestJob.status.in_(SLOT_HOLDING_STATUSES),
         )
         .order_by(IngestJob.created_at.desc())
         .limit(1)

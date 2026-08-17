@@ -66,6 +66,30 @@ pre-existing regression tests assert on). Must *not* commit the session
 """
 
 
+class DeferFailed(HTTPException):
+    """The 503 raised when a defer fails, carrying the rollback's fate.
+
+    fix(#1550 review P2): the guard reverts committed state and then raises,
+    and callers that record an outcome need to know whether the revert actually
+    landed. Without it, a caller writes "failed" into an audit trail or a
+    response while the row it names is still ``pending`` — and for the embedding
+    backfill a stuck ``pending`` row goes on blocking every later run through
+    the in-flight guard, so the two records disagree about a state that has
+    operational teeth.
+
+    Same rule the review applied to ``_finalize`` one layer up: a helper that
+    performs a state change reports whether it happened, rather than leaving the
+    caller to assume.
+    """
+
+    def __init__(self, *, rolled_back: bool) -> None:
+        super().__init__(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Task queue unavailable, please retry",
+        )
+        self.rolled_back = rolled_back
+
+
 async def defer_with_orphan_guard(
     defer_call: DeferCallable,
     *,
@@ -82,7 +106,9 @@ async def defer_with_orphan_guard(
         3. If the rollback itself raises, log the rollback error plus
            the original defer error (so operators see both) but still
            re-raise the 503 below so the client retries.
-        4. Raise ``HTTPException 503`` chained from the defer error.
+        4. Raise ``DeferFailed`` (an ``HTTPException`` 503) chained from
+           the defer error, carrying ``rolled_back`` so a caller can tell
+           "the state was reverted" from "the state is still out there".
 
     Args:
         defer_call: 0-arg async closure that calls ``task.defer_async``.
@@ -91,14 +117,17 @@ async def defer_with_orphan_guard(
         db: session used to commit the rollback.
 
     Raises:
-        HTTPException 503: always, when ``defer_call`` raises.
+        DeferFailed: always, when ``defer_call`` raises. Existing callers that
+            catch ``HTTPException`` are unaffected; the 503 body is unchanged.
     """
     try:
         await defer_call()
     except Exception as defer_exc:  # broad: defer_async can throw various job-runner errors; orphan-guard handles all
+        rolled_back = False
         try:
             await rollback(defer_exc)
             await db.commit()
+            rolled_back = True
         except Exception:  # broad: rollback itself can fail with DB errors; log both, still surface 503 to client
             # Rollback itself failed — log the rollback error plus the
             # defer context so operators can diagnose both. Still raise
@@ -107,10 +136,7 @@ async def defer_with_orphan_guard(
                 "Orphan-guard rollback failed after defer error",
                 defer_error=str(defer_exc),
             )
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Task queue unavailable, please retry",
-        ) from defer_exc
+        raise DeferFailed(rolled_back=rolled_back) from defer_exc
 
 
 def make_ingest_job_failed_rollback(

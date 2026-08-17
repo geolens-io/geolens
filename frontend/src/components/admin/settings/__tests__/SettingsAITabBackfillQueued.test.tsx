@@ -93,7 +93,7 @@ describe('SettingsAITab — queued backfill (#1542)', () => {
     options.onSuccess({ job_id: '5f1e5b2a-0000-4000-8000-000000000001', status: 'pending' });
 
     expect(toast.info).toHaveBeenCalledWith(
-      'Embedding backfill queued — coverage updates as it runs',
+      'Embedding backfill queued — this page updates when it finishes',
     );
     expect(toast.success).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();

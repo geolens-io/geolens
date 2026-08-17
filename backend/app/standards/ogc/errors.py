@@ -120,6 +120,15 @@ SERVICE_UNAVAILABLE_RESPONSE = {
     "description": "Service unavailable — required publication metadata is missing",
 }
 
+# fix(#1550 review P3): a 503 from a queue dispatch failure is a different
+# condition from the publication-metadata one above, and the description ships
+# to clients in the committed OpenAPI document and both generated SDKs. Reusing
+# the constant told every SDK consumer the wrong reason for the failure.
+QUEUE_UNAVAILABLE_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": "Service unavailable — the background job queue could not be reached",
+}
+
 ERROR_RESPONSES_AUTH = {
     400: BAD_REQUEST_RESPONSE,
     401: {

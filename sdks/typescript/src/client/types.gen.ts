@@ -11552,7 +11552,7 @@ export type TriggerBackfillAdminBackfillEmbeddingsPostErrors = {
      */
     500: ProblemDetail;
     /**
-     * Service unavailable — required publication metadata is missing
+     * Service unavailable — the background job queue could not be reached
      */
     503: ProblemDetail;
 };

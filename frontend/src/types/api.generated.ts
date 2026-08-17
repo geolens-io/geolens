@@ -14213,7 +14213,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Service unavailable — required publication metadata is missing */
+            /** @description Service unavailable — the background job queue could not be reached */
             503: {
                 headers: {
                     [name: string]: unknown;
