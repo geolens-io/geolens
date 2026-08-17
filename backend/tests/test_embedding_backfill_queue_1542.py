@@ -2004,6 +2004,110 @@ async def test_a_dispatch_settle_that_lost_its_answer_and_its_write_audits_nothi
     assert terminal == [], f"the settle claimed a run it did not settle: {terminal}"
 
 
+@pytest.mark.anyio
+async def test_a_lost_ack_does_not_claim_a_failure_another_actor_wrote(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """Read the row for evidence of YOUR write, not for the state you'd produce.
+
+    The dispatch DID land. A worker claimed the job, the backfill failed, and
+    `_finalize` committed `failed` — and only then was the request cancelled.
+    The settle's fenced update matches nothing, because the row is no longer
+    `pending`, and its acknowledgement is lost as well. A status-only read then
+    calls the worker's failure this cleanup's write and records
+    `dispatch_cancelled`, which says the run never started and nothing was
+    deleted, over a force regenerate that ran and failed after deleting every
+    vector.
+
+    Terminal entries are unique per job id, so that entry does not merely sit
+    alongside the truth. It evicts it: the worker's real `backfill_failed` is
+    refused by the index and swallowed. The last two assertions are that
+    eviction, driven rather than reasoned about — the worker's own entry is
+    held until after the cleanup has had its chance, which is exactly the
+    window between `_finalize`'s commit and `_emit_terminal_audit`.
+    """
+
+    async def _provider_is_down(session, *, force=False):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _provider_is_down)
+
+    real_terminal_audit = backfill_jobs._emit_terminal_audit
+    held: dict = {}
+
+    async def _hold_the_workers_terminal_audit(**kwargs):
+        # First call is the worker's. Its row write has committed; its own
+        # entry has not landed yet, which is the live window.
+        if not held:
+            held.update(kwargs)
+            return
+        await real_terminal_audit(**kwargs)
+
+    monkeypatch.setattr(
+        backfill_jobs, "_emit_terminal_audit", _hold_the_workers_terminal_audit
+    )
+
+    settles = {"n": 0}
+    real_fail = backfill_jobs._fail_undispatched_pending_row
+
+    async def _matches_nothing_then_loses_the_answer(job_uuid):
+        settles["n"] += 1
+        applied = await real_fail(job_uuid)
+        assert applied is False, "the row was still pending — wrong arrangement"
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        backfill_jobs,
+        "_fail_undispatched_pending_row",
+        _matches_nothing_then_loses_the_answer,
+    )
+
+    async def _worker_finalizes_it_then_the_request_is_cancelled(_task, /, **kwargs):
+        # The delivery genuinely reached a worker, which claimed the job and
+        # committed `failed`. Only then does the request die.
+        await run_embedding_backfill(**kwargs)
+        raise asyncio.CancelledError()
+
+    with patch.object(
+        admin_router,
+        "defer_async_with_tenant",
+        AsyncMock(side_effect=_worker_finalizes_it_then_the_request_is_cancelled),
+    ):
+        raised: BaseException | None = None
+        try:
+            await client.post(_FORCE_URL, headers=admin_auth_header)
+        except BaseException as exc:  # noqa: BLE001 - transport re-wrap
+            raised = exc
+        assert raised is not None, "the cancellation did not propagate"
+
+    settled = await _latest_backfill_row(test_db_session)
+    job_id = str(settled.id)
+    # Non-vacuity: the row is terminal, and it is the WORKER's terminal write —
+    # the same status this cleanup's write would have produced, under a
+    # different message.
+    assert settled.status == "failed"
+    assert settled.error_message == backfill_jobs.BACKFILL_FAILED_MESSAGE
+    assert settles["n"] == 1, "the dispatch settle never ran"
+    assert held, "the worker never reached its terminal audit"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert not any(
+        e["details"].get("error_code") == "dispatch_cancelled" for e in terminal
+    ), f"the cleanup claimed a failure the worker wrote: {terminal}"
+
+    # The worker's held entry now lands, which it cannot do if the cleanup took
+    # the one terminal slot for this run.
+    await real_terminal_audit(**held)
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "backfill_failed", (
+        f"the run's real outcome was evicted by the dispatch cleanup: {terminal}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # The fourth actor: the worker's own startup recovery (#1556)
 # ---------------------------------------------------------------------------

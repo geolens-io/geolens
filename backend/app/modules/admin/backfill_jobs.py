@@ -440,6 +440,22 @@ async def _recover_unsettled(
         if observed is not None and observed.status in _TERMINAL_STATUSES:
             # Settled already. Whether by this run's own committed write or by
             # another actor, the trail must describe what the row says.
+            #
+            # fix(#1556 review, codex P2): status-matching is deliberately
+            # enough HERE, unlike in `_undispatched_settle_write_landed`, and
+            # the difference is worth stating because the two reads look
+            # identical. This one is reached only after this worker took the
+            # delivery, so "did the operation run at all" is already answered.
+            # `complete` has exactly one producer for a backfill row — this
+            # attempt's own fenced `_finalize` — so matching it proves
+            # authorship. `failed` has several producers, but every one of
+            # them records the same `outcome`, differing only in `error_code`,
+            # and each is a true description of a run that ended without
+            # success. Where they do differ the residual imprecision points
+            # the safe way: `worker_cancelled` warns that a force run's
+            # vectors may already be gone, which is the conservative claim.
+            # The dispatch cleanup had neither property, which is why it needs
+            # evidence of its own write rather than a matching status.
             state.row_attempted = True
             state.row_applied = observed.status == state.status
             if not state.row_applied:
@@ -494,8 +510,26 @@ async def _fail_undispatched_pending_row(job_uuid: uuid.UUID) -> bool:
         return bool(result.rowcount)
 
 
-async def _undispatched_row_was_failed(job_uuid: uuid.UUID) -> bool:
-    """Ask the row whether the lost write landed, on a fresh connection.
+async def _undispatched_settle_write_landed(job_uuid: uuid.UUID) -> bool:
+    """Ask the row for evidence of THIS write, on a fresh connection.
+
+    fix(#1556 review, codex P2): observing `status == "failed"` is observing
+    the state this write would have produced, not evidence that it produced
+    it — and `failed` is a state four other actors also write. The reachable
+    case: the dispatch DID land, a worker claimed the job and finalized it
+    `failed`, and only then was the request cancelled. The fenced update
+    matches nothing (the row is no longer `pending`) and its acknowledgement
+    is lost as well, so a status-only read calls the WORKER's failure this
+    cleanup's write and records `dispatch_cancelled` — which says the run
+    never started and nothing was deleted, over a force regenerate that ran
+    and failed after deleting every vector. Terminal entries are unique per
+    job id (migration 0051), so that entry then refuses the worker's real
+    `backfill_failed`: a lie that also evicts the truth.
+
+    ``UNDISPATCHED_RUN_MESSAGE`` is written at exactly one site, this one, and
+    once the row is terminal no other writer can overwrite it (every one of
+    them is fenced on a live status). So it is a marker only this write can
+    have left, which is the fact the caller actually needs.
 
     Bounded separately, like ``_release_caller_transaction``: this runs during
     a shutdown that has already lost one database round trip, and a second one
@@ -506,12 +540,11 @@ async def _undispatched_row_was_failed(job_uuid: uuid.UUID) -> bool:
     async def _read() -> bool:
         async with async_session() as fresh:
             observed = await fresh.get(IngestJob, job_uuid)
-        # `failed` is the status THIS write produces. Any other terminal status
-        # is somebody else's decision about the row, and a live one means the
-        # write did not land — in both cases the trail belongs to whoever owns
-        # the row now, which is the same rule `_recover_unsettled` applies at
-        # the other end of the run.
-        return observed is not None and observed.status == "failed"
+        return (
+            observed is not None
+            and observed.status == "failed"
+            and observed.error_message == UNDISPATCHED_RUN_MESSAGE
+        )
 
     return await asyncio.wait_for(_read(), timeout=5)
 
@@ -542,7 +575,10 @@ async def settle_undispatched_run(
     ``failed``, which every sweeper skips because it is terminal. Nothing
     would ever have closed the trail, so the run would keep ``requested`` as
     its last word over a job the database records as failed. Same rule as
-    ``_recover_unsettled``: when the answer is lost, read the row.
+    ``_recover_unsettled``: when the answer is lost, read the row — and read
+    it for evidence of THIS write rather than for the state this write would
+    have produced, because ``failed`` is a state four other actors also
+    reach. See ``_undispatched_settle_write_landed``.
     """
     try:
         settled = await _fail_undispatched_pending_row(job_uuid)
@@ -552,12 +588,13 @@ async def settle_undispatched_run(
             job_id=audit_context["job_id"],
             exc_info=True,
         )
-        settled = await _undispatched_row_was_failed(job_uuid)
+        settled = await _undispatched_settle_write_landed(job_uuid)
     if not settled:
         # A worker took it, or the lost write never landed after all. Leave
-        # both records to whoever owns the row now — for a row still
-        # ``pending`` that is the stale-pending sweep, which closes the status
-        # and the trail in one transaction.
+        # both records to whoever owns the row now — a worker that claimed the
+        # delivery closes its own trail, and a row still ``pending`` is closed
+        # by the stale-pending sweep, which writes the status and the entry in
+        # one transaction.
         logger.info(
             "embedding_backfill_dispatch_cancel_found_run_in_progress",
             job_id=audit_context["job_id"],
