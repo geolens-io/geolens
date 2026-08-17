@@ -19,6 +19,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS
+from app.core.url_redaction import redact_url_credentials
 from app.platform.extensions import get_processing_port
 from app.processing.embeddings.models import RecordEmbedding
 from app.processing.embeddings.service import (
@@ -38,6 +39,96 @@ _BATCH_SIZE = 128
 # Text for the force-path pre-flight embedding. Short, so the call is cheap,
 # and constant, so a provider's cache can serve it.
 _PREFLIGHT_TEXT = "geolens embedding preflight"
+
+# fix(#1544): how much of a caught exception's message survives into a log line.
+# Everything an operator acts on is at the front ("expected 1536 dimensions, not
+# 768"); the tail is the statement and its bound parameters, one of which is the
+# vector.
+_MAX_ERROR_CHARS = 200
+
+
+def _compact_error(exc: BaseException) -> str:
+    """Describe an exception in one short line, without its bound parameters.
+
+    Prefers the driver's own message (`DBAPIError.orig`), which names the actual
+    failure and carries neither the statement nor the parameters. For anything
+    else — a provider error, say — cut at the marker SQLAlchemy puts before the
+    statement, collapse to one line, truncate.
+
+    Redacted because this message now reaches the log on its own rather than
+    buried in one traceback among thousands: a provider error names its
+    endpoint, and an endpoint can carry a key in its query string.
+
+    fix(#1577 reviews r1 and r2, codex P1 twice): THE REDACTOR RUNS FIRST, ON
+    THE RAW STRING. Nothing may be inserted above it. Both rounds found the same
+    bug at a different transformation, because every one of them can break the
+    pattern the redactor matches on:
+
+    - Truncating first (r1) cuts the `@` that terminates userinfo, leaving
+      `https://alice:hunter2`, which reads as a host and a port and passes
+      through untouched.
+    - Collapsing whitespace first (r2) turns a tab, CR or LF inside a URL into a
+      space, and `URL_LIKE_RE` stops at whitespace. `https://alice:hun\\nter2@…`
+      becomes `https://alice:hun ter2@…` and the match dies before the `@`. A
+      split in the HOST is worse still: the match ends there and a query-string
+      key further along is never even reached.
+
+    The `[SQL:` cut moved below for the same reason — it is a cut, and the rule
+    cannot have exceptions and still be a rule. Cost of redacting the untrimmed
+    string instead: measured below.
+
+    What is left above the redactor is choosing `orig` over `exc` and calling
+    `str()`. Neither can split a match: `orig` is a different, shorter string
+    rather than a mangled one, so it can only omit a credential the SQL tail
+    would have carried, never expose a split one. A driver that itself hands us
+    a message already cut mid-URL is out of reach of any ordering here.
+    """
+    origin = getattr(exc, "orig", None)
+    message = redact_url_credentials(str(origin if origin is not None else exc))
+    marker = message.find("[SQL:")
+    if marker != -1:
+        message = message[:marker]
+    message = " ".join(message.split())
+    if len(message) > _MAX_ERROR_CHARS:
+        message = message[: _MAX_ERROR_CHARS - 3] + "..."
+    return message
+
+
+def _error_fields(exc: BaseException, traced: set[str]) -> dict[str, Any]:
+    """Log fields for a caught exception; MUTATES `traced` to spend the traceback.
+
+    fix(#1544): a failing backfill used to cost more than a succeeding one, and
+    all of it was inside the log formatter. Measured end to end on the #1533
+    failure shape — a run where every insert fails the column's typmod, so the
+    batch falls into this retry and every record raises a `DataError` out of the
+    ORM flush. `exc_info=True` per record cost 964 ms and 60.6 KiB of output per
+    record under the dev console renderer, and 3.1 ms and 12.7 KiB under the JSON
+    renderer production uses. A 200-record run took 194 s before and 1.5 s after;
+    a 1,000-record one wrote 12.4 MB of log output before and 0.35 MB after.
+
+    The vector is in that rendering, but it is not the expensive part: SQLAlchemy
+    already truncates a long bound parameter to about 150 characters a side, so
+    the ~6 KB vector reaches the log as ~440 characters. The traceback is what
+    costs — 33 frames over a three-exception chain, 12 KB of text before any
+    renderer decorates it — which is why this drops the traceback rather than
+    only the parameters.
+
+    One traceback per distinct exception type per run, not per run: the same type
+    raised repeatedly on this path has the same stack, while a second type is a
+    second failure mode and its stack is new information. Types are tracked by
+    qualified name so two `DataError`s from different libraries stay distinct.
+    The set is owned by `backfill_embeddings`, so the budget spans the whole run
+    rather than resetting at each batch boundary, and one type first seen at the
+    batch level does not then spend a second traceback on the retry path.
+    """
+    error_type = f"{type(exc).__module__}.{type(exc).__qualname__}"
+    first_of_type = error_type not in traced
+    traced.add(error_type)
+    return {
+        "error_type": error_type,
+        "error": _compact_error(exc),
+        "exc_info": first_of_type,
+    }
 
 
 async def _snapshot_embedding_config(
@@ -201,6 +292,7 @@ async def _retry_batch_per_record(
     model_name: str,
     embedding_dims: int | None,
     base_url: str | None,
+    traced_errors: set[str],
 ) -> tuple[int, int]:
     """Re-embed a failed batch one record at a time; return (created, errors).
 
@@ -213,6 +305,9 @@ async def _retry_batch_per_record(
 
     `created` is the run's running total, passed in only so an abort message
     can say how many records the run had written before it stopped.
+
+    `traced_errors` is the run's traceback budget, shared with the batch handler
+    that calls this. See `_error_fields`.
     """
     made = 0
     failed = 0
@@ -257,13 +352,13 @@ async def _retry_batch_per_record(
             # prevent. It stops the run, as on the batch path.
             await session.rollback()
             raise
-        except Exception:  # broad: same isolation, per record
+        except Exception as exc:  # broad: same isolation, per record
             await session.rollback()
             failed += 1
             logger.warning(
                 "Backfill: error processing record",
                 record_id=record_id,
-                exc_info=True,
+                **_error_fields(exc, traced_errors),
             )
     return made, failed
 
@@ -612,6 +707,8 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
     created = 0
     errors = 0
+    # fix(#1544): the run's traceback budget, one per distinct exception type.
+    traced_errors: set[str] = set()
 
     for start in range(0, len(items), _BATCH_SIZE):
         # fix(#1525 review r4, codex P2): the pin protects each batch from the
@@ -672,13 +769,18 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # exists to prevent.
             await session.rollback()
             raise
-        except Exception:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
+        except Exception as exc:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
+            # fix(#1544): the same treatment `_retry_batch_per_record` gives a
+            # record, sharing its budget. One batch failure is 1/128th the volume
+            # of the retry storm it opens, but a batch that fails usually fails
+            # every one of its records too, so the two paths raise the same type
+            # and the run should pay for that stack once between them, not twice.
             logger.warning(
                 "Backfill: batch failed, retrying records individually",
                 batch_start=start,
                 batch_size=len(batch),
-                exc_info=True,
+                **_error_fields(exc, traced_errors),
             )
             made, failed = await _retry_batch_per_record(
                 session,
@@ -688,6 +790,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 model_name=model_name,
                 embedding_dims=embedding_dims,
                 base_url=base_url,
+                traced_errors=traced_errors,
             )
             created += made
             errors += failed
