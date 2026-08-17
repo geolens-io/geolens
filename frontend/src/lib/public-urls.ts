@@ -93,7 +93,42 @@ function parseUsablePublicUrl(url: string): URL | null {
   // Code-point iteration, matching Python's str.isascii(); a character-class
   // regex here would need a no-control-regex suppression to say the same thing.
   if ([...url].some((c) => (c.codePointAt(0) ?? 0) > 127)) return null;
+  if (!hostIsAlreadyCanonical(url, parsed)) return null;
   return parsed;
+}
+
+/**
+ * Is the host spelled the way this parser serializes it?
+ *
+ * fix(#1548 review r11): Python and the browser disagree about the canonical
+ * spelling of numeric hosts, and the backend stores Python's. Measured:
+ * `192.168.1` is `192.168.1` to urlsplit and `192.168.0.1` here; `010.0.0.1` is
+ * read as OCTAL and becomes `8.0.0.1`; `0x7f.1` becomes `127.0.0.1`; an
+ * uncompressed IPv6 literal is compressed. Each is a spelling the shell would
+ * present while the stored self-origin said something else.
+ *
+ * This side has it easy: it can ask the browser parser and compare. The backend
+ * has to state the rule outright — see `canonical_host_error` in
+ * backend/app/core/public_urls.py, and note the trap recorded there, that
+ * `192.168.1` round-trips through urlsplit unchanged, so a stability check
+ * would pass it. The two methods are held to the same answers by
+ * `__tests__/public-app-url-shape.cases.json`.
+ *
+ * Case is compared insensitively because both parsers lowercase, so an
+ * uppercase host is not a disagreement. A trailing dot IS refused: both
+ * preserve it, so it is a policy choice rather than a correctness one, and
+ * `maps.example.com.` is a different origin from the one the operator means.
+ */
+function hostIsAlreadyCanonical(url: string, parsed: URL): boolean {
+  const authority = url.slice(url.indexOf('//') + 2).split(/[/?#]/, 1)[0];
+  // Drop userinfo, then the port — an IPv6 literal keeps its brackets, which is
+  // also how `URL.hostname` reports it.
+  const hostAndPort = authority.slice(authority.lastIndexOf('@') + 1);
+  const written = hostAndPort.startsWith('[')
+    ? hostAndPort.slice(0, hostAndPort.indexOf(']') + 1)
+    : hostAndPort.split(':')[0];
+  if (written.endsWith('.')) return false;
+  return written.toLowerCase() === parsed.hostname.toLowerCase();
 }
 
 /**

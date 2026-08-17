@@ -2,6 +2,8 @@ import uuid
 from datetime import datetime
 from urllib.parse import urlparse
 
+from app.core.public_urls import canonical_host_error
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.edition import is_enterprise
@@ -51,6 +53,14 @@ def _normalize_origin(origin: str) -> str:
             f"Invalid origin: {origin}. An internationalized domain must be "
             "given in its punycode (xn--) form, which is what browsers send."
         )
+    # fix(#1548 review r11): the host must already be spelled the way a browser
+    # serializes it. Storing our own spelling of `192.168.1` or an uncompressed
+    # IPv6 literal meant the stored origin and the shell's Origin header could
+    # never match. The message names the canonical form where it can be computed
+    # without re-implementing the browser's parser.
+    host_problem = canonical_host_error(host)
+    if host_problem is not None:
+        raise ValueError(f"Invalid origin: {origin}. {host_problem}")
     netloc_host = f"[{host}]" if ":" in host else host
     port = parsed.port
     if (scheme == "http" and port == 80) or (scheme == "https" and port == 443):

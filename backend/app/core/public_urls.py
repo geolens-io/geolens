@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from urllib.parse import urlsplit, urlunsplit
 
@@ -100,7 +101,85 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if not candidate.isascii():
         return False
+    if canonical_host_error(parts.hostname or "") is not None:
+        return False
     return not parts.query and not parts.fragment
+
+
+def canonical_host_error(host: str) -> str | None:
+    """None if ``host`` is spelled the way a browser would serialize it.
+
+    Otherwise a sentence naming what is wrong, for an operator to act on.
+
+    fix(#1548 review r11): the same root as the IDN refusal — Python and the
+    browser disagree about a host's canonical spelling, and we store Python's.
+    Measured, not assumed:
+
+        input                          urlsplit          browser
+        http://192.168.1               192.168.1         192.168.0.1
+        http://010.0.0.1               010.0.0.1         8.0.0.1     (octal)
+        http://0x7f.1                  0x7f.1            127.0.0.1   (hex)
+        http://2130706433              2130706433        127.0.0.1
+        http://[2001:0db8:0:0:0:0:0:1] 2001:0db8:0:0...  [2001:db8::1]
+
+    In every row the shell would present the right column while
+    ``_resolve_self_origins`` stored the left, so the lock was issued and then
+    missed on every request.
+
+    THE TRAP, and the reason this asserts canonical form directly rather than
+    testing stability: ``192.168.1`` ROUND-TRIPS cleanly through urlsplit. It is
+    perfectly stable under our own parser and still wrong. A check built on
+    "parse it, re-serialize it, compare" would pass it.
+
+    The frontend does not need this function: it has a browser URL parser, so it
+    compares the host as written against the host that parser produced. Only
+    this side has to state the rule. ``public-app-url-shape.cases.json`` is what
+    holds the two methods to the same answers.
+    """
+    if not host:
+        return "The host is empty."
+    if host.endswith("."):
+        return f"Drop the trailing dot: {host.rstrip('.')}"
+
+    if ":" in host:  # IPv6 literal; urlsplit has already stripped the brackets.
+        try:
+            compressed = str(ipaddress.IPv6Address(host))
+        except ValueError:
+            return f"{host!r} is not a valid IPv6 address."
+        if compressed != host:
+            return f"Write the IPv6 literal in its compressed form: [{compressed}]"
+        return None
+
+    # A URL parser reads a host as IPv4 when its LAST label is numeric — which
+    # covers hex and octal spellings, not just dotted decimal. Anything matching
+    # that shape must already be canonical dotted-quad, and ipaddress rejects
+    # short forms, leading zeros and out-of-range octets for us.
+    last_label = host.rsplit(".", 1)[-1]
+    if last_label.isdigit() or last_label.startswith("0x"):
+        try:
+            parsed_ip = ipaddress.IPv4Address(host)
+        except ValueError:
+            # Deliberately NOT expanding it for them: computing what a browser
+            # would make of `0x7f.1` means implementing the WHATWG IPv4 parser,
+            # which is the approximation this whole rule exists to avoid.
+            return (
+                f"{host!r} is read as an IP address by browsers, and not in the "
+                "form they use. Write four decimal octets with no leading "
+                "zeros, e.g. 192.168.0.1"
+            )
+        if str(parsed_ip) != host:
+            return f"Write the IP address as: {parsed_ip}"
+        return None
+
+    # Registered name. Case is not checked: both parsers lowercase it, so an
+    # uppercase spelling is not a disagreement and refusing it would cost an
+    # operator a working value for nothing.
+    labels = host.split(".")
+    if any(not label for label in labels):
+        return f"{host!r} has an empty label."
+    if not all(c.isalnum() or c == "-" for label in labels for c in label):
+        return f"{host!r} contains a character that is not valid in a hostname."
+    return None
 
 
 def normalize_public_url(url: str | None) -> str | None:

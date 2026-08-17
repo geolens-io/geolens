@@ -721,6 +721,71 @@ async def test_userinfo_never_reaches_a_stored_origin(
     assert not any("secret" in o for o in origins), "credentials must not be stored"
 
 
+async def test_a_non_canonical_numeric_host_is_refused(
+    test_db_session: AsyncSession, public_app_url, enterprise_edition
+):
+    """fix(#1548 review r11): the IDN finding in different clothes.
+
+    Python and the browser disagree about how a numeric host is spelled, and we
+    store Python's. Measured: ``192.168.1`` stays ``192.168.1`` through urlsplit
+    and is ``192.168.0.1`` to every browser; ``010.0.0.1`` is read as OCTAL and
+    becomes ``8.0.0.1``. The shell would present the right-hand spelling while
+    the stored self-origin held the left, so the lock was issued and then missed.
+
+    ``192.168.1`` is also the case that shows why the check asserts canonical
+    form rather than stability: it round-trips through urlsplit unchanged.
+    """
+    for configured in (
+        "http://192.168.1",
+        "http://010.0.0.1",
+        "http://0x7f.1",
+        "http://2130706433",
+        "http://[2001:0db8:0000:0000:0000:0000:0000:0001]",
+    ):
+        public_app_url(configured)
+        assert (
+            await public_urls.get_configured_public_app_url(test_db_session) is None
+        ), configured
+        with pytest.raises(embed_service.DomainLockNotEnforceableError):
+            await embed_service.assert_domain_lock_is_enforceable(
+                test_db_session, _browser_at(SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+            )
+
+    # The canonical spellings are accepted and match what the browser sends.
+    public_app_url("http://192.168.0.1")
+    assert (
+        await embed_service._request_origin_is_allowed(
+            test_db_session, _browser_at("http://192.168.0.1"), [CUSTOMER_ORIGIN]
+        )
+        is True
+    )
+    public_app_url("http://[2001:db8::1]")
+    assert (
+        await embed_service._request_origin_is_allowed(
+            test_db_session, _browser_at("http://[2001:db8::1]"), [CUSTOMER_ORIGIN]
+        )
+        is True
+    )
+
+
+def test_the_canonical_host_check_is_not_a_round_trip_test():
+    """The trap, pinned.
+
+    ``192.168.1`` is STABLE under urlsplit — parse it, re-serialize it, and you
+    get the same string back — so a check written as "does it survive our own
+    parser" would accept it, and the browser would still read it as
+    ``192.168.0.1``. Assert both halves of that: stable, and still refused.
+    """
+    from urllib.parse import urlsplit, urlunsplit
+
+    parts = urlsplit("http://192.168.1")
+    assert urlunsplit(parts) == "http://192.168.1", "the input is parser-stable"
+    assert parts.hostname == "192.168.1"
+    assert public_urls.canonical_host_error("192.168.1") is not None, (
+        "stability under our own parser proves nothing about the browser's"
+    )
+
+
 # ---------------------------------------------------------------------------
 # r10 P1: "derived" names two things, and only one of them is untrustworthy
 # ---------------------------------------------------------------------------
