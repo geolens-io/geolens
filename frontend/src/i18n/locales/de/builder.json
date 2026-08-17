@@ -1152,7 +1152,9 @@
     "legendHeader": "Legende",
     "poweredBy": "Bereitgestellt von GeoLens",
     "moreCredits_one": "+{{count}} weiterer Nachweis",
-    "moreCredits_other": "+{{count}} weitere Nachweise"
+    "moreCredits_other": "+{{count}} weitere Nachweise",
+    "imageCredit": "(Bildnachweis)",
+    "imageCreditFrom": "(Bildnachweis: {{host}})"
   },
   "history": {
     "title": "Verlauf",

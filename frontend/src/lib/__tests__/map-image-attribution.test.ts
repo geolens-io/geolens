@@ -186,6 +186,173 @@ describe('readRenderedAttribution', () => {
     expect(readRenderedAttribution({})).toEqual([]);
     expect(readRenderedAttribution({ ...mapWithControl('   ') })).toEqual([]);
   });
+
+  /* fix(#1541 codex P2 round 3): a credit is HTML — `BasemapEntry.attribution`
+   * permits it and MapLibre renders it — so a provider may credit itself with a
+   * logo. An image's text alternative is not DOM text, so a `textContent` read
+   * returned '' and the source was skipped: the interactive map showed the
+   * credit and every exported image did not. Both readers derive text from the
+   * markup now, preserving the alternatives a sighted user is reading. */
+
+  function sourcesMap(...attributions: (string | null)[]) {
+    return {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: Object.fromEntries(
+          attributions.map((attribution, i) => [`src-${i}`, { attribution }]),
+        ),
+      }),
+    };
+  }
+
+  it('takes an image credit from its alt text', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<img src="https://tiles.example.com/logo.svg" alt="© Provider">'),
+      ),
+    ).toEqual(['© Provider']);
+  });
+
+  it('takes aria-label and title when there is no alt', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap(
+          '<img src="https://a.example/l.png" aria-label="© Aria Provider">',
+          '<img src="https://b.example/l.png" title="© Title Provider">',
+          // The generic element rule, which is what makes a labelled SVG work
+          // without this module ever naming SVG.
+          '<svg role="img" aria-label="© Svg Provider"></svg>',
+          '<svg><title>© Svg Title Provider</title></svg>',
+        ),
+      ),
+    ).toEqual([
+      '© Aria Provider',
+      '© Title Provider',
+      '© Svg Provider',
+      '© Svg Title Provider',
+    ]);
+  });
+
+  it('prefers alt over aria-label over title', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<img src="https://a.example/l.png" alt="© Alt" aria-label="© Aria" title="© Title">'),
+      ),
+    ).toEqual(['© Alt']);
+  });
+
+  it('keeps text around an image credit rather than replacing it', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap('Imagery <img src="https://a.example/l.png" alt="© Provider"> and data'),
+      ),
+    ).toEqual(['Imagery © Provider and data']);
+  });
+
+  it('does not credit a labelled wrapper twice', () => {
+    // The element fallback is checked AFTER the children, so an <a title="…">
+    // around real text contributes its text once, not its text and its title.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<a href="https://osm.org" title="© OpenStreetMap">© OpenStreetMap contributors</a>'),
+      ),
+    ).toEqual(['© OpenStreetMap contributors']);
+  });
+
+  /* The class, not just the reported site: `attribution` permits HTML
+   * generally, and a `textContent` read mangles more than images. */
+
+  it('separates credits that a break or block would show on their own lines', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap(
+          '© Provider A<br>© Provider B',
+          '<div>© Block A</div><div>© Block B</div>',
+          '<ul><li>© List A</li><li>© List B</li></ul>',
+        ),
+      ),
+    ).toEqual([
+      '© Provider A | © Provider B',
+      '© Block A | © Block B',
+      '© List A | © List B',
+    ]);
+  });
+
+  it('collapses source whitespace and nesting into one legible line', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<span>  <b>©</b>\n  <a href="#">Nested\tProvider</a>  </span>'),
+      ),
+    ).toEqual(['© Nested Provider']);
+  });
+
+  it('still decodes entities, which are text not markup', () => {
+    expect(readRenderedAttribution(sourcesMap('Rand &amp; McNally &copy; 2026'))).toEqual([
+      'Rand & McNally © 2026',
+    ]);
+  });
+
+  it('honours alt="" as the decorative image its author declared', () => {
+    // Explicitly decorative, so it is not a credit and gets no placeholder.
+    // The one case where an image yields nothing by design.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('© Provider <img src="https://a.example/spacer.gif" alt="">'),
+      ),
+    ).toEqual(['© Provider']);
+  });
+
+  /* An image with NO alternative at all cannot be named. The decision is that
+   * it renders a placeholder rather than vanishing: an unnamed credit is still
+   * a credit, and the standard is that no output may silently drop one. */
+
+  it('names an unnamed image credit by its host rather than dropping it', () => {
+    expect(
+      readRenderedAttribution(sourcesMap('<img src="https://tiles.acme.com/logo.png">')),
+    ).toEqual(['(image credit: tiles.acme.com)']);
+  });
+
+  it('keeps two unnamed image credits from different hosts distinct', () => {
+    // A bare placeholder for both would dedupe to one, dropping a credit.
+    expect(
+      readRenderedAttribution(
+        sourcesMap(
+          '<img src="https://a.example.com/logo.png">',
+          '<img src="https://b.example.com/logo.png">',
+        ),
+      ),
+    ).toEqual(['(image credit: a.example.com)', '(image credit: b.example.com)']);
+  });
+
+  it('falls back to a bare placeholder for an image with no usable host', () => {
+    expect(
+      readRenderedAttribution(sourcesMap('<img src="data:image/gif;base64,R0lGOD">')),
+    ).toEqual(['(image credit)']);
+    expect(readRenderedAttribution(sourcesMap('<img>'))).toEqual(['(image credit)']);
+  });
+
+  it('derives the control fallback the same way, not from textContent', () => {
+    // The sibling reader. Fixing one and leaving the other still loses the
+    // credit, on exactly the maps that reach the fallback.
+    const container = document.createElement('div');
+    const inner = document.createElement('div');
+    inner.className = 'maplibregl-ctrl-attrib-inner';
+    inner.innerHTML =
+      '<a href="https://provider.example"><img src="https://provider.example/l.svg" alt="© Control Provider"></a>';
+    container.appendChild(inner);
+    expect(readRenderedAttribution({ getContainer: () => container })).toEqual([
+      '© Control Provider',
+    ]);
+  });
+
+  it('warns and returns nothing only when the control is genuinely empty', () => {
+    const container = document.createElement('div');
+    const inner = document.createElement('div');
+    inner.className = 'maplibregl-ctrl-attrib-inner';
+    inner.innerHTML = '<img src="https://a.example/spacer.gif" alt="">';
+    container.appendChild(inner);
+    expect(readRenderedAttribution({ getContainer: () => container })).toEqual([]);
+  });
 });
 
 /* fix(#1541 codex P1 x2): every output used to elide — the export band via a

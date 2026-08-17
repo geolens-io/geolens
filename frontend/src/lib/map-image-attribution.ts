@@ -64,16 +64,138 @@ function attributionFont(fontPx: number): string {
   return `400 ${fontPx}px ${FONT_STACK}`;
 }
 
-/** Decode HTML entities in an editor-supplied credit without ever parsing it
- *  as live markup. DOMParser documents are inert — no script runs, no image or
- *  iframe is fetched — which `el.innerHTML = s` cannot promise. */
+/* ── HTML → credit text ────────────────────────────────────────────────────
+ *
+ * fix(#1541 codex P2 round 3): both readers used to take `textContent`, and a
+ * credit is HTML. `BasemapEntry.attribution` permits it, MapLibre renders it,
+ * and a provider is entitled to credit itself with a logo:
+ * `<img alt="© Provider" src="logo.svg">`. A text alternative is not DOM text,
+ * so `textContent` returned '' and the source was skipped — the map on screen
+ * showed the credit and the exported PNG, thumbnail and OG card did not. That
+ * is the silent drop this module exists to make impossible, in its worst form:
+ * the user can see the discrepancy by looking at their own screen.
+ *
+ * So text is DERIVED from the markup rather than scraped off it, preserving
+ * the accessible alternatives a sighted user is reading:
+ *
+ *   text nodes        as written
+ *   <img>             alt, else aria-label, else title, else a placeholder
+ *   any element       its own text; if it has none, aria-label then title
+ *   <br> and blocks   a visual break, so credits do not run together
+ *
+ * The generic element rule is what makes `<svg role="img" aria-label="…">`
+ * work without naming SVG anywhere, and `<svg><title>…</title></svg>` already
+ * worked because a <title> element IS DOM text.
+ *
+ * `alt=""` is honoured as its author meant it: an explicitly decorative image
+ * contributes nothing and gets no placeholder. That is the one case where an
+ * image yields no credit by design rather than by accident.
+ *
+ * Whichever reader is in play, the parse stays inert. DOMParser documents run
+ * no script and fetch no image or iframe, which `el.innerHTML = s` cannot
+ * promise; the control path walks nodes MapLibre itself put in the document.
+ */
+
+/** Element boundaries that read as a line break in the rendered credit. Inline
+ *  tags (a, span, b, img …) are deliberately absent: they continue the line. */
+const BLOCK_CREDIT_TAGS = new Set([
+  'ADDRESS', 'ARTICLE', 'ASIDE', 'BLOCKQUOTE', 'DD', 'DIV', 'DL', 'DT',
+  'FIELDSET', 'FIGCAPTION', 'FIGURE', 'FOOTER', 'FORM', 'H1', 'H2', 'H3',
+  'H4', 'H5', 'H6', 'HEADER', 'HR', 'LI', 'MAIN', 'NAV', 'OL', 'P', 'PRE',
+  'SECTION', 'TABLE', 'TD', 'TH', 'TR', 'UL',
+]);
+
+/** Internal break sentinel. NUL cannot survive into rendered text — the
+ *  normalizer consumes every one of them — so it cannot collide with content
+ *  the way a printable delimiter would. */
+const BREAK = '\u0000';
+
+/** The text alternative an assistive technology would announce for `el`, in
+ *  the order the accessible name is computed from these three attributes. */
+function textAlternative(el: Element): string | null {
+  for (const attr of ['alt', 'aria-label', 'title']) {
+    const value = el.getAttribute(attr);
+    if (value !== null && value.trim()) return value;
+  }
+  return null;
+}
+
+/** A name for an image that offers no alternative at all. Its host, where it
+ *  has one: that is the only provider-identifying text such a credit carries,
+ *  and it also keeps two distinct unnamed logos from deduping into one. Two
+ *  hostless ones (a data: URI) still collapse — they are indistinguishable in
+ *  text, which is the residual of a credit that ships no words. */
+function unnamedImageCredit(el: Element): string {
+  const src = el.getAttribute('src');
+  if (src) {
+    try {
+      const url = new URL(src, window.location.href);
+      if (url.protocol === 'http:' || url.protocol === 'https:') {
+        return i18n.t('builder:export.imageCreditFrom', { host: url.hostname });
+      }
+    } catch {
+      // Unparseable src: fall through to the bare placeholder.
+    }
+  }
+  return i18n.t('builder:export.imageCredit');
+}
+
+/** Walk `node`, collecting text and text alternatives with break sentinels at
+ *  the visual boundaries. Not normalized — `normalizeCreditText` does that. */
+function collectCreditText(node: Node): string {
+  if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? '';
+  if (node.nodeType !== Node.ELEMENT_NODE) return '';
+
+  const el = node as Element;
+  const tag = el.tagName.toUpperCase();
+  if (tag === 'BR') return BREAK;
+  const isImage =
+    tag === 'IMG' || (tag === 'INPUT' && el.getAttribute('type')?.toLowerCase() === 'image');
+  if (isImage) {
+    // A decorative image says so with alt="", and is not a credit.
+    if (el.getAttribute('alt')?.trim() === '') return '';
+    return textAlternative(el) ?? unnamedImageCredit(el);
+  }
+
+  let inner = '';
+  for (const child of Array.from(el.childNodes)) inner += collectCreditText(child);
+  // An element that contributes no text of its own falls back to its own
+  // alternative. Checked AFTER the children so a labelled wrapper around real
+  // text does not credit the same provider twice.
+  if (!inner.split(BREAK).join('').trim()) inner = textAlternative(el) ?? inner;
+  return BLOCK_CREDIT_TAGS.has(tag) ? `${BREAK}${inner}${BREAK}` : inner;
+}
+
+/** Collapse the walker's output into one credit line. Segments separated by a
+ *  visual break are joined with the separator the images already use between
+ *  credits — presentation only. It creates no new counted credit: a credit is
+ *  counted per SOURCE, and this is the text of one source. */
+function normalizeCreditText(raw: string): string {
+  return raw
+    .split(BREAK)
+    .map((segment) => segment.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join(SEPARATOR);
+}
+
+/** Credit text for an editor-supplied HTML string, parsed inertly. */
 function decodeHtmlText(raw: string): string {
   try {
-    return (
-      new DOMParser().parseFromString(raw, 'text/html').body.textContent ?? ''
-    ).trim();
+    const doc = new DOMParser().parseFromString(raw, 'text/html');
+    return normalizeCreditText(collectCreditText(doc.body));
   } catch {
     return raw.trim();
+  }
+}
+
+/** Credit text for a live element MapLibre rendered. Same derivation as the
+ *  string path — fixing one reader and leaving its sibling is how a credit
+ *  goes missing from exactly one of the two ways it can be read. */
+function elementCreditText(el: Element): string {
+  try {
+    return normalizeCreditText(collectCreditText(el));
+  } catch {
+    return el.textContent?.trim() ?? '';
   }
 }
 
@@ -106,8 +228,8 @@ function dedupe(entries: string[]): string[] {
  * Ordered by whether the source is STRUCTURED, not by how close it is to the
  * screen:
  *
- *  1. The live sources' own `attribution`, one entry per source, entity-decoded
- *     and never split on anything. This is the only place the individual
+ *  1. The live sources' own `attribution`, one entry per source, derived from
+ *     its HTML and never split on anything. This is the only place the individual
  *     credits exist as separate values, so it is the only honest input to a
  *     per-credit count. Read from `getSource(id)` rather than from
  *     `getStyle().sources[id]`: MEASURED on the shipped OpenFreeMap basemap,
@@ -116,11 +238,13 @@ function dedupe(entries: string[]): string[] {
  *     source loaded from a TileJSON `url` receives them in that response and
  *     `getStyle()` serializes the spec as authored. Reading the spec alone
  *     dropped every basemap credit whenever a dataset declared one.
- *  2. `.maplibregl-ctrl-attrib-inner` textContent as ONE opaque entry. This
- *     path genuinely only has the joined string, so it does not guess: the
- *     whole line is treated as a single credit rather than split back apart.
- *     It renders identically; only the marker's granularity is coarser, and
- *     only on a map whose sources declare nothing.
+ *  2. `.maplibregl-ctrl-attrib-inner`, derived the same way, as ONE opaque
+ *     entry. This path genuinely only has the joined line, so it does not
+ *     guess: the whole thing is treated as a single credit rather than split
+ *     back apart. It renders identically; only the marker's granularity is
+ *     coarser, and only on a map whose sources declare nothing. Both readers
+ *     run the same derivation — see `collectCreditText` — because a credit
+ *     that survives one reader and not its sibling is still a lost credit.
  *  3. Nothing, with a DEV warning.
  *
  * Two costs of preferring (1), both accepted:
@@ -170,7 +294,9 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
   const inner = map.getContainer?.()?.querySelector?.(
     '.maplibregl-ctrl-attrib-inner',
   );
-  const rendered = inner?.textContent?.trim();
+  // Derived, not `textContent` — an image-only credit rendered here is just as
+  // real as one declared on a source, and reading text off it dropped both.
+  const rendered = inner ? elementCreditText(inner) : '';
   // Deliberately NOT split. See the docstring: the separator is legal content.
   if (rendered) return [rendered];
 

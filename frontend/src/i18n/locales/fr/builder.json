@@ -1152,7 +1152,9 @@
     "legendHeader": "Légende",
     "poweredBy": "Propulsé par GeoLens",
     "moreCredits_one": "+{{count}} crédit supplémentaire",
-    "moreCredits_other": "+{{count}} crédits supplémentaires"
+    "moreCredits_other": "+{{count}} crédits supplémentaires",
+    "imageCredit": "(crédit image)",
+    "imageCreditFrom": "(crédit image : {{host}})"
   },
   "history": {
     "title": "Historique",

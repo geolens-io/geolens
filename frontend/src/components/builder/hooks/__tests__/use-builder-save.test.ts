@@ -153,7 +153,12 @@ function createMockMap(
   if (attribution !== null) {
     const inner = document.createElement('div');
     inner.className = 'maplibregl-ctrl-attrib-inner';
-    inner.textContent = attribution;
+    // fix(#1541 codex P2 round 3): innerHTML, because MapLibre RENDERS the
+    // credit HTML. Assigning it as text made an `<img alt="…">` credit read
+    // back as its own markup, so a reader that could not see the alt still
+    // found the provider name in the string — a mock artifact that made the
+    // image-credit tests pass against the broken reader.
+    inner.innerHTML = attribution;
     container.appendChild(inner);
   }
   return {
@@ -1751,6 +1756,55 @@ describe('useBuilderSave', () => {
       // Ate map pixels rather than dropping a provider, and the image itself is
       // unchanged: a fixed-size crop stays fixed-size.
       expect(mockUploadThumbnail).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    /* fix(#1541 codex P2 round 3): `BasemapEntry.attribution` permits HTML, so
+     * a provider may credit itself with a logo. Its alt text is not DOM text,
+     * so the old `textContent` read skipped the source entirely and all three
+     * images shipped uncredited while the interactive map visibly showed the
+     * credit. Asserted at the outputs, on all three at once: this is a
+     * whole-pipeline property, and the reader is only where it broke. */
+    it('carries an image-only credit into all three images (#1541)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({
+        loaded: true,
+        attribution: '<img src="https://tiles.example.com/logo.svg" alt="© Logo Provider">',
+      });
+      const result = await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Same hook, same map: now the PNG export, whose render callback is the
+      // second one registered (the crop capture consumed the first).
+      act(() => { result.current.handleExportPNG(); });
+      act(() => {
+        const renders = mockMap.once.mock.calls.filter((c: unknown[]) => c[0] === 'render');
+        (renders[renders.length - 1][1] as () => void)();
+      });
+
+      const credited = canvases.filter((c) =>
+        c.ctx.fillText.mock.calls.some((call: unknown[]) =>
+          String(call[0]).includes('© Logo Provider'),
+        ),
+      );
+      // The 400x250 thumbnail, the 1200x630 OG card, and the PNG export.
+      expect(credited).toHaveLength(3);
+      const sizes = credited.map((c) => `${c.width}x${c.height}`);
+      expect(sizes).toContain('400x250');
+      expect(sizes).toContain('1200x630');
+      // The export's own band, on the default named-and-described state:
+      // 84 title + 600 map + 40 band (12 gap + 1 line + 12 gap) + 32 footer.
+      expect(sizes).toContain('800x756');
 
       vi.useRealTimers();
     });
