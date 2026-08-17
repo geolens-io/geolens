@@ -397,22 +397,43 @@ async def get_anchor_embedding_row(
     ``RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)``, so the
     comparison stays inside the anchor's own space.
 
-    WHICH row, when a record has several: the most recently written one, ties
-    broken by model name so the answer is stable rather than merely arbitrary.
-    Before this it was whatever the planner happened to return. Most recent is
-    the least surprising reading of "this record's vector" after a swap, and it
-    is the one a re-embed moves; nothing here prefers the LIVE configuration,
-    deliberately. An anchor stamped under a superseded configuration finds its
-    own-space neighbours or finds none, and never crosses into another space
-    (#1580) — which is the difference between this reader and the search path,
-    where one side of the comparison is a fresh vector and the live
-    configuration is the right question to ask.
+    WHICH row, when a record has several: the one SEARCH would use, then the
+    most recently written, then model name for stability.
+
+    fix(#1580 review r3): the live-usable row goes first, and that ordering does
+    two things. It makes related items and search agree by construction —
+    whenever a record has a row search itself can retrieve, this anchors on that
+    row, including after a model rollback, where "newest" would have picked the
+    rolled-back one and the two readers would have disagreed about the same
+    record. And it demotes the timestamp to a tiebreak among rows NONE of which
+    are live-usable, where the choice is between two stale spaces and either
+    answer is defensible.
+
+    That demotion matters because the timestamp is not as ordered as it looks.
+    PostgreSQL ``now()`` is TRANSACTION-START time, and both the column default
+    and the ingest re-stamp used it, so a job that opened its transaction, spent
+    thirty seconds in a provider call and committed after another model's job
+    carries the EARLIER stamp despite being the later write. Ordering on it alone
+    could leave related items anchored to a row that lost the race it won.
+    ``clock_timestamp()`` fixes the explicit writers (see ``service.py``), but a
+    row written before that change still carries a transaction stamp, so the
+    ordering had to stop depending on it being right.
+
+    An anchor with no live-usable row keeps the #1580 property as the FALLBACK:
+    it finds its own-space neighbours or finds none, and never crosses into
+    another space. That is still the difference between this reader and search,
+    where one side is a fresh vector; it is just no longer the first question
+    asked.
 
     The join to ``catalog.records`` is the tenant boundary.
     ``record_embeddings`` carries no ``tenant_id`` of its own, so RLS reaches it
     only through the record it belongs to; ``test_embedding_helper_queries_join
     _rls_visible_records`` asserts every embedding helper crosses it.
     """
+    live_model = await resolve_embedding_model_name(session)
+    live_fingerprint = await resolve_embedding_config_fingerprint(
+        session, model_name=live_model
+    )
     result = await session.execute(
         select(
             RecordEmbedding.embedding,
@@ -421,7 +442,11 @@ async def get_anchor_embedding_row(
         )
         .join(RecordEmbedding.record)
         .where(RecordEmbedding.record_id == record_id)
-        .order_by(RecordEmbedding.updated_at.desc(), RecordEmbedding.model_name)
+        .order_by(
+            RecordEmbedding.usable_by_config(live_model, live_fingerprint).desc(),
+            RecordEmbedding.updated_at.desc(),
+            RecordEmbedding.model_name,
+        )
         .limit(1)
     )
     row = result.first()

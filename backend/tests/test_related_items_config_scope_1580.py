@@ -39,6 +39,8 @@ from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
+from unittest.mock import AsyncMock
 from httpx import AsyncClient
 
 from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
@@ -763,4 +765,194 @@ async def test_a_commit_between_the_two_reads_cannot_split_the_anchor(
         f"related items returned {sorted(items)}. The seed's own space has a "
         f"neighbour in it; a selection anchored on a row the scoring never saw "
         f"finds nothing it can then score."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r3: the timestamp is not as ordered as it looks
+# ---------------------------------------------------------------------------
+
+
+async def test_the_anchor_prefers_the_row_search_would_use(
+    test_db_session, space, monkeypatch
+):
+    """fix(#1580 review r3): live-usable first, timestamp only as a tiebreak.
+
+    PostgreSQL `now()` is TRANSACTION-START time, and both the column default and
+    the ingest re-stamp used it. A job that opens its transaction, spends thirty
+    seconds in a provider call and commits AFTER another model's job therefore
+    carries the EARLIER stamp despite being the later write — so "newest wins"
+    could leave related items anchored to a row that lost the race it won.
+
+    Ordering by the live-usable row first removes the dependency rather than
+    patching it, and buys the stronger property on the way: whenever a record has
+    a row search itself would retrieve, related items anchors on THAT row, so the
+    two readers agree by construction. A model rollback is where the difference
+    shows — "newest" picks the rolled-back row, and search and related items then
+    disagree about the same record.
+
+    The stamps here are inverted deliberately: the live-usable row is the OLDER
+    one, so an implementation still ordering on time alone fails.
+    """
+    from app.processing.embeddings import helpers
+
+    record = await _dataset(test_db_session, "Live Preferred")
+    monkeypatch.setattr(
+        helpers, "resolve_embedding_model_name", AsyncMock(return_value=space.model)
+    )
+    monkeypatch.setattr(
+        helpers,
+        "resolve_embedding_config_fingerprint",
+        AsyncMock(return_value=space.config_a),
+    )
+
+    await _add_row(
+        test_db_session,
+        record.record_id,
+        _V_ANCHOR,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    await _add_row(
+        test_db_session,
+        record.record_id,
+        _V_MID,
+        model_name=space.other_model,
+        config_fingerprint=space.config_b,
+        updated_at=datetime(2026, 6, 1, tzinfo=UTC),
+    )
+
+    anchor = await helpers.get_anchor_embedding_row(test_db_session, record.record_id)
+
+    assert anchor is not None
+    _, model_name, config_fingerprint = anchor
+    assert (model_name, config_fingerprint) == (space.model, space.config_a), (
+        f"the anchor resolved to ({model_name}, {config_fingerprint}); search "
+        f"would use the live-configuration row, so related items must too, and "
+        f"the newer row here is the one search cannot retrieve"
+    )
+
+
+async def test_the_timestamp_still_decides_among_stale_rows(
+    test_db_session, space, monkeypatch
+):
+    """The fallback: with no live-usable row, the later write wins.
+
+    The counterfactual for the test above. An implementation that always
+    preferred, say, the lowest model name would pass that one and lose the
+    property #1580 established — a record with only superseded rows still
+    anchors on the most recent of them.
+    """
+    from app.processing.embeddings import helpers
+
+    record = await _dataset(test_db_session, "Stale Fallback")
+    monkeypatch.setattr(
+        helpers,
+        "resolve_embedding_model_name",
+        AsyncMock(return_value=f"{space.model}-nothing-matches"),
+    )
+    monkeypatch.setattr(
+        helpers,
+        "resolve_embedding_config_fingerprint",
+        AsyncMock(return_value=space.config_a),
+    )
+
+    await _add_row(
+        test_db_session,
+        record.record_id,
+        _V_MID,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    await _add_row(
+        test_db_session,
+        record.record_id,
+        _V_ANCHOR,
+        model_name=space.other_model,
+        config_fingerprint=space.config_b,
+        updated_at=datetime(2026, 6, 1, tzinfo=UTC),
+    )
+
+    anchor = await helpers.get_anchor_embedding_row(test_db_session, record.record_id)
+
+    assert anchor is not None
+    _, model_name, config_fingerprint = anchor
+    assert (model_name, config_fingerprint) == (space.other_model, space.config_b), (
+        f"the anchor resolved to ({model_name}, {config_fingerprint}); with "
+        f"nothing live-usable the most recent write is the answer"
+    )
+
+
+async def test_both_write_branches_stamp_the_statement_clock():
+    """`clock_timestamp()` on the update AND the insert, not `now()`.
+
+    `now()` is TRANSACTION-START time, so a writer that spends thirty seconds in
+    a provider call before committing stamps a row with a time from before the
+    work — and fix(#1580) made this column decide which row a comparison anchors
+    on, so an ordering built on it inherited that error.
+
+    BOTH branches, because they have to agree with each other. Stamping only the
+    UPDATE leaves a first-time INSERT taking the column's `server_default`, which
+    is `now()` — so the two writers would order differently for no reason a
+    reader could see, and the bug would survive on exactly the rows written
+    first. gl-1546 found the same trap in #1584's upsert, where a `set_` clause
+    covers only the ON CONFLICT branch.
+
+    The `server_default` itself is untouched: changing it is a migration, and it
+    is the fallback for rows nothing stamps deliberately.
+
+    Asserted on what the code ASSIGNS rather than on what the database stores,
+    because the two clocks differ only inside a transaction that does real work,
+    and staging one here would be measuring the test's own timing.
+    """
+    from unittest.mock import MagicMock, patch
+
+    from app.processing.embeddings.models import RecordEmbedding
+    from app.processing.embeddings.service import generate_and_store_embedding
+
+    async def _run(existing_row):
+        result = MagicMock()
+        result.scalar_one_or_none.return_value = existing_row
+        session = AsyncMock(spec=AsyncSession)
+        session.execute = AsyncMock(return_value=result)
+        with (
+            patch("app.processing.embeddings.service.AI_ENABLED") as ai,
+            patch(
+                "app.processing.embeddings.service.generate_embeddings_batch",
+                new_callable=AsyncMock,
+                return_value=[[0.1] * 1536],
+            ),
+            patch(
+                "app.processing.embeddings.service.resolve_live_embedding_config",
+                new_callable=AsyncMock,
+                return_value=("m", 1536, None, "f" * 64),
+            ),
+        ):
+            ai.get = AsyncMock(return_value=True)
+            await generate_and_store_embedding(
+                session=session,
+                record_id=uuid.uuid4(),
+                title="Clock",
+                summary="A summary",
+                keywords=None,
+                lineage=None,
+            )
+        return session
+
+    inserted = (await _run(None)).add.call_args[0][0]
+    assert isinstance(inserted, RecordEmbedding)
+    assert "clock_timestamp" in str(inserted.updated_at), (
+        f"the INSERT branch stamped {inserted.updated_at!r}; a row that takes "
+        f"the server_default carries transaction-start time and disagrees with "
+        f"every row the update branch writes"
+    )
+
+    existing = MagicMock()
+    existing.content_hash = "stale"
+    await _run(existing)
+    assert "clock_timestamp" in str(existing.updated_at), (
+        f"the UPDATE branch stamped {existing.updated_at!r}, which is "
+        f"transaction-start time — earlier than work that finished before it"
     )

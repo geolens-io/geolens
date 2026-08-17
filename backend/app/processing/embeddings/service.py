@@ -500,14 +500,22 @@ async def generate_and_store_embedding(
         # the insert branch — leaving the old stamp would label the new vector
         # with the configuration of the one it replaced.
         existing.config_fingerprint = config_fingerprint
-        # fix(#1580 review r2): the DB clock, like the insert branch's
-        # server_default and like backfill.py's upsert. This stamped the APP
-        # clock, and fix(#1580) made the column load-bearing — the anchor row
-        # for a related-items comparison is the most recently written one, so a
-        # worker whose clock runs behind the database's could write a row that
-        # sorts BEFORE the one it replaced and leave the superseded vector
-        # answering as the anchor.
-        existing.updated_at = func.now()
+        # fix(#1580 review r2): the DB clock rather than the app's. fix(#1580)
+        # made this column load-bearing — related items anchors on a record's
+        # most recently written row — and a worker whose clock runs behind the
+        # database's could otherwise write a row that sorts BEFORE the one it
+        # replaced.
+        #
+        # fix(#1580 review r3): `clock_timestamp()`, not `now()`. `now()` is
+        # TRANSACTION-START time, so a job that opens its transaction, spends
+        # thirty seconds in a provider call and commits after another model's
+        # job carries the EARLIER stamp despite being the later write. Both
+        # branches are stamped explicitly for the same reason: the column's
+        # `server_default` is `now()` too, so an INSERT that took the default
+        # would disagree with an UPDATE that did not. The default itself stays
+        # as it is — changing it is a migration, and it is the fallback for
+        # rows nothing writes deliberately.
+        existing.updated_at = func.clock_timestamp()
     else:
         session.add(
             RecordEmbedding(
@@ -516,6 +524,7 @@ async def generate_and_store_embedding(
                 model_name=model_name,
                 config_fingerprint=config_fingerprint,
                 content_hash=content_hash,
+                updated_at=func.clock_timestamp(),
             )
         )
 
