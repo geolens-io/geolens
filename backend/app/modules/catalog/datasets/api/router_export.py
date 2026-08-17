@@ -1058,6 +1058,24 @@ async def download_cog(
     # 5. Build filename
     filename = f"{slugify(dataset.record.title)}.cog.tif"
 
+    # 5b. Conditional request. fix(#1540 review P2): the ETag this route
+    # publishes is only half a cache contract — a client that stores it and
+    # revalidates has to be told "unchanged", or it re-downloads a COG it
+    # already has, which for a multi-GB raster is the entire cost the header
+    # was supposed to save.
+    #
+    # Before the audit row, and above the storage branching, for the reason
+    # HEAD skips the audit: a 304 transfers no bytes, so recording it as
+    # `dataset.download_cog` would misreport who downloaded what. It is also
+    # the order RFC 9110 section 13.2.2 requires — If-None-Match is evaluated
+    # ahead of Range and If-Range, so a client that already holds this exact
+    # representation gets 304 whether or not it asked for a range.
+    etag = _cog_etag(raster_asset)
+    if etag is not None and _if_none_match_matches(
+        request.headers.get("if-none-match"), etag
+    ):
+        return _cog_not_modified(etag)
+
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
     # uuid.UUID | None to match.
@@ -1127,34 +1145,14 @@ async def download_cog(
     )
 
     if raster_asset.storage_backend == "s3":
-        # fix(#1540 review P1): HEAD is answered here, from object metadata,
-        # instead of falling through to the presigned redirect below.
-        #
-        # `generate_presigned_get_url` signs `get_object`, and the HTTP method
-        # is part of an S3/MinIO SigV4 canonical request. A redirect-following
-        # client keeps HEAD across a 302 (RFC 9110 section 15.4 only rewrites
-        # the method for 303), so the redirected HEAD arrives at the bucket
-        # signed for the wrong verb and is refused. MEASURED against MinIO
-        # RELEASE.2025-09-07: a presigned get_object URL answers GET 200 and
-        # HEAD 403, and the mirror image — a head_object URL fetched with GET —
-        # returns `SignatureDoesNotMatch` in the body, which is the same
-        # rejection with a readable payload. That is the whole point of this
-        # PR failing on every S3 deployment: /vsicurl/ probes with HEAD.
-        #
-        # Answering directly rather than signing a second URL for `head_object`
-        # is the better of the two fixes: one round trip instead of two, no
-        # dependence on the client preserving its method across the hop, and
-        # HEAD then behaves identically on `local` and `s3` because it runs the
-        # same `_cog_object_size` and returns the same `_cog_head_response`.
-        # The GET keeps redirecting — the bytes still come from the bucket, and
-        # a presigned GET honours a Range once the client gets there.
-        if request.method == "HEAD":
-            total_bytes = await _cog_object_size(
-                storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
-            )
-            return _cog_head_response(total_bytes, filename, _cog_etag(raster_asset))
-        url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
-        return RedirectResponse(url=url, status_code=302)
+        return await _s3_cog_response(
+            request,
+            storage,
+            physical_asset_key=physical_asset_key,
+            filename=filename,
+            dataset_id=dataset_id,
+            etag=etag,
+        )
 
     return await _local_cog_response(
         request,
@@ -1162,7 +1160,112 @@ async def download_cog(
         physical_asset_key=physical_asset_key,
         filename=filename,
         dataset_id=dataset_id,
-        etag=_cog_etag(raster_asset),
+        etag=etag,
+    )
+
+
+async def _s3_cog_response(
+    request: Request,
+    storage,
+    *,
+    physical_asset_key: str,
+    filename: str,
+    dataset_id: uuid.UUID,
+    etag: str | None,
+) -> Response:
+    """The s3 backend: HEAD here, a stale resume here, everything else redirected.
+
+    fix(#1540 review P1): HEAD is answered from object metadata instead of
+    falling through to the presigned redirect. `generate_presigned_get_url`
+    signs `get_object`, and the HTTP method is part of an S3/MinIO SigV4
+    canonical request. A redirect-following client keeps HEAD across a 302 (RFC
+    9110 section 15.4 only rewrites the method for 303), so the redirected HEAD
+    arrives at the bucket signed for the wrong verb and is refused. MEASURED
+    against MinIO RELEASE.2025-09-07: a presigned get_object URL answers GET 200
+    and HEAD 403, and the mirror image — a head_object URL fetched with GET —
+    returns `SignatureDoesNotMatch`, the same rejection with a readable payload.
+    Every /vsicurl/ open begins with that probe.
+
+    fix(#1540 review P2): a resumed range whose validator no longer matches is
+    also answered here, and this is the one case where the bytes come through
+    this process. The bucket cannot be asked to decide it. MEASURED against the
+    same MinIO: a presigned GET carrying `Range` plus an `If-Range` that does
+    not match the object answers **206 anyway** — for the bucket's own ETag, for
+    a foreign one, and for `If-None-Match` as well. The precondition is simply
+    not evaluated. So a 302 here would hand a client resuming the OLD COG a 206
+    of the NEW one, which is the splice fix(#1540 review P2) exists to prevent,
+    and no redirect can prevent it: the client re-sends its `Range` across the
+    hop and nothing in a 302 can strip it.
+
+    Everything else still redirects, which is what keeps the design honest —
+    whole-object GETs and matching resumes never touch this process's
+    bandwidth, and they are the requests that carry the multi-GB payloads. The
+    proxied case needs a replacement to have landed mid-download, and its cost
+    is the same object the client was already downloading, moved from the
+    bucket's egress to ours.
+    """
+    if request.method == "HEAD":
+        total_bytes = await _cog_object_size(
+            storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+        )
+        return _cog_head_response(total_bytes, filename, etag)
+
+    if request.headers.get("range") and not _range_bound_to_this_version(
+        request.headers.get("if-range"), etag
+    ):
+        total_bytes = await _cog_object_size(
+            storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+        )
+        return StreamingResponse(
+            _iter_storage_range(storage, physical_asset_key, 0, total_bytes),
+            media_type="image/tiff",
+            headers={
+                **_cog_headers(filename, etag),
+                "Content-Length": str(total_bytes),
+            },
+        )
+
+    url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
+    return RedirectResponse(url=url, status_code=302)
+
+
+def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
+    """Does the client already hold this representation? RFC 9110 section 13.1.2.
+
+    WEAK comparison, unlike ``If-Range`` above, and the difference is not an
+    oversight: a cache revalidation only needs the two representations to be
+    equivalent, while a resumed range needs them byte-identical. The spec picks
+    a different comparison function for each, so this route does too.
+
+    ``*`` matches any current representation, which by the time this is called
+    is exactly the one whose ETag was passed in. A list is a list: a client may
+    hold several versions and offer all of them.
+    """
+    if not if_none_match:
+        return False
+    candidates = [tag.strip() for tag in if_none_match.split(",")]
+    if "*" in candidates:
+        return True
+    return any(_without_weak_prefix(tag) == etag for tag in candidates)
+
+
+def _without_weak_prefix(tag: str) -> str:
+    return tag[2:] if tag.startswith("W/") else tag
+
+
+def _cog_not_modified(etag: str) -> Response:
+    """304: the client's copy is current, so send it nothing else.
+
+    The ETag goes back per RFC 9110 section 15.4.5, and ``Accept-Ranges``
+    with it so a client revalidating before a resume does not have to
+    re-probe to learn ranges are available. No body and no ``Content-Length``:
+    starlette's ``init_headers`` skips the length for 304 (and 204) exactly as
+    the spec requires, which is why this response does not need the explicit
+    header ``_cog_head_response`` has to pass.
+    """
+    return Response(
+        status_code=status.HTTP_304_NOT_MODIFIED,
+        headers={"ETag": etag, "Accept-Ranges": "bytes"},
     )
 
 
@@ -1188,7 +1291,15 @@ def _cog_etag(raster_asset) -> str | None:
     None on rows ingested before the column was populated. A response then
     carries no validator, and ``_range_bound_to_this_version`` refuses to honour
     a conditional range rather than guessing — see its docstring.
+
+    None for the ``remote`` backend too, and for a different reason: those bytes
+    belong to a third-party origin this service redirects to and never reads.
+    Publishing a digest recorded at import time would claim an object is
+    unchanged on the strength of a measurement that may be months old, and the
+    origin already answers with validators of its own.
     """
+    if raster_asset.storage_backend == "remote":
+        return None
     sha = raster_asset.sha256
     return f'"{sha}"' if sha else None
 

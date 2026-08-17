@@ -759,6 +759,188 @@ async def test_head_cog_issues_exactly_one_s3_metadata_call(
     )
 
 
+async def test_a_stale_resume_on_s3_is_not_redirected(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """fix(#1540 review P2, round 4): the version binding reaches the s3 branch.
+
+    It landed in ``_local_cog_response`` first, which left the splice open on
+    the backend this PR was extended to support. The bucket cannot be asked to
+    close it: MEASURED against MinIO RELEASE.2025-09-07, a presigned GET
+    carrying `Range` plus a non-matching `If-Range` answers **206 anyway** (see
+    ``test_a_presigned_get_ignores_conditional_headers`` in
+    ``test_cog_s3_head_wire_1540.py``). Nor can a 302 strip the client's Range
+    on the way past. So the route answers this one case itself.
+
+    ``history == []`` is the assertion that separates the fix from the bug: a
+    redirect here, however the object store answers it afterwards, is a client
+    appending bytes 100-199 of the replacement to bytes 0-99 of the COG it
+    started with.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+    stale = f'"{raster_asset.sha256}"'
+
+    new_key = f"rasters/{uuid.uuid4().hex[:8]}/replacement.cog.tif"
+    await s3_storage.put(new_key, _REPLACEMENT_BYTES)
+    raster_asset.asset_uri = new_key
+    raster_asset.sha256 = hashlib.sha256(_REPLACEMENT_BYTES).hexdigest()
+    test_db_session.add(raster_asset)
+    await test_db_session.commit()
+
+    resumed = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "Range": "bytes=100-199", "If-Range": stale},
+        follow_redirects=True,
+    )
+
+    assert _COG_BYTES[100:200] != _REPLACEMENT_BYTES[100:200]
+    assert resumed.history == [], (
+        f"the stale resume was redirected to "
+        f"{[r.headers.get('location') for r in resumed.history]}. The bucket "
+        f"does not evaluate If-Range, so that redirect ends in a 206 of the "
+        f"replacement at the offsets of the COG the client started with."
+    )
+    assert resumed.status_code == 200, (
+        f"the stale resume returned {resumed.status_code}, not the whole "
+        f"current representation RFC 9110 section 13.1.5 calls for."
+    )
+    assert resumed.content == _REPLACEMENT_BYTES
+    assert "content-range" not in resumed.headers
+
+
+async def test_if_none_match_answers_304_on_s3_too(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """Revalidation is answered before the storage branching, so s3 gets it.
+
+    The 304 saves more here than anywhere else: the alternative is a redirect
+    the client follows to the bucket, and then the whole object it already
+    holds, billed as egress.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    conditional = {**admin_auth_header, "If-None-Match": f'"{raster_asset.sha256}"'}
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    revalidated = await client.get(url, headers=conditional, follow_redirects=False)
+    probed = await client.head(url, headers=conditional, follow_redirects=False)
+
+    assert revalidated.status_code == 304, (
+        f"a revalidating GET on s3 returned {revalidated.status_code}; a 302 "
+        f"here sends the client to the bucket for bytes it already has."
+    )
+    assert probed.status_code == 304, (
+        f"a revalidating HEAD on s3 returned {probed.status_code}"
+    )
+    assert revalidated.headers.get("etag") == f'"{raster_asset.sha256}"'
+
+
+async def test_a_bucket_issued_validator_is_not_recognized_and_fails_safe(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """The s3 asymmetry this design accepts, pinned so it is a decision.
+
+    A client can pick up two different validators for one resource here. A HEAD
+    is answered by this route and carries the COG's SHA-256; a ranged GET is
+    redirected, so the 206 the client reads is the bucket's and carries the
+    bucket's own ETag, which is an MD5 (or a multipart digest) and never equal
+    to ours.
+
+    A resume carrying the bucket's tag is therefore unrecognized, and
+    unrecognized means refused: the whole current object, not a 206. That is the
+    safe direction and it is not free — the client re-downloads through this
+    process rather than resuming from the bucket. Closing that gap would mean
+    either serving every s3 range from here or publishing the bucket's ETag
+    instead of a content digest, and both are larger changes than the splice
+    this round is fixing.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    resumed = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            # What a bucket reports: an MD5 of the object, not our digest.
+            "If-Range": '"d41d8cd98f00b204e9800998ecf8427e"',
+        },
+        follow_redirects=False,
+    )
+
+    assert resumed.status_code == 200, (
+        f"a resume carrying a validator this route did not issue returned "
+        f"{resumed.status_code}; it cannot be matched, so it cannot authorize "
+        f"a range."
+    )
+    assert resumed.content == _COG_BYTES
+
+
+async def test_s3_keeps_redirecting_everything_that_is_not_a_stale_resume(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """The vacuity guard for the branch above: s3 is not now a proxy.
+
+    Whole-object GETs and valid resumes carry the multi-GB payloads, and they
+    must keep coming from the bucket. A fix that answered every s3 GET from
+    this process would pass the splice test and put every COG download through
+    the API's bandwidth, which is the cost the redirect design exists to avoid.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    whole = await client.get(url, headers=admin_auth_header, follow_redirects=False)
+    unconditional = await client.get(
+        url,
+        headers={**admin_auth_header, "Range": "bytes=0-99"},
+        follow_redirects=False,
+    )
+    valid_resume = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            "If-Range": f'"{raster_asset.sha256}"',
+        },
+        follow_redirects=False,
+    )
+
+    for name, resp in (
+        ("whole-object GET", whole),
+        ("unconditional range", unconditional),
+        ("resume with a matching validator", valid_resume),
+    ):
+        assert resp.status_code == 302, (
+            f"the {name} on s3 returned {resp.status_code} instead of a "
+            f"redirect; those bytes must come from the bucket, not through "
+            f"this process."
+        )
+        assert "location" in resp.headers
+
+
 async def test_head_cog_remote_ssrf_denial_matches_get(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
@@ -1003,7 +1185,7 @@ async def test_unsatisfiable_range_returns_416_with_the_size(
     hand a client that asked for 1 KB a whole COG it will splice into the wrong
     offset.
     """
-    dataset, _ = local_cog
+    dataset, raster_asset = local_cog
     past_eof = len(_COG_BYTES) + 10
 
     resp = await client.get(
@@ -1020,6 +1202,11 @@ async def test_unsatisfiable_range_returns_416_with_the_size(
     assert resp.headers.get("accept-ranges") == "bytes", (
         "the client that most needs to know it may retry with a corrected "
         "range is the one that just sent a bad one"
+    )
+    assert resp.headers.get("etag") == f'"{raster_asset.sha256}"', (
+        "the 416 reports a size, so it has to say which version that size "
+        "belongs to; a client retrying against it can otherwise not tell the "
+        "object changed again in between"
     )
     assert "content-disposition" not in resp.headers, (
         "This response's body is the JSON error, not the raster. Labelling it "
@@ -1582,6 +1769,195 @@ async def test_a_row_with_no_digest_refuses_a_conditional_range(
         f"{conditional.status_code}; unverifiable must not mean honoured."
     )
     assert conditional.content == _COG_BYTES
+
+
+async def test_if_none_match_answers_304_for_every_request_shape(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """A revalidating client must not be told to download the COG again.
+
+    Publishing an ETag without evaluating ``If-None-Match`` is the expensive
+    half of a cache contract: the client dutifully stores the validator, offers
+    it back, and gets another 200 with a multi-GB body it already has on disk.
+
+    All three shapes, including the ranged one. RFC 9110 section 13.2.2 puts
+    If-None-Match ahead of Range and If-Range in the evaluation order, so a
+    client holding this exact representation is told so whether or not it asked
+    for a slice of it.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+    validator = f'"{raster_asset.sha256}"'
+    conditional = {**admin_auth_header, "If-None-Match": validator}
+
+    head = await client.head(url, headers=conditional)
+    whole = await client.get(url, headers=conditional)
+    sliced = await client.get(url, headers={**conditional, "Range": "bytes=0-99"})
+
+    for name, resp in (("HEAD", head), ("GET", whole), ("ranged GET", sliced)):
+        assert resp.status_code == 304, (
+            f"a revalidating {name} got {resp.status_code}; the client already "
+            f"holds this representation and is now re-downloading it."
+        )
+        assert resp.content == b"", f"the 304 for {name} carried a body"
+        assert resp.headers.get("etag") == validator, (
+            f"the 304 for {name} dropped the ETag; RFC 9110 section 15.4.5 "
+            f"wants it back so the cache can restamp its entry."
+        )
+        assert "content-length" not in resp.headers, (
+            f"the 304 for {name} carried content-length="
+            f"{resp.headers.get('content-length')!r}"
+        )
+
+
+async def test_the_two_conditionals_use_their_own_comparison_functions(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """``W/`` revalidates a cache. It does not authorize a resume.
+
+    One header, two rules, and the split is the specification's, not a
+    shortcut: RFC 9110 evaluates ``If-None-Match`` with weak comparison
+    (section 13.1.2) because a cache only needs equivalence, and ``If-Range``
+    with strong comparison (section 13.1.5) because a resumed range needs the
+    two representations to be byte-identical at the offsets it skipped.
+
+    Asserting both in one test is the point. Implementing either comparison
+    once and reusing it for the other passes half of this and fails the other.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+    weak = f'W/"{raster_asset.sha256}"'
+
+    revalidated = await client.get(
+        url, headers={**admin_auth_header, "If-None-Match": weak}
+    )
+    resumed = await client.get(
+        url,
+        headers={**admin_auth_header, "Range": "bytes=100-199", "If-Range": weak},
+    )
+
+    assert revalidated.status_code == 304, (
+        f"a weak If-None-Match returned {revalidated.status_code}; weak "
+        f"comparison is what caches are supposed to get."
+    )
+    assert resumed.status_code == 200, (
+        f"a weak If-Range returned {resumed.status_code}; strong comparison "
+        f"means a weak tag can never authorize a resume."
+    )
+
+
+async def test_a_star_if_none_match_revalidates_and_a_foreign_one_downloads(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """``*`` matches any current representation; anything else must not.
+
+    The second half is the vacuity guard for the whole 304 path. An
+    implementation that answered 304 to every conditional request would pass
+    the tests above and quietly break every client that holds a stale copy,
+    which is the population the header exists for.
+    """
+    dataset, _ = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    star = await client.get(url, headers={**admin_auth_header, "If-None-Match": "*"})
+    stale = await client.get(
+        url, headers={**admin_auth_header, "If-None-Match": '"a-cog-from-last-week"'}
+    )
+
+    assert star.status_code == 304, f"If-None-Match: * returned {star.status_code}"
+    assert stale.status_code == 200, (
+        f"a client holding an OLD validator got {stale.status_code}; it needs "
+        f"the current bytes, not a 304 telling it the stale copy is fine."
+    )
+    assert stale.content == _COG_BYTES
+
+
+async def test_a_304_writes_no_download_audit_row(
+    client: AsyncClient, admin_auth_header: dict, local_cog, test_db_session
+):
+    """Revalidation is not a download, for the same reason a probe is not.
+
+    Sibling of ``test_head_cog_does_not_write_a_download_audit_row``. Nothing
+    is transferred, so a ``dataset.download_cog`` row would misreport who
+    downloaded what, and a browser that revalidates on every page view would
+    inflate the count without moving a byte.
+    """
+    from app.modules.audit.models import AuditLog
+
+    dataset, raster_asset = local_cog
+
+    async def _download_rows() -> int:
+        result = await test_db_session.execute(
+            select(AuditLog).where(
+                AuditLog.action == "dataset.download_cog",
+                AuditLog.resource_id == dataset.id,
+            )
+        )
+        return len(result.scalars().all())
+
+    assert await _download_rows() == 0, "precondition: no audit rows yet"
+
+    revalidated = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "If-None-Match": f'"{raster_asset.sha256}"'},
+    )
+
+    assert revalidated.status_code == 304
+    assert await _download_rows() == 0, (
+        "a 304 wrote a dataset.download_cog audit row. Nothing was downloaded."
+    )
+
+
+async def test_a_remote_cog_publishes_no_validator(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """The `remote` backend answers for bytes this service does not hold.
+
+    Its asset is a third-party URL that this route redirects to and never
+    reads. A digest recorded at import time would claim an object is unchanged
+    on the strength of a months-old measurement, so no ETag is published and no
+    conditional is evaluated: the origin at the other end of the redirect
+    answers with validators of its own.
+    """
+    dataset, _ = await _raster_dataset(
+        test_db_session,
+        storage_backend="remote",
+        asset_uri="https://example.com/remote.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    head = await client.head(url, headers=admin_auth_header, follow_redirects=False)
+    revalidated = await client.get(
+        url,
+        headers={**admin_auth_header, "If-None-Match": "*"},
+        follow_redirects=False,
+    )
+    resumed = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            "If-Range": '"anything-at-all"',
+        },
+        follow_redirects=False,
+    )
+
+    assert (resumed.status_code, "etag" in resumed.headers) == (302, False), (
+        f"a conditional range on the remote branch answered "
+        f"{resumed.status_code}; range semantics there belong to the origin "
+        f"that owns the bytes, and this service publishes no validator to "
+        f"evaluate them against."
+    )
+    assert "etag" not in head.headers, (
+        f"the remote branch published etag={head.headers.get('etag')!r} for "
+        f"bytes it neither stores nor hashes."
+    )
+    assert revalidated.status_code == 302, (
+        f"a conditional GET on the remote branch returned "
+        f"{revalidated.status_code}; answering 304 there vouches for a "
+        f"third-party object this service has not looked at."
+    )
 
 
 # ---------------------------------------------------------------------------

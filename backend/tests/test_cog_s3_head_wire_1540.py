@@ -56,6 +56,7 @@ claim about real signature enforcement gets re-measured on demand.
 """
 
 import asyncio
+import hashlib
 import os
 import socket
 import uuid
@@ -134,8 +135,16 @@ async def s3_cog(client, test_db_session, real_s3_storage):
     test_db_session.add(dataset)
     await test_db_session.flush()
     asset_uri = f"rasters/{dataset.id}/{uuid.uuid4().hex[:8]}/src.cog.tif"
+    # The digest ingest would have stamped. Without it the route publishes no
+    # ETag, and the resume test below would pass on the digest-less rule
+    # instead of on the validator it says it is exercising.
     test_db_session.add(
-        RasterAsset(dataset_id=dataset.id, asset_uri=asset_uri, storage_backend="s3")
+        RasterAsset(
+            dataset_id=dataset.id,
+            asset_uri=asset_uri,
+            storage_backend="s3",
+            sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+        )
     )
     await test_db_session.flush()
     await test_db_session.commit()
@@ -230,6 +239,123 @@ async def test_head_on_an_s3_backed_cog_answers_200_over_the_wire(uvicorn_url, s
     )
     assert head.headers.get("content-length") == str(len(_COG_BYTES))
     assert head.headers.get("accept-ranges") == "bytes"
+
+
+async def test_a_presigned_get_ignores_conditional_headers(real_s3_storage):
+    """The premise of the round-4 fix: the bucket does not evaluate If-Range.
+
+    The redirect design would be free of the splice hazard if a presigned GET
+    honoured the ``If-Range`` a resuming client re-sends across the hop. It does
+    not. MEASURED here rather than assumed, because the whole decision to answer
+    a stale resume from the API process instead of redirecting rests on it.
+
+    Every row below is a 206 against MinIO RELEASE.2025-09-07: the bucket's own
+    ETag, a foreign ETag, and ``If-None-Match`` as well. The precondition is
+    simply not part of the answer.
+    """
+    import httpx
+
+    key = f"rasters/{uuid.uuid4().hex[:8]}/ifrange.cog.tif"
+    await real_s3_storage.put(key, _COG_BYTES)
+    presigned = real_s3_storage.generate_presigned_get_url(key, expiration=600)
+    bucket_etag = real_s3_storage.client.head_object(Bucket=_BUCKET, Key=key)["ETag"]
+
+    conditionals = {
+        "the bucket's own etag": bucket_etag,
+        "a foreign etag (what this route publishes)": '"' + "0" * 64 + '"',
+    }
+    async with httpx.AsyncClient() as raw:
+        plain = await raw.get(presigned, headers={"Range": "bytes=100-199"})
+        answers = {
+            name: await raw.get(
+                presigned, headers={"Range": "bytes=100-199", "If-Range": tag}
+            )
+            for name, tag in conditionals.items()
+        }
+
+    assert plain.status_code == 206, (
+        f"precondition: an unconditional range should be a 206, got "
+        f"{plain.status_code}. This endpoint cannot stand in for S3 here."
+    )
+    for name, resp in answers.items():
+        assert resp.status_code == 206, (
+            f"a presigned GET with If-Range set to {name} returned "
+            f"{resp.status_code}. If this is ever a 200, the bucket has started "
+            f"evaluating If-Range and the API no longer has to answer a stale "
+            f"resume itself."
+        )
+
+
+async def test_a_stale_resume_over_the_wire_is_not_spliced(
+    uvicorn_url, s3_cog, real_s3_storage, test_db_session
+):
+    """The whole failure, end to end, with a client that follows redirects.
+
+    This is the shape a resumable downloader has: a 206 for the first leg, a
+    connection loss, a raster replacement, then a resume carrying the validator
+    it started with. Through `httpx.ASGITransport` a redirect goes back into the
+    same app and dies at the router; over a socket against a real bucket it
+    reaches MinIO, which serves the replacement's bytes at the old offsets
+    because it does not evaluate If-Range. Only this arrangement can show that.
+
+    The validator is taken from the HEAD on purpose, and the assertion that it
+    is the route's own digest is load-bearing. On this backend the first leg is
+    a redirect, so the 206 the client reads is MinIO's and carries MinIO's ETag.
+    Resuming with THAT also ends safely, because the route does not recognize it
+    and refuses the range, which means a test that used whichever ETag came back
+    would pass without ever consulting the version binding under test.
+    """
+    import httpx
+    from sqlalchemy import text
+
+    dataset_id, token = s3_cog
+    url = f"{uvicorn_url}/datasets/{dataset_id}/download/cog?token={token}"
+    replacement = bytes(range(255, -1, -1)) * 800
+
+    async with httpx.AsyncClient(follow_redirects=True) as raw:
+        first = await raw.get(url, headers={"Range": "bytes=0-99"})
+        assert first.status_code == 206, (
+            f"precondition: the first leg should be a 206, got {first.status_code}"
+        )
+        assert first.content == _COG_BYTES[:100]
+
+        validator = (await raw.head(url)).headers["etag"]
+        assert validator == f'"{hashlib.sha256(_COG_BYTES).hexdigest()}"', (
+            f"the HEAD published {validator!r}, which is not this route's own "
+            f"digest of the stored COG, so the resume below would exercise the "
+            f"unrecognized-validator path instead of the stale-validator one."
+        )
+
+        new_key = f"rasters/{uuid.uuid4().hex[:8]}/replacement.cog.tif"
+        await real_s3_storage.put(new_key, replacement)
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.raster_assets SET asset_uri = :uri, sha256 = :sha "
+                "WHERE dataset_id = :id"
+            ),
+            {
+                "uri": new_key,
+                "sha": hashlib.sha256(replacement).hexdigest(),
+                "id": dataset_id,
+            },
+        )
+        await test_db_session.commit()
+
+        resumed = await raw.get(
+            url, headers={"Range": "bytes=100-199", "If-Range": validator}
+        )
+
+    assert _COG_BYTES[100:200] != replacement[100:200]
+    assert resumed.status_code == 200, (
+        f"the resumed leg returned {resumed.status_code} after "
+        f"{len(resumed.history)} redirect(s). A 206 here is 100 bytes of the "
+        f"replacement about to be appended to 100 bytes of the COG this client "
+        f"started with, and neither response reports a problem."
+    )
+    assert resumed.content == replacement, (
+        f"the resume returned {len(resumed.content)} bytes; ignoring the stale "
+        f"Range means serving the complete current representation."
+    )
 
 
 async def test_a_presigned_get_url_really_does_reject_head(real_s3_storage):

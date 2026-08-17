@@ -3416,7 +3416,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # corrupt file with no error anywhere, so the explanation is on the two helpers
     # and at the branch. If this file grows again, the DCAT feed handlers remain
     # the natural split.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1414,
+    #
+    # +111 for the two halves of that binding the first pass missed. _s3_cog_response
+    # is an extraction, not new branching: the s3 block moved out of download_cog so
+    # it could evaluate If-Range before redirecting, which it has to do because the
+    # bucket does not (MEASURED: a presigned GET answers 206 for a non-matching
+    # If-Range) and a 302 cannot strip the client's Range on the way past. The rest
+    # is _if_none_match_matches and _cog_not_modified, so the ETag this route
+    # publishes can end a revalidation with 304 instead of another multi-GB body.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1525,
 }
 
 
