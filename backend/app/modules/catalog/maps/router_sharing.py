@@ -166,21 +166,14 @@ async def get_shared_map_endpoint(
         embed_token=embed_token,
         request=request,
     )
-    # fix(#1518): CAPABILITY obligation, applied once for all three outcomes.
-    # The embed token is the only thing here that can authorize independently of
-    # who is asking; the share token in the path selects the map but does not
-    # vouch for a dead session bearer. A missing or revoked link was authorized
-    # by nothing either, so all three arms below are "no capability authorized"
-    # and the rule applies before any of them.
-    #
-    # fix(#1518 codex P2 round 3): previously this ran only after a SUCCESSFUL
-    # unpack, so the 404 and 410 answered a caller whose credential was dead
-    # without ever telling them — the silent scope reduction #1518 is about,
-    # wearing a resource-status code.
-    embed_authorized = isinstance(result, tuple) and result[3]
-    if not embed_authorized:
-        reject_unresolvable_credentials(request, user)
-
+    # fix(#1518 codex P2 round 4): the 404 and 410 arms are EXEMPT from the
+    # credential rule. It stops a dead credential being absorbed into an answer
+    # it could have changed, and here it could not: `_validate_share_token`
+    # takes no user, and the second `None` arm turns on a visibility check read
+    # through an unfiltered `get_map`, so an admin with a perfect bearer gets
+    # the same 404 and 410 as an anonymous caller. The share token ADDRESSES the
+    # resource; identity only widens which layers come back. A 401 also costs the
+    # viewer their one actionable message (`PublicViewerPage.tsx:84` has a 410 card).
     if result is None:
         raise HTTPException(status_code=404, detail="Shared map not found")
     if result == "expired":
@@ -188,7 +181,14 @@ async def get_shared_map_endpoint(
             status_code=status.HTTP_410_GONE,
             detail="This shared map link has expired or been revoked",
         )
-    map_data, layers, allowed_origins, _embed_authorized = result
+    map_data, layers, allowed_origins, embed_authorized = result
+
+    # The success arm IS covered: identity decides which layers come back, so a
+    # bearer that failed to resolve silently narrows the response. An embed token
+    # that authorized a real scope makes it noise; anything else 401s.
+    if not embed_authorized:
+        reject_unresolvable_credentials(request, user)
+
     response.headers["Content-Security-Policy"] = _build_frame_ancestors(
         allowed_origins
     )

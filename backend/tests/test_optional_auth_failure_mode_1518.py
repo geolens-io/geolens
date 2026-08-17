@@ -1000,11 +1000,11 @@ class TestEveryNoCapabilityExitAppliesTheRule:
 
     The classes, and the handler each is exercised through:
 
-    1. capability DECLINED        — invalid embed token          (vector tiles, raster tiles, features, shared map)
+    1. capability DECLINED        — invalid embed token          (vector tiles, raster tiles, features)
     2. signed template MISSING    — non-public tile, no sig       (vector tiles)
     3. signed template INVALID    — non-public tile, bad sig      (vector tiles)
-    4. resource ABSENT            — no such dataset / share link  (vector tiles, raster tiles, features, shared map)
-    5. resource REVOKED           — expired share link            (shared map)
+    4. resource ABSENT            — no such dataset               (vector tiles, raster tiles, features)
+    5. resource REVOKED           — expired share link            (EXEMPT, see below)
     6. dataset SHAPE refused      — cluster tiles on a non-point  (cluster tiles)
 
     Round 4 filled in the two handlers the table named but never exercised —
@@ -1014,6 +1014,16 @@ class TestEveryNoCapabilityExitAppliesTheRule:
     tile path and class 6 were found by walking the exits: both ran BEFORE
     ``_authorize_vector_tile_request``, so the rule never reached them, and the
     raster sibling already answered 401 for the same request shape.
+
+    Round 4 also took the shared map back OUT of classes 4 and 5, which round 3
+    had put in. The test for an exit has to ask whether a credential could have
+    changed that exit's answer, and on a missing or revoked share link it could
+    not: the lookup takes no user at all. Turning those into 401s refused a
+    caller for a failure that was not theirs and cost the viewer the one error
+    message that tells them what to do about it. The rule still applies to that
+    endpoint's SUCCESS arm, where identity really does decide the response, and
+    ``TestCapabilityOutranksADeadCredential`` row 2b is what keeps the exemption
+    from widening into a waiver.
 
     Every row sends a dead bearer, because that is the only caller whose answer
     changes. A caller with no credential still gets the resource answer, which
@@ -1092,7 +1102,14 @@ class TestEveryNoCapabilityExitAppliesTheRule:
     async def test_class1_shared_map_invalid_embed_token_on_missing_link(
         self, client: AsyncClient
     ):
-        """Declined capability AND an absent resource — the rule wins."""
+        """Declined capability AND an absent resource: the RESOURCE answer wins.
+
+        The share token is a capability that addresses the resource, and no
+        credential could have made this link exist, so there is nothing for the
+        rule to refuse. See the handler comment in router_sharing.py, and
+        test_row2b_dead_bearer_with_no_capability_is_refused for the arm where a
+        dead bearer on a LIVE link still earns the 401.
+        """
         resp = await client.get(
             "/maps/shared/no-such-share-token",
             headers={
@@ -1100,7 +1117,7 @@ class TestEveryNoCapabilityExitAppliesTheRule:
                 "X-Embed-Token": "et_not-a-real-token",
             },
         )
-        assert resp.status_code == 401, resp.text
+        assert resp.status_code == 404, resp.text
 
     async def test_class1_vector_tile_invalid_embed_token(
         self, client: AsyncClient, test_db_session
@@ -1213,11 +1230,17 @@ class TestEveryNoCapabilityExitAppliesTheRule:
         assert resp.status_code == 401, resp.text
 
     async def test_class4_shared_map_absent_link(self, client: AsyncClient):
+        """The exemption, pinned so it cannot be flipped back without argument.
+
+        An absent share link answers 404 to every caller alike, so the credential
+        rule has nothing to add. What keeps this honest is that the SAME endpoint
+        does refuse a dead bearer on a live link (row 2b).
+        """
         resp = await client.get(
             "/maps/shared/no-such-share-token",
             headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
         )
-        assert resp.status_code == 401, resp.text
+        assert resp.status_code == 404, resp.text
 
     async def test_class4_vector_tile_absent_dataset(self, client: AsyncClient):
         """Not named by codex — the tile path resolves the table BEFORE authorizing.
@@ -1299,16 +1322,20 @@ class TestEveryNoCapabilityExitAppliesTheRule:
         )
         assert revoke.status_code == 204, revoke.text
 
-        # A credential-less caller still learns the link is gone...
+        # A credential-less caller learns the link is gone...
         anon = await client.get(f"/maps/shared/{token}")
         assert anon.status_code in (404, 410), anon.text
 
-        # ...and a caller with a dead credential is told about the credential.
+        # ...and so does a caller whose credential happens to be dead. The 410
+        # is the answer the viewer can act on, and the frontend has a card for
+        # it (PublicViewerPage.tsx:84); a 401 would replace "ask the owner for a
+        # new link" with "your session expired", which is both wrong and, with
+        # useSharedMap's retry: false, final.
         resp = await client.get(
             f"/maps/shared/{token}",
             headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
         )
-        assert resp.status_code == 401, resp.text
+        assert resp.status_code == anon.status_code, resp.text
 
     # -- class 6: the dataset is the wrong shape for the route ---------------
 
