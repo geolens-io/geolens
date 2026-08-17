@@ -212,7 +212,18 @@ class ExportArtifact:
         observed two different tags for two conversions of one unchanged
         dataset.
         """
-        return f'"{self.digest}"'
+        return strong_etag(self.digest)
+
+
+def strong_etag(digest: str) -> str:
+    """The quoted strong entity-tag for a set of export bytes.
+
+    fix(#1532 review r18): one place, because two responses now name bytes by
+    digest — the stored artifact through ``ExportArtifact.etag``, and the
+    conversion served directly when publication does not happen. A validator
+    formatted twice is one that can drift.
+    """
+    return f'"{digest}"'
 
 
 def _tenant_segment() -> str:
@@ -491,8 +502,15 @@ async def store(
     file_path: str,
     filename: str,
     media_type: str,
+    digest: str | None = None,
+    size: int | None = None,
 ) -> ExportArtifact | None:
     """Publish a freshly converted file. One ``put``, nothing rewritten.
+
+    ``digest`` and ``size`` may be supplied by a caller that has already run
+    ``digest_and_size`` — the route does, so the validator it evaluates
+    preconditions against exists whether or not this publishes (fix(#1532
+    review r18)). Left out, they are computed here.
 
     Publishing is a single write to a key nothing else can be using, so two
     builders racing the same selection simply both succeed and readers take the
@@ -511,7 +529,8 @@ async def store(
     """
     global _last_sweep_at
     try:
-        digest, size = await _digest_and_size(file_path)
+        if digest is None or size is None:
+            digest, size = await digest_and_size(file_path)
         # fix(#1532 review, internal): do not publish if a fresh artifact has
         # appeared while this request was converting. Every client arriving
         # during a slow build misses and builds its own, so the overlap is the
@@ -736,8 +755,14 @@ async def _fits_in_budget(size: int) -> bool:
     return True
 
 
-async def _digest_and_size(file_path: str) -> tuple[str, int]:
+async def digest_and_size(file_path: str) -> tuple[str, int]:
     """SHA-256 and byte length of a converted export, read in bounded chunks.
+
+    Public because the route calls it BEFORE ``store`` (fix(#1532 review r18)):
+    the digest is the response's validator, and a client's ``If-Match`` or
+    ``If-None-Match`` has to be answered from what was built even when
+    publication does not happen — a full store, a lost race, an outage. Passed
+    back into ``store`` so the file is hashed once.
 
     Chunked because an export can be gigabytes and this runs on the API worker.
     Off the event loop for the same reason the shapefile zip is (#435): hashing

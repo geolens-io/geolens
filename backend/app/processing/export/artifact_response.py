@@ -187,6 +187,7 @@ def temp_file_response(
     *,
     filename: str,
     media_type: str,
+    etag: str | None,
     background: BackgroundTask | None = None,
 ) -> Response:
     """Serve a just-converted file whole, without letting starlette see the Range.
@@ -204,18 +205,29 @@ def temp_file_response(
     sends, so two responses for one URL disagreed about which validators the
     resource even has.
 
+    fix(#1532 review r18): ``etag`` is the SAME validator the artifact path
+    sends — the digest of the bytes in this file, formatted by
+    ``artifact_cache.strong_etag`` — so a client that takes it from here and
+    offers it back on ``If-None-Match``, ``If-Match`` or ``If-Range`` is
+    answered from the bytes it names, whichever path the next request lands on.
+    None when the file could not be hashed, and then no validator goes out at
+    all rather than one that names nothing.
+
     A 200 with the complete representation is the only safe answer here: this
     process cannot know which bytes the client already holds, and nothing in the
     request can tell it.
     """
+    headers = {
+        "accept-ranges": "bytes",
+        "content-disposition": file_response_content_disposition(filename),
+        "content-length": str(os.path.getsize(file_path)),
+    }
+    if etag is not None:
+        headers["etag"] = etag
     return StreamingResponse(
         _iter_file(file_path),
         media_type=media_type,
-        headers={
-            "accept-ranges": "bytes",
-            "content-disposition": file_response_content_disposition(filename),
-            "content-length": str(os.path.getsize(file_path)),
-        },
+        headers=headers,
         background=background,
     )
 

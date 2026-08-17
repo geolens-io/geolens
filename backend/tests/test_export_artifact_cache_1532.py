@@ -796,7 +796,7 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
 
     arrived = asyncio.Event()
     waiting = 0
-    real_digest = cache._digest_and_size
+    real_digest = cache.digest_and_size
 
     async def _barriered(file_path):
         nonlocal waiting
@@ -808,7 +808,7 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
             await asyncio.wait_for(arrived.wait(), timeout=5)
         return result
 
-    monkeypatch.setattr(cache, "_digest_and_size", _barriered)
+    monkeypatch.setattr(cache, "digest_and_size", _barriered)
 
     async def _publish(payload: bytes):
         with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -1072,7 +1072,7 @@ async def test_a_cancel_during_publication_does_not_strand_the_conversion(
     async def _cancelled(file_path):
         raise asyncio.CancelledError()
 
-    monkeypatch.setattr(cache, "_digest_and_size", _cancelled)
+    monkeypatch.setattr(cache, "digest_and_size", _cancelled)
 
     # The ASGI stack turns the cancel into "No response returned" by the time it
     # reaches httpx, so the abort is asserted by NAME rather than by type — and
@@ -1421,6 +1421,11 @@ async def test_the_fallback_never_answers_a_range_with_a_slice(
     resource has — and #1532 measured that ETag changing between two conversions
     of unchanged data, so a client that trusted it would resume across a
     rebuild.
+
+    fix(#1532 review r18): the fallback DOES send an ETag now — the digest of
+    the bytes it streams, the same validator the artifact path sends for the
+    same bytes — so it is asserted equal to that digest rather than absent.
+    Last-Modified stays absent: nothing on either path sends one.
     """
 
     def _down():
@@ -1440,10 +1445,12 @@ async def test_the_fallback_never_answers_a_range_with_a_slice(
     )
     assert resp.content == conversions.body
     assert "content-range" not in resp.headers
-    assert "etag" not in resp.headers, (
-        f"the fallback published etag={resp.headers.get('etag')!r}, which the "
-        f"artifact path never sends and which #1532 measured changing between "
-        f"two conversions of identical data"
+    assert resp.headers.get("etag") == (
+        f'"{hashlib.sha256(conversions.body).hexdigest()}"'
+    ), (
+        f"the fallback published etag={resp.headers.get('etag')!r}; the only "
+        f"validator this path may send is the digest of the bytes it streams, "
+        f"which is what the artifact path sends for the same bytes"
     )
     assert "last-modified" not in resp.headers
 
@@ -1850,7 +1857,7 @@ async def test_two_publishers_may_overshoot_and_the_horizon_reclaims_it(
 
     arrived = asyncio.Event()
     waiting = 0
-    real_digest = cache._digest_and_size
+    real_digest = cache.digest_and_size
 
     async def _barriered(file_path):
         nonlocal waiting
@@ -1862,7 +1869,7 @@ async def test_two_publishers_may_overshoot_and_the_horizon_reclaims_it(
             await asyncio.wait_for(arrived.wait(), timeout=5)
         return result
 
-    monkeypatch.setattr(cache, "_digest_and_size", _barriered)
+    monkeypatch.setattr(cache, "digest_and_size", _barriered)
 
     async def _publish(tag: bytes):
         with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -3486,3 +3493,101 @@ async def test_a_rebuild_answering_416_releases_its_directory_and_is_not_audited
         "a rebuild answering 416 wrote a dataset.export row. Nothing was "
         "transferred, and the same request against a cache hit writes nothing."
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r18
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "header,value,expected",
+    [
+        ("If-None-Match", "current", 304),
+        ("If-Match", "stale", 412),
+        (None, None, 200),
+    ],
+)
+async def test_the_fallback_path_carries_and_evaluates_the_validator(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+    header,
+    value,
+    expected,
+):
+    """When publication does not happen, preconditions are still answered.
+
+    fix(#1532 review r18): `store()` returns None on a full store, a lost race
+    or an outage, and the route then streams the conversion it has in hand.
+    r10 put `If-Match`/`If-None-Match` on the STORED branch only, so on this one
+    an expired-but-byte-identical export with a matching `If-None-Match` was
+    retransmitted whole, and a stale `If-Match` was ignored rather than
+    refused. The validator is now the digest of the built file, computed once
+    and handed to `store`, so it exists whether or not the artifact is kept —
+    and the fallback 200 sends it, so the next conditional request has
+    something to name.
+
+    Forced onto the fallback by exhausting the budget AFTER the first build,
+    and `conversions.count == 2` pins that the second request really rebuilt:
+    on a hit the artifact's own ETag would answer and this test would pass
+    against the defect.
+    """
+    from app.modules.audit.models import AuditLog
+    from app.processing.export import artifact_cache as cache
+    from sqlalchemy import func, select
+
+    dataset = await _dataset(test_db_session, f"Fallback {expected}")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200, first.text
+    etag = first.headers["etag"]
+    assert conversions.count == 1
+
+    async def _export_rows() -> int:
+        return (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "dataset.export")
+                .where(AuditLog.resource_id == str(dataset.id))
+            )
+        ).scalar_one()
+
+    before = await _export_rows()
+
+    headers = dict(admin_auth_header)
+    if header is not None:
+        headers[header] = etag if value == "current" else '"an-export-from-last-week"'
+
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 0)  # nothing fits: store() -> None
+    cache._ttl_seconds = lambda: 0  # force the next request to rebuild
+    try:
+        resp = await client.get(url, headers=headers)
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert resp.status_code == expected, resp.text
+    if expected == 200:
+        assert resp.headers.get("etag") == etag, (
+            "the fallback 200 sent no validator (or a different one), so a client "
+            "on this path can never revalidate or resume against the bytes it got"
+        )
+        assert resp.headers.get("content-encoding") != "gzip"
+        assert await _export_rows() == before + 1
+    else:
+        assert resp.headers.get("etag") == etag
+        assert await _export_rows() == before, (
+            f"a fallback answering {expected} wrote a dataset.export row"
+        )
+
+    leftovers = [
+        name
+        for name in os.listdir(conversions.root)
+        if os.path.isdir(os.path.join(conversions.root, name))
+    ]
+    assert leftovers == [], f"the conversion directory {leftovers} was stranded"

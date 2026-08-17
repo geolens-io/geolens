@@ -710,35 +710,53 @@ async def export_dataset_endpoint(
     # directory that can be multiple gigabytes until the four-hour orphan sweep.
     # Repeated cancels fill the staging volume. Same distinction fix(#1550)
     # turned on: CancelledError is not an Exception.
+    #
+    # fix(#1532 review r18): hashed HERE, before `store`, and handed in. The
+    # digest is the response's validator, and the preconditions below have to
+    # be answered from what was built whether or not it gets published — a full
+    # store, a lost race with another publisher, an outage. Evaluating them only
+    # on the stored branch (r10) left the fallback streaming a byte-identical
+    # export to a client whose `If-None-Match` named it, and ignoring a stale
+    # `If-Match` instead of refusing. A hash that fails is treated the way a
+    # store that fails is: the download still goes out, with no validator, and
+    # a specific tag against no validator is refused rather than guessed — the
+    # same call the shared helpers make for a COG row with no stored digest.
     try:
+        try:
+            digest, size = await artifact_cache.digest_and_size(file_path)
+        except Exception:  # broad: an unhashable file still downloads
+            digest, size = None, None
         stored = await artifact_cache.store(
             dataset_id,
             selection,
             file_path=file_path,
             filename=filename,
             media_type=media_type,
+            digest=digest,
+            size=size,
         )
     except BaseException:
         _cleanup_export(temp_dir)
         raise
-    if stored is not None:
-        # fix(#1532 review r10): the same preconditions the hit path evaluates.
-        # They were only on that branch, so a client whose validator matched
-        # what this request just built — the ordinary case, since the export is
-        # byte-deterministic for unchanged data — was handed the whole export it
-        # already had, and a stale If-Match got the new representation instead
-        # of a refusal. A rebuild is exactly when a client's version claim
-        # matters most.
-        if not if_match_passes(request.headers.get("if-match"), stored.etag):
-            _cleanup_export(temp_dir)
-            raise HTTPException(
-                status_code=status.HTTP_412_PRECONDITION_FAILED,
-                detail="Export has changed since the version you hold",
-                headers={"etag": stored.etag},
-            )
-        if if_none_match_matches(request.headers.get("if-none-match"), stored.etag):
-            _cleanup_export(temp_dir)
-            return not_modified_response(stored.etag)
+    etag = artifact_cache.strong_etag(digest) if digest is not None else None
+
+    # fix(#1532 review r10): the same preconditions the hit path evaluates.
+    # They were only on that branch, so a client whose validator matched what
+    # this request just built — the ordinary case, since the export is
+    # byte-deterministic for unchanged data — was handed the whole export it
+    # already had, and a stale If-Match got the new representation instead of a
+    # refusal. A rebuild is exactly when a client's version claim matters most.
+    # r18: on BOTH branches, from the digest of the built file.
+    if not if_match_passes(request.headers.get("if-match"), etag):
+        _cleanup_export(temp_dir)
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="Export has changed since the version you hold",
+            headers={"etag": etag} if etag is not None else None,
+        )
+    if if_none_match_matches(request.headers.get("if-none-match"), etag):
+        _cleanup_export(temp_dir)
+        return not_modified_response(etag)
 
     # 8b. Build the response BEFORE the audit row, on both branches.
     #
@@ -801,6 +819,7 @@ async def export_dataset_endpoint(
             file_path,
             filename=filename,
             media_type=media_type,
+            etag=etag,
             background=BackgroundTask(_cleanup_export, temp_dir),
         )
 
