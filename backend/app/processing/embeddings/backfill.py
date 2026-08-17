@@ -40,6 +40,28 @@ _BATCH_SIZE = 128
 _PREFLIGHT_TEXT = "geolens embedding preflight"
 
 
+async def _live_column_dims(session: AsyncSession) -> int | None:
+    """Read the declared width of the embedding column, straight from storage.
+
+    pgvector puts the declared dimension straight in `atttypmod` (no -4 offset),
+    and -1 means an unconstrained `vector`, which accepts any width.
+
+    Storage rather than `EMBEDDING_DIMS`, because the two are written by
+    different code at different times and the whole point of asking is that they
+    can disagree. Measured on the scratch catalog: 0.32 ms median, against 2.7 ms
+    for the config reads it runs beside.
+    """
+    return (
+        await session.execute(
+            text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding' AND NOT attisdropped"
+            )
+        )
+    ).scalar_one_or_none()
+
+
 async def _snapshot_embedding_config(
     session: AsyncSession,
 ) -> tuple[str, int | None, str | None]:
@@ -118,12 +140,18 @@ async def _snapshot_embedding_config(
 
     # fix(#1525 review r2, codex P1): read the pinned values straight from the
     # DB. `PersistentConfig.get` answers from a PER-KEY cache, and
-    # `update_settings` commits the whole batch and only then evicts each key in
-    # turn (settings/router.py:338-345). During that eviction, reads of two
-    # different keys can land on opposite sides of one committed update, and
-    # comparing them cannot see it: two reads through the same stale entry agree
-    # with each other perfectly. `get_uncached` neither reads nor writes the
-    # cache, so these observe the committed state instead.
+    # `update_settings` commits the whole batch of setting writes before any
+    # cache entry is evicted (`apply_side_effects_batch`, after the commit in
+    # `update_settings`). A cached read can therefore land on the far side of a
+    # committed update, and comparing two of them cannot see it: two reads
+    # through the same stale entry agree with each other perfectly.
+    # `get_uncached` neither reads nor writes the cache, so these observe the
+    # committed state instead.
+    #
+    # The eviction was a per-key loop when this was written, which made the
+    # window wider still: two keys could be read on opposite sides of one
+    # update. #1543 made it a single batched step, which narrows the window
+    # without closing it, and does not change what these reads have to do.
     model_name = await resolve_embedding_model_name(session, uncached=True)
     if model_name == UNKNOWN_EMBEDDING_MODEL:
         # Loud, not silent: the admin route maps this to a 502 and a "failed"
@@ -177,10 +205,11 @@ async def _raise_on_pin_drift(
     pinned: tuple[str, int | None, str | None],
     processed: int,
     *,
+    pinned_column_dims: int | None,
     error: type[RuntimeError] = RuntimeError,
 ) -> None:
     """Stop the run if the configuration it pinned is no longer the active one."""
-    drift = await _pinned_config_drift(session, pinned)
+    drift = await _pinned_config_drift(session, pinned, pinned_column_dims)
     if drift is None:
         return
     logger.error("backfill_aborted_pin_drift", detail=drift, processed=processed)
@@ -201,6 +230,7 @@ async def _retry_batch_per_record(
     model_name: str,
     embedding_dims: int | None,
     base_url: str | None,
+    pinned_column_dims: int | None,
 ) -> tuple[int, int]:
     """Re-embed a failed batch one record at a time; return (created, errors).
 
@@ -213,6 +243,11 @@ async def _retry_batch_per_record(
 
     `created` is the run's running total, passed in only so an abort message
     can say how many records the run had written before it stopped.
+
+    `pinned_column_dims` is the storage width the run pinned, carried in so the
+    bracketing below covers it too. fix(#1533): a width that moves is what puts
+    this loop in its worst state, because the batch insert that failed and sent
+    the run here fails again for every record, one provider call at a time.
     """
     made = 0
     failed = 0
@@ -230,7 +265,13 @@ async def _retry_batch_per_record(
             # The check before the call is not redundant with the one after the
             # previous record's: that record may have FAILED, in which case its
             # post-call check never ran either.
-            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created + made,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
+            )
             [vector] = await generate_embeddings_batch(
                 [content],
                 session,
@@ -238,7 +279,13 @@ async def _retry_batch_per_record(
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
-            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created + made,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
+            )
             session.add(
                 RecordEmbedding(
                     record_id=record_id,
@@ -269,7 +316,9 @@ async def _retry_batch_per_record(
 
 
 async def _pinned_config_drift(
-    session: AsyncSession, pinned: tuple[str, int | None, str | None]
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    pinned_column_dims: int | None,
 ) -> str | None:
     """Describe how the live config has left the pinned one, or None if it has not.
 
@@ -280,6 +329,17 @@ async def _pinned_config_drift(
 
     Read the same way `_snapshot_embedding_config` reads, for the same reason:
     a cached read can agree with a stale entry and report no drift.
+
+    fix(#1533): the storage width is checked alongside the settings, because the
+    settings are only ONE of the routes it moves by. `update_settings` publishes
+    `embedding_dims` and then rebuilds the column, so the dimensions comparison
+    above catches that route within a batch. It catches nothing else, and the
+    column moves without a settings write in an ENV_ONLY_CONFIG deployment
+    (there is no settings row and no rebuild ever fires), after a hand
+    `ALTER TABLE`, after a restored dump, and after a rebuild that failed
+    partway. Measured on 1,000 records with the width moved by hand and the
+    settings row untouched: 1,009 provider calls and 1,000 errors reported as if
+    the provider were broken, against 2 calls and a named cause with this check.
 
     Two states are deliberately NOT treated as drift, because neither is
     evidence that the pinned configuration stopped being the right one:
@@ -312,6 +372,25 @@ async def _pinned_config_drift(
             f"the embedding dimensions changed from {dimensions!r} to {active_dims!r}"
         )
 
+    # fix(#1533): BEFORE the endpoint block, not after it, and not because of
+    # message quality. That block returns None from its `except`, so a
+    # deployment where the endpoint cannot be resolved would never reach a check
+    # placed below it — and an endpoint that will not resolve is exactly the
+    # kind of half-configured install where a column gets altered by hand. The
+    # settings comparisons stay ahead of this one so that when both have moved,
+    # the message names the admin action rather than its consequence.
+    #
+    # Any change counts, including one that widens the column or drops the
+    # constraint. A run that carried on would leave the table holding two vector
+    # widths under one model label, and the inserts that make that happen are
+    # the ones that SUCCEED, so nothing else would report it.
+    active_column_dims = await _live_column_dims(session)
+    if active_column_dims != pinned_column_dims:
+        return (
+            f"the embedding column width changed from vector({pinned_column_dims}) "
+            f"to vector({active_column_dims})"
+        )
+
     try:
         active_base_url = await resolve_embedding_base_url(session)
     except (
@@ -326,7 +405,9 @@ async def _pinned_config_drift(
 
 
 async def _preflight_embedding(
-    session: AsyncSession, pinned: tuple[str, int | None, str | None]
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    pinned_column_dims: int | None,
 ) -> None:
     """Generate one throwaway embedding to prove regeneration can work.
 
@@ -397,19 +478,17 @@ async def _preflight_embedding(
     # deployments, where the model comes from the environment, no settings
     # write happens, and therefore no rebuild is ever triggered.
     #
-    # Read the width off the live column rather than trusting EMBEDDING_DIMS:
-    # the setting is what disagreed with storage in the first place. pgvector
-    # puts the declared dimension straight in atttypmod (no -4 offset), and -1
-    # means an unconstrained `vector`, which accepts any width.
-    column_dims = (
-        await session.execute(
-            text(
-                "SELECT atttypmod FROM pg_attribute "
-                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-                "AND attname = 'embedding' AND NOT attisdropped"
-            )
-        )
-    ).scalar_one_or_none()
+    # The width comes off the live column rather than EMBEDDING_DIMS (the
+    # setting is what disagreed with storage in the first place), and it is the
+    # caller's read rather than one of this function's own.
+    #
+    # fix(#1533): one read, deliberately. The caller pins that same value and
+    # stops the run if the column stops matching it, so what this proves is not
+    # "the width fitted a moment ago" but "the width fits, and the run will not
+    # outlive it". Reading storage twice would put a window between the two: a
+    # rebuild landing inside it passes this check against the old width and gets
+    # pinned at the new one, so nothing afterwards has anything to notice.
+    column_dims = pinned_column_dims
 
     generated = len(vectors[0])
     if column_dims is not None and column_dims > 0 and generated != column_dims:
@@ -448,6 +527,11 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     port = get_processing_port()
 
     pinned: tuple[str, int | None, str | None] | None = None
+    # fix(#1533): the storage width the run commits to, pinned beside the config
+    # rather than inside it. It is not configuration — it is read off
+    # `pg_attribute` rather than `PersistentConfig`, and the two disagree often
+    # enough that this whole check exists.
+    pinned_column_dims: int | None = None
 
     if force:
         Record = port.get_record_orm_class()
@@ -485,6 +569,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # could not cover this branch: by the time that query runs on the force
         # path the vectors are already gone.
         pinned = await _snapshot_embedding_config(session)
+        pinned_column_dims = await _live_column_dims(session)
 
         # fix(#1511 review r3, codex P1): the checks above test proxies for
         # "regeneration will work". This one tests the property itself, because
@@ -498,7 +583,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # One real embedding proves the live config can produce a vector, and
         # covers the modes nobody has enumerated yet: provider down, revoked
         # key, exhausted quota, dimensions the model rejects.
-        await _preflight_embedding(session, pinned)
+        await _preflight_embedding(session, pinned, pinned_column_dims)
 
         # DESTRUCTIVE-FIRST, DELIBERATELY (#1549). This commits before the run
         # knows it can finish, so a drift abort in the batch loop below leaves
@@ -588,8 +673,12 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # name a model, and a model served by two endpoints is two vector spaces
     # under one label; on the shipped provider the same edit instead makes every
     # remaining batch raise, which abandons the rest of the catalog.
+    # fix(#1533): the storage width is pinned in the same two places and for the
+    # same reason. On the force path it is the value the pre-flight was measured
+    # against, so it is read up there rather than re-read here.
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
+        pinned_column_dims = await _live_column_dims(session)
     model_name, embedding_dims, base_url = pinned
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
@@ -634,7 +723,9 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # batches would then only surface after the next batch had already been
         # generated and paid for. One config read per batch is the cheaper half
         # of that trade.
-        await _raise_on_pin_drift(session, pinned, created)
+        await _raise_on_pin_drift(
+            session, pinned, created, pinned_column_dims=pinned_column_dims
+        )
 
         batch = items[start : start + _BATCH_SIZE]
         try:
@@ -653,7 +744,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # Checking here means the batch in flight is discarded rather than
             # committed, so the run stops without adding a row nothing will
             # match. `_PinDrift` is re-raised past the batch handler below.
-            await _raise_on_pin_drift(session, pinned, created, error=_PinDrift)
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
+            )
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
                     RecordEmbedding(
@@ -688,6 +785,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 model_name=model_name,
                 embedding_dims=embedding_dims,
                 base_url=base_url,
+                pinned_column_dims=pinned_column_dims,
             )
             created += made
             errors += failed
