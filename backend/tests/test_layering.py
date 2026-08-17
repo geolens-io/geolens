@@ -2800,7 +2800,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cannot share a predicate: the first attempt at this fix routed one vector
     # through the batch rule and silently disarmed the retry check.
     # Cap 1068 -> 1098, exact.
-    "backend/app/processing/embeddings/backfill.py": 1098,
+    # fix(#1533 review r3, codex P2): +37, almost entirely comment. The code is
+    # a reorder — flush the pending rows, THEN run the pre-commit drift check,
+    # THEN commit — on both the batch and the retry path. The check reads
+    # pg_attribute, which locks nothing, so running it before the rows were sent
+    # left a window for an ALTER TABLE to take ACCESS EXCLUSIVE and commit
+    # unseen; widening to an unconstrained vector then let the old-width inserts
+    # succeed and the run report success over a column that had moved. The
+    # flush's RowExclusiveLock is what closes it, and the comment says so at the
+    # call site because the reason a statement sits where it does is invisible
+    # from the statement itself. Cap 1098 -> 1135, exact.
+    "backend/app/processing/embeddings/backfill.py": 1135,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

@@ -279,13 +279,18 @@ async def _raise_on_retry_vector_width(
     record and the caller counts it (#449). If the column has moved, every
     remaining record will fail the same way and the run stops.
 
-    The post-call drift check two lines up already compares those same two
-    widths, so today this read can only agree with it. It is paid anyway, at
-    0.32 ms against the ~3 ms that check already spends per record, because the
-    alternative is a guard whose correctness depends on a neighbouring call
-    nobody is stopped from reordering — and getting it wrong silently converts a
-    structural storm into ten thousand counted errors, which is the outcome this
-    whole PR exists to prevent.
+    The read costs 0.32 ms against the ~3 ms the drift checks around it already
+    spend per record. It was paid even when a drift check sat immediately above
+    and could only agree with it, because a guard whose correctness rests on a
+    neighbouring call's position is one reorder away from silently converting a
+    structural storm into ten thousand counted errors.
+
+    fix(#1579 review r3): that reorder then happened, for an unrelated reason —
+    the post-call drift check moved below the flush so it could hold the
+    relation lock. The nearest preceding one is now the PRE-call check, on the
+    far side of a provider round trip, so this read is no longer redundant at
+    all. It is the only thing standing between a column that moved during that
+    call and ten thousand counted errors.
 
     Calls the fit test directly rather than `_structural_width_mismatch`, which
     now requires two vectors to have an opinion. Routing one vector through the
@@ -532,18 +537,16 @@ async def _retry_batch_per_record(
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
-            await _raise_on_pin_drift(
-                session,
-                pinned,
-                created + made,
-                pinned_column_dims=pinned_column_dims,
-                error=_PinDrift,
-            )
             # fix(#1533): per vector on this path, not per batch. This loop is
             # where a mismatch costs a provider call per record, so it is the
             # one that has to stop on the first — but only when the column has
             # moved. One record's vector against a column that has not moved is
             # a bad record, and the handler below counts it (#1579 review).
+            #
+            # Ahead of the insert, deliberately: it decides NOT to write, so it
+            # needs no lock, and putting it after the flush would let the flush
+            # raise the typmod error first and turn a named abort into a counted
+            # one.
             await _raise_on_retry_vector_width(
                 session, vector, pinned_column_dims, created + made
             )
@@ -554,6 +557,17 @@ async def _retry_batch_per_record(
                     model_name=model_name,
                     content_hash=compute_content_hash(content),
                 )
+            )
+            # fix(#1579 review r3, codex P2): flush BEFORE the post-call check,
+            # so the check runs holding the lock its answer depends on. See the
+            # same reorder on the batch path.
+            await session.flush()
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created + made,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
             )
             await session.commit()
             made += 1
@@ -999,6 +1013,44 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
+            # fix(#1533): the whole batch, not the first vector. Agreement
+            # across inputs is what makes a width mismatch structural rather
+            # than one bad record, so a batch of mixed widths deliberately does
+            # NOT stop here: it fails its insert, drops into the retry loop, and
+            # every vector is judged on its own down there (#1579 review).
+            #
+            # Ahead of the inserts because it decides not to write at all, so
+            # unlike the drift check below it needs no lock to be sound.
+            _raise_on_structural_width(vectors, pinned_column_dims, created)
+            for (record_id, content), vector in zip(batch, vectors):
+                session.add(
+                    RecordEmbedding(
+                        record_id=record_id,
+                        embedding=vector,
+                        model_name=model_name,
+                        content_hash=compute_content_hash(content),
+                    )
+                )
+            # fix(#1579 review r3, codex P2): FLUSH, then check, then commit.
+            # The check reads `pg_attribute`, which locks nothing, so checking
+            # before the rows were sent left a window in which an `ALTER TABLE`
+            # could take ACCESS EXCLUSIVE, commit, and be missed entirely. When
+            # that ALTER widened the column to an unconstrained `vector` the
+            # old-width inserts then SUCCEEDED, and the run reported success
+            # over a column that had moved under it — the one outcome
+            # `_pinned_config_drift` says a widening change must not produce.
+            #
+            # The flush takes RowExclusiveLock on the relation, which ACCESS
+            # EXCLUSIVE conflicts with. So an ALTER that landed first is seen by
+            # the check (and these rows roll back with the abort), and one that
+            # arrives after waits for our commit. Check-then-act is only sound
+            # while the thing checked cannot move, and this is what stops it
+            # moving.
+            #
+            # A flush that RAISES because the column moved to a different fixed
+            # width is not lost: the batch handler retries per record, and the
+            # retry's pre-call check reads the new width and stops the run.
+            await session.flush()
             # fix(#1525 review r5, codex P2): and again before ACCEPTING the
             # batch, not only before requesting it. The check above has no
             # successor for the LAST batch, so an edit landing during that
@@ -1014,21 +1066,6 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 pinned_column_dims=pinned_column_dims,
                 error=_PinDrift,
             )
-            # fix(#1533): the whole batch, not the first vector. Agreement
-            # across inputs is what makes a width mismatch structural rather
-            # than one bad record, so a batch of mixed widths deliberately does
-            # NOT stop here: it fails its insert, drops into the retry loop, and
-            # every vector is judged on its own down there (#1579 review).
-            _raise_on_structural_width(vectors, pinned_column_dims, created)
-            for (record_id, content), vector in zip(batch, vectors):
-                session.add(
-                    RecordEmbedding(
-                        record_id=record_id,
-                        embedding=vector,
-                        model_name=model_name,
-                        content_hash=compute_content_hash(content),
-                    )
-                )
             await session.commit()
             created += len(batch)
         except _PinDrift:

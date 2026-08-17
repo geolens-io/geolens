@@ -488,3 +488,105 @@ async def test_a_one_record_batch_does_not_read_as_structural(
     assert await _embedding_count(test_db_session) == result["created"]
     # The column never moved, which is what made the one mismatch isolated.
     assert await _column_dims() == start_width
+
+
+@pytest.mark.anyio
+async def test_the_pre_commit_check_holds_the_relation_lock(
+    test_db_session, monkeypatch
+):
+    """Check-then-act is only sound while the thing checked cannot move.
+
+    fix(#1579 review r3, codex P2): the pre-commit drift check reads
+    `pg_attribute`, which locks nothing. Running it before the rows were sent
+    left a window in which an `ALTER TABLE` could take ACCESS EXCLUSIVE, commit,
+    and be missed entirely — and when that ALTER widens the column to an
+    unconstrained `vector`, the old-width inserts then SUCCEED and the run
+    reports success over a column that moved under it. That is exactly the
+    outcome `_pinned_config_drift` says a widening change must not produce.
+
+    Flushing first takes RowExclusiveLock on the relation, which ACCESS
+    EXCLUSIVE conflicts with, so the check reads a width that cannot change
+    until this transaction ends.
+
+    The ALTER is fired deterministically, the instant the check returns, rather
+    than raced: the window is a known one and constructing it beats hoping to
+    hit it. What proves the two sides genuinely contended is not the ordering
+    but the outcome — Postgres reports `lock_not_available`, which it can only
+    do if something else was holding a conflicting lock at that moment.
+    """
+    from sqlalchemy import text as sa_text
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from app.core.config import settings as app_settings
+
+    start_width = await _column_dims()
+    await _seed(test_db_session, "Lock Window", start_width)
+
+    outcome: list[str] = []
+
+    async def _widen_column_from_another_connection() -> None:
+        """What a hand `ALTER` does, from a connection this run does not own."""
+        engine = create_async_engine(
+            app_settings.test_database_url, isolation_level="AUTOCOMMIT"
+        )
+        try:
+            async with engine.connect() as conn:
+                await conn.execute(sa_text("SET lock_timeout = '750ms'"))
+                await conn.execute(
+                    sa_text(
+                        "ALTER TABLE catalog.record_embeddings "
+                        "ALTER COLUMN embedding TYPE vector USING embedding::vector"
+                    )
+                )
+            outcome.append("committed")
+        except Exception as exc:  # noqa: BLE001 - the outcome IS the assertion
+            # Matched on the message rather than the exception class: the
+            # asyncpg dialect wraps every driver error in one adapter type, so
+            # the class name alone cannot tell a lock timeout from anything else.
+            message = str(getattr(exc, "orig", exc))
+            outcome.append(
+                "blocked" if "lock timeout" in message else f"other: {message[:160]}"
+            )
+        finally:
+            await engine.dispose()
+
+    original_check = backfill_module._raise_on_pin_drift
+
+    async def _check_then_widen(*args, **kwargs):
+        await original_check(*args, **kwargs)
+        # The SECOND call is the pre-commit one on either ordering: the first is
+        # the batch loop's own pre-flight check, before any provider call.
+        if len(outcome) == 0 and getattr(_check_then_widen, "seen", 0) == 1:
+            await _widen_column_from_another_connection()
+        _check_then_widen.seen = getattr(_check_then_widen, "seen", 0) + 1
+
+    _check_then_widen.seen = 0
+    monkeypatch.setattr(backfill_module, "_raise_on_pin_drift", _check_then_widen)
+
+    _pin_model(monkeypatch)
+    monkeypatch.setattr(
+        backfill_module,
+        "generate_embeddings_batch",
+        _provider([], start_width),
+    )
+
+    try:
+        result = await backfill_module.backfill_embeddings(test_db_session, force=True)
+
+        # Non-vacuity first: the ALTER really was attempted, in the window.
+        assert outcome, "the hook never fired, so nothing was tested"
+
+        # Then the damage, before the mechanism. An unguarded tree fails here,
+        # on a run that reported success over a column it no longer matches,
+        # rather than on the lock error being absent.
+        assert await _column_dims() == start_width, (
+            "the column moved during the run and the run did not notice"
+        )
+        assert result["created"] > 0, result
+
+        # And the mechanism that prevented it. Postgres can only answer this
+        # while something else holds a conflicting lock, so it is also the
+        # evidence that the two sides genuinely overlapped.
+        assert outcome == ["blocked"], outcome
+    finally:
+        await _set_column_dims(test_db_session, start_width)
