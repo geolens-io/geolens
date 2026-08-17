@@ -28,6 +28,10 @@ artifact after a rebuild got a 206 of the current one — the same splice, reach
 through the header a careful client sends precisely to avoid it.
 """
 
+import asyncio
+import os
+from typing import AsyncIterator
+
 from fastapi import HTTPException, status
 from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
@@ -40,6 +44,8 @@ from app.platform.http.ranges import (
 )
 from app.processing.export.artifact_cache import ExportArtifact
 from app.processing.export.service import file_response_content_disposition
+
+_FILE_CHUNK_BYTES = 1024 * 1024
 
 
 def artifact_headers(artifact: ExportArtifact) -> dict[str, str]:
@@ -163,6 +169,61 @@ def read_response(
         },
         background=background,
     )
+
+
+def temp_file_response(
+    file_path: str,
+    *,
+    filename: str,
+    media_type: str,
+    background: BackgroundTask | None = None,
+) -> Response:
+    """Serve a just-converted file whole, without letting starlette see the Range.
+
+    fix(#1532 review, internal): this replaces a ``FileResponse`` on the path
+    taken when publication does not happen — a storage outage, a contested
+    selection, an exhausted budget. Starlette's ``FileResponse`` parses ``Range``
+    itself, single and multipart, and needs no ``If-Range`` to do it, so that
+    fallback answered a resuming client with a 206 of a FRESH conversion at the
+    offsets it had measured against a previous one. #1532's whole defect, alive
+    on the degraded path — which is the path that fires under load, when the
+    store is full or every client is building at once.
+
+    It also sent an mtime ETag and a Last-Modified the artifact path never
+    sends, so two responses for one URL disagreed about which validators the
+    resource even has.
+
+    A 200 with the complete representation is the only safe answer here: this
+    process cannot know which bytes the client already holds, and nothing in the
+    request can tell it.
+    """
+    return StreamingResponse(
+        _iter_file(file_path),
+        media_type=media_type,
+        headers={
+            "accept-ranges": "bytes",
+            "content-disposition": file_response_content_disposition(filename),
+            "content-length": str(os.path.getsize(file_path)),
+        },
+        background=background,
+    )
+
+
+async def _iter_file(file_path: str) -> AsyncIterator[bytes]:
+    """Read a local file in bounded chunks, off the event loop.
+
+    Same shape as ``LocalStorageProvider.get_stream``: a multi-gigabyte export
+    must not be materialized, and the reads must not block the loop.
+    """
+    handle = await asyncio.to_thread(open, file_path, "rb")
+    try:
+        while True:
+            chunk = await asyncio.to_thread(handle.read, _FILE_CHUNK_BYTES)
+            if not chunk:
+                return
+            yield chunk
+    finally:
+        await asyncio.to_thread(handle.close)
 
 
 def _whole(

@@ -1233,7 +1233,7 @@ def _if_match_passes(if_match: str | None, etag: str | None) -> bool:
     whether it is the one the client remembers.
 
     A specific tag against a row with no ``sha256`` is False: unverifiable is
-    not a pass. That is the same call ``_range_bound_to_this_version`` makes,
+    not a pass. That is the same call ``range_bound_to_this_version`` makes,
     and it costs those rows nothing a conditional request was going to give
     them anyway.
     """
@@ -1302,7 +1302,7 @@ def _cog_not_modified(etag: str | None) -> Response:
     15.4.5 asks for the header fields a 200 would have sent, and the 200 for a
     row with no stored digest sends no validator either (``_cog_headers`` omits
     it for the same reason). Minting one to fill the slot would be worse than
-    the blank: it would authorize the resume ``_range_bound_to_this_version``
+    the blank: it would authorize the resume ``range_bound_to_this_version``
     refuses on exactly these rows.
     """
     headers = {"Accept-Ranges": "bytes"}
@@ -1331,7 +1331,7 @@ def _cog_etag(raster_asset) -> str | None:
     exactly the case this exists to catch.
 
     None on rows ingested before the column was populated. A response then
-    carries no validator, and ``_range_bound_to_this_version`` refuses to honour
+    carries no validator, and ``range_bound_to_this_version`` refuses to honour
     a conditional range rather than guessing — see its docstring.
 
     None for the ``remote`` backend too, and for a different reason: those bytes
@@ -1346,7 +1346,7 @@ def _cog_etag(raster_asset) -> str | None:
     return f'"{sha}"' if sha else None
 
 
-# fix(#1532 review r1): `_range_bound_to_this_version` moved to
+# fix(#1532 review r1): `range_bound_to_this_version` moved to
 # `app/platform/http/ranges.py` as `range_bound_to_this_version`, alongside the
 # parser, for the same reason: the export download evaluates the identical
 # If-Range precondition and cannot import this module.

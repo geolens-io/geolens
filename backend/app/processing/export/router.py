@@ -212,23 +212,22 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
     Those checks are hoisted now; the parity claim above is the narrower one
     the code actually supports.
 
-    ``Accept-Ranges: bytes`` says the endpoint serves byte ranges. It does NOT
-    say the representation is stable across requests, and here it is not: every
-    range GET re-enters this endpoint and converts the dataset again, so a
-    probing client is reading a sequence of freshly built artifacts rather than
-    slices of one (fix(#1532)). While the data is unchanged that is only
-    wasteful — the export is byte-deterministic, so consecutive conversions are
-    identical. While the data changes mid-read the sequence is incoherent, and
-    it fails LOUDLY: a spliced GeoJSON dies with ``ERROR 4: Failed to read
-    GeoJSON data`` and no output file, rather than yielding a plausible wrong
-    answer. Keeping that loud failure is a constraint on the real fix, which is
-    to serve ranges from a cached artifact.
+    ``Accept-Ranges: bytes`` says the endpoint serves byte ranges, and since
+    fix(#1532) it also says they are slices of ONE stored artifact rather than of
+    a sequence of fresh conversions. This docstring described the old behaviour
+    as current for one revision too long; what follows is what the route does
+    now.
 
-    The header stays. GDAL ranges because a size-less HEAD gives it no length,
-    not because it read this header, and the GET has advertised ``accept-ranges``
-    from starlette's ``FileResponse`` on main all along — dropping it here would
-    change nothing about the exposure and would break the size discovery this
-    HEAD depends on.
+    A range is served from the cached artifact when one exists, and a request
+    that had to build the representation answers 200 with the whole of it
+    instead — so no two responses are ever parts of different files presented as
+    parts of one. The path with no artifact at all (a storage outage, a contested
+    selection, an exhausted budget) streams the conversion whole for the same
+    reason, deliberately NOT through starlette's ``FileResponse``, which parses
+    ``Range`` itself.
+
+    The header stays and is now backed by an actual 206. GDAL ranges because a
+    size-less HEAD gives it no length, not because it read this header.
 
     Content-Length is deliberately absent. An export's length is knowable only
     after the conversion, and RFC 9110 section 9.3.2 lets a HEAD omit header
@@ -413,57 +412,21 @@ async def export_dataset_endpoint(
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
 
-    # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
-    # datasets a filter only passes if it actually narrows the selection under
-    # the cap (bounded filtered COUNT), closing the where=1=1 bypass.
-    #
-    # Parquet is exempt here: export_parquet() runs its own bounded-count cap
-    # against the LIVE-introspected columns. Running this guard for parquet too
-    # would validate the filter against the nullable dataset.column_info and
-    # wrongly reject a valid filter on a metadata-less oversized dataset before
-    # the parquet path's introspection can run (Codex r10).
-    if (
-        format != ExportFormat.parquet
-        and dataset.feature_count is not None
-        and dataset.feature_count > _MAX_EXPORT_FEATURES
-    ):
-        if bbox_parsed is None and where is None:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=(
-                    f"Dataset has {dataset.feature_count} features, exceeding the "
-                    f"{_MAX_EXPORT_FEATURES} unfiltered-export limit; narrow the "
-                    "export with a bbox or attribute filter."
-                ),
-            )
-        selected = await _count_selected_features(
-            db,
-            table_name=dataset.table_name,
-            where=where,
-            column_info=dataset.column_info,
-            bbox=bbox_parsed,
-            has_geometry=dataset.geometry_type is not None,
-            schema=data_schema,
-        )
-        if selected > _MAX_EXPORT_FEATURES:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=(
-                    f"Export filter still selects more than "
-                    f"{_MAX_EXPORT_FEATURES} features; narrow the export with a "
-                    "more selective bbox or attribute filter."
-                ),
-            )
-
     # 6c. fix(#1532): the cached artifact this selection would be served from,
     # if there is a usable one.
     #
-    # fix(#1532 review r4): resolved BEFORE the expensive planning below, not
-    # after. `plan_parquet_export` introspects the live table and runs a bounded
-    # count up to a million rows, and it ran on every request including every
-    # range slice of an artifact that already existed — so a range-probing
-    # client repeated that scan per slice and kept most of the load this cache
-    # exists to remove.
+    # fix(#1532 review r4): resolved BEFORE the expensive work below, not after.
+    # `plan_parquet_export` introspects the live table and runs a bounded count
+    # up to a million rows, and it ran on every request including every range
+    # slice of an artifact that already existed — so a range-probing client
+    # repeated that scan per slice and kept most of the load this cache exists
+    # to remove.
+    #
+    # fix(#1532 review, internal): the ogr path's bounded COUNT moved below this
+    # for the same reason. `_count_selected_features` scans to 5,000,001 rows
+    # with the caller's WHERE on an unindexed column, and it ran on every hit
+    # too. The UNFILTERED 413 stays above, because it is a dataset-level fact
+    # that costs nothing to check and HEAD should keep answering it.
     #
     # Skipping those gates on a hit is safe by construction rather than by
     # argument: an artifact only exists because an earlier request with THIS
@@ -511,6 +474,24 @@ async def export_dataset_endpoint(
         # A cache hit still audits: bytes are being transferred, and the audit
         # row is what makes a range read distinguishable from a full download
         # when the log is read back.
+        #
+        # fix(#1532 review, internal): built first, emitted only if the response
+        # actually carries bytes. `read_response` may raise a 416 for a range
+        # that names nothing, and a `dataset.export` row for a refused request
+        # records a download that did not happen — the same reason HEAD is out
+        # of the log.
+        response = artifact_response.read_response(
+            get_storage(),
+            artifact,
+            range_header=request.headers.get("range"),
+            if_range=request.headers.get("if-range"),
+            # fix(#1532 review, internal): a contested selection — more than one
+            # distinct set of bytes fresh under this key — answers ranges with
+            # the whole representation. Two overlapping cold builders is the
+            # ordinary case, not a rare one, and a client reading in slices can
+            # otherwise be flipped from one to the other mid-sequence.
+            may_serve_range=not artifact.contested,
+        )
         await _emit_export_audit(
             db,
             request,
@@ -521,13 +502,60 @@ async def export_dataset_endpoint(
             bbox=bbox,
             where=where,
         )
-        return artifact_response.read_response(
-            get_storage(),
-            artifact,
-            range_header=request.headers.get("range"),
-            if_range=request.headers.get("if-range"),
-            may_serve_range=True,
+        return response
+
+    # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
+    # datasets a filter only passes if it actually narrows the selection under
+    # the cap (bounded filtered COUNT), closing the where=1=1 bypass.
+    #
+    # fix(#1532 review, internal): below the cache hit, not above it.
+    # `_count_selected_features` scans to 5,000,001 rows with the caller's WHERE
+    # on an unindexed column, and it ran on every hit — every range slice, every
+    # HEAD — for an artifact that already existed. Same argument review r4 made
+    # about the parquet planner, and the same justification: an artifact exists
+    # only because an earlier request with THIS key passed this gate and produced
+    # bytes, and the key carries table_name, the title and tile_cache_version, so
+    # a replace or a feature edit moves it. The whole block moves, the unfiltered
+    # branch included: it is cheap, but a cache hit is proof it already passed.
+    #
+    # Parquet is exempt here: export_parquet() runs its own bounded-count cap
+    # against the LIVE-introspected columns. Running this guard for parquet too
+    # would validate the filter against the nullable dataset.column_info and
+    # wrongly reject a valid filter on a metadata-less oversized dataset before
+    # the parquet path's introspection can run (Codex r10).
+    if (
+        format != ExportFormat.parquet
+        and dataset.feature_count is not None
+        and dataset.feature_count > _MAX_EXPORT_FEATURES
+    ):
+        if bbox_parsed is None and where is None:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Dataset has {dataset.feature_count} features, exceeding the "
+                    f"{_MAX_EXPORT_FEATURES} unfiltered-export limit; narrow the "
+                    "export with a bbox or attribute filter."
+                ),
+            )
+
+        selected = await _count_selected_features(
+            db,
+            table_name=dataset.table_name,
+            where=where,
+            column_info=dataset.column_info,
+            bbox=bbox_parsed,
+            has_geometry=dataset.geometry_type is not None,
+            schema=data_schema,
         )
+        if selected > _MAX_EXPORT_FEATURES:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=(
+                    f"Export filter still selects more than "
+                    f"{_MAX_EXPORT_FEATURES} features; narrow the export with a "
+                    "more selective bbox or attribute filter."
+                ),
+            )
 
     # 6d. fix(#1513, codex P2 on #1522): the remaining checks that decide the
     # STATUS, hoisted above the HEAD return. These used to live inside
@@ -721,8 +749,16 @@ async def export_dataset_endpoint(
         os.utime(file_path, None)
     except OSError:
         pass  # best-effort freshness signal; a failure here must not block the download
-    return FileResponse(
-        path=file_path,
+    # fix(#1532 review, internal): NOT a FileResponse. Starlette parses `Range`
+    # inside it — single and multipart, no `If-Range` needed — so this path
+    # answered a resuming client with a 206 of a fresh conversion at offsets
+    # measured against a previous one. That is #1532's defect alive on the
+    # degraded path, and the degraded path is the one that fires under load: a
+    # full store, a contested selection, an exhausted budget. It also sent an
+    # mtime ETag and a Last-Modified the artifact path never sends, so one URL
+    # disagreed with itself about which validators it has.
+    return artifact_response.temp_file_response(
+        file_path,
         filename=filename,
         media_type=media_type,
         background=BackgroundTask(_cleanup_export, temp_dir),

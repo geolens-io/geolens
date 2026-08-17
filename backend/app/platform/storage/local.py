@@ -211,9 +211,37 @@ class LocalStorageProvider:
         return await asyncio.to_thread(_copy)
 
     async def delete(self, key: str) -> None:
-        """Delete a key. No error if missing."""
+        """Delete a key, and the directories it leaves empty behind it.
+
+        fix(#1532 review, internal): unlinking the file alone leaked a directory
+        per key prefix. On an object store a key is a flat name and a "directory"
+        is a listing artefact, so nothing accumulates; on a filesystem every
+        distinct prefix is a real ``mkdir`` that outlives its contents. The
+        export cache made that visible — its prefixes are caller-controlled, one
+        per (dataset, format, filters), so a client varying a bbox creates them
+        without limit — and `_walk_in_key_order` then scandirs every one of them
+        on every listing, forever, for nothing.
+
+        The rmdir walks up to (never including) ``base_dir`` and stops at the
+        first directory that is not empty. Failures are ignored on purpose: a
+        concurrent ``put`` may be creating the same directory, and losing that
+        race costs at most one failed write, which callers already retry — where
+        raising here would fail a delete that in fact succeeded.
+        """
         path = self._resolve_contained(key)
-        await asyncio.to_thread(path.unlink, True)  # missing_ok=True
+        base = self.base_dir.resolve()
+
+        def _delete() -> None:
+            path.unlink(missing_ok=True)
+            parent = path.parent
+            while parent != base and base in parent.parents:
+                try:
+                    parent.rmdir()
+                except OSError:
+                    return  # not empty, or lost a race with a concurrent put
+                parent = parent.parent
+
+        await asyncio.to_thread(_delete)
 
     async def exists(self, key: str) -> bool:
         """Check if a key exists."""

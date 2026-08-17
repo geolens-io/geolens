@@ -22,6 +22,7 @@ Requirements:
               uv run pytest tests/test_export_artifact_cache_1532.py -v
 """
 
+import hashlib
 import os
 import shutil
 import tempfile
@@ -37,6 +38,10 @@ from app.processing.export import artifact_cache
 from app.processing.export.ogr import FORMAT_MAP
 
 from tests.factories import create_dataset, get_user_id
+
+# Past `_MAX_EXPORT_FEATURES`, which is the only shape that reaches the ogr
+# path's bounded COUNT at all: under the ceiling the route skips it entirely.
+_OVER_THE_CEILING = 5_000_001
 
 _COLUMNS = [
     {"name": "gid", "type": "integer"},
@@ -1364,3 +1369,305 @@ async def test_a_non_atomic_provider_has_its_partial_deleted(
             f"{key} survived a failed write. Both attempts leave a partial, and "
             f"neither is old enough for the sweep to reclaim."
         )
+
+
+# ---------------------------------------------------------------------------
+# Internal review: the degraded path is the one that fires under load
+# ---------------------------------------------------------------------------
+
+
+async def test_the_fallback_never_answers_a_range_with_a_slice(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """When publication does not happen, a Range must still get 200-whole.
+
+    The fallback used to be a `FileResponse`, and starlette parses `Range`
+    inside it — single and multipart, no `If-Range` required. So a resuming
+    client was answered with a 206 of a FRESH conversion at offsets it had
+    measured against a previous one: #1532's entire defect, alive on the path
+    that fires precisely when things are going wrong. A full store, a contested
+    selection and an exhausted budget all land here.
+
+    The mtime validators are asserted absent too. `FileResponse` sent an ETag
+    and a Last-Modified derived from the temp file, which the artifact path
+    never sends, so one URL disagreed with itself about which validators the
+    resource has — and #1532 measured that ETag changing between two conversions
+    of unchanged data, so a client that trusted it would resume across a
+    rebuild.
+    """
+
+    def _down():
+        raise OSError("object store is down")
+
+    dataset = await _dataset(test_db_session, "Fallback Range")
+    monkeypatch.setattr("app.processing.export.artifact_cache.get_storage", _down)
+
+    resp = await client.get(
+        _url(dataset.id), headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+
+    assert resp.status_code == 200, (
+        f"the fallback answered {resp.status_code} to a bare Range. A 206 here "
+        f"is a slice of a conversion this client has never seen, at offsets it "
+        f"measured against one it has."
+    )
+    assert resp.content == conversions.body
+    assert "content-range" not in resp.headers
+    assert "etag" not in resp.headers, (
+        f"the fallback published etag={resp.headers.get('etag')!r}, which the "
+        f"artifact path never sends and which #1532 measured changing between "
+        f"two conversions of identical data"
+    )
+    assert "last-modified" not in resp.headers
+
+
+async def test_a_contested_selection_answers_ranges_with_the_whole_thing(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """Two distinct fresh artifacts under one key must not be sliced.
+
+    Nothing stops two artifacts inside one TTL: every client arriving during a
+    slow build misses and builds its own, and the herd repeats at each window
+    boundary. Their bytes differ whenever the format is GPKG — the default, and
+    it stamps `gpkg_contents.last_change` per build — or whenever a write landed
+    without moving `tile_cache_version`. So a client reading in slices could be
+    handed one artifact and then the other.
+
+    `lookup` already has the listing, so noticing costs nothing, and the answer
+    is the same one a rebuild gets: the complete representation. HEAD and the
+    ETag are unaffected — each artifact is internally consistent, and a
+    whole-object read of either is correct.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Contested")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200
+
+    # A second builder's output, landing inside the same window with different
+    # bytes — what an overlapping GPKG build produces.
+    selection = [
+        k.rsplit("/", 2)[1]
+        for k in await get_storage().list(
+            f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+        )
+    ][0]
+    rival = b"a second builder's output, same window"
+    await get_storage().put(
+        cache._artifact_key(dataset.id, selection, "c" * 64, len(rival), time.time()),
+        rival,
+    )
+
+    sliced = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-31"})
+
+    assert sliced.status_code == 200, (
+        f"a range against a contested selection returned {sliced.status_code}. "
+        f"Two distinct sets of bytes are fresh here, so a slice of either can be "
+        f"appended to a slice of the other."
+    )
+    assert "content-range" not in sliced.headers
+
+
+async def test_a_second_publisher_does_not_add_to_a_fresh_selection(
+    test_db_session, monkeypatch
+):
+    """A build that finishes late does not publish over a fresh sibling.
+
+    The other half of the contested fix, and the one that keeps the condition
+    rare rather than merely handled: a builder that started before a sibling
+    finished re-checks on the way out and serves its own bytes instead of adding
+    a second artifact nobody asked for.
+    """
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Late Publisher")
+    storage = get_storage()
+    incumbent = cache._artifact_key(dataset.id, "busy", "a" * 64, 6, time.time())
+    await storage.put(incumbent, b"abcdef")
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"the late builder's output")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "busy",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+
+    assert stored is None, "a late builder must not publish over a fresh sibling"
+    keys = await storage.list(f"export-cache/{cache._tenant_segment()}/{dataset.id}/")
+    assert keys == [incumbent], f"the selection grew to {keys}"
+
+
+async def test_a_future_stamped_artifact_is_not_served(test_db_session):
+    """A clock-ahead worker's key must not outrank every honest one.
+
+    The newest key wins, so a future stamp is fresh for the TTL plus the skew and
+    unreclaimable for the horizon plus the skew — and it beats every sibling for
+    the whole of it. Ignoring it costs a rebuild.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Clock Ahead")
+    storage = get_storage()
+    honest = cache._artifact_key(dataset.id, "skew", "a" * 64, 6, time.time() - 1)
+    await storage.put(honest, b"abcdef")
+    await storage.put(
+        cache._artifact_key(dataset.id, "skew", "b" * 64, 6, time.time() + 3600),
+        b"abcdef",
+    )
+
+    resolved = await cache.lookup(
+        dataset.id, "skew", filename="x.geojson", media_type="application/geo+json"
+    )
+
+    assert resolved is not None and resolved.key == honest, (
+        f"lookup resolved to {resolved.key if resolved else None}; a key stamped "
+        f"an hour in the future would answer for the TTL plus that hour"
+    )
+
+
+async def test_publication_stops_at_the_byte_budget(test_db_session, monkeypatch):
+    """Fresh artifacts must not be able to fill the shared staging volume.
+
+    On the local backend this cache lives inside `settings.upload_staging_dir` —
+    the volume `export_dataset` converts on and every ingest stages uploads on.
+    Before #1532 those export bytes were transient; retaining a copy of every
+    distinct selection for a horizon means a handful of large ones blocks every
+    conversion and upload on the instance. The reclaim-and-retry added in review
+    r4 only frees AGED artifacts, so a volume full of FRESH ones has nothing to
+    give back.
+    """
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Budget")
+    storage = get_storage()
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 32)
+    await storage.put(
+        cache._artifact_key(dataset.id, "held", "a" * 64, 30, time.time()), b"a" * 30
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"more than the budget has room for")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "over",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+
+    assert stored is None, (
+        "publication past the byte budget would let a few large selections hold "
+        "the volume every conversion and upload needs"
+    )
+
+
+async def test_a_failed_write_cannot_delete_a_siblings_object(test_db_session):
+    """Writer-owned keys: `_discard` must only ever remove this writer's attempt.
+
+    Keys were `{stamp}-{size}-{digest}` with a whole-second stamp, so two
+    builders of a DETERMINISTIC format finishing in the same second computed the
+    same key. If one write then failed — an S3 SlowDown, a lost
+    CompleteMultipartUpload ack — its cleanup deleted the object the other had
+    just published, and readers already past their response headers got a
+    FileNotFoundError mid-stream.
+
+    Identical payloads, deliberately: `test_two_concurrent_publishers_both_survive`
+    uses different ones, so the same-key case it is named for was the one case it
+    could not reach.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    payload = b"byte-identical output"
+    digest = hashlib.sha256(payload).hexdigest()
+    at = time.time()
+    dataset = await _dataset(test_db_session, "Same Second")
+
+    first = cache._artifact_key(dataset.id, "sel", digest, len(payload), at)
+    second = cache._artifact_key(dataset.id, "sel", digest, len(payload), at)
+
+    assert first != second, (
+        "two builders of identical bytes in the same second share a key, so one "
+        "writer's cleanup deletes the other's published object"
+    )
+    assert (
+        cache.parse_artifact_key(first)
+        == cache.parse_artifact_key(second)
+        == (
+            float(int(at)),
+            len(payload),
+            digest,
+        )
+    ), "the nonce must not disturb what the key means"
+
+
+async def test_a_cached_probe_does_not_recount_the_selection(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """The ogr path's bounded COUNT is behind the cache too.
+
+    Sibling of the parquet planner case, and it needed its own move:
+    `_count_selected_features` scans to 5,000,001 rows with the caller's WHERE on
+    an unindexed column, and it ran above the lookup — so every range slice and
+    every HEAD of an artifact that already existed paid for it.
+
+    The dataset is over the unfiltered ceiling and the request carries a filter,
+    which is the only shape that reaches the COUNT at all.
+    """
+    import app.processing.export.router as router_module
+
+    counts = {"n": 0}
+
+    async def _counted(*args, **kwargs):
+        # Stubbed rather than delegated: the real one needs a materialized
+        # feature table, and what is under test is whether the ROUTE calls it.
+        counts["n"] += 1
+        return 1
+
+    monkeypatch.setattr(router_module, "_count_selected_features", _counted)
+
+    dataset = await _dataset(
+        test_db_session, "Counted Probe", feature_count=_OVER_THE_CEILING
+    )
+    url = f"/datasets/{dataset.id}/export?format=geojson&where=pop+%3E+1"
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200, first.text
+    assert counts["n"] == 1, f"precondition: the cold request counts once, saw {counts}"
+
+    await client.head(url, headers=admin_auth_header)
+    for start in range(0, 300, 100):
+        resp = await client.get(
+            url, headers={**admin_auth_header, "Range": f"bytes={start}-{start + 99}"}
+        )
+        assert resp.status_code in (200, 206), resp.text
+
+    assert counts["n"] == 1, (
+        f"a HEAD and three ranges against a cached export ran {counts['n']} "
+        f"bounded counts. Each is a scan to five million rows for an artifact "
+        f"that already exists."
+    )

@@ -119,6 +119,31 @@ _SWEEP_AGE_SECONDS = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
 # objects it reclaims have been unusable for an hour.
 _SWEEP_INTERVAL_SECONDS = 900
 
+# fix(#1532 review, internal): how far into the future a key's timestamp may sit
+# before this refuses to serve it. Small, because it exists to tolerate ordinary
+# NTP jitter between workers rather than to accommodate a broken clock: a
+# genuinely future-stamped artifact stays fresh for the TTL PLUS the skew and
+# unreclaimable for the horizon plus the skew, and it outranks every honest
+# sibling because the newest wins.
+_CLOCK_SLACK_SECONDS = 5
+
+# fix(#1532 review, internal): the ceiling on what this cache may hold.
+#
+# On the local backend `_ROOT` sits inside `settings.upload_staging_dir` — the
+# same volume `export_dataset` writes its conversions to and every ingest stages
+# uploads on. Before this cache those export bytes were transient; retaining a
+# copy of every distinct selection for a horizon turns a few large exports into a
+# volume that has no room for the next conversion. Filters are caller-controlled,
+# so "a few large distinct selections" needs no adversary — five bbox tiles of a
+# multi-gigabyte dataset will do it.
+#
+# 8 GiB: enough for the case the cache exists for (one client range-reading one
+# export, plus its neighbours) and small enough to leave an ordinary staging
+# volume room to work. An absolute number rather than a fraction of the volume,
+# because the provider protocol reports no capacity and a fraction of an
+# unknowable whole is not a bound.
+_BUDGET_BYTES = 8 * 1024 * 1024 * 1024
+
 _last_sweep_at = 0.0
 
 
@@ -150,6 +175,22 @@ class ExportArtifact:
     built_at: float
     filename: str
     media_type: str
+    # fix(#1532 review, internal): more than one DISTINCT set of bytes was fresh
+    # under this selection when the lookup ran, so a client reading in slices
+    # can be handed a different one between two requests and splice them.
+    #
+    # Nothing prevents two artifacts inside one TTL: every client that arrives
+    # during a slow build misses and builds its own, and the herd repeats at each
+    # window boundary. The bytes differ whenever the format is GPKG — the default,
+    # and it stamps `gpkg_contents.last_change` per build — or whenever a write
+    # landed without moving `tile_cache_version`. So "a forgotten bump costs one
+    # TTL of staleness" was really "a forgotten bump plus overlapping builders
+    # costs a silent splice".
+    #
+    # The caller answers ranges with the complete representation while this is
+    # set. HEAD and the ETag are unaffected: each artifact is still internally
+    # consistent, and a whole-object read of either is a correct answer.
+    contested: bool = False
 
     @property
     def etag(self) -> str:
@@ -243,17 +284,29 @@ def _selection_prefix(dataset_id: uuid.UUID, selection: str) -> str:
 def _artifact_key(
     dataset_id: uuid.UUID, selection: str, digest: str, size: int, built_at: float
 ) -> str:
-    """``{built_at}-{size}-{digest}.bin`` — the whole of an artifact's metadata.
+    """``{built_at}-{size}-{digest}-{nonce}.bin`` — an artifact's whole metadata.
 
-    Three facts, each earning its place. ``built_at`` is what makes every
-    freshness and reclamation decision a pure function of the name, so no
-    judgement depends on a read another worker can invalidate. ``size`` is what
-    detects a truncated object on a provider that writes in place. ``digest`` is
-    the strong ETag, and it is what makes two artifacts with identical content
-    distinguishable from two with different content.
+    Each part earns its place. ``built_at`` makes every freshness and
+    reclamation decision a pure function of the name, so no judgement depends on
+    a read another worker can invalidate. ``size`` detects a truncated object on
+    a provider that writes in place. ``digest`` is the strong ETag.
+
+    ``nonce`` makes the key WRITER-OWNED, which the first three do not
+    (fix(#1532 review, internal)). ``built_at`` is whole seconds, so two builders
+    of a deterministic format finishing in the same second computed the same key
+    — and then a failed write on one of them called `_discard` on a key the
+    OTHER had just published successfully, deleting a live object out from under
+    readers who were already past their response headers. A writer can only ever
+    clean up its own attempts now.
+
+    Two builders with identical bytes therefore leave two objects carrying one
+    ETag, which is harmless: they are byte-identical by construction, the newer
+    answers, and the horizon reclaims the other.
     """
+    nonce = uuid.uuid4().hex[:12]
     return (
-        f"{_selection_prefix(dataset_id, selection)}{int(built_at)}-{size}-{digest}.bin"
+        f"{_selection_prefix(dataset_id, selection)}"
+        f"{int(built_at)}-{size}-{digest}-{nonce}.bin"
     )
 
 
@@ -268,12 +321,31 @@ def parse_artifact_key(key: str) -> tuple[float, int, str] | None:
     if not name.endswith(".bin"):
         return None
     parts = name[: -len(".bin")].split("-")
-    if len(parts) != 3:
+    if len(parts) != 4:
         return None
-    stamp, size, digest = parts
-    if not stamp.isdigit() or not size.isdigit() or not digest:
+    stamp, size, digest, nonce = parts
+    if not stamp.isdigit() or not size.isdigit() or not digest or not nonce:
         return None
     return float(stamp), int(size), digest
+
+
+def parse_tmp_key(key: str) -> float | None:
+    """The build time of a ``.tmp`` scratch file, or None if it is not one.
+
+    fix(#1532 review, internal): ``LocalStorageProvider.put`` writes to
+    ``<key>.<hex>.tmp`` and renames, so a SIGKILL, an OOM or a power loss leaves
+    that scratch file behind. ``parse_artifact_key`` answers None for it, every
+    caller reads None as "leave it alone", and it leaked onto the shared staging
+    volume permanently.
+
+    Aged from the ``<stamp>`` of the artifact key it was going to become: a write
+    that started more than a horizon ago and never renamed is not going to.
+    """
+    name = key.rsplit("/", 1)[-1]
+    if not name.endswith(".tmp") or ".bin." not in name:
+        return None
+    stamp = name.split("-", 1)[0]
+    return float(stamp) if stamp.isdigit() else None
 
 
 async def lookup(
@@ -295,10 +367,23 @@ async def lookup(
     that truncation to every reader until the horizon. Comparing against the size
     the key claims turns it into a miss and a rebuild.
 
+    fix(#1532 review, internal): the returned artifact says whether the fresh
+    set was CONTESTED — more than one distinct digest inside the window. See
+    ``ExportArtifact.contested``; the caller turns it into "answer ranges with
+    the whole thing".
+
+    A future-stamped key is unusable. A worker whose clock runs ahead writes one
+    that stays fresh for the TTL plus the skew and unreclaimable for the horizon
+    plus the skew, and it outranks every honest sibling because the newest wins.
+    Ignoring it costs a rebuild; trusting it costs correctness for as long as the
+    skew lasts.
+
     Every failure here is a miss. This is a cache in front of a conversion that
     still works, so a storage hiccup should cost a rebuild, not the download.
     """
-    cutoff = time.time() - _ttl_seconds()
+    now = time.time()
+    cutoff = now - _ttl_seconds()
+    horizon = now + _CLOCK_SLACK_SECONDS
     try:
         storage = get_storage()
         keys = await storage.list(_selection_prefix(dataset_id, selection))
@@ -311,8 +396,10 @@ async def lookup(
         if parsed is None:
             continue
         built_at, size, digest = parsed
-        if built_at >= cutoff:
+        if cutoff <= built_at <= horizon:
             candidates.append((built_at, size, digest, key))
+
+    contested = len({digest for _, _, digest, _ in candidates}) > 1
 
     for built_at, size, digest, key in sorted(candidates, reverse=True):
         try:
@@ -330,6 +417,7 @@ async def lookup(
             built_at=built_at,
             filename=filename,
             media_type=media_type,
+            contested=contested,
         )
     return None
 
@@ -362,6 +450,27 @@ async def store(
     global _last_sweep_at
     try:
         digest, size = await _digest_and_size(file_path)
+        # fix(#1532 review, internal): do not publish if a fresh artifact has
+        # appeared while this request was converting. Every client arriving
+        # during a slow build misses and builds its own, so the overlap is the
+        # normal case rather than a rare one, and each extra publication is
+        # another set of bytes a range-reading client can be flipped onto. The
+        # caller serves its own conversion whole instead, which costs one
+        # response body and adds nothing to the selection.
+        if await lookup(
+            dataset_id, selection, filename=filename, media_type=media_type
+        ):
+            return None
+        # And do not publish past the byte budget. The local root IS the shared
+        # staging volume that `export_dataset` and every ingest writes to, and
+        # before this cache those export bytes were transient; retaining them for
+        # a horizon means a handful of large distinct selections can block every
+        # conversion and upload on the instance. r4's reclaim-and-retry only
+        # frees AGED artifacts, so a volume filled with FRESH ones has nothing to
+        # give back — the budget is what keeps that from happening at all.
+        if not await _fits_in_budget(size):
+            logger.warning("export_cache_budget_exhausted", size=size)
+            return None
         # fix(#1532 review r4): reclaim BEFORE writing, not after. This is the
         # only production call to the sweep, so a `put` that raises on a full
         # store used to exit before it — and with nothing else sweeping
@@ -468,6 +577,28 @@ async def _discard(keys: list[str]) -> None:
             logger.debug("export_artifact_discard_failed", key=key, exc_info=True)
 
 
+async def _fits_in_budget(size: int) -> bool:
+    """Would publishing ``size`` more bytes keep the cache under its budget?
+
+    Free to compute: every artifact's size is in its own key, so the current
+    total is a listing and some string parsing rather than a stat per object.
+
+    Failing OPEN on an unreadable listing. The budget bounds a resource this
+    cache borrows; a cache that refused to work whenever it could not measure
+    itself would trade a bounded disk cost for an unbounded conversion one.
+    """
+    try:
+        keys = await get_storage().list(f"{_ROOT}/")
+    except Exception:  # broad: cannot measure means do not block
+        return True
+    total = 0
+    for key in keys:
+        parsed = parse_artifact_key(key)
+        if parsed is not None:
+            total += parsed[1]
+    return total + size <= _BUDGET_BYTES
+
+
 async def _digest_and_size(file_path: str) -> tuple[str, int]:
     """SHA-256 and byte length of a converted export, read in bounded chunks.
 
@@ -549,7 +680,8 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
         async for page in storage.iter_object_pages(f"{_ROOT}/"):
             for obj in page:
                 parsed = parse_artifact_key(obj.key)
-                if parsed is None or parsed[0] >= cutoff:
+                built_at = parsed[0] if parsed is not None else parse_tmp_key(obj.key)
+                if built_at is None or built_at >= cutoff:
                     continue
                 try:
                     await storage.delete(obj.key)
