@@ -145,8 +145,20 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
             except ValueError:
                 pass
 
+    # fix(#1548 review P2): this lookup reads an AppSetting row on a 60s-cold
+    # cache, so it is the one part of the domain-lock check that can fail for
+    # reasons unrelated to the decision. An authorization helper must fail
+    # CLOSED on that, not propagate: every other denial in this module returns
+    # a bool, and letting a DB error escape would turn a routine deny into a
+    # 500 on the tile path. Resolving no self-origins denies, which is correct.
     try:
-        origins.add(_normalize_origin(await get_public_app_url(db)))
+        app_url = await get_public_app_url(db)
+    except Exception:  # broad: any lookup failure must deny, never raise
+        logger.warning("embed_self_origin_lookup_failed", exc_info=True)
+        return origins
+
+    try:
+        origins.add(_normalize_origin(app_url))
     except ValueError:
         pass
 
@@ -214,7 +226,36 @@ async def _request_origin_is_allowed(
     # being loopback.
     if _is_localhost_origin(origin) and _client_is_loopback(request):
         return True
-    return origin in await _resolve_self_origins(db, request)
+
+    self_origins = await _resolve_self_origins(db, request)
+    if origin in self_origins:
+        return True
+
+    # fix(#1548 review P2): a deployment that never sets PUBLIC_APP_URL still
+    # gets one. Both docker-compose.yml and docker-compose.prod.yml inject
+    # ``${PUBLIC_APP_URL:-http://localhost:8080}``, and .env.example ships the
+    # line commented out, so a self-hoster serving https://maps.example.com
+    # resolves a self-origin of http://localhost:8080 and their domain-locked
+    # embeds stay empty. The server cannot fix that for them: every
+    # request-derived alternative (Host, X-Forwarded-Host, request.url) is
+    # settable by anyone who can point a DNS name at the deployment, which
+    # would make the lock bypassable by the exact parties it excludes. So log
+    # the mismatch with the remediation instead of guessing, and keep the
+    # denial. Fires only for a domain-locked token that already missed both
+    # the allowlist and the loopback bypass, so this is not a hot path.
+    logger.warning(
+        "embed_token_domain_lock_denied",
+        request_origin=origin,
+        self_origins=sorted(self_origins),
+        allowed_origins=sorted(allowed_origins),
+        remediation=(
+            "If this deployment serves the embed shell from request_origin, "
+            "set PUBLIC_APP_URL (or the public_app_url setting) to it. The "
+            "embed shell's own API calls carry the shell's origin, so they "
+            "are only recognized as first-party when that value is correct."
+        ),
+    )
+    return False
 
 
 def build_embed_frame_ancestors(

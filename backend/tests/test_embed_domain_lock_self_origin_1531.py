@@ -339,6 +339,106 @@ class TestSelfOriginIsServerDerived:
         assert FOREIGN_ORIGIN not in origins
 
 
+class TestUnresolvableSelfOriginFailsClosed:
+    """fix(#1548 review P2): the self-origin lookup reads an AppSetting row, so
+    it is the one part of this check that can fail for reasons unrelated to the
+    decision. It must deny rather than propagate: every other denial here
+    returns a bool, and an escaping exception would turn a routine deny into a
+    500 on the tile path."""
+
+    @pytest.fixture
+    def _lookup_raises(self, monkeypatch):
+        async def _boom(db, **kwargs):
+            raise RuntimeError("public_app_url lookup failed")
+
+        monkeypatch.setattr(embed_service, "get_public_app_url", _boom, raising=True)
+
+    @pytest.mark.anyio
+    async def test_resolve_self_origins_returns_empty_instead_of_raising(
+        self, _lookup_raises
+    ):
+        origins = await embed_service._resolve_self_origins(
+            AsyncMock(), _make_request(referer=SHELL_REFERER)
+        )
+        assert origins == set()
+
+    @pytest.mark.anyio
+    async def test_scope_resolution_denies_and_does_not_raise(self, _lookup_raises):
+        assert (
+            await _scope(_make_request(referer=SHELL_REFERER), [CUSTOMER_ORIGIN])
+            == set()
+        )
+
+    @pytest.mark.anyio
+    async def test_tile_access_denies_and_does_not_raise(
+        self, _lookup_raises, monkeypatch
+    ):
+        request = _make_request(referer=SHELL_REFERER)
+        assert await _validate(request, [CUSTOMER_ORIGIN], monkeypatch) is False
+
+    @pytest.mark.anyio
+    async def test_a_mock_database_does_not_leak_a_typeerror(self, monkeypatch):
+        """The concrete shape that regressed: a unit test passing an AsyncMock
+        db reaches _load_public_url_overrides on a cold public-URL cache. That
+        used to escape as `TypeError: 'coroutine' object is not iterable` and
+        was masked whenever an earlier test had primed the module-global cache,
+        making the whole suite order-dependent."""
+        from app.core import public_urls
+
+        # Restore the REAL lookup over the autouse fake, and clear the
+        # module-global 60s cache so it actually queries. Priming that cache is
+        # exactly what used to mask this.
+        monkeypatch.setattr(
+            embed_service,
+            "get_public_app_url",
+            public_urls.get_public_app_url,
+            raising=True,
+        )
+        public_urls.invalidate_public_url_cache()
+        try:
+            origins = await embed_service._resolve_self_origins(
+                AsyncMock(), _make_request(referer=SHELL_REFERER)
+            )
+        finally:
+            public_urls.invalidate_public_url_cache()
+        assert origins == set()
+
+
+class TestMisconfiguredDeploymentIsDiagnosable:
+    """fix(#1548 review P2): compose injects PUBLIC_APP_URL=http://localhost:8080
+    by default, so a self-hoster on https://maps.example.com who never sets it
+    resolves the wrong self-origin and their domain-locked embeds stay empty.
+    The server cannot correct that without a request-derived origin, which is
+    settable by anyone who can point DNS at the deployment. It denies, and says
+    why."""
+
+    @pytest.mark.anyio
+    async def test_denies_and_logs_the_remediation(self, monkeypatch):
+        async def _default_compose_value(db, **kwargs):
+            return "http://localhost:8080"
+
+        monkeypatch.setattr(
+            embed_service, "get_public_app_url", _default_compose_value, raising=True
+        )
+        events: list[dict] = []
+        monkeypatch.setattr(
+            embed_service.logger,
+            "warning",
+            lambda ev, **kw: events.append({**kw, "event": ev}),
+        )
+
+        # Shell served from the real hostname; client is not loopback.
+        request = _make_request(referer="https://maps.example.com/m/share-token")
+        assert await _scope(request, [CUSTOMER_ORIGIN]) == set()
+
+        assert events, "a domain-lock denial must be diagnosable from the logs"
+        event = events[-1]
+        assert event["event"] == "embed_token_domain_lock_denied"
+        assert event["request_origin"] == "https://maps.example.com"
+        assert event["self_origins"] == ["http://localhost:8080"]
+        assert "PUBLIC_APP_URL" in event["remediation"]
+
+
 def test_frame_ancestors_directive_carries_the_self_half():
     """The API check now mirrors the CSP directive it sits under: both accept
     our own origin plus the configured embedder origins."""
