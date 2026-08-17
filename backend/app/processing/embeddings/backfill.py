@@ -276,11 +276,17 @@ async def _preflight_embedding(
     #
     # The case that found it was a settings write that persisted a newly
     # detected width without rebuilding the column, so switching model without
-    # naming dimensions left storage at the old width (that path is the subject
-    # of #1529). This check is deliberately NOT written against that path: it
-    # asks storage what it will accept, so it holds for any cause — a rebuild
-    # that failed partway, a restored dump, a column altered by hand, a writer
-    # nobody has added yet. Closing one route does not make it redundant.
+    # naming dimensions left storage at the old width. #1529 closed that route:
+    # an auto-detected width now joins `validated_settings` and goes down the
+    # same rebuild branch as one an admin typed, so the column follows every
+    # width the settings API publishes.
+    #
+    # This check is deliberately NOT written against that route, which is why
+    # closing it did not retire the check. It asks storage what it will accept,
+    # so it holds for any cause. Still live after #1529: a rebuild that failed
+    # partway, a restored dump, a column altered by hand, and ENV_ONLY_CONFIG
+    # deployments, where the model comes from the environment, no settings
+    # write happens, and therefore no rebuild is ever triggered.
     #
     # Read the width off the live column rather than trusting EMBEDDING_DIMS:
     # the setting is what disagreed with storage in the first place. pgvector
