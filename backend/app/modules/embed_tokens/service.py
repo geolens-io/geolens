@@ -258,6 +258,109 @@ async def _request_origin_is_allowed(
     return False
 
 
+class DomainLockNotEnforceableError(Exception):
+    """Raised when a domain lock is requested that this deployment cannot enforce.
+
+    Deliberately NOT a ``ValueError``: both write handlers map ``ValueError`` to
+    400 for the advanced-sharing edition gate, and this is a distinct condition
+    with its own status code.
+    """
+
+
+async def assert_domain_lock_is_enforceable(
+    db: AsyncSession, request: Request, allowed_origins: list[str] | None
+) -> None:
+    """Refuse to issue a domain lock this deployment could never enforce.
+
+    fix(#1548 review P2). Domain locking only works when the deployment knows
+    its own public origin, because the embed shell's API calls carry the
+    SHELL's origin (see ``_request_origin_is_allowed``). That value comes from
+    configuration, and the configuration has a default that is wrong for almost
+    every real install: ``docker-compose.yml`` and ``docker-compose.prod.yml``
+    both inject ``${PUBLIC_APP_URL:-http://localhost:8080}``, and
+    ``.env.example`` ships the line commented out. So a self-hoster reached at
+    https://maps.example.com who never set it resolves a self-origin of
+    ``http://localhost:8080``, and the #1531 fix that makes domain-locked
+    embeds work is inert for them: their embeds stay empty, with nothing said
+    at the moment they made the mistake.
+
+    We do not infer the serving origin to paper over that. Every unconfigured
+    source (``Host``, ``X-Forwarded-Host``, ``request.url``) is settable by
+    anyone who can point a DNS name at the deployment, so an inferred
+    self-origin would be satisfiable by exactly the parties a domain lock
+    excludes — a control any caller can satisfy is not a control. The operator
+    has to tell us; this makes them tell us when they turn the lock on rather
+    than silently on every later viewer request.
+
+    THE REFUSAL CONDITION is deliberately narrow: the creating request arrived
+    at a real, non-loopback origin, and every origin this deployment believes
+    is itself is a loopback one. That pair is a *proof* of unenforceability
+    rather than a guess — an embed shell served from a routable hostname can
+    never present ``http://localhost:8080`` as its origin, so the lock could
+    only ever deny. Two weaker predicates were rejected:
+
+    * "the configured value is absent" cannot be detected at all. Compose
+      injects the localhost default into the environment, so
+      ``settings.public_app_url`` is a non-empty string and ``unset`` and
+      ``deliberately localhost`` are byte-identical here.
+    * "the creating origin differs from the configured one" refuses a
+      deployment that is configured correctly. An operator whose GeoLens is
+      public at https://maps.example.com but administered over an internal
+      hostname has a working lock — the embed snippet, like every other public
+      link, is built from ``PUBLIC_APP_URL``, so viewers load the shell from
+      the configured origin and the runtime check passes. Blocking them would
+      trade codex's silent failure for a loud one on a healthy install.
+
+    A typo'd (rather than defaulted) ``PUBLIC_APP_URL`` is therefore NOT caught
+    here, by choice; the ``embed_token_domain_lock_denied`` warning logged by
+    ``_request_origin_is_allowed`` carries that case with the same remediation.
+
+    The comparison reads the creating request's own ``Origin``, which IS a
+    caller-controlled header. Sound here because it is a *diagnostic*, not an
+    authorization decision: it can only refuse to mint a token, never grant
+    access, and the caller is an already-authenticated map owner. Forging it
+    only denies yourself.
+
+    Skipped when the request carries no browser origin at all (a CLI or SDK
+    caller sends neither ``Origin`` nor ``Referer``), and when that origin is
+    itself loopback (a developer on ``localhost``/Vite is not the install this
+    is aimed at, and their runtime check passes either through the H-31
+    loopback bypass or through the localhost self-origin).
+    """
+    if not allowed_origins:
+        # Clearing or omitting a domain lock is always allowed.
+        return
+
+    if not is_enterprise():
+        # Domain locking is an advanced-sharing control, so create/update is
+        # about to reject this with ADVANCED_SHARING_ERROR regardless. Returning
+        # here keeps that the message the operator sees: telling a Community
+        # deployment to go fix PUBLIC_APP_URL would point at the wrong problem.
+        return
+
+    origin = extract_request_origin(request)
+    if origin is None or _is_localhost_origin(origin):
+        return
+
+    self_origins = await _resolve_self_origins(db, request)
+    if any(not _is_localhost_origin(o) for o in self_origins):
+        return
+
+    # Keep this wording stable: frontend/src/lib/error-map.ts matches it to
+    # render the remediation, since an unmapped 422 detail collapses to the
+    # generic "validation failed" toast and the point of this refusal is the
+    # prose.
+    resolved = ", ".join(sorted(self_origins)) or "nothing usable"
+    raise DomainLockNotEnforceableError(
+        "Domain locking cannot be enforced by this deployment: its public app "
+        f"URL resolves to {resolved}, but this request reached it at {origin}. "
+        "An embed shell's own API calls carry the shell's origin, so a "
+        "domain-locked token issued now would load an empty map. Set "
+        f"PUBLIC_APP_URL (or the public_app_url setting) to {origin} and try "
+        "again."
+    )
+
+
 def build_embed_frame_ancestors(
     *, is_valid: bool, allowed_origins: list[str] | None
 ) -> str:

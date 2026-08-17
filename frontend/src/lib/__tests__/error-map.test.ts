@@ -416,4 +416,43 @@ describe('API error localization boundary', () => {
       ),
     ).toBe('These layers were not found in the uploaded file: roads, rivers.');
   });
+  // fix(#1548 review P2): the embed domain-lock refusal. Both compose files
+  // ship PUBLIC_APP_URL defaulted to localhost, so a self-hoster reached at a
+  // real hostname hits this on a stock install — and its whole value is the
+  // remediation. Unmapped it collapses to the generic 422 and the domain lock
+  // goes back to failing silently, which is what the refusal exists to stop.
+  it('keeps the remediation in the embed domain-lock refusal', () => {
+    expect(
+      classifyApiError(
+        'Domain locking cannot be enforced by this deployment: its public app URL ' +
+          'resolves to http://localhost:8080, but this request reached it at ' +
+          'https://maps.example.com. An embed shell\'s own API calls carry the ' +
+          "shell's origin, so a domain-locked token issued now would load an empty " +
+          'map. Set PUBLIC_APP_URL (or the public_app_url setting) to ' +
+          'https://maps.example.com and try again.',
+        422,
+      ),
+    ).toEqual({
+      key: 'errors.embedDomainLockUnenforceable',
+      values: {
+        resolved: 'http://localhost:8080',
+        origin: 'https://maps.example.com',
+      },
+    });
+  });
+
+  it('names both the configured value and the origin to set', () => {
+    const rendered = translateApiErrorDetail(
+      'Domain locking cannot be enforced by this deployment: its public app URL ' +
+        'resolves to http://localhost:8080, but this request reached it at ' +
+        'https://maps.example.com. Set PUBLIC_APP_URL (or the public_app_url ' +
+        'setting) to https://maps.example.com and try again.',
+      422,
+    );
+    expect(rendered).toContain('PUBLIC_APP_URL');
+    expect(rendered).toContain('http://localhost:8080');
+    expect(rendered).toContain('https://maps.example.com');
+    // The guard the mapping exists for.
+    expect(rendered).not.toBe('The submitted values are invalid.');
+  });
 });

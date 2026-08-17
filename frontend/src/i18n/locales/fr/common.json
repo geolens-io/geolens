@@ -169,6 +169,7 @@
     "datasetVisibilityBlockedByMaps": "Ces cartes partagent le jeu de données avec un public qui le perdrait : {{maps}}. Supprimez-y la couche, ou restreignez d'abord ces cartes.",
     "analysisUnknownDissolveColumn": "La colonne « {{column}} » n’existe pas dans ce jeu de données. Choisissez un autre champ de regroupement.",
     "corsWildcardNotAllowed": "Les origines génériques ne sont pas acceptées. Les requêtes avec identifiants exigent que chaque origine soit indiquée en entier, par exemple https://example.com.",
+    "embedDomainLockUnenforceable": "Ce déploiement ne peut pas encore appliquer un verrouillage de domaine : son URL publique est définie sur {{resolved}}, mais vous y avez accédé via {{origin}}. Une intégration charge la carte via GeoLens, le verrouillage bloquerait donc tous les visiteurs. Définissez PUBLIC_APP_URL sur {{origin}}, puis créez le jeton.",
     "duplicateSource": "Un jeu de données provenant de cette source est déjà enregistré ({{title}}).",
     "refreshDatasetBusy": "Une actualisation est déjà en cours pour ce jeu de données. Attendez qu'elle se termine, puis réessayez.",
     "refreshOriginChanged": "La source de ce jeu de données a changé pendant la mise en file d'attente de l'actualisation. Vérifiez la source et réessayez.",

@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { ShareDialog, generateEmbedCode, buildEmbedSrc } from '@/components/builder/SharePanel';
 import {
   useCreateEmbedToken,
@@ -498,6 +499,69 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
     });
     // Same inline error as frontend wildcard rejection
     expect(screen.getByText(/wildcard origin not allowed/i)).toBeInTheDocument();
+  });
+
+  /**
+   * fix(#1548 review P2): both compose files ship PUBLIC_APP_URL defaulted to
+   * localhost, so a self-hoster reached at a real hostname is refused here on a
+   * stock install. The refusal exists to replace a silently-empty embed with an
+   * actionable message, so routing it to the generic "update failed" toast — the
+   * default for any unmapped 422 — would put them back where they started.
+   */
+  const DOMAIN_LOCK_DETAIL =
+    'Domain locking cannot be enforced by this deployment: its public app URL ' +
+    'resolves to http://localhost:8080, but this request reached it at ' +
+    'https://maps.example.com. An embed shell\'s own API calls carry the ' +
+    "shell's origin, so a domain-locked token issued now would load an empty " +
+    'map. Set PUBLIC_APP_URL (or the public_app_url setting) to ' +
+    'https://maps.example.com and try again.';
+
+  function domainLockRefusal() {
+    // Mirrors apiFetch: message is already localized, body carries the detail.
+    return new ApiError(
+      translateApiErrorDetail(DOMAIN_LOCK_DETAIL, 422),
+      422,
+      DOMAIN_LOCK_DETAIL,
+    );
+  }
+
+  it('test_chip_input_surfaces_unenforceable_domain_lock_inline: the refusal names PUBLIC_APP_URL where the operator is looking', async () => {
+    const user = userEvent.setup();
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(domainLockRefusal());
+    setup({ enterprise: true, allowedOrigins: [], updateEmbedTokenFn });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'https://customer.example.com');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.queryByText('https://customer.example.com')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    expect(screen.getByText(/https:\/\/maps\.example\.com/)).toBeInTheDocument();
+    // The whole point: not swallowed by the generic toast.
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it('test_chip_remove_surfaces_unenforceable_domain_lock_inline: shrinking a lock still writes one, so it gets the same message', async () => {
+    const user = userEvent.setup();
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(domainLockRefusal());
+    setup({
+      enterprise: true,
+      allowedOrigins: ['https://example.com', 'https://other.io'],
+      updateEmbedTokenFn,
+    });
+    await openChipBlock(user);
+
+    await user.click(
+      screen.getByRole('button', { name: /remove https:\/\/example\.com/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    });
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
   it('test_chip_PATCH_failure_rolls_back: non-422 PATCH failure rolls back chip and surfaces toast', async () => {

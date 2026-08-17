@@ -43,6 +43,13 @@ APP_ORIGIN = "https://maps.geolens.example"
 CUSTOMER_ORIGIN = "https://customer.example.com"
 FOREIGN_ORIGIN = "https://evil.example.net"
 
+# fix(#1548 review P2): the two halves of the shipped-default misconfiguration.
+# docker-compose.yml and docker-compose.prod.yml both inject
+# ${PUBLIC_APP_URL:-http://localhost:8080}, so an operator who never sets it
+# resolves the first while being reached at the second.
+COMPOSE_DEFAULT_APP_URL = "http://localhost:8080"
+SELF_HOSTED_ORIGIN = "https://maps.example.com"
+
 MAP_ID = uuid.UUID("00000000-0000-0000-0000-000000000002")
 DATASET_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 RAW_TOKEN = "et_domain_locked_probe"
@@ -446,3 +453,322 @@ def test_frame_ancestors_directive_carries_the_self_half():
         is_valid=True, allowed_origins=[CUSTOMER_ORIGIN]
     )
     assert directive == f"frame-ancestors 'self' {CUSTOMER_ORIGIN}"
+
+
+class TestDomainLockIsRefusedWhenUnenforceable:
+    """fix(#1548 review P2): the #1531 fix is inert in the SHIPPED configuration.
+
+    ``docker-compose.yml`` and ``docker-compose.prod.yml`` both inject
+    ``${PUBLIC_APP_URL:-http://localhost:8080}`` and ``.env.example`` ships the
+    line commented out, so a self-hoster reached at https://maps.example.com who
+    never set it resolves a self-origin of ``http://localhost:8080``. Their
+    domain-locked embeds stay empty and nothing is said at the moment they
+    turned the lock on. ``assert_domain_lock_is_enforceable`` refuses there
+    instead, naming ``PUBLIC_APP_URL``.
+
+    The refusal is deliberately narrow — a real, non-loopback creating origin
+    against an all-loopback set of self-origins — because that pair PROVES
+    unenforceability. ``test_a_correctly_configured_deployment_is_never_refused``
+    is the guard on the other side: a wider "the two origins simply disagree"
+    rule would block an operator whose config is fine.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _enterprise(self, monkeypatch):
+        """Domain locking is an advanced-sharing control, so the gate only
+        applies where the feature exists."""
+        monkeypatch.setattr(embed_service, "is_enterprise", lambda: True)
+
+    @staticmethod
+    def _self_origin_is(monkeypatch, value: str | None) -> None:
+        """Override the module-level fixture's configured self-origin.
+
+        ``value=None`` stands in for a lookup that fails outright, which
+        ``_resolve_self_origins`` swallows into an empty set.
+        """
+
+        async def _fake_get_public_app_url(db, **kwargs):
+            if value is None:
+                raise RuntimeError("AppSetting lookup failed")
+            return value
+
+        monkeypatch.setattr(
+            embed_service, "get_public_app_url", _fake_get_public_app_url, raising=True
+        )
+
+    # -- the reported bug -------------------------------------------------
+
+    @pytest.mark.anyio
+    async def test_the_shipped_default_is_refused(self, monkeypatch):
+        """codex #1548 P2, verbatim: PUBLIC_APP_URL left at the compose default
+        while the deployment is reached through a real hostname."""
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        request = _make_request(origin=SELF_HOSTED_ORIGIN)
+
+        with pytest.raises(embed_service.DomainLockNotEnforceableError) as exc:
+            await embed_service.assert_domain_lock_is_enforceable(
+                AsyncMock(), request, [CUSTOMER_ORIGIN]
+            )
+
+        message = str(exc.value)
+        assert "PUBLIC_APP_URL" in message, "name the variable to set"
+        assert COMPOSE_DEFAULT_APP_URL in message, "name what it resolved to"
+        assert SELF_HOSTED_ORIGIN in message, "name where the request arrived"
+
+    @pytest.mark.anyio
+    async def test_the_refused_configuration_really_would_deliver_nothing(
+        self, monkeypatch
+    ):
+        """Vacuity guard: tie the 422 to the runtime behaviour it stands in for.
+
+        If this deployment issued the token anyway, the shell's own request —
+        the exact one #1531 taught the check to accept — is still denied,
+        because the self-origin it is compared against is localhost. Without
+        this, the gate above could be refusing a configuration that in fact
+        works, and every assertion in it would still pass.
+        """
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        shell_request = _make_request(
+            referer=f"{SELF_HOSTED_ORIGIN}/m/share-token?et={RAW_TOKEN}"
+        )
+        assert await _scope(shell_request, [CUSTOMER_ORIGIN]) == set()
+
+    @pytest.mark.anyio
+    async def test_an_unresolvable_public_url_is_refused(self, monkeypatch):
+        """A garbage or unreadable setting resolves to no self-origin at all,
+        which is equally unenforceable."""
+        self._self_origin_is(monkeypatch, None)
+        with pytest.raises(embed_service.DomainLockNotEnforceableError) as exc:
+            await embed_service.assert_domain_lock_is_enforceable(
+                AsyncMock(), _make_request(origin=SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+            )
+        assert "nothing usable" in str(exc.value)
+
+    # -- everything the refusal must NOT touch ----------------------------
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "creating_origin",
+        [SELF_HOSTED_ORIGIN, APP_ORIGIN, "https://internal.corp:8443"],
+        ids=["same-host", "configured-host", "internal-admin-host"],
+    )
+    async def test_a_correctly_configured_deployment_is_never_refused(
+        self, monkeypatch, creating_origin
+    ):
+        """The guard against over-refusing.
+
+        Once PUBLIC_APP_URL names a real origin the lock works, and WHICH
+        hostname the owner happened to administer through does not change that:
+        the embed snippet, like every other public link, is built from
+        PUBLIC_APP_URL, so viewers load the shell from the configured origin.
+        A rule of "the creating origin differs from the configured one" would
+        fail the third case here on a perfectly healthy install.
+        """
+        self._self_origin_is(monkeypatch, SELF_HOSTED_ORIGIN)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(), _make_request(origin=creating_origin), [CUSTOMER_ORIGIN]
+        )
+
+    @pytest.mark.anyio
+    async def test_a_localhost_install_reached_at_localhost_is_not_refused(
+        self, monkeypatch
+    ):
+        """The default stack, used as intended.
+
+        ``client_host`` is deliberately NOT loopback: in the shipped compose
+        stack nginx proxies to the api container, so ``request.client.host`` is
+        a bridge IP even for a browser on the host. A gate that leaned on the
+        H-31 loopback bypass to recognize this case would refuse every default
+        install.
+        """
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(),
+            _make_request(origin=COMPOSE_DEFAULT_APP_URL, client_host="172.18.0.5"),
+            [CUSTOMER_ORIGIN],
+        )
+
+    @pytest.mark.anyio
+    async def test_a_vite_dev_origin_is_not_refused(self, monkeypatch):
+        """Frontend dev runs on :5174 against the same backend. Not the install
+        this gate is aimed at."""
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(),
+            _make_request(origin="http://localhost:5174", client_host="172.18.0.5"),
+            [CUSTOMER_ORIGIN],
+        )
+
+    @pytest.mark.anyio
+    async def test_a_hosted_tenant_origin_satisfies_the_gate(self, monkeypatch):
+        """Hosted multi-tenant resolves its origin from the tenant registry, so
+        the fleet-wide PUBLIC_APP_URL being the localhost default is irrelevant
+        there. ``_resolve_self_origins`` already contributes the tenant origin;
+        this pins that the gate reads it rather than only the app URL."""
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        monkeypatch.setattr(embed_service, "is_multi_tenant", lambda: True)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(),
+            _make_request(
+                origin=SELF_HOSTED_ORIGIN, tenant_public_origin=SELF_HOSTED_ORIGIN
+            ),
+            [CUSTOMER_ORIGIN],
+        )
+
+    @pytest.mark.anyio
+    async def test_clearing_a_lock_is_never_refused(self, monkeypatch):
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        request = _make_request(origin=SELF_HOSTED_ORIGIN)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(), request, None
+        )
+        await embed_service.assert_domain_lock_is_enforceable(AsyncMock(), request, [])
+
+    @pytest.mark.anyio
+    async def test_a_non_browser_caller_is_not_refused(self, monkeypatch):
+        """A CLI or SDK caller sends neither Origin nor Referer, so there is
+        nothing to compare. Blocking would be a guess; the runtime denial log
+        covers that case instead."""
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(), _make_request(), [CUSTOMER_ORIGIN]
+        )
+
+    @pytest.mark.anyio
+    async def test_community_keeps_the_edition_message(self, monkeypatch):
+        """On Community, create/update is about to reject this with
+        ADVANCED_SHARING_ERROR. Pointing the operator at PUBLIC_APP_URL instead
+        would name the wrong problem."""
+        self._self_origin_is(monkeypatch, COMPOSE_DEFAULT_APP_URL)
+        monkeypatch.setattr(embed_service, "is_enterprise", lambda: False)
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(), _make_request(origin=SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+        )
+
+    # -- wiring -----------------------------------------------------------
+
+    def test_both_write_handlers_call_the_gate(self):
+        """The two handlers that accept allowed_origins are the same
+        two-readers-of-one-policy shape that produced the original bug. Assert
+        both are wired, not just the one fixed first."""
+        import ast
+        import inspect
+
+        from app.modules.embed_tokens import router as embed_router
+
+        tree = ast.parse(inspect.getsource(embed_router))
+        gated = {
+            node.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and any(
+                isinstance(call.func, ast.Name)
+                and call.func.id == "assert_domain_lock_is_enforceable"
+                for call in ast.walk(node)
+                if isinstance(call, ast.Call)
+            )
+        }
+        assert gated == {
+            "create_embed_token_endpoint",
+            "update_embed_token_endpoint",
+        }, f"handlers accepting allowed_origins must all gate; gated={sorted(gated)}"
+
+
+@pytest.mark.anyio
+async def test_the_refusal_message_matches_the_frontend_matcher(monkeypatch):
+    """fix(#1548 review P2): the 422 must not be mute in the builder.
+
+    ``frontend/src/lib/error-map.ts`` collapses an unmapped 422 detail to the
+    generic ``errors.validationFailed`` toast, and the whole point of this
+    refusal is its prose — which variable to set, and to what. The frontend
+    matches the message by regex to render a localized remediation, so the
+    wording is a contract spanning two languages, which is exactly the shape
+    that produced the bug this PR fixes. Assert it from the Python side too, so
+    reworded prose fails here rather than silently degrading the toast.
+    """
+    import re
+    from pathlib import Path
+
+    error_map = (
+        Path(__file__)
+        .resolve()
+        .parents[2]
+        .joinpath("frontend", "src", "lib", "error-map.ts")
+    )
+    if not error_map.is_file():
+        pytest.skip("frontend tree not present in this checkout")
+
+    async def _fake_get_public_app_url(db, **kwargs):
+        return COMPOSE_DEFAULT_APP_URL
+
+    monkeypatch.setattr(embed_service, "is_enterprise", lambda: True)
+    monkeypatch.setattr(
+        embed_service, "get_public_app_url", _fake_get_public_app_url, raising=True
+    )
+
+    with pytest.raises(embed_service.DomainLockNotEnforceableError) as exc:
+        await embed_service.assert_domain_lock_is_enforceable(
+            AsyncMock(), _make_request(origin=SELF_HOSTED_ORIGIN), [CUSTOMER_ORIGIN]
+        )
+    message = str(exc.value)
+
+    declaration = re.search(
+        r"const domainLockUnenforceable = message\.match\(\s*/(.+?)/[a-z]*,?\s*\);",
+        error_map.read_text(encoding="utf-8"),
+        re.S,
+    )
+    assert declaration, (
+        "frontend/src/lib/error-map.ts must keep a `domainLockUnenforceable` "
+        "matcher for this refusal; without it the builder shows the generic "
+        "'validation failed' toast and the remediation never reaches the operator."
+    )
+    js_regex = declaration.group(1).replace("\\/", "/").strip()
+    match = re.match(js_regex, message)
+    assert match, (
+        "the backend refusal message no longer matches the frontend matcher, so "
+        "the builder would fall back to the generic 422 toast.\n"
+        f"  message: {message}\n  pattern: {js_regex}"
+    )
+    assert match.group(1) == COMPOSE_DEFAULT_APP_URL, "group 1 is the resolved URL"
+    assert match.group(2) == SELF_HOSTED_ORIGIN, "group 2 is the origin to set"
+
+
+def test_mock_db_suites_that_exercise_a_domain_lock_stub_the_lookup():
+    """fix(#1548 review P2): cover the class, not just the one file.
+
+    The self-origin lookup reads an AppSetting row, so a test that drives a
+    domain-locked token against a mock database reaches it and gets a
+    ``TypeError`` on a cold public-URL cache. That used to surface as an error;
+    now that the service fails closed it surfaces as a *silent* deny, so such a
+    test would assert "foreign origin rejected" and pass without exercising the
+    rule at all. Any suite in that shape must stub ``get_public_app_url``.
+    """
+    from pathlib import Path
+
+    readers = ("validate_embed_token_access", "resolve_embed_scope_for_map")
+    offenders: list[str] = []
+    for path in sorted(Path(__file__).parent.glob("test_*.py")):
+        text = path.read_text(encoding="utf-8")
+        if not any(r in text for r in readers):
+            continue
+        mocks_the_db = "AsyncMock()" in text or "MagicMock()" in text
+        # A non-empty allowed_origins is what routes execution to the lookup;
+        # `allowed_origins=None` / `"allowed_origins": None` never reaches it.
+        sets_a_lock = "allowed_origins" in text and any(
+            marker in text
+            for marker in (
+                'allowed_origins": ["',
+                'allowed_origins=["',
+                "allowed_origins, [",
+            )
+        )
+        if mocks_the_db and sets_a_lock and "get_public_app_url" not in text:
+            offenders.append(path.name)
+
+    assert not offenders, (
+        "These suites drive a domain-locked embed token against a mock database "
+        "without stubbing get_public_app_url, so the self-origin lookup fails and "
+        "the check denies for the wrong reason. Add a fixture that patches "
+        "embed_service.get_public_app_url (see test_embed_tokens_origin_bypass.py):\n"
+        + "\n".join(f"  {name}" for name in offenders)
+    )

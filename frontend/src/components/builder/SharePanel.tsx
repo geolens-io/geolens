@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/api/client';
+import { classifyApiError } from '@/lib/error-map';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/use-edition';
@@ -42,6 +43,22 @@ import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normaliz
 import { isLayerHiddenFromMapAudience } from '@/components/builder/map-stack';
 import type { MapLayerResponse, MapVisibility } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
+
+/**
+ * fix(#1548 review P2): true for the backend's "this deployment cannot enforce
+ * a domain lock" refusal (`assert_domain_lock_is_enforceable`).
+ *
+ * Matched through `classifyApiError` rather than by re-testing the prose here,
+ * so error-map.ts stays the one place that knows the server's wording — the
+ * same single-reader discipline the #1531 fix applied to the policy itself.
+ */
+function isDomainLockUnenforceable(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.status === 422 &&
+    classifyApiError(err.body, err.status).key === 'errors.embedDomainLockUnenforceable'
+  );
+}
 
 /**
  * Build the embedded-viewer iframe `src` URL for a shared map (builder-audit
@@ -319,6 +336,13 @@ function ShareLinkSettings({
       setOrigins((current) => current.filter((o) => o !== addedCanonical));
       if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
         setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else if (isDomainLockUnenforceable(err)) {
+        // fix(#1548 review P2): the server's remediation IS the message here —
+        // it names PUBLIC_APP_URL and the value to set. Collapsing it into the
+        // generic "update failed" toast would put the operator back where the
+        // refusal exists to rescue them from: a domain lock that quietly
+        // delivers nothing. err.message is already localized by apiFetch.
+        setOriginError((err as ApiError).message);
       } else {
         toast.error(t('share.updateFailed'));
       }
@@ -338,13 +362,21 @@ function ShareLinkSettings({
         tokenId: resolvedEmbedTokenId,
         allowedOrigins: newOrigins.length > 0 ? newOrigins : null,
       });
-    } catch {
+    } catch (err) {
       // Rollback using functional setState — re-insert what was removed so
       // concurrent removes are not discarded (WR-01: stale-closure race).
       setOrigins((current) =>
         current.includes(removedOrigin) ? current : [...current, removedOrigin],
       );
-      toast.error(t('share.updateFailed'));
+      // fix(#1548 review P2): removing one of several origins still writes a
+      // non-empty lock, so an unenforceable deployment refuses it and the
+      // operator needs the same remediation as on add. Clearing the LAST origin
+      // sends null and is never refused, which stays their way out.
+      if (isDomainLockUnenforceable(err)) {
+        setOriginError((err as ApiError).message);
+      } else {
+        toast.error(t('share.updateFailed'));
+      }
     }
   }
 

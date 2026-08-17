@@ -3462,6 +3462,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # goes on to transfer bytes still measures once, and _managed_key names the
     # tenant-key seam the block now crosses in a second place.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1656,
+    # fix(#1548 review P2): crossed the inclusion threshold. The growth is
+    # assert_domain_lock_is_enforceable — the write-side precondition that
+    # refuses a domain lock this deployment could never enforce, because
+    # PUBLIC_APP_URL ships defaulted to localhost in both compose files and the
+    # #1531 read-side fix is inert for anyone who leaves it there. Most of the
+    # lines are the docstring, and they are the point: it records why the
+    # serving origin is never INFERRED (every unconfigured source is
+    # caller-controlled, so an inferred self-origin would be satisfiable by
+    # exactly the parties a domain lock excludes) and why the refusal condition
+    # is the narrow one, naming the two weaker predicates that were tried and
+    # what each gets wrong. Cap at the exact size. This module is the embed
+    # token domain end to end — CRUD, the single policy reader both validators
+    # share, and now this precondition — and is not where new domains belong.
+    "backend/app/modules/embed_tokens/service.py": 1013,
 }
 
 
