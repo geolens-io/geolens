@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/api/client';
 import { classifyApiError } from '@/lib/error-map';
-import { getPublicAppBaseUrl } from '@/lib/public-urls';
+import { getPublicAppBaseUrl, getShareableBaseUrl } from '@/lib/public-urls';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/use-edition';
@@ -937,13 +937,18 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
 
-  // fix(#1548 review r3): every URL handed to someone else — the share link,
+  // fix(#1548 review r3/r4): every URL handed to someone else — the share link,
   // its unfurlable /card twin, the iframe snippet, the preview standing in for
-  // that snippet — is built from the deployment's configured public origin, not
-  // from whatever hostname this admin is using. See lib/public-urls.ts. Null
-  // when unconfigured, which the UI surfaces rather than papering over.
+  // that snippet — prefers the deployment's configured public origin over
+  // whatever hostname this admin is using. See lib/public-urls.ts for why
+  // "configured" is not the same question as "correct".
   const { data: tileConfig } = useTileConfig();
-  const publicAppBaseUrl = getPublicAppBaseUrl(tileConfig);
+  const currentOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  // Non-null only when the configured value is one a viewer could actually
+  // open. Null covers unset AND the shipped localhost default.
+  const trustedAppBaseUrl = getPublicAppBaseUrl(tileConfig, currentOrigin);
+  // Ordinary shares degrade gracefully: a serving origin still opens.
+  const shareBaseUrl = getShareableBaseUrl(tileConfig, currentOrigin);
 
   // fix(#430 V-17): names of layers that would be silently hidden from this map's
   // audience — e.g. a private/unpublished dataset added to a public/shared
@@ -975,6 +980,19 @@ export function ShareDialog({
   const handleRevoked = tokens.onRevoked;
   const createShareToken = tokens.shareMutation;
   const revokeShareToken = tokens.revokeShareMutation;
+  // fix(#1548 review r4): the embed snippet splits from the share link here,
+  // on what a wrong origin COSTS. An unrestricted embed degrades — served from
+  // a non-canonical but real origin it still loads and draws. A DOMAIN-LOCKED
+  // one does not: the shell's own API calls would carry an origin the backend
+  // does not recognize as first-party, so the map comes up empty with nothing
+  // said. That is the failure this whole PR exists to stop being silent, so
+  // when the lock is on we require a trustworthy configured origin and withhold
+  // the snippet otherwise. `assert_domain_lock_is_enforceable` refuses to mint
+  // such a lock in the first place, so this is reachable only for a token that
+  // predates the guard or a deployment whose URL changed under it.
+  const isDomainLocked = configOrigins.length > 0;
+  const embedBaseUrl = isDomainLocked ? trustedAppBaseUrl : shareBaseUrl;
+
   const createEmbedToken = tokens.embedMutation;
   const revokeEmbedToken = tokens.revokeEmbedMutation;
 
@@ -1049,16 +1067,10 @@ export function ShareDialog({
     }
   }
 
-  /** fix(#1548 review r3): navigation only — this one feeds the "Open" button,
-   *  which opens the viewer in THIS admin's browser and hands the URL to nobody.
-   *  It prefers the configured origin so the admin sees what a viewer sees, but
-   *  keeps working from the current origin when there is none, because a local
-   *  affordance has no reason to go dead over a deployment setting. Everything
-   *  that is copied or embedded (getShareCardUrl, getEmbedCode, the preview) has
-   *  no such fallback. */
+  /** Feeds the "Open" button — navigation in THIS admin's browser. */
   function getShareUrl() {
     if (!rawShareToken) return '';
-    return `${publicAppBaseUrl ?? window.location.origin}/m/${rawShareToken}`;
+    return `${shareBaseUrl}/m/${rawShareToken}`;
   }
 
   /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
@@ -1070,16 +1082,16 @@ export function ShareDialog({
    *  new tab" affordance (direct, redirect-free viewer load). The embed iframe
    *  src is unchanged (see generateEmbedCode). */
   function getShareCardUrl() {
-    if (!rawShareToken || !publicAppBaseUrl) return '';
-    return `${publicAppBaseUrl}/api/maps/shared/${rawShareToken}/card`;
+    if (!rawShareToken) return '';
+    return `${shareBaseUrl}/api/maps/shared/${rawShareToken}/card`;
   }
 
   function getEmbedCode() {
-    if (!publicAppBaseUrl) return '';
+    if (!embedBaseUrl) return '';
     return generateEmbedCode({
       shareToken: rawShareToken || '',
       embedTokenRaw: embedTokenRaw || '',
-      origin: publicAppBaseUrl,
+      origin: embedBaseUrl,
     });
   }
 
@@ -1087,13 +1099,7 @@ export function ShareDialog({
     // SHARE-08: copy the /card URL so the pasted link unfurls in social clients.
     // The label ("Copy Link") is unchanged — only the copied value changes.
     const url = getShareCardUrl();
-    if (!url) {
-      // fix(#1548 review r3): a copied link goes to someone else, so there is
-      // no correct value to put on the clipboard without a configured public
-      // origin. Say why instead of leaving the button silently dead.
-      if (!publicAppBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
-      return;
-    }
+    if (!url) return;
     try {
       await navigator.clipboard.writeText(url);
       toast.success(t('toasts.shareLinkCopied'));
@@ -1105,9 +1111,9 @@ export function ShareDialog({
   async function handleCopyEmbedCode() {
     const code = getEmbedCode();
     if (!code) {
-      // fix(#1548 review r3): same posture as the share link — the snippet is
-      // pasted on someone else's site, so an unconfigured origin has no answer.
-      if (!publicAppBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
+      // fix(#1548 review r4): only reachable with a domain lock on and no
+      // trustworthy public origin — a snippet that would load and stay empty.
+      if (!embedBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
       return;
     }
     try {
@@ -1397,11 +1403,12 @@ export function ShareDialog({
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
-                  {/* fix(#1548 review r3): with no configured public origin
-                      there is no correct URL to put in a snippet a customer
-                      will paste on their own site, so say so instead of
-                      emitting one built from this admin's hostname. */}
-                  {!publicAppBaseUrl ? (
+                  {/* fix(#1548 review r4): a domain-locked embed with no
+                      trustworthy public origin would load and stay empty, so
+                      say that rather than emitting a snippet that looks fine.
+                      An unrestricted embed always has a usable origin and never
+                      reaches this branch. */}
+                  {!embedBaseUrl ? (
                     <div
                       role="status"
                       className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2"
@@ -1512,11 +1519,11 @@ export function ShareDialog({
                     </div>
                   )}
                   {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
-                  {embedTokenRaw && publicAppBaseUrl && (
+                  {embedTokenRaw && embedBaseUrl && (
                     <EmbedPreviewPane
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
-                      origin={publicAppBaseUrl}
+                      origin={embedBaseUrl}
                     />
                   )}
                 </div>

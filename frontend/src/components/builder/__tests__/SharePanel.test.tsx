@@ -99,6 +99,7 @@ function setup({
   layers,
   publishMapFn = vi.fn().mockResolvedValue({}),
   publicAppUrl = window.location.origin,
+  forceActiveEmbedToken = false,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -119,6 +120,9 @@ function setup({
   publishMapFn?: (...args: any[]) => any;
   /** The deployment's configured PUBLIC_APP_URL. null = unconfigured. */
   publicAppUrl?: string | null;
+  /** Return an active embed token even when the share link is created at
+   *  runtime — the domain-locked branch needs both. */
+  forceActiveEmbedToken?: boolean;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -178,7 +182,7 @@ function setup({
   } as never);
   mockedUseMapEmbedTokens.mockReturnValue({
     data: {
-      tokens: hasShareToken
+      tokens: hasShareToken || forceActiveEmbedToken
         ? [
             {
               id: 'embed-1',
@@ -193,7 +197,7 @@ function setup({
             },
           ]
         : [],
-      total: hasShareToken ? 1 : 0,
+      total: hasShareToken || forceActiveEmbedToken ? 1 : 0,
     },
     isLoading: false,
     isError: false,
@@ -1305,31 +1309,110 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
     );
   });
 
-  it('refuses to emit a snippet at all when no public URL is configured', async () => {
-    const user = userEvent.setup();
-    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: null });
-    await generateShareLinkAndWait(user);
+  /**
+   * fix(#1548 review r4): the regression guard.
+   *
+   * Both compose files inject `${PUBLIC_APP_URL:-http://localhost:8080}`, so
+   * the DEFAULT install reports a non-null, perfectly good-looking localhost
+   * value. Trusting it hands every such deployment a share link and an embed
+   * snippet pointing at localhost — which nobody but the admin can open, and
+   * which worked fine before any of this. `publicAppUrl` here is deliberately
+   * the shipped default while the browser is elsewhere.
+   */
+  describe('the shipped localhost default is treated as unconfigured', () => {
+    const COMPOSE_DEFAULT = 'http://localhost:8080';
+    // jsdom serves these tests from http://localhost:3000, which is itself
+    // loopback — and a localhost PUBLIC_APP_URL is CORRECT for a localhost
+    // install, so the trust check rightly accepts it there. Pretend the browser
+    // reached GeoLens at a real hostname, which is the deployment this is about.
+    const SERVED_AT = 'https://maps.example.com';
 
-    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
-    expect(screen.getByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    // `origin` is non-configurable on jsdom's Location, so the whole object is
+    // swapped rather than the one property.
+    const realLocation = window.location;
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: { ...realLocation, origin: SERVED_AT },
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: realLocation,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('copies a share link on the serving origin, not localhost', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        writable: true,
+        configurable: true,
+      });
+      setup({ hasShareToken: false, publicAppUrl: COMPOSE_DEFAULT });
+      await generateShareLinkAndWait(user);
+
+      await user.click(screen.getByRole('button', { name: /copy link/i }));
+      await waitFor(() => expect(writeText).toHaveBeenCalled());
+      expect(writeText.mock.calls[0][0]).toBe(
+        `${SERVED_AT}/api/maps/shared/share-token/card`,
+      );
+      expect(writeText.mock.calls[0][0]).not.toContain(COMPOSE_DEFAULT);
+    });
+
+    it('still emits an unrestricted embed snippet, on the serving origin', async () => {
+      const user = userEvent.setup();
+      setup({
+        hasShareToken: false,
+        hasNonPublic: true,
+        allowedOrigins: [],
+        publicAppUrl: COMPOSE_DEFAULT,
+      });
+      await generateShareLinkAndWait(user);
+
+      const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+      expect(textarea.value).toContain(`src="${SERVED_AT}/m/share-token`);
+      expect(textarea.value).not.toContain(COMPOSE_DEFAULT);
+    });
+
+    it('withholds a DOMAIN-LOCKED snippet, because that one cannot degrade', async () => {
+      // An unrestricted embed served from a non-canonical origin still draws.
+      // A locked one does not: its own API calls would carry an origin the
+      // backend will not accept, and the map comes up empty saying nothing.
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        forceActiveEmbedToken: true,
+        allowedOrigins: ['https://customer.example.com'],
+        publicAppUrl: COMPOSE_DEFAULT,
+      });
+      await generateShareLinkAndWait(user);
+
+      expect(await screen.findByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    });
   });
 
-  it('says why instead of silently copying nothing', async () => {
-    // userEvent.setup() installs its own clipboard stub, so the spy has to be
-    // planted AFTER it — the existing SHARE-08 test does the same.
+  it('withholds a domain-locked snippet when nothing is configured', async () => {
     const user = userEvent.setup();
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText },
-      writable: true,
-      configurable: true,
+    setup({
+      enterprise: true,
+      hasShareToken: false,
+      hasNonPublic: true,
+      forceActiveEmbedToken: true,
+      allowedOrigins: ['https://customer.example.com'],
+      publicAppUrl: null,
     });
-    setup({ hasShareToken: false, publicAppUrl: null });
     await generateShareLinkAndWait(user);
 
-    await user.click(screen.getByRole('button', { name: /copy link/i }));
-    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
-    expect(writeText).not.toHaveBeenCalled();
+    expect(await screen.findByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
   });
 
   it('keeps the local Open affordance working without a configured URL', async () => {
@@ -1339,8 +1422,6 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
     await generateShareLinkAndWait(user);
 
     await user.click(screen.getByRole('button', { name: /^open$/i }));
-    // Navigation in THIS admin's browser, handed to nobody — it has no reason
-    // to go dead over a deployment setting.
     expect(openSpy).toHaveBeenCalledWith(
       `${window.location.origin}/m/share-token`,
       '_blank',
