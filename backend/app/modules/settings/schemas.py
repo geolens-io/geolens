@@ -5,6 +5,12 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.public_urls import (
+    canonical_host_error,
+    is_api_base_path,
+    is_usable_public_origin,
+)
+
 
 class BasemapEntry(BaseModel):
     id: str = Field(
@@ -424,11 +430,31 @@ def _normalize_absolute_url(v: Any) -> str:
 
 
 def validate_public_app_url(v: Any) -> str:
+    """fix(#1555): one rule, both entry points.
+
+    This validator and ``is_usable_public_origin`` (app/core/public_urls.py)
+    each held half of what makes a public app URL usable, and a value only ever
+    met the half its entry point applied. An environment ``PUBLIC_APP_URL``
+    skips this function entirely, so ``https://maps.example.com/api`` was
+    accepted there; a persisted value skips the shape rule, so
+    ``https://192.168.1`` was stored here and then silently ignored by every
+    reader (``get_configured_public_app_url`` drops what the shape rule
+    refuses), leaving the operator an admin form that accepted a setting which
+    does nothing. The ``/api`` clause is checked explicitly first only to keep
+    its specific message; ``canonical_host_error`` supplies one for a host.
+    """
     if not v or (isinstance(v, str) and not v.strip()):
         return ""
     normalized = _normalize_absolute_url(v)
-    if urlsplit(normalized).path.rstrip("/").endswith("/api"):
+    if is_api_base_path(urlsplit(normalized).path):
         raise ValueError("public_app_url must point to the app, not the /api base")
+    if not is_usable_public_origin(normalized):
+        problem = canonical_host_error(urlsplit(normalized).hostname or "")
+        raise ValueError(
+            "public_app_url must be spelled the way a browser would send it, "
+            "because it is compared against the origin an embed shell presents. "
+            + (problem or "Remove any percent-encoding, backslash or non-ASCII.")
+        )
     return normalized
 
 

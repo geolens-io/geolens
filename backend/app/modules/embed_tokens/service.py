@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.edition import is_enterprise
-from app.core.public_urls import get_configured_public_app_url, is_usable_public_origin
+from app.core.public_urls import (
+    get_configured_public_app_url,
+    is_loopback_host,
+    is_usable_public_origin,
+)
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
@@ -43,11 +47,6 @@ def _embed_token_cache_key(token_hash: str) -> str:
     return tenant_cache_key(f"embed_token:{token_hash}")
 
 
-# BUG-028: urlparse(...).hostname strips IPv6 brackets, so the loopback literal
-# stored here must be the UNBRACKETED form '::1' to match what
-# _is_localhost_origin extracts. The previous '[::1]' entry was a dead branch.
-_LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
-
 # Phase 268 H-31: loopback IP set used to gate the localhost-Origin bypass.
 # The Origin header alone is trivially forgeable from non-browser callers
 # (curl, server-side scripts, CLIs) — they can simply set
@@ -55,6 +54,13 @@ _LOCALHOST_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 # To prevent that, the bypass now also requires ``request.client.host`` to
 # be a loopback IP (which a remote attacker cannot forge — ``client.host``
 # is the actual TCP peer address).
+#
+# fix(#1555): stays an exact set while _is_localhost_origin became a range
+# check, and the asymmetry is the point. This one GATES the bypass, so its
+# failure direction is to deny — a peer at 127.0.0.2 simply does not get the
+# development shortcut. The other one decides whether a domain lock can be
+# enforced, where the same miss ISSUES a lock that can never work. Widening
+# this would hand the bypass to more callers, which is not what #1555 asks for.
 _LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
@@ -65,9 +71,17 @@ _LOOPBACK_CLIENT_IPS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def _is_localhost_origin(origin: str) -> bool:
-    """Check if origin is a localhost address (http/https, IPv4/IPv6)."""
+    """Is this origin one that only reaches the machine it is opened on?
+
+    fix(#1555): the host set this used to consult named ``127.0.0.1`` and
+    nothing else in ``127.0.0.0/8``, so ``http://127.0.0.2:8080`` was read as a
+    routable public origin and ``assert_domain_lock_is_enforceable`` permitted a
+    domain lock every recipient resolves to their own machine. Loopback is a
+    RANGE; ``is_loopback_host`` (app/core/public_urls.py) states it once, and
+    the frontend mirrors it in ``isLoopbackHostname``.
+    """
     parsed = urlparse(origin.lower().rstrip("/"))
-    return (parsed.hostname or "") in _LOCALHOST_HOSTS
+    return is_loopback_host(parsed.hostname or "")
 
 
 def _client_is_loopback(request: Request) -> bool:
