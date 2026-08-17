@@ -131,6 +131,194 @@ def _error_fields(exc: BaseException, traced: set[str]) -> dict[str, Any]:
     }
 
 
+async def _live_column_dims(session: AsyncSession) -> int | None:
+    """Read the declared width of the embedding column, straight from storage.
+
+    pgvector puts the declared dimension straight in `atttypmod` (no -4 offset),
+    and -1 means an unconstrained `vector`, which accepts any width.
+
+    Storage rather than `EMBEDDING_DIMS`, because the two are written by
+    different code at different times and the whole point of asking is that they
+    can disagree. Measured on the scratch catalog: 0.32 ms median, against 2.7 ms
+    for the config reads it runs beside.
+    """
+    return (
+        await session.execute(
+            text(
+                "SELECT atttypmod FROM pg_attribute "
+                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
+                "AND attname = 'embedding' AND NOT attisdropped"
+            )
+        )
+    ).scalar_one_or_none()
+
+
+class _AnomalousVectorWidth(RuntimeError):
+    """ONE record's vector does not fit a column that has not moved.
+
+    fix(#1579 review, codex P2): a bad record, not a broken run. Deliberately
+    NOT a `_PinDrift`, so the per-record handler counts it and carries on, which
+    is the #449 isolation this module has defended since. It is named rather
+    than a bare `RuntimeError` only so the compact per-record log line says what
+    happened (#1544 puts the qualified type in `error_type`).
+    """
+
+
+def _column_rejects_width(generated: int, pinned_column_dims: int | None) -> str | None:
+    """Describe a generated width the column will not take, or None if it will.
+
+    The fit test on its own, with no opinion about what the mismatch MEANS. Its
+    two callers supply that: agreement across a batch on one path, a storage
+    read on the other. Splitting it out is what stops the two rules from having
+    to share one predicate, which is how a change meant for the batch path
+    silently disarmed the retry path once already.
+
+    `isinstance` rather than `is not None`, because `scalar_one_or_none` answers
+    `int | None` and -1 means an unconstrained `vector`, which accepts any width
+    and so can never mismatch.
+    """
+    if not isinstance(pinned_column_dims, int) or pinned_column_dims <= 0:
+        return None
+    if generated == pinned_column_dims:
+        return None
+    return (
+        f"the model produced {generated}-dimension vectors but "
+        f"catalog.record_embeddings.embedding is vector({pinned_column_dims})"
+    )
+
+
+def _structural_width_mismatch(
+    vectors: list[list[float]], pinned_column_dims: int | None
+) -> str | None:
+    """Describe vectors that UNIFORMLY do not fit the column, or None otherwise.
+
+    fix(#1533): the sibling class to drift, and the one the non-force path is
+    otherwise blind to. Drift is a width that MOVES; this is a width that was
+    already wrong when the run started, which every comparison guard is
+    correctly silent about because nothing changed. The force path catches it in
+    `_preflight_embedding`, ahead of the DELETE. The non-force path has no
+    pre-flight, so the first batch insert failed the typmod, the batch was
+    retried per record, and each retry spent a provider call before dying on the
+    same error.
+
+    Deliberately NOT a pre-flight on the non-force path, which is the obvious
+    symmetry and is wrong twice over. It costs a provider call per run, on a
+    path that destroys nothing and therefore has nothing to promise. Worse, it
+    aborts a run that a single transient provider failure would otherwise
+    survive: `test_batch_errors_do_not_stop_backfill` and
+    `test_failed_batch_retries_per_record` pin the #449 contract that a failed
+    batch is retried per record and only the bad records count, and a pre-flight
+    consuming the first provider call turns a partial success into no run at
+    all. Measured on the tree: adding one there fails 5 of the 7 tests in
+    `test_embedding_backfill.py`, two of them for that reason rather than for
+    test-double churn.
+
+    Asking the vectors the provider ACTUALLY returned costs nothing extra, and
+    it answers the same question the pre-flight asks: will storage take this.
+
+    fix(#1579 review, codex P2): UNIFORMLY is the whole distinction, and an
+    earlier revision missed it — any single wrong-width vector stopped the run,
+    which broke the same #449 isolation the paragraph above defends. What makes
+    a mismatch structural is AGREEMENT ACROSS INPUTS: a provider does not answer
+    one anomalous width for all 128 texts by accident, whereas a column that was
+    already wrong, or that has just been rebuilt, produces exactly that. Mixed
+    widths mean one bad input among good ones, so this returns None and lets the
+    batch fail into the per-record retry, where each vector is judged alone.
+    """
+    # fix(#1579 review r2, codex P2): TWO vectors minimum. Agreement is the
+    # evidence, and one input agrees with itself vacuously — the same reason
+    # `_raise_on_retry_vector_width` asks storage instead of counting widths.
+    # A final batch of one, which is any catalog sized 1 mod _BATCH_SIZE, was
+    # otherwise read as structural and stopped the whole run over a single bad
+    # record: the isolation bug the previous round fixed on the retry path,
+    # surviving at the one batch size where the batch path cannot tell the two
+    # apart either.
+    #
+    # It falls through instead of growing a branch here. The insert fails, the
+    # record is retried, and the retry rule decides it from storage, which is
+    # the evidence that does work for one input. The cost is one extra provider
+    # call for that one record, which is what a mixed-width batch already pays.
+    #
+    # An empty response lands here too, and for the same reason rather than by
+    # accident: no vectors, no agreement, nothing structural to claim.
+    if len(vectors) < 2:
+        return None
+    widths = {len(vector) for vector in vectors}
+    if len(widths) != 1:
+        return None
+    return _column_rejects_width(widths.pop(), pinned_column_dims)
+
+
+def _raise_on_structural_width(
+    vectors: list[list[float]], pinned_column_dims: int | None, processed: int
+) -> None:
+    """Stop the run when a whole batch's vectors do not fit the column."""
+    detail = _structural_width_mismatch(vectors, pinned_column_dims)
+    if detail is None:
+        return
+    logger.error("backfill_aborted_width_mismatch", detail=detail, processed=processed)
+    raise _PinDrift(
+        f"Embedding regeneration stopped after {processed} records: {detail}. "
+        "Re-save the embedding configuration in Settings so the column is "
+        "rebuilt, then re-run."
+    )
+
+
+async def _raise_on_retry_vector_width(
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    vector: list[float],
+    pinned_column_dims: int | None,
+    processed: int,
+) -> None:
+    """The retry's post-call bracket, plus a judgement on the vector it returned.
+
+    Two questions, in this order, because the second only makes sense once the
+    first is answered:
+
+    1. Is the pinned configuration still the active one? This is the post-call
+       bracket #1525 review r6 installed on this path, restored here. It went
+       missing when the r3 review moved the batch's post-call check below the
+       flush so it could hold the relation lock: the check is still there, but
+       it now sits after an insert that raises on its own when the column has
+       moved to a different fixed width, so it never runs.
+    2. Does THIS vector fit that column? A mismatch against a column that has
+       not moved is one bad record, raised as `_AnomalousVectorWidth` so the
+       caller counts it and carries on (#449).
+
+    fix(#1579 review r4, codex P2): the earlier revision asked (2) first and
+    returned early when the vector matched, so (1) went unasked whenever the
+    provider answered at the pinned width. A column that moved to a DIFFERENT
+    fixed width during the provider call then reached the flush, which raised
+    the typmod error, which the broad handler counted as a bad record. Every
+    record but the last was covered anyway, by the next one's pre-call check —
+    but on the last there is no next one, and the run reported "complete with
+    one error" for a configuration change. A misreport rather than a bad row,
+    and narrow, but the rule is easier to hold when it has no exceptions.
+
+    Asking `_raise_on_pin_drift` rather than reading the width here and
+    phrasing the abort locally. The cheaper read (0.32 ms against ~3 ms) would
+    put a second author of "the column moved" in the module, and two places
+    that decide the same thing drift apart. One rule, one message.
+
+    Cost is one more full drift check per retried record: about 9 ms against the
+    ~0.22 s that record's provider call costs, so roughly 4% of a legitimate
+    per-record retry, and nothing at all on the storm this PR exists to stop,
+    which now ends on its first record.
+    """
+    await _raise_on_pin_drift(
+        session,
+        pinned,
+        processed,
+        pinned_column_dims=pinned_column_dims,
+        error=_PinDrift,
+    )
+    detail = _column_rejects_width(len(vector), pinned_column_dims)
+    if detail is None:
+        return
+    raise _AnomalousVectorWidth(detail)
+
+
 async def _snapshot_embedding_config(
     session: AsyncSession,
 ) -> tuple[str, int | None, str | None]:
@@ -209,12 +397,18 @@ async def _snapshot_embedding_config(
 
     # fix(#1525 review r2, codex P1): read the pinned values straight from the
     # DB. `PersistentConfig.get` answers from a PER-KEY cache, and
-    # `update_settings` commits the whole batch and only then evicts each key in
-    # turn (settings/router.py:338-345). During that eviction, reads of two
-    # different keys can land on opposite sides of one committed update, and
-    # comparing them cannot see it: two reads through the same stale entry agree
-    # with each other perfectly. `get_uncached` neither reads nor writes the
-    # cache, so these observe the committed state instead.
+    # `update_settings` commits the whole batch of setting writes before any
+    # cache entry is evicted (`apply_side_effects_batch`, after the commit in
+    # `update_settings`). A cached read can therefore land on the far side of a
+    # committed update, and comparing two of them cannot see it: two reads
+    # through the same stale entry agree with each other perfectly.
+    # `get_uncached` neither reads nor writes the cache, so these observe the
+    # committed state instead.
+    #
+    # The eviction was a per-key loop when this was written, which made the
+    # window wider still: two keys could be read on opposite sides of one
+    # update. #1543 made it a single batched step, which narrows the window
+    # without closing it, and does not change what these reads have to do.
     model_name = await resolve_embedding_model_name(session, uncached=True)
     if model_name == UNKNOWN_EMBEDDING_MODEL:
         # Loud, not silent: the admin route maps this to a 502 and a "failed"
@@ -260,6 +454,13 @@ class _PinDrift(RuntimeError):
     per-record one instead of counting it as a bad input. It is a
     `RuntimeError`, so every caller that already treats this module's aborts as
     one — the admin route included — is unaffected.
+
+    fix(#1533): also carries a STRUCTURAL generated-width mismatch, which is not
+    drift. The name is narrower than the job: what the two handlers need is "a
+    run-stopping condition discovered with a batch already generated", and both
+    conditions want exactly the same treatment from them. An ISOLATED width
+    mismatch is `_AnomalousVectorWidth` instead, precisely so it does NOT get
+    this treatment.
     """
 
 
@@ -268,10 +469,11 @@ async def _raise_on_pin_drift(
     pinned: tuple[str, int | None, str | None],
     processed: int,
     *,
+    pinned_column_dims: int | None,
     error: type[RuntimeError] = RuntimeError,
 ) -> None:
     """Stop the run if the configuration it pinned is no longer the active one."""
-    drift = await _pinned_config_drift(session, pinned)
+    drift = await _pinned_config_drift(session, pinned, pinned_column_dims)
     if drift is None:
         return
     logger.error("backfill_aborted_pin_drift", detail=drift, processed=processed)
@@ -292,6 +494,7 @@ async def _retry_batch_per_record(
     model_name: str,
     embedding_dims: int | None,
     base_url: str | None,
+    pinned_column_dims: int | None,
     traced_errors: set[str],
 ) -> tuple[int, int]:
     """Re-embed a failed batch one record at a time; return (created, errors).
@@ -305,6 +508,11 @@ async def _retry_batch_per_record(
 
     `created` is the run's running total, passed in only so an abort message
     can say how many records the run had written before it stopped.
+
+    `pinned_column_dims` is the storage width the run pinned, carried in so the
+    bracketing below covers it too. fix(#1533): a width that moves is what puts
+    this loop in its worst state, because the batch insert that failed and sent
+    the run here fails again for every record, one provider call at a time.
 
     `traced_errors` is the run's traceback budget, shared with the batch handler
     that calls this. See `_error_fields`.
@@ -325,7 +533,13 @@ async def _retry_batch_per_record(
             # The check before the call is not redundant with the one after the
             # previous record's: that record may have FAILED, in which case its
             # post-call check never ran either.
-            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created + made,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
+            )
             [vector] = await generate_embeddings_batch(
                 [content],
                 session,
@@ -333,7 +547,19 @@ async def _retry_batch_per_record(
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
-            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            # fix(#1533): per vector on this path, not per batch. This loop is
+            # where a mismatch costs a provider call per record, so it is the
+            # one that has to stop on the first — but only when the column has
+            # moved. One record's vector against a column that has not moved is
+            # a bad record, and the handler below counts it (#1579 review).
+            #
+            # Ahead of the insert, deliberately: it decides NOT to write, so it
+            # needs no lock, and putting it after the flush would let the flush
+            # raise the typmod error first and turn a named abort into a counted
+            # one. It carries the post-call drift bracket for the same reason.
+            await _raise_on_retry_vector_width(
+                session, pinned, vector, pinned_column_dims, created + made
+            )
             session.add(
                 RecordEmbedding(
                     record_id=record_id,
@@ -341,6 +567,17 @@ async def _retry_batch_per_record(
                     model_name=model_name,
                     content_hash=compute_content_hash(content),
                 )
+            )
+            # fix(#1579 review r3, codex P2): flush BEFORE the post-call check,
+            # so the check runs holding the lock its answer depends on. See the
+            # same reorder on the batch path.
+            await session.flush()
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created + made,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
             )
             await session.commit()
             made += 1
@@ -364,7 +601,9 @@ async def _retry_batch_per_record(
 
 
 async def _pinned_config_drift(
-    session: AsyncSession, pinned: tuple[str, int | None, str | None]
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    pinned_column_dims: int | None,
 ) -> str | None:
     """Describe how the live config has left the pinned one, or None if it has not.
 
@@ -375,6 +614,17 @@ async def _pinned_config_drift(
 
     Read the same way `_snapshot_embedding_config` reads, for the same reason:
     a cached read can agree with a stale entry and report no drift.
+
+    fix(#1533): the storage width is checked alongside the settings, because the
+    settings are only ONE of the routes it moves by. `update_settings` publishes
+    `embedding_dims` and then rebuilds the column, so the dimensions comparison
+    above catches that route within a batch. It catches nothing else, and the
+    column moves without a settings write in an ENV_ONLY_CONFIG deployment
+    (there is no settings row and no rebuild ever fires), after a hand
+    `ALTER TABLE`, after a restored dump, and after a rebuild that failed
+    partway. Measured on 1,000 records with the width moved by hand and the
+    settings row untouched: 1,009 provider calls and 1,000 errors reported as if
+    the provider were broken, against 2 calls and a named cause with this check.
 
     Two states are deliberately NOT treated as drift, because neither is
     evidence that the pinned configuration stopped being the right one:
@@ -407,6 +657,25 @@ async def _pinned_config_drift(
             f"the embedding dimensions changed from {dimensions!r} to {active_dims!r}"
         )
 
+    # fix(#1533): BEFORE the endpoint block, not after it, and not because of
+    # message quality. That block returns None from its `except`, so a
+    # deployment where the endpoint cannot be resolved would never reach a check
+    # placed below it — and an endpoint that will not resolve is exactly the
+    # kind of half-configured install where a column gets altered by hand. The
+    # settings comparisons stay ahead of this one so that when both have moved,
+    # the message names the admin action rather than its consequence.
+    #
+    # Any change counts, including one that widens the column or drops the
+    # constraint. A run that carried on would leave the table holding two vector
+    # widths under one model label, and the inserts that make that happen are
+    # the ones that SUCCEED, so nothing else would report it.
+    active_column_dims = await _live_column_dims(session)
+    if active_column_dims != pinned_column_dims:
+        return (
+            f"the embedding column width changed from vector({pinned_column_dims}) "
+            f"to vector({active_column_dims})"
+        )
+
     try:
         active_base_url = await resolve_embedding_base_url(session)
     except (
@@ -421,7 +690,9 @@ async def _pinned_config_drift(
 
 
 async def _preflight_embedding(
-    session: AsyncSession, pinned: tuple[str, int | None, str | None]
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    pinned_column_dims: int | None,
 ) -> None:
     """Generate one throwaway embedding to prove regeneration can work.
 
@@ -492,19 +763,17 @@ async def _preflight_embedding(
     # deployments, where the model comes from the environment, no settings
     # write happens, and therefore no rebuild is ever triggered.
     #
-    # Read the width off the live column rather than trusting EMBEDDING_DIMS:
-    # the setting is what disagreed with storage in the first place. pgvector
-    # puts the declared dimension straight in atttypmod (no -4 offset), and -1
-    # means an unconstrained `vector`, which accepts any width.
-    column_dims = (
-        await session.execute(
-            text(
-                "SELECT atttypmod FROM pg_attribute "
-                "WHERE attrelid = 'catalog.record_embeddings'::regclass "
-                "AND attname = 'embedding' AND NOT attisdropped"
-            )
-        )
-    ).scalar_one_or_none()
+    # The width comes off the live column rather than EMBEDDING_DIMS (the
+    # setting is what disagreed with storage in the first place), and it is the
+    # caller's read rather than one of this function's own.
+    #
+    # fix(#1533): one read, deliberately. The caller pins that same value and
+    # stops the run if the column stops matching it, so what this proves is not
+    # "the width fitted a moment ago" but "the width fits, and the run will not
+    # outlive it". Reading storage twice would put a window between the two: a
+    # rebuild landing inside it passes this check against the old width and gets
+    # pinned at the new one, so nothing afterwards has anything to notice.
+    column_dims = pinned_column_dims
 
     generated = len(vectors[0])
     if column_dims is not None and column_dims > 0 and generated != column_dims:
@@ -543,6 +812,11 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     port = get_processing_port()
 
     pinned: tuple[str, int | None, str | None] | None = None
+    # fix(#1533): the storage width the run commits to, pinned beside the config
+    # rather than inside it. It is not configuration — it is read off
+    # `pg_attribute` rather than `PersistentConfig`, and the two disagree often
+    # enough that this whole check exists.
+    pinned_column_dims: int | None = None
 
     if force:
         Record = port.get_record_orm_class()
@@ -580,6 +854,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # could not cover this branch: by the time that query runs on the force
         # path the vectors are already gone.
         pinned = await _snapshot_embedding_config(session)
+        pinned_column_dims = await _live_column_dims(session)
 
         # fix(#1511 review r3, codex P1): the checks above test proxies for
         # "regeneration will work". This one tests the property itself, because
@@ -593,7 +868,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # One real embedding proves the live config can produce a vector, and
         # covers the modes nobody has enumerated yet: provider down, revoked
         # key, exhausted quota, dimensions the model rejects.
-        await _preflight_embedding(session, pinned)
+        await _preflight_embedding(session, pinned, pinned_column_dims)
 
         # DESTRUCTIVE-FIRST, DELIBERATELY (#1549). This commits before the run
         # knows it can finish, so a drift abort in the batch loop below leaves
@@ -683,8 +958,12 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # name a model, and a model served by two endpoints is two vector spaces
     # under one label; on the shipped provider the same edit instead makes every
     # remaining batch raise, which abandons the rest of the catalog.
+    # fix(#1533): the storage width is pinned in the same two places and for the
+    # same reason. On the force path it is the value the pre-flight was measured
+    # against, so it is read up there rather than re-read here.
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
+        pinned_column_dims = await _live_column_dims(session)
     model_name, embedding_dims, base_url = pinned
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
@@ -731,7 +1010,9 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # batches would then only surface after the next batch had already been
         # generated and paid for. One config read per batch is the cheaper half
         # of that trade.
-        await _raise_on_pin_drift(session, pinned, created)
+        await _raise_on_pin_drift(
+            session, pinned, created, pinned_column_dims=pinned_column_dims
+        )
 
         batch = items[start : start + _BATCH_SIZE]
         try:
@@ -742,15 +1023,15 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
-            # fix(#1525 review r5, codex P2): and again before ACCEPTING the
-            # batch, not only before requesting it. The check above has no
-            # successor for the LAST batch, so an edit landing during that
-            # final provider call was never observed: the vectors were written
-            # and the run reported success while the active endpoint had moved.
-            # Checking here means the batch in flight is discarded rather than
-            # committed, so the run stops without adding a row nothing will
-            # match. `_PinDrift` is re-raised past the batch handler below.
-            await _raise_on_pin_drift(session, pinned, created, error=_PinDrift)
+            # fix(#1533): the whole batch, not the first vector. Agreement
+            # across inputs is what makes a width mismatch structural rather
+            # than one bad record, so a batch of mixed widths deliberately does
+            # NOT stop here: it fails its insert, drops into the retry loop, and
+            # every vector is judged on its own down there (#1579 review).
+            #
+            # Ahead of the inserts because it decides not to write at all, so
+            # unlike the drift check below it needs no lock to be sound.
+            _raise_on_structural_width(vectors, pinned_column_dims, created)
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
                     RecordEmbedding(
@@ -760,6 +1041,41 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                         content_hash=compute_content_hash(content),
                     )
                 )
+            # fix(#1579 review r3, codex P2): FLUSH, then check, then commit.
+            # The check reads `pg_attribute`, which locks nothing, so checking
+            # before the rows were sent left a window in which an `ALTER TABLE`
+            # could take ACCESS EXCLUSIVE, commit, and be missed entirely. When
+            # that ALTER widened the column to an unconstrained `vector` the
+            # old-width inserts then SUCCEEDED, and the run reported success
+            # over a column that had moved under it — the one outcome
+            # `_pinned_config_drift` says a widening change must not produce.
+            #
+            # The flush takes RowExclusiveLock on the relation, which ACCESS
+            # EXCLUSIVE conflicts with. So an ALTER that landed first is seen by
+            # the check (and these rows roll back with the abort), and one that
+            # arrives after waits for our commit. Check-then-act is only sound
+            # while the thing checked cannot move, and this is what stops it
+            # moving.
+            #
+            # A flush that RAISES because the column moved to a different fixed
+            # width is not lost: the batch handler retries per record, and the
+            # retry's pre-call check reads the new width and stops the run.
+            await session.flush()
+            # fix(#1525 review r5, codex P2): and again before ACCEPTING the
+            # batch, not only before requesting it. The check above has no
+            # successor for the LAST batch, so an edit landing during that
+            # final provider call was never observed: the vectors were written
+            # and the run reported success while the active endpoint had moved.
+            # Checking here means the batch in flight is discarded rather than
+            # committed, so the run stops without adding a row nothing will
+            # match. `_PinDrift` is re-raised past the batch handler below.
+            await _raise_on_pin_drift(
+                session,
+                pinned,
+                created,
+                pinned_column_dims=pinned_column_dims,
+                error=_PinDrift,
+            )
             await session.commit()
             created += len(batch)
         except _PinDrift:
@@ -790,6 +1106,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 model_name=model_name,
                 embedding_dims=embedding_dims,
                 base_url=base_url,
+                pinned_column_dims=pinned_column_dims,
                 traced_errors=traced_errors,
             )
             created += made

@@ -2758,6 +2758,67 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # note the next reader assumes an atomic eviction covered both.
     # Cap 1007 -> 1018, exact.
     "backend/app/core/persistent_config.py": 1018,
+    # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
+    # that made the run notice the embedding column moving under it. Two
+    # guards, both small: _live_column_dims (one pg_attribute read, shared with
+    # the pre-flight so a rebuild cannot land between two reads of the same
+    # width) and _structural_width_mismatch (the width the provider ACTUALLY
+    # returned, checked against the width the run pinned, before the insert).
+    # Most of the lines are comment, and they are the part worth keeping. They
+    # record why the baseline is the width the run OBSERVED rather than
+    # EMBEDDING_DIMS — the two legitimately disagree at rest under
+    # ENV_ONLY_CONFIG, so comparing them aborts a healthy run — and why the
+    # column read sits ahead of the endpoint block, which returns None from its
+    # except and would otherwise skip every check below it on exactly the
+    # half-configured install where a column gets altered by hand. The third
+    # note is the one a reader would otherwise re-derive: the obvious symmetry
+    # of running the force path's pre-flight on the non-force path too costs a
+    # provider call per run and breaks the #449 partial-success contract that
+    # test_batch_errors_do_not_stop_backfill and
+    # test_failed_batch_retries_per_record pin.
+    # fix(#1544): the same file also carries the compact-error helpers, whose
+    # docstrings record the ordering invariant two review rounds found the hard
+    # way — the redactor runs first, on the raw string, because truncation and
+    # whitespace collapse each break the pattern it matches on.
+    # fix(#1533 review, codex P2): +55 separating a STRUCTURAL width mismatch
+    # from an ISOLATED one. The first revision stopped the run on any
+    # wrong-width vector, which broke the same #449 isolation the note above
+    # defends: one anomalous vector abandoned every remaining record. The lines
+    # are _AnomalousVectorWidth (counted by the per-record handler rather than
+    # rethrown), the batch check reading agreement ACROSS inputs instead of the
+    # first vector, and the retry check asking storage — one input carries no
+    # agreement, so the evidence has to come from whether the column moved.
+    # The comments carry the part that is not visible in the code: why the
+    # retry-path read is paid at all when the drift check two lines up already
+    # compares the same two widths. Cap 1013 -> 1068, exact.
+    # fix(#1533 review r2, codex P2): +30 for the same lesson one batch size
+    # further in. A single-record batch — any catalog sized 1 mod _BATCH_SIZE —
+    # made "every vector agrees" vacuously true, so one anomalous vector in the
+    # final batch stopped the run. _column_rejects_width splits the fit test
+    # away from what a mismatch MEANS, so the batch rule can demand two vectors
+    # while the retry rule keeps judging one, and the comment says why they
+    # cannot share a predicate: the first attempt at this fix routed one vector
+    # through the batch rule and silently disarmed the retry check.
+    # Cap 1068 -> 1098, exact.
+    # fix(#1533 review r3, codex P2): +37, almost entirely comment. The code is
+    # a reorder — flush the pending rows, THEN run the pre-commit drift check,
+    # THEN commit — on both the batch and the retry path. The check reads
+    # pg_attribute, which locks nothing, so running it before the rows were sent
+    # left a window for an ALTER TABLE to take ACCESS EXCLUSIVE and commit
+    # unseen; widening to an unconstrained vector then let the old-width inserts
+    # succeed and the run report success over a column that had moved. The
+    # flush's RowExclusiveLock is what closes it, and the comment says so at the
+    # call site because the reason a statement sits where it does is invisible
+    # from the statement itself. Cap 1098 -> 1135, exact.
+    # fix(#1533 review r4, codex P2): +10 net. The retry's width judgement asked
+    # "does this vector fit" before "is the column still the pinned one", and
+    # returned early when the vector matched — so a column that moved during the
+    # provider call for the LAST retried record was counted as a bad record
+    # rather than named as drift, there being no next record whose pre-call
+    # check would catch it. It now runs the drift bracket first and reuses
+    # _raise_on_pin_drift rather than phrasing the abort locally, so the module
+    # keeps ONE author of "the column moved". Cap 1135 -> 1145, exact.
+    "backend/app/processing/embeddings/backfill.py": 1145,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
