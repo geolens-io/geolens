@@ -1677,7 +1677,26 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#625): +9 LOC — the _MIN_SEMANTIC_QUERY_LEN gate that drops
         # typeahead prefixes before they reach the provider, plus its rationale
         # comment. Cap 390 → 395, exact: the next addition needs its own review.
-        "backend/app/modules/catalog/search/service_semantic.py": 395,
+        # fix(#1546): +61 — stored rows now carry the identity of the
+        # configuration that produced them and the vector arm filters on it.
+        # Around fifteen lines are mechanism: `_live_embedding_identity`,
+        # resolving it once below the has_embeddings gate and handing it back
+        # out of `_get_vector_ranks` so the counts filter on what the ranks were
+        # taken under, the query-embedding cache key, and `usable_by_config` at
+        # the three filter sites. The rest is why the cache key had to change
+        # with them — the memoized query vector is a third independent reader of
+        # the configuration, and filtering rows by the live one while serving a
+        # vector made under the previous one moves the bug rather than fixing
+        # it. Cap 395 -> 456.
+        # fix(#1546 review r1, codex P1/P2): +26 — the resolved configuration is
+        # now handed to the PROVIDER as well as used for the filter and the
+        # cache key, so a settings change inside one request cannot produce the
+        # query vector under a configuration the rows are not ranked under; and
+        # the resolution moved inside the FTS fallback guard, where a raising
+        # persistent-config read degrades instead of failing the search. Most of
+        # the lines are the two rationales, including why verify-after-the-fact
+        # was rejected. Cap 456 -> 482, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 482,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -1859,7 +1878,18 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # deferred-import shape as its sibling; a separate method rather than a
         # keyword because widening a port signature is an
         # EXTENSION_API_VERSION bump. Cap 445 -> 450.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 450,
+        # fix(#1546): +11 — resolve_embedding_config_fingerprint, the answer
+        # semantic search needs to tell a stored vector from one made under
+        # another endpoint. Same deferred-import shape as its neighbours;
+        # `modules/catalog/` may not import `app.processing.*`, so it crosses
+        # here. Cap 450 -> 461.
+        # fix(#1546 review r1, codex P1): +17 — the port answers the whole live
+        # configuration rather than its fingerprint alone, and generate_embedding
+        # takes a pinned triple. The comment carries why that is ONE optional
+        # argument and not three keyword ones: `None` is a legitimate resolved
+        # endpoint, so three None defaults could not tell "not pinned" from
+        # "pinned to the client default". Cap 461 -> 478, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 478,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -1891,7 +1921,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # "missing" means "missing under THIS model", and why an unresolvable
         # model returns nothing here while the same sentinel is allowed to
         # read as zero coverage in admin's stats. Cap 499 -> 537, exact.
-        "backend/app/platform/extensions/defaults_processing_port.py": 537,
+        # fix(#1546): +27 — "missing" narrows once more, from "no vector this
+        # MODEL can use" to "no vector this CONFIGURATION can use", so a row
+        # written against another endpoint is picked up instead of reading as
+        # coverage the search cannot use. Six lines are the fingerprint
+        # resolution and its fail-closed branch; the rest records why an
+        # UNSTAMPED row still counts as covering the record, which is the only
+        # thing keeping an upgrade from turning the next Generate Missing into
+        # a catalog-wide re-embed. Cap 537 -> 564, exact.
+        "backend/app/platform/extensions/defaults_processing_port.py": 564,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same
@@ -2818,7 +2856,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # check would catch it. It now runs the drift bracket first and reuses
     # _raise_on_pin_drift rather than phrasing the abort locally, so the module
     # keeps ONE author of "the column moved". Cap 1135 -> 1145, exact.
-    "backend/app/processing/embeddings/backfill.py": 1145,
+    # fix(#1546): +80. Rows carry the identity of the configuration that
+    # produced them, so both write sites stamp `config_fingerprint` from the
+    # run's PIN rather than from a read at write time, and both moved from an
+    # ORM add to `INSERT ... ON CONFLICT DO UPDATE` — a record whose only row
+    # for the active model came from another configuration is now offered as
+    # missing, and a plain INSERT answers that with a unique violation instead
+    # of a vector. `_upsert_embeddings` and its rationale are most of the
+    # count; the rest is why the stamp comes from the pin, which is the whole
+    # point of the column. Cap 1145 -> 1225, exact.
+    "backend/app/processing/embeddings/backfill.py": 1225,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

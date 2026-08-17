@@ -89,15 +89,30 @@ class _EndpointRecordingProvider:
 
     Records what each call received, and lands the admin's endpoint edit during
     the first provider call.
+
+    ``resolves_before_edit`` defers that edit past a number of endpoint
+    resolutions. fix(#1546): the NON-FORCE path resolves the endpoint once
+    before the snapshot does — `get_records_without_embeddings` fingerprints the
+    live configuration to decide which records are missing under it — so a
+    subclass that has to land its edit inside the SNAPSHOT's window has to let
+    that one through first. The force path still snapshots before anything else
+    resolves, so it passes 0.
     """
 
-    def __init__(self):
+    def __init__(self, *, resolves_before_edit: int = 0):
         self.calls: list[dict] = []
         self._session = None
         self._edited = False
+        self.resolves = 0
+        self._resolves_before_edit = resolves_before_edit
+
+    @property
+    def _edit_window_reached(self) -> bool:
+        return self.resolves > self._resolves_before_edit
 
     async def resolve_runtime_config(self, session):
         self._session = session
+        self.resolves += 1
         return {
             "default_model": "provider-fallback-model",
             "default_dims": _DIMS,
@@ -142,8 +157,10 @@ class _SnapshotWindowProvider(_EndpointRecordingProvider):
 
     async def resolve_runtime_config(self, session):
         self._session = session
+        self.resolves += 1
         current = await EMBEDDING_BASE_URL.get(session)
-        await self._land_the_admin_edit()
+        if self._edit_window_reached:
+            await self._land_the_admin_edit()
         return {
             "default_model": "provider-fallback-model",
             "default_dims": _DIMS,
@@ -169,7 +186,8 @@ class _AtomicSwitchProvider(_EndpointRecordingProvider):
 
     async def resolve_runtime_config(self, session):
         self._session = session
-        if not self._edited:
+        self.resolves += 1
+        if self._edit_window_reached and not self._edited:
             self._edited = True
             await EMBEDDING_MODEL.set(session, _MODEL_AFTER)
             await EMBEDDING_BASE_URL.set(session, _URL_B)
@@ -450,7 +468,10 @@ async def test_an_edit_inside_the_snapshot_window_aborts_the_run(
     ).scalar_one()
     assert before > 0
 
-    provider = _SnapshotWindowProvider()
+    # fix(#1546): on the non-force path the selection resolves the endpoint
+    # before the snapshot does, so the edit has to skip that one to land where
+    # this test needs it — inside the snapshot's own capture.
+    provider = _SnapshotWindowProvider(resolves_before_edit=0 if force else 1)
     monkeypatch.setattr(
         service_module, "get_embedding_provider", lambda _name: provider
     )
@@ -522,7 +543,7 @@ async def test_an_atomic_model_and_endpoint_swap_cannot_pin_a_mixed_pair(
     ).scalar_one()
     assert before > 0
 
-    provider = _AtomicSwitchProvider()
+    provider = _AtomicSwitchProvider(resolves_before_edit=0 if force else 1)
     monkeypatch.setattr(
         service_module, "get_embedding_provider", lambda _name: provider
     )
@@ -592,7 +613,10 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     # its own VALUE as well would add a third, which is the bug: with
     # `base_url is None` as the pin test, a resolved None reads as an omission
     # and every batch re-resolves.
-    assert provider.resolves == 2 + 2 * len(provider.calls)
+    # fix(#1546): plus ONE for the non-force selection, which fingerprints the
+    # live configuration to decide which records lack a vector THIS
+    # configuration can use.
+    assert provider.resolves == 1 + 2 + 2 * len(provider.calls)
     # And the pinned value actually reached the provider as itself.
     assert {call["base_url"] for call in provider.calls} == {None}
 

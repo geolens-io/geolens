@@ -807,16 +807,37 @@ class AdminService:
         every embedded record reads stale. That is deliberate: search's vector
         arm is equally unusable in that state, and over-reporting coverage is
         the failure this fix exists to remove.
+
+        fix(#1546): the same argument, one value out. A row carrying the active
+        model name but another CONFIGURATION's stamp is in a different vector
+        space, so semantic search cannot use it either, and counting it would
+        show a healthy coverage bar over a catalog the vector arm skips — the
+        exact failure #1503 removed, re-entering through the endpoint.
+
+        The FILTER below is the SQL spelling of
+        `RecordEmbedding.usable_by_config`, which is what the non-force backfill
+        and semantic search apply. Two spellings of one rule is a drift risk, so
+        it is not left to inspection: `test_embedding_config_stamp_1546.py`
+        builds a catalog holding every combination of model and stamp and
+        asserts this count equals what that predicate selects.
         """
-        from app.processing.embeddings.helpers import resolve_embedding_model_name
+        from app.processing.embeddings.helpers import (
+            resolve_embedding_config_fingerprint,
+            resolve_embedding_model_name,
+        )
 
         try:
             model_name = await resolve_embedding_model_name(self.db)
+            config_fingerprint = await resolve_embedding_config_fingerprint(
+                self.db, model_name=model_name
+            )
             result = await self.db.execute(
                 text(
                     "SELECT COUNT(DISTINCT visible_record.id) AS total_records, "
                     "COUNT(DISTINCT visible_record.id) "
-                    "FILTER (WHERE embedding.model_name = :model_name) "
+                    "FILTER (WHERE embedding.model_name = :model_name "
+                    "AND (embedding.config_fingerprint IS NULL "
+                    "OR embedding.config_fingerprint = :config_fingerprint)) "
                     "AS embedded_records, "
                     "COUNT(DISTINCT visible_record.id) "
                     "FILTER (WHERE embedding.record_id IS NOT NULL) "
@@ -825,7 +846,7 @@ class AdminService:
                     "LEFT JOIN catalog.record_embeddings AS embedding "
                     "ON embedding.record_id = visible_record.id"
                 ),
-                {"model_name": model_name},
+                {"model_name": model_name, "config_fingerprint": config_fingerprint},
             )
             total_records, embedded_records, any_model_records = result.one()
         except Exception:  # broad: pgvector table may be missing or DB unavailable; degrade to zeros for admin UI
@@ -839,8 +860,11 @@ class AdminService:
             )
 
         missing_records = total_records - embedded_records
-        # Records carrying vectors, but none the active model can use. Subset
-        # of missing_records. fix(#1506): Generate Missing now covers these —
+        # Records carrying vectors, but none the active configuration can use.
+        # Subset of missing_records. fix(#1546): "configuration", not "model" —
+        # a row from another endpoint counts here too, and Generate Missing
+        # covers it for the same reason it covers a superseded model's row.
+        # fix(#1506): Generate Missing now covers these —
         # the non-force backfill selects on "no active-model row" rather than
         # "no row at all", so it re-embeds them without touching the records
         # the current model already covers. Regenerate All remains the way to

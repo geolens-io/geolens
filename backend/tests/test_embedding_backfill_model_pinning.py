@@ -354,30 +354,26 @@ async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
     assert before > 0
 
     # fix(#1525 review r2): hung on the UNCACHED read, which is the one the
-    # snapshot makes now. The cached read is still what everything else uses, so
-    # both are patched and the flip fires on whichever the snapshot reaches
-    # first — the point is that it lands between the two captures, not which
-    # layer serves them.
-    original_dims_get = EMBEDDING_DIMS.get
+    # snapshot makes.
+    #
+    # fix(#1546): the CACHED read is no longer a stand-in for it. The non-force
+    # selection now reads the dimensions through `get` on its way to
+    # fingerprinting the live configuration, so a flip hung there fires BEFORE
+    # the snapshot starts, which leaves the snapshot reading a settled pair and
+    # this test asserting nothing. `get_uncached` is reached only from inside
+    # `_snapshot_embedding_config`, which is where the flip has to land: between
+    # the model capture and the dimensions capture.
     original_dims_get_uncached = EMBEDDING_DIMS.get_uncached
     flipped = False
 
-    async def _flip(session) -> None:
+    async def _flip_then_read_uncached(session):
         nonlocal flipped
         if not flipped:
             flipped = True
             await EMBEDDING_MODEL.set(session, _MODEL_B)
             await EMBEDDING_DIMS.set(session, _DIMS_B)
-
-    async def _flip_then_read(session):
-        await _flip(session)
-        return await original_dims_get(session)
-
-    async def _flip_then_read_uncached(session):
-        await _flip(session)
         return await original_dims_get_uncached(session)
 
-    monkeypatch.setattr(EMBEDDING_DIMS, "get", _flip_then_read)
     monkeypatch.setattr(EMBEDDING_DIMS, "get_uncached", _flip_then_read_uncached)
 
     provider = _RecordingProvider()

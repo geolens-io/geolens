@@ -17,6 +17,7 @@ from app.modules.catalog.datasets.domain.models import Record
 from app.platform.extensions.defaults import DefaultProcessingPort
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings import helpers
+from app.processing.embeddings import service as service_module
 from tests.fixtures.dummy_overlay.tenant_isolation import TenantIsolationSurface
 
 
@@ -222,6 +223,24 @@ async def test_embedding_reads_and_stats_are_tenant_local(
         helpers,
         "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
+    )
+    # fix(#1546): the coverage query now scopes itself to the live embedding
+    # CONFIGURATION as well as the model, and resolving that reads the
+    # dimensions and the provider endpoint. These sessions run as
+    # geolens_reader, which is denied app_settings — the same precondition
+    # #1511 and #1525 had to supply for the force path one test down, and for
+    # the same reason: the denied read aborts the transaction, so the stats
+    # query behind it degrades to zeros and the isolation this test asserts is
+    # never reached. Supplied here so the real fingerprint resolution runs and
+    # the query under test is the real one. The seeded rows carry no stamp, so
+    # which endpoint this answers with does not change what they match.
+    monkeypatch.setattr(
+        backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
+    )
+    monkeypatch.setattr(
+        service_module,
+        "resolve_embedding_base_url",
+        AsyncMock(return_value=None),
     )
     helpers._has_embeddings_cache.clear()
 
