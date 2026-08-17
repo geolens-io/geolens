@@ -2663,7 +2663,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pre-commit value for a full TTL — and the limit of what a writer-side fix
     # can do, since a reader calling get() once per key still samples at two
     # instants and can straddle the whole step.
-    "backend/app/core/persistent_config.py": 1007,
+    # fix(#1543 follow-up): +11 recording which half of #1539's endpoint
+    # residue this closes. #1543 is that residue's named owner, and the split
+    # is not guessable from the code: the eviction span is fixed here, while
+    # the cached-vs-uncached TTL lag that dominates it is not an eviction
+    # problem at all and needs EmbeddingProviderExtension widened. Without the
+    # note the next reader assumes an atomic eviction covered both.
+    # Cap 1007 -> 1018, exact.
+    "backend/app/core/persistent_config.py": 1018,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

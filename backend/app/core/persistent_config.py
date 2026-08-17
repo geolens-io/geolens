@@ -402,6 +402,17 @@ async def apply_side_effects_batch(
     step, seeing one key's committed-new value and another's cached-old one.
     Closing that needs the reader to resolve the set in one operation;
     ``get_uncached`` is the per-key opt-out available today (#1539).
+
+    That distinction decides what this function does for #1539's residue. The
+    backfill gate reads model and dimensions uncached but takes its endpoint
+    from ``EmbeddingProviderExtension.resolve_runtime_config``, which has no
+    uncached variant, so the endpoint stays cached. What is fixed here is the
+    eviction span: a PUT changing ``embedding_base_url`` beside
+    ``embedding_model`` no longer serves a base URL the writer has committed
+    past. The larger exposure is untouched and is not an eviction problem —
+    an uncached read is always current while a cached one may lag it by a full
+    ``_CACHE_TTL``, however atomically the entry was evicted. Only reading the
+    endpoint uncached closes that, and that needs the protocol widened.
     """
     if not items:
         return
