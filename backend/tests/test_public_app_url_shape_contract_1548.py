@@ -368,6 +368,62 @@ def test_both_entry_points_accept_a_value_a_viewer_could_reach(configured):
 
 
 @pytest.mark.parametrize(
+    ("label", "u_label", "browser_accepts", "why"),
+    [
+        # The finding: mapping leaves it alone, validity does not.
+        ("xn--a-sgn", "a‌", False, "ZWNJ outside any context RFC 5892 allows"),
+        ("xn--a-wbb", "́a", False, "begins with a combining mark"),
+        ("xn--a-ymcl5hc", "مثالa", False, "RTL label carrying an L character"),
+        ("xn--1a-ctdp0kd", "1مثالa", False, "same, behind a leading neutral"),
+        (
+            "xn--abc-55e",
+            "٠abc",
+            False,
+            "AN before the first strong char of an LTR label",
+        ),
+        # CheckJoiners ACCEPTS a joiner in context — the counterfactual that
+        # keeps the rule from being "no U+200C ever".
+        ("xn--11b2ezcw70k", "क्‍ष", True, "ZWJ after a virama"),
+        # Rules browsers switch OFF. Each of these is refused by idna.encode(),
+        # which is exactly why idna.encode() is not what this calls.
+        ("xn--ll-0ea", "l·l", True, "CONTEXTO: IDNA2008 refuses it, browsers do not"),
+        ("xn--ls8h", "💩", True, "emoji: not PVALID, still a label browsers parse"),
+        ("xn--m--mia", "má-", True, "CheckHyphens=false, so a trailing hyphen is fine"),
+        # CheckBidi as browsers actually scope it.
+        ("xn--mgbh0fb", "مثال", True, "an ordinary RTL label"),
+        ("xn--1-zmcl5hc", "1مثال", True, "direction comes from the first STRONG char"),
+        ("xn--1-ymcl5hc", "مثال1", True, "an RTL label may end in a European digit"),
+        # The mapping rule still runs first, so this pins the interaction.
+        ("xn--ss-8ka", "Āss", False, "uppercase: the remap check refuses it"),
+    ],
+)
+def test_a_decoded_label_must_also_pass_the_validity_criteria(
+    label, u_label, browser_accepts, why
+):
+    """fix(#1555 review r3): ``uts46_remap`` maps, and mapping is not validity.
+
+    ``browser_accepts`` is ``new URL('https://<label>.example')`` measured in
+    Node, not reasoned about. The ``u_label`` column is there so a reader can
+    see WHAT the label says without decoding punycode in their head, and it is
+    asserted, so a typo in the table is a failure rather than a lie.
+
+    The rows browsers ACCEPT are the load-bearing half. Reaching for
+    ``idna.encode`` would refuse ``l·l`` and ``💩`` — IDNA2008 is stricter than
+    the browser, and denying a working configuration is the failure this whole
+    function is written to avoid.
+    """
+    import codecs
+
+    from app.core.public_urls import canonical_host_error
+
+    assert codecs.decode(label[4:].encode("ascii"), "punycode") == u_label, (
+        "the table's own decoding is wrong"
+    )
+    accepted = canonical_host_error(f"{label}.example") is None
+    assert accepted is browser_accepts, why
+
+
+@pytest.mark.parametrize(
     ("path", "browser_resolves_to", "is_api_base"),
     [
         # The three that were live: urlsplit leaves them, browsers resolve them.
