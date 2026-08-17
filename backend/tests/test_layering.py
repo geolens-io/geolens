@@ -2327,12 +2327,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # This sweeper is the right home because it already walks the staging tree
     # on a schedule and needs no `init_storage`, unlike anything storage-backed.
     # Cap 1593 -> 1608, exact.
-    # fix(#1532 review r9): +14 — the export media types join `image/tiff` in
-    # the gzip exclusion. #1532 made this route sliceable under a strong ETag
-    # naming the RAW bytes, so a compressed 200 beside a raw 206 is the splice
-    # fix(#1540) already closed for COGs, now reachable through GeoPackage,
-    # GeoJSON, Shapefile-zip, CSV and GeoParquet. Cap 1608 -> 1622, exact.
-    "backend/app/api/main.py": 1622,
+    # fix(#1532 review r9): +14 — the export route stops being gzipped. #1532
+    # made it sliceable under a strong ETag naming the RAW bytes, so a
+    # compressed 200 beside a raw 206 is the splice fix(#1540) already closed
+    # for COGs.
+    # fix(#1532 review r11): +4 net. That exclusion was by MEDIA TYPE, which
+    # also silenced compression on feature GeoJSON and the admin and audit CSV
+    # streams — endpoints that serve one representation and never a range, so it
+    # bought no safety and cost real bandwidth. It is scoped to the export PATH
+    # now, through a middleware in its own module; `image/tiff` stays a
+    # media-type exclusion because there the type and the route are the same
+    # set. Cap 1622 -> 1626, exact.
+    "backend/app/api/main.py": 1626,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

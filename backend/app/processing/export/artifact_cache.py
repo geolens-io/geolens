@@ -690,16 +690,25 @@ async def _fits_in_budget(size: int) -> bool:
     itself would trade a bounded disk cost for an unbounded conversion one.
 
     """
+    # fix(#1532 review r11): paged, and stopped as soon as the answer is known.
+    # This materialised the whole `export-cache/` listing on every publication,
+    # and the prefix is caller-controlled — anonymous callers vary bbox and
+    # where — so the inventory grew with the number of distinct selections in
+    # the window and every publication paid for all of them. Accumulating page
+    # by page and returning at the first overrun bounds the work by the BUDGET
+    # rather than by the object count: at most one page beyond whatever fits.
+    total = 0
     try:
-        keys = await get_storage().list(f"{_ROOT}/")
+        async for page in get_storage().iter_object_pages(f"{_ROOT}/"):
+            for obj in page:
+                parsed = parse_artifact_key(obj.key)
+                if parsed is not None:
+                    total += parsed[1]
+            if total + size > _BUDGET_BYTES:
+                return False
     except Exception:  # broad: cannot measure means do not block
         return True
-    total = 0
-    for key in keys:
-        parsed = parse_artifact_key(key)
-        if parsed is not None:
-            total += parsed[1]
-    return total + size <= _BUDGET_BYTES
+    return True
 
 
 async def _digest_and_size(file_path: str) -> tuple[str, int]:

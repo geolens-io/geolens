@@ -2231,41 +2231,134 @@ def test_both_remote_puts_drain_their_upload_thread():
 # ---------------------------------------------------------------------------
 
 
-def test_every_export_media_type_is_excluded_from_gzip():
-    """A gzipped 200 and a raw 206 must not share one ETag.
+async def test_the_export_route_is_never_gzipped_and_others_still_are(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A compressed 200 and a raw 206 must not share one ETag — on THIS route only.
 
-    `GZipMiddleware` compresses a full response and skips a 206 by design. The
-    cached artifact's ETag names the RAW stored bytes and every range is a slice
-    of exactly those, so a client that took the validator from a compressed 200
-    and later sent it back on an `If-Range` would have it accepted and splice raw
-    bytes at compressed offsets — doing everything right and assembling a corrupt
-    file.
+    `GZipMiddleware` compresses a full response and skips a 206 by design, and
+    this route's validator names the RAW stored bytes, so a client that took it
+    from a compressed 200 and offered it back on an `If-Range` would have it
+    accepted and splice raw bytes at compressed offsets. fix(#1540) hit exactly
+    this with `image/tiff`.
 
-    fix(#1540) hit this with `image/tiff` and excluded it. #1532 made the export
-    route sliceable under a strong ETag, so GeoPackage, GeoJSON, Shapefile-zip,
-    CSV and GeoParquet reach the same shape.
+    Scoped by PATH, and the second half of this test is why. An earlier revision
+    excluded the export MEDIA TYPES app-wide, which also stopped compressing
+    feature GeoJSON and the admin and audit CSV streams — endpoints that serve
+    one representation and never a range, so the safety bought nothing there and
+    the bandwidth loss was a straight regression. Asserting only that exports are
+    uncompressed would have passed against that revision too.
+    """
+    dataset = await _dataset(test_db_session, "Gzip Scope")
 
-    Asserted against `FORMAT_MAP` rather than a written-out list, so a new export
-    format cannot be added without joining the exclusion — a hardcoded list would
-    pass forever while the newest format shipped unprotected.
+    export = await client.get(
+        _url(dataset.id),
+        headers={**admin_auth_header, "Accept-Encoding": "gzip"},
+    )
+    assert export.status_code == 200, export.text
+    assert export.headers.get("content-encoding") != "gzip", (
+        "the export was gzipped; its ETag names the raw bytes every range is a "
+        "slice of, so one validator would name two byte streams"
+    )
+
+    features = await client.get(
+        f"/datasets/{dataset.id}/features?limit=1",
+        headers={**admin_auth_header, "Accept-Encoding": "gzip"},
+    )
+    if features.status_code == 200 and len(features.content) >= 256:
+        assert features.headers.get("content-encoding") == "gzip", (
+            "feature GeoJSON stopped being compressed. It serves one "
+            "representation and never a range, so excluding it buys no safety "
+            "and costs real bandwidth."
+        )
+
+
+def test_the_gzip_exclusion_is_scoped_to_the_export_path():
+    """The TIFF exclusion stays a media type; the export one must not be.
+
+    `image/tiff` is right as a media-type exclusion because the COG download is
+    its only producer — there the type and the route are the same set. The export
+    formats are not: `application/geo+json` and `text/csv` have other producers,
+    so excluding the types reaches endpoints that never needed it.
+
+    Structural because the regression is invisible from the export route's own
+    responses: both shapes make an export uncompressed, and only one of them
+    leaves the rest of the API alone.
     """
     from app.api.main import app
-    from app.processing.export.ogr import EXPORT_MEDIA_TYPES, FORMAT_MAP
 
     gzip_layer = next(
         m for m in app.user_middleware if m.cls.__name__ == "GZipMiddleware"
     )
     excluded = set(gzip_layer.kwargs["exclude_content_types"])
 
-    for fmt in FORMAT_MAP.values():
-        assert fmt["media"] in excluded, (
-            f"{fmt['media']} is compressed on a 200 and raw on a 206, under one "
-            f"validator that names the raw bytes"
-        )
-    for media in EXPORT_MEDIA_TYPES:
-        assert media in excluded, f"{media} is missing from the gzip exclusion"
     assert "image/tiff" in excluded, (
         "the COG exclusion fix(#1540) added must survive this change"
+    )
+    for media in ("application/geo+json", "text/csv"):
+        assert media not in excluded, (
+            f"{media} is excluded app-wide, which also silences compression on "
+            f"the feature and CSV-stream endpoints that share the type"
+        )
+    assert any(
+        m.cls.__name__ == "NoCompressionForExportMiddleware"
+        for m in app.user_middleware
+    ), "the export route has no path-scoped opt-out, so it would be compressed"
+
+
+async def test_the_budget_scan_stops_as_soon_as_it_knows(test_db_session, monkeypatch):
+    """The inventory is bounded by the budget, not by the object count.
+
+    It materialised the whole `export-cache/` listing on every publication, and
+    the prefix is caller-controlled — anonymous callers vary bbox and where — so
+    the cost grew with the number of distinct selections in the window and every
+    publication paid for all of them.
+
+    Accumulating page by page and returning at the first overrun bounds the work:
+    at most one page beyond whatever fits. Asserted by counting pages CONSUMED,
+    because a version that summed everything and compared once would return the
+    same answer while doing all the work.
+    """
+    from app.platform.storage import get_storage
+    from app.platform.storage.provider import StoredObject
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Budget Paging")
+    consumed = {"pages": 0}
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 100)
+
+    class _ManyPages:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        def iter_object_pages(self, prefix, **kwargs):
+            async def _pages():
+                for n in range(20):
+                    consumed["pages"] += 1
+                    yield [
+                        StoredObject(
+                            key=cache._artifact_key(
+                                dataset.id, f"sel-{n}", f"{n:064d}", 60, time.time()
+                            ),
+                            last_modified=datetime.now(UTC),
+                        )
+                    ]
+
+            return _pages()
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _ManyPages(get_storage()),
+    )
+
+    assert await cache._fits_in_budget(10) is False
+    assert consumed["pages"] == 2, (
+        f"the scan read {consumed['pages']} of 20 pages. The budget is exceeded "
+        f"on the second, so every page after it is work whose answer is already "
+        f"known — and the prefix is caller-controlled."
     )
 
 

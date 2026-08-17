@@ -39,7 +39,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
-from app.processing.export.ogr import EXPORT_MEDIA_TYPES
+from app.api.no_compress_export import NoCompressionForExportMiddleware
 from app.core.runtime.staging import (
     EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     ensure_staging_ready,
@@ -1003,25 +1003,29 @@ app.add_middleware(SecurityHeadersMiddleware)
 # still assembling a corrupt file. Excluding the type restores the invariant
 # without variant-specific validators, which would need their own HEAD metadata
 # and Vary story.
-# fix(#1532 review r9): the export formats join it, for the identical reason.
-# #1532 gave `/datasets/{id}/export` a cached artifact with a strong ETag taken
-# from the stored bytes, and ranges served as slices of exactly those bytes —
-# so a gzipped 200 and a raw 206 under one validator is the same corrupt splice
-# the COG route hit, now reachable through GeoPackage, GeoJSON, Shapefile-zip,
-# CSV and GeoParquet. The zip and the parquet are already compressed and gain
-# nothing from a second pass; GeoJSON and CSV lose real compression on the wire,
-# which is the price of the artifact being sliceable.
-#
-# `EXPORT_MEDIA_TYPES` is derived from `FORMAT_MAP` rather than restated, so a
-# new export format cannot be added without joining the exclusion.
 app.add_middleware(
     GZipMiddleware,
     minimum_size=256,
     compresslevel=4,
-    exclude_content_types=(
-        DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",) + EXPORT_MEDIA_TYPES
-    ),
+    exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",),
 )
+# fix(#1532 review r11): the export route is excluded by PATH, not by media
+# type. Excluding `application/geo+json` and `text/csv` app-wide — which is what
+# r9 did — also stopped compressing feature GeoJSON and the admin and audit CSV
+# streams, endpoints that serve one representation and never a range, so the
+# safety bought nothing there and the bandwidth was a straight regression.
+#
+# `image/tiff` stays a media-type exclusion because it is the right shape for
+# THAT case: the COG download is the only producer of it, so the type and the
+# route are the same set.
+#
+# Implemented by dropping gzip from the request's Accept-Encoding before
+# GZipMiddleware reads it, which is the documented way to opt a request out —
+# the alternative, a `Content-Encoding: identity` on the responses, puts a token
+# on the wire that RFC 9110 defines for Accept-Encoding rather than for
+# Content-Encoding. Added AFTER the middleware above so it wraps it: starlette
+# runs the most recently added outermost.
+app.add_middleware(NoCompressionForExportMiddleware)
 app.add_middleware(DynamicCORSMiddleware)
 
 app.include_router(api_router)
