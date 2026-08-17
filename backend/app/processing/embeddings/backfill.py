@@ -1077,6 +1077,28 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # emptied the table, so both flags select the same rows". It cannot any
     # more — nothing has been deleted at this point — which makes the explicit
     # force=True the only thing separating the two questions.
+    # fix(#1549 review): the moment the run's view of the catalog was taken,
+    # from the DATABASE rather than the application clock so it is comparable
+    # with the `updated_at` rows carry. Only the end-of-run reclamation uses it;
+    # see the comment there for why an observation made at the start cannot be
+    # acted on at the end without one.
+    #
+    # fix(#1584 review r1, codex P2): BEFORE the fetch below, not after it. The
+    # emptiness this cutoff protects against is decided BY that fetch — it is
+    # the read that sees a record's title and summary — and materialising every
+    # record takes as long as it takes. A cutoff taken afterwards leaves that
+    # whole interval unguarded: a record read as empty, then edited and
+    # re-embedded before the cutoff was even read, carries an `updated_at`
+    # older than it and the reclamation deletes a vector written seconds ago.
+    # The cutoff has to precede the observation it is protecting, not follow it.
+    #
+    # `clock_timestamp()` for the same reason the writes use it: this is
+    # compared against stamps in wall-clock time, so it has to be one too.
+    # `now()` would answer with the start of whatever transaction happened to be
+    # open, which on a session that has been busy is earlier than the run and
+    # would spare rows the run should reclaim.
+    started_at = (await session.execute(select(func.clock_timestamp()))).scalar_one()
+
     records = await port.get_records_without_embeddings(session, force=force)
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
@@ -1147,19 +1169,6 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # against, and `base_url` above is exactly the value passed to
     # `generate_embeddings_batch` below.
     config_fingerprint = embedding_config_fingerprint(*pinned)
-
-    # fix(#1549 review): the moment the run's view of the catalog was taken,
-    # from the DATABASE rather than the application clock so it is comparable
-    # with the `updated_at` rows carry. Only the end-of-run reclamation uses it;
-    # see the comment there for why an observation made here cannot be acted on
-    # at the end without one.
-    #
-    # `clock_timestamp()` for the same reason the write above uses it: this is
-    # compared against stamps in wall-clock time, so it has to be one too.
-    # `now()` would answer with the start of whatever transaction happened to be
-    # open, which on a session that has been busy is earlier than the run and
-    # would spare rows the run should reclaim.
-    started_at = (await session.execute(select(func.clock_timestamp()))).scalar_one()
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped_ids: list[Any] = []

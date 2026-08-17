@@ -2884,8 +2884,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the conflict branch, because `now()` is transaction-start time and a batch
     # that spends a provider call in its transaction would otherwise record a
     # time from before it asked, which #1583's `updated_at DESC` anchor reads as
-    # the wrong row. Cap 1225 -> 1430, exact.
-    "backend/app/processing/embeddings/backfill.py": 1430,
+    # the wrong row. fix(#1584 review r1): +9 more — the reclamation cutoff moves
+    # ABOVE the record fetch, because the fetch is the observation it protects
+    # and a cutoff taken after it leaves the whole materialisation window
+    # unguarded. Cap 1225 -> 1439, exact.
+    "backend/app/processing/embeddings/backfill.py": 1439,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

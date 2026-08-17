@@ -112,6 +112,27 @@ async def _rows_for(
     return sorted((row[0], row[1]) for row in result.all())
 
 
+async def _touch(session, record_id: uuid.UUID, marker: str) -> None:
+    """Stand in for a write the ingest path makes while the run is going.
+
+    `clock_timestamp()`, matching what a real write stamps (fix(#1583 review)).
+    Writing `now()` here made this test fail, and instructively: `now()` is
+    transaction-START time, and the session's transaction was already open, so
+    the "mid-run" write got a stamp EARLIER than the run began and was
+    reclaimed. That is the inversion #1583 hit through the related-items
+    anchor, reproduced by accident in a test written for something else.
+    """
+    await session.execute(
+        text(
+            "UPDATE catalog.record_embeddings "
+            "SET updated_at = clock_timestamp(), content_hash = :marker "
+            "WHERE record_id = :record_id"
+        ),
+        {"record_id": record_id, "marker": marker},
+    )
+    await session.commit()
+
+
 async def _assert_replaced(session, record_id: uuid.UUID, *, marker: str) -> None:
     """The record holds exactly one row, written by the run under the pin."""
     rows = await _rows_for(session, record_id)
@@ -411,57 +432,65 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
     write is simulated by touching `updated_at` to now, which is exactly what
     the ingest path's write does to that column.
 
-    Counterfactual: drop `written_before=started_at` and the fresh row is
-    deleted.
+    Two intervals need covering, and one cutoff guards both:
+
+    - fix(#1584 review r1, codex P2): between the RECORD FETCH and the batch
+      loop. The fetch is what decides a record is empty, and materialising the
+      catalog takes as long as it takes, so a cutoff read after it would leave
+      that whole span unguarded. `edited_during_fetch` lands its write from
+      inside the fetch itself.
+    - Between the batch loop starting and the run ending.
+      `edited_during_batch` lands its write from inside a provider call.
+
+    Counterfactual: drop `written_before=started_at` and both fresh rows are
+    deleted. Move the cutoff back below the fetch and the first one is.
     """
     session = test_db_session
     await EMBEDDING_MODEL.set(session, _MODEL)
     await EMBEDDING_DIMS.set(session, _DIMS)
 
     embeddable = await _seed(session, "Reclaim Keeps Embeddable")
-    edited = await _seed(session, "Reclaim Edited Mid Run")
-    _pin_run(
-        monkeypatch,
-        [
+    edited_during_fetch = await _seed(session, "Reclaim Edited During Fetch")
+    edited_during_batch = await _seed(session, "Reclaim Edited Mid Run")
+
+    async def _fetch_then_edit(_session, *, force=False):
+        # The fetch IS the observation: it is where these records are seen as
+        # empty. The edit lands before it returns, which is the interval the
+        # cutoff has to already cover.
+        await _touch(session, edited_during_fetch, "written-during-the-fetch")
+        return [
             _as_record(embeddable, title="Reclaim Keeps Embeddable"),
-            # Read as empty when the run took its view of the catalog.
-            _as_record(edited, title=None),
-        ],
+            _as_record(edited_during_fetch, title=None),
+            _as_record(edited_during_batch, title=None),
+        ]
+
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
+    port = SimpleNamespace(
+        get_record_orm_class=lambda: Record,
+        get_records_without_embeddings=_fetch_then_edit,
+    )
+    monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="partial-run-key")
     )
 
     async def _fake_batch(texts, sess, *, model, dimensions, base_url):
         if texts != [backfill_module._PREFLIGHT_TEXT]:
-            # Mid-run: the record the run wrote off as empty gets edited, and
-            # the ingest path writes it a current vector. `updated_at` moving to
-            # now is what that write leaves behind.
-            # `clock_timestamp()`, matching what a write actually stamps
-            # (fix(#1583 review)). Writing `now()` here made this test fail, and
-            # instructively: `now()` is transaction-START time, the session's
-            # transaction was already open when the run read `started_at`, so
-            # the "mid-run" write got a stamp EARLIER than the run began and was
-            # reclaimed. That is precisely the inversion #1583 hit through the
-            # related-items anchor, reproduced by accident.
-            await sess.execute(
-                text(
-                    "UPDATE catalog.record_embeddings "
-                    "SET updated_at = clock_timestamp(), "
-                    "content_hash = 'written-during-the-run' "
-                    "WHERE record_id = :record_id"
-                ),
-                {"record_id": edited},
-            )
-            await sess.commit()
+            await _touch(sess, edited_during_batch, "written-during-the-run")
         return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
 
     monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
 
     result = await backfill_module.backfill_embeddings(session, force=True)
 
-    assert result["skipped"] == 1
+    assert result["skipped"] == 2
     # The record that still had content was replaced, as always.
     await _assert_replaced(session, embeddable, marker="Reclaim Keeps Embeddable")
-    # And the vector written DURING the run survived the reclamation.
-    assert await _rows_for(session, edited) == [
+    # And both vectors written DURING the run survived the reclamation.
+    assert await _rows_for(session, edited_during_fetch) == [
+        (_MODEL_BEFORE, "written-during-the-fetch")
+    ]
+    assert await _rows_for(session, edited_during_batch) == [
         (_MODEL_BEFORE, "written-during-the-run")
     ]
 
