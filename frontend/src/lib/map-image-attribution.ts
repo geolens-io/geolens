@@ -37,6 +37,9 @@
  * `textContent` is post-parse so entities and anchors are already resolved.
  */
 import { MAP_COLORS } from '@/lib/map-colors';
+// Canvas drawing happens outside React, so the overflow marker is translated
+// through the i18n singleton. Same pattern as api/client.ts's error strings.
+import i18n from '@/i18n/i18n';
 
 /** The separator MapLibre's AttributionControl joins entries with. */
 const SEPARATOR = ' | ';
@@ -172,13 +175,23 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  * The export has no ceiling at all: its canvas is sized AFTER the band is
  * measured, so the band's height is an input to the image rather than a budget
  * inside it. Only the two crops have one, and it is where the scrim reaches the
- * top edge — the band has by then eaten every map pixel there is. Past it no
- * layout at 10px can place the remaining lines, so they fall off the bottom.
+ * top edge — the band has by then eaten every map pixel there is.
+ *
  * That ceiling is ~3.3x the measured real-world credit load for the thumbnail
- * (411 characters across five providers) and ~10x for the OG card, and no
- * basemap-plus-dataset stack comes near it. It is still a limit rather than a
- * promise, so `drawAttributionOverlay` warns in DEV naming the lines it cannot
- * place. A credit that cannot be shown is at least never lost quietly.
+ * (411 characters across five providers) and ~10x for the OG card. But the
+ * SUPPORTED input is far larger: `attribution` is `max_length=5000` on the
+ * dataset schema and `NonEmptyString5000` on the manifest, and 5,000 characters
+ * is roughly 77 lines in a 250px-tall thumbnail. No font size anyone would call
+ * legible renders that, so at the contract's maximum something must give.
+ *
+ * What gives is neither the frame nor silence. Past the ceiling the overlay
+ * renders the credits that fit and appends a visible, counted marker naming how
+ * many did not (`export.moreCredits`), with the marker itself charged against
+ * the line budget. The standard is that no output may SILENTLY drop a credit; a
+ * marker inside the frame is not silent, and it stops the visible list reading
+ * as a complete statement of provenance. Nothing is ever drawn outside the
+ * canvas — an earlier revision kept calling `fillText` below the frame, which
+ * painted credits into nowhere.
  *
  * The one residual limit within the ceiling: a single credit longer than a full
  * line wraps MID-STRING, on word boundaries, and on characters for a word that
@@ -353,6 +366,42 @@ export function overlayLineCapacity(
   return Math.max(0, Math.floor(usable / spec.lineHeight));
 }
 
+/**
+ * The largest number of LEADING entries whose wrapped form fits `maxLines`,
+ * with the lines it produced.
+ *
+ * Binary search rather than a scan: line count is monotonic non-decreasing in
+ * the entry count, and the supported input is 5,000 characters per credit, so
+ * a linear probe would re-wrap a very large string once per entry.
+ */
+function fitEntryPrefix(
+  ctx: CanvasRenderingContext2D,
+  entries: string[],
+  maxWidth: number,
+  maxLines: number,
+): { lines: string[]; count: number } {
+  if (maxLines <= 0) return { lines: [], count: 0 };
+  const wrapFirst = (count: number): string[] => {
+    if (count === 0) return [];
+    const slice = entries.slice(0, count);
+    return wrapEntries(ctx, slice, maxWidth) ?? wrapWords(ctx, slice.join(SEPARATOR), maxWidth);
+  };
+  let best: { lines: string[]; count: number } = { lines: [], count: 0 };
+  let lo = 0;
+  let hi = entries.length;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const lines = wrapFirst(mid);
+    if (lines.length <= maxLines) {
+      best = { lines, count: mid };
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return best;
+}
+
 /** Rounded scrim, falling back to a square fill where `roundRect` is absent
  *  (older engines, and the 2D-context stubs the hook tests use). */
 function fillScrim(
@@ -404,28 +453,43 @@ export function drawAttributionOverlay(
   if (!ctx) return false;
 
   const maxWidth = canvas.width - spec.inset * 2 - spec.paddingX * 2;
-  const fitted = fitAttributionText(ctx, entries, { maxWidth, fontPx: spec.fontPx });
+  const capacity = overlayLineCapacity(spec, canvas.height);
+  // Nowhere legible to put even one line. Drawing anyway would paint outside
+  // the frame, which is the one thing this function must never do.
+  if (maxWidth <= 0 || capacity < 1) return false;
+
+  // Deduped here as well as inside the fitter, because the overflow marker
+  // counts CREDITS and must not count the same one twice.
+  const credits = dedupe(entries);
+  const fitted = fitAttributionText(ctx, credits, { maxWidth, fontPx: spec.fontPx });
   if (fitted.lines.length === 0) return false;
 
-  // fix(#1541 codex P1): removing the fitter's elision moved the only remaining
-  // way to lose a credit out here, to the frame edge — `boxY` clamps at 0, so a
-  // band taller than the image draws its last lines off the bottom. Geometry,
-  // not policy: at 10px there is no layout that fits them. Say so instead of
-  // letting it happen quietly. See the capacity table in this module's header.
-  const capacity = overlayLineCapacity(spec, canvas.height);
-  if (import.meta.env.DEV && fitted.lines.length > capacity) {
-    console.warn(
-      `[attribution] ${fitted.lines.length - capacity} of ${fitted.lines.length} credit lines do not fit a ${canvas.width}x${canvas.height} image at ${spec.fontPx}px and will be clipped`,
-    );
+  // fix(#1541 codex P1 round 2): removing the fitter's elision left one way to
+  // lose a credit — `boxY` clamps at 0, so a band taller than the frame kept
+  // calling fillText below the canvas and painted into nowhere. A DEV warning
+  // did not cover it: production is exactly where it mattered.
+  //
+  // The supported input is 5,000 characters per credit (dataset schemas.py and
+  // manifest_schemas.py), which is ~77 lines in a 250px-tall thumbnail. No font
+  // size anyone would call legible renders that, so something must give and it
+  // is not the frame. Render what fits and say what did not, inside the frame,
+  // with the marker itself counted against the line budget. Not silent, and
+  // never a claim that the visible credits are the whole set.
+  let lines = fitted.lines;
+  let omitted = 0;
+  if (fitted.lines.length > capacity) {
+    const kept = fitEntryPrefix(ctx, credits, maxWidth, capacity - 1);
+    omitted = credits.length - kept.count;
+    lines = [...kept.lines, i18n.t('builder:export.moreCredits', { count: omitted })];
   }
 
   ctx.font = attributionFont(fitted.fontPx);
-  const textWidth = fitted.lines.reduce(
+  const textWidth = lines.reduce(
     (widest, line) => Math.max(widest, ctx.measureText(line).width),
     0,
   );
   const boxW = textWidth + spec.paddingX * 2;
-  const boxH = fitted.lines.length * spec.lineHeight + spec.paddingY * 2;
+  const boxH = lines.length * spec.lineHeight + spec.paddingY * 2;
   const boxX = Math.max(0, canvas.width - spec.inset - boxW);
   const boxY = Math.max(0, canvas.height - spec.inset - boxH);
 
@@ -435,7 +499,7 @@ export function drawAttributionOverlay(
   ctx.fillStyle = MAP_COLORS.exportImage.text;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
-  fitted.lines.forEach((line, i) => {
+  lines.forEach((line, i) => {
     ctx.fillText(line, boxX + spec.paddingX, boxY + spec.paddingY + i * spec.lineHeight);
   });
   return true;

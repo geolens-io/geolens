@@ -1154,7 +1154,9 @@
   },
   "export": {
     "legendHeader": "Legend",
-    "poweredBy": "Powered by GeoLens"
+    "poweredBy": "Powered by GeoLens",
+    "moreCredits_one": "+{{count}} more credit",
+    "moreCredits_other": "+{{count}} more credits"
   },
   "history": {
     "title": "History",

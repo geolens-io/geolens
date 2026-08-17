@@ -381,44 +381,123 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     }
   });
 
-  it('pins the export row of the same table, which has no ceiling to reach', () => {
-    // The measured 1056px-wide export at dpr 1, less 20px of pad a side.
+  it('pins the export band height formula, which has no ceiling to reach', () => {
+    // Line count here is the STUB's, not the browser's — the 0.5em metric only
+    // approximates real glyph widths, so this pins the height FORMULA and the
+    // totality, not the header table's measured "real load" column.
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
       { maxWidth: 1016, dpr: 1 },
     );
-    expect(measured.lines).toHaveLength(4);
-    expect(measured.height).toBe(88); // 12 gap + 4 * 16 + 12 gap
+    expect(measured.height).toBe(12 + measured.lines.length * 16 + 12);
     expectTotal(measured.lines, REAL_CREDITS);
   });
 
-  it('warns rather than clipping quietly once the band outgrows the frame', () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    try {
-      const ctx = makeCtx();
-      // 40 entries at ~75 characters a line is comfortably past the 18-line
-      // thumbnail ceiling; nothing short of that reaches it.
-      const flood = Array.from(
-        { length: 40 },
-        (_, i) => `© Data Provider Number ${i}, a licensing statement of some length`,
-      );
-      expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), flood, THUMBNAIL_ATTRIBUTION)).toBe(
-        true,
-      );
+  /* fix(#1541 codex P1 round 2): the schema accepts 5,000 characters per
+   * credit (datasets/domain/schemas.py, processing/ingest/manifest_schemas.py).
+   * That is ~77 lines in a 250px thumbnail — unrenderable at any legible size.
+   * So the invariant is asserted at the CONTRACT's maximum, not at the 411
+   * characters real data happens to carry: nothing is painted outside the
+   * canvas, and rendered credits plus marked credits equals the input. */
 
-      // Still total at the fitter: every provider is in the line set, and the
-      // loss is the frame's, not the layout's.
-      const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
-      expectTotal(drawn, flood);
-      expect(drawn.length).toBeGreaterThan(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250));
-
-      expect(warn).toHaveBeenCalledWith(
-        expect.stringContaining('credit lines do not fit a 400x250 image at 10px'),
-      );
-    } finally {
-      warn.mockRestore();
+  /** Every line lands inside the frame, and so does the scrim behind them. */
+  function expectNothingOutsideFrame(
+    ctx: ReturnType<typeof makeCtx>,
+    spec: typeof THUMBNAIL_ATTRIBUTION,
+    w: number,
+    h: number,
+  ) {
+    for (const call of ctx.fillText.mock.calls) {
+      const y = call[2] as number;
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y + spec.lineHeight).toBeLessThanOrEqual(h);
+      expect(call[1] as number).toBeGreaterThanOrEqual(0);
     }
+    const [x, y, bw, bh] = ctx.fillRect.mock.calls[0] as unknown as number[];
+    expect(x).toBeGreaterThanOrEqual(0);
+    expect(y).toBeGreaterThanOrEqual(0);
+    expect(x + bw).toBeLessThanOrEqual(w);
+    expect(y + bh).toBeLessThanOrEqual(h);
+  }
+
+  /** The count named by a trailing "+N more credits" marker, or 0. */
+  function markedCount(drawn: string[]): number {
+    const match = /\+(\d+) more credit/.exec(drawn[drawn.length - 1] ?? '');
+    return match ? Number(match[1]) : 0;
+  }
+
+  it('at the 5,000-character contract maximum: nothing outside the frame, every credit accounted for', () => {
+    // Five credits, each exactly the schema's max_length.
+    const maxed = Array.from({ length: 5 }, (_, i) =>
+      `© Provider ${i} ${'licensing statement '.repeat(260)}`.slice(0, 4999).padEnd(5000, '.'),
+    );
+    for (const c of maxed) expect(c).toHaveLength(5000);
+
+    for (const [spec, w, h] of [
+      [THUMBNAIL_ATTRIBUTION, 400, 250],
+      [OG_ATTRIBUTION, 1200, 630],
+    ] as const) {
+      const ctx = makeCtx();
+      expect(drawAttributionOverlay(makeCanvas(w, h, ctx), maxed, spec)).toBe(true);
+      const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+
+      expect(drawn.length).toBeLessThanOrEqual(overlayLineCapacity(spec, h));
+      expectNothingOutsideFrame(ctx, spec, w, h);
+
+      // Rendered whole + marked == input. Nothing falls between the two.
+      const joined = drawn.join(' ');
+      const rendered = maxed.filter((c) => joined.includes(c)).length;
+      expect(rendered + markedCount(drawn)).toBe(maxed.length);
+      // Non-vacuous: at 5,000 characters a credit, NOTHING fits either frame,
+      // so the marker must be carrying the whole count rather than the sum
+      // balancing because everything rendered.
+      expect(markedCount(drawn)).toBe(maxed.length);
+      expect(drawn).toEqual(['+5 more credits']);
+    }
+  });
+
+  it('renders what fits and marks the rest, rather than clipping', () => {
+    const ctx = makeCtx();
+    // 40 medium credits: some fit the 18-line thumbnail, most do not.
+    const flood = Array.from(
+      { length: 40 },
+      (_, i) => `© Data Provider Number ${i}, a licensing statement of some length`,
+    );
+    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), flood, THUMBNAIL_ATTRIBUTION)).toBe(
+      true,
+    );
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+
+    expect(drawn.length).toBeLessThanOrEqual(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250));
+    expectNothingOutsideFrame(ctx, THUMBNAIL_ATTRIBUTION, 400, 250);
+
+    // Some real credits DID render — this is not a bare marker.
+    const joined = drawn.join(' ');
+    const rendered = flood.filter((c) => joined.includes(c)).length;
+    expect(rendered).toBeGreaterThan(0);
+    expect(markedCount(drawn)).toBeGreaterThan(0);
+    expect(rendered + markedCount(drawn)).toBe(flood.length);
+
+    // The marker is the last line, so it reads as a footnote to what precedes it.
+    expect(drawn[drawn.length - 1]).toMatch(/\+\d+ more credit/);
+  });
+
+  it('draws nothing at all rather than outside a frame too small for one line', () => {
+    const ctx = makeCtx();
+    // 12px tall: capacity 0. Painting here could only land off-frame.
+    expect(drawAttributionOverlay(makeCanvas(400, 12, ctx), REAL_CREDITS, THUMBNAIL_ATTRIBUTION))
+      .toBe(false);
+    expect(ctx.fillText).not.toHaveBeenCalled();
+    expect(ctx.fillRect).not.toHaveBeenCalled();
+  });
+
+  it('adds no marker when everything fits', () => {
+    const ctx = makeCtx();
+    drawAttributionOverlay(makeCanvas(1200, 630, ctx), REAL_CREDITS, OG_ATTRIBUTION);
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(drawn.join(' ')).not.toMatch(/more credit/);
+    expectTotal(drawn, REAL_CREDITS);
   });
 
   it('stays quiet for a credit load that fits', () => {
