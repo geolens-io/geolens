@@ -2762,7 +2762,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with
     # the pre-flight so a rebuild cannot land between two reads of the same
-    # width) and _generated_width_mismatch (the width the provider ACTUALLY
+    # width) and _structural_width_mismatch (the width the provider ACTUALLY
     # returned, checked against the width the run pinned, before the insert).
     # Most of the lines are comment, and they are the part worth keeping. They
     # record why the baseline is the width the run OBSERVED rather than
@@ -2780,8 +2780,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # docstrings record the ordering invariant two review rounds found the hard
     # way — the redactor runs first, on the raw string, because truncation and
     # whitespace collapse each break the pattern it matches on.
-    # Cap 1013, exact.
-    "backend/app/processing/embeddings/backfill.py": 1013,
+    # fix(#1533 review, codex P2): +55 separating a STRUCTURAL width mismatch
+    # from an ISOLATED one. The first revision stopped the run on any
+    # wrong-width vector, which broke the same #449 isolation the note above
+    # defends: one anomalous vector abandoned every remaining record. The lines
+    # are _AnomalousVectorWidth (counted by the per-record handler rather than
+    # rethrown), the batch check reading agreement ACROSS inputs instead of the
+    # first vector, and the retry check asking storage — one input carries no
+    # agreement, so the evidence has to come from whether the column moved.
+    # The comments carry the part that is not visible in the code: why the
+    # retry-path read is paid at all when the drift check two lines up already
+    # compares the same two widths. Cap 1013 -> 1068, exact.
+    "backend/app/processing/embeddings/backfill.py": 1068,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

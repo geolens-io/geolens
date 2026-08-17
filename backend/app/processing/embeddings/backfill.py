@@ -153,10 +153,21 @@ async def _live_column_dims(session: AsyncSession) -> int | None:
     ).scalar_one_or_none()
 
 
-def _generated_width_mismatch(
-    vector: list[float], pinned_column_dims: int | None
+class _AnomalousVectorWidth(RuntimeError):
+    """ONE record's vector does not fit a column that has not moved.
+
+    fix(#1579 review, codex P2): a bad record, not a broken run. Deliberately
+    NOT a `_PinDrift`, so the per-record handler counts it and carries on, which
+    is the #449 isolation this module has defended since. It is named rather
+    than a bare `RuntimeError` only so the compact per-record log line says what
+    happened (#1544 puts the qualified type in `error_type`).
+    """
+
+
+def _structural_width_mismatch(
+    vectors: list[list[float]], pinned_column_dims: int | None
 ) -> str | None:
-    """Describe a generated vector the column will not accept, or None if it will.
+    """Describe vectors that UNIFORMLY do not fit the column, or None otherwise.
 
     fix(#1533): the sibling class to drift, and the one the non-force path is
     otherwise blind to. Drift is a width that MOVES; this is a width that was
@@ -179,8 +190,20 @@ def _generated_width_mismatch(
     `test_embedding_backfill.py`, two of them for that reason rather than for
     test-double churn.
 
-    Asking the vector the provider ACTUALLY returned costs nothing extra, and it
-    answers the same question the pre-flight asks: will storage take this.
+    Asking the vectors the provider ACTUALLY returned costs nothing extra, and
+    it answers the same question the pre-flight asks: will storage take this.
+
+    fix(#1579 review, codex P2): UNIFORMLY is the whole distinction, and an
+    earlier revision missed it — any single wrong-width vector stopped the run,
+    which broke the same #449 isolation the paragraph above defends. What makes
+    a mismatch structural is AGREEMENT ACROSS INPUTS: a provider does not answer
+    one anomalous width for all 128 texts by accident, whereas a column that was
+    already wrong, or that has just been rebuilt, produces exactly that. Mixed
+    widths mean one bad input among good ones, so this returns None and lets the
+    batch fail into the per-record retry, where each vector is judged alone.
+
+    An empty `vectors` yields no width to agree on, so it is not structural
+    either; the batch simply fails and is retried.
 
     `isinstance` rather than `is not None`, because `scalar_one_or_none` answers
     `int | None` and -1 means an unconstrained `vector`, which accepts any width
@@ -188,7 +211,10 @@ def _generated_width_mismatch(
     """
     if not isinstance(pinned_column_dims, int) or pinned_column_dims <= 0:
         return None
-    generated = len(vector)
+    widths = {len(vector) for vector in vectors}
+    if len(widths) != 1:
+        return None
+    generated = widths.pop()
     if generated == pinned_column_dims:
         return None
     return (
@@ -197,24 +223,51 @@ def _generated_width_mismatch(
     )
 
 
-async def _raise_on_generated_width(
-    vector: list[float],
-    pinned_column_dims: int | None,
-    processed: int,
-    error: type[RuntimeError],
+def _raise_on_structural_width(
+    vectors: list[list[float]], pinned_column_dims: int | None, processed: int
 ) -> None:
-    """Stop the run if the provider's vectors do not fit the column.
-
-    Raises `_PinDrift` from both call sites, so the broad handlers re-raise it
-    rather than retrying the batch record by record. Retrying is precisely the
-    behaviour this exists to prevent: every record would fail the same typmod,
-    one paid provider call at a time.
-    """
-    detail = _generated_width_mismatch(vector, pinned_column_dims)
+    """Stop the run when a whole batch's vectors do not fit the column."""
+    detail = _structural_width_mismatch(vectors, pinned_column_dims)
     if detail is None:
         return
     logger.error("backfill_aborted_width_mismatch", detail=detail, processed=processed)
-    raise error(
+    raise _PinDrift(
+        f"Embedding regeneration stopped after {processed} records: {detail}. "
+        "Re-save the embedding configuration in Settings so the column is "
+        "rebuilt, then re-run."
+    )
+
+
+async def _raise_on_retry_vector_width(
+    session: AsyncSession,
+    vector: list[float],
+    pinned_column_dims: int | None,
+    processed: int,
+) -> None:
+    """Judge one retried record's vector: bad record, or a column that moved?
+
+    fix(#1579 review, codex P2): the retry path has one input, so agreement
+    across inputs — the signal the batch path reads — carries no information
+    here. The evidence has to come from storage instead: if the live column
+    still is what the run pinned, a vector that does not fit it is one bad
+    record and the caller counts it (#449). If the column has moved, every
+    remaining record will fail the same way and the run stops.
+
+    The post-call drift check two lines up already compares those same two
+    widths, so today this read can only agree with it. It is paid anyway, at
+    0.32 ms against the ~3 ms that check already spends per record, because the
+    alternative is a guard whose correctness depends on a neighbouring call
+    nobody is stopped from reordering — and getting it wrong silently converts a
+    structural storm into ten thousand counted errors, which is the outcome this
+    whole PR exists to prevent.
+    """
+    detail = _structural_width_mismatch([vector], pinned_column_dims)
+    if detail is None:
+        return
+    if await _live_column_dims(session) == pinned_column_dims:
+        raise _AnomalousVectorWidth(detail)
+    logger.error("backfill_aborted_width_mismatch", detail=detail, processed=processed)
+    raise _PinDrift(
         f"Embedding regeneration stopped after {processed} records: {detail}. "
         "Re-save the embedding configuration in Settings so the column is "
         "rebuilt, then re-run."
@@ -357,10 +410,12 @@ class _PinDrift(RuntimeError):
     `RuntimeError`, so every caller that already treats this module's aborts as
     one — the admin route included — is unaffected.
 
-    fix(#1533): also carries the generated-width mismatch, which is not drift.
-    The name is narrower than the job: what the two handlers need is "a
+    fix(#1533): also carries a STRUCTURAL generated-width mismatch, which is not
+    drift. The name is narrower than the job: what the two handlers need is "a
     run-stopping condition discovered with a batch already generated", and both
-    conditions want exactly the same treatment from them.
+    conditions want exactly the same treatment from them. An ISOLATED width
+    mismatch is `_AnomalousVectorWidth` instead, precisely so it does NOT get
+    this treatment.
     """
 
 
@@ -456,9 +511,11 @@ async def _retry_batch_per_record(
             )
             # fix(#1533): per vector on this path, not per batch. This loop is
             # where a mismatch costs a provider call per record, so it is the
-            # one that has to stop on the first.
-            await _raise_on_generated_width(
-                vector, pinned_column_dims, created + made, _PinDrift
+            # one that has to stop on the first — but only when the column has
+            # moved. One record's vector against a column that has not moved is
+            # a bad record, and the handler below counts it (#1579 review).
+            await _raise_on_retry_vector_width(
+                session, vector, pinned_column_dims, created + made
             )
             session.add(
                 RecordEmbedding(
@@ -927,14 +984,12 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 pinned_column_dims=pinned_column_dims,
                 error=_PinDrift,
             )
-            # fix(#1533): the first vector stands in for the batch. A provider
-            # answering one width for one input and another for the next is not
-            # a shape worth a per-vector loop here, and it is not missed either:
-            # the odd insert fails, the batch drops into the retry loop, and
-            # every vector is checked on its own down there.
-            await _raise_on_generated_width(
-                vectors[0], pinned_column_dims, created, _PinDrift
-            )
+            # fix(#1533): the whole batch, not the first vector. Agreement
+            # across inputs is what makes a width mismatch structural rather
+            # than one bad record, so a batch of mixed widths deliberately does
+            # NOT stop here: it fails its insert, drops into the retry loop, and
+            # every vector is judged on its own down there (#1579 review).
+            _raise_on_structural_width(vectors, pinned_column_dims, created)
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
                     RecordEmbedding(

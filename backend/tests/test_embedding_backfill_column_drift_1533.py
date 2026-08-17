@@ -374,3 +374,68 @@ async def test_a_non_force_run_stops_instead_of_retrying_a_width_it_cannot_store
         assert len(calls) == 1, calls
     finally:
         await _set_column_dims(test_db_session, start_width)
+
+
+@pytest.mark.anyio
+async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
+    test_db_session, monkeypatch
+):
+    """Isolated is not structural (#1579 review, codex P2).
+
+    The width guards exist to stop a run that cannot store ANY of its vectors.
+    A provider handing back one anomalous width while the column sits exactly
+    where the run pinned it is a different thing: one bad record among good
+    ones, which #449 says costs one error and nothing else.
+
+    An earlier revision could not tell them apart. Every mismatch raised
+    `_PinDrift`, the per-record handler rethrew it, and one odd vector abandoned
+    the rest of the catalog — a regression of the isolation this file's own
+    docstring defends.
+
+    The batch here holds mixed widths, so it is not structural and must not stop
+    at the batch check. It fails its insert on the odd row, drops into the
+    per-record retry, and each vector is judged alone against a column that has
+    not moved.
+    """
+    start_width = await _column_dims()
+    odd_width = 768 if start_width != 768 else 384
+    odd_marker = "Anomalous Width Record"
+
+    user_id = await get_user_id(test_db_session, "admin")
+    for index in range(_SEEDED):
+        await create_dataset(
+            test_db_session, created_by=user_id, name=f"Isolation Good {index}"
+        )
+    await create_dataset(test_db_session, created_by=user_id, name=odd_marker)
+    await test_db_session.commit()
+
+    _pin_model(monkeypatch)
+    calls: list[int] = []
+
+    async def _embed(texts, _session, **_kwargs):
+        # Keyed on content, not call order: the force path's pre-flight is its
+        # own single-text call and must come back at the column's width, or the
+        # run aborts before the batch this test is about.
+        calls.append(len(texts))
+        return [
+            [0.1] * (odd_width if odd_marker in text else start_width) for text in texts
+        ]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _embed)
+
+    result = await backfill_module.backfill_embeddings(test_db_session, force=True)
+
+    assert result["errors"] == 1, result
+    assert result["created"] >= _SEEDED, result
+    assert await _embedding_count(test_db_session) == result["created"]
+
+    # Non-vacuity: the batch really did fail and retry per record, so the
+    # per-record judgement is what produced that single error rather than the
+    # batch check having quietly let everything through.
+    assert len(calls) > 2, calls
+    assert calls[0] == 1, "the pre-flight"
+    assert calls[1] > 1, "the batch"
+    assert set(calls[2:]) == {1}, "then one call per record, individually"
+
+    # And the column never moved, which is what made it isolated.
+    assert await _column_dims() == start_width
