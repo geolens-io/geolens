@@ -57,7 +57,7 @@ class RecordEmbedding(Base):
 
     @classmethod
     def usable_by_config(
-        cls, model_name: str, config_fingerprint: str
+        cls, model_name: str, config_fingerprint: str | None
     ) -> ColumnElement[bool]:
         """Match rows whose vector can be compared against ``config_fingerprint``.
 
@@ -76,6 +76,15 @@ class RecordEmbedding(Base):
         table is unstamped, and the alternative to grandfathering them is
         either a catalog-wide re-embed nobody asked to pay for or a search that
         returns nothing until one finishes.
+
+        fix(#1580): ``config_fingerprint`` may itself be None, because
+        related-items compares two STORED rows and takes the pair off the anchor
+        row rather than off the live configuration (see
+        ``get_anchor_embedding_row``). SQLAlchemy renders ``== None`` as ``IS
+        NULL``, so an unstamped anchor selects the unstamped rows of its own
+        model and nothing else. That is the same grandfathering read from the
+        other side, and it keeps a legacy catalog's related-items working
+        unchanged instead of emptying it.
         """
         return and_(
             cls.model_name == model_name,

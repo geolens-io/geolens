@@ -351,16 +351,18 @@ class DefaultCatalogPort:
         return await set_hnsw_recall(session)
 
     async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
-        from sqlalchemy import select
+        # fix(#1580): returns the anchor row's identity with its vector, and
+        # reads it through the one helper `get_nearest_record_ids` reads it
+        # through. This used to be a second, independent `LIMIT 1` off an
+        # unordered query: on a catalog holding more than one model's rows the
+        # ranking and the scoring could anchor on different vectors, and the
+        # caller had no way to ask which space it was handed because a list of
+        # floats does not say. See `get_anchor_embedding_row` for why the
+        # anchor's own pair is the right question here rather than the live
+        # configuration's.
+        from app.processing.embeddings.helpers import get_anchor_embedding_row
 
-        RecordEmbedding = self.record_embedding_orm_class()
-        result = await session.execute(
-            select(RecordEmbedding.embedding)
-            .where(RecordEmbedding.record_id == record_id)
-            .limit(1)
-        )
-        row = result.first()
-        return row[0] if row is not None else None
+        return await get_anchor_embedding_row(session, record_id)
 
     async def get_nearest_record_ids(
         self,
@@ -379,7 +381,16 @@ class DefaultCatalogPort:
             max_distance=max_distance,
         )
 
-    async def get_embedding_distances(self, session, embedding, record_ids):  # type: ignore[no-untyped-def]
+    async def get_embedding_distances(  # type: ignore[no-untyped-def]
+        self, session, embedding, record_ids, *, model_name, config_fingerprint
+    ):
+        # fix(#1580): scoped to the anchor's own vector space, like the
+        # selection ahead of it. Fixing only `get_nearest_record_ids` would have
+        # moved this defect one layer out rather than closing it: the neighbours
+        # would be chosen correctly and then SCORED off whichever of their rows
+        # the planner returned last, because a record may hold one row per model
+        # and this dict comprehension keeps the last of them. The similarity
+        # percentage the UI prints is this number.
         from sqlalchemy import select
 
         await self.set_hnsw_recall(session)
@@ -388,7 +399,9 @@ class DefaultCatalogPort:
             select(
                 RecordEmbedding.record_id,
                 RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
-            ).where(RecordEmbedding.record_id.in_(record_ids))
+            )
+            .where(RecordEmbedding.record_id.in_(record_ids))
+            .where(RecordEmbedding.usable_by_config(model_name, config_fingerprint))
         )
         return {row.record_id: row.distance for row in result.all()}
 

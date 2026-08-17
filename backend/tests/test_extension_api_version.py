@@ -78,6 +78,24 @@ class TestExtensionApiVersionConstant:
         raises TypeError on the first semantic search. Both are required in the
         convention's sense, and both land in one change, so they share a bump.
 
+        v8 carries two MORE ``CatalogPort`` shape changes (fix(#1580)), on the
+        related-items path, and stays at 8. ``get_record_embedding`` returns the
+        anchor row's ``(embedding, model_name, config_fingerprint)`` rather than
+        a bare vector, because that comparison is between two STORED rows and
+        the caller has to be able to name the space it is working in; an overlay
+        still returning a list is unpacked into three names and raises on the
+        first related-items request. ``get_embedding_distances`` gains required
+        keyword-only ``model_name`` and ``config_fingerprint``, required rather
+        than defaulted so an overlay cannot keep scoring neighbours in a foreign
+        space by omission; the old signature raises TypeError on the same
+        request.
+
+        No second bump because #1546 and #1580 ship in one release with no core
+        release between them. The number exists so an overlay author knows when
+        to update, and there is one update to perform here; a second number
+        would be a second pin to maintain for a migration nobody does
+        separately. Four required changes, one contract, one integer.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION

@@ -1728,7 +1728,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # against the base table (a relationship may target a column the
         # projection drops), with the identifier colon-escaped for text().
         # Cap 628 -> 635, exact.
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 635,
+        # fix(#1580): +18 — the related-items seed is the anchor ROW now, not a
+        # bare vector, and the pair travels from it into the scoring call. A
+        # list of floats does not say which model or endpoint produced it, so
+        # without carrying the identity this layer could select neighbours in
+        # one vector space and print similarities measured in another. Most of
+        # the lines are the two docstrings saying why the anchor's own pair is
+        # the question here, where both sides are stored rows, rather than the
+        # live configuration's. Cap 635 -> 653, exact.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 653,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
         # fix(#931): +7. _apply_visibility_change no longer carries its own
@@ -1889,7 +1897,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # argument and not three keyword ones: `None` is a legitimate resolved
         # endpoint, so three None defaults could not tell "not pinned" from
         # "pinned to the client default". Cap 461 -> 478, exact.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 478,
+        # fix(#1580): +13, and the code shrank — get_record_embedding stopped
+        # spelling its own query and now shares `get_anchor_embedding_row` with
+        # the ranking helper, so "which row is the anchor" has one answer
+        # instead of two `LIMIT 1` reads that could disagree. The lines are the
+        # two comments: why the anchor's identity travels with its vector, and
+        # why scoping the selection without scoping the distances would have
+        # moved the defect one layer out rather than closing it.
+        # Cap 478 -> 491, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 491,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
