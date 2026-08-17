@@ -501,6 +501,89 @@ describe('readRenderedAttribution', () => {
     ]);
   });
 
+  /* fix(#1541 codex P2 round 6): terrain renders with NO style layer of its
+   * own — `ensureRasterDemTerrainSource` (map-sync.ts) creates an attributed
+   * source and lets MapLibre count it through `usedForTerrain` — so defining
+   * "shown" as "referenced by a layer" put the credit for plainly visible 3D
+   * relief in the hidden group, behind credits for invisible content. */
+
+  /** The terrain source id map-sync creates; it appears in `sources` and in
+   *  `getTerrain()`, and in no layer. */
+  const TERRAIN_SRC = 'geolens-terrain-dem';
+
+  function terrainMap(
+    sources: Record<string, string>,
+    layers: { source: string; hidden?: boolean }[],
+    terrain: string | null = TERRAIN_SRC,
+  ) {
+    return {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: Object.fromEntries(
+          Object.entries(sources).map(([id, attribution]) => [id, { attribution }]),
+        ),
+        layers: layers.map(({ source, hidden }, i) => ({
+          id: `layer-${i}`,
+          source,
+          layout: hidden ? { visibility: 'none' } : {},
+        })),
+      }),
+      getTerrain: () => (terrain ? { source: terrain } : null),
+    };
+  }
+
+  it('treats the terrain source as shown though no layer references it', () => {
+    const credits = readRenderedAttribution(
+      terrainMap(
+        // Declared in the order map-sync creates them: layer sources first,
+        // the terrain source after, which is what put it behind the hidden one.
+        { hiddenSrc: '© Hidden Provider', [TERRAIN_SRC]: '© swisstopo swissALTI3D' },
+        [{ source: 'hiddenSrc', hidden: true }],
+      ),
+    );
+    expect(credits).toEqual(['© swisstopo swissALTI3D', '© Hidden Provider']);
+  });
+
+  it('leaves the terrain source hidden when terrain is off', () => {
+    const credits = readRenderedAttribution(
+      terrainMap(
+        { [TERRAIN_SRC]: '© swisstopo swissALTI3D', shownSrc: '© Visible Provider' },
+        [{ source: 'shownSrc' }],
+        null,
+      ),
+    );
+    expect(credits).toEqual(['© Visible Provider', '© swisstopo swissALTI3D']);
+  });
+
+  it('reads a map that has no getTerrain at all', () => {
+    // Every existing caller shape, and the partial mocks the builder suites
+    // pass. An absent method is not a terrain-less map crashing.
+    expect(
+      readRenderedAttribution(
+        layeredMap({ a: '© Shown' }, [{ source: 'a' }]),
+      ),
+    ).toEqual(['© Shown']);
+  });
+
+  it('keeps a terrain credit out of the marker in a bounded output', () => {
+    // The reported shape, asserted at an output: 3D relief is on screen and a
+    // long hidden credit is not, so the marker must elide the hidden one.
+    const hidden = `© Hidden Provider ${'licensing statement '.repeat(300)}`.slice(0, 5000);
+    const map = terrainMap(
+      { hiddenSrc: hidden, [TERRAIN_SRC]: '© swisstopo swissALTI3D' },
+      [{ source: 'hiddenSrc', hidden: true }],
+    );
+    const ctx = makeCtx();
+    drawAttributionOverlay(
+      makeCanvas(400, 250, ctx),
+      readRenderedAttribution(map),
+      THUMBNAIL_ATTRIBUTION,
+    );
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(drawn.join(' ')).toContain('© swisstopo swissALTI3D');
+    expect(drawn[drawn.length - 1]).toBe('+1 more credit');
+  });
+
   it('does not let a hidden credit crowd a visible one out of a bounded output', () => {
     // The whole point, asserted at an output rather than at the reader: a
     // 5,000-character hidden credit against a 250px thumbnail.

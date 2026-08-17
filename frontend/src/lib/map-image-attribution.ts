@@ -58,6 +58,9 @@ export interface AttributionMapLike {
   /** Live source objects. Their `attribution` is the RESOLVED value; the
    *  serialized style's is not. See `readRenderedAttribution`. */
   getSource?: (id: string) => { attribution?: string | null } | null | undefined;
+  /** The 3D terrain in effect, whose source renders with no style layer of its
+   *  own. Public MapLibre API; see `shownSourceIds`. */
+  getTerrain?: () => { source?: unknown } | null | undefined;
 }
 
 function attributionFont(fontPx: number): string {
@@ -305,11 +308,12 @@ function dedupe(entries: string[]): string[] {
  * there is room — the over-crediting property is intact — and what the marker
  * elides first is now the hidden sources, which is the correct thing to lose.
  *
- * `shownSourceIds` is a deliberately coarse approximation of `used`: a source
- * is shown if any style layer references it and that layer is not
- * `visibility: none`. It ignores zoom ranges, so it over-reports. That costs
- * nothing, because the answer only ORDERS the list — a source it gets wrong is
- * mis-sorted, never dropped.
+ * `shownSourceIds` is a deliberately coarse approximation of `used`, from
+ * public signals: the terrain source plus every source referenced by a layer
+ * that is not `visibility: none`. It ignores zoom ranges, so it over-reports.
+ * That costs nothing, because the answer only ORDERS the list — a source it
+ * gets wrong is mis-sorted, never dropped. See its own comment for why the
+ * internal `used`/`usedForTerrain` flags are not read.
  *
  * One cost of preferring (1), accepted:
  *
@@ -331,11 +335,41 @@ interface AttributionStyle {
   layers?: ({ source?: unknown; layout?: { visibility?: string } | null } | null)[];
 }
 
-/** Source ids a visible style layer references — a coarse stand-in for
- *  MapLibre's live `used` flag, sound enough to ORDER by. See the docstring:
- *  it over-reports, and over-reporting only mis-sorts. */
-function shownSourceIds(style: AttributionStyle | null | undefined): Set<string> {
+/**
+ * Source ids that are rendering, from PUBLIC MapLibre signals: the terrain
+ * source, plus every source a style layer references that is not
+ * `visibility: none`.
+ *
+ * fix(#1541 codex P2 round 6): layer references alone missed the one kind of
+ * source that renders without a layer. `ensureRasterDemTerrainSource`
+ * (map-sync.ts) creates an attributed source with no layer and lets MapLibre
+ * count it through `usedForTerrain`, so a 3D-terrain credit — for content
+ * plainly visible in the image — sat in the hidden group and could lose its
+ * slot to a credit for something invisible.
+ *
+ * Which signal, and why this one. MapLibre's own `used`/`usedForTerrain` is the
+ * thing itself rather than a proxy, and it is NOT reachable as public API: the
+ * flags live on the internal per-source cache, reached through `map.style`, and
+ * the collection holding them is `Style.tileManagers` in maplibre-gl 5.24 where
+ * it was `sourceCaches` before — an internal name that has already been renamed
+ * once under us. Set against that, reading it buys nothing here. The answer
+ * only ORDERS, so a signal can help only by marking a source shown, and every
+ * source `used` marks is one a visible layer references, while every source
+ * `usedForTerrain` marks is the one `getTerrain()` names. The internal flags
+ * would differ only by DEMOTING a source whose layers are all out of the
+ * current zoom range — the one direction that can cost a real credit its
+ * place, in exchange for a dependency on a name that moves between versions.
+ *
+ * So this over-reports (it ignores zoom ranges) and that is the safe way to be
+ * wrong: a source it misjudges is mis-sorted, never dropped.
+ */
+function shownSourceIds(
+  map: AttributionMapLike,
+  style: AttributionStyle | null | undefined,
+): Set<string> {
   const shown = new Set<string>();
+  const terrainSource = map.getTerrain?.()?.source;
+  if (typeof terrainSource === 'string') shown.add(terrainSource);
   for (const layer of style?.layers ?? []) {
     if (!layer || layer.layout?.visibility === 'none') continue;
     if (typeof layer.source === 'string') shown.add(layer.source);
@@ -349,7 +383,7 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
   if (sources) {
     // Partitioned rather than sorted, so the style's own order survives inside
     // each group and the result is stable without depending on sort stability.
-    const shown = shownSourceIds(style);
+    const shown = shownSourceIds(map, style);
     const fromShown: string[] = [];
     const fromHidden: string[] = [];
     for (const id of Object.keys(sources)) {
