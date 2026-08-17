@@ -66,11 +66,23 @@ async def _snapshot_embedding_config(
 
     What that leaves open: a settings update that is committed but whose
     endpoint key is not yet evicted, so the provider answers from a stale entry
-    beside an uncached model. For the SHIPPED provider it is unreachable — with
-    an API key configured the endpoint is derived from the environment rather
-    than the database (`ai_credentials.bind_openai_credential_base_url`), so it
-    cannot go stale at all. It is reachable only for an extension provider that
-    resolves a database-derived endpoint.
+    beside an uncached model. For the SHIPPED provider it is unreachable, on
+    both branches of `ai_credentials.bind_openai_credential_base_url`:
+
+    - With an API key configured, the candidate value is used only to compare
+      against the operator-approved environment URL. Equal returns that same
+      approved string; unequal raises `OpenAICredentialDestinationError`. A
+      stale cached endpoint therefore either resolves to the identical string
+      or fails loudly, and can never silently pin a different destination.
+    - With no API key, `DefaultOpenAIEmbeddingProvider.embed` raises
+      `EmbeddingUnavailableError` before producing a vector, and on the force
+      path `_preflight_embedding` runs BEFORE the DELETE, so the run aborts
+      with every existing vector still in place.
+
+    So the residue is confined to an extension provider that resolves its
+    endpoint from the database and applies no such binding. Closing it needs an
+    uncached mode on the extension interface, which does not belong in a fix
+    PR; the underlying per-key eviction window is #1543.
 
     A partial guard was tried here and removed: comparing the cached model and
     dimensions against the uncached ones detects the eviction window, but only

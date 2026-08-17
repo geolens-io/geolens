@@ -28,8 +28,21 @@ edit realistically lands, and it is after the snapshot has captured its values.
 Both paths are covered: the divergence is identical on force and non-force,
 exactly as it was for the model in #1519.
 
-The last test covers the earlier window instead: an edit landing *inside* the
-snapshot, which the run refuses rather than pins.
+The remaining tests cover the other windows a run has to survive, in the order
+they were found:
+
+- An edit landing *inside* the snapshot, which the run refuses rather than pins.
+- An edit changing model and endpoint together, which is why all three values
+  are captured and compared as one unit instead of one window per value
+  (#1525 review, codex P1).
+- An endpoint that resolves to `None`, which is a pin and not an omission
+  (#1525 review, codex P2).
+- Two cache windows (#1525 review r2, codex P1). `update_settings` commits the
+  whole batch and then evicts each key in turn, so between the commit and the
+  last eviction a cached read can be stale. With one key evicted the snapshot
+  could pin a MIXED pair; with none evicted it could pin a wholly SUPERSEDED
+  one. Both are invisible to a comparison of cached reads, because two reads
+  through the same stale entry agree, which is why the snapshot reads uncached.
 
 Requirements:
   - Docker database must be running (docker compose up db)
@@ -165,6 +178,30 @@ class _AtomicSwitchProvider(_EndpointRecordingProvider):
             "default_dims": _DIMS,
             "base_url": await EMBEDDING_BASE_URL.get(session),
         }
+
+
+class _QuietRecordingProvider:
+    """Records what each call received and changes nothing.
+
+    The cache tests are about what the SNAPSHOT observed, so the provider must
+    not also be editing config underneath them.
+    """
+
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def resolve_runtime_config(self, session):
+        return {
+            "default_model": "provider-fallback-model",
+            "default_dims": _DIMS,
+            "base_url": await EMBEDDING_BASE_URL.get(session),
+        }
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append(
+            {"model": model, "dimensions": dimensions, "base_url": base_url}
+        )
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
 
 
 class _NullEndpointProvider:
@@ -578,5 +615,80 @@ async def test_a_half_evicted_cache_cannot_pin_a_mixed_pair(
     assert provider.calls, "the provider was never called"
     # The finding: an unfixed tree pins _MODEL_AFTER beside _DIMS, a pair that
     # was never committed together, and generates the catalog under it.
+    assert {call["model"] for call in provider.calls} == {_MODEL_AFTER}
+    assert {call["dimensions"] for call in provider.calls} == {_DIMS_AFTER}
+
+
+@pytest.mark.anyio
+async def test_a_wholly_stale_cache_cannot_pin_a_superseded_pair(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """The other half of the eviction window: nothing evicted yet.
+
+    The test above evicts one key, which is what produces a MIXED pair. This
+    one evicts neither, which is the state immediately after `db.commit()` and
+    before any `apply_side_effects`. Both keys then answer from cache, so the
+    pair is internally consistent and simply superseded — no comparison of
+    cached reads can object, because there is nothing to disagree with.
+
+    It still corrupts a run. Every row is stamped with the pinned `model_name`,
+    so a run pinned to the superseded model labels the whole catalog with a
+    model that is no longer active, and semantic search reads active-model rows
+    only. That is #1519's corruption reached through the cache instead of
+    through a mid-run swap.
+
+    Uncached reads see past both entries at once: `update_settings` commits the
+    whole batch before evicting anything, so a read that ignores the cache gets
+    the entire new batch or the entire old one, never a mixture.
+    """
+    from app.platform.cache import provider as cache_provider_module
+    from app.platform.cache.memory import InMemoryCacheProvider
+
+    monkeypatch.setattr(
+        cache_provider_module, "_cache_provider", InMemoryCacheProvider()
+    )
+
+    await _seed_two_records(test_db_session, "Wholly Stale")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+    await EMBEDDING_BASE_URL.set(test_db_session, _URL_A)
+
+    # Warm both, then commit both straight to app_settings and evict NOTHING.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.app_settings SET value = :v WHERE key = 'embedding_model'"
+        ),
+        {"v": json.dumps({"v": _MODEL_AFTER})},
+    )
+    await test_db_session.execute(
+        text("UPDATE catalog.app_settings SET value = :v WHERE key = 'embedding_dims'"),
+        {"v": json.dumps({"v": _DIMS_AFTER})},
+    )
+    await test_db_session.commit()
+
+    # Vacuity guard: both cached reads are genuinely stale and the DB genuinely
+    # moved. Warm-but-equal would make the assertions below hold on any tree.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS
+    assert await EMBEDDING_MODEL.get_uncached(test_db_session) == _MODEL_AFTER
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _DIMS_AFTER
+
+    provider = _QuietRecordingProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    await backfill_module.backfill_embeddings(test_db_session, force=False)
+
+    assert provider.calls, "the provider was never called"
+    # The run generated under the committed pair, not the cached one. The rows
+    # it wrote carry this same model name, so the label names the active model.
     assert {call["model"] for call in provider.calls} == {_MODEL_AFTER}
     assert {call["dimensions"] for call in provider.calls} == {_DIMS_AFTER}
