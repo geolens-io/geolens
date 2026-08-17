@@ -1109,9 +1109,13 @@ async def download_cog(
                 detail="COG has changed since the version you hold",
                 headers={"ETag": etag} if etag is not None else None,
             )
-        if etag is not None and _if_none_match_matches(
-            request.headers.get("if-none-match"), etag
-        ):
+        # fix(#1554): evaluated whatever `etag` is. The old `etag is not None`
+        # guard was the right test for a specific tag and the wrong one for
+        # `*`, which asks whether a current representation exists rather than
+        # which one it is — so a legacy row with no `sha256` answered a
+        # wildcard revalidation with the whole COG. The stat above is what
+        # makes that existence question answerable here.
+        if _if_none_match_matches(request.headers.get("if-none-match"), etag):
             return _cog_not_modified(etag)
 
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
@@ -1334,7 +1338,7 @@ def _if_match_passes(if_match: str | None, etag: str | None) -> bool:
     return etag is not None and etag in candidates
 
 
-def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
+def _if_none_match_matches(if_none_match: str | None, etag: str | None) -> bool:
     """Does the client already hold this representation? RFC 9110 section 13.1.2.
 
     WEAK comparison, unlike ``If-Range`` above, and the difference is not an
@@ -1342,15 +1346,34 @@ def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
     equivalent, while a resumed range needs them byte-identical. The spec picks
     a different comparison function for each, so this route does too.
 
-    ``*`` matches any current representation, which by the time this is called
-    is exactly the one whose ETag was passed in. A list is a list: a client may
-    hold several versions and offer all of them.
+    ``*`` matches any current representation, and fix(#1554) is that it does so
+    even when ``etag`` is None. The section says "if the field value is '*',
+    the condition is false if the origin server has a current representation" —
+    a statement about the RESOURCE, with no clause about the server being able
+    to name it. A row predating the ``sha256`` column has bytes in storage, the
+    caller stat'd them before asking, and answering 200 there transfers a
+    multi-gigabyte COG to tell a cache what it already knew.
+
+    The wildcard is checked before ``etag`` for that reason, and the specific
+    tags after it are still refused when there is nothing to compare: a
+    representation this route holds no entity-tag for matches no entity-tag,
+    so the condition is true and the client gets the bytes it asked for.
+
+    A match is answered 304 unconditionally because this path serves GET and
+    HEAD only (``test_the_cog_download_answers_only_safe_methods`` pins that).
+    The same section makes ``*`` a 412 for a method that would create or
+    replace a representation, which is a different answer this route has no
+    caller for.
+
+    A list is a list: a client may hold several versions and offer all of them.
     """
     if not if_none_match:
         return False
     candidates = [tag.strip() for tag in if_none_match.split(",")]
     if "*" in candidates:
         return True
+    if etag is None:
+        return False
     return any(_without_weak_prefix(tag) == etag for tag in candidates)
 
 
@@ -1358,7 +1381,7 @@ def _without_weak_prefix(tag: str) -> str:
     return tag[2:] if tag.startswith("W/") else tag
 
 
-def _cog_not_modified(etag: str) -> Response:
+def _cog_not_modified(etag: str | None) -> Response:
     """304: the client's copy is current, so send it nothing else.
 
     The ETag goes back per RFC 9110 section 15.4.5, and ``Accept-Ranges``
@@ -1367,11 +1390,18 @@ def _cog_not_modified(etag: str) -> Response:
     starlette's ``init_headers`` skips the length for 304 (and 204) exactly as
     the spec requires, which is why this response does not need the explicit
     header ``_cog_head_response`` has to pass.
+
+    fix(#1554): ``etag`` may be None, and then the 304 carries none. Section
+    15.4.5 asks for the header fields a 200 would have sent, and the 200 for a
+    row with no stored digest sends no validator either (``_cog_headers`` omits
+    it for the same reason). Minting one to fill the slot would be worse than
+    the blank: it would authorize the resume ``_range_bound_to_this_version``
+    refuses on exactly these rows.
     """
-    return Response(
-        status_code=status.HTTP_304_NOT_MODIFIED,
-        headers={"ETag": etag, "Accept-Ranges": "bytes"},
-    )
+    headers = {"Accept-Ranges": "bytes"}
+    if etag is not None:
+        headers["ETag"] = etag
+    return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
 
 
 def _cog_etag(raster_asset) -> str | None:
