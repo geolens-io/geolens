@@ -2572,7 +2572,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # non-manifest ingests, and why `record` is duck-typed rather than annotated
     # `Record` (the annotation would add the processing -> modules.catalog edge
     # ProcessingPort exists to keep out). Cap 2178 -> 2207, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2207,
+    #
+    # fix(#1542): +4 — one `task_app.import_paths` entry for the queued admin
+    # embedding backfill, plus the three-line comment saying why that task
+    # module lives under modules/admin/ (it emits the run's audit events, which
+    # processing/ may not import) rather than beside the backfill it runs.
+    # Cap 2207 -> 2211, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2211,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2693,7 +2699,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # says what the branch still guards (pre-#1327 rows, any future writer of
     # the link table) so the next reader does not delete a check whose FALSE
     # side went quiet. Cap 1380 -> 1403, exact.
-    "backend/app/platform/jobs/sweep.py": 1403,
+    # fix(#1550 review): +86 for `audit_settled_embedding_backfill` and its
+    # three call sites. After a hard kill there is no worker process left to
+    # close an embedding backfill's audit trail, so the actor that settles the
+    # row — this sweep — is the only one that can, and it emits on the caller's
+    # session so the status change and the audit entry commit as one. Most of
+    # the lines are the docstring recording why the trail cannot be closed
+    # anywhere else, and why `audit_emit_durable` would be the wrong tool here.
+    # Cap 1403 -> 1522, exact. The second raise adds
+    # `terminal_backfill_audit_exists`: one operation gets one terminal entry,
+    # whoever writes it first, because three actors can legitimately close the
+    # same run and two of them disagreeing is the defect.
+    "backend/app/platform/jobs/sweep.py": 1522,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

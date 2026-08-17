@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
+import { useEffect, useRef } from 'react';
 import { queryKeys } from '@/lib/query-keys';
 import {
   getCatalogStats,
@@ -28,7 +29,7 @@ import {
 import type { ApiKeyScope } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
-import { retryJob } from '@/api/ingest';
+import { getJobStatus, retryJob } from '@/api/ingest';
 import { ApiError } from '@/api/client';
 import { logger } from '@/lib/logger';
 
@@ -377,17 +378,81 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
 
 // Backfill embeddings
 export function useBackfillEmbeddings() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (force?: boolean) => triggerBackfill(force),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
-    },
+    // No invalidation here, deliberately. Invalidating coverage at enqueue was
+    // right while the request blocked until the work finished; since #1542 it
+    // returns immediately, so refetching now would re-read the same pre-run
+    // numbers and make the panel look like it had checked. The coverage
+    // refresh belongs where the run actually lands — see useBackfillJobStatus.
     onError: (err) => {
       logger.error('[useBackfillEmbeddings]', err);
+      // fix(#1542): a run already in flight is refused, not failed. Saying
+      // "backfill failed" there would read as "your catalog is broken" for the
+      // one case where the safe thing just happened.
+      if (err instanceof ApiError && err.status === 409) {
+        toast.warning(i18n.t('admin:errors.backfillAlreadyRunning'));
+        return;
+      }
       toast.error(i18n.t('admin:errors.backfillFailed'));
     },
   });
+}
+
+// fix(#1550 review P2): track the queued run rather than promising coverage
+// updates on faith. The run happens on the job queue now (#1542), so the
+// mutation resolves before any work has been done — the panel used to toast
+// "coverage updates as it runs" and then never look again, so an operator who
+// stayed on the page saw a stale coverage figure for as long as they stood
+// there. This polls the one job it queued, refreshes coverage once it lands,
+// and says how it went. Deliberately not a progress bar or a job list: one
+// job, its terminal state, and the number the operator came here to read.
+export function useBackfillJobStatus(jobId: string | null) {
+  const qc = useQueryClient();
+  const settledFor = useRef<string | null>(null);
+
+  const query = useQuery({
+    queryKey: queryKeys.ingest.jobStatus(jobId),
+    queryFn: () => getJobStatus(jobId as string),
+    enabled: Boolean(jobId),
+    refetchInterval: (q) => {
+      // fix(#1550 review): no data is the absence of an answer, not the answer
+      // that the run is over. Treating undefined as terminal meant one
+      // exhausted first read — a blip while the API restarts — stopped the
+      // polling permanently, and the coverage figure never updated again.
+      if (!q.state.data) return 4_000;
+      const status = q.state.data.status;
+      return status === 'pending' || status === 'running' ? 4_000 : false;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  const status = query.data?.status;
+  useEffect(() => {
+    if (!jobId || !status) return;
+    if (status === 'pending' || status === 'running') return;
+    // Once per job: the query stays mounted with terminal data, so without
+    // this the effect would re-toast on every unrelated re-render.
+    if (settledFor.current === jobId) return;
+    settledFor.current = jobId;
+    qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
+    if (status !== 'complete') {
+      toast.error(i18n.t('admin:ai.backfillRunFailed'));
+      return;
+    }
+    // fix(#1550 review): a run that finished with rejected records is not a
+    // clean success. The synchronous endpoint returned counts the panel could
+    // warn from; the queued one has to carry the same fact on the job status,
+    // or a force regenerate that left coverage gaps reports as done.
+    const failed = query.data?.rows_failed ?? 0;
+    if (failed > 0) {
+      toast.warning(i18n.t('admin:ai.backfillFinishedWithErrors', { errors: failed }));
+      return;
+    }
+    toast.success(i18n.t('admin:ai.backfillFinished'));
+  }, [jobId, status, query.data?.rows_failed, qc]);
+
+  return query;
 }
 
 // Semantic search toggle

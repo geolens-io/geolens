@@ -28,7 +28,7 @@ from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobStatusResponse,
@@ -39,6 +39,7 @@ from app.platform.jobs.schemas import (
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
     JOB_TIMEOUT_SECONDS,
+    audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
     STALE_PENDING_UNBOUND_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     StaleCleanupOutcome,  # noqa: F401 -- re-exported, see __all__
@@ -322,7 +323,7 @@ async def get_job_status(
         )
         elapsed = (now - liveness_at).total_seconds()
         if elapsed > lease_seconds:
-            await db.execute(
+            lease_result = await db.execute(
                 update(IngestJob)
                 .where(
                     IngestJob.id == job.id,
@@ -337,6 +338,25 @@ async def get_job_status(
                     completed_at=now,
                 )
             )
+            # fix(#1550 review r2): gated on the UPDATE landing, as the
+            # stale-pending branch below already is. The predicate is
+            # conditional — a heartbeat renewal or the worker's own
+            # finalization committing between this request's read and this
+            # write makes it match zero rows — and auditing anyway would put
+            # "worker_lost" over a job that is still running, or that has just
+            # completed. A helper that performs a state change reports whether
+            # it landed; a caller recording an outcome conditions on that.
+            #
+            # Same transaction as the status change, so the two records of one
+            # state cannot disagree.
+            if lease_result.rowcount:
+                await audit_settled_embedding_backfill(
+                    db,
+                    job_id=job.id,
+                    user_metadata=job.user_metadata,
+                    created_by=job.created_by,
+                    error_code="worker_lost",
+                )
             await db.commit()
             await db.refresh(job)
 
@@ -380,6 +400,13 @@ async def get_job_status(
                 )
             )
             if result.rowcount:
+                await audit_settled_embedding_backfill(
+                    db,
+                    job_id=job.id,
+                    user_metadata=job.user_metadata,
+                    created_by=job.created_by,
+                    error_code="never_started",
+                )
                 await db.commit()
                 await db.refresh(job)
                 break
@@ -420,6 +447,17 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         return (
             False,
             "Analysis runs cannot be replayed as imports. Start the analysis again from the map builder.",
+        )
+    if (job.user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY):
+        # fix(#1542): embedding backfill runs carry file_path="" for the same
+        # reason analysis runs do, and would otherwise be offered as replayable
+        # imports of a source that never existed. Restarting one is a POST to
+        # /admin/backfill-embeddings/, which re-runs its own pre-flight and
+        # concurrency guards — replaying it through the ingest retry path would
+        # skip both.
+        return (
+            False,
+            "Embedding backfill runs cannot be replayed as imports. Start the backfill again from Settings.",
         )
     if job.source_url and not job.file_path:
         return True, None
@@ -544,6 +582,7 @@ async def _job_to_status_response(job: IngestJob) -> JobStatusResponse:
         progress=job.progress,
         current_step=job.current_step,
         rows_processed=job.rows_processed,
+        rows_failed=(job.user_metadata or {}).get("rows_failed"),
         archive_failed=archive_failed,
         temporal_parse_errors=temporal_parse_errors,
         started_at=job.started_at,

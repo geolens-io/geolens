@@ -1752,33 +1752,23 @@
         "type": "object"
       },
       "BackfillResponse": {
+        "description": "Acknowledgement that a backfill run was queued (fix(#1542)).\n\nThe run itself happens on the job queue, so this carries no counts \u2014 a full\nregenerate takes minutes and used to hold the HTTP request open past the\n600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.",
         "properties": {
-          "processed": {
-            "description": "Number of records processed in this backfill batch.",
-            "title": "Processed",
-            "type": "integer"
+          "job_id": {
+            "description": "Identifier of the queued backfill job; poll /jobs/{job_id}.",
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
           },
-          "created": {
-            "description": "Number of new embeddings created.",
-            "title": "Created",
-            "type": "integer"
-          },
-          "skipped": {
-            "description": "Number of records skipped because an embedding already existed.",
-            "title": "Skipped",
-            "type": "integer"
-          },
-          "errors": {
-            "description": "Number of records that failed during embedding generation.",
-            "title": "Errors",
-            "type": "integer"
+          "status": {
+            "description": "Job status at enqueue time ('pending').",
+            "title": "Status",
+            "type": "string"
           }
         },
         "required": [
-          "processed",
-          "created",
-          "skipped",
-          "errors"
+          "job_id",
+          "status"
         ],
         "title": "BackfillResponse",
         "type": "object"
@@ -8166,6 +8156,18 @@
               }
             ],
             "title": "Rows Processed"
+          },
+          "rows_failed": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows Failed"
           },
           "archive_failed": {
             "default": false,
@@ -19844,7 +19846,7 @@
     },
     "/admin/backfill-embeddings/": {
       "post": {
-        "description": "Trigger semantic-search embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).",
+        "description": "Queue semantic-search embedding generation for records (admin only).\n\nPass ?force=true to delete all existing embeddings and regenerate from\nscratch (required after changing the embedding model or dimensions).\n\nfix(#1542): the run happens on the job queue, not in this request. A full\nregenerate is provider-bound and linear in catalog size, so it outgrew the\n600s edge timeout somewhere below 59,000 records \u2014 and the request dying at\nthe proxy never stopped the work, it only hid it. Returns the job id;\npoll ``GET /jobs/{job_id}`` for the outcome.",
         "operationId": "trigger_backfill_admin_backfill_embeddings__post",
         "parameters": [
           {
@@ -19909,6 +19911,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -19948,16 +19960,6 @@
             },
             "description": "Internal server error"
           },
-          "502": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetail"
-                }
-              }
-            },
-            "description": "Bad gateway \u2014 an upstream provider failed"
-          },
           "503": {
             "content": {
               "application/problem+json": {
@@ -19966,7 +19968,7 @@
                 }
               }
             },
-            "description": "Service unavailable \u2014 the database could not serve the request"
+            "description": "Service unavailable \u2014 the background job queue could not be reached"
           }
         },
         "security": [

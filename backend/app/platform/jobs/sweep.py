@@ -20,11 +20,13 @@ from typing import Literal, overload
 
 import structlog
 from sqlalchemy import and_, delete, func, not_, or_, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import (
+    EMBEDDING_BACKFILL_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
     IngestJob,
@@ -1146,9 +1148,10 @@ async def fail_stale_jobs(
             error_message=STALE_PENDING_UNBOUND_MESSAGE,
             completed_at=now,
         )
-        .returning(IngestJob.id)
+        .returning(IngestJob.id, IngestJob.user_metadata, IngestJob.created_by)
     )
-    pending_job_ids = list(pending_result.scalars())
+    pending_rows = list(pending_result.all())
+    pending_job_ids = [row[0] for row in pending_rows]
 
     # fix(#1234): the other half. A row that DID bind bytes but never committed
     # its status is now exempt from the 1h clause, and the retention purge only
@@ -1163,9 +1166,11 @@ async def fail_stale_jobs(
             error_message=STALE_PENDING_BOUND_MESSAGE,
             completed_at=now,
         )
-        .returning(IngestJob.id)
+        .returning(IngestJob.id, IngestJob.user_metadata, IngestJob.created_by)
     )
-    pending_job_ids += list(bound_pending_result.scalars())
+    bound_pending_rows = list(bound_pending_result.all())
+    pending_rows += bound_pending_rows
+    pending_job_ids += [row[0] for row in bound_pending_rows]
 
     running_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
     running_result = await db.execute(
@@ -1182,9 +1187,31 @@ async def fail_stale_jobs(
             ),
             completed_at=now,
         )
-        .returning(IngestJob.id)
+        .returning(IngestJob.id, IngestJob.user_metadata, IngestJob.created_by)
     )
-    running_job_ids = list(running_result.scalars())
+    running_rows = list(running_result.all())
+    running_job_ids = [row[0] for row in running_rows]
+
+    # fix(#1550 review): the row and its audit trail are settled by the same
+    # actor, in the same transaction. After a hard kill this sweep is the only
+    # actor left, so an embedding backfill it fails here would otherwise stay
+    # `requested` in the audit log forever while its job row is terminal.
+    for job_id_, user_metadata_, created_by_ in running_rows:
+        await audit_settled_embedding_backfill(
+            db,
+            job_id=job_id_,
+            user_metadata=user_metadata_,
+            created_by=created_by_,
+            error_code="worker_lost",
+        )
+    for job_id_, user_metadata_, created_by_ in pending_rows:
+        await audit_settled_embedding_backfill(
+            db,
+            job_id=job_id_,
+            user_metadata=user_metadata_,
+            created_by=created_by_,
+            error_code="never_started",
+        )
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
     # fix(#1322 review): stale_generation_storage_keys are resolved, not yet
@@ -1401,3 +1428,95 @@ async def fail_stale_jobs(
     if detailed:
         return outcome
     return outcome.pending_failed, outcome.running_failed
+
+
+async def audit_settled_embedding_backfill(
+    session: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    user_metadata: dict | None,
+    created_by: uuid.UUID | None,
+    error_code: str,
+) -> None:
+    """Close an embedding backfill's audit trail when a sweeper settles its row.
+
+    fix(#1550 review): every other way a backfill can end is closed inside the
+    worker — the dispatch failure, a lost fence, cancellation, a failing
+    terminal write, a lost commit acknowledgement. A hard kill has no
+    in-process path to close, because after SIGKILL there is no process. The
+    row is then settled by whoever notices it is stale, and that actor is the
+    only one left that can record the outcome. Without this the trail stays at
+    `requested` forever while the job is terminal, and on the force path that
+    can be a catalog whose vectors were deleted.
+
+    The rule the module now follows: **the job row and the audit trail are
+    written together by whichever actor settles the job.** After a hard kill,
+    that actor is the sweeper.
+
+    Emitted on the caller's session, deliberately, so the audit row and the
+    status change commit or roll back as one. `audit_emit_durable` would use
+    its own session and could record an outcome for a row whose update was
+    later rolled back — the same divergence in the other direction.
+
+    Correlated by `operation_id`, read back off the job row's own metadata, so
+    it pairs with the `requested` entry the route committed alongside the job.
+    A no-op for every other kind of job.
+    """
+    marker = (user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY)
+    if not marker:
+        return
+    # One operation gets one terminal entry, and the DATABASE decides which —
+    # `uq_audit_logs_terminal_embedding_backfill` (migration 0051). Three
+    # actors can close the same run, so an existence check here would be a
+    # check-then-insert: both read "nothing yet", both insert, and the trail
+    # carries two conflicting outcomes.
+    #
+    # Wrapped in a SAVEPOINT so losing that race rolls back only this insert.
+    # The audit is emitted on the caller's session precisely so it commits with
+    # the status change; an unguarded IntegrityError would take the status
+    # change down with it.
+    try:
+        async with session.begin_nested():
+            await _emit_terminal_backfill_event(
+                session, marker, job_id, created_by, error_code
+            )
+    except IntegrityError:
+        log.info(
+            "embedding_backfill_terminal_audit_already_recorded",
+            job_id=str(job_id),
+            skipped_error_code=error_code,
+        )
+
+
+async def _emit_terminal_backfill_event(
+    session: AsyncSession,
+    marker: dict,
+    job_id: uuid.UUID,
+    created_by: uuid.UUID | None,
+    error_code: str,
+) -> None:
+    # Deferred by design to preserve the platform -> modules layer boundary,
+    # matching `cleanup_stale_jobs` above.
+    from app.modules.audit.service import AuditEvent, audit_emit
+
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=created_by,
+            # Literal, not the constant: test_audit_action_registry checks
+            # every emit site statically and cannot resolve a name. The
+            # other writer of this action is the admin backfill task.
+            action="embedding.backfill",
+            resource_type="record_embedding",
+            details={
+                "force": bool(marker.get("force")),
+                "operation_id": marker.get("operation_id"),
+                "job_id": str(job_id),
+                "outcome": "failed",
+                "error_code": error_code,
+            },
+            # No request behind a sweep, and inventing one would be a fiction
+            # in a record whose purpose is attribution.
+            ip_address=None,
+        ),
+    )

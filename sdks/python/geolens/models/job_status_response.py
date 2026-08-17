@@ -52,6 +52,7 @@ class JobStatusResponse:
         progress (float | None | Unset):
         current_step (JobStatusResponseCurrentStepType0 | None | Unset):
         rows_processed (int | None | Unset):
+        rows_failed (int | None | Unset):
         archive_failed (bool | Unset):  Default: False.
         temporal_parse_errors (JobStatusResponseTemporalParseErrors | Unset):
     """
@@ -76,6 +77,7 @@ class JobStatusResponse:
     progress: float | None | Unset = UNSET
     current_step: JobStatusResponseCurrentStepType0 | None | Unset = UNSET
     rows_processed: int | None | Unset = UNSET
+    rows_failed: int | None | Unset = UNSET
     archive_failed: bool | Unset = False
     temporal_parse_errors: JobStatusResponseTemporalParseErrors | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
@@ -161,6 +163,12 @@ class JobStatusResponse:
         else:
             rows_processed = self.rows_processed
 
+        rows_failed: int | None | Unset
+        if isinstance(self.rows_failed, Unset):
+            rows_failed = UNSET
+        else:
+            rows_failed = self.rows_failed
+
         archive_failed = self.archive_failed
 
         temporal_parse_errors: dict[str, Any] | Unset = UNSET
@@ -193,6 +201,8 @@ class JobStatusResponse:
             field_dict["current_step"] = current_step
         if rows_processed is not UNSET:
             field_dict["rows_processed"] = rows_processed
+        if rows_failed is not UNSET:
+            field_dict["rows_failed"] = rows_failed
         if archive_failed is not UNSET:
             field_dict["archive_failed"] = archive_failed
         if temporal_parse_errors is not UNSET:
@@ -382,6 +392,15 @@ class JobStatusResponse:
 
         rows_processed = _parse_rows_processed(d.pop("rows_processed", UNSET))
 
+        def _parse_rows_failed(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        rows_failed = _parse_rows_failed(d.pop("rows_failed", UNSET))
+
         archive_failed = d.pop("archive_failed", UNSET)
 
         _temporal_parse_errors = d.pop("temporal_parse_errors", UNSET)
@@ -409,6 +428,7 @@ class JobStatusResponse:
             progress=progress,
             current_step=current_step,
             rows_processed=rows_processed,
+            rows_failed=rows_failed,
             archive_failed=archive_failed,
             temporal_parse_errors=temporal_parse_errors,
         )

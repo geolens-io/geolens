@@ -148,10 +148,16 @@ export interface paths {
         put?: never;
         /**
          * Trigger Backfill
-         * @description Trigger semantic-search embedding generation for records (admin only).
+         * @description Queue semantic-search embedding generation for records (admin only).
          *
          *     Pass ?force=true to delete all existing embeddings and regenerate from
          *     scratch (required after changing the embedding model or dimensions).
+         *
+         *     fix(#1542): the run happens on the job queue, not in this request. A full
+         *     regenerate is provider-bound and linear in catalog size, so it outgrew the
+         *     600s edge timeout somewhere below 59,000 records — and the request dying at
+         *     the proxy never stopped the work, it only hid it. Returns the job id;
+         *     poll ``GET /jobs/{job_id}`` for the outcome.
          */
         post: operations["trigger_backfill_admin_backfill_embeddings__post"];
         delete?: never;
@@ -5932,28 +5938,26 @@ export interface components {
              */
             created_at: string;
         };
-        /** BackfillResponse */
+        /**
+         * BackfillResponse
+         * @description Acknowledgement that a backfill run was queued (fix(#1542)).
+         *
+         *     The run itself happens on the job queue, so this carries no counts — a full
+         *     regenerate takes minutes and used to hold the HTTP request open past the
+         *     600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
+         */
         BackfillResponse: {
             /**
-             * Processed
-             * @description Number of records processed in this backfill batch.
+             * Job Id
+             * Format: uuid
+             * @description Identifier of the queued backfill job; poll /jobs/{job_id}.
              */
-            processed: number;
+            job_id: string;
             /**
-             * Created
-             * @description Number of new embeddings created.
+             * Status
+             * @description Job status at enqueue time ('pending').
              */
-            created: number;
-            /**
-             * Skipped
-             * @description Number of records skipped because an embedding already existed.
-             */
-            skipped: number;
-            /**
-             * Errors
-             * @description Number of records that failed during embedding generation.
-             */
-            errors: number;
+            status: string;
         };
         /** BasemapConfig */
         BasemapConfig: {
@@ -8755,6 +8759,8 @@ export interface components {
             current_step?: ("queued" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
             /** Rows Processed */
             rows_processed?: number | null;
+            /** Rows Failed */
+            rows_failed?: number | null;
             /**
              * Archive Failed
              * @default false
@@ -14171,6 +14177,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -14200,16 +14215,7 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Bad gateway — an upstream provider failed */
-            502: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/problem+json": components["schemas"]["ProblemDetail"];
-                };
-            };
-            /** @description Service unavailable — the database could not serve the request */
+            /** @description Service unavailable — the background job queue could not be reached */
             503: {
                 headers: {
                     [name: string]: unknown;

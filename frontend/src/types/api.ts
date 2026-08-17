@@ -749,6 +749,10 @@ export interface JobStatusResponse {
     | 'registering'
     | null;
   rows_processed?: number | null;
+  // fix(#1550): rows processed but not completed. The embedding backfill sets
+  // it from its rejected-record count so a partly-failed run is not reported
+  // as a clean success.
+  rows_failed?: number | null;
   archive_failed: boolean;
   temporal_parse_errors: Partial<
     Record<'temporal_start' | 'temporal_end', string>
@@ -1567,11 +1571,13 @@ export interface EmbeddingStatsResponse {
   coverage_percent: number;
 }
 
+// fix(#1542): the backfill runs on the job queue, so this is an
+// acknowledgement, not a result. A full regenerate takes minutes and used to
+// hold the request open past the 600s edge timeout. Poll /jobs/{job_id} for
+// the run's outcome.
 export interface BackfillResponse {
-  processed: number;
-  created: number;
-  skipped: number;
-  errors: number;
+  job_id: string;
+  status: string;
 }
 
 // AI Map Generation

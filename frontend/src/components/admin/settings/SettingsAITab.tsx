@@ -14,7 +14,12 @@ import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import { useApiKeyStatus } from '@/hooks/use-settings';
-import { useEmbeddingStats, useBackfillEmbeddings, useUpdateSemanticSearch } from '@/hooks/use-admin';
+import {
+  useEmbeddingStats,
+  useBackfillEmbeddings,
+  useBackfillJobStatus,
+  useUpdateSemanticSearch,
+} from '@/hooks/use-admin';
 import { usePermissions } from '@/hooks/use-permissions';
 import { useAIStatusReader } from '@/hooks/use-ai-status-reader';
 import { detectEmbeddingDims } from '@/api/settings';
@@ -59,6 +64,12 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
   const { data: embeddingStatsData } = useEmbeddingStats({ enabled: canManageUsers });
   const embeddingStats = canManageUsers ? embeddingStatsData : undefined;
   const backfill = useBackfillEmbeddings();
+  // fix(#1550 review P2): the id of the run this page queued, polled to its
+  // terminal state so the coverage figure above refreshes when it lands.
+  const [backfillJobId, setBackfillJobId] = useState<string | null>(null);
+  const backfillJob = useBackfillJobStatus(backfillJobId);
+  const backfillRunning =
+    backfillJob.data?.status === 'pending' || backfillJob.data?.status === 'running';
   const semanticToggle = useUpdateSemanticSearch();
 
   const { values, setters, dirty, hasDirty, discard } = useSettingsForm(settings, AI_FIELDS, isSaving, saveFailed);
@@ -92,17 +103,15 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
 
   const handleBackfill = (force = false) => {
     if (!canManageUsers) return;
+    // fix(#1542): the run is queued now, not done by the time this resolves —
+    // a full regenerate takes minutes and used to hold the request open past
+    // the 600s edge timeout. There are no counts to report yet.
+    // fix(#1550 review P2): keep the job id so the run is actually tracked to
+    // its end, rather than acknowledged and forgotten.
     backfill.mutate(force, {
       onSuccess: (data) => {
-        if (data.errors > 0 && data.created === 0) {
-          toast.error(t('ai.backfillAllFailed', { errors: data.errors }));
-        } else if (data.errors > 0) {
-          toast.warning(t('ai.backfillPartial', { created: data.created, errors: data.errors }));
-        } else if (data.created > 0) {
-          toast.success(t('ai.backfillSuccess', { count: data.created }));
-        } else {
-          toast.info(t('ai.backfillEmpty'));
-        }
+        setBackfillJobId(data.job_id);
+        toast.info(t('ai.backfillQueued'));
       },
     });
   };
@@ -424,7 +433,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
                     size="sm"
                     className="flex-1"
                     onClick={() => handleBackfill(false)}
-                    disabled={backfill.isPending}
+                    disabled={backfill.isPending || backfillRunning}
                   >
                     {backfill.isPending && backfill.variables === false ? (
                       <>
@@ -445,7 +454,7 @@ export function SettingsAITab({ settings, envOnly, onSave, onReset, isSaving, sa
                     size="sm"
                     className="flex-1"
                     onClick={() => handleBackfill(true)}
-                    disabled={backfill.isPending}
+                    disabled={backfill.isPending || backfillRunning}
                   >
                     {backfill.isPending && backfill.variables === true ? (
                       <>

@@ -7,42 +7,40 @@ from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
 
+from uuid import UUID
+
+
 T = TypeVar("T", bound="BackfillResponse")
 
 
 @_attrs_define
 class BackfillResponse:
-    """
-    Attributes:
-        processed (int): Number of records processed in this backfill batch.
-        created (int): Number of new embeddings created.
-        skipped (int): Number of records skipped because an embedding already existed.
-        errors (int): Number of records that failed during embedding generation.
+    """Acknowledgement that a backfill run was queued (fix(#1542)).
+
+    The run itself happens on the job queue, so this carries no counts — a full
+    regenerate takes minutes and used to hold the HTTP request open past the
+    600s edge timeout. Poll ``GET /jobs/{job_id}`` for the run's status.
+
+        Attributes:
+            job_id (UUID): Identifier of the queued backfill job; poll /jobs/{job_id}.
+            status (str): Job status at enqueue time ('pending').
     """
 
-    processed: int
-    created: int
-    skipped: int
-    errors: int
+    job_id: UUID
+    status: str
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        processed = self.processed
+        job_id = str(self.job_id)
 
-        created = self.created
-
-        skipped = self.skipped
-
-        errors = self.errors
+        status = self.status
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "processed": processed,
-                "created": created,
-                "skipped": skipped,
-                "errors": errors,
+                "job_id": job_id,
+                "status": status,
             }
         )
 
@@ -51,19 +49,13 @@ class BackfillResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        processed = d.pop("processed")
+        job_id = UUID(d.pop("job_id"))
 
-        created = d.pop("created")
-
-        skipped = d.pop("skipped")
-
-        errors = d.pop("errors")
+        status = d.pop("status")
 
         backfill_response = cls(
-            processed=processed,
-            created=created,
-            skipped=skipped,
-            errors=errors,
+            job_id=job_id,
+            status=status,
         )
 
         backfill_response.additional_properties = d

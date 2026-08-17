@@ -137,9 +137,10 @@ def _make_mock_db_for_fail_stale(
     """Build a mock AsyncSession for fail_stale_jobs.
 
     execute() side effects (in order):
-      1. stale UNBOUND pending IngestJobs (1h) → scalars() returns list
+      1. stale UNBOUND pending IngestJobs (1h) → all() returns
+         (id, user_metadata, created_by) triples
       2. stale BOUND pending IngestJobs (24h, fix(#1234)) → empty here
-      3. stale running IngestJobs → scalars() returns list
+      3. stale running IngestJobs → all() returns the same triples
       3. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
       4. composition-preserving RasterAsset UPDATE (-> 'ready') → scalars()
          returns dataset ids for ``stale_vrt_assets``
@@ -169,6 +170,13 @@ def _make_mock_db_for_fail_stale(
     ]:
         mock_result = MagicMock()
         mock_result.scalars.return_value = returned_ids
+        # fix(#1550 review): the three job sweeps RETURN (id, user_metadata,
+        # created_by) now — the sweep is the last actor that can close an
+        # embedding backfill's audit trail after a hard kill, and it needs the
+        # run's own metadata to write a correlated entry. These fixtures carry
+        # no backfill marker, so the audit emission is a no-op for them; the
+        # shape still has to match or the counts read zero.
+        mock_result.all.return_value = [(job_id, None, None) for job_id in returned_ids]
         results.append(mock_result)
 
     # feat(#1267): RETURNING widened to (id, vrt_dataset_id) — the storage
