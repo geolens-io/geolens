@@ -116,7 +116,12 @@ class TileConfigResponse(BaseModel):
     )
     public_app_url: str | None = Field(
         default=None,
-        description="Browser-facing app URL used for share links and OAuth redirects.",
+        description=(
+            "Explicitly configured PUBLIC_APP_URL, or null when unset. Never "
+            "derived from PUBLIC_API_URL or from the request, because a share "
+            "or embed URL built on a derived value points at a host that does "
+            "not serve the app."
+        ),
     )
     public_api_url: str | None = Field(
         default=None,

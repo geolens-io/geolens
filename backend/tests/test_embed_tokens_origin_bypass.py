@@ -21,6 +21,32 @@ import pytest
 from app.modules.embed_tokens import service as embed_service
 
 
+@pytest.fixture(autouse=True)
+def _self_origin_is_configured(monkeypatch):
+    """fix(#1548 review P2): stand in for the #1531 self-origin lookup.
+
+    These tests pass an ``AsyncMock`` database. Since #1531 the domain-lock
+    check resolves the deployment's own origin through ``get_configured_public_app_url``,
+    which reads an AppSetting row, so on a cold public-URL cache the mock DB
+    reaches ``_load_public_url_overrides`` and raises. The service now fails
+    closed on that, which means these tests would still report False and pass
+    for the wrong reason: proving the lookup exploded, not that a foreign
+    origin is rejected. Patch it so they exercise the real decision. A
+    deployment whose own origin is unresolvable is covered separately, in
+    test_embed_domain_lock_self_origin_1531.py.
+    """
+
+    async def _fake_get_configured_public_app_url(db, **kwargs):
+        return "https://maps.geolens.example"
+
+    monkeypatch.setattr(
+        embed_service,
+        "get_configured_public_app_url",
+        _fake_get_configured_public_app_url,
+        raising=True,
+    )
+
+
 def _make_request(*, origin: str | None, client_host: str | None) -> MagicMock:
     """Construct a mock Request with the given Origin header and client.host."""
     headers = {}

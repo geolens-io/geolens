@@ -258,6 +258,28 @@ function descriptorForMessage(message: string, status: number): ApiErrorDescript
     return { key: 'errors.corsWildcardNotAllowed' };
   }
 
+  // fix(#1548 review P2): the embed domain-lock refusal. Its whole value is the
+  // remediation — which variable to set, and to what — and both compose files
+  // ship PUBLIC_APP_URL defaulted to localhost, so this is the message an
+  // operator hits on a stock install. Unmapped it collapses to the generic 422
+  // and the domain lock goes back to failing silently, which is the bug the
+  // refusal exists to surface. The wording is a contract with
+  // assert_domain_lock_is_enforceable in backend/app/modules/embed_tokens/
+  // service.py; backend/tests/test_embed_domain_lock_self_origin_1531.py reads
+  // this matcher and asserts the real message still matches it.
+  const domainLockUnenforceable = message.match(
+    /^Domain locking cannot be enforced by this deployment: its public app URL resolves to (.+?), but this request reached it at (\S+)\./,
+  );
+  if (domainLockUnenforceable) {
+    return {
+      key: 'errors.embedDomainLockUnenforceable',
+      values: {
+        resolved: domainLockUnenforceable[1],
+        origin: domainLockUnenforceable[2],
+      },
+    };
+  }
+
   // fix(#1285): the refresh door's SSRF refusal appends the validator's own
   // exception text after the colon, which is diagnostic detail (resolved IP,
   // blocked range) rather than something a non-admin reader should see.

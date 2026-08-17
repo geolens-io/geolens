@@ -169,6 +169,7 @@
     "datasetVisibilityBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",
     "analysisUnknownDissolveColumn": "Die Spalte „{{column}}“ existiert in diesem Datensatz nicht. Wähle ein anderes Gruppierungsfeld.",
     "corsWildcardNotAllowed": "Platzhalter-Ursprünge werden nicht akzeptiert. Anfragen mit Anmeldedaten erfordern jeden Ursprung vollständig, zum Beispiel https://example.com.",
+    "embedDomainLockUnenforceable": "Diese Installation kann eine Domain-Sperre noch nicht durchsetzen: Ihre öffentliche App-URL ist auf {{resolved}} gesetzt, aufgerufen wurde sie aber über {{origin}}. Eine Einbettung lädt die Karte über GeoLens selbst, die Sperre würde also jeden Betrachter aussperren. Setze PUBLIC_APP_URL auf {{origin}} und erstelle das Token erneut.",
     "duplicateSource": "Ein Datensatz aus dieser Quelle ist bereits registriert ({{title}}).",
     "refreshDatasetBusy": "Für diesen Datensatz läuft bereits eine Aktualisierung. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es erneut.",
     "refreshOriginChanged": "Die Quelle dieses Datensatzes hat sich geändert, während die Aktualisierung in der Warteschlange war. Prüfen Sie die Quelle und versuchen Sie es erneut.",

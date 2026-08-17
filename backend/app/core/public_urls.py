@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import time
 from urllib.parse import urlsplit, urlunsplit
 
@@ -29,6 +30,156 @@ class PublicUrlNotConfiguredError(RuntimeError):
     ``X-Forwarded-Host`` / ``Origin`` / ``Referer``, enabling an
     auth-code-stealing attack against IdPs with permissive redirect-URI
     policies. Forcing explicit configuration closes that path."""
+
+
+def is_usable_public_origin(value: str | None) -> bool:
+    """Is this a value a browser could actually be sent to?
+
+    fix(#1548 review r8): ONE shape rule for ``PUBLIC_APP_URL``, stated here and
+    mirrored by ``parseUsablePublicUrl`` in ``frontend/src/lib/public-urls.ts``.
+    The rule: an absolute HTTP(S) URL, with a host, and no query or fragment.
+
+    Everything else is untrusted, and each consumer already knows what to do
+    with untrusted — the backend refuses to issue a domain lock, the frontend
+    falls back for ordinary shares and suppresses a locked preview.
+
+    Why each clause is load-bearing, since none of them is hypothetical:
+
+    * ABSOLUTE, WITH A SCHEME AND HOST. ``_normalize_origin`` prepends
+      ``https://`` to anything that does not already start with http(s), so an
+      environment value of ``ftp://maps.example.com`` becomes the pseudo-origin
+      ``https://ftp:``, ``mailto:ops@example.com`` becomes
+      ``https://mailto:ops@example.com`` and ``file:///etc/hosts`` becomes
+      ``https://file:``. Each is non-loopback, so the domain-lock gate read the
+      deployment as configured and issued a lock no embed shell could ever
+      satisfy — this PR's original bug, returning through the check added to
+      prevent it.
+    * NO QUERY OR FRAGMENT. The backend drops them when it normalizes, so its
+      own comparison survives, but the frontend appends ``/m/<token>`` to the
+      configured string — putting the path inside the query or after the
+      fragment and producing links nobody can open.
+
+    The setting is environment-backed and therefore never passes through the
+    persistent-setting validator, so this is the only place it is checked.
+    """
+    if value is None:
+        return False
+    candidate = value.strip()
+    if not candidate:
+        return False
+    try:
+        parts = urlsplit(candidate)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https"):
+        return False
+    if not parts.hostname:
+        return False
+    # fix(#1548 review r9/r10): three characters/classes are refused OUTRIGHT,
+    # each because the two URL parsers disagree about it — and a value the two
+    # halves read differently is the whole bug class, whichever reading one
+    # prefers.
+    #
+    # * PERCENT-ENCODING. Python's urlsplit leaves `%6Daps.example.com` literal;
+    #   the browser decodes it to `maps.example.com`.
+    # * BACKSLASH. `https://maps.example.com\@evil.com` parses as host
+    #   `maps.example.com\` here and as host `evil.com` in a browser, which
+    #   makes it an origin-confusion primitive rather than a formatting nit.
+    # * NON-ASCII HOST. Refused rather than converted. Python's built-in idna
+    #   codec is IDNA2003: it maps `faß.de` to `fass.de`, while browsers follow
+    #   WHATWG/UTS #46 and send `xn--fa-hia.de`. Approximating that from here
+    #   means deviation characters, transitional processing and registry rules,
+    #   and a NEAR match is worse than none — it denies every request while
+    #   looking correct. An operator with an internationalized domain supplies
+    #   the punycode form, which is unambiguous and is what the browser sends.
+    #
+    # All three are checked on the RAW candidate rather than on the parsed host,
+    # because the browser parser has already decoded and punycoded by the time
+    # its equivalent could look — so the raw string is the only view the two
+    # sides can compare identically.
+    if "%" in candidate or "\\" in candidate:
+        return False
+    if not candidate.isascii():
+        return False
+    if canonical_host_error(parts.hostname or "") is not None:
+        return False
+    return not parts.query and not parts.fragment
+
+
+def canonical_host_error(host: str) -> str | None:
+    """None if ``host`` is spelled the way a browser would serialize it.
+
+    Otherwise a sentence naming what is wrong, for an operator to act on.
+
+    fix(#1548 review r11): the same root as the IDN refusal — Python and the
+    browser disagree about a host's canonical spelling, and we store Python's.
+    Measured, not assumed:
+
+        input                          urlsplit          browser
+        http://192.168.1               192.168.1         192.168.0.1
+        http://010.0.0.1               010.0.0.1         8.0.0.1     (octal)
+        http://0x7f.1                  0x7f.1            127.0.0.1   (hex)
+        http://2130706433              2130706433        127.0.0.1
+        http://[2001:0db8:0:0:0:0:0:1] 2001:0db8:0:0...  [2001:db8::1]
+
+    In every row the shell would present the right column while
+    ``_resolve_self_origins`` stored the left, so the lock was issued and then
+    missed on every request.
+
+    THE TRAP, and the reason this asserts canonical form directly rather than
+    testing stability: ``192.168.1`` ROUND-TRIPS cleanly through urlsplit. It is
+    perfectly stable under our own parser and still wrong. A check built on
+    "parse it, re-serialize it, compare" would pass it.
+
+    The frontend does not need this function: it has a browser URL parser, so it
+    compares the host as written against the host that parser produced. Only
+    this side has to state the rule. ``public-app-url-shape.cases.json`` is what
+    holds the two methods to the same answers.
+    """
+    if not host:
+        return "The host is empty."
+    if host.endswith("."):
+        return f"Drop the trailing dot: {host.rstrip('.')}"
+
+    if ":" in host:  # IPv6 literal; urlsplit has already stripped the brackets.
+        try:
+            compressed = str(ipaddress.IPv6Address(host))
+        except ValueError:
+            return f"{host!r} is not a valid IPv6 address."
+        if compressed != host:
+            return f"Write the IPv6 literal in its compressed form: [{compressed}]"
+        return None
+
+    # A URL parser reads a host as IPv4 when its LAST label is numeric — which
+    # covers hex and octal spellings, not just dotted decimal. Anything matching
+    # that shape must already be canonical dotted-quad, and ipaddress rejects
+    # short forms, leading zeros and out-of-range octets for us.
+    last_label = host.rsplit(".", 1)[-1]
+    if last_label.isdigit() or last_label.startswith("0x"):
+        try:
+            parsed_ip = ipaddress.IPv4Address(host)
+        except ValueError:
+            # Deliberately NOT expanding it for them: computing what a browser
+            # would make of `0x7f.1` means implementing the WHATWG IPv4 parser,
+            # which is the approximation this whole rule exists to avoid.
+            return (
+                f"{host!r} is read as an IP address by browsers, and not in the "
+                "form they use. Write four decimal octets with no leading "
+                "zeros, e.g. 192.168.0.1"
+            )
+        if str(parsed_ip) != host:
+            return f"Write the IP address as: {parsed_ip}"
+        return None
+
+    # Registered name. Case is not checked: both parsers lowercase it, so an
+    # uppercase spelling is not a disagreement and refusing it would cost an
+    # operator a working value for nothing.
+    labels = host.split(".")
+    if any(not label for label in labels):
+        return f"{host!r} has an empty label."
+    if not all(c.isalnum() or c == "-" for label in labels for c in label):
+        return f"{host!r} contains a character that is not valid in a hostname."
+    return None
 
 
 def normalize_public_url(url: str | None) -> str | None:
@@ -389,6 +540,87 @@ async def get_public_urls(
         for_external_use=for_external_use,
     )
     return app_url, api_url
+
+
+async def get_configured_public_app_url(db: AsyncSession) -> str | None:
+    """The explicitly configured ``PUBLIC_APP_URL``, or None. No derivation.
+
+    fix(#1548 review r9): ``get_public_app_url`` is a RESOLVER — when
+    ``PUBLIC_APP_URL`` is unset it derives an app URL from ``PUBLIC_API_URL`` by
+    stripping an ``/api`` suffix, and failing that from the caller's own request
+    headers. Both are the right behaviour for producing a link when any link is
+    better than none (OGC self-links, response bodies).
+
+    Both are wrong for the two callers that ask "what origin does a browser
+    present when it loads our embed shell", because neither derived value is
+    that origin:
+
+    * A deployment serving the API at ``https://api.example.com/api`` and the
+      app at ``https://maps.example.com`` derives ``https://api.example.com``.
+      That is a real, non-loopback host, so the domain-lock gate reads the
+      deployment as configured and issues a lock — and then every shell request
+      arrives from ``https://maps.example.com``, misses the allowlist, and the
+      map is empty. The original defect of this PR wearing a different hat.
+    * The request-header fallback is the vacuous-``self`` trap #1531 already
+      avoided: an origin taken from the caller is one every caller satisfies.
+
+    So domain locking and share-URL generation require the operator to say it.
+    Unset is a legitimate answer here, and every consumer already knows what to
+    do with it — refuse the lock, fall back for ordinary shares, suppress the
+    locked preview.
+
+    Returns the value with any trailing slash trimmed, or None when unset,
+    blank, or not a usable public origin (see ``is_usable_public_origin``).
+    """
+    overrides = {} if _is_env_only() else await _load_public_url_overrides(db)
+    configured = overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url)
+    normalized = normalize_public_url(configured)
+    if normalized is None or not is_usable_public_origin(normalized):
+        return None
+    return normalized
+
+
+async def get_shareable_app_url(
+    db: AsyncSession, *, request: Request | None = None
+) -> str | None:
+    """The origin a browser is served THIS deployment's app from, or None.
+
+    fix(#1548 review r10): "derived" turned out to name two different things,
+    and only one of them is untrustworthy.
+
+    * An ``/api``-stripped ``PUBLIC_API_URL``, or an origin read off the
+      caller's own headers, is INFERRED — nobody checked that a browser is
+      served the app there, and in the header case the caller chose it. Those
+      stay excluded; see ``get_configured_public_app_url``.
+    * ``request.state.tenant_public_origin`` is VALIDATED INFRASTRUCTURE STATE.
+      ``TenantContextMiddleware`` sets it only after the request's Host resolves
+      against the tenant registry, and rejects the request outright when it
+      cannot form a trusted origin. It is the one origin that is definitely
+      right for a hosted tenant, and the fleet-wide ``PUBLIC_APP_URL`` cannot
+      represent a tenant host at all.
+
+    So a hosted tenant request answers with its own validated origin, and
+    everything else answers with the explicit fleet setting or nothing. The
+    condition mirrors the tenant branch of ``get_public_urls`` deliberately,
+    rather than drawing a second line a little differently.
+
+    Callers: share and embed URL generation, which must name a host the
+    RECIPIENT can open. On a tenant host that is the tenant's own origin — a
+    copied ``/card`` link on the fleet host arrives without the tenant context
+    its Host would have carried, and fails closed.
+    """
+    if is_multi_tenant() and request is not None:
+        tenant_id = getattr(request.state, "tenant_id", None)
+        tenant_origin = normalize_public_url(
+            getattr(request.state, "tenant_public_origin", None)
+        )
+        if (
+            tenant_id is not None
+            and tenant_origin is not None
+            and is_usable_public_origin(tenant_origin)
+        ):
+            return tenant_origin
+    return await get_configured_public_app_url(db)
 
 
 async def get_public_app_url(

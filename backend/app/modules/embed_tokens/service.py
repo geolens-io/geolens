@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.edition import is_enterprise
+from app.core.public_urls import get_configured_public_app_url, is_usable_public_origin
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
@@ -108,6 +109,269 @@ def extract_request_origin(request: Request) -> str | None:
                 return None
 
     return None
+
+
+async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
+    """Return the normalized origins that ARE this GeoLens deployment.
+
+    fix(#1531): every candidate here is server-derived. The embedder's origin is
+    deliberately NOT reconstructed from anything the caller sends — a
+    client-forwarded embedder origin would replace a check that visibly fails
+    with one that only appears to work.
+
+    * The EXPLICITLY configured ``PUBLIC_APP_URL``, via
+      ``get_configured_public_app_url``. Deliberately not ``get_public_app_url``:
+      that one is a resolver, and both of its fallbacks name something other
+      than the host our embed shell is served from — an ``/api``-stripped
+      ``PUBLIC_API_URL``, or (fix #1531) the caller's own ``Origin`` / ``Referer``
+      headers, which would make EVERY origin "self" and the allowlist vacuous.
+      See its docstring for why an unset value is a legitimate answer here.
+    * In hosted multi-tenant, the tenant origin that the tenant-context
+      middleware derived from a Host that resolved against the tenant registry
+      (``request.state.tenant_public_origin`` is set only after that lookup, and
+      the request is rejected outright when the lookup cannot form a trusted
+      origin). The fleet-wide public app URL cannot represent a tenant host, so
+      without this a hosted domain-locked embed would stay broken.
+    """
+    origins: set[str] = set()
+
+    # Gated on the mode that populates it: TenantContextMiddleware returns
+    # early in single_tenant, so the attribute is never set there. Reading it
+    # only under is_multi_tenant() keeps that invariant local rather than
+    # depending on middleware ordering staying the way it is today.
+    if is_multi_tenant():
+        tenant_origin = getattr(request.state, "tenant_public_origin", None)
+        if tenant_origin and is_usable_public_origin(tenant_origin):
+            try:
+                origins.add(_normalize_origin(tenant_origin))
+            except ValueError:
+                pass
+
+    # fix(#1548 review P2): this lookup reads an AppSetting row on a 60s-cold
+    # cache, so it is the one part of the domain-lock check that can fail for
+    # reasons unrelated to the decision. An authorization helper must fail
+    # CLOSED on that, not propagate: every other denial in this module returns
+    # a bool, and letting a DB error escape would turn a routine deny into a
+    # 500 on the tile path. Resolving no self-origins denies, which is correct.
+    try:
+        app_url = await get_configured_public_app_url(db)
+    except Exception:  # broad: any lookup failure must deny, never raise
+        logger.warning("embed_self_origin_lookup_failed", exc_info=True)
+        return origins
+    if app_url is None:
+        return origins
+
+    # fix(#1548 review r8): the shape gate runs BEFORE normalization, because
+    # normalization is what hides the problem. `_normalize_origin` prepends
+    # https:// to anything lacking an http(s) scheme, so an environment value of
+    # `ftp://maps.example.com` arrives here as the plausible-looking, non-loopback
+    # `https://ftp:` — and `assert_domain_lock_is_enforceable` then reads the
+    # deployment as configured and issues a lock no embed shell can satisfy.
+    # `is_usable_public_origin` is the single statement of that rule, mirrored by
+    # parseUsablePublicUrl in frontend/src/lib/public-urls.ts.
+    if is_usable_public_origin(app_url):
+        try:
+            origins.add(_normalize_origin(app_url))
+        except ValueError:
+            pass
+
+    return origins
+
+
+async def _request_origin_is_allowed(
+    db: AsyncSession,
+    request: Request | None,
+    allowed_origins: list[str] | None,
+) -> bool:
+    """Single reader for an embed token's domain lock.
+
+    ``resolve_embed_scope_for_map`` and ``validate_embed_token_access`` both
+    gate on ``allowed_origins``; they used to carry separate copies of this
+    policy, so a change to one silently left the other on the old rules. They
+    now share this one implementation.
+
+    fix(#1531): domain locking was enforced in two layers that disagreed. The
+    ``/m/{token}`` embed shell is served with ``frame-ancestors 'self'
+    <allowed_origins>`` (see ``build_embed_frame_ancestors``) — a real,
+    browser-enforced control keyed on the PARENT page's actual origin. This
+    API-layer allowlist sat below it and accepted only ``<allowed_origins>``,
+    with no ``'self'`` equivalent. But an API subresource request issued from
+    inside the embed iframe carries the SHELL's origin, never the embedder's:
+    the requesting document is our own shell, so a same-origin GET sends no
+    ``Origin`` header at all and the ``Referer`` fallback is the shell's own
+    URL. The parent's origin is simply not on a subresource request; it is
+    visible only on the NAVIGATION that loads the iframe, which is exactly
+    where ``frame-ancestors`` already enforces it. Every scoped-layer request
+    from a domain-locked embed therefore resolved to our own origin, matched
+    nothing in ``allowed_origins`` (the operator puts the CUSTOMER's domain
+    there), and was denied — the feature was broken closed, delivering nothing
+    to any iframe embed.
+
+    Accepting our own origin restores the ``'self'`` half the CSP directive
+    already had: by the time the shell can run a line of script, the browser
+    has already enforced the domain lock at the document layer.
+
+    The check is NOT removed, because it is correct on the other path: an embed
+    token driven from the customer's own JavaScript rather than through the
+    ``/m/`` iframe does arrive with ``Origin: https://customer.example.com``,
+    and there the allowlist works as designed.
+
+    Known and unavoidable consequence: a TOP-LEVEL navigation to the shell
+    (not framed) sends byte-identical headers to the framed case, so it is
+    accepted too. No header distinguishes them — ``Sec-Fetch-Site`` on the
+    subresource is ``same-origin`` either way. Any fix that makes the iframe
+    work makes direct navigation work; what still gates that path is possession
+    of the token itself, which is the capability (SEC-022).
+    """
+    if not allowed_origins:
+        return True
+    if request is None:
+        return False
+    origin = extract_request_origin(request)
+    if origin is None:
+        return False
+    if origin in allowed_origins:
+        # Both sides are pre-normalized: allowed_origins by
+        # schemas._validate_origins, origin by extract_request_origin.
+        return True
+    # Phase 268 H-31 localhost-development bypass, unchanged: the Origin header
+    # alone is trivially forgeable, so it is gated on the actual TCP peer also
+    # being loopback.
+    if _is_localhost_origin(origin) and _client_is_loopback(request):
+        return True
+
+    self_origins = await _resolve_self_origins(db, request)
+    if origin in self_origins:
+        return True
+
+    # fix(#1548 review P2): a deployment that never sets PUBLIC_APP_URL still
+    # gets one. Both docker-compose.yml and docker-compose.prod.yml inject
+    # ``${PUBLIC_APP_URL:-http://localhost:8080}``, and .env.example ships the
+    # line commented out, so a self-hoster serving https://maps.example.com
+    # resolves a self-origin of http://localhost:8080 and their domain-locked
+    # embeds stay empty. The server cannot fix that for them: every
+    # request-derived alternative (Host, X-Forwarded-Host, request.url) is
+    # settable by anyone who can point a DNS name at the deployment, which
+    # would make the lock bypassable by the exact parties it excludes. So log
+    # the mismatch with the remediation instead of guessing, and keep the
+    # denial. Fires only for a domain-locked token that already missed both
+    # the allowlist and the loopback bypass, so this is not a hot path.
+    logger.warning(
+        "embed_token_domain_lock_denied",
+        request_origin=origin,
+        self_origins=sorted(self_origins),
+        allowed_origins=sorted(allowed_origins),
+        remediation=(
+            "If this deployment serves the embed shell from request_origin, "
+            "set PUBLIC_APP_URL (or the public_app_url setting) to it. The "
+            "embed shell's own API calls carry the shell's origin, so they "
+            "are only recognized as first-party when that value is correct."
+        ),
+    )
+    return False
+
+
+class DomainLockNotEnforceableError(Exception):
+    """Raised when a domain lock is requested that this deployment cannot enforce.
+
+    Deliberately NOT a ``ValueError``: both write handlers map ``ValueError`` to
+    400 for the advanced-sharing edition gate, and this is a distinct condition
+    with its own status code.
+    """
+
+
+async def assert_domain_lock_is_enforceable(
+    db: AsyncSession, request: Request, allowed_origins: list[str] | None
+) -> None:
+    """Refuse to issue a domain lock this deployment could never enforce.
+
+    fix(#1548 review P2). Domain locking only works when the deployment knows
+    its own public origin, because the embed shell's API calls carry the
+    SHELL's origin (see ``_request_origin_is_allowed``). That value comes from
+    configuration, and the configuration has a default that is wrong for almost
+    every real install: ``docker-compose.yml`` and ``docker-compose.prod.yml``
+    both inject ``${PUBLIC_APP_URL:-http://localhost:8080}``, and
+    ``.env.example`` ships the line commented out. So a self-hoster reached at
+    https://maps.example.com who never set it resolves a self-origin of
+    ``http://localhost:8080``, and the #1531 fix that makes domain-locked
+    embeds work is inert for them: their embeds stay empty, with nothing said
+    at the moment they made the mistake.
+
+    We do not infer the serving origin to paper over that. Every unconfigured
+    source (``Host``, ``X-Forwarded-Host``, ``request.url``) is settable by
+    anyone who can point a DNS name at the deployment, so an inferred
+    self-origin would be satisfiable by exactly the parties a domain lock
+    excludes — a control any caller can satisfy is not a control. The operator
+    has to tell us; this makes them tell us when they turn the lock on rather
+    than silently on every later viewer request.
+
+    THE REFUSAL CONDITION is deliberately narrow: the creating request arrived
+    at a real, non-loopback origin, and every origin this deployment believes
+    is itself is a loopback one. That pair is a *proof* of unenforceability
+    rather than a guess — an embed shell served from a routable hostname can
+    never present ``http://localhost:8080`` as its origin, so the lock could
+    only ever deny. Two weaker predicates were rejected:
+
+    * "the configured value is absent" cannot be detected at all. Compose
+      injects the localhost default into the environment, so
+      ``settings.public_app_url`` is a non-empty string and ``unset`` and
+      ``deliberately localhost`` are byte-identical here.
+    * "the creating origin differs from the configured one" refuses a
+      deployment that is configured correctly. An operator whose GeoLens is
+      public at https://maps.example.com but administered over an internal
+      hostname has a working lock — the embed snippet, like every other public
+      link, is built from ``PUBLIC_APP_URL``, so viewers load the shell from
+      the configured origin and the runtime check passes. Blocking them would
+      trade codex's silent failure for a loud one on a healthy install.
+
+    A typo'd (rather than defaulted) ``PUBLIC_APP_URL`` is therefore NOT caught
+    here, by choice; the ``embed_token_domain_lock_denied`` warning logged by
+    ``_request_origin_is_allowed`` carries that case with the same remediation.
+
+    The comparison reads the creating request's own ``Origin``, which IS a
+    caller-controlled header. Sound here because it is a *diagnostic*, not an
+    authorization decision: it can only refuse to mint a token, never grant
+    access, and the caller is an already-authenticated map owner. Forging it
+    only denies yourself.
+
+    Skipped when the request carries no browser origin at all (a CLI or SDK
+    caller sends neither ``Origin`` nor ``Referer``), and when that origin is
+    itself loopback (a developer on ``localhost``/Vite is not the install this
+    is aimed at, and their runtime check passes either through the H-31
+    loopback bypass or through the localhost self-origin).
+    """
+    if not allowed_origins:
+        # Clearing or omitting a domain lock is always allowed.
+        return
+
+    if not is_enterprise():
+        # Domain locking is an advanced-sharing control, so create/update is
+        # about to reject this with ADVANCED_SHARING_ERROR regardless. Returning
+        # here keeps that the message the operator sees: telling a Community
+        # deployment to go fix PUBLIC_APP_URL would point at the wrong problem.
+        return
+
+    origin = extract_request_origin(request)
+    if origin is None or _is_localhost_origin(origin):
+        return
+
+    self_origins = await _resolve_self_origins(db, request)
+    if any(not _is_localhost_origin(o) for o in self_origins):
+        return
+
+    # Keep this wording stable: frontend/src/lib/error-map.ts matches it to
+    # render the remediation, since an unmapped 422 detail collapses to the
+    # generic "validation failed" toast and the point of this refusal is the
+    # prose.
+    resolved = ", ".join(sorted(self_origins)) or "nothing usable"
+    raise DomainLockNotEnforceableError(
+        "Domain locking cannot be enforced by this deployment: its public app "
+        f"URL resolves to {resolved}, but this request reached it at {origin}. "
+        "An embed shell's own API calls carry the shell's origin, so a "
+        "domain-locked token issued now would load an empty map. Set "
+        f"PUBLIC_APP_URL (or the public_app_url setting) to {origin} and try "
+        "again."
+    )
 
 
 def build_embed_frame_ancestors(
@@ -353,6 +617,29 @@ async def revoke_embed_tokens_for_dropped_datasets(
     return 0
 
 
+async def get_active_embed_token(
+    db: AsyncSession,
+    token_id: uuid.UUID,
+    map_id: uuid.UUID,
+) -> EmbedToken | None:
+    """Load the active token a write targets, or None if there is none.
+
+    fix(#1548 review r2): exists so a caller can settle whether the resource is
+    THERE before applying a precondition about the deployment. The router asks
+    first and 404s; ``update_embed_token`` asks again when it goes to write.
+    Both go through this one query so the "which token does this PATCH mean"
+    rule cannot drift between them.
+    """
+    result = await db.execute(
+        select(EmbedToken).where(
+            EmbedToken.id == token_id,
+            EmbedToken.map_id == map_id,
+            EmbedToken.is_active.is_(True),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def update_embed_token(
     db: AsyncSession,
     token_id: uuid.UUID,
@@ -363,14 +650,7 @@ async def update_embed_token(
     if not is_enterprise() and bool(allowed_origins):
         raise ValueError(ADVANCED_SHARING_ERROR)
 
-    result = await db.execute(
-        select(EmbedToken).where(
-            EmbedToken.id == token_id,
-            EmbedToken.map_id == map_id,
-            EmbedToken.is_active.is_(True),
-        )
-    )
-    token = result.scalar_one_or_none()
+    token = await get_active_embed_token(db, token_id, map_id)
     if token is None:
         return None
 
@@ -424,17 +704,10 @@ async def resolve_embed_scope_for_map(
     if token is None:
         return set()
 
-    # Domain-locking check — mirrors validate_embed_token_access (H-31 rules).
-    if token.allowed_origins:
-        if request is None:
-            return set()
-        origin = extract_request_origin(request)
-        if origin is None:
-            return set()
-        if _is_localhost_origin(origin) and _client_is_loopback(request):
-            pass
-        elif origin not in token.allowed_origins:
-            return set()
+    # Domain-locking check — shares ONE policy reader with
+    # validate_embed_token_access so the two cannot drift (fix #1531).
+    if not await _request_origin_is_allowed(db, request, token.allowed_origins):
+        return set()
 
     scoped: set[uuid.UUID] = set()
     for raw_id in token.scoped_dataset_ids or []:
@@ -534,26 +807,11 @@ async def validate_embed_token_access(
             ttl=cache_ttl,
         )
 
-    # Domain-locking check (before dataset scope check).
-    # Phase 268 H-31: the legacy localhost-Origin bypass was trivially
-    # forgeable by non-browser callers (curl, server-side scripts) — any
-    # caller could set ``Origin: http://localhost`` and skip the allowlist.
-    # The bypass is now gated on ``request.client.host`` being a loopback
-    # IP (which is the actual TCP peer and cannot be forged remotely).
-    if allowed_origins:
-        if request is None:
-            return False
-        origin = extract_request_origin(request)
-        if origin is None:
-            return False
-        if _is_localhost_origin(origin) and _client_is_loopback(request):
-            # Local-development bypass: Origin claims localhost AND the TCP
-            # peer is also loopback (only possible from same-host calls).
-            pass
-        elif origin not in allowed_origins:
-            # Both origin (from extract_request_origin) and allowed_origins
-            # (from create_embed_token) are pre-normalized.
-            return False
+    # Domain-locking check (before dataset scope check). Shares ONE policy
+    # reader with resolve_embed_scope_for_map so the two cannot drift; the
+    # H-31 localhost gating and the #1531 self-origin rule both live there.
+    if not await _request_origin_is_allowed(db, request, allowed_origins):
+        return False
 
     # Dataset scope check
     if str(dataset_id) not in scoped_dataset_ids:

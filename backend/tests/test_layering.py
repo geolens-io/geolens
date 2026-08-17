@@ -3479,6 +3479,38 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # goes on to transfer bytes still measures once, and _managed_key names the
     # tenant-key seam the block now crosses in a second place.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1656,
+    # fix(#1548 review P2): crossed the inclusion threshold. The growth is
+    # assert_domain_lock_is_enforceable — the write-side precondition that
+    # refuses a domain lock this deployment could never enforce, because
+    # PUBLIC_APP_URL ships defaulted to localhost in both compose files and the
+    # #1531 read-side fix is inert for anyone who leaves it there. Most of the
+    # lines are the docstring, and they are the point: it records why the
+    # serving origin is never INFERRED (every unconfigured source is
+    # caller-controlled, so an inferred self-origin would be satisfiable by
+    # exactly the parties a domain lock excludes) and why the refusal condition
+    # is the narrow one, naming the two weaker predicates that were tried and
+    # what each gets wrong. Cap at the exact size. This module is the embed
+    # token domain end to end — CRUD, the single policy reader both validators
+    # share, and now this precondition — and is not where new domains belong.
+    # fix(#1548 review r2): +16 — get_active_embed_token, so the PATCH handler
+    # can settle whether the token exists BEFORE applying the precondition
+    # above. Asked in the other order, a deployment-level refusal answered for
+    # a stale or concurrently revoked token id and told its owner to go
+    # reconfigure PUBLIC_APP_URL. The router and update_embed_token share the
+    # one query rather than carrying a copy each. Cap 1013 -> 1029, exact.
+    # fix(#1548 review r8): +9 — gate the self-origin candidates on
+    # is_usable_public_origin before normalizing them. The comment is most of
+    # it, and it records why the order matters: _normalize_origin PREPENDS
+    # https:// to anything without an http(s) scheme, so an environment value of
+    # ftp://maps.example.com arrived as the plausible non-loopback origin
+    # https://ftp: and convinced the domain-lock gate the deployment was
+    # configured. Cap 1029 -> 1038, exact.
+    # fix(#1548 review r9): +4 — depend on get_configured_public_app_url and
+    # bail when it is None. get_public_app_url is a RESOLVER: with PUBLIC_APP_URL
+    # unset it derives an app URL from an /api-stripped PUBLIC_API_URL, and a
+    # split app/API deployment then had the API host accepted as a self-origin,
+    # so a lock was issued that every shell request missed. Cap 1038 -> 1042.
+    "backend/app/modules/embed_tokens/service.py": 1042,
 }
 
 

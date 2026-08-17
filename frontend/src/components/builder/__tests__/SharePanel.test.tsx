@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { fireEvent, render, screen, waitFor } from '@/test/test-utils';
 import { checkMapVisibility } from '@/api/maps';
 import { ApiError } from '@/api/client';
+import { translateApiErrorDetail } from '@/lib/error-map';
 import { ShareDialog, generateEmbedCode, buildEmbedSrc } from '@/components/builder/SharePanel';
 import {
   useCreateEmbedToken,
@@ -11,6 +12,7 @@ import {
   useUpdateEmbedToken,
 } from '@/components/builder/hooks/use-embed-tokens';
 import { useEdition } from '@/hooks/use-edition';
+import { useTileConfig } from '@/hooks/use-settings';
 import {
   useCreateShareToken,
   useMapShareToken,
@@ -38,6 +40,14 @@ vi.mock('@/hooks/use-maps', () => ({
   useUpdateShareToken: vi.fn(),
 }));
 
+// fix(#1548 review r3): SharePanel now reads the deployment's configured
+// public origin for every URL it hands out. Default the mock to the current
+// origin so tests written before that change emit byte-identical URLs; the
+// tests that care drive a DIFFERENT hostname, which is the whole point.
+vi.mock('@/hooks/use-settings', () => ({
+  useTileConfig: vi.fn(),
+}));
+
 vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
   useCreateEmbedToken: vi.fn(),
   useMapEmbedTokens: vi.fn(),
@@ -45,6 +55,7 @@ vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
   useRevokeEmbedToken: vi.fn(),
 }));
 
+const mockedUseTileConfig = vi.mocked(useTileConfig);
 const mockedUseEdition = vi.mocked(useEdition);
 const mockedCheckMapVisibility = vi.mocked(checkMapVisibility);
 const mockedUsePublishMap = vi.mocked(usePublishMap);
@@ -87,6 +98,9 @@ function setup({
   visibility = 'public',
   layers,
   publishMapFn = vi.fn().mockResolvedValue({}),
+  publicAppUrl = window.location.origin,
+  forceActiveEmbedToken = false,
+  lockOriginsAfterCreate = null,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -105,6 +119,17 @@ function setup({
   layers?: ComponentProps<typeof ShareDialog>['layers'];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   publishMapFn?: (...args: any[]) => any;
+  /** The deployment's configured PUBLIC_APP_URL. null = unconfigured. */
+  publicAppUrl?: string | null;
+  /** Return an active embed token even when the share link is created at
+   *  runtime — the domain-locked branch needs both. */
+  forceActiveEmbedToken?: boolean;
+  /** Origins that appear on the active token only AFTER one is created here.
+   *  Mirrors the real builder sequence — a token is minted unlocked and the
+   *  origins are PATCHed on afterwards — and is the only way to reach a
+   *  domain-locked PREVIEW, since createEmbed() skips when a token already
+   *  exists and the raw token is available only at creation. */
+  lockOriginsAfterCreate?: string[] | null;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -112,13 +137,28 @@ function setup({
     expires_at: null,
     is_active: true,
   });
-  const createEmbedToken = createEmbedTokenFn ?? vi.fn().mockResolvedValue({
-    id: 'embed-2',
-    raw_token: 'raw-token',
-    token_hint: 'raw...',
-    expires_at: FUTURE_EMBED_EXPIRES_AT,
-    is_active: true,
+  let embedTokenCreated = false;
+  const createEmbedToken = createEmbedTokenFn ?? vi.fn().mockImplementation(async () => {
+    embedTokenCreated = true;
+    return {
+      id: 'embed-2',
+      raw_token: 'raw-token',
+      token_hint: 'raw...',
+      expires_at: FUTURE_EMBED_EXPIRES_AT,
+      is_active: true,
+    };
   });
+
+  mockedUseTileConfig.mockReturnValue({
+    data: {
+      cdn_base_url: null,
+      public_app_url: publicAppUrl,
+      public_api_url: publicAppUrl ? `${publicAppUrl}/api` : null,
+      public_base_url: null,
+      mvt_source_layer_prefix: 'data',
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 
   mockedUseEdition.mockReturnValue({
     edition: enterprise ? 'enterprise' : 'community',
@@ -151,10 +191,32 @@ function setup({
     isLoading: false,
     isError: false,
   } as never);
-  mockedUseMapEmbedTokens.mockReturnValue({
-    data: {
-      tokens: hasShareToken
-        ? [
+  const embedTokenRow = (origins: string[]) => ({
+    id: 'embed-1',
+    map_id: 'map-1',
+    token_hint: 'emb...',
+    scoped_dataset_ids: [],
+    allowed_origins: origins,
+    expires_at: FUTURE_EMBED_EXPIRES_AT,
+    is_active: true,
+    use_count: 0,
+    created_at: '2026-05-01T00:00:00Z',
+  });
+  mockedUseMapEmbedTokens.mockImplementation((() => {
+    if (lockOriginsAfterCreate && embedTokenCreated) {
+      return {
+        data: { tokens: [embedTokenRow(lockOriginsAfterCreate)], total: 1 },
+        isLoading: false,
+        isError: false,
+      };
+    }
+    if (lockOriginsAfterCreate) {
+      return { data: { tokens: [], total: 0 }, isLoading: false, isError: false };
+    }
+    return {
+      data: {
+        tokens: hasShareToken || forceActiveEmbedToken
+          ? [
             {
               id: 'embed-1',
               map_id: 'map-1',
@@ -166,13 +228,14 @@ function setup({
               use_count: 0,
               created_at: '2026-05-01T00:00:00Z',
             },
-          ]
-        : [],
-      total: hasShareToken ? 1 : 0,
-    },
-    isLoading: false,
-    isError: false,
-  } as never);
+            ]
+          : [],
+        total: hasShareToken || forceActiveEmbedToken ? 1 : 0,
+      },
+      isLoading: false,
+      isError: false,
+    };
+  }) as never);
   mockedCheckMapVisibility.mockResolvedValue({
     has_non_public: hasNonPublic,
     non_public_datasets: hasNonPublic ? ['Private dataset'] : [],
@@ -498,6 +561,69 @@ describe('SHARE-02 chip-based allowed-origins input', () => {
     });
     // Same inline error as frontend wildcard rejection
     expect(screen.getByText(/wildcard origin not allowed/i)).toBeInTheDocument();
+  });
+
+  /**
+   * fix(#1548 review P2): both compose files ship PUBLIC_APP_URL defaulted to
+   * localhost, so a self-hoster reached at a real hostname is refused here on a
+   * stock install. The refusal exists to replace a silently-empty embed with an
+   * actionable message, so routing it to the generic "update failed" toast — the
+   * default for any unmapped 422 — would put them back where they started.
+   */
+  const DOMAIN_LOCK_DETAIL =
+    'Domain locking cannot be enforced by this deployment: its public app URL ' +
+    'resolves to http://localhost:8080, but this request reached it at ' +
+    'https://maps.example.com. An embed shell\'s own API calls carry the ' +
+    "shell's origin, so a domain-locked token issued now would load an empty " +
+    'map. Set PUBLIC_APP_URL (or the public_app_url setting) to ' +
+    'https://maps.example.com and try again.';
+
+  function domainLockRefusal() {
+    // Mirrors apiFetch: message is already localized, body carries the detail.
+    return new ApiError(
+      translateApiErrorDetail(DOMAIN_LOCK_DETAIL, 422),
+      422,
+      DOMAIN_LOCK_DETAIL,
+    );
+  }
+
+  it('test_chip_input_surfaces_unenforceable_domain_lock_inline: the refusal names PUBLIC_APP_URL where the operator is looking', async () => {
+    const user = userEvent.setup();
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(domainLockRefusal());
+    setup({ enterprise: true, allowedOrigins: [], updateEmbedTokenFn });
+    await openChipBlock(user);
+
+    const input = screen.getByRole('textbox', { name: /allowed origin url/i });
+    await user.type(input, 'https://customer.example.com');
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      expect(screen.queryByText('https://customer.example.com')).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    expect(screen.getByText(/https:\/\/maps\.example\.com/)).toBeInTheDocument();
+    // The whole point: not swallowed by the generic toast.
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
+  });
+
+  it('test_chip_remove_surfaces_unenforceable_domain_lock_inline: shrinking a lock still writes one, so it gets the same message', async () => {
+    const user = userEvent.setup();
+    const updateEmbedTokenFn = vi.fn().mockRejectedValue(domainLockRefusal());
+    setup({
+      enterprise: true,
+      allowedOrigins: ['https://example.com', 'https://other.io'],
+      updateEmbedTokenFn,
+    });
+    await openChipBlock(user);
+
+    await user.click(
+      screen.getByRole('button', { name: /remove https:\/\/example\.com/i }),
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    });
+    expect(vi.mocked(toast.error)).not.toHaveBeenCalled();
   });
 
   it('test_chip_PATCH_failure_rolls_back: non-422 PATCH failure rolls back chip and surfaces toast', async () => {
@@ -1145,5 +1271,410 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     });
     expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  #1548 review r3: shareable URLs come from PUBLIC_APP_URL           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A snippet is copied so a CUSTOMER can paste it on THEIR site, and a share
+ * link is pasted into Slack. Building either from `window.location.origin`
+ * means an operator who administers GeoLens over an internal hostname hands out
+ * a URL that will not resolve for anyone else — a bug that exists with or
+ * without domain locking.
+ *
+ * It also silently breaks a domain-locked embed: the shell's own API calls
+ * carry the shell's origin, and the backend recognizes only the CONFIGURED
+ * origin as first-party, so a snippet built from a different-but-real hostname
+ * loads and then returns no layers.
+ *
+ * `PUBLIC_APP_URL` here is deliberately NOT the current origin, so a builder
+ * that ignored it would fail every assertion below.
+ */
+describe('#1548 r3 shareable URLs use the configured public origin', () => {
+  const CONFIGURED = 'https://maps.example.com';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('builds the embed snippet from PUBLIC_APP_URL, not the admin hostname', async () => {
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: CONFIGURED });
+    await generateShareLinkAndWait(user);
+
+    const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+    expect(textarea.value).toContain(`src="${CONFIGURED}/m/share-token`);
+    expect(textarea.value).not.toContain(window.location.origin);
+  });
+
+  /**
+   * fix(#1548 review r5): the snippet and the preview deliberately DIVERGE on
+   * origin, and asserting them together is the clearest statement of the rule.
+   * Same map, same token, same moment — the snippet names the host the customer
+   * will open, the preview names the host this browser just reached.
+   */
+  it('splits the snippet and the preview by who opens each', async () => {
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: CONFIGURED });
+    await generateShareLinkAndWait(user);
+
+    const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+    expect(textarea.value).toContain(`src="${CONFIGURED}/m/share-token`);
+
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+    const iframe = (await screen.findByTestId(
+      'share-preview-iframe',
+    )) as HTMLIFrameElement;
+    expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+    expect(iframe.src).not.toContain(CONFIGURED);
+  });
+
+  it('copies a share link on the configured origin', async () => {
+    // userEvent.setup() installs its own clipboard stub, so the spy has to be
+    // planted AFTER it — the existing SHARE-08 test does the same.
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    setup({ hasShareToken: false, publicAppUrl: CONFIGURED });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /copy link/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toBe(
+      `${CONFIGURED}/api/maps/shared/share-token/card`,
+    );
+  });
+
+  /**
+   * fix(#1548 review r4): the regression guard.
+   *
+   * Both compose files inject `${PUBLIC_APP_URL:-http://localhost:8080}`, so
+   * the DEFAULT install reports a non-null, perfectly good-looking localhost
+   * value. Trusting it hands every such deployment a share link and an embed
+   * snippet pointing at localhost — which nobody but the admin can open, and
+   * which worked fine before any of this. `publicAppUrl` here is deliberately
+   * the shipped default while the browser is elsewhere.
+   */
+  describe('the shipped localhost default is treated as unconfigured', () => {
+    const COMPOSE_DEFAULT = 'http://localhost:8080';
+    // jsdom serves these tests from http://localhost:3000, which is itself
+    // loopback — and a localhost PUBLIC_APP_URL is CORRECT for a localhost
+    // install, so the trust check rightly accepts it there. Pretend the browser
+    // reached GeoLens at a real hostname, which is the deployment this is about.
+    const SERVED_AT = 'https://maps.example.com';
+
+    // `origin` is non-configurable on jsdom's Location, so the whole object is
+    // swapped rather than the one property.
+    const realLocation = window.location;
+
+    beforeEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: { ...realLocation, origin: SERVED_AT },
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: realLocation,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it('copies a share link on the serving origin, not localhost', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        writable: true,
+        configurable: true,
+      });
+      setup({ hasShareToken: false, publicAppUrl: COMPOSE_DEFAULT });
+      await generateShareLinkAndWait(user);
+
+      await user.click(screen.getByRole('button', { name: /copy link/i }));
+      await waitFor(() => expect(writeText).toHaveBeenCalled());
+      expect(writeText.mock.calls[0][0]).toBe(
+        `${SERVED_AT}/api/maps/shared/share-token/card`,
+      );
+      expect(writeText.mock.calls[0][0]).not.toContain(COMPOSE_DEFAULT);
+    });
+
+    it('still emits an unrestricted embed snippet, on the serving origin', async () => {
+      const user = userEvent.setup();
+      setup({
+        hasShareToken: false,
+        hasNonPublic: true,
+        allowedOrigins: [],
+        publicAppUrl: COMPOSE_DEFAULT,
+      });
+      await generateShareLinkAndWait(user);
+
+      const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+      expect(textarea.value).toContain(`src="${SERVED_AT}/m/share-token`);
+      expect(textarea.value).not.toContain(COMPOSE_DEFAULT);
+    });
+
+    it('withholds a DOMAIN-LOCKED snippet, because that one cannot degrade', async () => {
+      // An unrestricted embed served from a non-canonical origin still draws.
+      // A locked one does not: its own API calls would carry an origin the
+      // backend will not accept, and the map comes up empty saying nothing.
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        forceActiveEmbedToken: true,
+        allowedOrigins: ['https://customer.example.com'],
+        publicAppUrl: COMPOSE_DEFAULT,
+      });
+      await generateShareLinkAndWait(user);
+
+      expect(await screen.findByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+    });
+  });
+
+  /**
+   * fix(#1548 review r6): you genuinely cannot preview a domain-locked embed
+   * from a host the lock does not permit — that is the feature working. Saying
+   * so beats rendering a map with no layers in it and letting the operator
+   * conclude the embed is broken.
+   */
+  describe('suppresses the locked preview with no trustworthy public origin', () => {
+    // The shipped-default row needs the browser somewhere other than loopback:
+    // on a genuine localhost install a localhost PUBLIC_APP_URL is correct.
+    const realLocation = window.location;
+    beforeEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: { ...realLocation, origin: 'https://maps.example.com' },
+        writable: true,
+        configurable: true,
+      });
+    });
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: realLocation,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it.each([
+      ['nothing is configured', null],
+      ['the config is the shipped localhost default', 'http://localhost:8080'],
+      ['the config is malformed', 'not-a-url'],
+    ])('when %s', async (_label, publicAppUrl) => {
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl,
+      });
+      await generateShareLinkAndWait(user);
+
+      expect(
+        screen.queryByRole('button', { name: /preview/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+      // The preview explains itself in its own words — the snippet above it is
+      // withheld too and also names PUBLIC_APP_URL, so match the preview copy.
+      expect(await screen.findByText(/only be previewed from/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/PUBLIC_APP_URL/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('keeps previewing an UNLOCKED embed on the shipped localhost default', async () => {
+    // The regression guard for the case above: suppression is about the LOCK,
+    // not about the configuration alone. An unrestricted preview still loads.
+    const user = userEvent.setup();
+    setup({
+      hasShareToken: false,
+      hasNonPublic: true,
+      allowedOrigins: [],
+      publicAppUrl: 'http://localhost:8080',
+    });
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = (await screen.findByTestId(
+      'share-preview-iframe',
+    )) as HTMLIFrameElement;
+    expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+  });
+
+  it('withholds a domain-locked snippet when nothing is configured', async () => {
+    const user = userEvent.setup();
+    setup({
+      enterprise: true,
+      hasShareToken: false,
+      hasNonPublic: true,
+      forceActiveEmbedToken: true,
+      allowedOrigins: ['https://customer.example.com'],
+      publicAppUrl: null,
+    });
+    await generateShareLinkAndWait(user);
+
+    expect(await screen.findByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+  });
+
+  it('keeps the local Open affordance working without a configured URL', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: null });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /^open$/i }));
+    expect(openSpy).toHaveBeenCalledWith(
+      `${window.location.origin}/m/share-token`,
+      '_blank',
+    );
+    openSpy.mockRestore();
+  });
+
+  /**
+   * fix(#1548 review r5): the split-horizon deployment.
+   *
+   * A public hostname routed externally and unreachable from the internal admin
+   * network is a normal setup, not a misconfiguration. The copied link must
+   * still name the public host — the customer is not on this network — but
+   * anything THIS browser opens has to name the host this browser reached, or
+   * an admin can use GeoLens normally and yet cannot open the share they just
+   * created.
+   */
+  describe('split-horizon: the public host is not reachable from here', () => {
+    const PUBLIC_HOST = 'https://maps.example.com';
+
+    it('opens the viewer on the current origin, not the public one', async () => {
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const user = userEvent.setup();
+      setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: PUBLIC_HOST });
+      await generateShareLinkAndWait(user);
+
+      await user.click(screen.getByRole('button', { name: /^open$/i }));
+      expect(openSpy).toHaveBeenCalledWith(
+        `${window.location.origin}/m/share-token`,
+        '_blank',
+      );
+      expect(openSpy.mock.calls[0][0]).not.toContain(PUBLIC_HOST);
+      openSpy.mockRestore();
+    });
+
+    it('previews from the current origin, not the public one', async () => {
+      const user = userEvent.setup();
+      setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: PUBLIC_HOST });
+      await generateShareLinkAndWait(user);
+      await user.click(screen.getByRole('button', { name: /preview/i }));
+
+      const iframe = (await screen.findByTestId(
+        'share-preview-iframe',
+      )) as HTMLIFrameElement;
+      // An iframe pointed at a host this browser cannot resolve renders
+      // nothing, which is strictly worse than previewing from the serving host.
+      expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+      expect(iframe.src).not.toContain(PUBLIC_HOST);
+    });
+
+    /**
+     * fix(#1548 review r7): a domain-locked preview has no answer here at all.
+     * Its API calls must carry the configured origin, and `frame-ancestors`
+     * then judges THIS dialog as the parent against that same origin — which
+     * the admin's hostname is not. The browser blocks the frame before a single
+     * API call runs, so the honest move is not to render it.
+     */
+    it('suppresses a DOMAIN-LOCKED preview rather than loading a blocked frame', async () => {
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl: PUBLIC_HOST,
+      });
+      await generateShareLinkAndWait(user);
+
+      expect(
+        screen.queryByRole('button', { name: /preview/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+      expect(
+        await screen.findByText(/restricted to specific domains/i),
+      ).toBeInTheDocument();
+    });
+
+    it('leaves the copy-snippet path fully working while the preview is refused', async () => {
+      // What the admin actually came here to do. The snippet still names the
+      // public host, which is where the customer will load it from.
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        writable: true,
+        configurable: true,
+      });
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl: PUBLIC_HOST,
+      });
+      await generateShareLinkAndWait(user);
+
+      const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+      expect(textarea.value).toContain(`src="${PUBLIC_HOST}/m/share-token`);
+
+      await user.click(screen.getByTitle(/copy embed code/i));
+      await waitFor(() => expect(writeText).toHaveBeenCalled());
+      expect(writeText.mock.calls[0][0]).toContain(PUBLIC_HOST);
+    });
+
+    it('previews the locked embed once the admin IS on the configured origin', async () => {
+      // The regression guard: suppression is about the two origins DIFFERING,
+      // not about the embed being locked. Same host, and the preview returns.
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl: window.location.origin,
+      });
+      await generateShareLinkAndWait(user);
+      await user.click(screen.getByRole('button', { name: /preview/i }));
+
+      const iframe = (await screen.findByTestId(
+        'share-preview-iframe',
+      )) as HTMLIFrameElement;
+      expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+    });
+
+    it('still copies a link on the public host, because the customer opens that', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        writable: true,
+        configurable: true,
+      });
+      setup({ hasShareToken: false, publicAppUrl: PUBLIC_HOST });
+      await generateShareLinkAndWait(user);
+
+      await user.click(screen.getByRole('button', { name: /copy link/i }));
+      await waitFor(() => expect(writeText).toHaveBeenCalled());
+      expect(writeText.mock.calls[0][0]).toBe(
+        `${PUBLIC_HOST}/api/maps/shared/share-token/card`,
+      );
+    });
   });
 });

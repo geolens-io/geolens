@@ -13,9 +13,16 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ApiError } from '@/api/client';
+import { classifyApiError } from '@/lib/error-map';
+import {
+  getLockedPreviewBaseUrl,
+  getPublicAppBaseUrl,
+  getShareableBaseUrl,
+} from '@/lib/public-urls';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/use-edition';
+import { useTileConfig } from '@/hooks/use-settings';
 import {
   Dialog,
   DialogContent,
@@ -42,6 +49,22 @@ import { normalizeOrigin, WildcardOriginError } from '@/lib/builder/url-normaliz
 import { isLayerHiddenFromMapAudience } from '@/components/builder/map-stack';
 import type { MapLayerResponse, MapVisibility } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
+
+/**
+ * fix(#1548 review P2): true for the backend's "this deployment cannot enforce
+ * a domain lock" refusal (`assert_domain_lock_is_enforceable`).
+ *
+ * Matched through `classifyApiError` rather than by re-testing the prose here,
+ * so error-map.ts stays the one place that knows the server's wording — the
+ * same single-reader discipline the #1531 fix applied to the policy itself.
+ */
+function isDomainLockUnenforceable(err: unknown): err is ApiError {
+  return (
+    err instanceof ApiError &&
+    err.status === 422 &&
+    classifyApiError(err.body, err.status).key === 'errors.embedDomainLockUnenforceable'
+  );
+}
 
 /**
  * Build the embedded-viewer iframe `src` URL for a shared map (builder-audit
@@ -319,6 +342,13 @@ function ShareLinkSettings({
       setOrigins((current) => current.filter((o) => o !== addedCanonical));
       if (err instanceof ApiError && err.status === 422 && /Wildcard/i.test(err.message)) {
         setOriginError(t('share.originWildcardError', { defaultValue: 'Wildcard origin not allowed' }));
+      } else if (isDomainLockUnenforceable(err)) {
+        // fix(#1548 review P2): the server's remediation IS the message here —
+        // it names PUBLIC_APP_URL and the value to set. Collapsing it into the
+        // generic "update failed" toast would put the operator back where the
+        // refusal exists to rescue them from: a domain lock that quietly
+        // delivers nothing. err.message is already localized by apiFetch.
+        setOriginError((err as ApiError).message);
       } else {
         toast.error(t('share.updateFailed'));
       }
@@ -338,13 +368,21 @@ function ShareLinkSettings({
         tokenId: resolvedEmbedTokenId,
         allowedOrigins: newOrigins.length > 0 ? newOrigins : null,
       });
-    } catch {
+    } catch (err) {
       // Rollback using functional setState — re-insert what was removed so
       // concurrent removes are not discarded (WR-01: stale-closure race).
       setOrigins((current) =>
         current.includes(removedOrigin) ? current : [...current, removedOrigin],
       );
-      toast.error(t('share.updateFailed'));
+      // fix(#1548 review P2): removing one of several origins still writes a
+      // non-empty lock, so an unenforceable deployment refuses it and the
+      // operator needs the same remediation as on add. Clearing the LAST origin
+      // sends null and is never refused, which stays their way out.
+      if (isDomainLockUnenforceable(err)) {
+        setOriginError((err as ApiError).message);
+      } else {
+        toast.error(t('share.updateFailed'));
+      }
     }
   }
 
@@ -610,6 +648,12 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
   // builder-audit #338 SHARE-04 / IN-01: share the exact URL construction with
   // generateEmbedCode via buildEmbedSrc so the preview and the copyable snippet
   // can never diverge on path or query-param shape.
+  //
+  // fix(#1548 review r5): the ORIGIN is now the one thing they may legitimately
+  // differ on, and the caller decides. The snippet is opened by a customer and
+  // names the public host; the preview is opened by this browser and names the
+  // host this browser reached. Path, params and sandbox stay identical, which
+  // is what this sharing was ever for.
   const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
 
   return (
@@ -903,6 +947,38 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
 
+  // fix(#1548 review r3/r4/r5): three origins live here, and the question that
+  // picks between them is WHO OPENS THE URL — not whether it is "a share".
+  //
+  //  1. HANDED TO SOMEONE ELSE — the copied link, its /card twin, the iframe
+  //     snippet. The recipient is not on this network, so these must name the
+  //     address people use to reach GeoLens (shareBaseUrl / embedBaseUrl).
+  //  2. OPENED BY THIS BROWSER — the "Open" button and an UNLOCKED preview.
+  //     These use currentOrigin directly and are deliberately NEITHER of the
+  //     others: this browser demonstrably reaches this host, and may not reach
+  //     the public one at all. An externally routed public hostname unreachable
+  //     from the internal admin network is a normal split-horizon deployment,
+  //     not a misconfiguration, and pointing a local affordance at it means an
+  //     admin can use GeoLens yet cannot open the share they just created.
+  //  3. OPENED BY THIS BROWSER *AND* SUBJECT TO THE LOCK — a DOMAIN-LOCKED
+  //     preview. It belongs to neither bucket above, and for a split-horizon
+  //     deployment it has no answer at all: its API calls must carry the
+  //     CONFIGURED origin, while `frame-ancestors` judges this dialog as the
+  //     PARENT and accepts only that same configured origin. So it is offered
+  //     only when the two already coincide, and refused otherwise. See
+  //     getLockedPreviewBaseUrl.
+  //  4. The domain-lock decision for the SNIPPET is a further split within (1).
+  //
+  // See lib/public-urls.ts for why "configured" is not the same question as
+  // "correct".
+  const { data: tileConfig } = useTileConfig();
+  const currentOrigin = typeof window === 'undefined' ? '' : window.location.origin;
+  // Non-null only when the configured value is one a viewer could actually
+  // open. Null covers unset AND the shipped localhost default.
+  const trustedAppBaseUrl = getPublicAppBaseUrl(tileConfig, currentOrigin);
+  // Ordinary shares degrade gracefully: a serving origin still opens.
+  const shareBaseUrl = getShareableBaseUrl(tileConfig, currentOrigin);
+
   // fix(#430 V-17): names of layers that would be silently hidden from this map's
   // audience — e.g. a private/unpublished dataset added to a public/shared
   // map. Empty for a private map (no audience beyond the owner/grantees).
@@ -933,6 +1009,31 @@ export function ShareDialog({
   const handleRevoked = tokens.onRevoked;
   const createShareToken = tokens.shareMutation;
   const revokeShareToken = tokens.revokeShareMutation;
+  // fix(#1548 review r4): the embed snippet splits from the share link here,
+  // on what a wrong origin COSTS. An unrestricted embed degrades — served from
+  // a non-canonical but real origin it still loads and draws. A DOMAIN-LOCKED
+  // one does not: the shell's own API calls would carry an origin the backend
+  // does not recognize as first-party, so the map comes up empty with nothing
+  // said. That is the failure this whole PR exists to stop being silent, so
+  // when the lock is on we require a trustworthy configured origin and withhold
+  // the snippet otherwise. `assert_domain_lock_is_enforceable` refuses to mint
+  // such a lock in the first place, so this is reachable only for a token that
+  // predates the guard or a deployment whose URL changed under it.
+  const isDomainLocked = configOrigins.length > 0;
+  const embedBaseUrl = isDomainLocked ? trustedAppBaseUrl : shareBaseUrl;
+
+  // fix(#1548 review r6/r7): category (3). Null means the preview is genuinely
+  // impossible rather than merely unconfigured — you cannot preview a
+  // domain-locked embed from a hostname the lock does not permit, and asking
+  // the browser to do it anyway just gets the frame blocked. Copying the
+  // snippet, which is what the admin came here for, is unaffected.
+  const previewBaseUrl = isDomainLocked
+    ? getLockedPreviewBaseUrl(tileConfig, currentOrigin)
+    : currentOrigin;
+  // Which of the two refusals to print: no usable public origin at all, or one
+  // that exists but is not this hostname.
+  const lockedPreviewBlockedByOrigin = isDomainLocked && trustedAppBaseUrl !== null;
+
   const createEmbedToken = tokens.embedMutation;
   const revokeEmbedToken = tokens.revokeEmbedMutation;
 
@@ -1007,9 +1108,13 @@ export function ShareDialog({
     }
   }
 
+  /** fix(#1548 review r5): category (2) above — the "Open" button navigates
+   *  THIS admin's browser and hands the URL to nobody, so it uses the origin
+   *  this browser is known to reach rather than the public one, which a
+   *  split-horizon deployment may route only externally. */
   function getShareUrl() {
     if (!rawShareToken) return '';
-    return `${window.location.origin}/m/${rawShareToken}`;
+    return `${currentOrigin}/m/${rawShareToken}`;
   }
 
   /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
@@ -1022,14 +1127,15 @@ export function ShareDialog({
    *  src is unchanged (see generateEmbedCode). */
   function getShareCardUrl() {
     if (!rawShareToken) return '';
-    return `${window.location.origin}/api/maps/shared/${rawShareToken}/card`;
+    return `${shareBaseUrl}/api/maps/shared/${rawShareToken}/card`;
   }
 
   function getEmbedCode() {
+    if (!embedBaseUrl) return '';
     return generateEmbedCode({
       shareToken: rawShareToken || '',
       embedTokenRaw: embedTokenRaw || '',
-      origin: window.location.origin,
+      origin: embedBaseUrl,
     });
   }
 
@@ -1048,7 +1154,12 @@ export function ShareDialog({
 
   async function handleCopyEmbedCode() {
     const code = getEmbedCode();
-    if (!code) return;
+    if (!code) {
+      // fix(#1548 review r4): only reachable with a domain lock on and no
+      // trustworthy public origin — a snippet that would load and stay empty.
+      if (!embedBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
+      return;
+    }
     try {
       await navigator.clipboard.writeText(code);
       toast.success(t('toasts.embedCodeCopied'));
@@ -1336,23 +1447,40 @@ export function ShareDialog({
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
-                  <div className="relative">
-                    <Textarea
-                      readOnly
-                      value={getEmbedCode()}
-                      rows={3}
-                      className="bg-muted/30 text-xs font-mono resize-none"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      className="absolute top-1.5 end-1.5"
-                      onClick={handleCopyEmbedCode}
-                      title={t('share.copyEmbedCode')}
+                  {/* fix(#1548 review r4): a domain-locked embed with no
+                      trustworthy public origin would load and stay empty, so
+                      say that rather than emitting a snippet that looks fine.
+                      An unrestricted embed always has a usable origin and never
+                      reaches this branch. */}
+                  {!embedBaseUrl ? (
+                    <div
+                      role="status"
+                      className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2"
                     >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </div>
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-muted-foreground">
+                        {t('share.publicAppUrlNotConfigured')}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <Textarea
+                        readOnly
+                        value={getEmbedCode()}
+                        rows={3}
+                        className="bg-muted/30 text-xs font-mono resize-none"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        className="absolute top-1.5 end-1.5"
+                        onClick={handleCopyEmbedCode}
+                        title={t('share.copyEmbedCode')}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
                   {hasNonPublic && (
                     <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2">
                       <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
@@ -1435,12 +1563,29 @@ export function ShareDialog({
                     </div>
                   )}
                   {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
-                  {embedTokenRaw && (
+                  {/* fix(#1548 review r5/r6): an UNLOCKED preview loads in THIS
+                      browser and uses the origin this browser reached — pointed
+                      at a public host routed only externally it would render
+                      nothing. A DOMAIN-LOCKED preview instead has to come from
+                      the configured origin, because that is the only one its
+                      own API calls may present; with no such origin it is
+                      suppressed rather than shown empty. */}
+                  {embedTokenRaw && previewBaseUrl && (
                     <EmbedPreviewPane
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
-                      origin={window.location.origin}
+                      origin={previewBaseUrl}
                     />
+                  )}
+                  {embedTokenRaw && !previewBaseUrl && (
+                    <p
+                      role="status"
+                      className="text-xs text-muted-foreground border-t pt-3"
+                    >
+                      {lockedPreviewBlockedByOrigin
+                        ? t('share.lockedPreviewCrossOrigin')
+                        : t('share.lockedPreviewNeedsPublicUrl')}
+                    </p>
                   )}
                 </div>
               )}
