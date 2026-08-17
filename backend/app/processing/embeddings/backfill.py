@@ -59,25 +59,36 @@ def _compact_error(exc: BaseException) -> str:
     buried in one traceback among thousands: a provider error names its
     endpoint, and an endpoint can carry a key in its query string.
 
-    fix(#1577 review, codex P1): redact BEFORE truncating. The redactor
-    recognises userinfo by its terminating `@`, so a cut that lands between the
-    password and that `@` leaves `https://alice:hunter2` behind, which
-    `redact_url_credentials` then reads as a host and a port and passes through
-    untouched. Truncating last also costs nothing extra on the path this fix is
-    about: the two passes above already walk the whole message, and the
-    `DBAPIError` case redacts 73 characters of driver message where the old
-    order redacted the full 200. The redactor is linear (0.0028 ms at 73
-    characters, 13 ms at 100 KB), so a message large enough to matter would have
-    to be pathological — and it could not be helped by a cheaper cut first,
-    since a cut before redaction is the bug being fixed, at whatever offset.
+    fix(#1577 reviews r1 and r2, codex P1 twice): THE REDACTOR RUNS FIRST, ON
+    THE RAW STRING. Nothing may be inserted above it. Both rounds found the same
+    bug at a different transformation, because every one of them can break the
+    pattern the redactor matches on:
+
+    - Truncating first (r1) cuts the `@` that terminates userinfo, leaving
+      `https://alice:hunter2`, which reads as a host and a port and passes
+      through untouched.
+    - Collapsing whitespace first (r2) turns a tab, CR or LF inside a URL into a
+      space, and `URL_LIKE_RE` stops at whitespace. `https://alice:hun\\nter2@…`
+      becomes `https://alice:hun ter2@…` and the match dies before the `@`. A
+      split in the HOST is worse still: the match ends there and a query-string
+      key further along is never even reached.
+
+    The `[SQL:` cut moved below for the same reason — it is a cut, and the rule
+    cannot have exceptions and still be a rule. Cost of redacting the untrimmed
+    string instead: measured below.
+
+    What is left above the redactor is choosing `orig` over `exc` and calling
+    `str()`. Neither can split a match: `orig` is a different, shorter string
+    rather than a mangled one, so it can only omit a credential the SQL tail
+    would have carried, never expose a split one. A driver that itself hands us
+    a message already cut mid-URL is out of reach of any ordering here.
     """
     origin = getattr(exc, "orig", None)
-    message = str(origin if origin is not None else exc)
+    message = redact_url_credentials(str(origin if origin is not None else exc))
     marker = message.find("[SQL:")
     if marker != -1:
         message = message[:marker]
     message = " ".join(message.split())
-    message = redact_url_credentials(message)
     if len(message) > _MAX_ERROR_CHARS:
         message = message[: _MAX_ERROR_CHARS - 3] + "..."
     return message

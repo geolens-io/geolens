@@ -348,6 +348,45 @@ def test_compact_error_redacts_userinfo_the_truncation_point_would_have_entered(
     assert "hun" not in compact, compact
 
 
+@pytest.mark.parametrize("whitespace", ["\n", "\r", "\t"], ids=["lf", "cr", "tab"])
+@pytest.mark.parametrize(
+    "template",
+    [
+        "provider error: https://alice:hun{ws}ter2@example.com/v1 failed",
+        "provider error: https://example.com/v1?api_key=hun{ws}ter2 failed",
+        "provider error: https://exam{ws}ple.com/v1?api_key=hunter2 failed",
+    ],
+    ids=["in-userinfo", "in-query-value", "in-host"],
+)
+def test_compact_error_redacts_a_credential_whitespace_would_have_split(
+    template, whitespace
+):
+    """Collapsing whitespace before redacting hides the credential (#1577 review r2).
+
+    `URL_LIKE_RE` stops at whitespace, so turning a tab, CR or LF inside a URL
+    into a space ends the match early. Split the userinfo and the terminating
+    `@` falls outside it; split the host and the match dies before the query
+    string is reached at all, which leaves a whole `api_key=` value in the
+    clear. The redactor handles all three itself, because `urlsplit` strips
+    those characters from a URL before parsing it — but only if it is handed
+    the raw string.
+    """
+    from app.core.url_redaction import redact_url_credentials
+    from app.processing.embeddings.backfill import _compact_error
+
+    raw = template.format(ws=whitespace)
+
+    compact = _compact_error(RuntimeError(raw))
+
+    assert "ter2" not in compact, compact
+
+    # Counterfactual, run here rather than described: the other order really
+    # does leak this exact input, so the assertion above is testing the ordering
+    # and not the redactor's own competence.
+    collapsed_first = redact_url_credentials(" ".join(raw.split()))
+    assert "ter2" in collapsed_first, collapsed_first
+
+
 def test_compact_error_truncates_a_long_message():
     """Whatever the exception, one log line stays one log line."""
     from app.processing.embeddings.backfill import _compact_error
