@@ -233,6 +233,78 @@ async def test_a_batch_whose_write_fails_keeps_the_vector_it_was_replacing(
 
 
 @pytest.mark.anyio
+async def test_a_short_provider_response_is_counted_and_retried(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1581): `zip` truncates silently, so `created` has to count rows.
+
+    A provider that answers with fewer vectors than it was given texts drops
+    the tail: `zip(batch, vectors)` stops at the shorter side. Counting
+    `len(batch)` then reported coverage for records that never got a row, and
+    #1550's "errors and nothing created" guard cannot fire on a run that claims
+    it created everything, so the overstatement survives the one check that
+    would have caught it.
+
+    Both halves are asserted: the count equals the rows that actually exist,
+    and the record the provider skipped is retried rather than abandoned.
+    """
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    first = await _seed(session, "Short Response First")
+    second = await _seed(session, "Short Response Second")
+    # One batch holding both, so the short answer lands inside it.
+    _pin_run(
+        monkeypatch,
+        [_as_record(first, title="First"), _as_record(second, title="Second")],
+        batch_size=2,
+    )
+
+    calls = {"batched": 0}
+
+    async def _fake_batch(texts, sess, *, model, dimensions, base_url):
+        if texts == [backfill_module._PREFLIGHT_TEXT]:
+            return [[1.0] + [0.0] * (_DIMS - 1)]
+        if len(texts) > 1:
+            # The batch call: one vector short, which is what `zip` swallows.
+            calls["batched"] += 1
+            return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts[:-1]]
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
+
+    result = await backfill_module.backfill_embeddings(session, force=True)
+
+    # Non-vacuity: the short answer really was served.
+    assert calls["batched"] == 1
+
+    # Count records this run actually WROTE a vector for, which is not the same
+    # as counting rows: the skipped record still holds its seeded one, so a
+    # plain row count would agree with the overstated total and prove nothing.
+    # The seeded `content_hash` is the marker a generated row can never carry.
+    written = 0
+    for record_id, marker in (
+        (first, "Short Response First"),
+        (second, "Short Response Second"),
+    ):
+        ((_model, content_hash),) = await _rows_for(session, record_id)
+        if content_hash != marker:
+            written += 1
+
+    # The count is what was written, not what was requested. Under the defect
+    # this is 2 == 1.
+    assert result["created"] == written
+    # And the record the provider skipped was retried rather than abandoned, so
+    # both records end the run covered.
+    assert result["created"] == 2
+    await _assert_replaced(session, first, marker="Short Response First")
+    await _assert_replaced(session, second, marker="Short Response Second")
+
+
+@pytest.mark.anyio
 async def test_a_completed_force_run_still_replaces_a_superseded_model_row(
     test_db_session,
     restore_embedding_config,

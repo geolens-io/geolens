@@ -1187,26 +1187,23 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # fix(#1549): the batch's own old rows are removed HERE, in the
             # transaction that writes their replacements, rather than by a bulk
             # DELETE committed before the run generated anything.
-            await _replace_embeddings(
-                session,
-                [
-                    {
-                        "record_id": record_id,
-                        "embedding": vector,
-                        "model_name": model_name,
-                        # fix(#1546): stamped from the PIN. `pinned` is the
-                        # triple that was handed to the provider call above,
-                        # so the stamp names the configuration that actually
-                        # produced this vector rather than whatever the live
-                        # configuration happens to be by the time the row is
-                        # written.
-                        "config_fingerprint": config_fingerprint,
-                        "content_hash": compute_content_hash(content),
-                    }
-                    for (record_id, content), vector in zip(batch, vectors)
-                ],
-                record_orm=record_orm,
-            )
+            rows = [
+                {
+                    "record_id": record_id,
+                    "embedding": vector,
+                    "model_name": model_name,
+                    # fix(#1546): stamped from the PIN. `pinned` is the triple
+                    # that was handed to the provider call above, so the stamp
+                    # names the configuration that actually produced this vector
+                    # rather than whatever the live configuration happens to be
+                    # by the time the row is written.
+                    "config_fingerprint": config_fingerprint,
+                    "content_hash": compute_content_hash(content),
+                }
+                for (record_id, content), vector in zip(batch, vectors)
+            ]
+            if rows:
+                await _replace_embeddings(session, rows, record_orm=record_orm)
             # fix(#1579 review r3, codex P2): WRITE, then check, then commit.
             # The check reads `pg_attribute`, which locks nothing, so checking
             # before the rows were sent left a window in which an `ALTER TABLE`
@@ -1256,7 +1253,40 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 error=_PinDrift,
             )
             await session.commit()
-            created += len(batch)
+            # fix(#1581): count what was WRITTEN, not what was asked for. `zip`
+            # stops at the shorter side, so a provider answering with fewer
+            # vectors than texts drops the tail silently; `created +=
+            # len(batch)` then reported coverage for records that never got a
+            # row, and #1550's "errors and nothing created" guard cannot fire on
+            # a run claiming it created everything.
+            created += len(rows)
+            unanswered = batch[len(rows) :]
+            if unanswered:
+                # After the commit above, deliberately: the retry commits per
+                # record itself, so the rows this batch did write are settled
+                # before it starts. The records the provider did not answer for
+                # keep their existing vectors meanwhile, because
+                # `_replace_embeddings` deletes for the rows it is writing
+                # rather than for the batch.
+                logger.warning(
+                    "Backfill: provider returned fewer vectors than texts",
+                    requested=len(batch),
+                    returned=len(vectors),
+                )
+                made, failed = await _retry_batch_per_record(
+                    session,
+                    unanswered,
+                    pinned,
+                    created,
+                    model_name=model_name,
+                    embedding_dims=embedding_dims,
+                    base_url=base_url,
+                    pinned_column_dims=pinned_column_dims,
+                    traced_errors=traced_errors,
+                    record_orm=record_orm,
+                )
+                created += made
+                errors += failed
         except _PinDrift:
             # fix(#1525 review r5, codex P2): not a batch failure. Retrying it
             # per record would generate the same vectors against the same stale
