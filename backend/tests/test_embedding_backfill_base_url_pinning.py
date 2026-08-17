@@ -36,11 +36,12 @@ Requirements:
   - Alembic migrations must be applied
 """
 
+import json
 import uuid
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from app.core import ai_credentials
 from app.core.persistent_config import (
@@ -60,6 +61,9 @@ _MODEL_AFTER = "endpoint-pin-model-after"
 # Matches the fixed vector column, so every row this run writes still inserts
 # and the assertions stay on the endpoint rather than on storage.
 _DIMS = 1536
+# Different enough to be visible in an assertion; the fake provider answers at
+# _DIMS whatever it is asked for, so the row still inserts.
+_DIMS_AFTER = 768
 # Canonical already (no trailing slash, lowercase host, no query): the shipped
 # provider canonicalizes what it returns, and a non-canonical literal here would
 # make the comparison fail for a reason that is not the finding.
@@ -493,3 +497,86 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     assert provider.resolves == 2
     # And the pinned value actually reached the provider as itself.
     assert {call["base_url"] for call in provider.calls} == {None}
+
+
+@pytest.mark.anyio
+async def test_a_half_evicted_cache_cannot_pin_a_mixed_pair(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """Two reads through one stale cache entry agree with each other.
+
+    fix(#1525 review r2, codex P1): `PersistentConfig.get` answers from a
+    PER-KEY cache, and `update_settings` commits the whole batch before evicting
+    each key in turn (settings/router.py:338-345). Between the commit and the
+    last eviction, one key answers from the DB while another answers from cache,
+    so a snapshot built out of cached reads can pin the new model beside the old
+    dimensions. Comparing those reads cannot see it: both passes hit the same
+    stale entry and agree. It is the settings-window bug one layer out, a
+    consistent read of an inconsistent state.
+
+    Driven through a real `InMemoryCacheProvider`, so the read path under test
+    is the production one, and the half-evicted state is built the way the
+    router builds it: commit both values, then evict only one key.
+
+    Note what is asserted. Uncached reads do not make the run abort here, they
+    make it pin the committed pair, so the assertion is on the pair the
+    provider received rather than on a raise. Aborting would be wrong: nothing
+    is inconsistent in the database, only in the cache.
+    """
+    from app.core.persistent_config import _CACHE_PREFIX
+    from app.platform.cache import provider as cache_provider_module
+    from app.platform.cache.memory import InMemoryCacheProvider
+
+    cache = InMemoryCacheProvider()
+    monkeypatch.setattr(cache_provider_module, "_cache_provider", cache)
+
+    await _seed_two_records(test_db_session, "Half Evicted")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+    await EMBEDDING_BASE_URL.set(test_db_session, _URL_A)
+
+    # Warm both keys, then commit the update straight to app_settings so the
+    # entries survive. `PersistentConfig.set` would evict them, which is the
+    # state AFTER the window this test is about.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS
+    await test_db_session.execute(
+        text(
+            "UPDATE catalog.app_settings SET value = :v WHERE key = 'embedding_model'"
+        ),
+        {"v": json.dumps({"v": _MODEL_AFTER})},
+    )
+    await test_db_session.execute(
+        text("UPDATE catalog.app_settings SET value = :v WHERE key = 'embedding_dims'"),
+        {"v": json.dumps({"v": _DIMS_AFTER})},
+    )
+    await test_db_session.commit()
+    # Only the model key is evicted. This is mid-eviction, not a finished one.
+    await cache.delete(f"{_CACHE_PREFIX}embedding_model")
+
+    # Vacuity guard, and the whole premise in three lines: one key now answers
+    # from the DB, the other from a stale entry, and the DB knows better. With
+    # no cache provider installed these would all agree and the assertions at
+    # the end would hold on the unfixed tree too.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_AFTER
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS
+    assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _DIMS_AFTER
+
+    provider = _EndpointRecordingProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    await backfill_module.backfill_embeddings(test_db_session, force=False)
+
+    # Non-vacuity: nothing was pinned if nothing was generated.
+    assert provider.calls, "the provider was never called"
+    # The finding: an unfixed tree pins _MODEL_AFTER beside _DIMS, a pair that
+    # was never committed together, and generates the catalog under it.
+    assert {call["model"] for call in provider.calls} == {_MODEL_AFTER}
+    assert {call["dimensions"] for call in provider.calls} == {_DIMS_AFTER}

@@ -72,7 +72,10 @@ def _pin_model(monkeypatch, name: str) -> None:
     patching the module attribute reaches it.
     """
 
-    async def _resolve(_session):
+    # fix(#1525 review r2): the snapshot passes `uncached=True`, so the stub has
+    # to accept it. It answers the same either way — this pins the resolution,
+    # not which layer it came from.
+    async def _resolve(_session, **_kwargs):
         return name
 
     monkeypatch.setattr(helpers, "resolve_embedding_model_name", _resolve)

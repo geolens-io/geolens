@@ -280,18 +280,32 @@ async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
     before = await _embedding_count(test_db_session)
     assert before > 0
 
+    # fix(#1525 review r2): hung on the UNCACHED read, which is the one the
+    # snapshot makes now. The cached read is still what everything else uses, so
+    # both are patched and the flip fires on whichever the snapshot reaches
+    # first — the point is that it lands between the two captures, not which
+    # layer serves them.
     original_dims_get = EMBEDDING_DIMS.get
+    original_dims_get_uncached = EMBEDDING_DIMS.get_uncached
     flipped = False
 
-    async def _flip_then_read(session):
+    async def _flip(session) -> None:
         nonlocal flipped
         if not flipped:
             flipped = True
             await EMBEDDING_MODEL.set(session, _MODEL_B)
             await EMBEDDING_DIMS.set(session, _DIMS_B)
+
+    async def _flip_then_read(session):
+        await _flip(session)
         return await original_dims_get(session)
 
+    async def _flip_then_read_uncached(session):
+        await _flip(session)
+        return await original_dims_get_uncached(session)
+
     monkeypatch.setattr(EMBEDDING_DIMS, "get", _flip_then_read)
+    monkeypatch.setattr(EMBEDDING_DIMS, "get_uncached", _flip_then_read_uncached)
 
     provider = _RecordingProvider()
     monkeypatch.setattr(

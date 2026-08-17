@@ -56,6 +56,28 @@ async def _snapshot_embedding_config(
     belong to whichever provider extension is registered (see
     `resolve_embedding_base_url`).
 
+    KNOWN RESIDUE (#1525 review r2): the model and dimensions are read
+    uncached, so they are always the committed state. The endpoint is not, and
+    cannot be from here — it is resolved BY THE PROVIDER, which reads its own
+    keys through the same per-key cache. Making that read uncached needs either
+    a copy of the provider's fallback chain and credential binding in this
+    caller, which would be wrong for any extension resolving its endpoint from
+    somewhere else, or an uncached mode on the extension interface itself.
+
+    What that leaves open: a settings update that is committed but whose
+    endpoint key is not yet evicted, so the provider answers from a stale entry
+    beside an uncached model. For the SHIPPED provider it is unreachable — with
+    an API key configured the endpoint is derived from the environment rather
+    than the database (`ai_credentials.bind_openai_credential_base_url`), so it
+    cannot go stale at all. It is reachable only for an extension provider that
+    resolves a database-derived endpoint.
+
+    A partial guard was tried here and removed: comparing the cached model and
+    dimensions against the uncached ones detects the eviction window, but only
+    the half where the model key has not been evicted yet, and it aborts
+    whenever a caller mocks one read and not the other. A guard that fires on
+    incomplete test doubles more often than on the hazard does not survive.
+
     fix(#1511 review r2, codex P1): without the comparison a run could pin
     model A with model B's dimensions, a pairing that never existed in config.
     A provider that rejects it fails every insert; one that accepts it writes
@@ -80,7 +102,15 @@ async def _snapshot_embedding_config(
         resolve_embedding_model_name,
     )
 
-    model_name = await resolve_embedding_model_name(session)
+    # fix(#1525 review r2, codex P1): read the pinned values straight from the
+    # DB. `PersistentConfig.get` answers from a PER-KEY cache, and
+    # `update_settings` commits the whole batch and only then evicts each key in
+    # turn (settings/router.py:338-345). During that eviction, reads of two
+    # different keys can land on opposite sides of one committed update, and
+    # comparing them cannot see it: two reads through the same stale entry agree
+    # with each other perfectly. `get_uncached` neither reads nor writes the
+    # cache, so these observe the committed state instead.
+    model_name = await resolve_embedding_model_name(session, uncached=True)
     if model_name == UNKNOWN_EMBEDDING_MODEL:
         # Loud, not silent: the admin route maps this to a 502 and a "failed"
         # audit entry. Returning zero counts would look like a completed run
@@ -91,7 +121,7 @@ async def _snapshot_embedding_config(
             "not be resolved. Existing vectors were left untouched; retry "
             "once the AI configuration resolves."
         )
-    dimensions = await EMBEDDING_DIMS.get(session)
+    dimensions = await EMBEDDING_DIMS.get_uncached(session)
     base_url = await resolve_embedding_base_url(session)
 
     # fix(#1525 review, codex P1): ONE window over all three, not a window per
@@ -103,8 +133,8 @@ async def _snapshot_embedding_config(
     # the race, it relocates it. If values are pinned as a unit they have to be
     # verified as a unit.
     if (
-        await resolve_embedding_model_name(session) != model_name
-        or await EMBEDDING_DIMS.get(session) != dimensions
+        await resolve_embedding_model_name(session, uncached=True) != model_name
+        or await EMBEDDING_DIMS.get_uncached(session) != dimensions
         or await resolve_embedding_base_url(session) != base_url
     ):
         logger.error("backfill_aborted_embedding_config_changed")

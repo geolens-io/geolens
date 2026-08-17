@@ -297,6 +297,12 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         monkeypatch.setattr(
             backfill_module.EMBEDDING_DIMS, "get", AsyncMock(return_value=1536)
         )
+        # fix(#1525 review r2): the snapshot reads the dimensions uncached now,
+        # to see past a mid-eviction cache. Same app_settings denial, so the
+        # same precondition has to be supplied.
+        monkeypatch.setattr(
+            backfill_module.EMBEDDING_DIMS, "get_uncached", AsyncMock(return_value=1536)
+        )
         # fix(#1511 review r3): likewise for the AI gate, which force now
         # checks before its delete, and the pre-flight embedding. Either would
         # otherwise abort this run before the DELETE under test — the gate by
