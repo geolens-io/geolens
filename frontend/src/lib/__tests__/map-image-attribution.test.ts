@@ -8,12 +8,17 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import {
+  attributionBandHeightBudget,
+  attributionBandLineCapacity,
   drawAttributionBand,
   drawAttributionOverlay,
+  exportCanvasHeightCeiling,
   fitAttributionText,
   measureAttributionBand,
   overlayLineCapacity,
   readRenderedAttribution,
+  EXPORT_CANVAS_MAX_AREA,
+  EXPORT_CANVAS_MAX_DIMENSION,
   OG_ATTRIBUTION,
   THUMBNAIL_ATTRIBUTION,
 } from '../map-image-attribution';
@@ -492,17 +497,22 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     }
   });
 
-  it('pins the export band height formula, which has no ceiling to reach', () => {
+  it('pins the export band height formula, a long way inside its ceiling', () => {
     // Line count here is the STUB's, not the browser's — the 0.5em metric only
     // approximates real glyph widths, so this pins the height FORMULA and the
     // totality, not the header table's measured "real load" column.
+    const budget = attributionBandHeightBudget(1056, 600 + 32);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
-      { maxWidth: 1016, dpr: 1 },
+      { maxWidth: 1016, dpr: 1, maxHeight: budget },
     );
     expect(measured.height).toBe(12 + measured.lines.length * 16 + 12);
     expectTotal(measured.lines, REAL_CREDITS);
+    // The documented header-table row: 983 lines of ceiling for a real load of
+    // four, so the bound is nowhere near the ordinary export.
+    expect(attributionBandLineCapacity(budget, 1)).toBe(983);
+    expect(measured.lines.length).toBeLessThan(20);
   });
 
   /* fix(#1541 codex P1 round 2): the schema accepts 5,000 characters per
@@ -645,12 +655,16 @@ describe('overlayLineCapacity: the documented ceiling', () => {
 });
 
 describe('measureAttributionBand / drawAttributionBand', () => {
+  /** The budget a real 1056x600 export at dpr 1 hands the band. Big enough
+   *  that these cases never reach it; the ceiling has its own describe below. */
+  const ROOMY = attributionBandHeightBudget(1056, 632);
+
   it('reserves gap + lines + gap, scaled by dpr', () => {
     const ctx = makeCtx();
     const measured = measureAttributionBand(
       ctx as unknown as CanvasRenderingContext2D,
       ['© OpenStreetMap contributors'],
-      { maxWidth: 2000, dpr: 2 },
+      { maxWidth: 2000, dpr: 2, maxHeight: ROOMY },
     );
     expect(measured.lines).toEqual(['© OpenStreetMap contributors']);
     expect(measured.height).toBe(80); // 12*2 + 1 * 16*2 + 12*2
@@ -663,6 +677,7 @@ describe('measureAttributionBand / drawAttributionBand', () => {
       measureAttributionBand(ctx as unknown as CanvasRenderingContext2D, [], {
         maxWidth: 2000,
         dpr: 1,
+        maxHeight: ROOMY,
       }).height,
     ).toBe(0);
   });
@@ -676,7 +691,7 @@ describe('measureAttributionBand / drawAttributionBand', () => {
     const measured = measureAttributionBand(
       ctx as unknown as CanvasRenderingContext2D,
       credits,
-      { maxWidth: 300, dpr: 1 },
+      { maxWidth: 300, dpr: 1, maxHeight: ROOMY },
     );
     expect(measured.lines.length).toBeGreaterThan(2);
     expect(measured.height).toBe(12 + measured.lines.length * 16 + 12);
@@ -705,5 +720,110 @@ describe('measureAttributionBand / drawAttributionBand', () => {
       { x: 20, y: 100, dpr: 1 },
     );
     expect(ctx.fillText).not.toHaveBeenCalled();
+  });
+});
+
+/* fix(#1541 codex P2 round 2): the export band is bounded too.
+ *
+ * #1541 review had ruled its growth unlimited, on the reasoning that the export
+ * canvas is sized after the band is measured and so has no height constraint.
+ * Browsers do: a canvas is capped per side and by total area, and past either
+ * one `toBlob` hands back null and the export fails outright. At the contract's
+ * maximum — 200 layers, 5,000 characters of credit each — the unlimited band
+ * asked for a canvas no engine would encode, which is strictly worse than the
+ * partial credit it was meant to avoid. */
+describe('export canvas ceiling', () => {
+  /** Exactly 5,000 characters — the schema maximum — of ordinary short words,
+   *  so wrapping breaks on spaces and joining the lines back with a space
+   *  reconstructs the credit. A long unbroken run would wrap mid-word and make
+   *  the accounting below measure the stub's word-breaker instead. */
+  function maxedCredit(i: number): string {
+    const body = `© Provider ${i} ${'licensing statement for the exported map image '.repeat(120)}`;
+    return body.slice(0, 5000).trimEnd().padEnd(5000, 'x');
+  }
+
+  /** The count named by a trailing "+N more credits" marker, or 0. */
+  function markedCount(lines: string[]): number {
+    const match = /\+(\d+) more credit/.exec(lines[lines.length - 1] ?? '');
+    return match ? Number(match[1]) : 0;
+  }
+
+  const EXPORT_WIDTH = 1056;
+  const EXPORT_MAX_TEXT_WIDTH = EXPORT_WIDTH - 40; // 20px of pad a side
+  // 600px of map plus a 32px branding footer, the shape the hook composes.
+  const RESERVED = 632;
+
+  it('is side-limited at ordinary export widths and area-limited at extreme ones', () => {
+    expect(exportCanvasHeightCeiling(EXPORT_WIDTH)).toBe(EXPORT_CANVAS_MAX_DIMENSION);
+    // The crossover sits at ~7,629px wide; past it the area limit binds first.
+    expect(exportCanvasHeightCeiling(8000)).toBe(Math.floor(EXPORT_CANVAS_MAX_AREA / 8000));
+    expect(exportCanvasHeightCeiling(8000)).toBeLessThan(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(exportCanvasHeightCeiling(0)).toBe(0);
+  });
+
+  it('costs the same pixels at any dpr, so the cap is a canvas budget not a line count', () => {
+    expect(attributionBandLineCapacity(1000, 1)).toBe(61); // (1000 - 24) / 16
+    expect(attributionBandLineCapacity(1000, 2)).toBe(29); // (1000 - 48) / 32
+    expect(attributionBandLineCapacity(10, 1)).toBe(0);
+  });
+
+  it('hands the band no height when the rest of the image has spent the ceiling', () => {
+    expect(attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION)).toBe(0);
+    const measured = measureAttributionBand(
+      makeCtx() as unknown as CanvasRenderingContext2D,
+      REAL_CREDITS,
+      { maxWidth: EXPORT_MAX_TEXT_WIDTH, dpr: 1, maxHeight: 0 },
+    );
+    expect(measured).toEqual({ lines: [], fontPx: 12, height: 0 });
+  });
+
+  it('at 200 credits x 5,000 characters: the canvas stays encodable, every credit accounted for', () => {
+    const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
+    for (const c of credits) expect(c).toHaveLength(5000);
+
+    const budget = attributionBandHeightBudget(EXPORT_WIDTH, RESERVED);
+    const measured = measureAttributionBand(
+      makeCtx() as unknown as CanvasRenderingContext2D,
+      credits,
+      { maxWidth: EXPORT_MAX_TEXT_WIDTH, dpr: 1, maxHeight: budget },
+    );
+
+    // The canvas the hook would build from this measurement is one a browser
+    // will still encode, on both limits.
+    const canvasHeight = RESERVED + measured.height;
+    expect(measured.height).toBeLessThanOrEqual(budget);
+    expect(canvasHeight).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(EXPORT_WIDTH * canvasHeight).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_AREA);
+
+    // Rendered whole + marked == input. Nothing falls between the two.
+    const joined = measured.lines.join(' ');
+    const rendered = credits.filter((c) => joined.includes(c)).length;
+    expect(rendered + markedCount(measured.lines)).toBe(credits.length);
+    expect(joined).not.toContain('…');
+    // Non-vacuous in both directions: real credits DID render (this is not a
+    // bare marker), and the marker IS carrying a count (the sum is not
+    // balancing because everything happened to fit).
+    expect(rendered).toBeGreaterThan(0);
+    expect(markedCount(measured.lines)).toBeGreaterThan(0);
+  });
+
+  it('leaves a mid-sized credit load growing and complete, with no marker', () => {
+    const credits = Array.from(
+      { length: 40 },
+      (_, i) => `© Data Provider ${i}, a licensing statement of some reasonable length`,
+    );
+    const measured = measureAttributionBand(
+      makeCtx() as unknown as CanvasRenderingContext2D,
+      credits,
+      {
+        maxWidth: EXPORT_MAX_TEXT_WIDTH,
+        dpr: 1,
+        maxHeight: attributionBandHeightBudget(EXPORT_WIDTH, RESERVED),
+      },
+    );
+    expect(measured.lines.length).toBeGreaterThan(2);
+    expect(measured.height).toBe(12 + measured.lines.length * 16 + 12);
+    expect(measured.lines.join(' ')).not.toMatch(/more credit/);
+    expectTotal(measured.lines, credits);
   });
 });

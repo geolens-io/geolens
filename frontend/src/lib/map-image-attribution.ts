@@ -220,30 +220,34 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  * the only estimate, since real glyph widths are font-dependent.
  *
  *               line    usable    chars/   real 5-credit    ceiling
- *               height  width     line     load             (band fills frame)
+ *               height  width     line     load             (band runs out)
  *   Thumbnail   13px    378px     ~75      6 lines, 33.6%   18 lines, ~1350 chars
  *   OG card     20px    1160px    ~145     4 lines, 14.3%   30 lines, ~4350 chars
- *   PNG export  16px    1016px*   ~169     4 lines, 88px    none — canvas grows
+ *   PNG export  16px    1016px*   ~169     4 lines, 88px    983 lines, ~166k chars
  *
  *   * the measured 1056px-wide export at dpr 1, less 20px of pad a side.
  *
- * The export has no ceiling at all: its canvas is sized AFTER the band is
- * measured, so the band's height is an input to the image rather than a budget
- * inside it. Only the two crops have one, and it is where the scrim reaches the
- * top edge — the band has by then eaten every map pixel there is.
+ * The two crops run out where the scrim reaches the top edge — the band has by
+ * then eaten every map pixel there is. The export runs out somewhere else: its
+ * canvas is sized AFTER the band is measured, so the band is not competing with
+ * the map for a fixed frame, but it is still spending height a browser has to
+ * allocate and encode. Its ceiling is the largest canvas a browser will hand
+ * back a blob for; see EXPORT_CANVAS_MAX_DIMENSION.
  *
- * That ceiling is ~3.3x the measured real-world credit load for the thumbnail
- * (411 characters across five providers) and ~10x for the OG card. But the
- * SUPPORTED input is far larger: `attribution` is `max_length=5000` on the
- * dataset schema and `NonEmptyString5000` on the manifest, and 5,000 characters
- * is roughly 77 lines in a 250px-tall thumbnail. No font size anyone would call
- * legible renders that, so at the contract's maximum something must give.
+ * Every ceiling above is far clear of the measured real-world credit load —
+ * ~3.3x for the thumbnail (411 characters across five providers), ~10x for the
+ * OG card, ~400x for the export. But the SUPPORTED input is far larger:
+ * `attribution` is `max_length=5000` on the dataset schema and
+ * `NonEmptyString5000` on the manifest, a map may carry 200 layers, and 5,000
+ * characters alone is roughly 77 lines in a 250px-tall thumbnail. No font size
+ * anyone would call legible renders that, so at the contract's maximum
+ * something must give.
  *
- * What gives is neither the frame nor silence. Past the ceiling the overlay
+ * What gives is neither the image nor silence. Past its ceiling each output
  * renders the credits that fit and appends a visible, counted marker naming how
  * many did not (`export.moreCredits`), with the marker itself charged against
  * the line budget. The standard is that no output may SILENTLY drop a credit; a
- * marker inside the frame is not silent, and it stops the visible list reading
+ * marker inside the image is not silent, and it stops the visible list reading
  * as a complete statement of provenance. Nothing is ever drawn outside the
  * canvas — an earlier revision kept calling `fillText` below the frame, which
  * painted credits into nowhere.
@@ -600,6 +604,81 @@ const BAND_FONT_PX = 12;
 const BAND_LINE_HEIGHT = 16;
 const BAND_GAP = 12;
 
+/*
+ * The export canvas's own ceiling, and why it has one.
+ *
+ * fix(#1541 codex P2 round 2): the band's measured height is assigned straight
+ * to the export canvas, and #1541 review had ruled that growth UNLIMITED, on
+ * the reasoning that the export canvas has no height constraint. Browsers do.
+ * Every engine caps a canvas both per side and by total area, and past either
+ * one the canvas is unusable with nothing raised to say so: `toBlob` hands back
+ * null, the export toasts a failure, and no image is produced at all. At the
+ * contract's maximum — 200 layers, each dataset credit up to 5,000 characters —
+ * the band alone asked for tens of thousands of pixels of height, so the
+ * unlimited ruling turned a partial-credit bug into a total-export-failure bug.
+ * A bounded band with a counted marker loses some provider names; an
+ * unencodable canvas loses every one of them along with the map.
+ *
+ * The figures below are the smallest limits for a DESKTOP engine in
+ * canvas-size's measured table (jhildenbiddle/canvas-size, src/test-sizes.js),
+ * which is the only published per-engine measurement of these limits:
+ *
+ *   per side  Chrome 83 65,535 · Chrome 70 and Firefox 63 32,767 · Edge 17 and
+ *             IE 11 16,384. We take 16,384: half the floor of any engine this
+ *             app supports, and the only browsers that ever enforced it are
+ *             retired, so the margin is free.
+ *   area      Chrome 70 / Edge 17 / Safari 7-12 (Mac) 16,384² = 268,435,456 ·
+ *             Firefox 63 11,180² = 124,992,400. We take Firefox's, the
+ *             smallest desktop area measured.
+ *
+ * Safari on iOS is smaller again (4,096² = 16,777,216) and is deliberately NOT
+ * the figure used. A retina desktop map canvas alone already exceeds it, so
+ * adopting it would delete credits from exports that work today without making
+ * any iOS export work. What is bounded here is the band's CONTRIBUTION: it can
+ * never be the term that makes the canvas unencodable. A map canvas already
+ * past an engine's limit on its own is a different constraint, and not one that
+ * credit growth caused or can fix.
+ */
+export const EXPORT_CANVAS_MAX_DIMENSION = 16_384;
+export const EXPORT_CANVAS_MAX_AREA = 124_992_400;
+
+/** The tallest export canvas a browser will still encode at `canvasWidth`,
+ *  in device pixels. Area-limited for a very wide canvas, side-limited for the
+ *  ordinary ones (anything narrower than ~7,600px). */
+export function exportCanvasHeightCeiling(canvasWidth: number): number {
+  if (!(canvasWidth > 0)) return 0;
+  return Math.min(
+    EXPORT_CANVAS_MAX_DIMENSION,
+    Math.floor(EXPORT_CANVAS_MAX_AREA / canvasWidth),
+  );
+}
+
+/**
+ * How much of that ceiling is left for the band once the fixed blocks (title,
+ * map, legend, footer) have taken theirs. The band is the only elastic term in
+ * the export's height, so it absorbs the whole clamp.
+ *
+ * Zero when the rest of the image has already spent the ceiling. That is not a
+ * silent credit drop: such a canvas cannot be encoded whatever the band does,
+ * so the export fails visibly and the user is told, which is the same outcome
+ * they would get from a band-free export at that size.
+ */
+export function attributionBandHeightBudget(
+  canvasWidth: number,
+  reservedHeight: number,
+): number {
+  return Math.max(0, exportCanvasHeightCeiling(canvasWidth) - Math.ceil(reservedHeight));
+}
+
+/** How many credit lines fit a band budget of `maxHeight` device pixels, the
+ *  band's counterpart to `overlayLineCapacity`. Both gaps are charged first:
+ *  a band is not a band without its surrounding whitespace. */
+export function attributionBandLineCapacity(maxHeight: number, dpr: number): number {
+  const scale = dpr || 1;
+  const usable = maxHeight - BAND_GAP * scale * 2;
+  return Math.max(0, Math.floor(usable / (BAND_LINE_HEIGHT * scale)));
+}
+
 export interface MeasuredAttributionBand {
   lines: string[];
   /** Already dpr-scaled: the caller draws with it directly. */
@@ -620,28 +699,48 @@ export interface MeasuredAttributionBand {
  * be printed or pasted into a report.
  *
  * The height follows the line count, so the canvas grows to fit the credits
- * rather than the credits being cut to fit the canvas.
+ * rather than the credits being cut to fit the canvas — up to `maxHeight`,
+ * which is what the browser will still encode. Pass it from
+ * `attributionBandHeightBudget`; it is required rather than optional so no
+ * future caller can reach the unbounded behaviour by omission.
  */
 export function measureAttributionBand(
   ctx: CanvasRenderingContext2D,
   entries: string[],
-  opts: { maxWidth: number; dpr: number },
+  opts: { maxWidth: number; dpr: number; maxHeight: number },
 ): MeasuredAttributionBand {
   const dpr = opts.dpr || 1;
   const fallback = { lines: [], fontPx: BAND_FONT_PX * dpr, height: 0 };
   if (entries.length === 0 || opts.maxWidth <= 0) return fallback;
 
-  const fitted = fitAttributionText(ctx, entries, {
+  // Deduped here as well as inside the fitter, because the overflow marker
+  // counts CREDITS and must not count the same one twice.
+  const credits = dedupe(entries);
+  const fitted = fitAttributionText(ctx, credits, {
     maxWidth: opts.maxWidth,
     fontPx: BAND_FONT_PX * dpr,
   });
   if (fitted.lines.length === 0) return fallback;
 
+  // Past the budget, the same counted marker the two crops use. Below it —
+  // every ordinary export, by three orders of magnitude — nothing changes and
+  // the band still grows a line at a time.
+  let lines = fitted.lines;
+  const capacity = attributionBandLineCapacity(opts.maxHeight, dpr);
+  if (lines.length > capacity) {
+    // No room for even a marker: a band here could only make an already
+    // unencodable canvas taller. See `attributionBandHeightBudget`.
+    if (capacity < 1) return fallback;
+    const kept = fitEntryPrefix(ctx, credits, opts.maxWidth, capacity - 1);
+    const omitted = credits.length - kept.count;
+    lines = [...kept.lines, i18n.t('builder:export.moreCredits', { count: omitted })];
+  }
+
   return {
-    lines: fitted.lines,
+    lines,
     fontPx: fitted.fontPx,
     height: Math.round(
-      BAND_GAP * dpr + fitted.lines.length * BAND_LINE_HEIGHT * dpr + BAND_GAP * dpr,
+      BAND_GAP * dpr + lines.length * BAND_LINE_HEIGHT * dpr + BAND_GAP * dpr,
     ),
   };
 }

@@ -28,6 +28,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 // feat(#1486): the three rendered-image paths all composite from the WebGL
 // canvas, which no DOM attribution control can reach. See lib/map-image-attribution.
 import {
+  attributionBandHeightBudget,
   drawAttributionBand,
   drawAttributionOverlay,
   measureAttributionBand,
@@ -1114,15 +1115,25 @@ export function useBuilderSave(state: SaveState) {
           // NOT gated on showBranding: "Powered by GeoLens" is promotion an
           // enterprise licence may suppress, a basemap or dataset credit is a
           // licensing obligation and is drawn either way.
+          //
+          // fix(#1541 codex P2 round 2): the band is the only elastic term in
+          // totalH, so it gets the height a browser will still encode, less
+          // what the fixed blocks have already spent. Unbounded, a
+          // contract-maximum map (200 layers x 5,000 characters of credit)
+          // asked for a canvas past the engine's limits, `toBlob` returned
+          // null and the PNG export failed outright.
+          const reservedH = titleBlockH + mapHeight + legendBlockH + footerH;
           const attributionBand = measureAttributionBand(
             ctx,
             readRenderedAttribution(map),
-            { maxWidth: totalW - pad * 2, dpr },
+            {
+              maxWidth: totalW - pad * 2,
+              dpr,
+              maxHeight: attributionBandHeightBudget(totalW, reservedH),
+            },
           );
 
-          const totalH = Math.round(
-            titleBlockH + mapHeight + legendBlockH + attributionBand.height + footerH,
-          );
+          const totalH = Math.round(reservedH + attributionBand.height);
           off.height = totalH;
 
           ctx.fillStyle = MAP_COLORS.exportImage.background;

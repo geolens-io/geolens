@@ -1,7 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { MAP_COLORS } from '@/lib/map-colors';
-import { OG_ATTRIBUTION, THUMBNAIL_ATTRIBUTION } from '@/lib/map-image-attribution';
+import {
+  EXPORT_CANVAS_MAX_AREA,
+  EXPORT_CANVAS_MAX_DIMENSION,
+  OG_ATTRIBUTION,
+  THUMBNAIL_ATTRIBUTION,
+} from '@/lib/map-image-attribution';
 import { act } from '@testing-library/react';
 import { renderHook as baseRenderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -2373,6 +2378,9 @@ describe('SHARE-09 export PNG composition', () => {
   let createGradientSpy: ReturnType<typeof vi.fn>;
   let addColorStopSpy: ReturnType<typeof vi.fn>;
   let toBlobSpy: ReturnType<typeof vi.fn>;
+  /** What the toBlob stub actually handed back — null for a canvas past the
+   *  engine limits, exactly as a browser would. */
+  let encodedBlobs: (Blob | null)[];
   let createElementSpy: ReturnType<typeof vi.spyOn>;
   // feat(#1486): hoisted so a test can read the height the export reserved.
   let offscreenCanvas: {
@@ -2395,7 +2403,22 @@ describe('SHARE-09 export PNG composition', () => {
       if (typeof color !== 'string' || color === '') throw new SyntaxError('unparseable color');
     });
     createGradientSpy = vi.fn(() => ({ addColorStop: addColorStopSpy }));
-    toBlobSpy = vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' })));
+    // fix(#1541 codex P2 round 2): mimic the browser. A canvas past an engine's
+    // per-side or total-area limit is unusable with nothing raised to say so —
+    // toBlob simply yields null and the export fails. A stub that always hands
+    // back a blob lets a test assert a successful export from a canvas no
+    // browser would encode, which is exactly how the unbounded band passed here.
+    encodedBlobs = [];
+    toBlobSpy = vi.fn((cb: (b: Blob | null) => void) => {
+      const { width, height } = offscreenCanvas;
+      const encodable =
+        width <= EXPORT_CANVAS_MAX_DIMENSION &&
+        height <= EXPORT_CANVAS_MAX_DIMENSION &&
+        width * height <= EXPORT_CANVAS_MAX_AREA;
+      const blob = encodable ? new Blob(['png'], { type: 'image/png' }) : null;
+      encodedBlobs.push(blob);
+      cb(blob);
+    });
 
     const ctx2d = {
       fillStyle: '' as string | CanvasGradient,
@@ -2767,6 +2790,100 @@ describe('SHARE-09 export PNG composition', () => {
     expect(drawn).not.toContain('…');
     // The band grew past the old two-line ceiling, and the canvas with it.
     expect(offscreenCanvas.height).toBeGreaterThan(600 + 12 + 2 * 16 + 12 + 32);
+  });
+
+  /* fix(#1541 codex P2 round 2): the band's measured height is assigned
+   * straight to the export canvas, and #1541 review had ruled that growth
+   * unlimited because the canvas is sized after the band is measured. Browsers
+   * cap a canvas per side and by total area; past either one `toBlob` returns
+   * null and NO image is produced. The API permits 200 layers and 5,000
+   * characters of `attribution` each, so the contract's own maximum reached it
+   * — which made the unlimited ruling a total-export-failure bug rather than
+   * the partial-credit one it was avoiding. */
+
+  /** 5,000 characters — the schema maximum — of ordinary short words, so
+   *  wrapping breaks on spaces and the credit can be found again in the joined
+   *  output. Distinct per index, so the dedupe keeps all 200. */
+  function maxedCredit(i: number): string {
+    return `© Provider ${i} ${'licensing statement for the exported map image '.repeat(120)}`
+      .slice(0, 5000)
+      .trimEnd()
+      .padEnd(5000, 'x');
+  }
+
+  it('keeps the export canvas encodable at 200 credits x 5,000 characters (#1541)', async () => {
+    const { toast } = await import('sonner');
+    const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
+    for (const c of credits) expect(c).toHaveLength(5000);
+
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      // The other half of the contract maximum: 200 layers, each a legend row.
+      localLayers: Array.from({ length: 200 }, (_, i) =>
+        makeLayer({ id: `layer-${i}`, dataset_name: `Layer ${i}` }),
+      ),
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // A canvas a browser will still hand back a blob for, on both limits.
+    expect(offscreenCanvas.height).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(offscreenCanvas.width).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(offscreenCanvas.width * offscreenCanvas.height).toBeLessThanOrEqual(
+      EXPORT_CANVAS_MAX_AREA,
+    );
+
+    // And it did: a real blob, and the success toast rather than the failure one.
+    expect(encodedBlobs).toEqual([expect.any(Blob)]);
+    expect(toast.success).toHaveBeenCalledWith('toasts.exportSuccess');
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // Rendered whole + marked == input. Nothing falls between the two, and
+    // both terms are non-zero, so neither side of the sum is carrying it alone.
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = drawn.join(' ');
+    const rendered = credits.filter((c) => joined.includes(c)).length;
+    const markerLine = drawn.find((text) => /\+\d+ more credit/.test(text));
+    const marked = markerLine ? Number(/\+(\d+)/.exec(markerLine)![1]) : 0;
+    expect(rendered).toBeGreaterThan(0);
+    expect(marked).toBeGreaterThan(0);
+    expect(rendered + marked).toBe(credits.length);
+    expect(joined).not.toContain('…');
+  });
+
+  it('leaves an ordinary multi-credit export growing and complete (#1541)', () => {
+    // 40 credits: many lines, and still three orders of magnitude below the cap.
+    const credits = Array.from(
+      { length: 40 },
+      (_, i) => `© Data Provider ${i}, a licensing statement of some reasonable length`,
+    );
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = drawn.join(' ');
+    for (const credit of credits) {
+      expect(joined, `missing credit: ${credit}`).toContain(credit);
+    }
+    // No marker at all: the cap must not start truncating a normal export.
+    expect(joined).not.toMatch(/more credit/);
+    // The band still grew a line at a time, and the canvas with it.
+    expect(offscreenCanvas.height).toBeGreaterThan(600 + 12 + 5 * 16 + 12 + 32);
+    expect(offscreenCanvas.height).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
   });
 
   it('reserves canvas height for the credit band, and none when there is no credit (#1486)', () => {
