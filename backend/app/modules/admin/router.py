@@ -1015,6 +1015,7 @@ async def trigger_backfill(
         UNRESOLVED_OUTCOME,
         find_active_embedding_backfill,
         run_embedding_backfill,
+        settle_undispatched_run,
     )
 
     operation_id = str(uuid.uuid4())
@@ -1177,6 +1178,37 @@ async def trigger_backfill(
                 user_id=str(current_user_id),
                 operation_id=operation_id,
                 job_id=job_id,
+            )
+        raise
+    except asyncio.CancelledError:
+        # fix(#1550 review): the orphan guard catches `Exception`, so a
+        # cancellation here bypasses it and the `DeferFailed` handler above.
+        # The job row is already committed and the queue hop may or may not
+        # have landed, so the cleanup is fenced on `pending` and shielded, and
+        # the cancellation is re-raised so shutdown still works.
+        try:
+            await asyncio.shield(
+                asyncio.wait_for(
+                    settle_undispatched_run(
+                        job.id,
+                        audit_context={
+                            "user_id": str(current_user_id),
+                            "ip_address": ip_address,
+                            "operation_id": operation_id,
+                            "job_id": job_id,
+                            "force": force,
+                        },
+                    ),
+                    timeout=15,
+                )
+            )
+        except (
+            BaseException
+        ):  # broad: best-effort during shutdown; the raise below preserves the abort
+            logger.warning(
+                "embedding_backfill_dispatch_cancel_cleanup_failed",
+                job_id=job_id,
+                exc_info=True,
             )
         raise
     return BackfillResponse(job_id=job.id, status="pending")

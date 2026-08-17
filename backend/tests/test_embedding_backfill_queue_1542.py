@@ -1675,3 +1675,132 @@ async def test_one_run_gets_one_terminal_entry_whoever_writes_it_first(
     assert len(terminal) == 1, (
         f"one operation ended up with {len(terminal)} terminal entries: {terminal}"
     )
+
+
+# ---------------------------------------------------------------------------
+# `pending` has a terminal path from every actor (#1550 review, final)
+# ---------------------------------------------------------------------------
+#
+# Every recovery path here was built around `running`: the fence matches
+# running, the heartbeat covers running, the sweeper expires running. A job
+# that never got there was invisible to all of it — and the unique index counts
+# pending and running alike, so a stuck pending row blocks every future
+# backfill just as effectively.
+
+
+@pytest.mark.anyio
+async def test_a_lost_claim_commit_does_not_strand_the_run_in_pending(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The claim's commit is cancelled before it applies; the row stays pending.
+
+    Recovery observes a live row and owes it a terminal state — but `_finalize`
+    is fenced on `running`, so it matched nothing and left the row holding the
+    slot while recording `unresolved`. It now terminalizes from whatever state
+    it observes.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    async def _claim_is_cancelled(*args, **kwargs):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        backfill_jobs, "claim_job_attempt_and_start_heartbeat", _claim_is_cancelled
+    )
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    before = await _load_job(test_db_session, job_id)
+    # Non-vacuity: the run really is in the state the old fence could not see.
+    assert before.status == "pending"
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    assert job.status == "failed", (
+        "the run is stranded in `pending`, holding the unique backfill slot"
+    )
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+
+    # And the slot is genuinely free.
+    monkeypatch.setattr(
+        backfill_jobs,
+        "claim_job_attempt_and_start_heartbeat",
+        backfill_jobs.claim_job_attempt_and_start_heartbeat,
+    )
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        again = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert again.status_code == 200, again.text
+
+
+@pytest.mark.anyio
+async def test_a_cancelled_dispatch_does_not_leave_the_slot_held(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """Cancelled while dispatching: committed row, no worker coming for it.
+
+    `defer_with_orphan_guard` catches `Exception`, so the cancellation walks
+    past it and past the route's `DeferFailed` handler. The row stays
+    `pending` — and the unique index counts pending, so every later backfill is
+    refused against a run that will never happen.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    async def _cancelled_mid_dispatch(_task, /, **kwargs):
+        raise asyncio.CancelledError()
+
+    with patch.object(
+        admin_router,
+        "defer_async_with_tenant",
+        AsyncMock(side_effect=_cancelled_mid_dispatch),
+    ):
+        # httpx's ASGI transport re-wraps a cancellation as
+        # RuntimeError("No response returned."), so the type here belongs to
+        # the transport rather than to the handler. What matters is that the
+        # request did not return a response — the cancellation propagated.
+        raised: BaseException | None = None
+        try:
+            await client.post(_FORCE_URL, headers=admin_auth_header)
+        except BaseException as exc:  # noqa: BLE001 - see comment above
+            raised = exc
+        assert raised is not None, "the cancellation did not propagate"
+
+    stranded = (
+        (
+            await test_db_session.execute(
+                select(IngestJob)
+                .where(IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY))
+                .order_by(IngestJob.created_at.desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert stranded is not None
+    assert stranded.status == "failed", (
+        "the undispatched run is holding the unique backfill slot"
+    )
+
+    terminal = await _terminal_audit_entries(
+        client, admin_auth_header, str(stranded.id)
+    )
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "dispatch_cancelled"
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        again = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert again.status_code == 200, again.text

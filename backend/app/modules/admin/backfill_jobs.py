@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db.tenant_session import current_tenant_var, tenant_task
@@ -116,6 +116,7 @@ async def _finalize(
     metadata: dict[str, Any] | None,
     result: dict[str, int] | None = None,
     error_message: str | None = None,
+    expected_status: str = "running",
 ) -> bool:
     """Stamp the terminal job state, fenced on the attempt this worker owns.
 
@@ -153,7 +154,7 @@ async def _finalize(
         EMBEDDING_BACKFILL_METADATA_KEY: backfill_meta,
     }
     if not await update_ingest_job_for_attempt(
-        session, job_uuid, attempt_uuid, values=values
+        session, job_uuid, attempt_uuid, values=values, expected_status=expected_status
     ):
         # Another actor moved the row (stale-job sweep, an operator). Say so
         # rather than resurrecting a status somebody else settled.
@@ -256,6 +257,14 @@ class _TerminalState:
     row_attempted: bool = False
     row_applied: bool = False
     audited: bool = False
+    # fix(#1550 review): the live status the row was OBSERVED in. Every
+    # recovery path in this module was built around `running` — the fence
+    # matches running, the heartbeat covers running, the sweeper expires
+    # running — so a run whose claim commit was lost sat in `pending`,
+    # invisible to all of it, holding the unique slot (which counts pending and
+    # running alike) until stale cleanup. Recovery terminalizes from whatever
+    # state it finds rather than from the one it expected.
+    expected_status: str = "running"
 
     def decide_complete(self, result: dict[str, int]) -> None:
         self.status = "complete"
@@ -338,6 +347,7 @@ async def _settle(
             metadata=metadata,
             result=state.result,
             error_message=state.error_message,
+            expected_status=state.expected_status,
         )
         state.row_attempted = True
     if not state.audited:
@@ -453,8 +463,10 @@ async def _recover_unsettled(
             state.row_applied = False
         else:
             # Still live: the terminal write genuinely never landed, so this
-            # run still owes one.
+            # run still owes one — from whatever state the row is actually in,
+            # which after a lost claim commit is `pending`, not `running`.
             state.row_attempted = False
+            state.expected_status = observed.status
         await _settle(
             fresh,
             job_uuid,
@@ -463,6 +475,55 @@ async def _recover_unsettled(
             state=state,
             audit_context=audit_context,
         )
+
+
+async def settle_undispatched_run(
+    job_uuid: uuid.UUID, *, audit_context: dict[str, Any]
+) -> None:
+    """Settle a run that was committed but never reliably queued.
+
+    fix(#1550 review): ``defer_with_orphan_guard`` catches ``Exception``, so a
+    cancellation during dispatch walks past it AND past the route's
+    ``DeferFailed`` handler — the third time on this PR that ``except
+    Exception`` has silently excluded ``BaseException``, now at the point where
+    the job is created rather than where it ends. The row stays ``pending``
+    with no worker coming for it, and because the unique index counts
+    ``pending`` and ``running`` alike, it blocks every later backfill just as
+    effectively as a stuck running one.
+
+    Fenced on ``pending`` so it cannot overwrite a run a worker did pick up
+    after all — the dispatch may well have reached the queue before the
+    cancellation landed, which is precisely why this is fenced rather than
+    unconditional.
+    """
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        result = await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_uuid, IngestJob.status == "pending")
+            .values(
+                status="failed",
+                completed_at=datetime.now(timezone.utc),
+                error_message=(
+                    "Embedding backfill was cancelled before it could be queued. "
+                    "Nothing was deleted; start the backfill again."
+                ),
+            )
+        )
+        await session.commit()
+    if not result.rowcount:
+        # A worker took it. Leave both records to whoever owns it now.
+        logger.info(
+            "embedding_backfill_dispatch_cancel_found_run_in_progress",
+            job_id=audit_context["job_id"],
+        )
+        return
+    await _emit_outcome_audit(
+        **audit_context,
+        outcome="failed",
+        extra={"error_code": "dispatch_cancelled"},
+    )
 
 
 @task_app.task(queue="ingest", retry=0)
