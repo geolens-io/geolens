@@ -23,7 +23,7 @@ dependencies = [
     # >=2.13.0: fixes PYSEC-2026-175/177/178/179 (PyJWKClient SSRF + unbounded
     # JWKS fetch, HMAC key-confusion, detached-JWS DoS). Do not lower this floor.
     "pyjwt>=2.13.0",
-    "pwdlib[bcrypt]>=0.3.0",
+    "pwdlib[bcrypt]>=0.3.1",
     "procrastinate>=3.9.0",
     "psycopg>=3.3.4",
     "shapely>=2.0",
