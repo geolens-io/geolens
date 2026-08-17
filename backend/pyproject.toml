@@ -80,7 +80,7 @@ dependencies = [
     "starlette>=1.6.0",
     # GeoParquet export writer (processing/export/parquet.py). The Debian GDAL
     # build has no Arrow/Parquet driver, so exports are written via pyarrow.
-    "pyarrow>=18.0.0",
+    "pyarrow>=25.0.1",
 ]
 
 [project.urls]
