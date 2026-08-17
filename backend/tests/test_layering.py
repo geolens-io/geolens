@@ -2865,7 +2865,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of a vector. `_upsert_embeddings` and its rationale are most of the
     # count; the rest is why the stamp comes from the pin, which is the whole
     # point of the column. Cap 1145 -> 1225, exact.
-    "backend/app/processing/embeddings/backfill.py": 1225,
+    # fix(#1549): +140. The bulk DELETE is gone; `_replace_embeddings` and
+    # `_delete_embeddings_for` remove a batch's old rows inside the transaction
+    # that writes their replacements, so an aborted force run leaves the records
+    # it reached rewritten and the rest exactly as they were rather than leaving
+    # an empty table. The comments carry the two things a reader cannot see from
+    # the statements: why the delete must precede the write and share its
+    # transaction, and why the COMMIT belongs to the caller rather than to that
+    # function (#1579's drift check has to run while the write still holds its
+    # lock). fix(#1581): the batch counts the rows it wrote rather than the
+    # texts it was handed, and hands the unanswered tail to the per-record
+    # retry. Cap 1225 -> 1371, exact.
+    "backend/app/processing/embeddings/backfill.py": 1371,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
