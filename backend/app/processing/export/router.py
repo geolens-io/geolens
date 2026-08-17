@@ -688,30 +688,12 @@ async def export_dataset_endpoint(
             detail="Export temporarily unavailable",
         )
 
-    # 8. Audit log. user_id may be None for anonymous exports (EXP-01).
-    # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
-    # uuid.UUID | None to match.
-    #
     # fix(#435): the export file exists from here on, but nothing owns it until the
     # FileResponse below attaches the background cleanup. An audit or commit failure
     # in between used to strand the directory on the staging volume.
     temp_dir = os.path.dirname(file_path)
-    try:
-        await _emit_export_audit(
-            db,
-            request,
-            user=user,
-            dataset_id=dataset_id,
-            format=format,
-            target_crs=target_crs,
-            bbox=bbox,
-            where=where,
-        )
-    except BaseException:
-        _cleanup_export(temp_dir)
-        raise
 
-    # 8b. fix(#1532): publish what was just built, so the next request — which
+    # 8. fix(#1532): publish what was just built, so the next request — which
     # for a range-probing client is moments away — is a slice of THIS object
     # rather than a fresh conversion. Storing before the response is what makes
     # the artifact available to the next probe; storing after would leave the
@@ -747,10 +729,6 @@ async def export_dataset_endpoint(
         # already had, and a stale If-Match got the new representation instead
         # of a refusal. A rebuild is exactly when a client's version claim
         # matters most.
-        #
-        # The audit row above stays: a conversion ran and produced bytes, which
-        # is what it records. The hit path's 304 transfers nothing and runs
-        # nothing, which is why its audit moved below the response.
         if not if_match_passes(request.headers.get("if-match"), stored.etag):
             _cleanup_export(temp_dir)
             raise HTTPException(
@@ -761,6 +739,39 @@ async def export_dataset_endpoint(
         if if_none_match_matches(request.headers.get("if-none-match"), stored.etag):
             _cleanup_export(temp_dir)
             return not_modified_response(stored.etag)
+
+    # 8b. Audit log. user_id may be None for anonymous exports (EXP-01).
+    # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
+    # uuid.UUID | None to match.
+    #
+    # fix(#1532 review r16): BELOW the precondition exits above, not above them.
+    # It used to run before the store, so a rebuild that answered 412 or 304
+    # still recorded a `dataset.export` while the hit path deliberately does not.
+    # Whether a download appears in the audit trail then depended on whether a
+    # conditional request happened to land on a rebuild, which is invisible to
+    # the operator reading the report and not a distinction they asked for.
+    #
+    # The earlier argument for the old position was that a conversion really did
+    # run and that is what the row records. That is true and it is the weaker
+    # claim: `dataset.export` is read as "this data left the building", the two
+    # paths have to agree on what it means, and neither of these responses
+    # carries a byte of the export.
+    try:
+        await _emit_export_audit(
+            db,
+            request,
+            user=user,
+            dataset_id=dataset_id,
+            format=format,
+            target_crs=target_crs,
+            bbox=bbox,
+            where=where,
+        )
+    except BaseException:
+        _cleanup_export(temp_dir)
+        raise
+
+    if stored is not None:
         # may_serve_range=False: this request BUILT the artifact, so it cannot
         # know which representation the client's offsets were measured against.
         # Ignoring the Range and answering with the whole thing is the safe half

@@ -697,6 +697,22 @@ async def _fits_in_budget(size: int) -> bool:
     itself would trade a bounded disk cost for an unbounded conversion one.
 
     """
+    # fix(#1532 review r16): the ceiling on ONE artifact, checked before the
+    # listing and outside the fail-open below.
+    #
+    # The running check lives inside the page loop, and a provider yields NO
+    # page for an empty prefix — so on a cold cache the loop body never ran and
+    # this returned True for an artifact of any size. The first export after a
+    # deploy is exactly when the prefix is empty, and a single one larger than
+    # the whole budget could publish, doubling the biggest conversion on the
+    # shared staging volume rather than bounding it.
+    #
+    # It sits above the `try` as well, because whether one artifact exceeds the
+    # entire budget is knowable without measuring anything. Failing open on an
+    # unreadable listing is right for the running total, which is a comparison
+    # against other objects; it is not right here.
+    if size > _BUDGET_BYTES:
+        return False
     # fix(#1532 review r11): paged, and stopped as soon as the answer is known.
     # This materialised the whole `export-cache/` listing on every publication,
     # and the prefix is caller-controlled — anonymous callers vary bbox and

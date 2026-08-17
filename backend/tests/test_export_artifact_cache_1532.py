@@ -3205,3 +3205,186 @@ def test_the_scratch_sweep_interval_follows_the_horizon_it_is_given(tmp_path):
         )
     finally:
         staging._last_scratch_sweep_at = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Review r16
+# ---------------------------------------------------------------------------
+
+
+async def test_an_oversize_artifact_is_refused_on_an_empty_cache(monkeypatch):
+    """The budget check has to hold when there is nothing to compare against.
+
+    The running total accumulates page by page and returns False at the first
+    overrun, which is the right shape for the ordinary case and vacuous at the
+    boundary: a provider yields NO page for an empty prefix, so the loop body
+    never ran and the function returned True for an artifact of any size. A cold
+    cache is exactly when the first export arrives, so the case is the default
+    one rather than an edge, and publishing there puts a second copy of the
+    largest conversion on the shared staging volume.
+
+    Parametrised over an empty listing and a populated one, because the fix has
+    to refuse the oversize artifact in both and a check written only for the
+    empty case would leave the populated one depending on what else is stored.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    class _Listing:
+        def __init__(self, pages):
+            self._pages = pages
+
+        def iter_object_pages(self, prefix, **kwargs):
+            async def _pages():
+                for page in self._pages:
+                    yield page
+
+            return _pages()
+
+    oversize = cache._BUDGET_BYTES + 1
+
+    for label, pages in (("empty", []), ("one empty page", [[]])):
+        monkeypatch.setattr(cache, "get_storage", lambda p=pages: _Listing(p))
+        assert not await cache._fits_in_budget(oversize), (
+            f"an artifact one byte over the entire budget was accepted against "
+            f"a {label} listing; the ceiling is only enforced when something "
+            f"else is already stored"
+        )
+        assert await cache._fits_in_budget(1), (
+            f"a one-byte artifact was refused against a {label} listing, so the "
+            f"guard is refusing everything rather than what is oversize"
+        )
+
+
+async def test_an_oversize_artifact_is_refused_when_the_listing_fails(monkeypatch):
+    """Failing open covers what cannot be measured, not what needs no measuring.
+
+    An unreadable listing means the running total is unknown, and refusing to
+    cache over that would trade a bounded disk cost for an unbounded conversion
+    one. Whether ONE artifact exceeds the whole budget is not a fact about the
+    listing, so it is decided before the fail-open and stays decided.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    class _Broken:
+        def iter_object_pages(self, prefix, **kwargs):
+            async def _pages():
+                raise RuntimeError("listing unavailable")
+                yield []  # pragma: no cover - generator marker
+
+            return _pages()
+
+    monkeypatch.setattr(cache, "get_storage", lambda: _Broken())
+
+    assert not await cache._fits_in_budget(cache._BUDGET_BYTES + 1), (
+        "an oversize artifact was accepted because the listing failed; the "
+        "fail-open swallowed a question the listing was never needed to answer"
+    )
+    assert await cache._fits_in_budget(1), (
+        "an ordinary artifact was refused on an unreadable listing, which turns "
+        "a measurement failure into a caching outage"
+    )
+
+
+@pytest.mark.parametrize("header,expected", [("If-None-Match", 304), ("If-Match", 412)])
+async def test_a_rebuild_that_transfers_nothing_is_not_audited(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    header,
+    expected,
+):
+    """A 304 or a 412 records no export, whichever path produced it.
+
+    The audit ran before the store, so a conditional request that happened to
+    land on a REBUILD wrote a `dataset.export` and then answered 412 or 304,
+    while the identical request landing on a cache hit wrote nothing. Whether a
+    download appears in the trail then depended on the cache's internal state at
+    the moment of the request, which the operator reading the report cannot see
+    and did not ask to have encoded there.
+
+    Driven through a real expiry rather than by seeding, so the request really is
+    a miss that converts: without `conversions.count == 2` the assertion below
+    would also pass on the hit path, which never audited these responses anyway.
+    """
+    from app.modules.audit.models import AuditLog
+    from app.processing.export import artifact_cache as cache
+    from sqlalchemy import func, select
+
+    dataset = await _dataset(test_db_session, "Unaudited Rebuild")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    etag = first.headers["etag"]
+    assert conversions.count == 1
+
+    async def _export_rows() -> int:
+        return (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "dataset.export")
+                .where(AuditLog.resource_id == str(dataset.id))
+            )
+        ).scalar_one()
+
+    before = await _export_rows()
+
+    value = '"an-export-from-last-week"' if header == "If-Match" else etag
+    cache._ttl_seconds = lambda: 0  # force the next request to rebuild
+    try:
+        resp = await client.get(url, headers={**admin_auth_header, header: value})
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert resp.status_code == expected
+    assert await _export_rows() == before, (
+        f"a rebuild answering {expected} wrote a dataset.export row. Nothing was "
+        f"transferred, and the same request against a cache hit writes nothing, "
+        f"so the trail now depends on cache state the operator cannot see"
+    )
+
+
+async def test_a_rebuild_that_does_transfer_is_still_audited(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The counterfactual: moving the audit must not have silenced the trail.
+
+    A guard that stopped auditing rebuilds altogether would pass every assertion
+    above. This is the case that has to keep working.
+    """
+    from app.modules.audit.models import AuditLog
+    from app.processing.export import artifact_cache as cache
+    from sqlalchemy import func, select
+
+    dataset = await _dataset(test_db_session, "Audited Rebuild")
+    url = _url(dataset.id)
+
+    await client.get(url, headers=admin_auth_header)
+    assert conversions.count == 1
+
+    async def _export_rows() -> int:
+        return (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "dataset.export")
+                .where(AuditLog.resource_id == str(dataset.id))
+            )
+        ).scalar_one()
+
+    before = await _export_rows()
+
+    cache._ttl_seconds = lambda: 0
+    try:
+        resp = await client.get(url, headers=admin_auth_header)
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert resp.status_code == 200
+    assert await _export_rows() == before + 1, (
+        "a rebuild that delivered the whole export recorded nothing; the audit "
+        "moved below the precondition exits and fell off the transfer path too"
+    )
