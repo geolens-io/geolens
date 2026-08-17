@@ -28,13 +28,15 @@
  * to add one, the answer is almost certainly a `try` block instead.
  *
  * THE FALSE-NEGATIVE PROMISE. This gate claims false positives are possible and
- * false negatives are not. It broke that claim five times: renamed
- * destructuring (five spellings, not the one that was reported), instance field
- * initializers, a `try` with no `catch`, assignment targets in for-of and
- * for-in, and every `.ts` file being parsed as TSX. Every fix was correct and
- * every one was incomplete, because each answered "is this X?" by listing the
- * shapes it recognised and calling the rest safe. A list of TypeScript shapes
- * is never finished.
+ * false negatives are not. It broke that claim six times: renamed destructuring
+ * (five spellings, not the one that was reported), instance field initializers,
+ * a `try` with no `catch`, assignment targets in for-of and for-in, every `.ts`
+ * file being parsed as TSX, and keys behind transparent wrappers such as
+ * `window[('sessionStorage')]` (ten spellings, not the two reported). Every fix
+ * was correct and every one was incomplete, because each answered "is this X?"
+ * by listing the shapes it recognised and calling the rest safe. A list of
+ * TypeScript shapes is never finished, and twice now the reported spelling has
+ * turned out to be a sample of a family rather than the family.
  *
  * What makes the claim defensible now is not a longer list, it is the failure
  * direction. Every membership predicate here answers "report" when it meets
@@ -64,11 +66,39 @@
  * ScriptTarget that ages out, a file that is not what its extension says —
  * without anyone having to anticipate the next member of it.
  *
+ * The sixth was the mirror image of the predicate bugs. Nothing was listing the
+ * wrong shapes; the matchers were being handed a wrapped node and answering
+ * about the wrapper. Since parentheses, `as`, `satisfies`, `!` and the rest are
+ * erased before the code runs, the fix is to peel them — using the compiler's
+ * own `skipOuterExpressions`, because writing that list here would have been a
+ * seventh chance to miss a member of it.
+ *
  * Adding a kind to any of those allowlists widens what the gate calls safe.
  * That is a deliberate act and must read like one: a one-line reason at the
  * entry saying why the construct runs where the gate assumes it runs. If you
  * are adding one to silence a report, you are removing the finding, not fixing
  * it.
+ *
+ * WHAT THE PROMISE IS WORTH NOW. Six rounds is a poor advertisement for the
+ * original claim, and the gate is nonetheless much harder to fool than when it
+ * started. The honest version of the claim is not "there are no false
+ * negatives" but this, which a reader can check for themselves:
+ *
+ *   1. Every membership predicate fails toward reporting. An unrecognised
+ *      construct makes this gate noisy, never silent — verified per predicate
+ *      by the fixtures, each of which has a counterexample pinning the other
+ *      direction so the rule cannot rot into "flag everything".
+ *   2. A file that cannot be read is a failure that names the file. No input
+ *      produces a clean result by being unparseable, unreachable by the glob,
+ *      or of an extension nothing here understands.
+ *   3. The scan cannot collapse into a vacuous pass: the file count, the
+ *      excluded count and the access count are all asserted, so a glob that
+ *      matched nothing fails instead of sweeping zero files.
+ *
+ * Two known gaps remain, named under TWO PREDICATES below, and they are why
+ * this says "bounded" rather than "closed". What is genuinely gone is the
+ * failure mode all six rounds shared, where the gate's silence meant nothing at
+ * all and read like evidence.
  *
  * WHAT THIS GATE DOES NOT PROVE. It proves an access cannot throw. It does
  * NOT prove the code degrades correctly when storage is denied, and those two
@@ -126,6 +156,66 @@ function isProductionSource(path: string): boolean {
 
 const sources = Object.entries(allModules).filter(([path]) => isProductionSource(path));
 const excludedCount = Object.keys(allModules).length - sources.length;
+
+/**
+ * fix(#1545 codex P2, round 6): the compiler's own wrapper peeling, not a list
+ * of wrapper kinds written here.
+ *
+ * TypeScript calls these OUTER EXPRESSIONS: parentheses, `as`, `satisfies`,
+ * angle-bracket assertions, non-null `!`, expressions with type arguments, and
+ * partially emitted expressions. Every one is erased before the code runs, so
+ * `window[('sessionStorage')]` and `window['sessionStorage' as keyof Window]`
+ * read the getter exactly as `window['sessionStorage']` does. A node-kind test
+ * handed the wrapper answers about the wrapper.
+ *
+ * The reported case was two spellings. Measuring the family found ten, in three
+ * different matchers. Enumerating the wrappers here would have been a seventh
+ * chance to miss one, so this borrows `isOuterExpression`/`skipOuterExpressions`
+ * from the compiler, which is where the canonical list lives and is maintained.
+ *
+ * They are not in typescript@6's published `.d.ts`, hence the cast — the same
+ * bargain as `parseErrorsOf`, and the same protection. If an upgrade moves
+ * them, `OUTER_EXPRESSION_PEELING_WORKS` goes false, the test named after it
+ * fails, and it says which half broke. Every predicate that leans on them also
+ * fails toward reporting when they are missing: a wrapper stops counting as
+ * runtime-transparent, so an access inside one reads as crossing a boundary and
+ * gets flagged. Loud in both directions.
+ */
+const compilerInternals = ts as unknown as {
+  isOuterExpression?: (node: ts.Node) => boolean;
+  skipOuterExpressions?: (node: ts.Node) => ts.Node;
+};
+
+function isTransparentWrapper(node: ts.Node): boolean {
+  return compilerInternals.isOuterExpression?.(node) ?? false;
+}
+
+function unwrap(node: ts.Node): ts.Node {
+  return compilerInternals.skipOuterExpressions?.(node) ?? node;
+}
+
+/**
+ * A behavioural check, not a `typeof` check: the helpers must actually peel a
+ * stack of wrappers down to the literal, or this file's matching is quietly
+ * back to where round 6 found it.
+ */
+const OUTER_EXPRESSION_PEELING_WORKS = ((): boolean => {
+  const probe = ts.createSourceFile(
+    'probe.ts',
+    `const p = (('x' as string)!);`,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const statement = probe.statements[0];
+  if (!ts.isVariableStatement(statement)) return false;
+  const initializer = statement.declarationList.declarations[0]?.initializer;
+  if (!initializer) return false;
+  const peeled = unwrap(initializer);
+  return (
+    isTransparentWrapper(initializer) && ts.isStringLiteralLike(peeled) && peeled.text === 'x'
+  );
+})();
 
 /**
  * fix(#1545 codex P2, round 2): this list is an ALLOWLIST, and that is the
@@ -187,14 +277,16 @@ const RUNS_IN_ENCLOSING_FRAME: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.ClassDeclaration,
   ts.SyntaxKind.ClassExpression,
   ts.SyntaxKind.ClassStaticBlockDeclaration,
-  // Expressions.
+  // Expressions. The runtime-transparent wrappers (parentheses, `as`,
+  // `satisfies`, `!`, angle-bracket assertions) are NOT listed here: they come
+  // from isTransparentWrapper in runsInEnclosingFrame, so the compiler owns
+  // that list rather than this one.
   ts.SyntaxKind.PropertyAccessExpression,
   ts.SyntaxKind.ElementAccessExpression,
   ts.SyntaxKind.CallExpression,
   ts.SyntaxKind.NewExpression,
   ts.SyntaxKind.BinaryExpression,
   ts.SyntaxKind.ConditionalExpression,
-  ts.SyntaxKind.ParenthesizedExpression,
   ts.SyntaxKind.PrefixUnaryExpression,
   ts.SyntaxKind.PostfixUnaryExpression,
   ts.SyntaxKind.TypeOfExpression,
@@ -210,10 +302,6 @@ const RUNS_IN_ENCLOSING_FRAME: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.TemplateExpression,
   ts.SyntaxKind.TemplateSpan,
   ts.SyntaxKind.TaggedTemplateExpression,
-  ts.SyntaxKind.AsExpression,
-  ts.SyntaxKind.SatisfiesExpression,
-  ts.SyntaxKind.NonNullExpression,
-  ts.SyntaxKind.TypeAssertionExpression,
   ts.SyntaxKind.CommaListExpression,
   ts.SyntaxKind.ComputedPropertyName,
   ts.SyntaxKind.ObjectBindingPattern,
@@ -238,6 +326,10 @@ function runsInEnclosingFrame(node: ts.Node): boolean {
   if (ts.isPropertyDeclaration(node)) {
     return node.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false;
   }
+  // A wrapper is erased before the code runs, so it cannot move an access onto
+  // a different frame. Delegated rather than enumerated — see
+  // isTransparentWrapper.
+  if (isTransparentWrapper(node)) return true;
   return RUNS_IN_ENCLOSING_FRAME.has(node.kind);
 }
 
@@ -431,25 +523,25 @@ const OBJECT_LITERAL_IS_A_VALUE: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.PrefixUnaryExpression,
   ts.SyntaxKind.TemplateSpan,
   ts.SyntaxKind.TaggedTemplateExpression,
-  ts.SyntaxKind.AsExpression,
-  ts.SyntaxKind.SatisfiesExpression,
-  ts.SyntaxKind.NonNullExpression,
-  ts.SyntaxKind.TypeAssertionExpression,
   ts.SyntaxKind.JsxExpression,
+  // The runtime-transparent wrappers are deliberately absent. They are not
+  // value POSITIONS, they are see-through: `{ localStorage: 1 } as const` is a
+  // value because of what encloses the `as`, and `(({ x: s }) as any) = w` is a
+  // target for the same reason. They are climbed through below instead.
 ]);
 
 function isDestructuringTarget(node: ts.Node): boolean {
   let child: ts.Node = node;
   let parent: ts.Node | undefined = node.parent;
   while (parent) {
-    // Pattern-internal, so undecidable here. Climb.
+    // Pattern-internal or see-through, so undecidable here. Climb.
     if (
+      isTransparentWrapper(parent) ||
       ts.isObjectLiteralExpression(parent) ||
       ts.isArrayLiteralExpression(parent) ||
       ts.isPropertyAssignment(parent) ||
       ts.isSpreadAssignment(parent) ||
-      ts.isSpreadElement(parent) ||
-      ts.isParenthesizedExpression(parent)
+      ts.isSpreadElement(parent)
     ) {
       child = parent;
       parent = parent.parent;
@@ -477,12 +569,11 @@ function isDestructuringTarget(node: ts.Node): boolean {
 function storageNameOfKey(key: ts.Node): string | null {
   if (ts.isIdentifier(key) && STORAGE_NAMES.has(key.text)) return key.text;
   if (ts.isStringLiteralLike(key) && STORAGE_NAMES.has(key.text)) return key.text;
-  if (
-    ts.isComputedPropertyName(key) &&
-    ts.isStringLiteralLike(key.expression) &&
-    STORAGE_NAMES.has(key.expression.text)
-  ) {
-    return key.expression.text;
+  if (ts.isComputedPropertyName(key)) {
+    // `{ [('sessionStorage')]: s }` and `{ ['sessionStorage' as keyof W]: s }`
+    // name the same key as `{ ['sessionStorage']: s }`.
+    const inner = unwrap(key.expression);
+    if (ts.isStringLiteralLike(inner) && STORAGE_NAMES.has(inner.text)) return inner.text;
   }
   return null;
 }
@@ -639,13 +730,13 @@ function scanSource(file: string, source: string): ScanResult {
     if (ts.isIdentifier(node) && STORAGE_NAMES.has(node.text) && !isNonValuePosition(node)) {
       hit = node;
     }
-    if (
-      ts.isElementAccessExpression(node) &&
-      node.argumentExpression &&
-      ts.isStringLiteralLike(node.argumentExpression) &&
-      STORAGE_NAMES.has(node.argumentExpression.text)
-    ) {
-      hit = node;
+    if (ts.isElementAccessExpression(node) && node.argumentExpression) {
+      // `window[('sessionStorage')]` and `window['sessionStorage' as keyof W]`
+      // read the same property as `window['sessionStorage']`.
+      const key = unwrap(node.argumentExpression);
+      if (ts.isStringLiteralLike(key) && STORAGE_NAMES.has(key.text)) {
+        hit = node;
+      }
     }
     // Destructuring key positions. A BindingElement is always a pattern, so its
     // propertyName needs no further test; an object literal is only a pattern
@@ -691,6 +782,21 @@ describe('#1536: Web Storage access under src/ must be exception-safe', () => {
 
   it('actually found storage accesses to classify', () => {
     expect(accesses.length).toBeGreaterThan(0);
+  });
+
+  // fix(#1545 codex P2 round 6): the matchers below lean on the compiler to
+  // peel runtime-transparent wrappers. Those helpers are not in the published
+  // .d.ts, so this asserts they still behave, and says so precisely instead of
+  // letting ten wrapper fixtures fail with no explanation.
+  it('can still peel TypeScript wrapper expressions', () => {
+    expect(
+      OUTER_EXPRESSION_PEELING_WORKS,
+      'ts.isOuterExpression / ts.skipOuterExpressions no longer peel `(x as T)!`. ' +
+        'They are internal to typescript and this file uses them to see through ' +
+        'parentheses, `as`, `satisfies`, `!` and angle-bracket assertions. Find their ' +
+        'replacement in the new version; do NOT re-enumerate the wrapper kinds here, ' +
+        'which is the mistake round 6 fixed.',
+    ).toBe(true);
   });
 
   // fix(#1545 codex P2 round 5): the finest-grained vacuity guard of the three.
@@ -837,6 +943,12 @@ describe('#1536: detector fixtures', () => {
     [
       'a catch that rethrows from a nested block',
       `try { sessionStorage.getItem('k'); } catch (e) { if (a) { log(e); throw e; } }`,
+    ],
+    // A wrapper cannot hide a rethrow either: `throw` is a statement, so
+    // catchStopsTheThrow sees it however the thrown expression is spelled.
+    [
+      'a catch that rethrows a wrapped error',
+      `try { sessionStorage.getItem('k'); } catch (e) { throw (e as Error); }`,
     ],
     // fix(#1545 codex P2 round 4): assignment patterns outside an `=`. Each of
     // these binds the storage key on every iteration, so each reads the getter.
@@ -1036,5 +1148,63 @@ describe('#1536: the parse is asserted, not assumed', () => {
       expect(result.failures).toEqual([]);
       expect(result.accesses).toHaveLength(1);
     }
+  });
+});
+/**
+ * fix(#1545 codex P2, round 6): transparent wrappers.
+ *
+ * `window['sessionStorage']` was matched; `window[('sessionStorage')]` was not,
+ * because the argument is a ParenthesizedExpression rather than a string
+ * literal. Same for `as`, `satisfies`, angle-bracket assertions and `!`. All of
+ * them are erased before the code runs, so every one of these reads the getter
+ * and throws in a storage-denied context.
+ *
+ * The reported case was two of these. Measuring the family found ten, which is
+ * the same lesson as rounds 1 and 4: the reported spelling is a sample, not the
+ * set. They are pinned per form rather than as one representative case, because
+ * the wrappers compose and each site that unwraps has to unwrap fully.
+ */
+describe('#1536: transparent wrappers do not hide an access', () => {
+  const scan = (src: string, file = '/src/fixture.ts') => scanSource(file, src);
+  const flagged = (src: string, file?: string) => {
+    const r = scan(src, file);
+    expect(r.failures).toEqual([]);
+    return r.accesses.filter((a) => !a.guarded).length;
+  };
+
+  it.each([
+    ['a parenthesized element-access key', `const s = window[('sessionStorage')];`],
+    ['an as-cast element-access key', `const s = window['sessionStorage' as keyof Window];`],
+    ['a satisfies element-access key', `const s = window['sessionStorage' satisfies string];`],
+    ['an angle-bracket cast element-access key', `const s = window[<string>'sessionStorage'];`],
+    ['a non-null-asserted element-access key', `const s = window['sessionStorage'!];`],
+    ['a doubly wrapped element-access key', `const s = window[(('sessionStorage') as keyof Window)];`],
+    ['a parenthesized computed binding key', `const { [('sessionStorage')]: s } = window;`],
+    ['an as-cast computed binding key', `const { ['sessionStorage' as keyof Window]: s } = window;`],
+    ['a parenthesized computed assignment key', `let s; ({ [('sessionStorage')]: s } = window);`],
+    ['an as-cast destructuring target', `let s; (({ sessionStorage: s }) as any) = window;`],
+  ])('flags %s', (_name, src) => {
+    expect(flagged(src)).toBe(1);
+  });
+
+  it.each([
+    ['a wrapped key inside a try', `try { const s = window[('sessionStorage')]; } catch {}`],
+    ['a wrapped access inside a try', `try { const s = (sessionStorage.getItem('k') as string); } catch {}`],
+    ['a non-null-asserted access inside a try', `try { const s = sessionStorage!.getItem('k'); } catch {}`],
+  ])('still sees the try through wrappers for %s', (_name, src) => {
+    const r = scan(src);
+    expect(r.failures).toEqual([]);
+    expect(r.accesses).toHaveLength(1);
+    expect(r.accesses[0].guarded).toBe(true);
+  });
+
+  it.each([
+    ['a wrapped non-storage key', `const s = cfg[('somethingElse')];`],
+    ['a parenthesized object literal value', `const o = ({ localStorage: 1 });`],
+    ['an as-cast object literal value', `const o = { localStorage: 1 } as const;`],
+  ])('does not over-reach on %s', (_name, src) => {
+    const r = scan(src);
+    expect(r.failures).toEqual([]);
+    expect(r.accesses).toEqual([]);
   });
 });
