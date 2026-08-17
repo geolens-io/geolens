@@ -378,12 +378,13 @@ export function useEmbeddingStats(options?: { enabled?: boolean }) {
 
 // Backfill embeddings
 export function useBackfillEmbeddings() {
-  const qc = useQueryClient();
   return useMutation({
     mutationFn: (force?: boolean) => triggerBackfill(force),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
-    },
+    // No invalidation here, deliberately. Invalidating coverage at enqueue was
+    // right while the request blocked until the work finished; since #1542 it
+    // returns immediately, so refetching now would re-read the same pre-run
+    // numbers and make the panel look like it had checked. The coverage
+    // refresh belongs where the run actually lands — see useBackfillJobStatus.
     onError: (err) => {
       logger.error('[useBackfillEmbeddings]', err);
       // fix(#1542): a run already in flight is refused, not failed. Saying
