@@ -101,12 +101,25 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
     assert "FROM catalog.records AS visible_record" in stats_sql
     assert "LEFT JOIN catalog.record_embeddings AS embedding" in stats_sql
 
+    # fix(#1549): the force path no longer issues a bulk DELETE up front, so a
+    # run over zero records deletes nothing and there is no statement to
+    # inspect. Give it ONE record: the delete this test is about now happens
+    # inside the batch that replaces that record, which is where its record
+    # scoping has to hold.
+    record = SimpleNamespace(
+        id=uuid.uuid4(),
+        title="Tenant Scoped Record",
+        summary=None,
+        keywords=[],
+        lineage_summary=None,
+        translations=[],
+    )
     port = SimpleNamespace(
         get_record_orm_class=lambda: Record,
-        get_records_without_embeddings=AsyncMock(return_value=[]),
+        get_records_without_embeddings=AsyncMock(return_value=[record]),
     )
     monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
-    # fix(#1511 review r3): the force path now proves it can embed before it
+    # fix(#1511 review r3): the force path proves it can embed before it
     # deletes. This test is about the DELETE's record scoping, so give it a
     # working provider rather than letting the pre-flight abort the run.
     monkeypatch.setattr(
@@ -126,11 +139,42 @@ async def test_admin_stats_and_force_delete_are_record_scoped(monkeypatch):
 
     result = await backfill_module.backfill_embeddings(backfill_session, force=True)
 
-    assert result == {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
-    delete_sql = str(backfill_session.execute.await_args.args[0])
-    assert delete_sql.startswith("DELETE FROM catalog.record_embeddings")
-    assert "SELECT catalog.records.id" in delete_sql
-    backfill_session.commit.assert_awaited_once()
+    assert result["created"] == 1
+    statements = [
+        str(call.args[0])
+        for call in backfill_session.execute.await_args_list
+        if call.args
+    ]
+    deletes = [
+        sql
+        for sql in statements
+        if sql.startswith("DELETE FROM catalog.record_embeddings")
+    ]
+    assert deletes, "the force run issued no delete"
+    assert "SELECT catalog.records.id" in deletes[0]
+
+    # fix(#1549): and the ordering that makes the delete safe. `mock_calls` on
+    # the session records execute and commit in one sequence, so this asserts
+    # the delete is followed by the insert and only THEN by a commit — one
+    # transaction, no window where the old row is gone and the new one is not
+    # written. Reverse them and the delete would remove the row just inserted;
+    # commit between them and this PR would not be a fix.
+    names = []
+    for name, call_args, _ in backfill_session.mock_calls:
+        if name == "execute" and call_args:
+            sql = str(call_args[0])
+            if sql.startswith("DELETE FROM catalog.record_embeddings"):
+                names.append("delete")
+            elif sql.startswith("INSERT INTO catalog.record_embeddings"):
+                names.append("insert")
+        elif name == "commit":
+            names.append("commit")
+    assert "delete" in names and "insert" in names
+    assert names[names.index("delete") : names.index("delete") + 3] == [
+        "delete",
+        "insert",
+        "commit",
+    ]
 
 
 async def _execute_autocommit(engine, statement: str, params: dict | None = None):
@@ -152,7 +196,12 @@ async def _seed_embedding_rows(ctx):
             )
             await _execute_autocommit(
                 engine,
-                "GRANT SELECT, DELETE ON catalog.record_embeddings TO geolens_reader",
+                # fix(#1549): a force run replaces per batch now, so the role
+                # standing in for a tenant's has to be able to WRITE as well as
+                # delete. Without the insert grant the run cannot get far enough
+                # to exercise the scoping these tests are about.
+                "GRANT SELECT, INSERT, UPDATE, DELETE "
+                "ON catalog.record_embeddings TO geolens_reader",
             )
             dimension_result = await _execute_autocommit(
                 engine,
@@ -200,8 +249,8 @@ async def _seed_embedding_rows(ctx):
             )
             await _execute_autocommit(
                 engine,
-                "REVOKE SELECT, DELETE ON catalog.record_embeddings "
-                "FROM geolens_reader",
+                "REVOKE SELECT, INSERT, UPDATE, DELETE "
+                "ON catalog.record_embeddings FROM geolens_reader",
             )
             await _execute_autocommit(
                 engine,
@@ -297,9 +346,21 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
     ctx = multi_tenant_rls
 
     async with _seed_embedding_rows(ctx) as (surface, engine):
+        # fix(#1549): force replaces per batch, so the run has to actually
+        # reach a batch for there to be a delete to scope. Tenant A's seeded
+        # record is the one it regenerates; tenant B's row is what must survive
+        # untouched, which is the fleet-wide-delete hazard this test exists for.
+        record_a = SimpleNamespace(
+            id=uuid.UUID(surface.rec_a_id),
+            title="Tenant A Record",
+            summary=None,
+            keywords=[],
+            lineage_summary=None,
+            translations=[],
+        )
         port = SimpleNamespace(
             get_record_orm_class=lambda: Record,
-            get_records_without_embeddings=AsyncMock(return_value=[]),
+            get_records_without_embeddings=AsyncMock(return_value=[record_a]),
         )
         monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
         # fix(#1511): the force path snapshots the active model and dimensions
@@ -353,15 +414,29 @@ async def test_force_backfill_deletes_only_active_tenant_embeddings(
         finally:
             current_tenant_var.reset(token)
 
-        assert result == {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
+        assert result["created"] == 1
         port.get_records_without_embeddings.assert_awaited_once()
 
-        counts = await _execute_autocommit(
+        rows = await _execute_autocommit(
             engine,
-            "SELECT record_id, COUNT(*) FROM catalog.record_embeddings "
-            "WHERE record_id = ANY(CAST(:record_ids AS uuid[])) GROUP BY record_id",
+            "SELECT record_id, content_hash FROM catalog.record_embeddings "
+            "WHERE record_id = ANY(CAST(:record_ids AS uuid[]))",
             {"record_ids": [surface.rec_a_id, surface.rec_b_id]},
         )
-        remaining = {str(record_id): count for record_id, count in counts.all()}
-        assert surface.rec_a_id not in remaining
-        assert remaining == {surface.rec_b_id: 1}
+        hashes = {
+            str(record_id): content_hash for record_id, content_hash in rows.all()
+        }
+
+        # Tenant A's row was replaced: still exactly one row, carrying the
+        # regenerated content rather than the seeded marker. The seed's
+        # `content_hash` doubles as the discriminator, which is what lets this
+        # tell "deleted and rewritten" apart from "never touched" now that a
+        # completed force run ends with a populated table rather than an empty
+        # one.
+        assert set(hashes) == {surface.rec_a_id, surface.rec_b_id}
+        assert hashes[surface.rec_a_id] != "tenant-a-only"
+        # Tenant B's row was never in the batch and is untouched. This is the
+        # fleet-wide delete the test is named for, and per-batch replacement
+        # narrows rather than widens it: the delete is now bounded to the ids
+        # the run is replacing, on top of the visible-Record subquery.
+        assert hashes[surface.rec_b_id] == "tenant-b-only"
