@@ -266,47 +266,57 @@ def _raise_on_structural_width(
 
 async def _raise_on_retry_vector_width(
     session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
     vector: list[float],
     pinned_column_dims: int | None,
     processed: int,
 ) -> None:
-    """Judge one retried record's vector: bad record, or a column that moved?
+    """The retry's post-call bracket, plus a judgement on the vector it returned.
 
-    fix(#1579 review, codex P2): the retry path has one input, so agreement
-    across inputs — the signal the batch path reads — carries no information
-    here. The evidence has to come from storage instead: if the live column
-    still is what the run pinned, a vector that does not fit it is one bad
-    record and the caller counts it (#449). If the column has moved, every
-    remaining record will fail the same way and the run stops.
+    Two questions, in this order, because the second only makes sense once the
+    first is answered:
 
-    The read costs 0.32 ms against the ~3 ms the drift checks around it already
-    spend per record. It was paid even when a drift check sat immediately above
-    and could only agree with it, because a guard whose correctness rests on a
-    neighbouring call's position is one reorder away from silently converting a
-    structural storm into ten thousand counted errors.
+    1. Is the pinned configuration still the active one? This is the post-call
+       bracket #1525 review r6 installed on this path, restored here. It went
+       missing when the r3 review moved the batch's post-call check below the
+       flush so it could hold the relation lock: the check is still there, but
+       it now sits after an insert that raises on its own when the column has
+       moved to a different fixed width, so it never runs.
+    2. Does THIS vector fit that column? A mismatch against a column that has
+       not moved is one bad record, raised as `_AnomalousVectorWidth` so the
+       caller counts it and carries on (#449).
 
-    fix(#1579 review r3): that reorder then happened, for an unrelated reason —
-    the post-call drift check moved below the flush so it could hold the
-    relation lock. The nearest preceding one is now the PRE-call check, on the
-    far side of a provider round trip, so this read is no longer redundant at
-    all. It is the only thing standing between a column that moved during that
-    call and ten thousand counted errors.
+    fix(#1579 review r4, codex P2): the earlier revision asked (2) first and
+    returned early when the vector matched, so (1) went unasked whenever the
+    provider answered at the pinned width. A column that moved to a DIFFERENT
+    fixed width during the provider call then reached the flush, which raised
+    the typmod error, which the broad handler counted as a bad record. Every
+    record but the last was covered anyway, by the next one's pre-call check —
+    but on the last there is no next one, and the run reported "complete with
+    one error" for a configuration change. A misreport rather than a bad row,
+    and narrow, but the rule is easier to hold when it has no exceptions.
 
-    Calls the fit test directly rather than `_structural_width_mismatch`, which
-    now requires two vectors to have an opinion. Routing one vector through the
-    batch rule made this check silently answer None for every record.
+    Asking `_raise_on_pin_drift` rather than reading the width here and
+    phrasing the abort locally. The cheaper read (0.32 ms against ~3 ms) would
+    put a second author of "the column moved" in the module, and two places
+    that decide the same thing drift apart. One rule, one message.
+
+    Cost is one more full drift check per retried record: about 9 ms against the
+    ~0.22 s that record's provider call costs, so roughly 4% of a legitimate
+    per-record retry, and nothing at all on the storm this PR exists to stop,
+    which now ends on its first record.
     """
+    await _raise_on_pin_drift(
+        session,
+        pinned,
+        processed,
+        pinned_column_dims=pinned_column_dims,
+        error=_PinDrift,
+    )
     detail = _column_rejects_width(len(vector), pinned_column_dims)
     if detail is None:
         return
-    if await _live_column_dims(session) == pinned_column_dims:
-        raise _AnomalousVectorWidth(detail)
-    logger.error("backfill_aborted_width_mismatch", detail=detail, processed=processed)
-    raise _PinDrift(
-        f"Embedding regeneration stopped after {processed} records: {detail}. "
-        "Re-save the embedding configuration in Settings so the column is "
-        "rebuilt, then re-run."
-    )
+    raise _AnomalousVectorWidth(detail)
 
 
 async def _snapshot_embedding_config(
@@ -546,9 +556,9 @@ async def _retry_batch_per_record(
             # Ahead of the insert, deliberately: it decides NOT to write, so it
             # needs no lock, and putting it after the flush would let the flush
             # raise the typmod error first and turn a named abort into a counted
-            # one.
+            # one. It carries the post-call drift bracket for the same reason.
             await _raise_on_retry_vector_width(
-                session, vector, pinned_column_dims, created + made
+                session, pinned, vector, pinned_column_dims, created + made
             )
             session.add(
                 RecordEmbedding(

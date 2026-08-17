@@ -590,3 +590,79 @@ async def test_the_pre_commit_check_holds_the_relation_lock(
         assert outcome == ["blocked"], outcome
     finally:
         await _set_column_dims(test_db_session, start_width)
+
+
+@pytest.mark.anyio
+async def test_a_move_during_the_last_retry_is_drift_not_a_counted_error(
+    test_db_session, monkeypatch
+):
+    """The last retried record has no successor to catch what it missed.
+
+    fix(#1579 review r4, codex P2): the retry's width judgement asked "does this
+    vector fit?" before "is the column still the one we pinned?", and returned
+    early when the vector matched. A column that moved to a DIFFERENT fixed
+    width during the provider call therefore went unnoticed: the flush raised
+    the typmod error, the broad handler counted it as a bad record, and the run
+    finished reporting one error where it should have reported a configuration
+    change. Every other record is covered by the next one's pre-call check. The
+    last one has no next.
+
+    Reaching that state needs a retry loop with exactly one record in it, so the
+    run is set up as a non-force run over a catalog where exactly one record
+    lacks a vector: every other record is given one first. The batch call then
+    fails for a reason of its own, which is what opens the retry loop, and the
+    ALTER fires during the retry's own provider call.
+    """
+    from sqlalchemy import text as sa_text
+
+    start_width = await _column_dims()
+    moved_width = 768 if start_width != 768 else 384
+
+    # Every existing record gets a vector under the pinned model, so the
+    # non-force selection below is exactly the one record seeded after it.
+    await test_db_session.execute(
+        sa_text(
+            "INSERT INTO catalog.record_embeddings "
+            "(record_id, embedding, model_name, content_hash) "
+            "SELECT r.id, (SELECT ('[' || string_agg('0.01', ',') || ']')"
+            f"::vector({start_width}) FROM generate_series(1, {start_width})), "
+            f"'{_MODEL}', md5(r.id::text) FROM catalog.records r "
+            "ON CONFLICT (record_id, model_name) DO NOTHING"
+        )
+    )
+    user_id = await get_user_id(test_db_session, "admin")
+    await create_dataset(test_db_session, created_by=user_id, name="Last Retry Move")
+    await test_db_session.commit()
+
+    _pin_model(monkeypatch)
+    calls: list[int] = []
+
+    async def _embed(texts, _session, **_kwargs):
+        calls.append(len(texts))
+        if len(calls) == 1:
+            # The batch's own call. Failing it is what opens the retry loop.
+            raise RuntimeError("provider rejected this batch")
+        if len(calls) == 2:
+            # The retry's call for the only record there is. The column moves
+            # while it is in flight.
+            await test_db_session.commit()
+            await _set_column_dims(test_db_session, moved_width)
+        return [[0.1] * start_width for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _embed)
+
+    try:
+        with pytest.raises(
+            RuntimeError, match="embedding column width changed"
+        ) as caught:
+            await backfill_module.backfill_embeddings(test_db_session)
+
+        # The message names the width it moved TO, so the operator is told what
+        # happened rather than that one record failed.
+        assert f"vector({moved_width})" in str(caught.value), str(caught.value)
+        # Non-vacuity: the run really did reach the retry loop, and the ALTER
+        # really did fire inside it.
+        assert calls == [1, 1], calls
+        assert await _column_dims() == moved_width
+    finally:
+        await _set_column_dims(test_db_session, start_width)

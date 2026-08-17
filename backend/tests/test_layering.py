@@ -2810,7 +2810,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # flush's RowExclusiveLock is what closes it, and the comment says so at the
     # call site because the reason a statement sits where it does is invisible
     # from the statement itself. Cap 1098 -> 1135, exact.
-    "backend/app/processing/embeddings/backfill.py": 1135,
+    # fix(#1533 review r4, codex P2): +10 net. The retry's width judgement asked
+    # "does this vector fit" before "is the column still the pinned one", and
+    # returned early when the vector matched — so a column that moved during the
+    # provider call for the LAST retried record was counted as a bad record
+    # rather than named as drift, there being no next record whose pre-call
+    # check would catch it. It now runs the drift bracket first and reuses
+    # _raise_on_pin_drift rather than phrasing the abort locally, so the module
+    # keeps ONE author of "the column moved". Cap 1135 -> 1145, exact.
+    "backend/app/processing/embeddings/backfill.py": 1145,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
