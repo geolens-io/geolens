@@ -568,3 +568,220 @@ async def test_the_port_hands_the_anchors_identity_to_its_caller(
     assert returned == await helpers.get_anchor_embedding_row(
         test_db_session, record.record_id
     ), "the port and the ranking helper must resolve the same anchor row"
+
+
+# ---------------------------------------------------------------------------
+# Review r2: grandfathering is for the side that has no choice
+# ---------------------------------------------------------------------------
+
+
+async def test_a_stamped_anchor_does_not_reach_legacy_unstamped_rows(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, space
+):
+    """fix(#1580 review r2): the stored-vs-stored predicate does not grandfather.
+
+    `usable_by_config` matches an unstamped row against any fingerprint, and
+    that is right for SEARCH: its caller holds a vector made moments ago, and on
+    upgrade day every row in the table is unstamped, so refusing them would
+    return nothing until a catalog-wide re-embed finished. The unstamped rows
+    are all there is.
+
+    Here both sides are stored and a STAMPED anchor is evidence the catalog is
+    past that morning and at least partly regenerated. The catalog where this
+    bites is an endpoint change followed by a partial re-embed: the rows still
+    carrying NULL are most likely the ones in the OLD space, and comparing them
+    against a new-space anchor is precisely the well-formed meaningless distance
+    this PR removes — on the records least likely to be looked at twice.
+
+    The legacy row here carries the anchor's own vector, so it is the nearest
+    neighbour that exists and nothing but the predicate can keep it out.
+    """
+    anchor = await _dataset(test_db_session, "Stamped Anchor")
+    same_space = await _dataset(test_db_session, "Stamped Peer")
+    legacy = await _dataset(test_db_session, "Legacy Leftover")
+
+    await _add_row(
+        test_db_session,
+        anchor.record_id,
+        _V_ANCHOR,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+    )
+    await _add_row(
+        test_db_session,
+        same_space.record_id,
+        _V_NEAR,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+    )
+    await _add_row(test_db_session, legacy.record_id, _V_ANCHOR, model_name=space.model)
+
+    items = await _related(client, admin_auth_header, anchor.id)
+
+    assert "Legacy Leftover" not in items, (
+        f"related items returned {sorted(items)}. That row predates the stamp, "
+        f"so which space it is in is unknown — and on the catalog this matters "
+        f"for, a partial re-embed, unknown means the old one."
+    )
+    assert "Stamped Peer" in items, (
+        f"related items returned {sorted(items)}; refusing NULL must not cost a "
+        f"record its own-configuration neighbours"
+    )
+
+
+def test_both_stored_readers_use_the_stored_anchor_predicate():
+    """The scoring query must not keep search's grandfathering either.
+
+    Asserted structurally rather than through data, because the data case is
+    unreachable: ``uq_record_embedding_model`` is ``(record_id, model_name)``, so
+    one record cannot hold both a stamped and an unstamped row of the same
+    model, and a neighbour whose only row is unstamped is already removed by the
+    selection filter. There is no catalog that exercises the scoring query's
+    NULL arm on its own.
+
+    Which is exactly why it needs pinning some other way. The selection and the
+    scoring are two independent readers of the same rule — fix(#1580) already
+    had to fix this pair once, when scoping the selection left the scoring
+    reporting distances from a foreign model — and a rule that cannot drift
+    apart in a test can still drift apart in the source.
+
+    A test that only named the wanted call would pass against a file that called
+    both, so the unwanted one is asserted absent too.
+
+    Comments are stripped and the CALL form is matched, not the bare name. The
+    first version of this scanned raw source and failed on the explanatory
+    comment beside the call it was checking — a predicate that cannot tell a
+    mention from a use answers a question nobody asked.
+    """
+    import inspect
+
+    from app.platform.extensions import defaults_catalog_port
+    from app.processing.embeddings import helpers
+
+    def _code(fn) -> str:
+        return "\n".join(
+            line
+            for line in inspect.getsource(fn).splitlines()
+            if not line.strip().startswith("#")
+        )
+
+    readers = {
+        "selection": _code(helpers.get_nearest_record_ids),
+        "scoring": _code(
+            defaults_catalog_port.DefaultCatalogPort.get_embedding_distances
+        ),
+    }
+
+    for name, source in readers.items():
+        assert "usable_by_stored_anchor(" in source, (
+            f"the {name} query does not call the stored-vs-stored predicate"
+        )
+        assert "usable_by_config(" not in source, (
+            f"the {name} query still calls search's predicate, which matches an "
+            f"unstamped row against a stamped anchor. Right for a fresh query "
+            f"vector, wrong for two stored rows."
+        )
+
+
+async def test_an_all_legacy_catalog_still_finds_its_neighbours(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, space
+):
+    """The half that must NOT change: upgrade day still works.
+
+    Refusing NULL against a stamped anchor is only defensible because an
+    unstamped anchor keeps matching unstamped rows. Without this the morning
+    after migration 0052 — when every row in the table is unstamped — related
+    items would go blank on a catalog where nothing is wrong, which is the
+    outcome #1546's grandfathering exists to prevent.
+    """
+    anchor = await _dataset(test_db_session, "All Legacy Anchor")
+    peer = await _dataset(test_db_session, "All Legacy Peer")
+
+    await _add_row(test_db_session, anchor.record_id, _V_ANCHOR, model_name=space.model)
+    await _add_row(test_db_session, peer.record_id, _V_NEAR, model_name=space.model)
+
+    items = await _related(client, admin_auth_header, anchor.id)
+
+    assert "All Legacy Peer" in items, (
+        f"related items returned {sorted(items)} on an all-unstamped catalog, "
+        f"which is what every instance looks like the day it upgrades"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r2: one read, not two
+# ---------------------------------------------------------------------------
+
+
+async def test_a_commit_between_the_two_reads_cannot_split_the_anchor(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, space, monkeypatch
+):
+    """fix(#1580 review r2): the ranking and the scoring share ONE anchor read.
+
+    `_load_self_record_and_embedding` read the anchor to score with, and
+    `get_nearest_record_ids` read it again to rank against. Two reads under READ
+    COMMITTED, so a worker committing a newer row for this record between them
+    left the selection anchored on the new vector and the scoring on the old —
+    wrong distances, or nothing at all when the two spaces do not overlap. A v9
+    overlay could pick differently again, since the method only received a
+    record id.
+
+    The commit is driven INTO that window rather than merely before or after it:
+    the second call to the anchor reader publishes a newer row first. With the
+    anchor passed in there is no second call, so the newer row cannot influence
+    anything, and `reads` proves the window was actually entered under the old
+    shape and closed under this one.
+    """
+    from app.processing.embeddings import helpers
+
+    anchor_ds = await _dataset(test_db_session, "Split Anchor")
+    peer = await _dataset(test_db_session, "Split Peer")
+
+    await _add_row(
+        test_db_session,
+        anchor_ds.record_id,
+        _V_ANCHOR,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+    await _add_row(
+        test_db_session,
+        peer.record_id,
+        _V_NEAR,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+    reads = {"count": 0}
+    real_reader = helpers.get_anchor_embedding_row
+
+    async def _committing_reader(session, record_id):
+        reads["count"] += 1
+        if reads["count"] == 2 and record_id == anchor_ds.record_id:
+            # The interloper: a newer row in a DIFFERENT space, landing exactly
+            # between the seed read and the neighbour selection.
+            await _add_row(
+                test_db_session,
+                anchor_ds.record_id,
+                _V_MID,
+                model_name=space.other_model,
+                config_fingerprint=space.config_b,
+                updated_at=datetime(2026, 6, 1, tzinfo=UTC),
+            )
+        return await real_reader(session, record_id)
+
+    monkeypatch.setattr(helpers, "get_anchor_embedding_row", _committing_reader)
+
+    items = await _related(client, admin_auth_header, anchor_ds.id)
+
+    assert reads["count"] == 1, (
+        f"the anchor was read {reads['count']} times. Two reads is the defect: "
+        f"whatever they return, nothing makes them the same row."
+    )
+    assert "Split Peer" in items, (
+        f"related items returned {sorted(items)}. The seed's own space has a "
+        f"neighbour in it; a selection anchored on a row the scoring never saw "
+        f"finds nothing it can then score."
+    )

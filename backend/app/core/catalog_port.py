@@ -241,11 +241,16 @@ class CatalogPort(Protocol):
         self, session: AsyncSession, record_id: uuid.UUID
     ) -> tuple[list[float], str, str | None] | None: ...
 
+    # fix(#1580 review r2): the anchor is a required keyword. The caller reads
+    # it once and hands the same row to the ranking and the scoring, so the two
+    # cannot straddle a commit under READ COMMITTED — and an overlay cannot
+    # re-read and pick a different one.
     async def get_nearest_record_ids(
         self,
         session: AsyncSession,
         record_id: uuid.UUID,
         *,
+        anchor: tuple[list[float], str, str | None],
         limit: int = 5,
         max_distance: float = 0.7,
     ) -> list[uuid.UUID]: ...

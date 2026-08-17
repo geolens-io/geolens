@@ -136,17 +136,25 @@ logger = logging.getLogger(__name__)
 # defect is a similarity percentage computed in the wrong space. An overlay
 # implementing the old signature raises TypeError on the same request.
 #
+# And, from fix(#1580 review r2), a widened ``get_nearest_record_ids``: it takes
+# the caller's already-read anchor as a required keyword instead of reading one
+# for itself. Two reads of the same record under READ COMMITTED can straddle a
+# worker committing a newer row, which leaves the ranking anchored on one vector
+# and the scoring on another; an overlay that kept the old signature would read
+# its own and reintroduce exactly that. Required rather than optional for the
+# same reason ``get_embedding_distances``'s pair is.
+#
 # Same test as every bump before it: a Protocol method a structural implementer
 # must supply, in a shape the core caller depends on.
 #
-# These two were briefly folded INTO 7 -> 8, on the reasoning that #1546 and
+# These three were briefly folded INTO 7 -> 8, on the reasoning that #1546 and
 # #1580 ship in one release with no core release between them, so an overlay
 # author performs one migration. That was wrong and the history says so rather
 # than hiding it. The constant pins the contract at a COMMIT, not at a release:
 # main has been a v8 contract since #1546 merged, so an overlay built and
 # declared against it boots cleanly against post-#1580 core and then meets a
 # ``get_record_embedding`` of a different shape and a ``get_embedding_distances``
-# wanting two new keywords. The first related-items request fails inside the
+# wanting two new keywords, with ``get_nearest_record_ids`` wanting a third. The first related-items request fails inside the
 # broad handler and returns an empty list — silent skew, which is the exact
 # thing this check exists to refuse. Release boundaries are not what the number
 # is about.

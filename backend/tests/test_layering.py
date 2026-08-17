@@ -1736,7 +1736,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # the lines are the two docstrings saying why the anchor's own pair is
         # the question here, where both sides are stored rows, rather than the
         # live configuration's. Cap 635 -> 653, exact.
-        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 653,
+        # fix(#1580 review r2): +4 — the anchor read is handed into the
+        # neighbour selection rather than left to be taken again. Two reads of
+        # one record under READ COMMITTED can straddle a commit, and then the
+        # ranking is anchored on a row the scoring never saw. Cap 653 -> 657.
+        "backend/app/modules/catalog/datasets/domain/service_relationships.py": 657,
         # fix(#474): reject primary-language updates that collide with a
         # translated variant. Cap 460 -> 480 (~9 LOC headroom above 471).
         # fix(#931): +7. _apply_visibility_change no longer carries its own
@@ -1905,7 +1909,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # why scoping the selection without scoping the distances would have
         # moved the defect one layer out rather than closing it.
         # Cap 478 -> 491, exact.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 491,
+        # fix(#1580 review r2): +18 — get_nearest_record_ids takes the caller's
+        # anchor as a required keyword, and both queries move to
+        # usable_by_stored_anchor. The lines are the two comments saying why the
+        # stored-vs-stored predicate does not grandfather an unstamped row where
+        # search's does: on the catalog that distinction matters for, a partial
+        # re-embed, the rows still carrying NULL are the old space.
+        # Cap 491 -> 509, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 509,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on

@@ -364,19 +364,28 @@ class DefaultCatalogPort:
 
         return await get_anchor_embedding_row(session, record_id)
 
-    async def get_nearest_record_ids(
+    async def get_nearest_record_ids(  # type: ignore[no-untyped-def]
         self,
         session,
         record_id,
         *,
+        anchor,
         limit=5,
         max_distance=0.7,
-    ):  # type: ignore[no-untyped-def]
+    ):
+        # fix(#1580 review r2): the anchor travels in rather than being read
+        # again here. The caller has already read it to score the results, and
+        # two reads under READ COMMITTED can straddle a commit — leaving the
+        # ranking anchored on one row and the scoring on another. Required
+        # rather than optional on the PORT: the only core caller holds one, and
+        # an overlay that re-read would reintroduce exactly the disagreement
+        # this closes.
         from app.processing.embeddings.helpers import get_nearest_record_ids
 
         return await get_nearest_record_ids(
             session,
             record_id,
+            anchor=anchor,
             limit=limit,
             max_distance=max_distance,
         )
@@ -401,7 +410,16 @@ class DefaultCatalogPort:
                 RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
             )
             .where(RecordEmbedding.record_id.in_(record_ids))
-            .where(RecordEmbedding.usable_by_config(model_name, config_fingerprint))
+            .where(
+                # fix(#1580 review r2): the stored-vs-stored predicate, the same
+                # one the selection uses. `usable_by_config` grandfathers an
+                # unstamped row against a stamped anchor, which is right for
+                # search (a fresh query vector, and on upgrade day the unstamped
+                # rows are all there is) and wrong here — a stamped anchor is
+                # evidence of a partly regenerated catalog, and the rows still
+                # carrying NULL are most likely the old space.
+                RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)
+            )
         )
         return {row.record_id: row.distance for row in result.all()}
 

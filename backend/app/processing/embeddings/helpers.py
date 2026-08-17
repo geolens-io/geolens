@@ -428,6 +428,7 @@ async def get_nearest_record_ids(
     session: AsyncSession,
     record_id: uuid.UUID,
     *,
+    anchor: tuple[list[float], str, str | None] | None = None,
     limit: int = 5,
     max_distance: float = 0.7,
 ) -> list[uuid.UUID]:
@@ -437,8 +438,11 @@ async def get_nearest_record_ids(
     has no embedding or no neighbors are within the distance threshold.
 
     fix(#1580): the neighbours are restricted to the anchor row's own vector
-    space. Both sides of this comparison are STORED rows, so the rule is "same
-    model and same stamp as the ANCHOR", not "same as the live configuration" —
+    space, through ``usable_by_stored_anchor`` — the stored-vs-stored predicate,
+    which unlike search's does NOT grandfather an unstamped candidate against a
+    stamped anchor (fix(#1580 review r2)). Both sides of this comparison are
+    STORED rows, so the rule is "same model and same stamp as the ANCHOR", not
+    "same as the live configuration" —
     a record embedded under a superseded configuration should still find its own
     neighbours rather than be silently compared against a space it was never in.
     Without the predicate a catalog holding two models' rows returned cosine
@@ -452,7 +456,19 @@ async def get_nearest_record_ids(
     here and already covers this; the docstring there names related-items by
     name.
     """
-    anchor = await get_anchor_embedding_row(session, record_id)
+    # fix(#1580 review r2): the caller may hand its anchor in, and the one
+    # caller that scores the results afterwards does. Reading it here a second
+    # time is two reads under READ COMMITTED, so a worker committing a newer
+    # row for this record between them left the ranking anchored on the new
+    # vector while the scoring used the old one — wrong distances, or an empty
+    # answer when the two spaces do not overlap. Passing it makes "the same
+    # row" a property of the call rather than of the isolation level.
+    #
+    # Optional because `metadata_service` reads neighbours with no anchor of
+    # its own; that caller has nothing downstream to disagree with, so it lets
+    # this read for it.
+    if anchor is None:
+        anchor = await get_anchor_embedding_row(session, record_id)
     if anchor is None:
         return []
     embedding, model_name, config_fingerprint = anchor
@@ -464,7 +480,7 @@ async def get_nearest_record_ids(
         select(RecordEmbedding.record_id)
         .join(RecordEmbedding.record)
         .where(RecordEmbedding.record_id != record_id)
-        .where(RecordEmbedding.usable_by_config(model_name, config_fingerprint))
+        .where(RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint))
         .where(RecordEmbedding.embedding.cosine_distance(embedding) <= max_distance)
         .order_by(RecordEmbedding.embedding.cosine_distance(embedding))
         .limit(limit)

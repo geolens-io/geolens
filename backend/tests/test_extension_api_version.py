@@ -88,9 +88,12 @@ class TestExtensionApiVersionConstant:
         keyword-only ``model_name`` and ``config_fingerprint``, required rather
         than defaulted so an overlay cannot keep scoring neighbours in a foreign
         space by omission; the old signature raises TypeError on the same
-        request.
+        request. ``get_nearest_record_ids`` likewise takes the caller's
+        already-read anchor as a required keyword rather than reading one for
+        itself, so the ranking and the scoring cannot end up on two different
+        rows of the same record when a commit lands between two reads.
 
-        Those two were briefly folded into v8 and then un-folded, on the
+        Those three were briefly folded into v8 and then un-folded, on the
         reasoning that #1546 and #1580 ship in one release. The constant pins
         the contract at a COMMIT: main was a v8 contract from the moment #1546
         merged, so an overlay declaring 8 against it would have booted cleanly

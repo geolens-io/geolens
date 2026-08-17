@@ -117,10 +117,14 @@ async def get_related_datasets(
         record_id, anchor = seed
 
         # Find nearest neighbors using shared helper (over-fetch for RBAC filtering).
-        # fix(#1580): the helper anchors on the same row this seed came from, so
-        # the selection and the scoring below stay in one vector space.
+        # fix(#1580): the selection and the scoring below stay in one vector
+        # space. fix(#1580 review r2): they stay on one ROW too — the anchor
+        # read above is handed in rather than taken again, because two reads
+        # under READ COMMITTED can straddle a worker committing a newer row for
+        # this record, which would rank against one vector and score against
+        # another.
         neighbor_record_ids = await get_catalog_port().get_nearest_record_ids(
-            db, record_id, limit=limit * 3, max_distance=0.7
+            db, record_id, anchor=anchor, limit=limit * 3, max_distance=0.7
         )
         if not neighbor_record_ids:
             return []
