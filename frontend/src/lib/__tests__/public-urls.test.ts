@@ -104,42 +104,78 @@ describe('getShareableBaseUrl', () => {
 });
 
 /**
- * fix(#1548 review r3): cover the class, not just the one call site.
+ * fix(#1548 review r3/r5): cover the class, not just the one call site.
  *
- * The bug was that SharePanel built the embed snippet from
- * `window.location.origin` — whatever hostname the ADMIN happened to be using —
- * for a URL that someone else opens. The share link and its /card twin had the
- * same defect, so fixing only the snippet would have left the two disagreeing
- * about their own origin.
+ * SharePanel resolves three origins, and the question that picks between them
+ * is WHO OPENS THE URL:
  *
- * This pins that no path handed to a third party is rebuilt from the current
- * origin inline. It reads the source rather than the rendered output because
- * the next such builder has not been written yet, and that is the one this is
- * for. The origin is resolved ONCE at the top of the component, through
- * lib/public-urls.ts, and every builder reads that.
+ *  - handed to someone else (the copied link, its /card twin, the iframe
+ *    snippet) -> the configured public origin, because the recipient is not on
+ *    this network;
+ *  - opened by this browser (the "Open" button, the embed preview) -> the
+ *    current origin, because this browser demonstrably reaches that host and a
+ *    split-horizon deployment may route the public one externally only.
+ *
+ * Both directions have already been got wrong once each on this PR — first
+ * every URL used the current origin, then every URL used the public one — and
+ * each mistake reads as reasonable in isolation. So pin the assignment itself
+ * rather than trusting a reader to re-derive it, and pin it per builder, since
+ * the failure mode both times was one category swallowing the other.
  */
-describe('no shareable URL is built from the current origin', () => {
-  const SHAREABLE_PATHS = [
-    '/m/', // the embed shell and viewer
-    '/api/maps/shared/', // the unfurlable /card link
-  ];
+describe('SharePanel resolves each URL from the right origin', () => {
+  const source = readFileSync(
+    join(process.cwd(), 'src/components/builder/SharePanel.tsx'),
+    'utf-8',
+  );
 
-  it('SharePanel builds none of them from window.location.origin', () => {
-    const source = readFileSync(
-      join(process.cwd(), 'src/components/builder/SharePanel.tsx'),
-      'utf-8',
+  /** The body of a top-level `function name() { ... }` in the component. */
+  function bodyOf(name: string): string {
+    const start = source.indexOf(`function ${name}()`);
+    expect(start, `${name}() not found — did it get renamed?`).toBeGreaterThan(-1);
+    const open = source.indexOf('{', start);
+    let depth = 0;
+    for (let i = open; i < source.length; i += 1) {
+      if (source[i] === '{') depth += 1;
+      if (source[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return source.slice(open, i + 1);
+      }
+    }
+    throw new Error(`unbalanced braces in ${name}()`);
+  }
+
+  it.each([
+    // builder,            uses,             must not use
+    ['getShareCardUrl', 'shareBaseUrl', 'currentOrigin'],
+    ['getEmbedCode', 'embedBaseUrl', 'currentOrigin'],
+    ['getShareUrl', 'currentOrigin', 'shareBaseUrl'],
+  ])('%s builds from %s', (builder, expected, forbidden) => {
+    const body = bodyOf(builder);
+    expect(body, `${builder} must build from ${expected}`).toContain(expected);
+    expect(body, `${builder} must not build from ${forbidden}`).not.toContain(
+      forbidden,
     );
+  });
 
+  it('previews from the current origin, since this browser loads it', () => {
+    const pane = source.slice(source.indexOf('<EmbedPreviewPane'));
+    const origin = pane.slice(0, pane.indexOf('/>'));
+    expect(origin).toContain('origin={currentOrigin}');
+  });
+
+  it('no builder reaches for window.location.origin inline', () => {
+    // The current origin is resolved ONCE at the top of the component, so the
+    // three bindings above are the only vocabulary a builder has.
     const offenders = source
       .split('\n')
       .map((line, i) => [line, i + 1] as const)
       .filter(([line]) => line.includes('window.location.origin'))
-      .filter(([line]) => SHAREABLE_PATHS.some((p) => line.includes(p)));
+      .filter(([line]) => ['/m/', '/api/maps/shared/'].some((p) => line.includes(p)));
 
     expect(
       offenders.map(([line, n]) => `${n}: ${line.trim()}`),
-      'resolve the origin through lib/public-urls.ts instead — a URL opened by ' +
-        'someone else must not be built from this admin hostname inline',
+      'use currentOrigin / shareBaseUrl / embedBaseUrl instead — which one ' +
+        'depends on who opens the URL',
     ).toEqual([]);
   });
 });

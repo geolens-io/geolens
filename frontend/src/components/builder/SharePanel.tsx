@@ -644,6 +644,12 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
   // builder-audit #338 SHARE-04 / IN-01: share the exact URL construction with
   // generateEmbedCode via buildEmbedSrc so the preview and the copyable snippet
   // can never diverge on path or query-param shape.
+  //
+  // fix(#1548 review r5): the ORIGIN is now the one thing they may legitimately
+  // differ on, and the caller decides. The snippet is opened by a customer and
+  // names the public host; the preview is opened by this browser and names the
+  // host this browser reached. Path, params and sandbox stay identical, which
+  // is what this sharing was ever for.
   const src = buildEmbedSrc({ shareToken, embedTokenRaw, origin });
 
   return (
@@ -937,11 +943,23 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
 
-  // fix(#1548 review r3/r4): every URL handed to someone else — the share link,
-  // its unfurlable /card twin, the iframe snippet, the preview standing in for
-  // that snippet — prefers the deployment's configured public origin over
-  // whatever hostname this admin is using. See lib/public-urls.ts for why
-  // "configured" is not the same question as "correct".
+  // fix(#1548 review r3/r4/r5): three origins live here, and the question that
+  // picks between them is WHO OPENS THE URL — not whether it is "a share".
+  //
+  //  1. HANDED TO SOMEONE ELSE — the copied link, its /card twin, the iframe
+  //     snippet. The recipient is not on this network, so these must name the
+  //     address people use to reach GeoLens (shareBaseUrl / embedBaseUrl).
+  //  2. OPENED BY THIS BROWSER — the "Open" button and the embed preview. These
+  //     use currentOrigin directly and are deliberately NEITHER of the others:
+  //     this browser demonstrably reaches this host, and may not reach the
+  //     public one at all. An externally routed public hostname unreachable
+  //     from the internal admin network is a normal split-horizon deployment,
+  //     not a misconfiguration, and pointing a local affordance at it means an
+  //     admin can use GeoLens yet cannot open the share they just created.
+  //  3. The domain-lock decision is a further split within (1), below.
+  //
+  // See lib/public-urls.ts for why "configured" is not the same question as
+  // "correct".
   const { data: tileConfig } = useTileConfig();
   const currentOrigin = typeof window === 'undefined' ? '' : window.location.origin;
   // Non-null only when the configured value is one a viewer could actually
@@ -1067,10 +1085,13 @@ export function ShareDialog({
     }
   }
 
-  /** Feeds the "Open" button — navigation in THIS admin's browser. */
+  /** fix(#1548 review r5): category (2) above — the "Open" button navigates
+   *  THIS admin's browser and hands the URL to nobody, so it uses the origin
+   *  this browser is known to reach rather than the public one, which a
+   *  split-horizon deployment may route only externally. */
   function getShareUrl() {
     if (!rawShareToken) return '';
-    return `${shareBaseUrl}/m/${rawShareToken}`;
+    return `${currentOrigin}/m/${rawShareToken}`;
   }
 
   /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
@@ -1519,11 +1540,16 @@ export function ShareDialog({
                     </div>
                   )}
                   {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
-                  {embedTokenRaw && embedBaseUrl && (
+                  {/* fix(#1548 review r5): category (2) — the preview loads in
+                      THIS browser, so it must use an origin this browser can
+                      actually reach. Pointed at a public host that is routed
+                      only externally it would render nothing at all, which is
+                      strictly worse than previewing from the serving host. */}
+                  {embedTokenRaw && (
                     <EmbedPreviewPane
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
-                      origin={embedBaseUrl}
+                      origin={currentOrigin}
                     />
                   )}
                 </div>

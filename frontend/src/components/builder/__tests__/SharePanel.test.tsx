@@ -1276,17 +1276,26 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
     expect(textarea.value).not.toContain(window.location.origin);
   });
 
-  it('points the preview iframe at the configured origin too', async () => {
+  /**
+   * fix(#1548 review r5): the snippet and the preview deliberately DIVERGE on
+   * origin, and asserting them together is the clearest statement of the rule.
+   * Same map, same token, same moment — the snippet names the host the customer
+   * will open, the preview names the host this browser just reached.
+   */
+  it('splits the snippet and the preview by who opens each', async () => {
     const user = userEvent.setup();
     setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: CONFIGURED });
     await generateShareLinkAndWait(user);
-    await user.click(screen.getByRole('button', { name: /preview/i }));
 
+    const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+    expect(textarea.value).toContain(`src="${CONFIGURED}/m/share-token`);
+
+    await user.click(screen.getByRole('button', { name: /preview/i }));
     const iframe = (await screen.findByTestId(
       'share-preview-iframe',
     )) as HTMLIFrameElement;
-    expect(iframe.src).toContain(`${CONFIGURED}/m/share-token`);
-    expect(iframe.src).not.toContain(window.location.origin);
+    expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+    expect(iframe.src).not.toContain(CONFIGURED);
   });
 
   it('copies a share link on the configured origin', async () => {
@@ -1427,5 +1436,67 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
       '_blank',
     );
     openSpy.mockRestore();
+  });
+
+  /**
+   * fix(#1548 review r5): the split-horizon deployment.
+   *
+   * A public hostname routed externally and unreachable from the internal admin
+   * network is a normal setup, not a misconfiguration. The copied link must
+   * still name the public host — the customer is not on this network — but
+   * anything THIS browser opens has to name the host this browser reached, or
+   * an admin can use GeoLens normally and yet cannot open the share they just
+   * created.
+   */
+  describe('split-horizon: the public host is not reachable from here', () => {
+    const PUBLIC_HOST = 'https://maps.example.com';
+
+    it('opens the viewer on the current origin, not the public one', async () => {
+      const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+      const user = userEvent.setup();
+      setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: PUBLIC_HOST });
+      await generateShareLinkAndWait(user);
+
+      await user.click(screen.getByRole('button', { name: /^open$/i }));
+      expect(openSpy).toHaveBeenCalledWith(
+        `${window.location.origin}/m/share-token`,
+        '_blank',
+      );
+      expect(openSpy.mock.calls[0][0]).not.toContain(PUBLIC_HOST);
+      openSpy.mockRestore();
+    });
+
+    it('previews from the current origin, not the public one', async () => {
+      const user = userEvent.setup();
+      setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: PUBLIC_HOST });
+      await generateShareLinkAndWait(user);
+      await user.click(screen.getByRole('button', { name: /preview/i }));
+
+      const iframe = (await screen.findByTestId(
+        'share-preview-iframe',
+      )) as HTMLIFrameElement;
+      // An iframe pointed at a host this browser cannot resolve renders
+      // nothing, which is strictly worse than previewing from the serving host.
+      expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+      expect(iframe.src).not.toContain(PUBLIC_HOST);
+    });
+
+    it('still copies a link on the public host, because the customer opens that', async () => {
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        writable: true,
+        configurable: true,
+      });
+      setup({ hasShareToken: false, publicAppUrl: PUBLIC_HOST });
+      await generateShareLinkAndWait(user);
+
+      await user.click(screen.getByRole('button', { name: /copy link/i }));
+      await waitFor(() => expect(writeText).toHaveBeenCalled());
+      expect(writeText.mock.calls[0][0]).toBe(
+        `${PUBLIC_HOST}/api/maps/shared/share-token/card`,
+      );
+    });
   });
 });
