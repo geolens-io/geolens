@@ -2791,7 +2791,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The comments carry the part that is not visible in the code: why the
     # retry-path read is paid at all when the drift check two lines up already
     # compares the same two widths. Cap 1013 -> 1068, exact.
-    "backend/app/processing/embeddings/backfill.py": 1068,
+    # fix(#1533 review r2, codex P2): +30 for the same lesson one batch size
+    # further in. A single-record batch — any catalog sized 1 mod _BATCH_SIZE —
+    # made "every vector agrees" vacuously true, so one anomalous vector in the
+    # final batch stopped the run. _column_rejects_width splits the fit test
+    # away from what a mismatch MEANS, so the batch rule can demand two vectors
+    # while the retry rule keeps judging one, and the comment says why they
+    # cannot share a predicate: the first attempt at this fix routed one vector
+    # through the batch rule and silently disarmed the retry check.
+    # Cap 1068 -> 1098, exact.
+    "backend/app/processing/embeddings/backfill.py": 1098,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

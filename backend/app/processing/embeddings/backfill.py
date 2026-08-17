@@ -164,6 +164,29 @@ class _AnomalousVectorWidth(RuntimeError):
     """
 
 
+def _column_rejects_width(generated: int, pinned_column_dims: int | None) -> str | None:
+    """Describe a generated width the column will not take, or None if it will.
+
+    The fit test on its own, with no opinion about what the mismatch MEANS. Its
+    two callers supply that: agreement across a batch on one path, a storage
+    read on the other. Splitting it out is what stops the two rules from having
+    to share one predicate, which is how a change meant for the batch path
+    silently disarmed the retry path once already.
+
+    `isinstance` rather than `is not None`, because `scalar_one_or_none` answers
+    `int | None` and -1 means an unconstrained `vector`, which accepts any width
+    and so can never mismatch.
+    """
+    if not isinstance(pinned_column_dims, int) or pinned_column_dims <= 0:
+        return None
+    if generated == pinned_column_dims:
+        return None
+    return (
+        f"the model produced {generated}-dimension vectors but "
+        f"catalog.record_embeddings.embedding is vector({pinned_column_dims})"
+    )
+
+
 def _structural_width_mismatch(
     vectors: list[list[float]], pinned_column_dims: int | None
 ) -> str | None:
@@ -201,26 +224,29 @@ def _structural_width_mismatch(
     already wrong, or that has just been rebuilt, produces exactly that. Mixed
     widths mean one bad input among good ones, so this returns None and lets the
     batch fail into the per-record retry, where each vector is judged alone.
-
-    An empty `vectors` yields no width to agree on, so it is not structural
-    either; the batch simply fails and is retried.
-
-    `isinstance` rather than `is not None`, because `scalar_one_or_none` answers
-    `int | None` and -1 means an unconstrained `vector`, which accepts any width
-    and so can never mismatch.
     """
-    if not isinstance(pinned_column_dims, int) or pinned_column_dims <= 0:
+    # fix(#1579 review r2, codex P2): TWO vectors minimum. Agreement is the
+    # evidence, and one input agrees with itself vacuously — the same reason
+    # `_raise_on_retry_vector_width` asks storage instead of counting widths.
+    # A final batch of one, which is any catalog sized 1 mod _BATCH_SIZE, was
+    # otherwise read as structural and stopped the whole run over a single bad
+    # record: the isolation bug the previous round fixed on the retry path,
+    # surviving at the one batch size where the batch path cannot tell the two
+    # apart either.
+    #
+    # It falls through instead of growing a branch here. The insert fails, the
+    # record is retried, and the retry rule decides it from storage, which is
+    # the evidence that does work for one input. The cost is one extra provider
+    # call for that one record, which is what a mixed-width batch already pays.
+    #
+    # An empty response lands here too, and for the same reason rather than by
+    # accident: no vectors, no agreement, nothing structural to claim.
+    if len(vectors) < 2:
         return None
     widths = {len(vector) for vector in vectors}
     if len(widths) != 1:
         return None
-    generated = widths.pop()
-    if generated == pinned_column_dims:
-        return None
-    return (
-        f"the model produced {generated}-dimension vectors but "
-        f"catalog.record_embeddings.embedding is vector({pinned_column_dims})"
-    )
+    return _column_rejects_width(widths.pop(), pinned_column_dims)
 
 
 def _raise_on_structural_width(
@@ -260,8 +286,12 @@ async def _raise_on_retry_vector_width(
     nobody is stopped from reordering — and getting it wrong silently converts a
     structural storm into ten thousand counted errors, which is the outcome this
     whole PR exists to prevent.
+
+    Calls the fit test directly rather than `_structural_width_mismatch`, which
+    now requires two vectors to have an opinion. Routing one vector through the
+    batch rule made this check silently answer None for every record.
     """
-    detail = _structural_width_mismatch([vector], pinned_column_dims)
+    detail = _column_rejects_width(len(vector), pinned_column_dims)
     if detail is None:
         return
     if await _live_column_dims(session) == pinned_column_dims:

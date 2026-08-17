@@ -439,3 +439,52 @@ async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
 
     # And the column never moved, which is what made it isolated.
     assert await _column_dims() == start_width
+
+
+@pytest.mark.anyio
+async def test_a_one_record_batch_does_not_read_as_structural(
+    test_db_session, monkeypatch
+):
+    """One input agrees with itself, which is no evidence at all (#1579 review r2).
+
+    The batch rule calls a width mismatch structural when every vector in the
+    batch shares it. With a single-record batch that test is vacuous: one
+    anomalous vector satisfies it, and the run stopped over one bad record —
+    the same isolation bug as the retry path had, surviving at the one batch
+    size where the batch path has no more evidence than the retry path does.
+
+    A catalog sized 1 mod `_BATCH_SIZE` produces exactly that batch as its last.
+    `_BATCH_SIZE` is patched to 1 rather than seeding 129 records: it makes
+    EVERY batch a singleton, so the anomalous record lands in one whatever order
+    the run selects records in, and it does not depend on how many records other
+    tests left on this worker's database.
+    """
+    start_width = await _column_dims()
+    odd_width = 768 if start_width != 768 else 384
+    odd_marker = "Singleton Batch Anomaly"
+
+    user_id = await get_user_id(test_db_session, "admin")
+    for index in range(_SEEDED):
+        await create_dataset(
+            test_db_session, created_by=user_id, name=f"Singleton Good {index}"
+        )
+    await create_dataset(test_db_session, created_by=user_id, name=odd_marker)
+    await test_db_session.commit()
+
+    _pin_model(monkeypatch)
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
+
+    async def _embed(texts, _session, **_kwargs):
+        return [
+            [0.1] * (odd_width if odd_marker in text else start_width) for text in texts
+        ]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _embed)
+
+    result = await backfill_module.backfill_embeddings(test_db_session, force=True)
+
+    assert result["errors"] == 1, result
+    assert result["created"] >= _SEEDED, result
+    assert await _embedding_count(test_db_session) == result["created"]
+    # The column never moved, which is what made the one mismatch isolated.
+    assert await _column_dims() == start_width
