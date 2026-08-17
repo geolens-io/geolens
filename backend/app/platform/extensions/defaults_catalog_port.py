@@ -312,21 +312,38 @@ class DefaultCatalogPort:
 
         return await has_embeddings(session)
 
-    async def resolve_embedding_config_fingerprint(self, session, *, model_name=None):  # type: ignore[no-untyped-def]
-        # fix(#1546): semantic search filters stored rows on this, and
-        # `modules/catalog/` may not import `app.processing.*`.
-        from app.processing.embeddings.helpers import (
-            resolve_embedding_config_fingerprint,
+    async def resolve_embedding_config(self, session):  # type: ignore[no-untyped-def]
+        # fix(#1546): semantic search filters stored rows on the fingerprint,
+        # and `modules/catalog/` may not import `app.processing.*`. It gets the
+        # whole (model, dimensions, endpoint, fingerprint) rather than the
+        # fingerprint alone because it also has to PIN the provider call to the
+        # same configuration it filters on (#1546 review r1).
+        from app.processing.embeddings.helpers import resolve_live_embedding_config
+
+        return await resolve_live_embedding_config(session)
+
+    async def generate_embedding(self, text, session, *, pinned=None):  # type: ignore[no-untyped-def]
+        from app.processing.embeddings.service import generate_embeddings_batch
+
+        # fix(#1546 review r1, codex P1): `pinned` is (model, dimensions,
+        # endpoint) as ONE optional argument rather than three keyword ones.
+        # `None` is a legitimate resolved endpoint — the provider interface
+        # lets an extension answer `{"base_url": None}` meaning "use the client
+        # default", which is why `generate_embeddings_batch` distinguishes it
+        # from an omission with a sentinel (`_Unset`, #1525). Three defaults of
+        # `None` could not tell "not pinned" from "pinned to the client
+        # default", and would have re-resolved the endpoint for exactly the
+        # providers the pin most needs to protect. One argument, absent or
+        # complete, cannot express that mistake.
+        if pinned is None:
+            from app.processing.embeddings.service import generate_embedding
+
+            return await generate_embedding(text, session)
+        model, dimensions, base_url = pinned
+        vectors = await generate_embeddings_batch(
+            [text], session, model=model, dimensions=dimensions, base_url=base_url
         )
-
-        return await resolve_embedding_config_fingerprint(
-            session, model_name=model_name
-        )
-
-    async def generate_embedding(self, text, session):  # type: ignore[no-untyped-def]
-        from app.processing.embeddings.service import generate_embedding
-
-        return await generate_embedding(text, session)
+        return vectors[0]
 
     async def set_hnsw_recall(self, session):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.helpers import set_hnsw_recall

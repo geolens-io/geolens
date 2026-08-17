@@ -33,6 +33,7 @@ from app.core.db.models import AppSetting
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
 from app.modules.admin.service import AdminService
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 from app.platform.extensions.defaults_processing_port import DefaultProcessingPort
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings import helpers
@@ -353,6 +354,57 @@ async def test_the_match_total_excludes_a_foreign_configuration_too(
     titles = [f["properties"]["title"] for f in body["features"]]
     assert "Zqy Stamp Total 0" in titles
     assert body["numberMatched"] == 1
+
+
+@pytest.mark.anyio
+async def test_a_configuration_read_that_raises_degrades_to_fts(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+):
+    """fix(#1546 review r1, codex P2): resolving is inside the fallback guard.
+
+    The vector arm has always degraded to FTS on any failure rather than taking
+    the search request down with it, and resolving the configuration is a
+    persistent-config read that can raise on a cache miss or a transient
+    database failure. Model resolution used to happen inside
+    `generate_embedding`, under that guard; hoisting it to the top of
+    `_get_vector_ranks` silently made the same failure fatal.
+
+    The query below matches a record lexically, so FTS has something to return
+    and "degraded" is distinguishable from "returned nothing".
+    """
+    session = test_db_session
+    await _enable_semantic_search(session)
+    user_id = await get_user_id(session, "admin")
+    model_name = await EMBEDDING_MODEL.get(session)
+
+    dataset = await _create_dataset(
+        session, created_by=user_id, name="Zqw Stamp Resolver Raises"
+    )
+    await _add_embedding(
+        session,
+        dataset.record_id,
+        model_name=model_name,
+        config_fingerprint=None,
+        vector=_vector_band(1.0, lo=960),
+    )
+
+    async def _raises(_session):
+        raise RuntimeError("persistent config is unavailable")
+
+    with patch.object(
+        DefaultCatalogPort, "resolve_embedding_config", side_effect=_raises
+    ):
+        response = await client.get(
+            "/search/datasets/",
+            params={"q": "Zqw Stamp Resolver Raises"},
+            headers=admin_auth_header,
+        )
+
+    assert response.status_code == 200
+    titles = [f["properties"]["title"] for f in response.json()["features"]]
+    assert "Zqw Stamp Resolver Raises" in titles
 
 
 @pytest.mark.anyio

@@ -14,7 +14,6 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import Label
 from sqlalchemy.sql.selectable import Select
 
-from app.core.persistent_config import EMBEDDING_MODEL
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.search.service_filters import SearchFilters
@@ -96,35 +95,22 @@ def _embedding_cache_clear() -> None:
 _QUERY_EMBED_TIMEOUT_SECONDS = 8.0
 
 
-async def _embed_with_deadline(text: str, session: AsyncSession) -> list[float]:
+async def _embed_with_deadline(
+    text: str,
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None] | None = None,
+) -> list[float]:
     return await asyncio.wait_for(
-        get_catalog_port().generate_embedding(text, session),
+        get_catalog_port().generate_embedding(text, session, pinned=pinned),
         timeout=_QUERY_EMBED_TIMEOUT_SECONDS,
     )
-
-
-async def _live_embedding_identity(session: AsyncSession) -> tuple[str, str]:
-    """Return (active model name, live configuration fingerprint) — #1546.
-
-    One read of the model, threaded into the fingerprint, so the value the
-    query filters on and the value inside the fingerprint cannot land on
-    opposite sides of a settings change. The port call never raises; an
-    unresolvable configuration answers with a sentinel that matches no stamped
-    row, so the vector arm degrades to whatever is unstamped rather than
-    returning cross-space matches.
-    """
-    model_name = await EMBEDDING_MODEL.get(session)
-    fingerprint = await get_catalog_port().resolve_embedding_config_fingerprint(
-        session, model_name=model_name
-    )
-    return model_name, fingerprint
 
 
 async def generate_embedding(
     text: str,
     session: AsyncSession,
     *,
-    identity: tuple[str, str] | None = None,
+    config: tuple[str, int | None, str | None, str] | None = None,
 ) -> list[float]:
     """Generate an embedding through the configured CatalogPort provider.
 
@@ -133,23 +119,48 @@ async def generate_embedding(
     fingerprint)`, TTL 300s. Cache write only happens on the success path;
     provider errors propagate to callers as before.
 
-    ``identity`` is the `(model, fingerprint)` pair from
-    `_live_embedding_identity`, passed by a caller that already resolved it so
-    one search request resolves it once. Omit it and this resolves its own.
+    ``config`` is the live `(model, dimensions, endpoint, fingerprint)` from
+    `CatalogPort.resolve_embedding_config`, passed by a caller that already
+    resolved it so one search request resolves it once. Omit it and this
+    resolves its own.
+
+    fix(#1546 review r1, codex P1): the first three are handed to the PROVIDER,
+    not just used to key the cache. Without that the provider re-resolved the
+    live configuration for itself, so a settings change landing between the
+    identity read and the provider call produced a vector under configuration B
+    that was then cached under, and ranked against, configuration A's rows —
+    the cross-space comparison this whole change exists to prevent, inside a
+    single request.
+
+    Verifying afterwards instead was considered and rejected: it would catch
+    the divergence only once the vector existed, and the natural handling
+    (discard, do not cache) still leaves THIS request either ranking on a
+    wrong-space vector or silently losing its vector arm. Pinning removes the
+    divergence rather than detecting it.
     """
     normalized = text.strip().lower()
     if not normalized:
         # Don't cache empty inputs — let the provider raise its usual error.
         return await _embed_with_deadline(text, session)
 
-    model_name, fingerprint = identity or await _live_embedding_identity(session)
+    if config is None:
+        config = await get_catalog_port().resolve_embedding_config(session)
+    if config is None:
+        # The configuration could not be resolved, so there is nothing to pin
+        # and nothing safe to key a cache entry on. Let the provider resolve
+        # and fail the way it did before any of this existed.
+        return await _embed_with_deadline(text, session)
+
+    model_name, dimensions, base_url, fingerprint = config
     cache_key = (tenant_cache_key(normalized), model_name, fingerprint)
 
     cached = _embedding_cache_get(cache_key)
     if cached is not None:
         return cached
 
-    vector = await _embed_with_deadline(text, session)
+    vector = await _embed_with_deadline(
+        text, session, (model_name, dimensions, base_url)
+    )
     _embedding_cache_put(cache_key, vector)
     return vector
 
@@ -201,18 +212,30 @@ async def _get_vector_ranks(
     if not await get_catalog_port().has_embeddings(session):
         return {}, None, None
 
-    # fix(#1546): the query vector and the row filter must come from ONE reading
-    # of the configuration. Resolved once, here, below the has_embeddings gate
-    # so a catalog with no vectors does not pay for it, and handed back to the
-    # caller so a settings change landing mid-request cannot rank under one
-    # configuration and count under another.
-    identity = await _live_embedding_identity(session)
-    model_name, config_fingerprint = identity
-
     # Generate query embedding
     try:
+        # fix(#1546): the query vector and the row filter must come from ONE
+        # reading of the configuration. Resolved once, here, below the
+        # has_embeddings gate so a catalog with no vectors does not pay for it,
+        # and handed back to the caller so a settings change landing mid-request
+        # cannot rank under one configuration and count under another.
+        #
+        # fix(#1546 review r1, codex P2): INSIDE this guard, not above it.
+        # Resolving reads persistent config, which can raise on a cache miss or
+        # a transient database failure, and above the guard that raise escaped
+        # the whole search request. Model resolution used to happen inside
+        # `generate_embedding`, where it degraded to FTS like every other
+        # failure on this path; hoisting it silently made it fatal. Same
+        # failure, same degradation.
+        config = await get_catalog_port().resolve_embedding_config(session)
+        if config is None:
+            logger.warning(
+                "Embedding configuration unresolved for semantic search, "
+                "falling back to FTS"
+            )
+            return {}, None, None
         query_vector = await generate_embedding(
-            query_text.strip(), session, identity=identity
+            query_text.strip(), session, config=config
         )
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
@@ -222,6 +245,9 @@ async def _get_vector_ranks(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
         return {}, None, None
+
+    model_name, _dimensions, _base_url, config_fingerprint = config
+    identity = (model_name, config_fingerprint)
 
     try:
         # Tune HNSW recall -- default ef_search=40 may miss relevant results

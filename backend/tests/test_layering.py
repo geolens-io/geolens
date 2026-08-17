@@ -1687,8 +1687,16 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # with them — the memoized query vector is a third independent reader of
         # the configuration, and filtering rows by the live one while serving a
         # vector made under the previous one moves the bug rather than fixing
-        # it. Cap 395 -> 456, exact.
-        "backend/app/modules/catalog/search/service_semantic.py": 456,
+        # it. Cap 395 -> 456.
+        # fix(#1546 review r1, codex P1/P2): +26 — the resolved configuration is
+        # now handed to the PROVIDER as well as used for the filter and the
+        # cache key, so a settings change inside one request cannot produce the
+        # query vector under a configuration the rows are not ranked under; and
+        # the resolution moved inside the FTS fallback guard, where a raising
+        # persistent-config read degrades instead of failing the search. Most of
+        # the lines are the two rationales, including why verify-after-the-fact
+        # was rejected. Cap 456 -> 482, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 482,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -1874,8 +1882,14 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # semantic search needs to tell a stored vector from one made under
         # another endpoint. Same deferred-import shape as its neighbours;
         # `modules/catalog/` may not import `app.processing.*`, so it crosses
-        # here. Cap 450 -> 461, exact.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 461,
+        # here. Cap 450 -> 461.
+        # fix(#1546 review r1, codex P1): +17 — the port answers the whole live
+        # configuration rather than its fingerprint alone, and generate_embedding
+        # takes a pinned triple. The comment carries why that is ONE optional
+        # argument and not three keyword ones: `None` is a legitimate resolved
+        # endpoint, so three None defaults could not tell "not pinned" from
+        # "pinned to the client default". Cap 461 -> 478, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 478,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on

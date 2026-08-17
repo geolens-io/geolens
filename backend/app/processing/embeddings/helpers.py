@@ -128,6 +128,34 @@ def embedding_config_fingerprint(
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
+async def resolve_live_embedding_config(
+    session: AsyncSession,
+    *,
+    model_name: str | None = None,
+    uncached: bool = False,
+) -> tuple[str, int | None, str | None, str] | None:
+    """The live (model, dimensions, endpoint, fingerprint), or None if unresolvable.
+
+    fix(#1546 review r1, codex P1): callers need the TRIPLE, not only its
+    fingerprint. Semantic search filters stored rows on the fingerprint and
+    must generate its query vector under the very same configuration; handing
+    it the fingerprint alone left the provider call free to re-resolve, so a
+    settings change between the two produced a vector from configuration B
+    cached under, and compared against, configuration A. Returning all four
+    together is what makes "the identity I filtered on" and "the identity that
+    produced the vector" one object rather than two reads.
+
+    None means the configuration could not be resolved. A caller that cannot
+    name the configuration cannot safely compare vectors against anything, and
+    the provider call it would make next resolves through the same machinery
+    and would fail too, so the honest answer is to stop rather than to guess.
+    """
+    resolved = await _resolve_live_embedding_config(
+        session, model_name=model_name, uncached=uncached
+    )
+    return resolved
+
+
 async def resolve_embedding_config_fingerprint(
     session: AsyncSession,
     *,
@@ -172,13 +200,26 @@ async def resolve_embedding_config_fingerprint(
     SAVEPOINT; that is not paid for on the search hot path for a mode the
     runtime role cannot reach (it reads `app_settings` on every request).
     """
+    resolved = await _resolve_live_embedding_config(
+        session, model_name=model_name, uncached=uncached
+    )
+    return UNKNOWN_EMBEDDING_CONFIG if resolved is None else resolved[3]
+
+
+async def _resolve_live_embedding_config(
+    session: AsyncSession,
+    *,
+    model_name: str | None = None,
+    uncached: bool = False,
+) -> tuple[str, int | None, str | None, str] | None:
+    """Read the live configuration once, or answer None. Never raises."""
     from app.core.persistent_config import EMBEDDING_DIMS
 
     try:
         if model_name is None:
             model_name = await resolve_embedding_model_name(session, uncached=uncached)
         if model_name == UNKNOWN_EMBEDDING_MODEL:
-            return UNKNOWN_EMBEDDING_CONFIG
+            return None
         dimensions = await (
             EMBEDDING_DIMS.get_uncached(session)
             if uncached
@@ -191,9 +232,14 @@ async def resolve_embedding_config_fingerprint(
 
         base_url = await resolve_embedding_base_url(session)
     except Exception:  # broad: config/provider resolution fails for many reasons; a reader must degrade, not raise
-        logger.warning("embedding_config_fingerprint_unresolved", exc_info=True)
-        return UNKNOWN_EMBEDDING_CONFIG
-    return embedding_config_fingerprint(model_name, dimensions, base_url)
+        logger.warning("embedding_config_unresolved", exc_info=True)
+        return None
+    return (
+        model_name,
+        dimensions,
+        base_url,
+        embedding_config_fingerprint(model_name, dimensions, base_url),
+    )
 
 
 async def has_embeddings(session: AsyncSession) -> bool:
