@@ -54,8 +54,12 @@ class _RecordingProvider:
 
     def __init__(self):
         self.calls: list[dict] = []
+        # Stashed for the subclass that has to write config from inside a
+        # provider call; `embed` is not handed a session.
+        self._session = None
 
     async def resolve_runtime_config(self, session):
+        self._session = session
         return {
             "default_model": "provider-fallback-model",
             "default_dims": 1536,
@@ -111,18 +115,45 @@ class _ExplodingProvider(_RecordingProvider):
 
 
 class _SwitchingProvider(_RecordingProvider):
-    """Flips the live config from inside the provider call.
+    """Flips the live config from inside the first provider call.
 
-    `resolve_runtime_config` is the one await `service.py` makes after backfill
-    has captured its own values and before the service would re-read them, so
-    this covers the late window: a swap that lands once the run is already
-    generating.
+    Covers the late window: a swap that lands once the run is already
+    generating, after the snapshot has captured its own values and before the
+    service would re-read them.
+
+    The flip hangs on `embed` rather than on `resolve_runtime_config`, which is
+    where it used to sit. fix(#1525) made `_snapshot_embedding_config` resolve
+    the endpoint through `resolve_runtime_config`, so a flip there now lands
+    INSIDE the capture window and the snapshot's comparison aborts the run.
+    That is a real behaviour and it has its own coverage
+    (`test_an_edit_inside_the_snapshot_window_aborts_the_run`), but it is not
+    the scenario this file is about. `embed` is the first await after the
+    snapshot completes on both paths, and it is where a run actually spends its
+    time, so it is the more faithful place for an admin edit to land.
     """
 
-    async def resolve_runtime_config(self, session):
-        await EMBEDDING_MODEL.set(session, _MODEL_B)
-        await EMBEDDING_DIMS.set(session, _DIMS_B)
-        return await super().resolve_runtime_config(session)
+    def __init__(self):
+        super().__init__()
+        self._switched = False
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        vectors = await super().embed(
+            texts=texts,
+            model=model,
+            dimensions=dimensions,
+            base_url=base_url,
+            timeout=timeout,
+        )
+        # Not during the force path's pre-flight. That call happens before the
+        # first batch, so a swap landing there is caught by the drift check at
+        # the batch boundary and the run stops having written nothing — a real
+        # behaviour, covered in test_embedding_backfill_base_url_pinning.py,
+        # but not the "already generating" window this file is about.
+        if not self._switched and list(texts) != [backfill_module._PREFLIGHT_TEXT]:
+            self._switched = True
+            await EMBEDDING_MODEL.set(self._session, _MODEL_B)
+            await EMBEDDING_DIMS.set(self._session, _DIMS_B)
+        return vectors
 
 
 async def _embedding_count(session) -> int:
@@ -152,14 +183,24 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     restore_embedding_config,
     force,
 ):
-    """The label on a stored row must name the model that produced it."""
+    """A model swap landing mid-generation must leave no row behind."""
     user_id = await get_user_id(test_db_session, "admin")
-    dataset = await create_dataset(
+    await create_dataset(
         test_db_session, created_by=user_id, name=f"Model Pinning {force}"
+    )
+    # A second record, so the non-force path always has work for a second
+    # batch. It selects only records with no vector under the ACTIVE model, and
+    # a sibling run that already embedded the catalog under _MODEL_A leaves
+    # exactly one: this test's own new dataset. One call is one call too few to
+    # catch a swap that lands during the first.
+    await create_dataset(
+        test_db_session, created_by=user_id, name=f"Model Pinning Second {force}"
     )
 
     await EMBEDDING_MODEL.set(test_db_session, _MODEL_A)
     await EMBEDDING_DIMS.set(test_db_session, _DIMS_A)
+
+    before = await _embedding_count(test_db_session)
 
     provider = _SwitchingProvider()
     monkeypatch.setattr(
@@ -168,27 +209,102 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     monkeypatch.setattr(
         service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
     )
+    # One batch for the whole run, deliberately. The drift check added by
+    # #1525 review r4 runs at each batch boundary, so with several batches this
+    # run would stop at the second one and the record whose label is asserted
+    # below might never be written — the order records come back in is not
+    # fixed. A single batch keeps this test on the question it asks (does the
+    # label describe the vector) and leaves the stop-on-drift behaviour to
+    # test_embedding_backfill_base_url_pinning.py, which asserts it directly.
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
 
-    await backfill_module.backfill_embeddings(test_db_session, force=force)
+    # fix(#1525 review r5, codex P2): the swap lands during this batch's own
+    # provider call, and the drift check that runs before the batch is ACCEPTED
+    # now catches it, so the batch is discarded rather than committed. The
+    # label can no longer be wrong because no label is written — a stronger
+    # guarantee than the one this test was built to check, and it changes what
+    # is observable here: there is no stored row left to compare against.
+    #
+    # So this test no longer covers the pin ITSELF either. That is asserted in
+    # test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config,
+    # and the caller threading it through is covered by the cache tests in
+    # test_embedding_backfill_base_url_pinning.py. What it covers now is the
+    # run's behaviour: a swap mid-generation writes nothing at all.
+    stopped = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=force)
+    except RuntimeError:
+        stopped = True
 
-    # Non-vacuity: with no provider call there is no argument to compare, and
-    # with no stored row there is no label. Both would pass silently below.
+    # Non-vacuity: no provider call means no argument to compare, and no swap
+    # means nothing for the drift check to catch.
     assert provider.calls, "the provider was never called"
-    stored_label = (
-        await test_db_session.execute(
-            select(RecordEmbedding.model_name).where(
-                RecordEmbedding.record_id == dataset.record_id
-            )
-        )
-    ).scalar_one()
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B, (
+        "the admin swap never landed"
+    )
 
-    call = provider.calls[0]
-    # The finding itself: the row's label has to describe the vector in it.
-    assert call["model"] == stored_label
-    # And both halves have to come from the run's own resolution, not from
-    # whatever the config happened to say by the time the provider was called.
-    assert call["model"] == _MODEL_A
-    assert call["dimensions"] == _DIMS_A
+    # Every call came from the run's own resolution, not from whatever the
+    # config said by the time the provider was reached.
+    assert {call["model"] for call in provider.calls} == {_MODEL_A}
+    assert {call["dimensions"] for call in provider.calls} == {_DIMS_A}
+
+    # And nothing was stored. On the force path that means an EMPTY table: the
+    # delete committed before the run could know it would finish, which is the
+    # #1549 trade taken deliberately — empty and loud beats populated with
+    # vectors the active search will silently fail to match.
+    remaining = (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
+    assert remaining == (0 if force else before)
+    assert stopped
+
+
+@pytest.mark.anyio
+async def test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """The pin's own contract, asserted without the backfill loop around it.
+
+    The run-level tests above cannot cover this any more. #1525 review r4 added
+    a drift check at the batch boundary, so a config change mid-run stops the
+    run before an unpinned re-read could produce a divergent second call, and
+    an unpinned tree therefore produces the same observables there as a pinned
+    one.
+
+    The pin still matters, and this is where. It governs the batch ALREADY IN
+    FLIGHT: without it, `generate_embeddings_batch` re-reads the config it was
+    handed values for, and the rows that batch writes get a model the label
+    does not name. The drift check only notices at the next boundary, by which
+    time those rows exist.
+    """
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL_B)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS_B)
+
+    provider = _RecordingProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    await service_module.generate_embeddings_batch(
+        ["a text to embed"],
+        test_db_session,
+        model=_MODEL_A,
+        dimensions=_DIMS_A,
+        base_url="http://pinned.invalid",
+    )
+
+    # Vacuity: the live config genuinely says something else, so "used what it
+    # was given" is a different outcome from "read the config". Without this,
+    # a call that ignored its arguments entirely could still pass.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS_B
+
+    assert provider.calls == [{"model": _MODEL_A, "dimensions": _DIMS_A}]
 
 
 @pytest.mark.anyio
@@ -237,18 +353,32 @@ async def test_a_switch_between_the_model_and_dims_reads_aborts_the_run(
     before = await _embedding_count(test_db_session)
     assert before > 0
 
+    # fix(#1525 review r2): hung on the UNCACHED read, which is the one the
+    # snapshot makes now. The cached read is still what everything else uses, so
+    # both are patched and the flip fires on whichever the snapshot reaches
+    # first — the point is that it lands between the two captures, not which
+    # layer serves them.
     original_dims_get = EMBEDDING_DIMS.get
+    original_dims_get_uncached = EMBEDDING_DIMS.get_uncached
     flipped = False
 
-    async def _flip_then_read(session):
+    async def _flip(session) -> None:
         nonlocal flipped
         if not flipped:
             flipped = True
             await EMBEDDING_MODEL.set(session, _MODEL_B)
             await EMBEDDING_DIMS.set(session, _DIMS_B)
+
+    async def _flip_then_read(session):
+        await _flip(session)
         return await original_dims_get(session)
 
+    async def _flip_then_read_uncached(session):
+        await _flip(session)
+        return await original_dims_get_uncached(session)
+
     monkeypatch.setattr(EMBEDDING_DIMS, "get", _flip_then_read)
+    monkeypatch.setattr(EMBEDDING_DIMS, "get_uncached", _flip_then_read_uncached)
 
     provider = _RecordingProvider()
     monkeypatch.setattr(
@@ -351,13 +481,17 @@ async def test_a_generated_vector_that_cannot_be_stored_does_not_destroy_vectors
 ):
     """Generating is only half the promise: the vector has to fit the column.
 
-    fix(#1511 review r4, codex P1): `update_settings` runs
-    `_auto_detect_embedding_dims()` and `rebuild_embedding_column()` on
-    MUTUALLY EXCLUSIVE branches — the first when `embedding_dims` is absent
-    from the request, the second when it is present
-    (`modules/settings/router.py:348-360`). So an admin who switches model
-    without naming dimensions gets the detected width persisted and the column
-    left at its old one.
+    fix(#1511 review r4, codex P1): the width a model produces and the width
+    the column declares are written by different code at different times, so
+    they can disagree. What found it was a settings write that persisted a
+    newly detected width without rebuilding the column, leaving storage at the
+    old one (that path is the subject of #1529).
+
+    The scenario below is built from the mismatch itself rather than from that
+    route: a model whose vectors are the wrong width for the live column. It
+    therefore holds whatever produced the mismatch, which is the point of the
+    guard it covers — that guard reads storage, not config, so closing any one
+    route does not retire it.
 
     Every earlier guard passes here, and that is the point. Model and
     dimensions are consistent with each other, they are stable, and the

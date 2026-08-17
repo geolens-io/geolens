@@ -12,6 +12,8 @@ sink its batchmates; only the individually-failing records count as errors.
 Can be run as a module: python -m app.embeddings.backfill
 """
 
+from typing import Any
+
 import structlog
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +25,7 @@ from app.processing.embeddings.service import (
     build_content_text,
     compute_content_hash,
     generate_embeddings_batch,
+    resolve_embedding_base_url,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -37,15 +40,57 @@ _BATCH_SIZE = 128
 _PREFLIGHT_TEXT = "geolens embedding preflight"
 
 
-async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | None]:
-    """Capture (model, dimensions) as one consistent pair, or refuse the run.
+async def _snapshot_embedding_config(
+    session: AsyncSession,
+) -> tuple[str, int | None, str | None]:
+    """Capture (model, dimensions, endpoint) as one consistent set, or refuse.
 
-    The two values come from separate `PersistentConfig` reads — there is no
+    The values come from separate `PersistentConfig` reads — there is no
     combined read, and building one would bypass the per-key validation and
-    cache machinery in `PersistentConfig.get`. So capture both, then read both
-    again and compare. Any single admin change lands inside one of the two
-    windows and shows up as a difference; only a change-and-revert inside the
-    same few milliseconds slips through, which is not a case worth more code.
+    cache machinery in `PersistentConfig.get`. So capture them, then read them
+    again and compare. Any single admin change lands inside one of the windows
+    and shows up as a difference; only a change-and-revert inside the same few
+    milliseconds slips through, which is not a case worth more code.
+
+    fix(#1525): the endpoint is captured and compared inside that same single
+    window, for the reason below. It is resolved through the provider rather
+    than read here, because the fallback chain and the credential binding
+    belong to whichever provider extension is registered (see
+    `resolve_embedding_base_url`).
+
+    KNOWN RESIDUE (#1525 review r2): the model and dimensions are read
+    uncached, so they are always the committed state. The endpoint is not, and
+    cannot be from here — it is resolved BY THE PROVIDER, which reads its own
+    keys through the same per-key cache. Making that read uncached needs either
+    a copy of the provider's fallback chain and credential binding in this
+    caller, which would be wrong for any extension resolving its endpoint from
+    somewhere else, or an uncached mode on the extension interface itself.
+
+    What that leaves open: a settings update that is committed but whose
+    endpoint key is not yet evicted, so the provider answers from a stale entry
+    beside an uncached model. For the SHIPPED provider it is unreachable, on
+    both branches of `ai_credentials.bind_openai_credential_base_url`:
+
+    - With an API key configured, the candidate value is used only to compare
+      against the operator-approved environment URL. Equal returns that same
+      approved string; unequal raises `OpenAICredentialDestinationError`. A
+      stale cached endpoint therefore either resolves to the identical string
+      or fails loudly, and can never silently pin a different destination.
+    - With no API key, `DefaultOpenAIEmbeddingProvider.embed` raises
+      `EmbeddingUnavailableError` before producing a vector, and on the force
+      path `_preflight_embedding` runs BEFORE the DELETE, so the run aborts
+      with every existing vector still in place.
+
+    So the residue is confined to an extension provider that resolves its
+    endpoint from the database and applies no such binding. Closing it needs an
+    uncached mode on the extension interface, which does not belong in a fix
+    PR; the underlying per-key eviction window is #1543.
+
+    A partial guard was tried here and removed: comparing the cached model and
+    dimensions against the uncached ones detects the eviction window, but only
+    the half where the model key has not been evicted yet, and it aborts
+    whenever a caller mocks one read and not the other. A guard that fires on
+    incomplete test doubles more often than on the hazard does not survive.
 
     fix(#1511 review r2, codex P1): without the comparison a run could pin
     model A with model B's dimensions, a pairing that never existed in config.
@@ -71,7 +116,15 @@ async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | 
         resolve_embedding_model_name,
     )
 
-    model_name = await resolve_embedding_model_name(session)
+    # fix(#1525 review r2, codex P1): read the pinned values straight from the
+    # DB. `PersistentConfig.get` answers from a PER-KEY cache, and
+    # `update_settings` commits the whole batch and only then evicts each key in
+    # turn (settings/router.py:338-345). During that eviction, reads of two
+    # different keys can land on opposite sides of one committed update, and
+    # comparing them cannot see it: two reads through the same stale entry agree
+    # with each other perfectly. `get_uncached` neither reads nor writes the
+    # cache, so these observe the committed state instead.
+    model_name = await resolve_embedding_model_name(session, uncached=True)
     if model_name == UNKNOWN_EMBEDDING_MODEL:
         # Loud, not silent: the admin route maps this to a 502 and a "failed"
         # audit entry. Returning zero counts would look like a completed run
@@ -82,24 +135,198 @@ async def _snapshot_embedding_config(session: AsyncSession) -> tuple[str, int | 
             "not be resolved. Existing vectors were left untouched; retry "
             "once the AI configuration resolves."
         )
-    dimensions = await EMBEDDING_DIMS.get(session)
+    dimensions = await EMBEDDING_DIMS.get_uncached(session)
+    base_url = await resolve_embedding_base_url(session)
 
+    # fix(#1525 review, codex P1): ONE window over all three, not a window per
+    # value. An earlier revision gave the endpoint its own capture-and-compare
+    # after the pair had already been compared, which left a gap between the
+    # two: an admin updating model and endpoint together in that gap produced
+    # old model + new endpoint, a configuration that never existed, and neither
+    # comparison could see it. Splitting a race guard by value does not close
+    # the race, it relocates it. If values are pinned as a unit they have to be
+    # verified as a unit.
     if (
-        await resolve_embedding_model_name(session) != model_name
-        or await EMBEDDING_DIMS.get(session) != dimensions
+        await resolve_embedding_model_name(session, uncached=True) != model_name
+        or await EMBEDDING_DIMS.get_uncached(session) != dimensions
+        or await resolve_embedding_base_url(session) != base_url
     ):
         logger.error("backfill_aborted_embedding_config_changed")
         raise RuntimeError(
-            "Cannot regenerate embeddings: the embedding model or dimensions "
-            "changed while the run was starting. Existing vectors were left "
-            "untouched; re-run to use the new configuration."
+            "Cannot regenerate embeddings: the embedding model, dimensions or "
+            "endpoint changed while the run was starting. Existing vectors were "
+            "left untouched; re-run to use the new configuration."
         )
 
-    return model_name, dimensions
+    return model_name, dimensions, base_url
+
+
+class _PinDrift(RuntimeError):
+    """Drift detected with a batch already generated but not yet committed.
+
+    A distinct type only so the two broad handlers below can re-raise it: the
+    per-batch one instead of retrying the batch record by record, and the
+    per-record one instead of counting it as a bad input. It is a
+    `RuntimeError`, so every caller that already treats this module's aborts as
+    one — the admin route included — is unaffected.
+    """
+
+
+async def _raise_on_pin_drift(
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    processed: int,
+    *,
+    error: type[RuntimeError] = RuntimeError,
+) -> None:
+    """Stop the run if the configuration it pinned is no longer the active one."""
+    drift = await _pinned_config_drift(session, pinned)
+    if drift is None:
+        return
+    logger.error("backfill_aborted_pin_drift", detail=drift, processed=processed)
+    raise error(
+        f"Embedding regeneration stopped after {processed} records: {drift} "
+        "while the run was in progress. The rows already written are "
+        "consistent with the configuration that produced them; re-run to "
+        "cover the rest under the new one."
+    )
+
+
+async def _retry_batch_per_record(
+    session: AsyncSession,
+    batch: list[tuple[Any, str]],
+    pinned: tuple[str, int | None, str | None],
+    created: int,
+    *,
+    model_name: str,
+    embedding_dims: int | None,
+    base_url: str | None,
+) -> tuple[int, int]:
+    """Re-embed a failed batch one record at a time; return (created, errors).
+
+    fix(#449, codex P2): one rejected input (e.g. a record over the model's
+    token limit) must not sink the other 127, so only the bad ones count as
+    errors. That behaviour is unchanged; what is new is the drift bracketing.
+    It lives in its own function because adding that pushed
+    `backfill_embeddings` past the McCabe gate, and the per-file burn-down list
+    in pyproject.toml may shrink but never grow.
+
+    `created` is the run's running total, passed in only so an abort message
+    can say how many records the run had written before it stopped.
+    """
+    made = 0
+    failed = 0
+    for record_id, content in batch:
+        try:
+            # fix(#1525 review r6, codex P2): the drift checks bracket the
+            # retry's own provider call too. This path had none, so the window
+            # the batch path closed survived one path over, and it is the
+            # LIKELIER one: a provider outage is exactly when an operator goes
+            # and edits the endpoint. The batch call raised, so the batch's
+            # post-call check never ran, and every vector generated here would
+            # otherwise be committed under a pin that had already stopped being
+            # active.
+            #
+            # The check before the call is not redundant with the one after the
+            # previous record's: that record may have FAILED, in which case its
+            # post-call check never ran either.
+            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            [vector] = await generate_embeddings_batch(
+                [content],
+                session,
+                model=model_name,
+                dimensions=embedding_dims,
+                base_url=base_url,
+            )
+            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            session.add(
+                RecordEmbedding(
+                    record_id=record_id,
+                    embedding=vector,
+                    model_name=model_name,
+                    content_hash=compute_content_hash(content),
+                )
+            )
+            await session.commit()
+            made += 1
+        except _PinDrift:
+            # fix(#1525 review r6, codex P2): drift is not a bad record.
+            # Counting it would leave the run reporting partial success with
+            # the rest of the catalog written into a vector space the active
+            # search cannot match — the silent outcome these checks exist to
+            # prevent. It stops the run, as on the batch path.
+            await session.rollback()
+            raise
+        except Exception:  # broad: same isolation, per record
+            await session.rollback()
+            failed += 1
+            logger.warning(
+                "Backfill: error processing record",
+                record_id=record_id,
+                exc_info=True,
+            )
+    return made, failed
+
+
+async def _pinned_config_drift(
+    session: AsyncSession, pinned: tuple[str, int | None, str | None]
+) -> str | None:
+    """Describe how the live config has left the pinned one, or None if it has not.
+
+    fix(#1525 review r4, codex P2): every guard on this path so far protects a
+    run from config moving DURING a read. This one notices that the run itself
+    has outlived the configuration it pinned, which no amount of care inside a
+    single batch can see.
+
+    Read the same way `_snapshot_embedding_config` reads, for the same reason:
+    a cached read can agree with a stale entry and report no drift.
+
+    Two states are deliberately NOT treated as drift, because neither is
+    evidence that the pinned configuration stopped being the right one:
+
+    - An unresolvable model. `resolve_embedding_model_name` answers with its
+      sentinel when persistent-config resolution fails for any reason, so
+      treating it as a change would abort a long run on a transient DB blip.
+    - A provider resolve that RAISES. For the shipped provider that is what an
+      endpoint edit diverging from the operator-approved environment URL looks
+      like (`ai_credentials.bind_openai_credential_base_url`), and it says
+      nothing about where vectors are going: `embed` re-binds to that same
+      approved URL, so the pin is still accurate. Aborting there would undo the
+      abandon-the-catalog fix earlier in this PR. Only a resolve that SUCCEEDS
+      and answers differently means the endpoint actually moved.
+    """
+    from app.processing.embeddings.helpers import (
+        UNKNOWN_EMBEDDING_MODEL,
+        resolve_embedding_model_name,
+    )
+
+    model_name, dimensions, base_url = pinned
+
+    active_model = await resolve_embedding_model_name(session, uncached=True)
+    if active_model not in (model_name, UNKNOWN_EMBEDDING_MODEL):
+        return f"the embedding model changed from {model_name!r} to {active_model!r}"
+
+    active_dims = await EMBEDDING_DIMS.get_uncached(session)
+    if active_dims != dimensions:
+        return (
+            f"the embedding dimensions changed from {dimensions!r} to {active_dims!r}"
+        )
+
+    try:
+        active_base_url = await resolve_embedding_base_url(session)
+    except (
+        Exception
+    ):  # broad: an endpoint that cannot be resolved is not an endpoint that moved
+        return None
+    if active_base_url != base_url:
+        # Deliberately unquoted: an endpoint can name an internal host, and this
+        # string reaches an audit log.
+        return "the embedding endpoint changed"
+    return None
 
 
 async def _preflight_embedding(
-    session: AsyncSession, pinned: tuple[str, int | None]
+    session: AsyncSession, pinned: tuple[str, int | None, str | None]
 ) -> None:
     """Generate one throwaway embedding to prove regeneration can work.
 
@@ -126,10 +353,14 @@ async def _preflight_embedding(
             in the column as it currently stands. The caller must run this
             BEFORE deleting anything.
     """
-    model_name, dimensions = pinned
+    model_name, dimensions, base_url = pinned
     try:
         vectors = await generate_embeddings_batch(
-            [_PREFLIGHT_TEXT], session, model=model_name, dimensions=dimensions
+            [_PREFLIGHT_TEXT],
+            session,
+            model=model_name,
+            dimensions=dimensions,
+            base_url=base_url,
         )
     except Exception as exc:  # broad: any provider/config failure means the regenerate cannot be promised
         logger.error(
@@ -146,15 +377,25 @@ async def _preflight_embedding(
         ) from exc
 
     # fix(#1511 review r4, codex P1): generating a vector is only half the
-    # promise — it also has to fit the column. `update_settings` runs
-    # _auto_detect_embedding_dims() and rebuild_embedding_column() on MUTUALLY
-    # EXCLUSIVE branches (`embedding_dims` absent from the request versus
-    # present, modules/settings/router.py:348-360), so an admin who switches
-    # model without naming dimensions gets the detected width persisted and the
-    # column left at its old one. The provider then answers happily at the new
-    # width, this pre-flight passed, the DELETE committed, and every insert
-    # failed on the typmod. Zero coverage, by the exact route the pre-flight
-    # exists to close.
+    # promise — it also has to fit the column. The width a model produces and
+    # the width the column declares are written by different code at different
+    # times, so they can disagree, and when they do the provider answers
+    # happily at the new width, this pre-flight passes, the DELETE commits and
+    # every insert dies on the typmod.
+    #
+    # The case that found it was a settings write that persisted a newly
+    # detected width without rebuilding the column, so switching model without
+    # naming dimensions left storage at the old width. #1529 closed that route:
+    # an auto-detected width now joins `validated_settings` and goes down the
+    # same rebuild branch as one an admin typed, so the column follows every
+    # width the settings API publishes.
+    #
+    # This check is deliberately NOT written against that route, which is why
+    # closing it did not retire the check. It asks storage what it will accept,
+    # so it holds for any cause. Still live after #1529: a rebuild that failed
+    # partway, a restored dump, a column altered by hand, and ENV_ONLY_CONFIG
+    # deployments, where the model comes from the environment, no settings
+    # write happens, and therefore no rebuild is ever triggered.
     #
     # Read the width off the live column rather than trusting EMBEDDING_DIMS:
     # the setting is what disagreed with storage in the first place. pgvector
@@ -182,8 +423,8 @@ async def _preflight_embedding(
             f"Cannot regenerate embeddings: model {model_name!r} produces "
             f"{generated}-dimension vectors but catalog.record_embeddings."
             f"embedding is vector({column_dims}). Existing vectors were left "
-            "untouched. Set the embedding dimensions explicitly in Settings so "
-            "the column is rebuilt, then re-run."
+            "untouched. Re-save the embedding configuration in Settings so the "
+            f"column is rebuilt to {generated} dimensions, then re-run."
         )
 
 
@@ -206,7 +447,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     """
     port = get_processing_port()
 
-    pinned: tuple[str, int | None] | None = None
+    pinned: tuple[str, int | None, str | None] | None = None
 
     if force:
         Record = port.get_record_orm_class()
@@ -247,17 +488,31 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
         # fix(#1511 review r3, codex P1): the checks above test proxies for
         # "regeneration will work". This one tests the property itself, because
-        # the proxies keep running out. `update_settings` commits a new
-        # embedding_model and only then probes for its dimensions
-        # (settings/router.py), so between those two steps the stored pair is
-        # mismatched, committed and STABLE — re-reading it agrees with itself
-        # and learns nothing. That window opens exactly when an admin has just
-        # switched models, which is exactly when someone clicks Regenerate All.
+        # the proxies keep running out. A comparison-based guard can only catch
+        # a value that MOVES. It is blind to a pair that is wrong, committed and
+        # stable, because re-reading such a pair agrees with itself and learns
+        # nothing. What made that concrete was a settings write publishing a new
+        # model before its dimensions were known (that publish is the subject of
+        # #1529), but the blindness belongs to comparing, not to that one writer.
+        #
         # One real embedding proves the live config can produce a vector, and
         # covers the modes nobody has enumerated yet: provider down, revoked
         # key, exhausted quota, dimensions the model rejects.
         await _preflight_embedding(session, pinned)
 
+        # DESTRUCTIVE-FIRST, DELIBERATELY (#1549). This commits before the run
+        # knows it can finish, so a drift abort in the batch loop below leaves
+        # the table empty and the operator has to re-run. That is the chosen
+        # side of the trade, not an oversight: rows record only `model_name`,
+        # so a run that carried on under a stale pin would leave a FULL table
+        # whose vectors live in a space the active search silently fails to
+        # match. Empty is loud and one re-run away; populated-and-wrong looks
+        # healthy and is not. Removing the destructive-first shape needs
+        # per-batch delete-and-replace in one transaction (which wants #1546's
+        # per-row configuration stamp first, or it trades a loud failure for a
+        # silent one), a shadow table and swap, or the job lifecycle in #1542 —
+        # none of which belong in a PR about pinning a configuration.
+        #
         # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
         # force=True we just clear the active tenant's rows; no need to drop
@@ -325,14 +580,17 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # resolution can fail between the two calls, and by then the delete has
     # committed. The non-force path has nothing to destroy, so it snapshots
     # here, where the original read lived.
-    # fix(#1511 review, codex P1): both halves are pinned into every provider
+    # fix(#1511 review, codex P1): all three parts are pinned into every provider
     # call below. generate_embeddings_batch would otherwise re-read the config
     # per call, so an admin swapping models mid-run gets model B's vectors
     # stored under model A's label — search on the active model then skips rows
-    # it believes it wrote.
+    # it believes it wrote. fix(#1525): the endpoint is the third part. The rows
+    # name a model, and a model served by two endpoints is two vector spaces
+    # under one label; on the shipped provider the same edit instead makes every
+    # remaining batch raise, which abandons the rest of the catalog.
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
-    model_name, embedding_dims = pinned
+    model_name, embedding_dims, base_url = pinned
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped = 0
@@ -356,6 +614,28 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     errors = 0
 
     for start in range(0, len(items), _BATCH_SIZE):
+        # fix(#1525 review r4, codex P2): the pin protects each batch from the
+        # config moving underneath it, but nothing was noticing that it HAD
+        # moved. A run pinned to endpoint A that keeps going after the active
+        # endpoint becomes B writes A-space vectors for the rest of the
+        # catalog, and `RecordEmbedding` records only `model_name`, so semantic
+        # search later builds its query vector from the live endpoint and
+        # filters stored rows by model alone — B-space queries against A-space
+        # documents under one label, and the backfill reported success. Persisting
+        # an endpoint identity per row so search can filter on it is #1546.
+        #
+        # Outside the try below, deliberately: this must stop the run, not be
+        # counted as a batch error and retried per record. The sibling check
+        # after the provider call cannot have that placement, so it raises
+        # `_PinDrift` and the batch handler re-raises it to the same effect.
+        #
+        # Kept alongside that one rather than replaced by it: a post-call check
+        # alone is sufficient for correctness, but drift that lands BETWEEN
+        # batches would then only surface after the next batch had already been
+        # generated and paid for. One config read per batch is the cheaper half
+        # of that trade.
+        await _raise_on_pin_drift(session, pinned, created)
+
         batch = items[start : start + _BATCH_SIZE]
         try:
             vectors = await generate_embeddings_batch(
@@ -363,7 +643,17 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 session,
                 model=model_name,
                 dimensions=embedding_dims,
+                base_url=base_url,
             )
+            # fix(#1525 review r5, codex P2): and again before ACCEPTING the
+            # batch, not only before requesting it. The check above has no
+            # successor for the LAST batch, so an edit landing during that
+            # final provider call was never observed: the vectors were written
+            # and the run reported success while the active endpoint had moved.
+            # Checking here means the batch in flight is discarded rather than
+            # committed, so the run stops without adding a row nothing will
+            # match. `_PinDrift` is re-raised past the batch handler below.
+            await _raise_on_pin_drift(session, pinned, created, error=_PinDrift)
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
                     RecordEmbedding(
@@ -375,6 +665,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 )
             await session.commit()
             created += len(batch)
+        except _PinDrift:
+            # fix(#1525 review r5, codex P2): not a batch failure. Retrying it
+            # per record would generate the same vectors against the same stale
+            # pin and commit them one at a time, which is the outcome the check
+            # exists to prevent.
+            await session.rollback()
+            raise
         except Exception:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
             logger.warning(
@@ -383,35 +680,17 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 batch_size=len(batch),
                 exc_info=True,
             )
-            # fix(#449, codex P2): one rejected input (e.g. a record over the
-            # model's token limit) must not sink the other 127 — retry the
-            # failed batch per record so only the bad ones count as errors.
-            for record_id, content in batch:
-                try:
-                    [vector] = await generate_embeddings_batch(
-                        [content],
-                        session,
-                        model=model_name,
-                        dimensions=embedding_dims,
-                    )
-                    session.add(
-                        RecordEmbedding(
-                            record_id=record_id,
-                            embedding=vector,
-                            model_name=model_name,
-                            content_hash=compute_content_hash(content),
-                        )
-                    )
-                    await session.commit()
-                    created += 1
-                except Exception:  # broad: same isolation, per record
-                    await session.rollback()
-                    errors += 1
-                    logger.warning(
-                        "Backfill: error processing record",
-                        record_id=record_id,
-                        exc_info=True,
-                    )
+            made, failed = await _retry_batch_per_record(
+                session,
+                batch,
+                pinned,
+                created,
+                model_name=model_name,
+                embedding_dims=embedding_dims,
+                base_url=base_url,
+            )
+            created += made
+            errors += failed
 
         logger.info(
             "Backfill progress",

@@ -39,8 +39,16 @@ async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
     await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
 
 
-async def resolve_embedding_model_name(session: AsyncSession) -> str:
+async def resolve_embedding_model_name(
+    session: AsyncSession, *, uncached: bool = False
+) -> str:
     """Return the active embedding model name, or a sentinel on failure.
+
+    fix(#1525 review r2, codex P1): ``uncached`` reads straight from the DB via
+    ``PersistentConfig.get_uncached``, for the one caller that gates a
+    destructive operation on this value. The cached read is right for
+    everything else and stays the default; see `_snapshot_embedding_config` in
+    `backfill.py` for why the backfill's pre-delete snapshot cannot use it.
 
     PERF-10 (Phase 274): the resolved name partitions the has_embeddings
     cache so a model swap forces a fresh DB lookup. Errors during
@@ -65,7 +73,11 @@ async def resolve_embedding_model_name(session: AsyncSession) -> str:
     try:
         from app.core.persistent_config import EMBEDDING_MODEL
 
-        value = await EMBEDDING_MODEL.get(session)
+        value = await (
+            EMBEDDING_MODEL.get_uncached(session)
+            if uncached
+            else EMBEDDING_MODEL.get(session)
+        )
         return value or UNKNOWN_EMBEDDING_MODEL
     except Exception:  # broad: persistent_config resolution can fail for any DB/cache reason; fall back to sentinel
         logger.warning("has_embeddings_model_resolution_failed", exc_info=True)
