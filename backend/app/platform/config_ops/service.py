@@ -1015,7 +1015,11 @@ async def import_config(
     Preview and apply consume the same preflight plan. Overwrite additionally
     requires the signed token returned by a matching, current dry-run.
     """
-    from app.core.persistent_config import ENTERPRISE_ONLY_TABS, _registry
+    from app.core.persistent_config import (
+        ENTERPRISE_ONLY_TABS,
+        _registry,
+        apply_side_effects_batch,
+    )
     from app.modules.audit.service import (
         AuditEvent,
         audit_emit,
@@ -1103,8 +1107,10 @@ async def import_config(
     # Single commit for config changes and all associated audit rows.
     await db.commit()
 
-    for cfg, committed_value in deferred_side_effects:
-        await cfg.apply_side_effects(committed_value)
+    # fix(#1543): one eviction for the whole import. An import touches far more
+    # keys than a PUT, so the per-key loop here held the widest mismatch window
+    # of the three batch call sites.
+    await apply_side_effects_batch(deferred_side_effects)
 
     logger.info(
         "config_imported",

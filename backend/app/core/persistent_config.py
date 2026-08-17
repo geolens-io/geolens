@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Sequence
 from typing import Any, Generic, TypeVar, cast
 
 import structlog
@@ -269,15 +270,20 @@ class PersistentConfig(Generic[T]):
     async def apply_side_effects(self, value: T) -> None:
         """Post-commit cache invalidation + runtime hooks for a value change.
 
-        Called automatically by set()/reset() when they own the commit; callers
-        batching with ``commit=False`` invoke this per key AFTER their terminal
-        commit (fix #430 codex r3 — never before, see set() above).
+        Called automatically by set()/reset() when they own the commit. A caller
+        batching with ``commit=False`` must NOT loop over this per key — use
+        ``apply_side_effects_batch`` after its terminal commit, which evicts the
+        whole batch in one step (fix #1543) and never before the commit
+        (fix #430 codex r3, see set() above).
         """
-        # Invalidate cache
-        cache = _get_cache_safe()
-        if cache is not None:
-            await cache.delete(f"{_CACHE_PREFIX}{self.key}")
+        await apply_side_effects_batch([(self, value)])
 
+    def _apply_local_side_effects(self, value: T) -> None:
+        """The process-local half of apply_side_effects.
+
+        Deliberately synchronous: this runs once per key of a batch, and having
+        no await in it is what keeps a whole batch's worth uninterleavable.
+        """
         # BUG-025: the public-URL keys are also memoized in a separate 60s
         # module cache in public_urls. Clear it so the new value is reflected
         # immediately (PUT response, tile-config, OGC self-links, share links).
@@ -361,6 +367,51 @@ class PersistentConfig(Generic[T]):
             "basemap_proxy_rate_limit",
         ):
             _sync_rate_limit_cache[self.key] = (value, time.monotonic())
+
+
+# ---------------------------------------------------------------------------
+# Batched post-commit side effects
+# ---------------------------------------------------------------------------
+
+
+async def apply_side_effects_batch(
+    items: Sequence[tuple[PersistentConfig[Any], Any]],
+) -> None:
+    """Apply the post-commit side effects of a whole settings batch at once.
+
+    fix(#1543): the per-key loop this replaces evicted ``config:`` entries one
+    at a time. Between the first and last eviction the cache held the new value
+    for the keys already evicted (``get`` falls through to the committed row)
+    and the old value for the rest, so a concurrent reader could resolve a pair
+    of settings that was never committed together — the embedding
+    model/dimensions pair being the case that surfaced it. One ``delete_many``
+    collapses that span to nothing: a single variadic ``DEL`` on Valkey, an
+    await-free loop of pops in memory.
+
+    Ordering the deletes differently is not a fix (it mismatches the other way)
+    and evicting before the commit is worse (a concurrent reader repopulates
+    the cache with the pre-commit value, which then survives its full TTL
+    instead of being transient). Hence: commit first, then evict, as one step.
+
+    Everything after the eviction is synchronous by construction — see
+    ``_apply_local_side_effects``.
+
+    Scope, stated plainly: this makes the WRITER atomic. It does not make a
+    reader atomic. Callers that resolve two keys with two ``get`` calls take
+    their samples at two different instants and can still straddle this whole
+    step, seeing one key's committed-new value and another's cached-old one.
+    Closing that needs the reader to resolve the set in one operation;
+    ``get_uncached`` is the per-key opt-out available today (#1539).
+    """
+    if not items:
+        return
+
+    cache = _get_cache_safe()
+    if cache is not None:
+        await cache.delete_many(*(f"{_CACHE_PREFIX}{cfg.key}" for cfg, _ in items))
+
+    for cfg, value in items:
+        cfg._apply_local_side_effects(value)
 
 
 # ---------------------------------------------------------------------------

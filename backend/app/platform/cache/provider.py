@@ -29,6 +29,18 @@ class CacheProvider(Protocol):
         """Delete key. No error if missing."""
         ...
 
+    async def delete_many(self, *keys: str) -> None:
+        """Delete several keys as ONE operation. No error if any is missing.
+
+        fix(#1543): the contract is atomicity, not batching for speed. No
+        reader may observe the cache with some of ``keys`` evicted and the rest
+        still present, so an implementation must not await between individual
+        evictions. ``delete_pattern`` is not a substitute — it is a scan plus
+        per-key deletes, so it is both non-atomic and wider than the caller
+        asked for.
+        """
+        ...
+
     async def delete_pattern(self, pattern: str) -> None:
         """Delete all keys matching glob pattern (e.g. 'settings:*')."""
         ...

@@ -40,6 +40,12 @@ class InMemoryCacheProvider:
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 
+    async def delete_many(self, *keys: str) -> None:
+        # fix(#1543): no await inside the loop, so on a single event loop there
+        # is no instant at which some of `keys` are gone and the rest are not.
+        for key in keys:
+            self._store.pop(key, None)
+
     async def delete_pattern(self, pattern: str) -> None:
         keys_to_delete = [k for k in self._store if fnmatch.fnmatch(k, pattern)]
         for k in keys_to_delete:
