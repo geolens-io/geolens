@@ -43,6 +43,7 @@ from app.core.runtime.staging import (
     EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     ensure_staging_ready,
     sweep_orphaned_exports,
+    sweep_orphaned_write_scratch,
 )
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
@@ -279,7 +280,21 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
     the periodic threshold, so it can be handed to ``run_in_thread_draining``
     (which forwards ``*args`` only — ``age_threshold_seconds`` is keyword-only
     on the wrapped function).
+
+    fix(#1532 review r7): it also reclaims atomic-write scratch files, over the
+    whole staging root rather than just ``exports/``.
+    ``LocalStorageProvider.put`` writes through ``<name>.<hex>.tmp`` and renames,
+    so a process killed mid-write leaves one behind under whatever prefix it was
+    writing — COGs, originals, VRTs, map assets. This sweeper is the right home
+    because it already walks the staging tree on a schedule and, unlike anything
+    storage-backed, needs no ``init_storage`` to run.
     """
+    scratch = sweep_orphaned_write_scratch(
+        Path(settings.upload_staging_dir),
+        age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+    )
+    if scratch:
+        logger.info("orphaned_write_scratch_swept", removed=scratch)
     return sweep_orphaned_exports(
         exports_dir, age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
     )

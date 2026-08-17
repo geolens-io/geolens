@@ -2320,7 +2320,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ETag named gzip bytes on the full download and raw bytes on every range,
     # and a client resuming the encoded representation could splice raw bytes at
     # encoded offsets. Cap 1573 -> 1593, exact.
-    "backend/app/api/main.py": 1593,
+    # fix(#1532 review r7): +15 — the periodic staging sweeper also reclaims
+    # atomic-write scratch files now. `LocalStorageProvider.put` writes through
+    # `<name>.<hex>.tmp` and renames, so a process killed mid-write leaves one
+    # under whatever prefix it was writing: COGs, originals, VRTs, map assets.
+    # This sweeper is the right home because it already walks the staging tree
+    # on a schedule and needs no `init_storage`, unlike anything storage-backed.
+    # Cap 1593 -> 1608, exact.
+    "backend/app/api/main.py": 1608,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

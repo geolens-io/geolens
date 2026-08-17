@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -34,6 +36,49 @@ EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
 # guaranteed, not just an unlucky restart coincidence. A wider margin keeps
 # the periodic pass catching only residue from a process that is truly gone.
 EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
+
+
+# fix(#1532 review r7): the scratch-file pattern `LocalStorageProvider.put`
+# writes through — `<name>.<32 hex>.tmp` beside its destination. An ordinary
+# failure removes it, but a SIGKILL, an OOM or a power loss does not, and the
+# residue sits at full or partial size under whatever prefix was being written:
+# COGs, uploaded originals, VRTs, map assets. Only the export cache knew the
+# pattern and it only scans its own prefix, so everything else leaked forever
+# and repeated crashes ate the shared staging volume.
+_LOCAL_TMP_RE = re.compile(r"\.[0-9a-f]{32}\.tmp$")
+
+
+def sweep_orphaned_write_scratch(
+    root: Path,
+    *,
+    age_threshold_seconds: int = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+) -> int:
+    """Reclaim atomic-write scratch files anywhere under ``root``. Returns how many.
+
+    Aged by MTIME, which is the right signal here and not everywhere: these
+    files never move, so nothing resets it, and unlike the export cache's keys
+    they carry no timestamp of their own to read. The horizon is the periodic
+    one for the reason ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS`` documents — a
+    write still in progress must not be swept out from under itself, and a
+    multi-gigabyte COG takes as long as it takes.
+
+    Errors per entry are swallowed: a scratch file that will not stat or unlink
+    is the next pass's problem, not this one's.
+    """
+    if not root.is_dir():
+        return 0
+    cutoff = time.time() - age_threshold_seconds
+    removed = 0
+    for entry in root.rglob("*"):
+        if not _LOCAL_TMP_RE.search(entry.name):
+            continue
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
 
 
 def _latest_mtime(entry: Path) -> float:

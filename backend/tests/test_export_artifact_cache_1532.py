@@ -28,6 +28,7 @@ import shutil
 import tempfile
 import time
 import uuid
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -1788,24 +1789,27 @@ async def test_an_exhausted_budget_reclaims_and_then_publishes(
     assert await storage.exists(stored.key)
 
 
-async def test_two_publishers_cannot_both_overshoot_the_budget(
+async def test_two_publishers_may_overshoot_and_the_horizon_reclaims_it(
     test_db_session, monkeypatch
 ):
-    """The ceiling is soft, and the overshoot is bounded rather than absent.
+    """The budget's contract: a soft ceiling with bounded, expiring overshoot.
 
     `StorageProvider` offers no way to claim space, so two workers list the same
-    total, both pass the pre-check and both write — two 6 GiB artifacts under an
-    8 GiB ceiling, retained for the horizon on the volume every conversion and
-    upload needs, and an anonymous caller can drive it.
+    total, both pass the pre-check and both write. The excess is bounded by
+    concurrent publishers times one artifact each and lasts at most one
+    reclamation horizon.
 
-    Re-measuring after the write and dropping MY OWN artifact bounds the excess
-    to one in-flight publication per publisher. The key is writer-owned, so this
-    can never take a sibling's object — the property r6's other finding was
-    about.
+    A post-write re-check that dropped the writer's own artifact lived here for
+    one round (fix(#1532 review r6)) and is withdrawn (r7): once `put` returns,
+    `lookup` can hand that key to another request, which has already declared a
+    Content-Length and is about to open its stream — so the delete truncates a
+    download. An overshoot that expires is a better failure than a truncated
+    file, and making the ceiling hard would need publication to become visible
+    only after a check, which needs a rename primitive S3 and Azure do not have
+    short of a server-side copy.
 
-    Both requests still complete, which is the half that keeps this a caching
-    decision rather than a failure: each caller has its conversion and serves it
-    whole.
+    So the assertions are the contract, not a count: both requests complete, and
+    the horizon takes the excess.
     """
     import asyncio
     import tempfile
@@ -1816,8 +1820,7 @@ async def test_two_publishers_cannot_both_overshoot_the_budget(
     dataset = await _dataset(test_db_session, "Budget Race")
     storage = get_storage()
     payload = b"z" * 40
-    # Room for one of them, not two.
-    monkeypatch.setattr(cache, "_BUDGET_BYTES", 60)
+    monkeypatch.setattr(cache, "_BUDGET_BYTES", 60)  # room for one, not two
 
     arrived = asyncio.Event()
     waiting = 0
@@ -1851,8 +1854,21 @@ async def test_two_publishers_cannot_both_overshoot_the_budget(
 
     assert waiting == 2, (
         "the two publishers did not overlap, so this says nothing about the "
-        "race it is named for"
+        "case it is named for"
     )
+    assert all(r is not None for r in results), (
+        "both publications must complete; the ceiling is soft, and a writer that "
+        "measured room for itself is not asked to give it back"
+    )
+    for artifact in results:
+        assert await storage.exists(artifact.key), (
+            f"{artifact.key} was deleted after publication. A key `lookup` can "
+            f"already have handed out belongs to a response that has declared "
+            f"its length."
+        )
+
+    await cache.sweep(age_threshold_seconds=-1)
+
     remaining = [
         k
         for k in await storage.list(
@@ -1860,10 +1876,142 @@ async def test_two_publishers_cannot_both_overshoot_the_budget(
         )
         if cache.parse_artifact_key(k)
     ]
-    assert len(remaining) <= 1, (
-        f"{len(remaining)} artifacts survived under a budget with room for one: "
-        f"{remaining}. Two publishers measuring the same total both passed."
+    assert remaining == [], (
+        f"the horizon left {remaining}. An overshoot the sweep does not reclaim "
+        f"is not bounded, it is permanent."
     )
-    assert all(r is None or r.key in remaining for r in results), (
-        "a publisher returned an artifact it had already discarded"
+
+
+# ---------------------------------------------------------------------------
+# Review r7: the scratch files this PR introduced, everywhere
+# ---------------------------------------------------------------------------
+
+
+def test_orphaned_write_scratch_is_reclaimed_outside_the_export_prefix(tmp_path):
+    """`LocalStorageProvider.put`'s scratch files leak from EVERY caller, not one.
+
+    The atomic write added for #1532 writes `<name>.<hex>.tmp` beside its
+    destination and renames. An ordinary failure removes it; a SIGKILL, an OOM or
+    a power loss does not — and the residue sits at full or partial size under
+    whatever prefix was being written. COGs, uploaded originals, VRTs, map
+    assets: all of them, because the write is shared.
+
+    Only the export cache knew the pattern and it only scans its own prefix, so
+    everything else leaked permanently and repeated crashes ate the shared
+    staging volume. This PR introduced the files, so it owns the reclaimer.
+
+    The fresh one is asserted to survive in the same test as the aged one: a
+    sweeper that took both would delete a multi-gigabyte COG mid-write, which is
+    a worse failure than the leak.
+    """
+    from app.core.runtime.staging import sweep_orphaned_write_scratch
+
+    rasters = tmp_path / "rasters" / "abc"
+    rasters.mkdir(parents=True)
+    aged = rasters / "src.cog.tif.0123456789abcdef0123456789abcdef.tmp"
+    aged.write_bytes(b"half a COG")
+    os.utime(aged, (time.time() - 10 * 3600, time.time() - 10 * 3600))
+    fresh = rasters / "other.cog.tif.fedcba9876543210fedcba9876543210.tmp"
+    fresh.write_bytes(b"a write in progress")
+    unrelated = rasters / "keep.tif"
+    unrelated.write_bytes(b"a real object")
+
+    removed = sweep_orphaned_write_scratch(tmp_path, age_threshold_seconds=4 * 3600)
+
+    assert not aged.exists(), (
+        f"the sweeper removed {removed} file(s) and left a ten-hour-old scratch "
+        f"file outside export-cache/. Nothing else knows the pattern."
+    )
+    assert fresh.exists(), (
+        "a scratch file younger than the horizon is a write in progress; "
+        "deleting it truncates whatever is being uploaded"
+    )
+    assert unrelated.exists(), "the sweeper must only take the scratch pattern"
+
+
+async def test_a_put_survives_losing_its_directory_to_a_prune(tmp_path, monkeypatch):
+    """A concurrent prune must not fail an unrelated, valid write.
+
+    Removing empty directories used to live in `LocalStorageProvider.delete`,
+    which made every caller race it: a map or ingest write, neither of which
+    retries, could lose its directory between the `mkdir` and opening its temp
+    file, and get a `FileNotFoundError` for a write that was entirely correct.
+
+    Both halves are fixed and this covers the second. The pruning moved into the
+    export cache's own sweep, which owns its prefix — and `put` tolerates losing
+    the directory anyway, because "nothing else prunes today" is a property of
+    today.
+
+    The race is driven into the window rather than hoped for: the directory is
+    removed between the mkdir and the open.
+    """
+    from app.platform.storage.local import LocalStorageProvider
+
+    provider = LocalStorageProvider(base_dir=str(tmp_path))
+    key = "some/deep/prefix/object.bin"
+    target_dir = tmp_path / "some" / "deep" / "prefix"
+    real_copy = shutil.copyfileobj
+    pruned = {"done": False}
+
+    def _prune_then_copy(src, dst, length=None):
+        return real_copy(src, dst, length)
+
+    import app.platform.storage.local as local_module
+
+    real_mkdir = Path.mkdir
+
+    def _mkdir_then_prune(self, *args, **kwargs):
+        result = real_mkdir(self, *args, **kwargs)
+        if self == target_dir and not pruned["done"]:
+            pruned["done"] = True
+            # A sweeper deciding this directory is empty, right now.
+            shutil.rmtree(tmp_path / "some")
+        return result
+
+    monkeypatch.setattr(local_module.shutil, "copyfileobj", _prune_then_copy)
+    monkeypatch.setattr(Path, "mkdir", _mkdir_then_prune)
+
+    await provider.put(key, b"a valid write")
+
+    monkeypatch.undo()
+    assert pruned["done"], "the prune never landed inside the window"
+    assert await provider.get(key) == b"a valid write", (
+        "a write that lost its directory to a concurrent prune failed, and the "
+        "callers that hit this (map assets, ingest) have no retry of their own"
+    )
+
+
+async def test_the_sweep_prunes_its_own_empty_selection_dirs(test_db_session):
+    """Directory pruning belongs to the prefix's owner, not to every delete.
+
+    A filesystem keeps a directory after its last file goes; an object store has
+    none to keep. The export cache creates one per caller-controlled selection,
+    so they accumulate and every listing scandirs all of them — but doing the
+    cleanup inside the generic `delete` made unrelated writers race it.
+
+    Asked for by `getattr` rather than `isinstance`, so a provider with no
+    directories simply does not offer it.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Prune Dirs")
+    storage = get_storage()
+    aged = time.time() - 10 * 3600
+    for n in range(4):
+        await storage.put(
+            cache._artifact_key(dataset.id, f"one-off-{n}", f"{n:064d}", 6, aged),
+            b"abcdef",
+        )
+
+    root = Path(storage.base_dir) / "export-cache"
+    assert sum(1 for p in root.rglob("*") if p.is_dir()) >= 4
+
+    await cache.sweep(age_threshold_seconds=3600)
+
+    leftover = [p for p in root.rglob("*") if p.is_dir()]
+    assert leftover == [], (
+        f"{len(leftover)} empty selection directories survived: "
+        f"{[p.name for p in leftover[:3]]}. Filters are caller-controlled, so "
+        f"they accumulate without limit and every later listing walks them."
     )

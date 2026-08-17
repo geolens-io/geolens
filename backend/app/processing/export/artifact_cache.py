@@ -497,19 +497,13 @@ async def store(
         built_at, key = await _put_with_reclaim(
             dataset_id, selection, digest, size, file_path
         )
-        # fix(#1532 review r6): enforce the ceiling AFTER the write as well.
-        # The pre-check is not atomic across publishers — two workers list the
-        # same total, both pass, both upload, and two 6 GiB artifacts land under
-        # an 8 GiB ceiling. Re-measuring afterwards and dropping MY OWN artifact
-        # bounds the overshoot to one in-flight publication per publisher, and
-        # the key is writer-owned so this can never take a sibling's object.
-        #
-        # The caller still has its conversion and serves it whole, so nothing is
-        # lost but the caching.
-        if not await _fits_in_budget(0):
-            logger.warning("export_cache_budget_exceeded_after_write", key=key)
-            await _discard([key])
-            return None
+        # fix(#1532 review r7): PUBLICATION IS FINAL. A post-write re-check that
+        # dropped this artifact when the total had moved lived here for one
+        # round, and it could delete a key another request had already resolved
+        # through `lookup` — that response has declared a Content-Length and is
+        # about to open its stream, so the delete truncates it. Trading an
+        # overshoot for a truncated download is the wrong direction, and the
+        # overshoot is bounded anyway. See `_fits_in_budget` for the contract.
         return ExportArtifact(
             key=key,
             digest=digest,
@@ -620,17 +614,28 @@ async def _fits_in_budget(size: int) -> bool:
     Free to compute: every artifact's size is in its own key, so the current
     total is a listing and some string parsing rather than a stat per object.
 
-    A SOFT ceiling with bounded overshoot, not a reservation (fix(#1532 review
-    r6)). ``StorageProvider`` offers no way to claim space, so two publishers
-    can measure the same total, both pass, and both write. The caller therefore
-    asks again AFTER its write and drops its own artifact if the answer changed,
-    which bounds the excess to one in-flight publication per publisher rather
-    than eliminating it. A hard cap would need a shared reservation primitive or
-    a lock, and neither belongs in this fix.
+    A SOFT ceiling, and the contract is worth stating exactly (fix(#1532 review
+    r6, then r7)).
+
+    ``StorageProvider`` offers no way to claim space, so two publishers can
+    measure the same total, both pass, and both write. The excess is therefore
+    bounded by the number of concurrent publishers times one artifact each, and
+    it lasts at most one reclamation horizon. It is not eliminated, and this is
+    the only check: a post-write re-check that dropped the writer's own artifact
+    was tried and withdrawn, because once ``put`` returns, ``lookup`` can hand
+    that key to another request — which has declared a Content-Length and is
+    about to open its stream, so deleting it truncates a download. An overshoot
+    that expires is a better failure than a truncated file.
+
+    Making it hard would need publication to become visible only after a check,
+    which needs a rename primitive: S3 and Azure have no such thing short of a
+    server-side copy, which for a multi-gigabyte export is not a cheap
+    afterthought. A lock is the other answer and does not belong in this fix.
 
     Failing OPEN on an unreadable listing. The budget bounds a resource this
     cache borrows; a cache that refused to work whenever it could not measure
     itself would trade a bounded disk cost for an unbounded conversion one.
+
     """
     try:
         keys = await get_storage().list(f"{_ROOT}/")
@@ -737,4 +742,22 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
                     )
     except Exception:  # broad: a sweep that cannot list is a no-op, not an error
         logger.warning("export_cache_sweep_list_failed", exc_info=True)
+
+    # fix(#1532 review r7): prune this prefix's empty directories HERE rather
+    # than inside `StorageProvider.delete`. A filesystem keeps a directory after
+    # its last file goes, an object store has none to keep, and the export cache
+    # creates one per caller-controlled selection — so they accumulate and every
+    # listing scandirs all of them. Doing it in the generic delete made an
+    # unrelated writer's `mkdir` race this `rmdir`; doing it here confines the
+    # pruning to the prefix this module owns, at the moment it knows a selection
+    # is finished.
+    #
+    # Duck-typed rather than isinstance-checked: a provider with no directories
+    # simply does not offer this, which is the honest way to ask.
+    prune = getattr(storage, "prune_empty_dirs", None)
+    if prune is not None:
+        try:
+            await prune(f"{_ROOT}/")
+        except Exception:  # broad: housekeeping, never a request failure
+            logger.warning("export_cache_prune_failed", exc_info=True)
     return removed

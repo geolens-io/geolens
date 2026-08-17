@@ -70,6 +70,13 @@ class LocalStorageProvider:
         """
         dest = self._resolve_contained(key)
 
+        def _write(tmp: Path, payload: BinaryIO | bytes) -> None:
+            if isinstance(payload, bytes):
+                tmp.write_bytes(payload)
+            else:
+                with open(tmp, "wb") as out:
+                    shutil.copyfileobj(payload, out, _STREAM_CHUNK_BYTES)
+
         def _put() -> str:
             dest.parent.mkdir(parents=True, exist_ok=True)
             # fix(#1532 review r5): write beside the destination and rename into
@@ -91,11 +98,20 @@ class LocalStorageProvider:
             # cross-filesystem copy, and the temp file costs no extra space.
             tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex}.tmp")
             try:
-                if isinstance(data, bytes):
-                    tmp.write_bytes(data)
-                else:
-                    with open(tmp, "wb") as out:
-                        shutil.copyfileobj(data, out, _STREAM_CHUNK_BYTES)
+                try:
+                    _write(tmp, data)
+                except FileNotFoundError:
+                    # fix(#1532 review r7): the directory went between the mkdir
+                    # above and opening the file. A sweeper pruning empty
+                    # directories can do that, and this write is valid — so
+                    # rebuild the path and try once rather than failing a caller
+                    # (map assets, ingest) that has no retry of its own. Once:
+                    # a second disappearance is not a race, it is a broken
+                    # volume.
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if hasattr(data, "seek"):
+                        data.seek(0)
+                    _write(tmp, data)
                 os.replace(tmp, dest)
             except BaseException:
                 # BaseException for the reason the caller below drains on
@@ -211,37 +227,55 @@ class LocalStorageProvider:
         return await asyncio.to_thread(_copy)
 
     async def delete(self, key: str) -> None:
-        """Delete a key, and the directories it leaves empty behind it.
+        """Delete a key. No error if missing.
 
-        fix(#1532 review, internal): unlinking the file alone leaked a directory
-        per key prefix. On an object store a key is a flat name and a "directory"
-        is a listing artefact, so nothing accumulates; on a filesystem every
-        distinct prefix is a real ``mkdir`` that outlives its contents. The
-        export cache made that visible — its prefixes are caller-controlled, one
-        per (dataset, format, filters), so a client varying a bbox creates them
-        without limit — and `_walk_in_key_order` then scandirs every one of them
-        on every listing, forever, for nothing.
-
-        The rmdir walks up to (never including) ``base_dir`` and stops at the
-        first directory that is not empty. Failures are ignored on purpose: a
-        concurrent ``put`` may be creating the same directory, and losing that
-        race costs at most one failed write, which callers already retry — where
-        raising here would fail a delete that in fact succeeded.
+        Deliberately does NOT remove the directories it empties (fix(#1532
+        review r7)). It did for one round, to stop caller-controlled prefixes
+        accumulating, and that made an unrelated writer's ``mkdir`` race this
+        ``rmdir`` — a map or ingest write, neither of which retries, could lose
+        its directory between creating it and opening its file. Pruning belongs
+        to whichever subsystem owns a prefix and knows when it is finished; the
+        export cache does its own in ``artifact_cache.sweep`` through
+        ``prune_empty_dirs`` below.
         """
         path = self._resolve_contained(key)
+        await asyncio.to_thread(path.unlink, True)  # missing_ok=True
+
+    async def prune_empty_dirs(self, prefix: str) -> int:
+        """Remove empty directories under ``prefix``. Returns how many went.
+
+        Offered only by this provider, and asked for by ``getattr`` rather than
+        declared on the protocol: an object store has no directories to prune,
+        so the honest answer there is not "zero" but "that question does not
+        apply".
+
+        Bottom-up, so a directory emptied by pruning its children is itself
+        collected in the same pass. Never removes ``base_dir`` or the prefix
+        root. Failures are ignored per directory — a concurrent writer creating
+        one is exactly the case this must not fight.
+        """
+        root = self._resolve_contained(prefix)
         base = self.base_dir.resolve()
 
-        def _delete() -> None:
-            path.unlink(missing_ok=True)
-            parent = path.parent
-            while parent != base and base in parent.parents:
+        def _prune() -> int:
+            if not root.is_dir():
+                return 0
+            removed = 0
+            for directory in sorted(
+                (p for p in root.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts),
+                reverse=True,
+            ):
+                if directory == base or directory == root:
+                    continue
                 try:
-                    parent.rmdir()
+                    directory.rmdir()
+                    removed += 1
                 except OSError:
-                    return  # not empty, or lost a race with a concurrent put
-                parent = parent.parent
+                    continue  # not empty, or a concurrent put just used it
+            return removed
 
-        await asyncio.to_thread(_delete)
+        return await asyncio.to_thread(_prune)
 
     async def exists(self, key: str) -> bool:
         """Check if a key exists."""
