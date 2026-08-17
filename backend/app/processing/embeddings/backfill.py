@@ -12,6 +12,8 @@ sink its batchmates; only the individually-failing records count as errors.
 Can be run as a module: python -m app.embeddings.backfill
 """
 
+from typing import Any
+
 import structlog
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -162,10 +164,11 @@ async def _snapshot_embedding_config(
 class _PinDrift(RuntimeError):
     """Drift detected with a batch already generated but not yet committed.
 
-    A distinct type only so the per-batch handler can re-raise it instead of
-    counting it as a provider failure and retrying the batch record by record.
-    It is a `RuntimeError`, so every caller that already treats this module's
-    aborts as one — the admin route included — is unaffected.
+    A distinct type only so the two broad handlers below can re-raise it: the
+    per-batch one instead of retrying the batch record by record, and the
+    per-record one instead of counting it as a bad input. It is a
+    `RuntimeError`, so every caller that already treats this module's aborts as
+    one — the admin route included — is unaffected.
     """
 
 
@@ -187,6 +190,82 @@ async def _raise_on_pin_drift(
         "consistent with the configuration that produced them; re-run to "
         "cover the rest under the new one."
     )
+
+
+async def _retry_batch_per_record(
+    session: AsyncSession,
+    batch: list[tuple[Any, str]],
+    pinned: tuple[str, int | None, str | None],
+    created: int,
+    *,
+    model_name: str,
+    embedding_dims: int | None,
+    base_url: str | None,
+) -> tuple[int, int]:
+    """Re-embed a failed batch one record at a time; return (created, errors).
+
+    fix(#449, codex P2): one rejected input (e.g. a record over the model's
+    token limit) must not sink the other 127, so only the bad ones count as
+    errors. That behaviour is unchanged; what is new is the drift bracketing.
+    It lives in its own function because adding that pushed
+    `backfill_embeddings` past the McCabe gate, and the per-file burn-down list
+    in pyproject.toml may shrink but never grow.
+
+    `created` is the run's running total, passed in only so an abort message
+    can say how many records the run had written before it stopped.
+    """
+    made = 0
+    failed = 0
+    for record_id, content in batch:
+        try:
+            # fix(#1525 review r6, codex P2): the drift checks bracket the
+            # retry's own provider call too. This path had none, so the window
+            # the batch path closed survived one path over, and it is the
+            # LIKELIER one: a provider outage is exactly when an operator goes
+            # and edits the endpoint. The batch call raised, so the batch's
+            # post-call check never ran, and every vector generated here would
+            # otherwise be committed under a pin that had already stopped being
+            # active.
+            #
+            # The check before the call is not redundant with the one after the
+            # previous record's: that record may have FAILED, in which case its
+            # post-call check never ran either.
+            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            [vector] = await generate_embeddings_batch(
+                [content],
+                session,
+                model=model_name,
+                dimensions=embedding_dims,
+                base_url=base_url,
+            )
+            await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
+            session.add(
+                RecordEmbedding(
+                    record_id=record_id,
+                    embedding=vector,
+                    model_name=model_name,
+                    content_hash=compute_content_hash(content),
+                )
+            )
+            await session.commit()
+            made += 1
+        except _PinDrift:
+            # fix(#1525 review r6, codex P2): drift is not a bad record.
+            # Counting it would leave the run reporting partial success with
+            # the rest of the catalog written into a vector space the active
+            # search cannot match — the silent outcome these checks exist to
+            # prevent. It stops the run, as on the batch path.
+            await session.rollback()
+            raise
+        except Exception:  # broad: same isolation, per record
+            await session.rollback()
+            failed += 1
+            logger.warning(
+                "Backfill: error processing record",
+                record_id=record_id,
+                exc_info=True,
+            )
+    return made, failed
 
 
 async def _pinned_config_drift(
@@ -601,36 +680,17 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 batch_size=len(batch),
                 exc_info=True,
             )
-            # fix(#449, codex P2): one rejected input (e.g. a record over the
-            # model's token limit) must not sink the other 127 — retry the
-            # failed batch per record so only the bad ones count as errors.
-            for record_id, content in batch:
-                try:
-                    [vector] = await generate_embeddings_batch(
-                        [content],
-                        session,
-                        model=model_name,
-                        dimensions=embedding_dims,
-                        base_url=base_url,
-                    )
-                    session.add(
-                        RecordEmbedding(
-                            record_id=record_id,
-                            embedding=vector,
-                            model_name=model_name,
-                            content_hash=compute_content_hash(content),
-                        )
-                    )
-                    await session.commit()
-                    created += 1
-                except Exception:  # broad: same isolation, per record
-                    await session.rollback()
-                    errors += 1
-                    logger.warning(
-                        "Backfill: error processing record",
-                        record_id=record_id,
-                        exc_info=True,
-                    )
+            made, failed = await _retry_batch_per_record(
+                session,
+                batch,
+                pinned,
+                created,
+                model_name=model_name,
+                embedding_dims=embedding_dims,
+                base_url=base_url,
+            )
+            created += made
+            errors += failed
 
         logger.info(
             "Backfill progress",

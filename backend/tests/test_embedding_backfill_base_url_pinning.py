@@ -180,6 +180,46 @@ class _AtomicSwitchProvider(_EndpointRecordingProvider):
         }
 
 
+class _BatchFailsWithTheEditProvider(_EndpointRecordingProvider):
+    """Fails the batch call and lands the endpoint edit as it fails.
+
+    fix(#1525 review r6, codex P2). A provider stumble and an admin edit in the
+    same window is the shape the per-record fallback was blind to, and it is
+    not a coincidence: an outage is exactly when someone goes and repoints the
+    endpoint. Because the batch call raises, the batch's own post-call check
+    never runs, so the retry loop is entered under a pin that has already
+    stopped being active.
+    """
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append(
+            {"model": model, "dimensions": dimensions, "base_url": base_url}
+        )
+        if len(self.calls) == 1:
+            await self._land_the_admin_edit()
+            raise RuntimeError("provider stumbled on the batch call")
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+
+class _RetryLandsTheEditProvider(_EndpointRecordingProvider):
+    """Fails the batch call cleanly, then lands the edit during the first retry.
+
+    fix(#1525 review r6, codex P2). The other half: nothing has drifted when
+    the retry loop starts, so the check before the retry's provider call passes
+    and only the one AFTER it can catch the edit, before that record's vector
+    is committed.
+    """
+
+    async def embed(self, *, texts, model, dimensions, base_url, timeout):
+        self.calls.append(
+            {"model": model, "dimensions": dimensions, "base_url": base_url}
+        )
+        if len(self.calls) == 1:
+            raise RuntimeError("provider stumbled on the batch call")
+        await self._land_the_admin_edit()
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+
 class _QuietRecordingProvider:
     """Records what each call received and changes nothing.
 
@@ -769,6 +809,116 @@ async def test_an_edit_during_the_final_batch_is_not_committed(
 
     # The finding: the generated batch must not reach the table. An unfixed
     # tree commits it and returns a success dict.
+    assert (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one() == before
+    assert stopped
+
+
+@pytest.mark.anyio
+async def test_an_edit_during_a_failed_batch_stops_the_per_record_retry(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """Drift must not slip through on the failure path.
+
+    fix(#1525 review r6, codex P2): the per-record fallback (#449) ran with no
+    drift check at all. A batch call that fails while an admin repoints the
+    endpoint skips the batch's post-call check entirely, and every retry below
+    it then generated against the stale pin and committed one vector at a time,
+    finishing with a partial-success dict.
+
+    The check before the retry's own provider call catches it here, so the run
+    stops before generating anything: one provider call in total.
+    """
+    await _seed_two_records(test_db_session, "Failed Batch")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+    await EMBEDDING_BASE_URL.set(test_db_session, _URL_A)
+
+    before = (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
+
+    provider = _BatchFailsWithTheEditProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
+
+    stopped = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=False)
+    except RuntimeError:
+        stopped = True
+
+    # Non-vacuity: the edit lands from inside the failing call, so without that
+    # call there was no edit and nothing for the check to catch.
+    assert await EMBEDDING_BASE_URL.get(test_db_session) == _URL_B, (
+        "the admin edit never landed"
+    )
+    # The batch call, and nothing after it. A retry that generated a vector
+    # before checking would show a second call here.
+    assert len(provider.calls) == 1, "the retry loop generated under a stale pin"
+
+    # Drift must stop the run, not be counted as a bad record. An unfixed tree
+    # commits both records one at a time and returns a success dict.
+    assert (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one() == before
+    assert stopped
+
+
+@pytest.mark.anyio
+async def test_an_edit_during_a_per_record_retry_is_not_committed(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """The retry's own call is bracketed, not just preceded.
+
+    fix(#1525 review r6, codex P2): nothing has drifted when the retry loop
+    starts here, so the check before the call passes and only the one after it
+    can see the edit that landed during the call. Without it that record's
+    vector is committed against the stale pin.
+    """
+    await _seed_two_records(test_db_session, "Retry Edit")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+    await EMBEDDING_BASE_URL.set(test_db_session, _URL_A)
+
+    before = (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
+
+    provider = _RetryLandsTheEditProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
+
+    stopped = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=False)
+    except RuntimeError:
+        stopped = True
+
+    # Non-vacuity: the failed batch call plus exactly one retry. The edit rides
+    # that retry, so a run that stopped before it would catch nothing, and a
+    # run that carried on would show a second retry.
+    assert len(provider.calls) == 2, "the retry loop did not reach the edit"
+    assert await EMBEDDING_BASE_URL.get(test_db_session) == _URL_B, (
+        "the admin edit never landed"
+    )
+
+    # The vector generated by that retry must not reach the table.
     assert (
         await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
     ).scalar_one() == before
