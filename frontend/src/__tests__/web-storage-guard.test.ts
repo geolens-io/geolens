@@ -27,15 +27,24 @@
  * is the kind of thing someone later widens. If you are here because you want
  * to add one, the answer is almost certainly a `try` block instead.
  *
+ * That claim was false for seven rounds. A `*.skip.tsx?` filter sat in
+ * `isProductionSource` doing exactly what the paragraph above forbids, and it
+ * was harder to see than an array of paths would have been, because an
+ * exemption spelled as a naming convention is claimed by renaming a file and
+ * leaves nothing in a diff to argue with. It excluded nothing that scope did
+ * not already exclude. It is gone, and `isProductionSource` now says what
+ * separates scope from exemption, with a fixture per condition so the
+ * distinction is checked rather than asserted.
+ *
  * THE FALSE-NEGATIVE PROMISE. This gate claimed false positives are possible
  * and false negatives are not. It broke that claim seven times: renamed
  * destructuring (five spellings, not the one that was reported), instance field
  * initializers, a `try` with no `catch`, assignment targets in for-of and
  * for-in, every `.ts` file being parsed as TSX, keys behind transparent wrappers
  * such as `window[('sessionStorage')]` (ten spellings, not the two reported),
- * and `Reflect.get(window, 'sessionStorage')`. Every fix was correct and every
- * one was incomplete, because each answered "is this X?" by listing the shapes
- * it recognised and calling the rest safe. A list of TypeScript shapes is never
+ * and `Reflect.get(window, 'sessionStorage')` in either spelling of the callee.
+ * Every fix was correct and every one was incomplete, because each answered
+ * "is this X?" by listing the shapes it recognised and calling the rest safe. A list of TypeScript shapes is never
  * finished, and twice the reported spelling turned out to be a sample of a
  * family rather than the family.
  *
@@ -116,7 +125,9 @@
  *   1. Every membership predicate fails toward reporting. An unrecognised
  *      construct makes this gate noisy, never silent — verified per predicate
  *      by the fixtures, each of which has a counterexample pinning the other
- *      direction so the rule cannot rot into "flag everything".
+ *      direction so the rule cannot rot into "flag everything". No file can opt
+ *      out: every exclusion is scope, pinned per condition, and there is no
+ *      allowlist to add a path to.
  *   2. A file that cannot be read is a failure that names the file. No input
  *      produces a clean result by being unparseable, unreachable by the glob,
  *      or of an extension nothing here understands.
@@ -175,12 +186,30 @@ const allModules = import.meta.glob('/src/**/*.{ts,tsx}', {
   eager: true,
 }) as Record<string, string>;
 
+/**
+ * fix(#1545 codex P2, round 8): every condition here is SCOPE. There is no
+ * exemption, and there must never be one.
+ *
+ * A `*.skip.tsx?` filter used to sit at the end of this list, and it was an
+ * allowlist in the worst possible shape: an exemption anyone could claim with
+ * `git mv`, leaving nothing in a diff for a reviewer to question. It was also
+ * unnecessary — both `.skip` files live under `__tests__/` and were already out
+ * of scope — so it bought a bypass for nothing.
+ *
+ * The test each condition has to pass: a file is out of scope when it CANNOT
+ * hold a production storage access (a declaration file has no runtime
+ * behaviour) or when driving storage directly is the file's job (tests, and the
+ * `denySessionStorage` harness). It is exempted when it could hold one and is
+ * skipped anyway. Nothing here may be the second, which is why `excludedCount`
+ * is asserted below: exclusion has to be visible and countable, not a naming
+ * convention. If a file genuinely needs excluding later, that is a
+ * conversation, not a rename.
+ */
 function isProductionSource(path: string): boolean {
   if (path.includes('/__tests__/')) return false;
   if (/\.(test|spec)\.tsx?$/.test(path)) return false;
   if (path.startsWith('/src/test/')) return false;
   if (path.endsWith('.d.ts')) return false;
-  if (/\.skip\.tsx?$/.test(path)) return false;
   return true;
 }
 
@@ -627,13 +656,34 @@ function storageNameOfKey(key: ts.Node): string | null {
  * calling the getter, so none of them can throw. Fixtures pin all three as
  * ignored, so the exclusion is a checked decision rather than an omission.
  */
+/**
+ * The property a member access reads, however it is spelled. `x.get` and
+ * `x['get']` are the same read, so a matcher that tests only for a
+ * PropertyAccessExpression answers about the spelling rather than the property
+ * — the round-6 lesson applied to the member name instead of the key.
+ */
+function accessedName(node: ts.Node): string | null {
+  if (ts.isPropertyAccessExpression(node)) return node.name.text;
+  if (ts.isElementAccessExpression(node) && node.argumentExpression) {
+    const key = unwrap(node.argumentExpression);
+    if (ts.isStringLiteralLike(key)) return key.text;
+  }
+  return null;
+}
+
+/** `Reflect`, `globalThis.Reflect` and `globalThis['Reflect']` are one object. */
+function namesReflect(node: ts.Node): boolean {
+  const expr = unwrap(node);
+  if (ts.isIdentifier(expr)) return expr.text === 'Reflect';
+  return accessedName(expr) === 'Reflect';
+}
+
 function isReflectiveStorageRead(node: ts.Node): boolean {
   if (!ts.isCallExpression(node)) return false;
   const callee = unwrap(node.expression);
-  if (!ts.isPropertyAccessExpression(callee)) return false;
-  const receiver = unwrap(callee.expression);
-  if (!ts.isIdentifier(receiver) || receiver.text !== 'Reflect') return false;
-  if (callee.name.text !== 'get') return false;
+  if (!ts.isPropertyAccessExpression(callee) && !ts.isElementAccessExpression(callee)) return false;
+  if (accessedName(callee) !== 'get') return false;
+  if (!namesReflect(callee.expression)) return false;
   if (node.arguments.length < 2) return false;
   const key = unwrap(node.arguments[1]);
   return ts.isStringLiteralLike(key) && STORAGE_NAMES.has(key.text);
@@ -1332,6 +1382,70 @@ describe('#1536: reflective reads', () => {
     ['a key enumeration', `const k = Reflect.ownKeys(window);`],
     ['a non-storage key', `const s = Reflect.get(window, 'somethingElse');`],
     ['a runtime key', `const s = Reflect.get(window, key);`],
+  ])('ignores %s', (_name, src) => {
+    expect(scan(src).accesses).toEqual([]);
+  });
+});
+/**
+ * fix(#1545 codex P2, round 8): exclusions must be SCOPE, never exemption.
+ *
+ * This gate ships with no allowlist, on the reasoning that an escape hatch is
+ * never emptied once it exists. A `*.skip.ts` suffix filter was one anyway, and
+ * the worst shape of one: an exemption anybody can claim with `git mv`, that
+ * leaves no trace in a diff for a reviewer to question. It guarded nothing —
+ * both `.skip` files live under `__tests__/` and were already out of scope — so
+ * it bought a bypass for free.
+ *
+ * The distinction these pin: a file is out of scope when it CANNOT hold a
+ * production storage access (a declaration file has no runtime behaviour) or
+ * when driving storage directly is its job (tests, the deny-storage harness).
+ * It is exempted when it could hold one and is skipped anyway. Nothing here may
+ * do the second.
+ */
+describe('#1536: exclusions are scope, not exemption', () => {
+  it.each([
+    ['a plain module', '/src/lib/store.ts'],
+    ['a component', '/src/components/Thing.tsx'],
+    // The one that was exempt. A storage access here is as real as anywhere.
+    ['a .skip-suffixed module', '/src/lib/store.skip.ts'],
+    ['a .skip-suffixed component', '/src/components/Thing.skip.tsx'],
+  ])('scans %s', (_name, path) => {
+    expect(isProductionSource(path)).toBe(true);
+  });
+
+  it.each([
+    // Tests drive storage on purpose; that is the harness, not an exemption.
+    ['a colocated test directory', '/src/__tests__/store.test.ts'],
+    ['a test suffix', '/src/lib/store.test.ts'],
+    ['a spec suffix', '/src/lib/store.spec.tsx'],
+    ['the deny-storage harness directory', '/src/test/deny-storage.ts'],
+    // A declaration file has no runtime behaviour to guard.
+    ['a declaration file', '/src/types/api.d.ts'],
+  ])('leaves %s out of scope', (_name, path) => {
+    expect(isProductionSource(path)).toBe(false);
+  });
+});
+
+describe('#1536: reflective reads, however the callee is spelled', () => {
+  const scan = (src: string) => scanSource('/src/fixture.ts', src);
+  const unguardedCount = (src: string) => {
+    const r = scan(src);
+    expect(r.failures).toEqual([]);
+    return r.accesses.filter((a) => !a.guarded).length;
+  };
+
+  it.each([
+    ['a bracketed callee', `const s = Reflect['get'](window, 'sessionStorage');`],
+    ['a wrapped bracketed callee', `const s = Reflect[('get')](window, 'localStorage');`],
+    ['a qualified Reflect', `const s = globalThis.Reflect.get(window, 'sessionStorage');`],
+    ['a fully bracketed chain', `const s = globalThis['Reflect']['get'](window, 'sessionStorage');`],
+  ])('flags %s', (_name, src) => {
+    expect(unguardedCount(src)).toBe(1);
+  });
+
+  it.each([
+    ['a same-named method on another object', `const v = cache.get(window, 'sessionStorage');`],
+    ['a bracketed non-get member', `const v = Reflect['has'](window, 'sessionStorage');`],
   ])('ignores %s', (_name, src) => {
     expect(scan(src).accesses).toEqual([]);
   });
