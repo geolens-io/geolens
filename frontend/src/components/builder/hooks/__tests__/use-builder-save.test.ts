@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { MAP_COLORS } from '@/lib/map-colors';
+import {
+  EXPORT_CANVAS_MAX_AREA,
+  EXPORT_CANVAS_MAX_DIMENSION,
+  OG_ATTRIBUTION,
+  THUMBNAIL_ATTRIBUTION,
+} from '@/lib/map-image-attribution';
 import { act } from '@testing-library/react';
 import { renderHook as baseRenderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -105,6 +111,13 @@ function createMockCanvas() {
     fill: vi.fn(),
     stroke: vi.fn(),
     createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+    // feat(#1486): the attribution overlay measures before it draws.
+    // fix(#1541 codex P1): length-proportional, not constant. A constant makes
+    // every credit set "fit" on one line, so no test at this level could see a
+    // wrap boundary — which is how the dropped credits went unnoticed here.
+    // The fitter's own wrap arithmetic is exercised in
+    // lib/__tests__/map-image-attribution.test.ts.
+    measureText: vi.fn((text: string) => ({ width: text.length * 5 })),
   };
   return {
     width: 800,
@@ -117,13 +130,49 @@ function createMockCanvas() {
   };
 }
 
-function createMockMap(overrides: { loaded?: boolean; globeSpace?: boolean } = {}) {
+/** feat(#1486): the credits a default mock map declares, as separate sources
+ *  (which is how a real style carries them), and the single line they render
+ *  as once joined. fix(#1541 codex P2): the reader takes the structured list
+ *  and never re-splits the joined form, so the mock supplies the list. */
+export const MOCK_CREDITS = ['© OpenFreeMap', '© OpenStreetMap contributors'];
+export const MOCK_ATTRIBUTION = MOCK_CREDITS.join(' | ');
+
+function createMockMap(
+  overrides: { loaded?: boolean; globeSpace?: boolean; attribution?: string | null } = {},
+) {
   // fix(#1479): capture paths ask the container whether the space backdrop is
   // on screen. Every mock map has one; only an opted-in map is marked.
   const container = document.createElement('div');
   if (overrides.globeSpace) container.setAttribute('data-globe-space', 'true');
+  // feat(#1486): every real map declares credits on its sources and renders
+  // them in the attribution control, so the default mock carries both. Pass
+  // `attribution: null` for the no-credit-available case.
+  const attribution =
+    overrides.attribution === undefined ? MOCK_ATTRIBUTION : overrides.attribution;
+  const credits = attribution === null ? [] : attribution.split(' | ');
+  if (attribution !== null) {
+    const inner = document.createElement('div');
+    inner.className = 'maplibregl-ctrl-attrib-inner';
+    // fix(#1541 codex P2 round 3): innerHTML, because MapLibre RENDERS the
+    // credit HTML. Assigning it as text made an `<img alt="…">` credit read
+    // back as its own markup, so a reader that could not see the alt still
+    // found the provider name in the string — a mock artifact that made the
+    // image-credit tests pass against the broken reader.
+    inner.innerHTML = attribution;
+    container.appendChild(inner);
+  }
   return {
     getContainer: vi.fn(() => container),
+    // The structured path the reader prefers: one source per credit, each
+    // referenced by a visible layer. fix(#1541 codex P1): the reader sorts
+    // shown sources ahead of hidden ones, and a style whose sources no layer
+    // references reads as all-hidden — a state no real map is in.
+    getStyle: vi.fn(() => ({
+      sources: Object.fromEntries(
+        credits.map((credit, i) => [`src-${i}`, { attribution: credit }]),
+      ),
+      layers: credits.map((_, i) => ({ id: `layer-${i}`, source: `src-${i}`, layout: {} })),
+    })),
     getCenter: vi.fn(() => ({ lng: -73.9, lat: 40.7 })),
     getZoom: vi.fn(() => 10),
     getBearing: vi.fn(() => 0),
@@ -1611,8 +1660,182 @@ describe('useBuilderSave', () => {
       act(() => { vi.advanceTimersByTime(500); });
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
 
-      expect(canvases.some((c) => c.fills.length > 0)).toBe(false);
+      // feat(#1486): names the backdrop rather than counting fills — the
+      // attribution scrim is also a fillRect, and it is drawn on every crop.
+      expect(
+        canvases.some((c) =>
+          c.fills.some((f) => f.style === MAP_COLORS.exportImage.globeBackground),
+        ),
+      ).toBe(false);
       expect(canvases.some((c) => c.ctx.drawImage.mock.calls.length > 0)).toBe(true);
+
+      vi.useRealTimers();
+    });
+
+    // feat(#1486): the crops composite from the WebGL canvas, so MapLibre's own
+    // attribution control — a DOM overlay — is invisible to them by
+    // construction. The credit reaches a distributed image only if it is drawn
+    // INTO the canvas, which is what these two assert.
+    it('draws the map credit into BOTH the thumbnail and the OG crop (#1486)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({ loaded: true });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      const credited = canvases.filter((c) =>
+        c.ctx.fillText.mock.calls.some((call: unknown[]) => call[0] === MOCK_ATTRIBUTION),
+      );
+      expect(credited).toHaveLength(2);
+      for (const crop of credited) {
+        // Over the map, not under it: the reverse order would bury the credit.
+        expect(crop.ctx.drawImage.mock.invocationCallOrder[0])
+          .toBeLessThan(crop.ctx.fillText.mock.invocationCallOrder[0]);
+        // A scrim behind it, so it stays legible over arbitrary tiles.
+        expect(crop.fills.some((f) => f.style === MAP_COLORS.exportImage.attributionScrim))
+          .toBe(true);
+      }
+
+      vi.useRealTimers();
+    });
+
+    // fix(#1541 codex P1): the sibling above uses a two-credit line that fits
+    // whole, so it could never have caught `maxLines: 1`. This one drives the
+    // same pipeline — crop, overlay, upload — with the five-credit load that
+    // measurably lost two providers, and asserts at the crops rather than at
+    // the fitter: the credit has to survive the path, not just the helper.
+    it('carries every credit into BOTH crops when the set needs wrapping (#1541)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const credits = [
+        'MapLibre',
+        '© OpenStreetMap contributors, climbing route geometry retrieved via the Overpass API, licensed under ODbL 1.0',
+        '© U.S. Geological Survey Earthquake Hazards Program, ANSS Comprehensive Earthquake Catalog (ComCat), public domain',
+        '© swisstopo swissALTI3D, 2m lidar digital elevation model, Federal Office of Topography, reproduced with authorisation',
+        'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+      ];
+      const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      const credited = canvases.filter((c) => c.ctx.fillText.mock.calls.length > 0);
+      // The 400x250 thumbnail and the 1200x630 OG card.
+      expect(credited).toHaveLength(2);
+      expect(credited.map((c) => `${c.width}x${c.height}`)).toEqual(['400x250', '1200x630']);
+
+      for (const crop of credited) {
+        const drawn = crop.ctx.fillText.mock.calls.map((call: unknown[]) => String(call[0]));
+        // It wrapped rather than fitting by luck, and lost nothing doing it.
+        expect(drawn.length).toBeGreaterThan(1);
+        const rendered = drawn.join(' ');
+        for (const credit of credits) {
+          expect(rendered, `missing credit on ${crop.width}x${crop.height}: ${credit}`).toContain(
+            credit,
+          );
+        }
+        expect(rendered).not.toContain('…');
+        // The scrim was sized for every line, so none of them sits on bare map.
+        const scrim = crop.fills.find((f) => f.style === MAP_COLORS.exportImage.attributionScrim)!;
+        expect(scrim).toBeDefined();
+        const spec = crop.width === 400 ? THUMBNAIL_ATTRIBUTION : OG_ATTRIBUTION;
+        expect(scrim.rect[3]).toBe(drawn.length * spec.lineHeight + spec.paddingY * 2);
+      }
+
+      // Ate map pixels rather than dropping a provider, and the image itself is
+      // unchanged: a fixed-size crop stays fixed-size.
+      expect(mockUploadThumbnail).toHaveBeenCalled();
+
+      vi.useRealTimers();
+    });
+
+    /* fix(#1541 codex P2 round 3): `BasemapEntry.attribution` permits HTML, so
+     * a provider may credit itself with a logo. Its alt text is not DOM text,
+     * so the old `textContent` read skipped the source entirely and all three
+     * images shipped uncredited while the interactive map visibly showed the
+     * credit. Asserted at the outputs, on all three at once: this is a
+     * whole-pipeline property, and the reader is only where it broke. */
+    it('carries an image-only credit into all three images (#1541)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({
+        loaded: true,
+        attribution: '<img src="https://tiles.example.com/logo.svg" alt="© Logo Provider">',
+      });
+      const result = await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Same hook, same map: now the PNG export, whose render callback is the
+      // second one registered (the crop capture consumed the first).
+      act(() => { result.current.handleExportPNG(); });
+      act(() => {
+        const renders = mockMap.once.mock.calls.filter((c: unknown[]) => c[0] === 'render');
+        (renders[renders.length - 1][1] as () => void)();
+      });
+
+      const credited = canvases.filter((c) =>
+        c.ctx.fillText.mock.calls.some((call: unknown[]) =>
+          String(call[0]).includes('© Logo Provider'),
+        ),
+      );
+      // The 400x250 thumbnail, the 1200x630 OG card, and the PNG export.
+      expect(credited).toHaveLength(3);
+      const sizes = credited.map((c) => `${c.width}x${c.height}`);
+      expect(sizes).toContain('400x250');
+      expect(sizes).toContain('1200x630');
+      // The export's own band, on the default named-and-described state:
+      // 84 title + 600 map + 40 band (12 gap + 1 line + 12 gap) + 32 footer.
+      expect(sizes).toContain('800x756');
+
+      vi.useRealTimers();
+    });
+
+    it('draws no credit when the map exposes none (#1486)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const mockMap = createMockMap({ loaded: true, attribution: null });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      // Still captured and uploaded — a missing credit never blocks a capture.
+      expect(mockUploadThumbnail).toHaveBeenCalled();
+      expect(canvases.some((c) => c.ctx.fillText.mock.calls.length > 0)).toBe(false);
+      expect(
+        canvases.some((c) =>
+          c.fills.some((f) => f.style === MAP_COLORS.exportImage.attributionScrim),
+        ),
+      ).toBe(false);
 
       vi.useRealTimers();
     });
@@ -2213,7 +2436,17 @@ describe('SHARE-09 export PNG composition', () => {
   let createGradientSpy: ReturnType<typeof vi.fn>;
   let addColorStopSpy: ReturnType<typeof vi.fn>;
   let toBlobSpy: ReturnType<typeof vi.fn>;
+  /** What the toBlob stub actually handed back — null for a canvas past the
+   *  engine limits, exactly as a browser would. */
+  let encodedBlobs: (Blob | null)[];
   let createElementSpy: ReturnType<typeof vi.spyOn>;
+  // feat(#1486): hoisted so a test can read the height the export reserved.
+  let offscreenCanvas: {
+    width: number;
+    height: number;
+    getContext: ReturnType<typeof vi.fn>;
+    toBlob: ReturnType<typeof vi.fn>;
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -2228,7 +2461,22 @@ describe('SHARE-09 export PNG composition', () => {
       if (typeof color !== 'string' || color === '') throw new SyntaxError('unparseable color');
     });
     createGradientSpy = vi.fn(() => ({ addColorStop: addColorStopSpy }));
-    toBlobSpy = vi.fn((cb: (b: Blob | null) => void) => cb(new Blob(['png'], { type: 'image/png' })));
+    // fix(#1541 codex P2 round 2): mimic the browser. A canvas past an engine's
+    // per-side or total-area limit is unusable with nothing raised to say so —
+    // toBlob simply yields null and the export fails. A stub that always hands
+    // back a blob lets a test assert a successful export from a canvas no
+    // browser would encode, which is exactly how the unbounded band passed here.
+    encodedBlobs = [];
+    toBlobSpy = vi.fn((cb: (b: Blob | null) => void) => {
+      const { width, height } = offscreenCanvas;
+      const encodable =
+        width <= EXPORT_CANVAS_MAX_DIMENSION &&
+        height <= EXPORT_CANVAS_MAX_DIMENSION &&
+        width * height <= EXPORT_CANVAS_MAX_AREA;
+      const blob = encodable ? new Blob(['png'], { type: 'image/png' }) : null;
+      encodedBlobs.push(blob);
+      cb(blob);
+    });
 
     const ctx2d = {
       fillStyle: '' as string | CanvasGradient,
@@ -2242,10 +2490,14 @@ describe('SHARE-09 export PNG composition', () => {
       strokeRect: vi.fn(() => { strokeStyleAtStroke.push(ctx2d.strokeStyle); }),
       createLinearGradient: createGradientSpy,
       drawImage: vi.fn(),
-      measureText: vi.fn(() => ({ width: 120 })),
+      // fix(#1541 codex P1): length-proportional, not a constant 120. A
+      // constant makes every string "fit" on one line, so it cannot exercise
+      // the band's line growth — which is precisely how the two-line cap that
+      // dropped credits went unnoticed here.
+      measureText: vi.fn((text: string) => ({ width: text.length * 6 })),
     };
 
-    const offscreenCanvas = {
+    offscreenCanvas = {
       width: 800,
       height: 600,
       getContext: vi.fn(() => ctx2d),
@@ -2516,5 +2768,252 @@ describe('SHARE-09 export PNG composition', () => {
       expect.anything(),
       expect.anything(),
     );
+  });
+
+  /* feat(#1486): the exported PNG carries the map's credit line. */
+
+  it('draws the map credit in its own band (#1486)', () => {
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(fillTextSpy).toHaveBeenCalledWith(
+      MOCK_ATTRIBUTION,
+      expect.any(Number),
+      expect.any(Number),
+    );
+    // Its own band on the white chrome, not a scrim over the map: the credit
+    // is drawn below the map region (the canvas is 600px of map plus chrome).
+    const call = fillTextSpy.mock.calls.find((c: unknown[]) => c[0] === MOCK_ATTRIBUTION)!;
+    expect(call[2] as number).toBeGreaterThanOrEqual(600);
+  });
+
+  // The whole point of a separate band. "Powered by GeoLens" is promotion an
+  // enterprise licence may suppress; a basemap or dataset credit is a
+  // licensing obligation and must survive the same toggle.
+  it('still draws the map credit when branding is suppressed (#1486)', () => {
+    mockEdition.isEnterprise = true;
+    const mockMap = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const texts = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(texts).toContain(MOCK_ATTRIBUTION);
+    expect(texts.some((t) => /export\.poweredBy|Powered by GeoLens/.test(t))).toBe(false);
+  });
+
+  // fix(#1541 codex P1): five real credits on a 1056px export used to lose two
+  // of them, the basemap's included, because the band was capped at two lines.
+  // The canvas has no height constraint, so it grows instead.
+  it('exports every credit for a credit-heavy map, growing the band (#1541)', () => {
+    const credits = [
+      'MapLibre',
+      '© OpenStreetMap contributors, climbing route geometry retrieved via the Overpass API, licensed under ODbL 1.0',
+      '© U.S. Geological Survey Earthquake Hazards Program, ANSS Comprehensive Earthquake Catalog (ComCat), public domain',
+      '© swisstopo swissALTI3D, 2m lidar digital elevation model, Federal Office of Topography, reproduced with authorisation',
+      'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+    ];
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0])).join(' ');
+    for (const credit of credits) {
+      expect(drawn, `missing credit: ${credit}`).toContain(credit);
+    }
+    expect(drawn).not.toContain('…');
+    // The band grew past the old two-line ceiling, and the canvas with it.
+    expect(offscreenCanvas.height).toBeGreaterThan(600 + 12 + 2 * 16 + 12 + 32);
+  });
+
+  /* fix(#1541 codex P2 round 2): the band's measured height is assigned
+   * straight to the export canvas, and #1541 review had ruled that growth
+   * unlimited because the canvas is sized after the band is measured. Browsers
+   * cap a canvas per side and by total area; past either one `toBlob` returns
+   * null and NO image is produced. The API permits 200 layers and 5,000
+   * characters of `attribution` each, so the contract's own maximum reached it
+   * — which made the unlimited ruling a total-export-failure bug rather than
+   * the partial-credit one it was avoiding. */
+
+  /** 5,000 characters — the schema maximum — of ordinary short words, so
+   *  wrapping breaks on spaces and the credit can be found again in the joined
+   *  output. Distinct per index, so the dedupe keeps all 200. */
+  function maxedCredit(i: number): string {
+    return `© Provider ${i} ${'licensing statement for the exported map image '.repeat(120)}`
+      .slice(0, 5000)
+      .trimEnd()
+      .padEnd(5000, 'x');
+  }
+
+  it('keeps the export canvas encodable at 200 credits x 5,000 characters (#1541)', async () => {
+    const { toast } = await import('sonner');
+    const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
+    for (const c of credits) expect(c).toHaveLength(5000);
+
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      // The other half of the contract maximum: 200 layers, each a legend row.
+      localLayers: Array.from({ length: 200 }, (_, i) =>
+        makeLayer({ id: `layer-${i}`, dataset_name: `Layer ${i}` }),
+      ),
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    // A canvas a browser will still hand back a blob for, on both limits.
+    expect(offscreenCanvas.height).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(offscreenCanvas.width).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(offscreenCanvas.width * offscreenCanvas.height).toBeLessThanOrEqual(
+      EXPORT_CANVAS_MAX_AREA,
+    );
+
+    // And it did: a real blob, and the success toast rather than the failure one.
+    expect(encodedBlobs).toEqual([expect.any(Blob)]);
+    expect(toast.success).toHaveBeenCalledWith('toasts.exportSuccess');
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // Rendered whole + marked == input. Nothing falls between the two, and
+    // both terms are non-zero, so neither side of the sum is carrying it alone.
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = drawn.join(' ');
+    const rendered = credits.filter((c) => joined.includes(c)).length;
+    const markerLine = drawn.find((text) => /\+\d+ more credit/.test(text));
+    const marked = markerLine ? Number(/\+(\d+)/.exec(markerLine)![1]) : 0;
+    expect(rendered).toBeGreaterThan(0);
+    expect(marked).toBeGreaterThan(0);
+    expect(rendered + marked).toBe(credits.length);
+    expect(joined).not.toContain('…');
+  });
+
+  /* fix(#1541 codex P2 round 4): the budget used to be a DESKTOP figure while
+   * the comment above it named iOS Safari's smaller one. codex's case, and the
+   * numbers here are iOS Safari's measured ceiling written out rather than read
+   * from the constant — the whole point is that the bound holds on the smallest
+   * engine, so a test that reads the constant would relax with it. */
+  it('keeps an iPad-sized export inside iOS Safari\'s ceiling (#1541)', async () => {
+    const { toast } = await import('sonner');
+    const IOS_MAX_AREA = 4096 * 4096; // 16,777,216
+    const IOS_CEILING_AT_2048 = IOS_MAX_AREA / 2048; // 8,192px tall
+
+    const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    // A valid iPad canvas, which exports fine today.
+    const iPadCanvas = createMockCanvas();
+    iPadCanvas.width = 2048;
+    iPadCanvas.height = 2732;
+    mockMap.getCanvas = vi.fn(() => iPadCanvas);
+
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(offscreenCanvas.width).toBe(2048);
+    expect(offscreenCanvas.height).toBeLessThanOrEqual(IOS_CEILING_AT_2048);
+    expect(offscreenCanvas.width * offscreenCanvas.height).toBeLessThanOrEqual(IOS_MAX_AREA);
+    expect(encodedBlobs).toEqual([expect.any(Blob)]);
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // Still crediting: what fits, plus a marker for the rest.
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = drawn.join(' ');
+    const rendered = credits.filter((c) => joined.includes(c)).length;
+    const markerLine = drawn.find((text) => /\+\d+ more credit/.test(text));
+    expect(rendered).toBeGreaterThan(0);
+    expect(markerLine).toBeDefined();
+    expect(rendered + Number(/\+(\d+)/.exec(markerLine!)![1])).toBe(credits.length);
+  });
+
+  it('leaves an ordinary multi-credit export growing and complete (#1541)', () => {
+    // 40 credits: many lines, and still three orders of magnitude below the cap.
+    const credits = Array.from(
+      { length: 40 },
+      (_, i) => `© Data Provider ${i}, a licensing statement of some reasonable length`,
+    );
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = drawn.join(' ');
+    for (const credit of credits) {
+      expect(joined, `missing credit: ${credit}`).toContain(credit);
+    }
+    // No marker at all: the cap must not start truncating a normal export.
+    expect(joined).not.toMatch(/more credit/);
+    // The band still grew a line at a time, and the canvas with it.
+    expect(offscreenCanvas.height).toBeGreaterThan(600 + 12 + 5 * 16 + 12 + 32);
+    expect(offscreenCanvas.height).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_DIMENSION);
+  });
+
+  it('reserves canvas height for the credit band, and none when there is no credit (#1486)', () => {
+    const withCredit = makeExportMap();
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: withCredit } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(withCredit); });
+    const creditedHeight = offscreenCanvas.height;
+
+    const bare = createMockMap({ loaded: true, attribution: null });
+    const bareState = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: bare } as unknown as SaveState['mapInstanceRef'],
+    });
+    const bareHook = renderHook(() => useBuilderSave(bareState));
+    act(() => { bareHook.result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(bare); });
+
+    // 12 gap + 16 line + 12 gap at dpr 1.
+    expect(creditedHeight - offscreenCanvas.height).toBe(40);
   });
 });

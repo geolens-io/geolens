@@ -1150,7 +1150,11 @@
   },
   "export": {
     "legendHeader": "Leyenda",
-    "poweredBy": "Desarrollado por GeoLens"
+    "poweredBy": "Desarrollado por GeoLens",
+    "moreCredits_one": "+{{count}} crédito más",
+    "moreCredits_other": "+{{count}} créditos más",
+    "imageCredit": "(crédito de imagen)",
+    "imageCreditFrom": "(crédito de imagen: {{host}})"
   },
   "history": {
     "title": "Historial",
