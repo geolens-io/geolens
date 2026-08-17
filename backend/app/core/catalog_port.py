@@ -217,8 +217,16 @@ class CatalogPort(Protocol):
 
     async def has_embeddings(self, session: AsyncSession) -> bool: ...
 
+    async def resolve_embedding_config(
+        self, session: AsyncSession
+    ) -> tuple[str, int | None, str | None, str] | None: ...
+
     async def generate_embedding(
-        self, text: str, session: AsyncSession
+        self,
+        text: str,
+        session: AsyncSession,
+        *,
+        pinned: tuple[str, int | None, str | None] | None = None,
     ) -> list[float]: ...
 
     async def set_hnsw_recall(self, session: AsyncSession) -> None: ...

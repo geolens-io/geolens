@@ -95,7 +95,30 @@ logger = logging.getLogger(__name__)
 # inherits its predecessor's cached authorization. Same reasoning as 4 -> 5 and
 # 5 -> 6: a Protocol method a structural implementer must supply is required,
 # whatever else the addition is shaped like.
-EXTENSION_API_VERSION: int = 7
+#
+# 7 -> 8 (fix(#1546)): TWO CatalogPort changes, one bump.
+#
+# A required ``resolve_embedding_config`` method. Stored embeddings now carry
+# the identity of the configuration that produced them, and semantic search
+# filters on it, so the search path has to be able to ask what the live
+# configuration is; ``modules/catalog/`` may not import ``app.processing.*``,
+# which is why the answer crosses the port. Every hybrid search calls it, so an
+# overlay replacing the ``catalog_port`` slot without it would load cleanly at
+# version 7 and then raise AttributeError on the first query long enough to
+# reach the vector arm. Same reasoning as 5 -> 6: a Protocol method a
+# structural implementer must supply is required, whatever else it is shaped
+# like.
+#
+# And a widened ``generate_embedding``, which takes a keyword-only ``pinned``
+# triple (model, dimensions, endpoint). Filtering rows by a configuration while
+# letting the provider re-resolve its own leaves a window inside ONE request
+# where the query vector comes from a different configuration than the rows it
+# is ranked against, which is the whole defect #1546 exists to close. An
+# overlay that implements the old two-argument signature raises TypeError on
+# the first semantic search, so this is as required as the addition above.
+# Riding the same bump because both land in the same change; an overlay
+# updating to 8 has to do both.
+EXTENSION_API_VERSION: int = 8
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

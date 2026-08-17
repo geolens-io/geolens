@@ -241,7 +241,9 @@ class DefaultProcessingPort:
 
         from app.modules.catalog.datasets.domain.models import Record
         from app.processing.embeddings.helpers import (
+            UNKNOWN_EMBEDDING_CONFIG,
             UNKNOWN_EMBEDDING_MODEL,
+            resolve_embedding_config_fingerprint,
             resolve_embedding_model_name,
         )
         from app.processing.embeddings.models import RecordEmbedding
@@ -282,11 +284,36 @@ class DefaultProcessingPort:
                     "backfill_skipped_unresolved_embedding_model"
                 )
                 return []
+            # fix(#1546): "missing" narrows again, from "has no vector THIS
+            # MODEL can use" to "has no vector this CONFIGURATION can use". A
+            # model served from a different endpoint is a different vector
+            # space, so a row carrying another configuration's stamp is as
+            # unusable to search as a superseded model's row, and leaving it
+            # out of this predicate would relocate #1546 into the skip
+            # decision: Generate Missing would report the catalog covered while
+            # search matched nothing.
+            #
+            # An unstamped row still counts as covering the record, which is
+            # what stops an upgrade from turning the next Generate Missing into
+            # a catalog-wide re-embed nobody asked to pay for.
+            config_fingerprint = await resolve_embedding_config_fingerprint(
+                session, model_name=model_name
+            )
+            if config_fingerprint == UNKNOWN_EMBEDDING_CONFIG:
+                # Fail closed for the same reason the unresolved model does
+                # above, one value out: an unresolvable configuration makes
+                # every stamped row read as foreign, so this would hand the
+                # whole catalog to a run whose provider call is the thing that
+                # cannot be resolved.
+                structlog.stdlib.get_logger(__name__).warning(
+                    "backfill_skipped_unresolved_embedding_config"
+                )
+                return []
             stmt = stmt.where(
                 ~select(RecordEmbedding.id)
                 .where(
                     RecordEmbedding.record_id == Record.id,
-                    RecordEmbedding.model_name == model_name,
+                    RecordEmbedding.usable_by_config(model_name, config_fingerprint),
                 )
                 .exists()
             )
