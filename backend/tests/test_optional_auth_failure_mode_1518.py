@@ -38,6 +38,7 @@ when a handler is renamed, guarded differently, or deleted.
 
 from __future__ import annotations
 
+import uuid
 from functools import lru_cache
 
 import pytest
@@ -999,16 +1000,30 @@ class TestEveryNoCapabilityExitAppliesTheRule:
 
     The classes, and the handler each is exercised through:
 
-    1. capability DECLINED        — invalid embed token          (tiles, features, shared map)
+    1. capability DECLINED        — invalid embed token          (vector tiles, raster tiles, features, shared map)
     2. signed template MISSING    — non-public tile, no sig       (vector tiles)
     3. signed template INVALID    — non-public tile, bad sig      (vector tiles)
-    4. resource ABSENT            — no such dataset / share link  (features, shared map)
+    4. resource ABSENT            — no such dataset / share link  (vector tiles, raster tiles, features, shared map)
     5. resource REVOKED           — expired share link            (shared map)
+    6. dataset SHAPE refused      — cluster tiles on a non-point  (cluster tiles)
+
+    Round 4 filled in the two handlers the table named but never exercised —
+    the class-1 row claimed "tiles" while only features and the shared map were
+    asserted, and no row touched the raster routes at all even though the
+    raster proxy is one of the two sites codex reported. Class 4 on the vector
+    tile path and class 6 were found by walking the exits: both ran BEFORE
+    ``_authorize_vector_tile_request``, so the rule never reached them, and the
+    raster sibling already answered 401 for the same request shape.
 
     Every row sends a dead bearer, because that is the only caller whose answer
     changes. A caller with no credential still gets the resource answer, which
     the paired assertions below pin so the rule cannot be mistaken for a blanket
     refusal.
+
+    The 401s assert ``WWW-Authenticate: Bearer`` as well as the status. That
+    header is what makes the answer actionable — it is the rest of the API's
+    contract for "your credential did not resolve", and a 401 without it reads
+    to a client as an unrecoverable refusal rather than a reason to refresh.
     """
 
     @staticmethod
@@ -1028,6 +1043,35 @@ class TestEveryNoCapabilityExitAppliesTheRule:
                 {"name": "gid", "type": "integer"},
                 {"name": "geom", "type": "geometry"},
             ],
+        )
+
+    @staticmethod
+    async def _public_raster_dataset(test_db_session):
+        """A raster dataset complete enough for _resolve_raster_meta to succeed.
+
+        The asset row matters: without it the resolver 404s "No raster asset"
+        and the class-1 rows would pass on the class-4 exit instead of the one
+        they name.
+        """
+        from tests.factories import create_raster_dataset, get_user_id
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        return await create_raster_dataset(
+            test_db_session,
+            created_by=user_id,
+            name="Exit Class Raster DS",
+            visibility="public",
+            record_status="published",
+            create_raster_asset=True,
+        )
+
+    @staticmethod
+    def _assert_credential_refusal(resp) -> None:
+        """A 401 that a refresh-on-401 client can act on."""
+        assert resp.status_code == 401, resp.text
+        assert resp.headers.get("WWW-Authenticate") == "Bearer", (
+            "the credential refusal must carry the challenge header the rest of "
+            f"the API sends; got {dict(resp.headers)}"
         )
 
     # -- class 1: the capability declined -----------------------------------
@@ -1057,6 +1101,58 @@ class TestEveryNoCapabilityExitAppliesTheRule:
             },
         )
         assert resp.status_code == 401, resp.text
+
+    async def test_class1_vector_tile_invalid_embed_token(
+        self, client: AsyncClient, test_db_session
+    ):
+        """The tile half of class 1, which the table named but never asserted."""
+        dataset = await self._public_dataset(test_db_session)
+        headers = {"X-Embed-Token": "et_not-a-real-token"}
+
+        # Credential-less: the declined capability is still a 403 about the token.
+        anon = await client.get(
+            f"/tiles/data.{dataset.table_name}/10/0/0.pbf", headers=headers
+        )
+        assert anon.status_code == 403, anon.text
+
+        resp = await client.get(
+            f"/tiles/data.{dataset.table_name}/10/0/0.pbf",
+            headers={**headers, "Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(resp)
+
+    async def test_class1_raster_proxy_invalid_embed_token(
+        self, client: AsyncClient, test_db_session
+    ):
+        """One of the two sites codex reported, and the one no row reached."""
+        dataset = await self._public_raster_dataset(test_db_session)
+        headers = {"X-Embed-Token": "et_not-a-real-token"}
+
+        anon = await client.get(
+            f"/tiles/raster-proxy/{dataset.id}/0/0/0.png", headers=headers
+        )
+        assert anon.status_code == 403, anon.text
+
+        resp = await client.get(
+            f"/tiles/raster-proxy/{dataset.id}/0/0/0.png",
+            headers={**headers, "Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(resp)
+
+    async def test_class1_raster_auth_check_invalid_embed_token(
+        self, client: AsyncClient, test_db_session
+    ):
+        """The mounted auth-check route is its own allowlist entry, so its own row."""
+        dataset = await self._public_raster_dataset(test_db_session)
+        resp = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(dataset.id)},
+            headers={
+                "X-Embed-Token": "et_not-a-real-token",
+                "Authorization": f"Bearer {UNRESOLVABLE}",
+            },
+        )
+        self._assert_credential_refusal(resp)
 
     # -- classes 2 and 3: the signed template ------------------------------
 
@@ -1123,6 +1219,58 @@ class TestEveryNoCapabilityExitAppliesTheRule:
         )
         assert resp.status_code == 401, resp.text
 
+    async def test_class4_vector_tile_absent_dataset(self, client: AsyncClient):
+        """Not named by codex — the tile path resolves the table BEFORE authorizing.
+
+        The URL carries a table name, not a dataset id, so the capability arms
+        cannot run until the lookup succeeds and the lookup's own 404 was reached
+        with the rule never applied. The raster route already answered 401 for
+        the same request shape, which is the per-router split #1518 removes.
+        """
+        table = f"no_such_tile_table_{uuid.uuid4().hex[:8]}"
+
+        anon = await client.get(f"/tiles/data.{table}/10/0/0.pbf")
+        assert anon.status_code == 404, anon.text
+
+        resp = await client.get(
+            f"/tiles/data.{table}/10/0/0.pbf",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(resp)
+
+    async def test_class4_cluster_tile_absent_dataset(self, client: AsyncClient):
+        """cluster_tile_endpoint is a separate route on the same lookup."""
+        table = f"no_such_cluster_table_{uuid.uuid4().hex[:8]}"
+
+        anon = await client.get(f"/tiles/clusters/data.{table}/10/0/0.pbf")
+        assert anon.status_code == 404, anon.text
+
+        resp = await client.get(
+            f"/tiles/clusters/data.{table}/10/0/0.pbf",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(resp)
+
+    async def test_class4_raster_tile_absent_dataset(self, client: AsyncClient):
+        """The raster half of class 4, on both mounted routes."""
+        absent = uuid.uuid4()
+
+        anon = await client.get(f"/tiles/raster-proxy/{absent}/0/0/0.png")
+        assert anon.status_code == 404, anon.text
+
+        proxy = await client.get(
+            f"/tiles/raster-proxy/{absent}/0/0/0.png",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(proxy)
+
+        auth_check = await client.get(
+            "/tiles/raster-auth-check/",
+            params={"dataset_id": str(absent)},
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(auth_check)
+
     # -- class 5: the resource is revoked -----------------------------------
 
     async def test_class5_shared_map_revoked_link(
@@ -1161,6 +1309,44 @@ class TestEveryNoCapabilityExitAppliesTheRule:
             headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
         )
         assert resp.status_code == 401, resp.text
+
+    # -- class 6: the dataset is the wrong shape for the route ---------------
+
+    async def test_class6_cluster_tile_non_point_dataset(
+        self, client: AsyncClient, test_db_session
+    ):
+        """Also not named by codex, and the reason it is NOT a request-shape 400.
+
+        The 400s this suite deliberately leaves alone — a bad tile format, an
+        out-of-range zoom, a sigma of zero — are properties of the REQUEST and
+        answer every caller identically. "This dataset is not point geometry" is
+        a property of the RESOURCE, so it belongs on the far side of the
+        authorization gate for the same reason features.geojson's "Dataset has
+        no geometry" does. Moving it there is also what stops an unauthorized
+        caller learning a private dataset exists and what geometry it holds.
+        """
+        from tests.factories import create_dataset, get_user_id
+
+        user_id = await get_user_id(test_db_session, ADMIN_USER)
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user_id,
+            name="Exit Class Polygon DS",
+            visibility="public",
+            record_status="published",
+            geometry_type="Polygon",
+            feature_count=1,
+        )
+
+        # A credential-less caller still gets the shape answer.
+        anon = await client.get(f"/tiles/clusters/data.{dataset.table_name}/10/0/0.pbf")
+        assert anon.status_code == 400, anon.text
+
+        resp = await client.get(
+            f"/tiles/clusters/data.{dataset.table_name}/10/0/0.pbf",
+            headers={"Authorization": f"Bearer {UNRESOLVABLE}"},
+        )
+        self._assert_credential_refusal(resp)
 
     # -- the other half: no credential keeps the resource answer -------------
 

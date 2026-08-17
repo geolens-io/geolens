@@ -1821,6 +1821,32 @@ async def _resolve_dataset_meta(table_name: str, db: AsyncSession) -> _DatasetMe
     return meta
 
 
+async def _resolve_dataset_meta_for_serving(
+    request: Request,
+    table_name: str,
+    db: AsyncSession,
+    user: Identity | None,
+) -> _DatasetMeta:
+    """Resolve tile metadata, applying the #1518 rule if the lookup fails.
+
+    fix(#1518 codex P2 round 4): the lookup has to run BEFORE
+    ``_authorize_vector_tile_request``, because a tile URL carries a TABLE NAME
+    and the capability arms need the dataset id only this lookup produces. So
+    its 404 was reached with the credential rule never applied, and a caller
+    with a dead bearer asking for a table that does not exist got "not found"
+    while the raster route answered 401 for the identical request shape. Nobody
+    reported it; it is the same per-router split #1518 exists to remove, and the
+    raster sibling (``_resolve_raster_access``) had already closed its half.
+
+    No capability can be skipped over here. An embed token authorizes dataset
+    IDS, and this exit is precisely the case where there is no id to authorize.
+    """
+    try:
+        return await _resolve_dataset_meta(table_name, db)
+    except HTTPException as exc:
+        capability_declined(request, user, exc)
+
+
 async def _assert_dataset_still_registered(
     db: AsyncSession,
     *,
@@ -2255,8 +2281,7 @@ async def cluster_tile_endpoint(
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
-    meta = await _resolve_dataset_meta(table_name, db)
-    _ensure_clusterable_dataset(meta)
+    meta = await _resolve_dataset_meta_for_serving(request, table_name, db, user)
     cache_scope = await _authorize_vector_tile_request(
         request,
         meta,
@@ -2266,6 +2291,14 @@ async def cluster_tile_endpoint(
         scope=scope,
         user=user,
     )
+    # fix(#1518 codex P2 round 4): after authorization, not before. "Not a point
+    # dataset" is a property of the RESOURCE, unlike the request-shape 400s above
+    # it (bad table name, out-of-range tile), so it was one more exit answering a
+    # caller whose credential was dead without saying so. It also told an
+    # unauthorized caller that a private dataset exists and what geometry it
+    # holds. Still ahead of every PostGIS query, which is all the gate was ever
+    # for.
+    _ensure_clusterable_dataset(meta)
 
     additional_columns, cols_cache_key = parse_cols_param(cols)
 
@@ -2416,7 +2449,7 @@ async def tile_endpoint(
     """
     table_name = _parse_vector_tile_table(table_path)
     _validate_tile_coordinates(z, x, y)
-    meta = await _resolve_dataset_meta(table_name, db)
+    meta = await _resolve_dataset_meta_for_serving(request, table_name, db, user)
     cache_scope = await _authorize_vector_tile_request(
         request,
         meta,

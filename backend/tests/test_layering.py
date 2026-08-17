@@ -2097,6 +2097,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
 #     schema STAC operations must gain the status without gaining the auth
 #     markers #430 removed.
+#   tiles/router.py 2557 -> 2590. fix(#1518 codex P2 round 4): +33 for
+#     `_resolve_dataset_meta_for_serving`, which routes the vector tile lookup's
+#     404 through `capability_declined`, and for moving the clusterable gate
+#     below authorization. Both ran BEFORE `_authorize_vector_tile_request` —
+#     the tile URL carries a table NAME, so the id the capability needs does not
+#     exist until the lookup returns — and both answered a resource code to a
+#     caller whose credential was dead, while the raster route already answered
+#     401 for the same request shape.
 #   tiles/router.py 2528 -> 2557. fix(#1518 codex P2 round 3): +29 for routing
 #     every capability DECLINE through `capability_declined` instead of a bare
 #     raise, plus wrapping the raster meta lookup. The rule had been applied at
@@ -3263,7 +3271,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2557,
+    "backend/app/processing/tiles/router.py": 2590,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
