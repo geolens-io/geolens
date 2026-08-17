@@ -53,10 +53,17 @@ class NoCompressionForExportMiddleware:
             if name.lower() != b"accept-encoding":
                 rewritten.append((name, value))
                 continue
+            # fix(#1532 review r17): the SAME predicate GZipMiddleware applies —
+            # it engages on `"gzip" in Accept-Encoding`, a substring test — so
+            # anything that would trip it is dropped here. A member-name test
+            # (`startswith(b"gzip")`) let `x-gzip` through: RFC 9110 section
+            # 8.4.1.3 makes it equivalent to gzip, starlette's substring check
+            # matches it, and the export came back compressed under the strong
+            # ETag this middleware exists to keep raw.
             remaining = b", ".join(
                 part.strip()
                 for part in value.split(b",")
-                if part.strip() and not part.strip().lower().startswith(b"gzip")
+                if part.strip() and b"gzip" not in part.strip().lower()
             )
             if remaining:
                 rewritten.append((name, remaining))

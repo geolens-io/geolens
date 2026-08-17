@@ -10,11 +10,13 @@ and every subsequent range is a slice of that one object.
 
 Everything is in the key
 ------------------------
-An artifact is named ``{built_at}-{size}-{digest}.bin`` and there is nothing
-else — no pointer, no index, no metadata object. Lookup lists the selection's
-prefix and takes the newest key still inside the freshness window; publishing is
-one ``put``; the sweep deletes any key past the horizon. Nothing is ever
-rewritten, so there is no flip to race and no read-decide-delete to lose.
+An artifact is named ``{built_at}-{size}-{digest}-{nonce}.bin`` and there is
+nothing else — no pointer, no index, no metadata object. Lookup lists the
+selection's prefix and takes the newest key still inside the freshness window;
+publishing is one ``put``; the sweep deletes any key past the horizon. Nothing is
+ever rewritten, so there is no flip to race and no read-decide-delete to lose.
+(Freshness and reclamation also read the object's own modified time, for
+reasons ``lookup`` and ``sweep`` give; the key remains the portable floor.)
 
 fix(#1532 review r3) arrived at that by removing the last piece of mutable state.
 A ``current.json`` pointer per selection was the previous design, and it failed
@@ -796,20 +798,20 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
     the same window (review r2 again). Both are gone with the pointer itself
     (review r3).
 
-    Ages come from the keys rather than from object mtime, which is what makes
-    this portable: ``StorageProvider`` exposes no modified time on ``list``, S3
-    and the local provider would answer differently if it did, and a copy resets
-    it. ``iter_object_pages`` does expose one, and is used here only to PAGE —
-    the whole cache is not materialized in memory to be swept (review r3), and
-    the age still comes from the name.
+    Ages come from the key's stamp as the portable floor, raised to the object's
+    ``last_modified`` where the provider reports one (review r10 — the stamp is
+    taken before the upload, and a slow push must not make a live artifact look
+    aged). ``iter_object_pages`` supplies both, one page at a time — the whole
+    cache is not materialized in memory to be swept (review r3).
 
-    An hour rather than the TTL because expiry and reclamation are different
-    questions. Expiry asks whether an artifact may answer a NEW request;
-    reclamation asks whether a request that started before expiry could still be
-    streaming from it.
+    Well past the TTL because expiry and reclamation are different questions.
+    Expiry asks whether an artifact may answer a NEW request; reclamation asks
+    whether a request that started before expiry could still be streaming from
+    it.
     """
     cutoff = time.time() - age_threshold_seconds
     removed = 0
+    storage = None
     try:
         storage = get_storage()
         async for page in storage.iter_object_pages(f"{_ROOT}/"):
@@ -854,7 +856,9 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
     # is finished.
     #
     # Duck-typed rather than isinstance-checked: a provider with no directories
-    # simply does not offer this, which is the honest way to ask.
+    # simply does not offer this, which is the honest way to ask. `storage` is
+    # None if `get_storage()` itself raised above, and then there is nothing to
+    # prune either.
     prune = getattr(storage, "prune_empty_dirs", None)
     if prune is not None:
         try:

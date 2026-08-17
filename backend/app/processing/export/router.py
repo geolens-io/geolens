@@ -249,11 +249,11 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         media_type=media_type,
         headers={
             "content-disposition": file_response_content_disposition(filename),
-            # The GET this describes is a FileResponse, which serves 206 byte
-            # ranges, and this is also what lets a size-less HEAD work: vsicurl
-            # learns the length from the first range response. It promises
-            # range SERVICE, not a stable representation — see the docstring
-            # and fix(#1532).
+            # The GET this describes serves 206 byte ranges off the cached
+            # artifact, and this is also what lets a size-less HEAD work:
+            # vsicurl learns the length from the first range response. On the
+            # cold path it promises range SERVICE — the first GET builds and
+            # answers whole — see the docstring and fix(#1532).
             "accept-ranges": "bytes",
         },
     )
@@ -740,7 +740,71 @@ async def export_dataset_endpoint(
             _cleanup_export(temp_dir)
             return not_modified_response(stored.etag)
 
-    # 8b. Audit log. user_id may be None for anonymous exports (EXP-01).
+    # 8b. Build the response BEFORE the audit row, on both branches.
+    #
+    # fix(#1532 review r17): `read_response` can still exit without a
+    # response after the preconditions above have passed — a Range that names
+    # no byte, resumed with an `If-Range` that matches what this request just
+    # built (the ordinary case, since the export is byte-deterministic), is a
+    # 416 raised as an HTTPException. Constructing the response first does two
+    # things the old order did not: the conversion directory is released on
+    # that exit (the BackgroundTask that would have taken it was never attached
+    # to anything), and the audit row is written only once a response that
+    # carries bytes exists — the same order the hit path uses, for the same
+    # reason r16 gave for moving the audit below the 412 and 304 exits.
+    if stored is not None:
+        # may_serve_range=False: this request BUILT the artifact, so it cannot
+        # know which representation the client's offsets were measured against.
+        # Ignoring the Range and answering with the whole thing is the safe half
+        # of RFC 9110 section 14.2 and is what keeps a rebuild from splicing.
+        #
+        # The cleanup rides the response, exactly as fix(#435) arranged it for
+        # the FileResponse this replaced. Deleting eagerly here — the bytes are
+        # in storage, so it looked safe — is what an earlier revision did, and
+        # test_export_antimeridian caught it: a caller whose temp directory is
+        # not per-export loses more than the export.
+        try:
+            response = artifact_response.read_response(
+                get_storage(),
+                stored,
+                range_header=request.headers.get("range"),
+                if_range=request.headers.get("if-range"),
+                may_serve_range=False,
+                background=BackgroundTask(_cleanup_export, temp_dir),
+            )
+        except BaseException:
+            _cleanup_export(temp_dir)
+            raise
+    else:
+        # 9. Serve the conversion itself, with background cleanup.
+        # fix(#1435 codex round 2): touch the file's mtime right before handing
+        # it to the response. sweep_orphaned_exports (periodic + boot) reads it
+        # as "most recent activity" — ogr2ogr's writes already keep it fresh
+        # while the file is being generated, but once ogr2ogr closes it the
+        # mtime freezes for the rest of a (possibly long, possibly slow-client)
+        # download. This resets the age-threshold clock to "streaming is about
+        # to begin" instead of "generation finished sometime earlier."
+        try:
+            os.utime(file_path, None)
+        except OSError:
+            pass  # best-effort freshness signal; a failure must not block the download
+        # fix(#1532 review, internal): NOT a FileResponse. Starlette parses
+        # `Range` inside it — single and multipart, no `If-Range` needed — so
+        # this path answered a resuming client with a 206 of a fresh conversion
+        # at offsets measured against a previous one. That is #1532's defect
+        # alive on the degraded path, and the degraded path is the one that
+        # fires under load: a full store, a contested selection, an exhausted
+        # budget. It also sent an mtime ETag and a Last-Modified the artifact
+        # path never sends, so one URL disagreed with itself about which
+        # validators it has.
+        response = artifact_response.temp_file_response(
+            file_path,
+            filename=filename,
+            media_type=media_type,
+            background=BackgroundTask(_cleanup_export, temp_dir),
+        )
+
+    # 8c. Audit log. user_id may be None for anonymous exports (EXP-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
     # uuid.UUID | None to match.
     #
@@ -754,8 +818,8 @@ async def export_dataset_endpoint(
     # The earlier argument for the old position was that a conversion really did
     # run and that is what the row records. That is true and it is the weaker
     # claim: `dataset.export` is read as "this data left the building", the two
-    # paths have to agree on what it means, and neither of these responses
-    # carries a byte of the export.
+    # paths have to agree on what it means, and none of the responses that exit
+    # above this line carries a byte of the export.
     try:
         await _emit_export_audit(
             db,
@@ -770,50 +834,4 @@ async def export_dataset_endpoint(
     except BaseException:
         _cleanup_export(temp_dir)
         raise
-
-    if stored is not None:
-        # may_serve_range=False: this request BUILT the artifact, so it cannot
-        # know which representation the client's offsets were measured against.
-        # Ignoring the Range and answering with the whole thing is the safe half
-        # of RFC 9110 section 14.2 and is what keeps a rebuild from splicing.
-        #
-        # The cleanup rides the response, exactly as fix(#435) arranged it for
-        # the FileResponse below. Deleting eagerly here — the bytes are in
-        # storage, so it looked safe — is what an earlier revision did, and
-        # test_export_antimeridian caught it: a caller whose temp directory is
-        # not per-export loses more than the export.
-        return artifact_response.read_response(
-            get_storage(),
-            stored,
-            range_header=request.headers.get("range"),
-            if_range=request.headers.get("if-range"),
-            may_serve_range=False,
-            background=BackgroundTask(_cleanup_export, temp_dir),
-        )
-
-    # 9. Return file with background cleanup
-    # fix(#1435 codex round 2): touch the file's mtime right before handing it
-    # to FileResponse. sweep_orphaned_exports (periodic + boot) reads it as
-    # "most recent activity" — ogr2ogr's writes already keep it fresh while
-    # the file is being generated, but once ogr2ogr closes it the mtime
-    # freezes for the rest of a (possibly long, possibly slow-client)
-    # download. This resets the age-threshold clock to "streaming is about to
-    # begin" instead of "generation finished sometime earlier."
-    try:
-        os.utime(file_path, None)
-    except OSError:
-        pass  # best-effort freshness signal; a failure here must not block the download
-    # fix(#1532 review, internal): NOT a FileResponse. Starlette parses `Range`
-    # inside it — single and multipart, no `If-Range` needed — so this path
-    # answered a resuming client with a 206 of a fresh conversion at offsets
-    # measured against a previous one. That is #1532's defect alive on the
-    # degraded path, and the degraded path is the one that fires under load: a
-    # full store, a contested selection, an exhausted budget. It also sent an
-    # mtime ETag and a Last-Modified the artifact path never sends, so one URL
-    # disagreed with itself about which validators it has.
-    return artifact_response.temp_file_response(
-        file_path,
-        filename=filename,
-        media_type=media_type,
-        background=BackgroundTask(_cleanup_export, temp_dir),
-    )
+    return response

@@ -2233,10 +2233,21 @@ def test_both_remote_puts_drain_their_upload_thread():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("accept_encoding", ["gzip", "x-gzip", "br, gzip;q=0.9"])
 async def test_the_export_route_is_never_gzipped_and_others_still_are(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    accept_encoding,
 ):
     """A compressed 200 and a raw 206 must not share one ETag — on THIS route only.
+
+    Parametrized over the spellings that trip ``GZipMiddleware`` (fix(#1532
+    review r17)): it engages on a SUBSTRING test, ``"gzip" in Accept-Encoding``,
+    so ``x-gzip`` — which RFC 9110 section 8.4.1.3 makes equivalent to gzip —
+    compresses too. The opt-out used to drop members that STARTED with gzip and
+    let that one through; it now applies the same predicate the middleware does.
 
     `GZipMiddleware` compresses a full response and skips a 206 by design, and
     this route's validator names the RAW stored bytes, so a client that took it
@@ -2255,17 +2266,18 @@ async def test_the_export_route_is_never_gzipped_and_others_still_are(
 
     export = await client.get(
         _url(dataset.id),
-        headers={**admin_auth_header, "Accept-Encoding": "gzip"},
+        headers={**admin_auth_header, "Accept-Encoding": accept_encoding},
     )
     assert export.status_code == 200, export.text
     assert export.headers.get("content-encoding") != "gzip", (
-        "the export was gzipped; its ETag names the raw bytes every range is a "
-        "slice of, so one validator would name two byte streams"
+        f"the export was gzipped for Accept-Encoding: {accept_encoding}; its "
+        f"ETag names the raw bytes every range is a slice of, so one validator "
+        f"would name two byte streams"
     )
 
     features = await client.get(
         f"/datasets/{dataset.id}/features?limit=1",
-        headers={**admin_auth_header, "Accept-Encoding": "gzip"},
+        headers={**admin_auth_header, "Accept-Encoding": accept_encoding},
     )
     if features.status_code == 200 and len(features.content) >= 256:
         assert features.headers.get("content-encoding") == "gzip", (
@@ -3387,4 +3399,90 @@ async def test_a_rebuild_that_does_transfer_is_still_audited(
     assert await _export_rows() == before + 1, (
         "a rebuild that delivered the whole export recorded nothing; the audit "
         "moved below the precondition exits and fell off the transfer path too"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r17
+# ---------------------------------------------------------------------------
+
+
+async def test_a_rebuild_answering_416_releases_its_directory_and_is_not_audited(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A 416 on the REBUILD path leaves no conversion directory and no audit row.
+
+    A matching ``If-Range`` outranks ``may_serve_range`` (review r12), and the
+    export is byte-deterministic, so a client resuming with the ETag it holds
+    is proven against what a rebuild just produced. If its Range then names no
+    byte — ``bytes=<size>-`` is what a resumer sends for a file it already has
+    whole — ``read_response`` raises the 416 as an ``HTTPException``.
+
+    Two things went wrong on that exit before r17. The conversion directory was
+    owned by a ``BackgroundTask`` that was never attached to a response, so it
+    outlived the request until the orphan sweep. And the audit row had already
+    been written above the call, so a request that transferred nothing was
+    recorded as a download — the exact inconsistency r16 closed for 412 and
+    304, still open one branch further down.
+
+    Driven through a real expiry, and ``conversions.count == 2`` pins that the
+    second request rebuilt: on the hit path there is no directory to strand and
+    the audit already sits below the 416, so a version of this test that landed
+    on a hit would have passed against the defect.
+    """
+    from app.modules.audit.models import AuditLog
+    from app.processing.export import artifact_cache as cache
+    from sqlalchemy import func, select
+
+    dataset = await _dataset(test_db_session, "Rebuild 416")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200, first.text
+    etag = first.headers["etag"]
+    size = int(first.headers["content-length"])
+    assert conversions.count == 1
+
+    async def _export_rows() -> int:
+        return (
+            await test_db_session.execute(
+                select(func.count())
+                .select_from(AuditLog)
+                .where(AuditLog.action == "dataset.export")
+                .where(AuditLog.resource_id == str(dataset.id))
+            )
+        ).scalar_one()
+
+    before = await _export_rows()
+
+    cache._ttl_seconds = lambda: 0  # force the next request to rebuild
+    try:
+        resp = await client.get(
+            url,
+            headers={
+                **admin_auth_header,
+                "Range": f"bytes={size}-",
+                "If-Range": etag,
+            },
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert resp.status_code == 416, resp.text
+    assert resp.headers["content-range"] == f"bytes */{size}"
+
+    leftovers = [
+        name
+        for name in os.listdir(conversions.root)
+        if os.path.isdir(os.path.join(conversions.root, name))
+    ]
+    assert leftovers == [], (
+        f"the conversion directory {leftovers} outlived a 416. The response that "
+        f"would have owned it was never constructed, so nothing else releases it "
+        f"before the orphan sweep."
+    )
+    assert await _export_rows() == before, (
+        "a rebuild answering 416 wrote a dataset.export row. Nothing was "
+        "transferred, and the same request against a cache hit writes nothing."
     )
