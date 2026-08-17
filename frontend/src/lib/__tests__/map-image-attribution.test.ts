@@ -64,32 +64,15 @@ function mapWithControl(text: string | null) {
 }
 
 describe('readRenderedAttribution', () => {
-  it('tier 1: reads the rendered control and splits on MapLibre\'s separator', () => {
-    expect(
-      readRenderedAttribution(
-        mapWithControl('© OpenFreeMap | © OpenMapTiles | © OpenStreetMap contributors'),
-      ),
-    ).toEqual(['© OpenFreeMap', '© OpenMapTiles', '© OpenStreetMap contributors']);
-  });
+  /* fix(#1541 codex P2): the credit list is never re-derived by splitting a
+   * joined string. ` | ` is legal content inside a 5,000-character credit, so
+   * any delimiter round-trip can cut one credit into two — or, via the dedupe,
+   * delete half of one outright. Structured sources first; the rendered control
+   * only as one opaque entry. */
 
-  it('tier 1: dedupes and drops empties', () => {
-    expect(readRenderedAttribution(mapWithControl('© A | © A |  | © B'))).toEqual([
-      '© A',
-      '© B',
-    ]);
-  });
-
-  it('tier 1 wins over the style even when both are available', () => {
+  it('prefers the structured source list, one entry per source', () => {
     const map = {
-      ...mapWithControl('© Rendered'),
-      getStyle: () => ({ sources: { a: { attribution: '© From style' } } }),
-    };
-    expect(readRenderedAttribution(map)).toEqual(['© Rendered']);
-  });
-
-  it('tier 2: falls back to source attribution when the control is absent', () => {
-    const map = {
-      ...mapWithControl(null),
+      ...mapWithControl('ignored'),
       getStyle: () => ({
         sources: {
           base: { attribution: '© Basemap Co' },
@@ -102,7 +85,69 @@ describe('readRenderedAttribution', () => {
     expect(readRenderedAttribution(map)).toEqual(['© Basemap Co', '© swisstopo']);
   });
 
-  it('tier 2: decodes entities and anchors without parsing live markup', () => {
+  it('reads the LIVE source attribution, which the serialized spec can lack', () => {
+    // Measured on the shipped OpenFreeMap basemap: the spec says null while the
+    // live source carries the credit, because a vector source loaded from a
+    // TileJSON `url` receives its attribution in that response. Reading the
+    // spec alone dropped every basemap credit whenever a dataset declared one.
+    const map = {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: { basemap: { attribution: null }, dem: { attribution: '© swisstopo' } },
+      }),
+      getSource: (id: string) =>
+        id === 'basemap' ? { attribution: '<a href="#">© OpenMapTiles</a>' } : undefined,
+    };
+    expect(readRenderedAttribution(map)).toEqual(['© OpenMapTiles', '© swisstopo']);
+  });
+
+  it('falls back to the serialized spec for a source the map has not instantiated', () => {
+    const map = {
+      ...mapWithControl(null),
+      getStyle: () => ({ sources: { a: { attribution: '© From spec' } } }),
+      getSource: () => undefined,
+    };
+    expect(readRenderedAttribution(map)).toEqual(['© From spec']);
+  });
+
+  it('never splits a credit that contains the separator as content', () => {
+    const credit = '© Acme | © Acme';
+    const map = {
+      ...mapWithControl(null),
+      getStyle: () => ({ sources: { a: { attribution: credit } } }),
+    };
+    // One credit, whole. Splitting produced two identical fragments that the
+    // dedupe then collapsed to one, deleting half a real credit.
+    expect(readRenderedAttribution(map)).toEqual([credit]);
+  });
+
+  it('keeps two distinct credits that share a separator-containing prefix', () => {
+    const map = {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: {
+          a: { attribution: '© Acme | Division One' },
+          b: { attribution: '© Acme | Division Two' },
+        },
+      }),
+    };
+    expect(readRenderedAttribution(map)).toEqual([
+      '© Acme | Division One',
+      '© Acme | Division Two',
+    ]);
+  });
+
+  it('dedupes identical source credits, which is one credit not two', () => {
+    const map = {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: { a: { attribution: '© Same' }, b: { attribution: '© Same' } },
+      }),
+    };
+    expect(readRenderedAttribution(map)).toEqual(['© Same']);
+  });
+
+  it('decodes entities and anchors without parsing live markup', () => {
     const map = {
       ...mapWithControl(null),
       getStyle: () => ({
@@ -118,17 +163,23 @@ describe('readRenderedAttribution', () => {
     ]);
   });
 
-  it('tier 3: returns nothing when neither source is available', () => {
-    expect(readRenderedAttribution(mapWithControl(null))).toEqual([]);
-    expect(readRenderedAttribution({})).toEqual([]);
+  it('falls back to the rendered control as ONE opaque entry, never split', () => {
+    const joined = '© OpenFreeMap | © OpenMapTiles | © OpenStreetMap contributors';
+    expect(readRenderedAttribution(mapWithControl(joined))).toEqual([joined]);
   });
 
-  it('an empty control falls through to the style rather than reporting no credit', () => {
+  it('falls back to the control when no source declares a credit', () => {
     const map = {
-      ...mapWithControl('   '),
-      getStyle: () => ({ sources: { a: { attribution: '© Fallback' } } }),
+      ...mapWithControl('© From the control'),
+      getStyle: () => ({ sources: { a: { attribution: null }, b: {} } }),
     };
-    expect(readRenderedAttribution(map)).toEqual(['© Fallback']);
+    expect(readRenderedAttribution(map)).toEqual(['© From the control']);
+  });
+
+  it('returns nothing when neither source is available', () => {
+    expect(readRenderedAttribution(mapWithControl(null))).toEqual([]);
+    expect(readRenderedAttribution({})).toEqual([]);
+    expect(readRenderedAttribution({ ...mapWithControl('   ') })).toEqual([]);
   });
 });
 
@@ -267,6 +318,66 @@ describe('fitAttributionText', () => {
       fontPx: 12,
     });
     expect(fitted.lines.join('')).toBe('ABC');
+  });
+});
+
+/* fix(#1541 codex P2): mid-STRING wrapping is the one residual limit we allow.
+ * Mid-CHARACTER is truncation in disguise — a surrogate pair split across two
+ * drawn lines renders replacement glyphs where the provider's name should be. */
+describe('grapheme safety in the wrapping path', () => {
+  const EMOJI = '\u{1F30D}'; // U+1F30D EARTH GLOBE EUROPE-AFRICA, non-BMP
+  const FAMILY = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}'; // ZWJ sequence
+  const ACCENTED = 'e\u0301'; // e + COMBINING ACUTE, two code units, one grapheme
+
+  /** Every drawn line, for a credit forced to break many times. */
+  function linesFor(credit: string, maxWidth: number): string[] {
+    const ctx = makeCtx();
+    return fitAttributionText(ctx as unknown as CanvasRenderingContext2D, [credit], {
+      maxWidth,
+      fontPx: 12,
+    }).lines;
+  }
+
+  it('never emits a lone surrogate when breaking a non-BMP run', () => {
+    const credit = `© ${EMOJI.repeat(200)}`;
+    // Swept across widths on purpose. Each emoji is exactly two code units, so
+    // a single width can land every code-unit break on an even boundary and
+    // pass while the implementation is unsafe — this test did exactly that
+    // before the sweep was added.
+    for (let maxWidth = 25; maxWidth <= 100; maxWidth += 7) {
+      const lines = linesFor(credit, maxWidth);
+      expect(lines.length).toBeGreaterThan(1);
+      for (const line of lines) {
+        // A split pair leaves an unpaired surrogate at a line edge.
+        expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(line), `width ${maxWidth}`).toBe(false);
+        expect(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(line), `width ${maxWidth}`).toBe(false);
+      }
+      // Whitespace-insensitive totality: a word break consumes the space it
+      // broke at while a character break inserts none, so where the spaces
+      // land is not the property under test. Losing a CHARACTER is.
+      expect(lines.join('').replace(/\s+/g, '')).toBe(credit.replace(/\s+/g, ''));
+    }
+  });
+
+  it('keeps ZWJ sequences and combining marks intact across a break', () => {
+    for (const cluster of [FAMILY, ACCENTED]) {
+      const credit = cluster.repeat(120);
+      const lines = linesFor(credit, 60);
+      expect(lines.length).toBeGreaterThan(1);
+      // No spaces in these fixtures, so the pieces concatenate exactly.
+      expect(lines.join('')).toBe(credit);
+      // No line starts with a combining mark or a ZWJ, which is what a
+      // mid-cluster break looks like from the next line's side.
+      for (const line of lines) {
+        expect(/^[\u0300-\u036F\u200D]/.test(line)).toBe(false);
+      }
+    }
+  });
+
+  it('loses nothing when a provider name mixes scripts and emoji', () => {
+    const credit = `© Ácme ${EMOJI} 地図データ ${FAMILY} contributors`.repeat(30);
+    const lines = linesFor(credit, 80);
+    expect(lines.join('').replace(/\s+/g, '')).toBe(credit.replace(/\s+/g, ''));
   });
 });
 
@@ -481,6 +592,28 @@ describe('overlayLineCapacity: the documented ceiling', () => {
 
     // The marker is the last line, so it reads as a footnote to what precedes it.
     expect(drawn[drawn.length - 1]).toMatch(/\+\d+ more credit/);
+  });
+
+  it("counts CREDITS not fragments when credits contain the separator", () => {
+    // fix(#1541 codex P2): the marker's N used to be derived from a joined
+    // string re-split on ` | `, so a credit containing the separator inflated
+    // the count and could be cut in half with its remainder counted as another
+    // provider. Each of these is ONE credit that happens to contain ` | `.
+    const ctx = makeCtx();
+    const credits = Array.from(
+      { length: 24 },
+      (_, i) => `© Provider ${i} | Division A | Division B, a licensing statement`,
+    );
+    expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), credits, THUMBNAIL_ATTRIBUTION))
+      .toBe(true);
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+
+    // The true omitted count: credits not present whole in the rendered text.
+    const joined = drawn.join(' ');
+    const renderedWhole = credits.filter((c) => joined.includes(c)).length;
+    expect(renderedWhole).toBeGreaterThan(0);
+    expect(markedCount(drawn)).toBe(credits.length - renderedWhole);
+    expectNothingOutsideFrame(ctx, THUMBNAIL_ATTRIBUTION, 400, 250);
   });
 
   it('draws nothing at all rather than outside a frame too small for one line', () => {

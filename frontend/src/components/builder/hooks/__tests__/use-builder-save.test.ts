@@ -125,8 +125,12 @@ function createMockCanvas() {
   };
 }
 
-/** feat(#1486): what MapLibre's attribution control shows on a default mock. */
-export const MOCK_ATTRIBUTION = '© OpenFreeMap | © OpenStreetMap contributors';
+/** feat(#1486): the credits a default mock map declares, as separate sources
+ *  (which is how a real style carries them), and the single line they render
+ *  as once joined. fix(#1541 codex P2): the reader takes the structured list
+ *  and never re-splits the joined form, so the mock supplies the list. */
+export const MOCK_CREDITS = ['© OpenFreeMap', '© OpenStreetMap contributors'];
+export const MOCK_ATTRIBUTION = MOCK_CREDITS.join(' | ');
 
 function createMockMap(
   overrides: { loaded?: boolean; globeSpace?: boolean; attribution?: string | null } = {},
@@ -135,11 +139,12 @@ function createMockMap(
   // on screen. Every mock map has one; only an opted-in map is marked.
   const container = document.createElement('div');
   if (overrides.globeSpace) container.setAttribute('data-globe-space', 'true');
-  // feat(#1486): every real map renders MapLibre's attribution control, and
-  // all three capture paths now read it, so the default mock carries one too.
-  // Pass `attribution: null` for the no-credit-available case.
+  // feat(#1486): every real map declares credits on its sources and renders
+  // them in the attribution control, so the default mock carries both. Pass
+  // `attribution: null` for the no-credit-available case.
   const attribution =
     overrides.attribution === undefined ? MOCK_ATTRIBUTION : overrides.attribution;
+  const credits = attribution === null ? [] : attribution.split(' | ');
   if (attribution !== null) {
     const inner = document.createElement('div');
     inner.className = 'maplibregl-ctrl-attrib-inner';
@@ -148,6 +153,12 @@ function createMockMap(
   }
   return {
     getContainer: vi.fn(() => container),
+    // The structured path the reader prefers: one source per credit.
+    getStyle: vi.fn(() => ({
+      sources: Object.fromEntries(
+        credits.map((credit, i) => [`src-${i}`, { attribution: credit }]),
+      ),
+    })),
     getCenter: vi.fn(() => ({ lng: -73.9, lat: 40.7 })),
     getZoom: vi.fn(() => 10),
     getBearing: vi.fn(() => 0),

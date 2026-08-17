@@ -13,7 +13,11 @@
  * credit only reaches an exported image if it is DRAWN INTO the canvas, which
  * is what the two draw helpers here do.
  *
- * Where the text comes from: MapLibre's rendered control, read as text.
+ * Where the text comes from: the style's own per-source `attribution` values,
+ * as a LIST. See `readRenderedAttribution` for why a list rather than the
+ * rendered control's joined string (fix(#1541 codex P2): ` | ` is legal content
+ * inside a credit, so splitting the joined line cut credits in half and let the
+ * dedupe delete them).
  *
  * The obvious alternative — composing `BasemapEntry.attribution` with
  * `collectLayerAttributions` — is wrong for the builder in three ways:
@@ -32,9 +36,9 @@
  *     through MapLibre's native source-level `attribution` and lets MapLibre
  *     gate them on the live `used` flag.
  *
- * Reading the control gets the same merge, the same dedupe and the same live
- * gating as the screen by construction rather than by convention, and
- * `textContent` is post-parse so entities and anchors are already resolved.
+ * Reading the live style keeps the image and the screen agreeing on WHICH
+ * credits exist, by construction rather than by convention, and the HTML in
+ * those values is decoded through an inert DOMParser rather than a regex.
  */
 import { MAP_COLORS } from '@/lib/map-colors';
 // Canvas drawing happens outside React, so the overflow marker is translated
@@ -51,6 +55,9 @@ const FONT_STACK = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 export interface AttributionMapLike {
   getContainer?: () => HTMLElement | null | undefined;
   getStyle?: () => unknown;
+  /** Live source objects. Their `attribution` is the RESOLVED value; the
+   *  serialized style's is not. See `readRenderedAttribution`. */
+  getSource?: (id: string) => { attribution?: string | null } | null | undefined;
 }
 
 function attributionFont(fontPx: number): string {
@@ -83,25 +90,52 @@ function dedupe(entries: string[]): string[] {
 }
 
 /**
- * The credit entries currently shown for `map`, as plain text.
+ * The credit entries currently shown for `map`, as plain text, AS A LIST.
  *
- * Tiered, because coupling to a library CSS class is a real risk:
+ * fix(#1541 codex P2): this used to read MapLibre's rendered control and split
+ * the joined text on ` | `. That re-derived structure from a rendered string,
+ * and the delimiter is legal content — the backend accepts it anywhere in a
+ * 5,000-character credit. A credit reading `© Acme | © Acme` split into two
+ * identical fragments, which the dedupe then collapsed into one, silently
+ * deleting half a real credit; and the overflow marker counted fragments rather
+ * than credits, so its "+N" could be wrong in either direction while a single
+ * licensing statement was cut in half and its remainder counted as a separate
+ * provider. No smarter delimiter fixes that. Any delimiter can appear in
+ * content, so the round-trip itself had to go.
  *
- *  1. `.maplibregl-ctrl-attrib-inner` textContent, split on MapLibre's own
- *     separator. Exact agreement with the screen.
- *  2. The union of `getStyle().sources[*].attribution`, entity-decoded. A
- *     degraded mode rather than a cliff: it loses only the `used` gating, so
- *     it may credit a source whose layers are all hidden. Over-crediting is
- *     the safe direction.
+ * Ordered by whether the source is STRUCTURED, not by how close it is to the
+ * screen:
+ *
+ *  1. The live sources' own `attribution`, one entry per source, entity-decoded
+ *     and never split on anything. This is the only place the individual
+ *     credits exist as separate values, so it is the only honest input to a
+ *     per-credit count. Read from `getSource(id)` rather than from
+ *     `getStyle().sources[id]`: MEASURED on the shipped OpenFreeMap basemap,
+ *     the serialized spec reports `attribution: null` while the live source
+ *     carries the OpenMapTiles and OpenStreetMap credits, because a vector
+ *     source loaded from a TileJSON `url` receives them in that response and
+ *     `getStyle()` serializes the spec as authored. Reading the spec alone
+ *     dropped every basemap credit whenever a dataset declared one.
+ *  2. `.maplibregl-ctrl-attrib-inner` textContent as ONE opaque entry. This
+ *     path genuinely only has the joined string, so it does not guess: the
+ *     whole line is treated as a single credit rather than split back apart.
+ *     It renders identically; only the marker's granularity is coarser, and
+ *     only on a map whose sources declare nothing.
  *  3. Nothing, with a DEV warning.
+ *
+ * Two costs of preferring (1), both accepted:
+ *
+ *  - The `used` gating. MapLibre hides a source whose layers are all hidden and
+ *    the source list does not, so the image may credit a source the screen does
+ *    not. Over-crediting is the safe direction.
+ *  - MapLibre's own "MapLibre" self-credit is a control default rather than a
+ *    source, so it is not in the list and does not reach the image. It is
+ *    library branding, not a data credit, and no data licence turns on it.
+ *
+ * Both are the price of a credit list that cannot be mangled by its own
+ * content, which is the property the whole marker count rests on.
  */
 export function readRenderedAttribution(map: AttributionMapLike): string[] {
-  const inner = map.getContainer?.()?.querySelector?.(
-    '.maplibregl-ctrl-attrib-inner',
-  );
-  const rendered = inner?.textContent?.trim();
-  if (rendered) return dedupe(rendered.split(SEPARATOR));
-
   const style = map.getStyle?.() as
     | { sources?: Record<string, { attribution?: string | null } | null> }
     | null
@@ -109,8 +143,16 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
   const sources = style?.sources;
   if (sources) {
     const fromSources: string[] = [];
-    for (const spec of Object.values(sources)) {
-      const raw = spec?.attribution;
+    for (const id of Object.keys(sources)) {
+      // The LIVE source first: a vector source loaded from a TileJSON `url`
+      // receives its attribution in that response, and `getStyle()` serializes
+      // the spec as authored, so the basemap's credit is null there and
+      // present here. Measured on the shipped OpenFreeMap basemap, where the
+      // spec says null and the live source carries the OpenMapTiles and
+      // OpenStreetMap credits. The serialized value is the fallback for a
+      // source the map has not instantiated.
+      const live = map.getSource?.(id)?.attribution;
+      const raw = typeof live === 'string' && live.trim() ? live : sources[id]?.attribution;
       if (typeof raw !== 'string' || !raw.trim()) continue;
       const decoded = decodeHtmlText(raw);
       if (decoded) fromSources.push(decoded);
@@ -118,6 +160,13 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
     const deduped = dedupe(fromSources);
     if (deduped.length > 0) return deduped;
   }
+
+  const inner = map.getContainer?.()?.querySelector?.(
+    '.maplibregl-ctrl-attrib-inner',
+  );
+  const rendered = inner?.textContent?.trim();
+  // Deliberately NOT split. See the docstring: the separator is legal content.
+  if (rendered) return [rendered];
 
   if (import.meta.env.DEV) {
     console.warn(
@@ -227,28 +276,60 @@ function wrapEntries(
   return lines;
 }
 
+/**
+ * Split `text` into user-perceived characters.
+ *
+ * fix(#1541 codex P2): the wrapper used to index and `slice()` by UTF-16 code
+ * unit, which splits a surrogate pair down the middle and renders two
+ * replacement glyphs instead of the provider's name. Mid-STRING wrapping is the
+ * one residual limit we allow; mid-CHARACTER is just truncation wearing a
+ * disguise.
+ *
+ * `Intl.Segmenter` because it is the only option that also keeps combining
+ * marks and ZWJ emoji sequences intact — `Array.from` iterates code POINTS,
+ * which fixes surrogate pairs but still severs a base character from its
+ * accent. It is kept as the fallback only for an engine without `Segmenter`,
+ * where it is strictly better than code units.
+ */
+let graphemeSegmenter: Intl.Segmenter | null | undefined;
+
+function toGraphemes(text: string): string[] {
+  if (graphemeSegmenter === undefined) {
+    graphemeSegmenter =
+      typeof Intl !== 'undefined' && typeof Intl.Segmenter === 'function'
+        ? new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+        : null;
+  }
+  if (!graphemeSegmenter) return Array.from(text);
+  return Array.from(graphemeSegmenter.segment(text), (s) => s.segment);
+}
+
 /** Break a word wider than `maxWidth` into pieces that are not. Loses nothing:
- *  the pieces continue on the following lines. Binary search per piece, and
- *  each piece takes at least one character, so it always terminates. */
+ *  the pieces continue on the following lines. Binary search per piece over
+ *  GRAPHEME CLUSTERS, and each piece takes at least one cluster, so it always
+ *  terminates and never splits a character. */
 function breakLongWord(
   ctx: CanvasRenderingContext2D,
   word: string,
   maxWidth: number,
 ): string[] {
+  if (ctx.measureText(word).width <= maxWidth) return [word];
+  const cells = toGraphemes(word);
   const pieces: string[] = [];
-  let rest = word;
-  while (rest && ctx.measureText(rest).width > maxWidth) {
-    let lo = 1;
-    let hi = rest.length;
+  let start = 0;
+  while (start < cells.length) {
+    // Largest end index whose slice still fits, but never fewer than one
+    // cluster — that lower bound is what guarantees progress.
+    let lo = start + 1;
+    let hi = cells.length;
     while (lo < hi) {
       const mid = Math.ceil((lo + hi) / 2);
-      if (ctx.measureText(rest.slice(0, mid)).width <= maxWidth) lo = mid;
+      if (ctx.measureText(cells.slice(start, mid).join('')).width <= maxWidth) lo = mid;
       else hi = mid - 1;
     }
-    pieces.push(rest.slice(0, lo));
-    rest = rest.slice(lo);
+    pieces.push(cells.slice(start, lo).join(''));
+    start = lo;
   }
-  if (rest) pieces.push(rest);
   return pieces;
 }
 
