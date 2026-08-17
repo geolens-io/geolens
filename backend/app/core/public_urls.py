@@ -7,6 +7,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Request
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -58,9 +59,19 @@ def is_usable_public_origin(value: str | None) -> bool:
       own comparison survives, but the frontend appends ``/m/<token>`` to the
       configured string — putting the path inside the query or after the
       fragment and producing links nobody can open.
+    * NO ``/api`` PATH. fix(#1555): the same clause the persistent-setting
+      validator has always had (``validate_public_app_url``, "must point to the
+      app, not the /api base"), applied to the entry point that skipped it. An
+      environment ``PUBLIC_APP_URL=https://maps.example.com/api`` reached
+      ``SharePanel`` through tile-config and built ``/api/api/maps/...`` card
+      links and ``/api/m/...`` iframe sources, while the domain-lock gate saw a
+      non-loopback origin and issued a token whose shell URL does not exist.
+      One rule with two entry points, only one of them checking.
 
-    The setting is environment-backed and therefore never passes through the
-    persistent-setting validator, so this is the only place it is checked.
+    The setting is environment-backed, so the environment path never passes
+    through the persistent-setting validator; that validator now defers to this
+    function for everything it does not say itself, so both entry points give
+    the same answer.
     """
     if value is None:
         return False
@@ -103,7 +114,109 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if canonical_host_error(parts.hostname or "") is not None:
         return False
+    if is_api_base_path(parts.path):
+        return False
     return not parts.query and not parts.fragment
+
+
+def is_api_base_path(path: str) -> bool:
+    """Does this path name the API base rather than the app?
+
+    fix(#1555): stated once because two entry points ask it — the environment
+    path through ``is_usable_public_origin`` and the persistent-setting path
+    through ``validate_public_app_url``, which had it and was the only one
+    checking. ``/apiary`` is not an API base; ``/geolens/api/`` is.
+
+    fix(#1555 review): the question is asked of the path a BROWSER resolves,
+    which is not the path ``urlsplit`` hands back. ``/api/.`` and
+    ``/foo/../api/.`` are left untouched by Python and normalized to ``/api/``
+    by every browser, so both backend doors accepted them while the frontend —
+    reading ``URL.pathname``, already resolved — refused. Measured, not
+    assumed: before this, ``validate_public_app_url('https://maps.example.com/
+    api/.')`` returned the value and the domain-lock gate read it as a
+    configured origin.
+    """
+    return _remove_dot_segments(path).rstrip("/").endswith("/api")
+
+
+# WHATWG treats a percent-encoded dot as a dot segment, in either case, and in
+# either half of a double-dot. RFC 3986 §5.2.4 knows only the literal spellings.
+_SINGLE_DOT_SEGMENTS = frozenset({".", "%2e"})
+_DOUBLE_DOT_SEGMENTS = frozenset({"..", ".%2e", "%2e.", "%2e%2e"})
+
+
+def _remove_dot_segments(path: str) -> str:
+    """Resolve ``.`` and ``..`` the way a URL parser does.
+
+    RFC 3986 §5.2.4, with the ``%2e`` equivalences the URL Standard adds. Takes
+    the path of an ABSOLUTE URL, so it is either empty or rooted.
+
+    A trailing dot segment leaves the slash behind: ``/api/.`` is ``/api/``,
+    matching ``new URL().pathname``, which is the whole point of the function.
+
+    The ``%2e`` half cannot be reached through ``is_usable_public_origin``
+    today: it refuses any candidate containing ``%`` several clauses earlier,
+    because Python leaves percent-encoding literal where a browser decodes it.
+    That refusal is a different rule with a different reason, though, and one
+    that a later change could narrow to "decode it instead" without anyone
+    noticing this depended on it. So the equivalence is implemented here rather
+    than assumed, and pinned by a test that calls this classifier directly —
+    an end-to-end test of a ``%2e`` value would pass on the percent clause
+    alone and prove nothing about this code.
+    """
+    if not path:
+        return path
+    segments = path.split("/")
+    output: list[str] = []
+    for index, segment in enumerate(segments):
+        lowered = segment.lower()
+        is_last = index == len(segments) - 1
+        if lowered in _SINGLE_DOT_SEGMENTS:
+            if is_last:
+                output.append("")
+            continue
+        if lowered in _DOUBLE_DOT_SEGMENTS:
+            # Never pop the leading empty segment: it is the root, not a step.
+            if len(output) > 1:
+                output.pop()
+            if is_last:
+                output.append("")
+            continue
+        output.append(segment)
+    return "/".join(output)
+
+
+def is_loopback_host(host: str) -> bool:
+    """True when a browser served from ``host`` is talking to its own machine.
+
+    fix(#1555): the predicate this replaces was an enumerated set of three
+    spellings (``localhost``, ``127.0.0.1``, ``::1``). Loopback is a RANGE:
+    ``127.0.0.0/8`` is loopback in its entirety, so a deployment configured as
+    ``http://127.0.0.2:8080`` was classified non-loopback, and
+    ``assert_domain_lock_is_enforceable`` read that as "this deployment knows
+    its public origin" and issued a domain lock every recipient resolves to
+    their OWN machine. The list form fails toward permitting the lock, which is
+    the direction that costs an operator a silently empty embed.
+
+    ``*.localhost`` counts. RFC 6761 §6.3 says resolvers should treat the
+    ``localhost`` zone as loopback and browsers do, so ``http://app.localhost``
+    is the same misconfiguration wearing a subdomain.
+
+    Bracketed IPv6 literals are accepted here because callers disagree about
+    whether they strip: ``urlsplit(...).hostname`` does, ``URL.hostname`` in a
+    browser does not.
+    """
+    candidate = host.strip().lower()
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    if not candidate:
+        return False
+    if candidate == "localhost" or candidate.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
 
 
 def canonical_host_error(host: str) -> str | None:
@@ -143,9 +256,23 @@ def canonical_host_error(host: str) -> str | None:
 
     if ":" in host:  # IPv6 literal; urlsplit has already stripped the brackets.
         try:
-            compressed = str(ipaddress.IPv6Address(host))
+            address = ipaddress.IPv6Address(host)
         except ValueError:
             return f"{host!r} is not a valid IPv6 address."
+        # fix(#1555): an IPv4-MAPPED literal has no agreed spelling. Python
+        # renders ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser renders
+        # ::ffff:127.0.0.1 as ::ffff:7f00:1, so each side calls the other's
+        # canonical form non-canonical and the class had no answer both halves
+        # accept. Refused outright rather than translated, for the same reason
+        # as a non-ASCII host: the plain IPv4 form is unambiguous and is what a
+        # browser presents anyway.
+        if address.ipv4_mapped is not None:
+            return (
+                f"{host!r} is an IPv4-mapped IPv6 literal, which browsers and "
+                "this server spell differently. Write the IPv4 address: "
+                f"{address.ipv4_mapped}"
+            )
+        compressed = str(address)
         if compressed != host:
             return f"Write the IPv6 literal in its compressed form: [{compressed}]"
         return None
@@ -179,6 +306,29 @@ def canonical_host_error(host: str) -> str | None:
         return f"{host!r} has an empty label."
     if not all(c.isalnum() or c == "-" for label in labels for c in label):
         return f"{host!r} contains a character that is not valid in a hostname."
+    # fix(#1555 review r4): an `xn--` label is accepted here as opaque LDH, and
+    # three rounds of validating it were REMOVED, because "what a browser sends"
+    # has no single answer for these labels. Measured with Playwright, in-page
+    # `new URL('https://<host>/p').hostname`:
+    #
+    #     host                   chromium 151  firefox 153  webkit 26.5  node 26
+    #     xn--.example           ok            THROWS       ok           THROWS
+    #     xn--a-sgn.example      ok            THROWS       ok           THROWS
+    #     xn--a-0hc.example      ok            THROWS       ok           ok
+    #     ex-.xn--mgbh0fb        ok            THROWS       ok           ok
+    #     xn--fa-hia.de          ok            ok           ok           ok
+    #
+    # Chromium and WebKit do not decode or validate an all-ASCII host at all;
+    # Firefox implements the URL Standard including every RFC 5893 bidi rule;
+    # Node's parser matches neither. So any refusal we add is stricter than the
+    # two engines most viewers use, which is the direction this file exists to
+    # avoid — and no rule can satisfy Firefox and Chromium at once. 13 of the 28
+    # hosts measured were read differently by different engines, ALL of them
+    # `xn--` cases; every other rule in this module agreed across all four.
+    #
+    # This also means a Node-based test cannot stand in for a browser here: run
+    # `new URL('https://xn--.example')` in node, find it invalid, and you are
+    # reading one engine's opinion, not the web's.
     return None
 
 

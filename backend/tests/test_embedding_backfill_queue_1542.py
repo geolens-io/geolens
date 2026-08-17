@@ -117,6 +117,55 @@ async def _in_flight_job(session: AsyncSession, *, force: bool = True) -> Ingest
     return job
 
 
+async def _stale_job(
+    session: AsyncSession, *, status: str, backfill: bool
+) -> IngestJob:
+    """A job the shared sweep settles: abandoned `running`, or old `pending`.
+
+    Both halves of the pass have their own UPDATE, their own message and their
+    own audit call site, so a fix applied to one of them says nothing about the
+    other.
+    """
+    old = datetime.now(timezone.utc) - timedelta(hours=3)
+    job = IngestJob(
+        source_filename="embedding-backfill" if backfill else "ordinary-upload.geojson",
+        file_path="",
+        created_by=await get_user_id(session, "admin"),
+        status=status,
+        created_at=old,
+        started_at=old if status == "running" else None,
+        heartbeat_at=old if status == "running" else None,
+        user_metadata=(
+            {
+                EMBEDDING_BACKFILL_METADATA_KEY: {
+                    "force": True,
+                    "operation_id": f"sweep-pin-{uuid.uuid4().hex[:8]}",
+                }
+            }
+            if backfill
+            else {"file_type": "vector"}
+        ),
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
+async def _audit_entries_naming(session: AsyncSession, job_id: str) -> int:
+    """How many audit rows of ANY action name this job."""
+    from app.modules.audit.models import AuditLog
+
+    session.expire_all()
+    return (
+        await session.execute(
+            select(func.count())
+            .select_from(AuditLog)
+            .where(AuditLog.details["job_id"].astext == job_id)
+        )
+    ).scalar_one()
+
+
 async def _load_job(session: AsyncSession, job_id) -> IngestJob:
     session.expire_all()
     job = await session.get(IngestJob, uuid.UUID(str(job_id)))
@@ -1433,53 +1482,56 @@ async def test_a_status_poll_that_settles_a_dead_run_also_closes_the_trail(
 
 
 @pytest.mark.anyio
-async def test_the_sweeper_does_not_audit_ordinary_ingest_jobs(
+@pytest.mark.parametrize(
+    "job_status,error_code",
+    [("running", "worker_lost"), ("pending", "never_started")],
+)
+async def test_the_shared_sweep_settles_an_ingest_job_without_auditing_it(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
+    job_status: str,
+    error_code: str,
 ):
-    """The helper is a no-op for every other kind of job.
+    """The sweep is shared; only the backfill semantics were taught to it.
 
     A blanket "audit whatever the sweep touched" would put embedding-backfill
-    entries over uploads, which is a different fabricated record.
+    entries over uploads, which is a different fabricated record. An ordinary
+    ingest job's own semantics on this path are "no audit entry at all" — a
+    background sweep is not an operator action, and `embedding.backfill` is the
+    only action this pass can write — so the assertion is that nothing in the
+    log names the upload.
+
+    A real backfill is swept in the SAME pass as the counterfactual. Without it
+    "no entries appeared for the upload" would hold just as well in a build
+    where the audit hook never fires at all, which is the opposite bug and the
+    one #1550 fixed; with it, the pass has to pick one row and not the other.
+    Both halves of the sweep are exercised because each has its own UPDATE,
+    its own message and its own call site.
     """
-    from app.modules.audit.models import AuditLog
     from app.platform.jobs.sweep import fail_stale_jobs
 
-    stale = IngestJob(
-        source_filename="ordinary-upload.geojson",
-        file_path="",
-        created_by=await get_user_id(test_db_session, "admin"),
-        status="running",
-        started_at=datetime.now(timezone.utc) - timedelta(hours=3),
-        heartbeat_at=datetime.now(timezone.utc) - timedelta(hours=3),
-        user_metadata={"file_type": "vector"},
-    )
-    test_db_session.add(stale)
-    await test_db_session.commit()
-    await test_db_session.refresh(stale)
+    upload = await _stale_job(test_db_session, status=job_status, backfill=False)
+    backfill = await _stale_job(test_db_session, status=job_status, backfill=True)
+    upload_id, backfill_id = str(upload.id), str(backfill.id)
 
-    before = (
-        await test_db_session.execute(
-            select(func.count())
-            .select_from(AuditLog)
-            .where(AuditLog.action == "embedding.backfill")
-        )
-    ).scalar_one()
+    assert await _audit_entries_naming(test_db_session, upload_id) == 0
 
     await fail_stale_jobs(test_db_session)
 
-    settled = await _load_job(test_db_session, stale.id)
-    # Non-vacuity: the sweep really did settle a row, it just was not a backfill.
-    assert settled.status == "failed"
-    after = (
-        await test_db_session.execute(
-            select(func.count())
-            .select_from(AuditLog)
-            .where(AuditLog.action == "embedding.backfill")
-        )
-    ).scalar_one()
-    assert after == before
+    # Non-vacuity: the pass really settled BOTH rows, so both had an outcome to
+    # record and exactly one of them should have one recorded.
+    assert (await _load_job(test_db_session, upload_id)).status == "failed", (
+        "the sweep no longer closes an ordinary ingest job it used to close"
+    )
+    assert (await _load_job(test_db_session, backfill_id)).status == "failed"
+
+    assert await _audit_entries_naming(test_db_session, upload_id) == 0, (
+        "the shared sweep wrote an audit entry for an ordinary upload"
+    )
+    terminal = await _terminal_audit_entries(client, admin_auth_header, backfill_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == error_code
 
 
 @pytest.mark.anyio
@@ -1804,3 +1856,314 @@ async def test_a_cancelled_dispatch_does_not_leave_the_slot_held(
     with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
         again = await client.post(_FORCE_URL, headers=admin_auth_header)
     assert again.status_code == 200, again.text
+
+
+async def _latest_backfill_row(session: AsyncSession) -> IngestJob:
+    session.expire_all()
+    job = (
+        (
+            await session.execute(
+                select(IngestJob)
+                .where(IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY))
+                .order_by(IngestJob.created_at.desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert job is not None
+    return job
+
+
+@pytest.mark.anyio
+async def test_a_lost_ack_on_the_dispatch_settle_still_closes_the_trail(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The write lands; the caller never hears that it did — at the OTHER end.
+
+    `_recover_unsettled` covers this class at the end of a run. The dispatch end
+    had the same shape and no recovery: `settle_undispatched_run` failed the
+    pending row, committed, and decided from the statement's own rowcount
+    whether it owed a terminal entry. Losing that acknowledgement is the
+    ORDINARY case here rather than the exotic one, because this code only runs
+    under the cancellation that triggered it — and the row it leaves behind is
+    `failed`, which every sweeper skips because it is terminal. So nothing
+    emitted the entry and nothing ever would: the trail keeps `requested` as its
+    last word over a job the database records as failed.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    real_fail = backfill_jobs._fail_undispatched_pending_row
+    calls = {"n": 0}
+
+    async def _commits_then_loses_the_answer(job_uuid):
+        calls["n"] += 1
+        await real_fail(job_uuid)  # the row really does become `failed`...
+        raise asyncio.CancelledError()  # ...and the caller never learns it
+
+    monkeypatch.setattr(
+        backfill_jobs, "_fail_undispatched_pending_row", _commits_then_loses_the_answer
+    )
+
+    async def _cancelled_mid_dispatch(_task, /, **kwargs):
+        raise asyncio.CancelledError()
+
+    with patch.object(
+        admin_router,
+        "defer_async_with_tenant",
+        AsyncMock(side_effect=_cancelled_mid_dispatch),
+    ):
+        # Same transport note as the test above: httpx re-wraps a cancellation,
+        # so what matters is that no response came back.
+        raised: BaseException | None = None
+        try:
+            await client.post(_FORCE_URL, headers=admin_auth_header)
+        except BaseException as exc:  # noqa: BLE001 - see comment above
+            raised = exc
+        assert raised is not None, "the cancellation did not propagate"
+
+    # Non-vacuity: the settle ran and its answer was genuinely lost.
+    assert calls["n"] == 1, "the dispatch settle never ran — nothing lost an answer"
+
+    stranded = await _latest_backfill_row(test_db_session)
+    assert stranded.status == "failed", (
+        "the undispatched run never reached a terminal row"
+    )
+    assert stranded.error_message == backfill_jobs.UNDISPATCHED_RUN_MESSAGE
+
+    terminal = await _terminal_audit_entries(
+        client, admin_auth_header, str(stranded.id)
+    )
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "dispatch_cancelled"
+
+
+@pytest.mark.anyio
+async def test_a_dispatch_settle_that_lost_its_answer_and_its_write_audits_nothing(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The counterfactual: the same lost answer over a write that never landed.
+
+    Reading the row is only right if it discriminates. A settle whose write was
+    fenced out — a worker picked the delivery up after all, so the row is no
+    longer `pending` — must record nothing, exactly as it does when the answer
+    comes back as zero rows. Otherwise the recovery above would just be an
+    unconditional "audit it anyway" wearing a read.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    calls = {"n": 0}
+
+    async def _the_worker_took_it_first(job_uuid):
+        # The fenced UPDATE matches nothing because the row is already running,
+        # and then the answer is lost as well.
+        calls["n"] += 1
+        from app.core.db import async_session
+
+        async with async_session() as other:
+            await other.execute(
+                update(IngestJob)
+                .where(IngestJob.id == job_uuid)
+                .values(status="running", heartbeat_at=datetime.now(timezone.utc))
+            )
+            await other.commit()
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        backfill_jobs, "_fail_undispatched_pending_row", _the_worker_took_it_first
+    )
+
+    async def _cancelled_mid_dispatch(_task, /, **kwargs):
+        raise asyncio.CancelledError()
+
+    with patch.object(
+        admin_router,
+        "defer_async_with_tenant",
+        AsyncMock(side_effect=_cancelled_mid_dispatch),
+    ):
+        raised: BaseException | None = None
+        try:
+            await client.post(_FORCE_URL, headers=admin_auth_header)
+        except BaseException as exc:  # noqa: BLE001 - transport re-wrap
+            raised = exc
+        assert raised is not None, "the cancellation did not propagate"
+
+    assert calls["n"] == 1, "the dispatch settle never ran"
+    live = await _latest_backfill_row(test_db_session)
+    # Non-vacuity: the row really is owned by somebody else now.
+    assert live.status == "running"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, str(live.id))
+    assert terminal == [], f"the settle claimed a run it did not settle: {terminal}"
+
+
+@pytest.mark.anyio
+async def test_a_lost_ack_does_not_claim_a_failure_another_actor_wrote(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """Read the row for evidence of YOUR write, not for the state you'd produce.
+
+    The dispatch DID land. A worker claimed the job, the backfill failed, and
+    `_finalize` committed `failed` — and only then was the request cancelled.
+    The settle's fenced update matches nothing, because the row is no longer
+    `pending`, and its acknowledgement is lost as well. A status-only read then
+    calls the worker's failure this cleanup's write and records
+    `dispatch_cancelled`, which says the run never started and nothing was
+    deleted, over a force regenerate that ran and failed after deleting every
+    vector.
+
+    Terminal entries are unique per job id, so that entry does not merely sit
+    alongside the truth. It evicts it: the worker's real `backfill_failed` is
+    refused by the index and swallowed. The last two assertions are that
+    eviction, driven rather than reasoned about — the worker's own entry is
+    held until after the cleanup has had its chance, which is exactly the
+    window between `_finalize`'s commit and `_emit_terminal_audit`.
+    """
+
+    async def _provider_is_down(session, *, force=False):
+        raise RuntimeError("provider down")
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _provider_is_down)
+
+    real_terminal_audit = backfill_jobs._emit_terminal_audit
+    held: dict = {}
+
+    async def _hold_the_workers_terminal_audit(**kwargs):
+        # First call is the worker's. Its row write has committed; its own
+        # entry has not landed yet, which is the live window.
+        if not held:
+            held.update(kwargs)
+            return
+        await real_terminal_audit(**kwargs)
+
+    monkeypatch.setattr(
+        backfill_jobs, "_emit_terminal_audit", _hold_the_workers_terminal_audit
+    )
+
+    settles = {"n": 0}
+    real_fail = backfill_jobs._fail_undispatched_pending_row
+
+    async def _matches_nothing_then_loses_the_answer(job_uuid):
+        settles["n"] += 1
+        applied = await real_fail(job_uuid)
+        assert applied is False, "the row was still pending — wrong arrangement"
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        backfill_jobs,
+        "_fail_undispatched_pending_row",
+        _matches_nothing_then_loses_the_answer,
+    )
+
+    async def _worker_finalizes_it_then_the_request_is_cancelled(_task, /, **kwargs):
+        # The delivery genuinely reached a worker, which claimed the job and
+        # committed `failed`. Only then does the request die.
+        await run_embedding_backfill(**kwargs)
+        raise asyncio.CancelledError()
+
+    with patch.object(
+        admin_router,
+        "defer_async_with_tenant",
+        AsyncMock(side_effect=_worker_finalizes_it_then_the_request_is_cancelled),
+    ):
+        raised: BaseException | None = None
+        try:
+            await client.post(_FORCE_URL, headers=admin_auth_header)
+        except BaseException as exc:  # noqa: BLE001 - transport re-wrap
+            raised = exc
+        assert raised is not None, "the cancellation did not propagate"
+
+    settled = await _latest_backfill_row(test_db_session)
+    job_id = str(settled.id)
+    # Non-vacuity: the row is terminal, and it is the WORKER's terminal write —
+    # the same status this cleanup's write would have produced, under a
+    # different message.
+    assert settled.status == "failed"
+    assert settled.error_message == backfill_jobs.BACKFILL_FAILED_MESSAGE
+    assert settles["n"] == 1, "the dispatch settle never ran"
+    assert held, "the worker never reached its terminal audit"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert not any(
+        e["details"].get("error_code") == "dispatch_cancelled" for e in terminal
+    ), f"the cleanup claimed a failure the worker wrote: {terminal}"
+
+    # The worker's held entry now lands, which it cannot do if the cleanup took
+    # the one terminal slot for this run.
+    await real_terminal_audit(**held)
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["error_code"] == "backfill_failed", (
+        f"the run's real outcome was evicted by the dispatch cleanup: {terminal}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# The fourth actor: the worker's own startup recovery (#1556)
+# ---------------------------------------------------------------------------
+#
+# `fail_stale_jobs`, the status poll and the worker's exits were taught to close
+# the trail. `recover_stale_jobs` — the pass a restarting worker runs before it
+# accepts a single delivery — settles the same rows with the same predicates and
+# was not. It is also the pass that actually reaches a hard-killed run: a worker
+# that dies is usually back in seconds, and once its startup pass has made the
+# row terminal no later sweep will look at that row again.
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "job_status,error_code",
+    [("running", "worker_lost"), ("pending", "never_started")],
+)
+async def test_the_worker_startup_recovery_closes_the_trail_it_settles(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    job_status: str,
+    error_code: str,
+):
+    """A hard kill's recovery is the restarted worker's, not the 5-minute sweep.
+
+    Both settle the row; only one of them was closing the trail. Whichever gets
+    there first is the last actor the run will ever have, because a terminal row
+    drops out of every other sweep's predicate — so the trail sits at
+    `requested` forever, over a force run that may have deleted every vector.
+    """
+    from app.platform.jobs.worker import recover_stale_jobs
+
+    upload = await _stale_job(test_db_session, status=job_status, backfill=False)
+    backfill = await _stale_job(test_db_session, status=job_status, backfill=True)
+    upload_id, backfill_id = str(upload.id), str(backfill.id)
+
+    assert (
+        await _terminal_audit_entries(client, admin_auth_header, backfill_id) == []
+    ), "the run already had a terminal entry before the recovery — vacuous"
+
+    await recover_stale_jobs()
+
+    # Non-vacuity: the recovery genuinely settled both rows. If the advisory
+    # lock was held elsewhere it skips the pass entirely, and this says so.
+    assert (await _load_job(test_db_session, backfill_id)).status == "failed", (
+        "the startup recovery did not settle the row — nothing to close a trail for"
+    )
+    assert (await _load_job(test_db_session, upload_id)).status == "failed"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, backfill_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["outcome"] == "failed"
+    assert terminal[0]["details"]["error_code"] == error_code
+    # The same discrimination the shared sweep owes: the ordinary upload
+    # settled in the same pass gets no entry of any kind.
+    assert await _audit_entries_naming(test_db_session, upload_id) == 0, (
+        "the startup recovery wrote an audit entry for an ordinary upload"
+    )

@@ -3478,7 +3478,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stat is handed down through _cog_size_once so a conditional request that
     # goes on to transfer bytes still measures once, and _managed_key names the
     # tenant-key seam the block now crosses in a second place.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1656,
+    #
+    # fix(#1554): +30, and 3 of them are code. `If-None-Match: *` is evaluated
+    # whatever the row's digest is, because RFC 9110 section 13.1.2 makes the
+    # wildcard a question about whether a representation EXISTS rather than
+    # about which one it is — so a row predating the sha256 column answered a
+    # revalidation by transferring the whole COG. The rest is the reasoning
+    # this route keeps needing on hand: why the wildcard is checked before the
+    # digest and the specific tags after it, why a 304 with no ETag is the
+    # right answer rather than a gap to fill, and why an unconditional 304 is
+    # licensed here at all (this path serves GET and HEAD, and the section
+    # gives `*` a different answer for anything that would create a
+    # representation). Cap 1656 -> 1686, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1686,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
@@ -3510,7 +3522,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unset it derives an app URL from an /api-stripped PUBLIC_API_URL, and a
     # split app/API deployment then had the API host accepted as a self-origin,
     # so a lock was issued that every shell request missed. Cap 1038 -> 1042.
-    "backend/app/modules/embed_tokens/service.py": 1042,
+    # fix(#1555): +14, all comment except two lines. _is_localhost_origin now
+    # asks is_loopback_host (app/core/public_urls.py) instead of an enumerated
+    # set of three spellings, because 127.0.0.0/8 is loopback in its entirety
+    # and http://127.0.0.2:8080 was read as a routable public origin — enough
+    # for the gate to issue a domain lock every recipient resolves to their own
+    # machine. The rest records why _LOOPBACK_CLIENT_IPS stays an exact set:
+    # that one GATES the localhost bypass, so a miss there denies, while a miss
+    # in the other ISSUES an unenforceable lock. Cap 1042 -> 1056.
+    "backend/app/modules/embed_tokens/service.py": 1056,
 }
 
 
