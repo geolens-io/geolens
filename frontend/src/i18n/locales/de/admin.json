@@ -262,6 +262,7 @@
     "generating": "Wird generiert...",
     "backfillQueued": "Einbettungs-Backfill eingereiht — diese Seite aktualisiert sich, wenn er fertig ist",
     "backfillFinished": "Einbettungs-Backfill abgeschlossen",
+    "backfillFinishedWithErrors": "Einbettungs-Backfill abgeschlossen mit {{errors}} abgelehnten Datensätzen — die Abdeckung weist Lücken auf",
     "backfillRunFailed": "Der Einbettungs-Backfill-Lauf ist fehlgeschlagen — prüfen Sie die Serverprotokolle",
     "allEmbedded": "Alle Datensätze haben Embeddings",
     "staleEmbeddingsWarning": "{{count}} Embedding(s) wurden mit einem anderen Modell erzeugt und können von der semantischen Suche nicht verwendet werden. Generieren Sie die fehlenden Embeddings, um nur diese Datensätze neu einzubetten, oder generieren Sie alle neu, um zusätzlich die veralteten Vektoren zu löschen.",

@@ -131,9 +131,16 @@ async def _finalize(
         "error_message": error_message,
     }
     backfill_meta = dict((metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
+    extra_metadata: dict[str, Any] = {}
     if result is not None:
         backfill_meta["result"] = result
         values["rows_processed"] = result["processed"]
+        # fix(#1550 review): surfaced through JobStatusResponse.rows_failed so
+        # a partly-failed run is visible to whoever is watching. A run that
+        # created most of the catalog and had some records rejected is
+        # `complete` and is not a clean success — after a force run those
+        # rejections are records whose old vectors are already gone.
+        extra_metadata["rows_failed"] = result["errors"]
         # Only a run that actually succeeded gets the completion stamps. A run
         # whose every embedding failed still records its counts — that is the
         # evidence an operator needs — but must not read as finished work.
@@ -142,6 +149,7 @@ async def _finalize(
             values["progress"] = 1.0
     values["user_metadata"] = {
         **(metadata or {}),
+        **extra_metadata,
         EMBEDDING_BACKFILL_METADATA_KEY: backfill_meta,
     }
     if not await update_ingest_job_for_attempt(

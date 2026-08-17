@@ -8759,6 +8759,8 @@ export interface components {
             current_step?: ("queued" | "validating" | "ogr2ogr" | "finalize" | "complete" | "cog_convert" | "quicklook" | "analyzing" | "registering") | null;
             /** Rows Processed */
             rows_processed?: number | null;
+            /** Rows Failed */
+            rows_failed?: number | null;
             /**
              * Archive Failed
              * @default false

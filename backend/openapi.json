@@ -8157,6 +8157,18 @@
             ],
             "title": "Rows Processed"
           },
+          "rows_failed": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rows Failed"
+          },
           "archive_failed": {
             "default": false,
             "title": "Archive Failed",

@@ -138,6 +138,17 @@ class JobStatusResponse(BaseModel):
         | None
     ) = None
     rows_processed: Annotated[int, Field(ge=0)] | None = None
+    # fix(#1550 review): rows the job processed but could NOT complete. The
+    # embedding backfill is the first producer: it catches per-record provider
+    # errors and returns counts rather than raising, so a run that regenerated
+    # most of the catalog and had some records rejected finishes `complete`
+    # with real coverage gaps — and after a FORCE run those gaps are records
+    # whose old vectors were deleted. The synchronous endpoint returned enough
+    # for the UI to warn about that; moving to the queue lost it, because
+    # `rows_processed` alone cannot distinguish a clean run from a partial one.
+    # Read from a generic `user_metadata["rows_failed"]` so any job type can
+    # populate it without this shared schema learning a domain.
+    rows_failed: Annotated[int, Field(ge=0)] | None = None
     archive_failed: bool = False
     # TYPE-3: the temporal parser only ever emits these two keys; pin the
     # shape so adding a third key requires touching the contract deliberately.

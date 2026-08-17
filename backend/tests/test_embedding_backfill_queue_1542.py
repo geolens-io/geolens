@@ -1488,3 +1488,139 @@ async def test_the_sweeper_does_not_audit_ordinary_ingest_jobs(
         )
     ).scalar_one()
     assert after == before
+
+
+@pytest.mark.anyio
+async def test_a_status_poll_whose_update_loses_the_race_audits_nothing(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The poll's auto-fail is conditional, so its audit must be too.
+
+    The handler reads a job that looks stale, then issues an UPDATE fenced on
+    the attempt token, the status and the heartbeat. A heartbeat renewal or the
+    worker's own finalization committing in between makes that write match zero
+    rows — and the audit ran anyway, putting `worker_lost` over a job that had
+    just completed. Same rule `_finalize` follows: a state change reports
+    whether it landed, and the caller conditions on that.
+
+    The race window is driven, not waited for. A SECOND admin polling someone
+    else's job takes the cross-user permission check, which is the one awaited
+    step between the handler's read and its write — so settling the row from
+    there lands the competing commit exactly where a real renewal would.
+    """
+    from app.core.db import async_session
+    from app.platform.jobs import router as jobs_router
+
+    from tests.conftest import _create_test_user
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    claimed = await _load_job(test_db_session, job_id)
+    claimed.status = "running"
+    expired = datetime.now(timezone.utc) - timedelta(hours=3)
+    claimed.started_at = expired
+    claimed.heartbeat_at = expired
+    await test_db_session.commit()
+
+    other_admin_headers, _ = await _create_test_user(client, admin_auth_header, "admin")
+
+    raced = {"n": 0}
+    real_check = jobs_router._can_access_another_users_job
+
+    async def _settle_it_mid_request(*args, **kwargs):
+        raced["n"] += 1
+        async with async_session() as other:
+            await other.execute(
+                update(IngestJob)
+                .where(IngestJob.id == uuid.UUID(job_id))
+                .values(status="complete", completed_at=datetime.now(timezone.utc))
+            )
+            await other.commit()
+        return await real_check(*args, **kwargs)
+
+    monkeypatch.setattr(
+        jobs_router, "_can_access_another_users_job", _settle_it_mid_request
+    )
+
+    status_resp = await client.get(f"/jobs/{job_id}", headers=other_admin_headers)
+    assert status_resp.status_code == 200, status_resp.text
+
+    # Non-vacuity: the competing commit really did land inside the request, so
+    # the poll's fenced UPDATE really did match zero rows.
+    assert raced["n"] == 1, "the race was never driven"
+    job = await _load_job(test_db_session, job_id)
+    assert job.status == "complete", "the poll's UPDATE overwrote the winner"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert not any(e["details"].get("error_code") == "worker_lost" for e in terminal), (
+        f"the poll recorded a loss for a job that had completed: {terminal}"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_partly_failed_run_reports_its_rejected_records(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """`complete` is not the whole story when records were rejected.
+
+    The synchronous endpoint returned counts the panel warned from. The queued
+    one has to carry the same fact on the job status, or a force regenerate
+    that left coverage gaps — gaps whose old vectors it already deleted —
+    reports to the operator as done.
+    """
+
+    async def _mostly_worked(session, *, force=False):
+        return {"processed": 10, "created": 9, "skipped": 0, "errors": 1}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _mostly_worked)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    status_resp = await client.get(f"/jobs/{job_id}", headers=admin_auth_header)
+    assert status_resp.status_code == 200, status_resp.text
+    payload = status_resp.json()
+    assert payload["status"] == "complete"
+    assert payload["rows_processed"] == 10
+    assert payload["rows_failed"] == 1, (
+        "the run's rejected records are invisible to whoever is watching it"
+    )
+
+
+@pytest.mark.anyio
+async def test_a_clean_run_reports_no_rejected_records(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    """The counterpart, so `rows_failed` distinguishes rather than always warns."""
+
+    async def _clean(session, *, force=False):
+        return {"processed": 4, "created": 4, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _clean)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    payload = (await client.get(f"/jobs/{job_id}", headers=admin_auth_header)).json()
+    assert payload["status"] == "complete"
+    assert payload["rows_failed"] == 0

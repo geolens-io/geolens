@@ -431,12 +431,21 @@ export function useBackfillJobStatus(jobId: string | null) {
     if (settledFor.current === jobId) return;
     settledFor.current = jobId;
     qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
-    if (status === 'complete') {
-      toast.success(i18n.t('admin:ai.backfillFinished'));
-    } else {
+    if (status !== 'complete') {
       toast.error(i18n.t('admin:ai.backfillRunFailed'));
+      return;
     }
-  }, [jobId, status, qc]);
+    // fix(#1550 review): a run that finished with rejected records is not a
+    // clean success. The synchronous endpoint returned counts the panel could
+    // warn from; the queued one has to carry the same fact on the job status,
+    // or a force regenerate that left coverage gaps reports as done.
+    const failed = query.data?.rows_failed ?? 0;
+    if (failed > 0) {
+      toast.warning(i18n.t('admin:ai.backfillFinishedWithErrors', { errors: failed }));
+      return;
+    }
+    toast.success(i18n.t('admin:ai.backfillFinished'));
+  }, [jobId, status, query.data?.rows_failed, qc]);
 
   return query;
 }

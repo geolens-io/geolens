@@ -4837,6 +4837,10 @@ export type JobStatusResponse = {
      */
     rows_processed?: number | null;
     /**
+     * Rows Failed
+     */
+    rows_failed?: number | null;
+    /**
      * Archive Failed
      */
     archive_failed?: boolean;
