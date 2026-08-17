@@ -46,8 +46,13 @@ __all__ = [
 
 async def _load_self_record_and_embedding(
     db: AsyncSession, dataset_id: uuid.UUID
-) -> tuple[uuid.UUID, list[float]] | None:
-    """Return (record_id, embedding) for the dataset, or None if either is absent.
+) -> tuple[uuid.UUID, tuple[list[float], str, str | None]] | None:
+    """Return (record_id, anchor) for the dataset, or None if either is absent.
+
+    fix(#1580): ``anchor`` is ``(embedding, model_name, config_fingerprint)``.
+    The vector alone does not say which model or endpoint produced it, so every
+    later read on this path takes the pair from here and compares inside that
+    one space.
 
     Phase 1061 SEC-S05: callers MUST gate visibility on the seed dataset BEFORE
     invoking this function. The embedding read has no permission filter and
@@ -63,20 +68,31 @@ async def _load_self_record_and_embedding(
         return None
     record_id = record_id_row[0]
 
-    embedding = await get_catalog_port().get_record_embedding(db, record_id)
-    if embedding is None:
+    anchor = await get_catalog_port().get_record_embedding(db, record_id)
+    if anchor is None:
         return None
-    return record_id, embedding
+    return record_id, anchor
 
 
 async def _compute_neighbor_distances(
     db: AsyncSession,
-    embedding: list[float],
+    anchor: tuple[list[float], str, str | None],
     neighbor_record_ids: list[uuid.UUID],
 ) -> dict[uuid.UUID, float]:
-    """Cosine-distance every neighbor against the seed embedding."""
+    """Cosine-distance every neighbor against the seed embedding.
+
+    fix(#1580): scored inside the anchor's own vector space. A neighbour that
+    also holds a row under another model would otherwise be scored off whichever
+    of its rows came back last, so the selection could be right and the printed
+    similarity still wrong.
+    """
+    embedding, model_name, config_fingerprint = anchor
     return await get_catalog_port().get_embedding_distances(
-        db, embedding, neighbor_record_ids
+        db,
+        embedding,
+        neighbor_record_ids,
+        model_name=model_name,
+        config_fingerprint=config_fingerprint,
     )
 
 
@@ -98,17 +114,23 @@ async def get_related_datasets(
         seed = await _load_self_record_and_embedding(db, dataset_id)
         if seed is None:
             return []
-        record_id, embedding = seed
+        record_id, anchor = seed
 
         # Find nearest neighbors using shared helper (over-fetch for RBAC filtering).
+        # fix(#1580): the selection and the scoring below stay in one vector
+        # space. fix(#1580 review r2): they stay on one ROW too — the anchor
+        # read above is handed in rather than taken again, because two reads
+        # under READ COMMITTED can straddle a worker committing a newer row for
+        # this record, which would rank against one vector and score against
+        # another.
         neighbor_record_ids = await get_catalog_port().get_nearest_record_ids(
-            db, record_id, limit=limit * 3, max_distance=0.7
+            db, record_id, anchor=anchor, limit=limit * 3, max_distance=0.7
         )
         if not neighbor_record_ids:
             return []
 
         neighbor_map = await _compute_neighbor_distances(
-            db, embedding, neighbor_record_ids
+            db, anchor, neighbor_record_ids
         )
 
         # Join to Dataset + Record, apply visibility filter, then build response items
