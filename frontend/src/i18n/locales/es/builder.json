@@ -645,7 +645,7 @@
     "copyEmbedCode": "Copiar código de inserción",
     "publicAppUrlNotConfigured": "Esta instalación no tiene una URL pública configurada, por lo que GeoLens no puede crear un enlace que funcione en el sitio de otra persona. Pide a un administrador que configure PUBLIC_APP_URL con la dirección que la gente usa para acceder a GeoLens.",
     "lockedPreviewNeedsPublicUrl": "Una inserción restringida por dominio solo se puede previsualizar desde la dirección pública de esta instalación, que no está configurada. Pide a un administrador que configure PUBLIC_APP_URL, o quita la restricción de dominio para previsualizar.",
-    "iframeErrorBodyDomainLocked": "Una inserción restringida por dominio se previsualiza desde la dirección pública de esta instalación, a la que este navegador quizá no pueda acceder. La inserción puede seguir funcionando para los visitantes. Recarga para reintentar.",
+    "lockedPreviewCrossOrigin": "Esta inserción está restringida a dominios concretos, así que solo se puede previsualizar desde la dirección pública de esta instalación. Estás usando otro nombre de host. Copiar el código de inserción sigue funcionando, y la inserción funcionará para los visitantes en los dominios permitidos.",
     "cannotPublish": "No se puede publicar: los conjuntos de datos {{datasets}} no son públicos",
     "embedTokenInfo": "Se incluyen capas no públicas. Un token de inserción gestiona el acceso automáticamente.",
     "unsavedWarning": "Los cambios sin guardar solo están en la vista previa del constructor. Guarda antes de copiar enlaces o inserciones.",

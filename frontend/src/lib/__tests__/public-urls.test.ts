@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import {
+  getLockedPreviewBaseUrl,
   getPublicAppBaseUrl,
   getShareableBaseUrl,
   resolvePublicAppUrl,
@@ -200,6 +201,75 @@ describe('a malformed value is never handed out', () => {
 });
 
 /**
+ * fix(#1548 review r7): a domain-locked preview must satisfy two browser rules
+ * at once, and for a split-horizon deployment nothing satisfies both.
+ *
+ *  1. Its API calls carry the SHELL's origin, and the backend accepts only the
+ *     configured origin as first-party -> load from the configured host.
+ *  2. `frame-ancestors 'self' <customer origins>` judges the PARENT document,
+ *     and `'self'` resolves to the PUBLIC origin, not the admin's -> the parent
+ *     must be that same host, or the browser blocks the frame outright.
+ *
+ * Rule 1 fixes the child's origin; rule 2 then demands the parent match it. So
+ * the preview exists only when the two already coincide.
+ */
+describe('getLockedPreviewBaseUrl', () => {
+  const PUBLIC_HOST = 'https://maps.example.com';
+
+  it('previews when the admin is already on the configured origin', () => {
+    expect(
+      getLockedPreviewBaseUrl({ public_app_url: PUBLIC_HOST }, PUBLIC_HOST),
+    ).toBe(PUBLIC_HOST);
+  });
+
+  it('refuses when the admin is on a different hostname', () => {
+    expect(
+      getLockedPreviewBaseUrl({ public_app_url: PUBLIC_HOST }, 'https://internal.corp'),
+    ).toBeNull();
+  });
+
+  it('refuses on a scheme or port difference too, since CSP compares origins', () => {
+    expect(
+      getLockedPreviewBaseUrl({ public_app_url: PUBLIC_HOST }, 'http://maps.example.com'),
+    ).toBeNull();
+    expect(
+      getLockedPreviewBaseUrl(
+        { public_app_url: PUBLIC_HOST },
+        'https://maps.example.com:8443',
+      ),
+    ).toBeNull();
+  });
+
+  it('previews across a configured sub-path, which CSP ignores', () => {
+    expect(
+      getLockedPreviewBaseUrl(
+        { public_app_url: 'https://example.com/geolens' },
+        'https://example.com',
+      ),
+    ).toBe('https://example.com/geolens');
+  });
+
+  it.each([
+    ['unset', null],
+    ['the shipped localhost default', 'http://localhost:8080'],
+    ['malformed', 'not-a-url'],
+  ])('refuses when the configured value is %s', (_label, value) => {
+    expect(
+      getLockedPreviewBaseUrl({ public_app_url: value }, 'https://maps.example.com'),
+    ).toBeNull();
+  });
+
+  it('previews a genuine localhost install, where the two coincide', () => {
+    expect(
+      getLockedPreviewBaseUrl(
+        { public_app_url: 'http://localhost:8080' },
+        'http://localhost:8080',
+      ),
+    ).toBe('http://localhost:8080');
+  });
+});
+
+/**
  * fix(#1548 review r3/r5): cover the class, not just the one call site.
  *
  * SharePanel resolves three origins, and the question that picks between them
@@ -261,9 +331,8 @@ describe('SharePanel resolves each URL from the right origin', () => {
     // must also satisfy the lock, so it is neither of the other two rules.
     // Unlocked it uses the origin this browser reached; locked it must use the
     // configured one, the only origin its own API calls may present.
-    expect(source).toContain(
-      'const previewBaseUrl = isDomainLocked ? trustedAppBaseUrl : currentOrigin;',
-    );
+    expect(source).toContain('? getLockedPreviewBaseUrl(tileConfig, currentOrigin)');
+    expect(source).toContain(': currentOrigin;');
   });
 
   it('no builder reaches for window.location.origin inline', () => {

@@ -14,7 +14,11 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/api/client';
 import { classifyApiError } from '@/lib/error-map';
-import { getPublicAppBaseUrl, getShareableBaseUrl } from '@/lib/public-urls';
+import {
+  getLockedPreviewBaseUrl,
+  getPublicAppBaseUrl,
+  getShareableBaseUrl,
+} from '@/lib/public-urls';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/use-edition';
@@ -624,19 +628,9 @@ interface EmbedPreviewPaneProps {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
-  /** fix(#1548 review r6): a locked preview is loaded from the CONFIGURED
-   *  origin, which this browser may not be able to reach at all (split-horizon
-   *  deployments route the public host externally only). Reachability cannot be
-   *  predicted from here, so the existing load-failure state explains it. */
-  isDomainLocked?: boolean;
 }
 
-function EmbedPreviewPane({
-  shareToken,
-  embedTokenRaw,
-  origin,
-  isDomainLocked = false,
-}: EmbedPreviewPaneProps) {
+function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
   const { t } = useTranslation('builder');
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -706,9 +700,7 @@ function EmbedPreviewPane({
                 {t('share.iframeErrorTitle', { defaultValue: 'Preview unavailable' })}
               </p>
               <p className="text-xs text-muted-foreground text-center">
-                {isDomainLocked
-                  ? t('share.iframeErrorBodyDomainLocked')
-                  : t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
+                {t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
               </p>
               <button
                 type="button"
@@ -969,11 +961,12 @@ export function ShareDialog({
   //     not a misconfiguration, and pointing a local affordance at it means an
   //     admin can use GeoLens yet cannot open the share they just created.
   //  3. OPENED BY THIS BROWSER *AND* SUBJECT TO THE LOCK — a DOMAIN-LOCKED
-  //     preview. It belongs to neither bucket above: loaded from currentOrigin
-  //     its own API calls carry an origin the lock does not permit, so it
-  //     renders without its scoped layers — the exact silent failure this PR
-  //     exists to end. It must use the configured origin, and when there is
-  //     none it cannot be shown at all. See previewBaseUrl below.
+  //     preview. It belongs to neither bucket above, and for a split-horizon
+  //     deployment it has no answer at all: its API calls must carry the
+  //     CONFIGURED origin, while `frame-ancestors` judges this dialog as the
+  //     PARENT and accepts only that same configured origin. So it is offered
+  //     only when the two already coincide, and refused otherwise. See
+  //     getLockedPreviewBaseUrl.
   //  4. The domain-lock decision for the SNIPPET is a further split within (1).
   //
   // See lib/public-urls.ts for why "configured" is not the same question as
@@ -1029,14 +1022,17 @@ export function ShareDialog({
   const isDomainLocked = configOrigins.length > 0;
   const embedBaseUrl = isDomainLocked ? trustedAppBaseUrl : shareBaseUrl;
 
-  // fix(#1548 review r6): category (3). A locked preview has to satisfy the
-  // same check the customer's embed will, and only the configured origin does
-  // — so unlike the "Open" button it gets no current-origin fallback, and
-  // unlike the snippet it cannot fall back to a serving origin either. Null
-  // here means the preview is genuinely impossible: you cannot preview a
-  // domain-locked embed from a host the lock does not permit. Saying so beats
-  // rendering a map with no layers in it.
-  const previewBaseUrl = isDomainLocked ? trustedAppBaseUrl : currentOrigin;
+  // fix(#1548 review r6/r7): category (3). Null means the preview is genuinely
+  // impossible rather than merely unconfigured — you cannot preview a
+  // domain-locked embed from a hostname the lock does not permit, and asking
+  // the browser to do it anyway just gets the frame blocked. Copying the
+  // snippet, which is what the admin came here for, is unaffected.
+  const previewBaseUrl = isDomainLocked
+    ? getLockedPreviewBaseUrl(tileConfig, currentOrigin)
+    : currentOrigin;
+  // Which of the two refusals to print: no usable public origin at all, or one
+  // that exists but is not this hostname.
+  const lockedPreviewBlockedByOrigin = isDomainLocked && trustedAppBaseUrl !== null;
 
   const createEmbedToken = tokens.embedMutation;
   const revokeEmbedToken = tokens.revokeEmbedMutation;
@@ -1579,7 +1575,6 @@ export function ShareDialog({
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
                       origin={previewBaseUrl}
-                      isDomainLocked={isDomainLocked}
                     />
                   )}
                   {embedTokenRaw && !previewBaseUrl && (
@@ -1587,7 +1582,9 @@ export function ShareDialog({
                       role="status"
                       className="text-xs text-muted-foreground border-t pt-3"
                     >
-                      {t('share.lockedPreviewNeedsPublicUrl')}
+                      {lockedPreviewBlockedByOrigin
+                        ? t('share.lockedPreviewCrossOrigin')
+                        : t('share.lockedPreviewNeedsPublicUrl')}
                     </p>
                   )}
                 </div>

@@ -1586,13 +1586,13 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
     });
 
     /**
-     * fix(#1548 review r6): the domain-locked preview is a FOURTH case — opened
-     * by this browser AND subject to the lock. Loaded from the current origin
-     * its own API calls carry an origin the lock does not permit, so it renders
-     * without its scoped layers: the exact silent failure this PR exists to
-     * end. Only the configured origin satisfies both.
+     * fix(#1548 review r7): a domain-locked preview has no answer here at all.
+     * Its API calls must carry the configured origin, and `frame-ancestors`
+     * then judges THIS dialog as the parent against that same origin — which
+     * the admin's hostname is not. The browser blocks the frame before a single
+     * API call runs, so the honest move is not to render it.
      */
-    it('previews a DOMAIN-LOCKED embed from the configured origin instead', async () => {
+    it('suppresses a DOMAIN-LOCKED preview rather than loading a blocked frame', async () => {
       const user = userEvent.setup();
       setup({
         enterprise: true,
@@ -1602,13 +1602,61 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
         publicAppUrl: PUBLIC_HOST,
       });
       await generateShareLinkAndWait(user);
+
+      expect(
+        screen.queryByRole('button', { name: /preview/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+      expect(
+        await screen.findByText(/restricted to specific domains/i),
+      ).toBeInTheDocument();
+    });
+
+    it('leaves the copy-snippet path fully working while the preview is refused', async () => {
+      // What the admin actually came here to do. The snippet still names the
+      // public host, which is where the customer will load it from.
+      const user = userEvent.setup();
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', {
+        value: { writeText },
+        writable: true,
+        configurable: true,
+      });
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl: PUBLIC_HOST,
+      });
+      await generateShareLinkAndWait(user);
+
+      const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+      expect(textarea.value).toContain(`src="${PUBLIC_HOST}/m/share-token`);
+
+      await user.click(screen.getByTitle(/copy embed code/i));
+      await waitFor(() => expect(writeText).toHaveBeenCalled());
+      expect(writeText.mock.calls[0][0]).toContain(PUBLIC_HOST);
+    });
+
+    it('previews the locked embed once the admin IS on the configured origin', async () => {
+      // The regression guard: suppression is about the two origins DIFFERING,
+      // not about the embed being locked. Same host, and the preview returns.
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl: window.location.origin,
+      });
+      await generateShareLinkAndWait(user);
       await user.click(screen.getByRole('button', { name: /preview/i }));
 
       const iframe = (await screen.findByTestId(
         'share-preview-iframe',
       )) as HTMLIFrameElement;
-      expect(iframe.src).toContain(`${PUBLIC_HOST}/m/share-token`);
-      expect(iframe.src).not.toContain(window.location.origin);
+      expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
     });
 
     it('still copies a link on the public host, because the customer opens that', async () => {

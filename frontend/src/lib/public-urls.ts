@@ -105,9 +105,9 @@ export function resolvePublicAppUrl(
  *    `window.location.origin` directly, not this. A public host routed only
  *    externally is a normal split-horizon deployment, and a local affordance
  *    pointed at it simply fails.
- *  - A DOMAIN-LOCKED preview → this, with no fallback. It is opened here AND
- *    must satisfy the lock, and only the configured origin does both. When this
- *    is null the preview cannot be shown at all, which is the feature working.
+ *  - A DOMAIN-LOCKED preview → `getLockedPreviewBaseUrl`, which additionally
+ *    requires the configured origin to BE the current one, because
+ *    `frame-ancestors` judges the parent document. See its docstring.
  */
 export function getPublicAppBaseUrl(
   tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
@@ -115,6 +115,45 @@ export function getPublicAppBaseUrl(
 ): string | null {
   const state = resolvePublicAppUrl(tileConfig, currentOrigin);
   return state.kind === 'trusted' ? state.baseUrl : null;
+}
+
+/**
+ * The base URL a DOMAIN-LOCKED preview may load from, or null if it cannot be
+ * previewed here at all.
+ *
+ * fix(#1548 review r7): a locked preview has to satisfy TWO browser rules at
+ * once, and for a split-horizon deployment nothing satisfies both.
+ *
+ *  1. Its API calls carry the SHELL's origin, and the backend accepts only the
+ *     configured origin as first-party — so the shell must be loaded from the
+ *     configured host.
+ *  2. The shell is served with `frame-ancestors 'self' <customer origins>`
+ *     (frontend/nginx.conf, built by `build_embed_frame_ancestors`), and CSP
+ *     judges the PARENT document. Loaded from the public host but parented by a
+ *     Share dialog on an internal hostname, the parent matches neither `'self'`
+ *     — which resolves to the PUBLIC origin, not the admin's — nor the customer
+ *     allowlist. The browser blocks the frame before a single API call runs.
+ *
+ * Earlier rounds each tried to find an origin satisfying both. There isn't one:
+ * rule 1 fixes the child's origin and rule 2 then requires the parent to match
+ * it. So the preview is offered only when the two are already the same origin,
+ * and otherwise refused with an explanation. That is not a workaround — it is
+ * the domain lock doing exactly what it was asked to do, to us.
+ *
+ * The comparison is by ORIGIN, so a configured sub-path
+ * (`https://example.com/geolens` while the admin is at `https://example.com`)
+ * still previews: CSP and the origin check both ignore the path.
+ */
+export function getLockedPreviewBaseUrl(
+  tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
+  currentOrigin: string,
+): string | null {
+  const baseUrl = getPublicAppBaseUrl(tileConfig, currentOrigin);
+  if (baseUrl === null) return null;
+  const configured = parseOrigin(baseUrl);
+  const current = parseOrigin(currentOrigin);
+  if (configured === null || current === null) return null;
+  return configured.origin === current.origin ? baseUrl : null;
 }
 
 /**
