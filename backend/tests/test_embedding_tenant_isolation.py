@@ -21,11 +21,16 @@ from app.processing.embeddings import service as service_module
 from tests.fixtures.dummy_overlay.tenant_isolation import TenantIsolationSurface
 
 
-def _result(*, rows=(), scalar=None):
+def _result(*, rows=(), scalar=None, first=None):
     result = MagicMock()
     result.all.return_value = list(rows)
     result.scalar_one.return_value = scalar
     result.scalar_one_or_none.return_value = scalar
+    # fix(#1580): the anchor read returns the row rather than one column, so it
+    # goes through `.first()`. Left as an explicit None by default: a MagicMock
+    # here would be truthy and unpack into three MagicMocks, which is how a
+    # caller that stopped reading a real row would still look like it worked.
+    result.first.return_value = first
     return result
 
 
@@ -55,6 +60,23 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
         "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
+    # fix(#1580 review r4): the fingerprint resolver too. The anchor read orders
+    # by "the row search would use", so it asks what the live configuration IS
+    # before running its own query — and that resolution goes to the database on
+    # a cold persistent-config cache, consuming one of the three results queued
+    # below and killing the test with StopAsyncIteration.
+    #
+    # It went unnoticed because the failure is ORDER-DEPENDENT: run after any
+    # test that warms the config cache and the resolver answers without a query,
+    # so a whole-file or whole-suite run is green and this node alone is red.
+    # Both resolvers are stubbed now, so what this test asserts — that every
+    # embedding helper crosses the Record boundary — no longer depends on what
+    # ran before it.
+    monkeypatch.setattr(
+        helpers,
+        "resolve_embedding_config_fingerprint",
+        AsyncMock(return_value="f" * 64),
+    )
 
     presence_session = AsyncMock()
     presence_session.execute.return_value = _result(scalar=True)
@@ -62,7 +84,9 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
     presence_sql = str(presence_session.execute.await_args.args[0])
     assert "JOIN catalog.records AS visible_record" in presence_sql
 
-    source_result = _result(scalar=[1.0, 0.0, 0.0])
+    # fix(#1580): the anchor read now selects the row's identity alongside its
+    # vector, so the stub returns the triple `get_anchor_embedding_row` unpacks.
+    source_result = _result(first=([1.0, 0.0, 0.0], "tenant-isolation-model", None))
     hnsw_result = _result()
     neighbor_result = _result(rows=[])
     nearest_session = AsyncMock()

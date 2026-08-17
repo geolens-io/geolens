@@ -231,24 +231,43 @@ class CatalogPort(Protocol):
 
     async def set_hnsw_recall(self, session: AsyncSession) -> None: ...
 
+    # fix(#1580): returns ``(embedding, model_name, config_fingerprint)`` rather
+    # than a bare vector. Related-items compares two STORED rows, so the caller
+    # has to be able to name the space the anchor is in and hold every later
+    # read to it; a list of floats cannot say which model or endpoint produced
+    # it. ``config_fingerprint`` is None for a row written before that column
+    # existed, and ``RecordEmbedding.usable_by_config`` grandfathers it.
     async def get_record_embedding(
         self, session: AsyncSession, record_id: uuid.UUID
-    ) -> list[float] | None: ...
+    ) -> tuple[list[float], str, str | None] | None: ...
 
+    # fix(#1580 review r2): the anchor is a required keyword. The caller reads
+    # it once and hands the same row to the ranking and the scoring, so the two
+    # cannot straddle a commit under READ COMMITTED — and an overlay cannot
+    # re-read and pick a different one.
     async def get_nearest_record_ids(
         self,
         session: AsyncSession,
         record_id: uuid.UUID,
         *,
+        anchor: tuple[list[float], str, str | None],
         limit: int = 5,
         max_distance: float = 0.7,
     ) -> list[uuid.UUID]: ...
 
+    # fix(#1580): the anchor's ``(model_name, config_fingerprint)`` are required
+    # keywords, not optional refinements. A neighbour record may hold a row in
+    # more than one space, and scoring it in the wrong one produces a similarity
+    # number that is well-formed and meaningless — the same failure as the
+    # selection above, one layer out.
     async def get_embedding_distances(
         self,
         session: AsyncSession,
         embedding: list[float],
         record_ids: list[uuid.UUID],
+        *,
+        model_name: str,
+        config_fingerprint: str | None,
     ) -> dict[uuid.UUID, float]: ...
 
     async def defer_embed_record(self, record_id: uuid.UUID) -> None: ...

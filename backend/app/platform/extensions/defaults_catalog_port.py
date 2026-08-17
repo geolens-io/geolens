@@ -351,35 +351,55 @@ class DefaultCatalogPort:
         return await set_hnsw_recall(session)
 
     async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
-        from sqlalchemy import select
+        # fix(#1580): returns the anchor row's identity with its vector. This
+        # used to be a second, independent `LIMIT 1` off an unordered query: on
+        # a catalog holding more than one model's rows the ranking and the
+        # scoring could anchor on different vectors, and the caller had no way
+        # to ask which space it was handed because a list of floats does not
+        # say. fix(#1580 review r2): it is now the ONLY anchor read on this
+        # path — the caller passes what this returns into
+        # `get_nearest_record_ids`, so the ranking and the scoring share one
+        # row rather than two statements that happen to order the same way.
+        from app.processing.embeddings.helpers import get_anchor_embedding_row
 
-        RecordEmbedding = self.record_embedding_orm_class()
-        result = await session.execute(
-            select(RecordEmbedding.embedding)
-            .where(RecordEmbedding.record_id == record_id)
-            .limit(1)
-        )
-        row = result.first()
-        return row[0] if row is not None else None
+        return await get_anchor_embedding_row(session, record_id)
 
-    async def get_nearest_record_ids(
+    async def get_nearest_record_ids(  # type: ignore[no-untyped-def]
         self,
         session,
         record_id,
         *,
+        anchor,
         limit=5,
         max_distance=0.7,
-    ):  # type: ignore[no-untyped-def]
+    ):
+        # fix(#1580 review r2): the anchor travels in rather than being read
+        # again here. The caller has already read it to score the results, and
+        # two reads under READ COMMITTED can straddle a commit — leaving the
+        # ranking anchored on one row and the scoring on another. Required
+        # rather than optional on the PORT: the only core caller holds one, and
+        # an overlay that re-read would reintroduce exactly the disagreement
+        # this closes.
         from app.processing.embeddings.helpers import get_nearest_record_ids
 
         return await get_nearest_record_ids(
             session,
             record_id,
+            anchor=anchor,
             limit=limit,
             max_distance=max_distance,
         )
 
-    async def get_embedding_distances(self, session, embedding, record_ids):  # type: ignore[no-untyped-def]
+    async def get_embedding_distances(  # type: ignore[no-untyped-def]
+        self, session, embedding, record_ids, *, model_name, config_fingerprint
+    ):
+        # fix(#1580): scoped to the anchor's own vector space, like the
+        # selection ahead of it. Fixing only `get_nearest_record_ids` would have
+        # moved this defect one layer out rather than closing it: the neighbours
+        # would be chosen correctly and then SCORED off whichever of their rows
+        # the planner returned last, because a record may hold one row per model
+        # and this dict comprehension keeps the last of them. The similarity
+        # percentage the UI prints is this number.
         from sqlalchemy import select
 
         await self.set_hnsw_recall(session)
@@ -388,7 +408,18 @@ class DefaultCatalogPort:
             select(
                 RecordEmbedding.record_id,
                 RecordEmbedding.embedding.cosine_distance(embedding).label("distance"),
-            ).where(RecordEmbedding.record_id.in_(record_ids))
+            )
+            .where(RecordEmbedding.record_id.in_(record_ids))
+            .where(
+                # fix(#1580 review r2): the stored-vs-stored predicate, the same
+                # one the selection uses. `usable_by_config` grandfathers an
+                # unstamped row against a stamped anchor, which is right for
+                # search (a fresh query vector, and on upgrade day the unstamped
+                # rows are all there is) and wrong here — a stamped anchor is
+                # evidence of a partly regenerated catalog, and the rows still
+                # carrying NULL are most likely the old space.
+                RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)
+            )
         )
         return {row.record_id: row.distance for row in result.all()}
 
