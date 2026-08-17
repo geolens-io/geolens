@@ -571,6 +571,41 @@ keys stop authenticating, and keys are also invalidated by security events
 on the owner's account (password change or role change). Logging out of the
 web UI does not affect API keys.
 
+### What a rejected credential looks like
+
+Send no credential and you are served anonymously: public datasets come
+back, private ones do not.
+
+Send a credential that cannot be resolved (expired, revoked, or mistyped)
+and every endpoint that reads credentials answers `401`, including the ones
+that also serve anonymous callers. It is never quietly ignored. A `200`
+carrying only the public subset would look exactly like a catalog holding
+nothing more, so a client whose key died overnight would go on working
+against a smaller view of the data and never be told. The `401` is also the
+signal a client needs to refresh and retry.
+
+Three cases sit outside that rule.
+
+`POST /auth/logout` accepts a dead access token so a stale session can still
+be cleared, and falls back to the refresh credential. It still answers `401`
+when nothing you present resolves.
+
+A request that something other than your identity already authorized is
+served, and the dead credential is ignored: a valid `X-Embed-Token`, or a
+valid signed tile template (`sig`, `exp`, `scope`). Each authorizes one
+specific resource on its own, so an embed viewer carrying a stale browser
+session still renders. An invalid or absent capability puts the request back
+under the rule above, so a junk `X-Embed-Token` cannot be used to suppress
+the `401`.
+
+`GET /maps/shared/{token}` answers `404` for an unknown share link and `410`
+for a revoked one whatever you send. No credential could have made that link
+work, and reporting the credential instead would hide the answer you can act
+on.
+
+A few endpoints read no credential at all, such as the landing page and the
+conformance declaration, and answer `200` either way.
+
 ### GDAL / ogr2ogr with API Key
 
 ```bash
@@ -755,6 +790,7 @@ from app.standards.ogc.errors import (  # noqa: E402
     INTERNAL_SERVER_ERROR_RESPONSE,
     ProblemDetail,
     RATE_LIMIT_RESPONSE,
+    UNRESOLVABLE_CREDENTIAL_RESPONSE,
     register_error_handlers,
 )
 
@@ -1157,7 +1193,10 @@ def _route_operation(schema: dict, ctx, method: str) -> dict | None:
 def _normalize_security_contract(schema: dict) -> None:
     """Publish every runtime credential form and anonymous-capable alternative."""
 
-    from app.modules.auth.dependencies import get_optional_user
+    from app.modules.auth.dependencies import (
+        get_optional_user,
+        get_optional_user_fail_open,
+    )
 
     security_schemes = schema.setdefault("components", {}).setdefault(
         "securitySchemes", {}
@@ -1177,9 +1216,15 @@ def _normalize_security_contract(schema: dict) -> None:
 
     # ``get_optional_user_no_security_schema`` deliberately keeps public STAC
     # operations credential-aware at runtime without stamping authentication
-    # onto their generated clients. Only the normal optional dependency should
-    # gain the anonymous-or-credential security alternatives here.
-    optional_targets = {get_optional_user}
+    # onto their generated clients. Only the normal optional dependencies
+    # should gain the anonymous-or-credential security alternatives here.
+    #
+    # fix(#1518): both optional dependencies belong in this set. They differ in
+    # what an unresolvable credential does (401 vs anonymous), not in whether
+    # the operation accepts one, and the published contract is the latter — a
+    # fail-open handler left out of this set would lose its ``{}`` anonymous
+    # alternative and be documented as requiring authentication.
+    optional_targets = {get_optional_user, get_optional_user_fail_open}
     credential_alternatives = [
         {"OAuth2PasswordBearer": []},
         {"ApiKeyHeader": []},
@@ -1231,6 +1276,63 @@ def _document_rate_limits(schema: dict) -> None:
                 operation.setdefault("responses", {}).setdefault(
                     "429", RATE_LIMIT_RESPONSE
                 )
+
+
+def _document_unresolvable_credential_401(schema: dict) -> None:
+    """Publish the #1518 401 on every operation that can now raise it.
+
+    ``get_optional_user`` refuses a supplied-but-unresolvable credential, so a
+    401 is normal runtime behaviour on routes that were previously documented as
+    only ever answering anonymously. Generated SDK error unions are built from
+    these response blocks, so an undocumented 401 is one a typed client cannot
+    represent (codex P2 on #1524). #1518 asked for the docs to state what an
+    unresolvable credential does; the ``info.description`` prose is the human
+    half and this is the half the SDKs consume.
+
+    All THREE optional dependencies are targeted, which is one more than
+    ``_normalize_security_contract`` uses:
+
+    - ``get_optional_user`` raises it directly.
+    - ``get_optional_user_fail_open`` defers rather than waives — its CAPABILITY
+      handlers call ``reject_unresolvable_credentials`` themselves, and the
+      RECOVERY one (logout) raises its own 401, so both can answer 401.
+    - ``get_optional_user_no_security_schema`` delegates to
+      ``get_optional_user`` and answers identically. It is EXCLUDED from the
+      security-marker set on purpose (fix(#430): no bearer markers on genuinely
+      public STAC operations), and it belongs here anyway. A 401 *response* is
+      not a security *requirement*: this function only writes into
+      ``responses``, never into ``security``, so documenting the status cannot
+      stamp an auth block back onto those operations.
+      ``test_no_security_schema_ops_get_401_without_security`` pins that.
+    """
+
+    from app.modules.auth.dependencies import (
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    )
+
+    credential_aware = {
+        get_optional_user,
+        get_optional_user_fail_open,
+        get_optional_user_no_security_schema,
+    }
+
+    for ctx in _iter_api_routes(app):
+        route = ctx.route
+        if not route.include_in_schema:
+            continue
+        if not _dependency_uses(route.dependant, credential_aware):
+            continue
+        for method in route.methods or ():
+            operation = _route_operation(schema, ctx, method)
+            if operation is None:
+                continue
+            # setdefault: a route that already documents its own 401 with a
+            # more specific description keeps it.
+            operation.setdefault("responses", {}).setdefault(
+                "401", UNRESOLVABLE_CREDENTIAL_RESPONSE
+            )
 
 
 def _document_global_failures(schema: dict) -> None:
@@ -1298,6 +1400,7 @@ def _standards_aware_openapi() -> dict:
         schemas[event_model.__name__] = event_schema
 
     _normalize_security_contract(schema)
+    _document_unresolvable_credential_401(schema)
     _document_rate_limits(schema)
     _document_global_failures(schema)
 

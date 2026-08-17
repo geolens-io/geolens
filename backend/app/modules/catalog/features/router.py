@@ -24,8 +24,8 @@ from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
     get_current_active_user,
-    get_optional_user,
-    request_carries_credentials,
+    get_optional_user_fail_open,
+    reject_unresolvable_credentials,
     require_permission,
 )
 from app.modules.catalog.authorization import (
@@ -150,7 +150,7 @@ def _feature_write_db_error(exc: DBAPIError) -> HTTPException:
 async def get_features_geojson_z_endpoint(
     dataset_id: uuid.UUID,
     request: Request,
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
     embed_token: str | None = Header(
         default=None,
         alias="X-Embed-Token",
@@ -176,18 +176,22 @@ async def get_features_geojson_z_endpoint(
     client clustering for anonymous public-map viewers.
 
     fix(#390) codex P2: a request that *supplied* credentials which failed to
-    resolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still
-    gets 401, not the anonymous 404, so the frontend's refresh-on-401 retry
-    fires instead of a private layer permanently failing as "not found".
-    Truly credentialless requests keep the anonymous public path.
+    resolve (expired / revoked JWT) gets 401, not the anonymous 404, so the
+    frontend's refresh-on-401 retry fires instead of a private layer
+    permanently failing as "not found". Truly credentialless requests keep the
+    anonymous public path.
     """
-    dataset = await get_dataset(db, dataset_id)
-    if dataset is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dataset not found",
-        )
-
+    # fix(#1518): CAPABILITY category. This handler takes the deferring
+    # dependency, so the 401 for a dead credential is NOT raised before the
+    # body runs — the embed token is an independent capability and has to be
+    # evaluated first. `reject_unresolvable_credentials` below re-applies the
+    # rule on the path where the embed token did not authorize the request.
+    # fix(#1518 codex P2 round 3): the capability is evaluated FIRST, above the
+    # dataset lookup, so the rule covers every later exit rather than one. The
+    # token is validated against the path's dataset_id and needs no lookup, so
+    # nothing is lost by asking here. Previously the "dataset not found" 404
+    # below ran before this check, and a caller with a dead credential got that
+    # 404 with the rule never applied.
     embed_ok = bool(embed_token) and await validate_embed_token_access(
         embed_token,  # type: ignore[arg-type]  # bool() guard above
         dataset_id,
@@ -195,15 +199,20 @@ async def get_features_geojson_z_endpoint(
         request,
     )
     if not embed_ok:
-        if user is None and request_carries_credentials(request):
-            # Credentials were supplied but did not resolve (expired/revoked
-            # token). Return 401 so the client refreshes and retries rather
-            # than the anonymous path's 404. fix(#390) codex P2.
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Not authenticated",
-                headers={"WWW-Authenticate": "Bearer"},
-            )
+        # No capability authorized this request, so the caller's credential was
+        # load-bearing after all — a supplied one that failed to resolve gets
+        # 401 rather than the anonymous path's 404 (fix(#390) codex P2,
+        # resequenced by fix(#1518)).
+        reject_unresolvable_credentials(request, user)
+
+    dataset = await get_dataset(db, dataset_id)
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    if not embed_ok:
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
 
     # fix(#315): raster/VRT datasets have no backing PostGIS feature table, so a feature

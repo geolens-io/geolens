@@ -29,7 +29,11 @@ from app.modules.auth.cookies import (
     read_refresh_cookie,
     wants_cookie_auth,
 )
-from app.modules.auth.dependencies import get_current_active_user, get_optional_user
+from app.modules.auth.dependencies import (
+    get_current_active_user,
+    get_optional_user,
+    get_optional_user_fail_open,
+)
 from app.modules.auth.models import ApiKey, User
 from app.core.identity import Identity
 from app.modules.auth.providers import AuthenticationError
@@ -760,7 +764,15 @@ async def resend_verification(
 @router.post("/logout/", status_code=status.HTTP_204_NO_CONTENT)
 async def logout(
     request: Request,
-    identity: Identity | None = Depends(get_optional_user),
+    # fix(#1518): the ONE fail-open exception. Every other anonymous-capable
+    # handler 401s a supplied-but-unresolvable credential; logout must not,
+    # because the credential it is being asked to discard is usually the one
+    # that expired, and refusing the call would make the dead session
+    # permanent. See get_optional_user_fail_open's docstring for the category
+    # and FAIL_OPEN_ALLOWLIST in tests/test_optional_auth_failure_mode_1518.py
+    # for the guard that keeps this list from growing by accident. The 401
+    # below still fires when NOTHING presented resolves.
+    identity: Identity | None = Depends(get_optional_user_fail_open),
     body: RefreshRequest | None = None,
     db: AsyncSession = Depends(get_db),
     # fix(#1496): declared for the contract, read via enforce_csrf below. No

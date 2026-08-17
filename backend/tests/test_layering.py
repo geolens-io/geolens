@@ -2023,7 +2023,18 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/router_assets.py": 142,
     # fix(#526 B-048): the card-route SPA-redirect fallback shell.
     # fix(#819): visibility-check owner-or-admin gate + rationale docstring.
-    "backend/app/modules/catalog/maps/router_sharing.py": 387,
+    # fix(#1518 codex P2 round 3): 398 -> 404. +6 to apply the rule once, ahead
+    # of all three arms. It had run only after a SUCCESSFUL unpack, so a missing
+    # (404) or revoked (410) link answered a caller whose credential was dead
+    # without ever telling them.
+    # fix(#1518): 387 -> 398. +11 for the CAPABILITY obligation on the shared-map
+    # endpoint: it takes the deferring dependency so the embed token is judged
+    # first, unpacks the capability verdict get_shared_map now reports, and
+    # re-applies the fail-closed rule when nothing was authorized by it. The
+    # verdict comes from the service because that is where the scope is
+    # resolved; re-deriving it here would be a second lookup that could
+    # disagree with the first.
+    "backend/app/modules/catalog/maps/router_sharing.py": 404,
     "backend/app/modules/catalog/search/query_params.py": 225,
     "backend/app/modules/catalog/search/router_saved.py": 100,
     # fix(#821): +14 lines — admin key mint accepts expires_at (audit
@@ -2078,6 +2089,52 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
+#     `_document_unresolvable_credential_401`, which publishes the 401 that
+#     #1518 made normal runtime behaviour on every credential-aware anonymous
+#     operation. Most of it is the docstring explaining why it targets all
+#     THREE optional dependencies while `_normalize_security_contract` targets
+#     two: a 401 RESPONSE is not a security REQUIREMENT, so the no-security-
+#     schema STAC operations must gain the status without gaining the auth
+#     markers #430 removed.
+#   api/main.py 1558 -> 1573. fix(#1518 codex P2 round 4): +15 of `info.description`
+#     prose. The docs promised a 401 for every unresolvable credential while the
+#     capability lanes deliberately serve one, so the published contract was
+#     wrong about behaviour that is right. It states the three exceptions
+#     instead: logout, a capability that authorized on its own, and a shared-map
+#     link that no credential could have opened.
+#   tiles/router.py 2557 -> 2590. fix(#1518 codex P2 round 4): +33 for
+#     `_resolve_dataset_meta_for_serving`, which routes the vector tile lookup's
+#     404 through `capability_declined`, and for moving the clusterable gate
+#     below authorization. Both ran BEFORE `_authorize_vector_tile_request` —
+#     the tile URL carries a table NAME, so the id the capability needs does not
+#     exist until the lookup returns — and both answered a resource code to a
+#     caller whose credential was dead, while the raster route already answered
+#     401 for the same request shape.
+#   tiles/router.py 2528 -> 2557. fix(#1518 codex P2 round 3): +29 for routing
+#     every capability DECLINE through `capability_declined` instead of a bare
+#     raise, plus wrapping the raster meta lookup. The rule had been applied at
+#     one exit point per handler while each has several no-capability paths, so
+#     an invalid embed token and a missing signed template both answered 403
+#     with the credential rule never running. Going through the helper makes the
+#     ordering structural rather than positional, which is also what lets
+#     test_capability_declines_route_through_the_helper check it statically.
+#   tiles/router.py 2505 -> 2528. fix(#1518 codex P2): +23 for the post-loop
+#     capability pass in the batch token handler. The flag it replaces was only
+#     set on the fallback arm, so a batch of PUBLIC datasets never consulted the
+#     embed token at all and a valid capability was rejected. The pass runs only
+#     when nothing has already established the capability and stops at the first
+#     covered id, so it costs one cached validation on exactly the requests that
+#     need it and nothing on the ones that sent no token.
+#   tiles/router.py 2468 -> 2505. fix(#1518): +37 for the CAPABILITY obligation.
+#     `_authorize_vector_tile_request` and `_resolve_raster_access` are the two
+#     centralised decision points for the six tile handlers, so the rule is
+#     applied there rather than six times; most of the cost is re-indenting the
+#     raster auth arms under an explicit `else` so the control flow SHOWS that
+#     the rule fires only when neither capability authorized, instead of leaving
+#     a reader to infer it from an elif chain. The rest is the batch handler's
+#     post-loop application, which cannot be hoisted because the embed token
+#     authorizes a scope and the loop is what resolves it.
 #   tiles/router.py 2341 -> 2468. fix(#1451): +127 for `_assert_dataset_still_registered`
 #     and its single call site in `_acquire_and_serve_tile`. GH-1443 closed the
 #     half a caller could reach; direct DDL on the `data` schema can still put a
@@ -2212,7 +2269,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # formatter so an exception cannot pin the event loop rendering frame
     # locals with rich. Over 88 columns as one line, hence four.
     # Cap 1466 -> 1470, exact.
-    "backend/app/api/main.py": 1470,
+    # fix(#1518): +29 — 23 lines of API description telling a client what a
+    # rejected credential does, and 6 in _normalize_security_contract for the
+    # second optional-identity dependency. The description is the only in-repo
+    # home for that contract (it is `info.description` in the committed
+    # openapi.json and the rendered /docs page), and the answer could not be
+    # written down before #1518 because it depended on which router you hit.
+    # Cap 1470 -> 1499, exact.
+    "backend/app/api/main.py": 1573,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3238,7 +3302,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # writes and a predictable future `v` can no longer park a pre-swap
     # snapshot on the key the swap is about to make legitimate.
     # Ratchet stays exact.
-    "backend/app/processing/tiles/router.py": 2468,
+    "backend/app/processing/tiles/router.py": 2590,
     # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
     # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
     # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),

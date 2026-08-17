@@ -7,6 +7,28 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **An API key or token that cannot be resolved now returns 401 on every
+  endpoint that reads credentials.** It used to get a 401 from the eight OGC
+  and STAC detail routes and be discarded in silence by the other 58
+  handlers, which answered 200 with the public subset. That response looks
+  exactly like a catalog holding nothing more, so a client whose key expired
+  overnight kept working against a quietly smaller view of the data. Which
+  answer you got depended on which route you hit, so the behaviour could not
+  be documented. Requests that send no credential are unaffected and still
+  get the public view.
+
+  Three cases sit outside the rule. `POST /auth/logout` accepts a dead access
+  token, so a session whose token has already expired can still be cleared. A
+  request that a capability authorized on its own is served and the unrelated
+  dead credential is ignored rather than refused, so an embed viewer with a
+  stale browser session still renders: a valid `X-Embed-Token`, or a valid
+  signed tile template (`sig`, `exp`, `scope`). An invalid or missing one puts
+  the request back under the rule. And a shared-map link that is unknown or
+  revoked still answers 404 or 410 for every caller, because no credential
+  could have made that link work (#1518, #401).
+
 ## [1.13.1] - 2026-08-14
 
 ### Added

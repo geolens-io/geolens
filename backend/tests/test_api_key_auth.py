@@ -129,18 +129,24 @@ async def test_revoked_api_key_returns_401(client: AsyncClient):
 
 
 @pytest.mark.anyio
-async def test_invalid_api_key_falls_back_to_anonymous_on_optional_auth(
-    client: AsyncClient,
-):
+async def test_invalid_api_key_is_refused_on_optional_auth(client: AsyncClient):
     """Call GET /collections/datasets/items with invalid X-Api-Key (no JWT).
 
-    Should return 200 (anonymous fallback, sees public datasets).
+    fix(#1518): this used to assert 200 — the anonymous fallback. An
+    anonymous-capable endpoint now REFUSES a credential that was supplied and
+    could not be resolved, because 200-with-the-public-subset is
+    indistinguishable from a catalog holding nothing more, and a client that
+    retries on 401 never got the signal to refresh.
+
+    The credential-less half of the contract is unchanged and lives in
+    tests/test_ogc_public_access.py, which asserts 200 for the same path with
+    no headers at all.
     """
     resp = await client.get(
         "/collections/datasets/items",
         headers={"X-Api-Key": "invalid-key-value"},
     )
-    assert resp.status_code == 200
+    assert resp.status_code == 401
 
 
 @pytest.mark.anyio
@@ -367,7 +373,12 @@ async def test_api_key_null_expiry_accepted(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_expired_api_key_rejected(client: AsyncClient, test_db_session):
-    """An expired key behaves exactly like an invalid one (401 / anonymous)."""
+    """An expired key behaves exactly like an invalid one: 401 either way.
+
+    fix(#1518): the second assertion used to expect 200 from the optional-auth
+    endpoint. What the test pins is the EQUIVALENCE — expired and invalid must
+    be indistinguishable — and that still holds now that both answers are 401.
+    """
     from datetime import datetime, timedelta, timezone
 
     from sqlalchemy import update
@@ -402,12 +413,12 @@ async def test_expired_api_key_rejected(client: AsyncClient, test_db_session):
     me_resp = await client.get("/auth/me/", headers={"X-Api-Key": raw_key})
     assert me_resp.status_code == 401
 
-    # Optional-auth endpoint: anonymous fallback, exactly like an invalid key.
+    # Optional-auth endpoint: also 401, exactly like an invalid key (#1518).
     items_resp = await client.get(
         "/collections/datasets/items",
         headers={"X-Api-Key": raw_key},
     )
-    assert items_resp.status_code == 200
+    assert items_resp.status_code == 401
 
 
 @pytest.mark.anyio

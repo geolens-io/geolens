@@ -14871,6 +14871,10 @@ export type ListCollectionsCollectionsGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -14911,6 +14915,10 @@ export type GetCollectionMetadataCollectionsDatasetsGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -15073,6 +15081,10 @@ export type CollectionItemsCollectionsDatasetsItemsGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -15118,6 +15130,10 @@ export type GetCollectionItemCollectionsDatasetsItemsRecordIdGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -15287,6 +15303,10 @@ export type GetDatasetCollectionCollectionsDatasetIdGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -15373,6 +15393,10 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -15494,6 +15518,10 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetErrors 
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -16070,6 +16098,10 @@ export type GetDcatUs3CatalogDatasetsDcatUs30GetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -16108,6 +16140,10 @@ export type ValidateDcatUs3CatalogDatasetsDcatUs30ValidationGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -16161,6 +16197,10 @@ export type GetDcatCatalogDatasetsDcatGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -16199,6 +16239,10 @@ export type ValidateDcat3CatalogDatasetsDcatValidationGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -16252,6 +16296,10 @@ export type GetGeodcatApCatalogDatasetsGeodcatApGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -16290,6 +16338,10 @@ export type ValidateGeodcatApCatalogDatasetsGeodcatApValidationGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -17109,6 +17161,10 @@ export type GetDcatUs3RecordDatasetsDatasetIdDcatUs30GetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -17152,6 +17208,10 @@ export type ValidateDcatUs3RecordDatasetsDatasetIdDcatUs30ValidationGetErrors = 
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -17197,6 +17257,10 @@ export type GetDcatRecordDatasetsDatasetIdDcatGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -17241,6 +17305,10 @@ export type ValidateDcat3RecordDatasetsDatasetIdDcatValidationGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -17284,6 +17352,10 @@ export type DownloadCogDatasetsDatasetIdDownloadCogGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Forbidden — caller lacks access to this resource
      */
@@ -17359,6 +17431,10 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Forbidden — caller lacks access to this resource
      */
@@ -18236,6 +18312,10 @@ export type GetGeodcatApRecordDatasetsDatasetIdGeodcatApGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -18279,6 +18359,10 @@ export type ValidateGeodcatApRecordDatasetsDatasetIdGeodcatApValidationGetErrors
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -24589,6 +24673,10 @@ export type SearchDatasetsEndpointSearchDatasetsGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Validation Error
      */
     422: HttpValidationError;
@@ -24692,6 +24780,10 @@ export type SearchFacetsEndpointSearchFacetsGetData = {
 };
 
 export type SearchFacetsEndpointSearchFacetsGetErrors = {
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Validation Error
      */
@@ -26388,6 +26480,10 @@ export type LandingPageStacGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Too many requests — retry after the advertised interval
      */
     429: ProblemDetail;
@@ -26424,6 +26520,10 @@ export type GetCollectionsStacCollectionsGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -26466,6 +26566,10 @@ export type GetCollectionStacCollectionsCollectionIdGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -26538,6 +26642,10 @@ export type GetCollectionItemsStacCollectionsCollectionIdItemsGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -26587,6 +26695,10 @@ export type GetCollectionItemStacCollectionsCollectionIdItemsItemIdGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -26666,6 +26778,10 @@ export type GetItemStacItemsItemIdGetErrors = {
      * Bad request — invalid standards parameters
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -26751,6 +26867,10 @@ export type SearchGetStacSearchGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -26791,6 +26911,10 @@ export type SearchPostStacSearchPostErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -26874,6 +26998,10 @@ export type ClusterTileEndpointTilesClustersTablePathZxyPbfGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -26970,6 +27098,10 @@ export type RasterTileProxyTilesRasterProxyDatasetIdZxyFmtGetErrors = {
      */
     400: ProblemDetail;
     /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
      * Not found
      */
     404: ProblemDetail;
@@ -27013,6 +27145,10 @@ export type GetTileTokenTilesTokenDatasetIdGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -27062,6 +27198,10 @@ export type GetTileTokensBatchTilesTokensPostErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */
@@ -27137,6 +27277,10 @@ export type TileEndpointTilesTablePathZxyPbfGetErrors = {
      * Bad request — invalid query parameters or payload
      */
     400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
     /**
      * Not found
      */

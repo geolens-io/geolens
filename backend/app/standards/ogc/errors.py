@@ -75,6 +75,19 @@ BAD_REQUEST_RESPONSE = {
     "description": "Bad request — invalid query parameters or payload",
 }
 
+UNRESOLVABLE_CREDENTIAL_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": (
+        "Unauthenticated — a credential was supplied and could not be resolved "
+        "(expired, revoked, or malformed). Sending no credential at all is not "
+        "an error on these operations; they answer anonymously with the public "
+        "subset. Neither is sending an unresolvable credential alongside a "
+        "capability that authorizes the request on its own — a valid "
+        "X-Embed-Token or a valid signed tile template (sig, exp, scope). Those "
+        "are served and the unrelated credential is ignored."
+    ),
+}
+
 FORBIDDEN_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Forbidden — caller lacks access to this resource",

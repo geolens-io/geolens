@@ -18484,7 +18484,7 @@
       "name": "GeoLens",
       "url": "https://github.com/geolens-io/geolens"
     },
-    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0\n* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0\n* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports three authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key query param** (deprecated) | `?api_key=<key>` |\n\nPriority: header API key > query param API key > JWT > anonymous.\n\n**The `?api_key=` query parameter is deprecated.** A key sent in the URL is\nrecorded by server access logs and any proxy in between. Prefer the\n`X-Api-Key` header; keep the query parameter only for clients that cannot\nsend headers (e.g. XYZ tile URLs in desktop GIS tools).\n\nAPI keys may carry an optional expiry (`expires_at` at mint time). Expired\nkeys stop authenticating, and keys are also invalidated by security events\non the owner's account (password change or role change). Logging out of the\nweb UI does not affect API keys.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL (the connection dialog cannot send custom headers; this is\nthe main remaining use of the deprecated query parameter).\n",
+    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON, OAS 3.0\n* OGC API Features Part 1 -- Core, GeoJSON, OAS 3.0\n* OGC API Features Part 3 -- Filtering (CQL2-Text, CQL2-JSON)\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports three authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key query param** (deprecated) | `?api_key=<key>` |\n\nPriority: header API key > query param API key > JWT > anonymous.\n\n**The `?api_key=` query parameter is deprecated.** A key sent in the URL is\nrecorded by server access logs and any proxy in between. Prefer the\n`X-Api-Key` header; keep the query parameter only for clients that cannot\nsend headers (e.g. XYZ tile URLs in desktop GIS tools).\n\nAPI keys may carry an optional expiry (`expires_at` at mint time). Expired\nkeys stop authenticating, and keys are also invalidated by security events\non the owner's account (password change or role change). Logging out of the\nweb UI does not affect API keys.\n\n### What a rejected credential looks like\n\nSend no credential and you are served anonymously: public datasets come\nback, private ones do not.\n\nSend a credential that cannot be resolved (expired, revoked, or mistyped)\nand every endpoint that reads credentials answers `401`, including the ones\nthat also serve anonymous callers. It is never quietly ignored. A `200`\ncarrying only the public subset would look exactly like a catalog holding\nnothing more, so a client whose key died overnight would go on working\nagainst a smaller view of the data and never be told. The `401` is also the\nsignal a client needs to refresh and retry.\n\nThree cases sit outside that rule.\n\n`POST /auth/logout` accepts a dead access token so a stale session can still\nbe cleared, and falls back to the refresh credential. It still answers `401`\nwhen nothing you present resolves.\n\nA request that something other than your identity already authorized is\nserved, and the dead credential is ignored: a valid `X-Embed-Token`, or a\nvalid signed tile template (`sig`, `exp`, `scope`). Each authorizes one\nspecific resource on its own, so an embed viewer carrying a stale browser\nsession still renders. An invalid or absent capability puts the request back\nunder the rule above, so a junk `X-Embed-Token` cannot be used to suppress\nthe `401`.\n\n`GET /maps/shared/{token}` answers `404` for an unknown share link and `410`\nfor a revoked one whatever you send. No credential could have made that link\nwork, and reporting the credential instead would hide the answer you can act\non.\n\nA few endpoints read no credential at all, such as the landing page and the\nconformance declaration, and answer `200` either way.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL (the connection dialog cannot send custom headers; this is\nthe main remaining use of the deprecated query parameter).\n",
     "license": {
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
@@ -27885,6 +27885,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -27977,6 +27987,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -28496,6 +28516,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -28603,6 +28633,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -28962,6 +29002,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -29263,6 +29313,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -29509,6 +29569,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -30726,6 +30796,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -30816,6 +30896,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -30937,6 +31027,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -31027,6 +31127,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -31148,6 +31258,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -31238,6 +31358,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -33172,6 +33302,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -33274,6 +33414,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -33378,6 +33528,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -33481,6 +33641,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -33578,6 +33748,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "403": {
             "content": {
@@ -33762,6 +33942,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "403": {
             "content": {
               "application/problem+json": {
@@ -33862,7 +34052,7 @@
     },
     "/datasets/{dataset_id}/features.geojson": {
       "get": {
-        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\nfix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,\neligible cluster layers) already sends ``X-Embed-Token``, and the B-023\nshared-map union now exposes embed-scoped private layers to embeds \u2014 so\nthis endpoint accepts the token as fallback authorization via the SAME\n``validate_embed_token_access`` capability check as tile serving.\n\nfix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``\nso public+published datasets serve to anonymous callers (matching vector\ntiles and the dataset-detail read path); private/restricted datasets still\n404 for anon and follow full RBAC for credentialed callers. This unblocks\nclient clustering for anonymous public-map viewers.\n\nfix(#390) codex P2: a request that *supplied* credentials which failed to\nresolve (expired / revoked JWT -> ``get_optional_user`` is ``None``) still\ngets 401, not the anonymous 404, so the frontend's refresh-on-401 retry\nfires instead of a private layer permanently failing as \"not found\".\nTruly credentialless requests keep the anonymous public path.",
+        "description": "Return up to 5,000 features as RFC 7946 GeoJSON with Z coordinates.\n\nfix(#394) codex P2: the viewer's bounded-GeoJSON path (small 3D layers,\neligible cluster layers) already sends ``X-Embed-Token``, and the B-023\nshared-map union now exposes embed-scoped private layers to embeds \u2014 so\nthis endpoint accepts the token as fallback authorization via the SAME\n``validate_embed_token_access`` capability check as tile serving.\n\nfix(#390): the non-embed path uses ``check_dataset_access_or_anonymous``\nso public+published datasets serve to anonymous callers (matching vector\ntiles and the dataset-detail read path); private/restricted datasets still\n404 for anon and follow full RBAC for credentialed callers. This unblocks\nclient clustering for anonymous public-map viewers.\n\nfix(#390) codex P2: a request that *supplied* credentials which failed to\nresolve (expired / revoked JWT) gets 401, not the anonymous 404, so the\nfrontend's refresh-on-401 retry fires instead of a private layer\npermanently failing as \"not found\". Truly credentialless requests keep the\nanonymous public path.",
         "operationId": "get_features_geojson_z_endpoint_datasets__dataset_id__features_geojson_get",
         "parameters": [
           {
@@ -35792,6 +35982,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -35894,6 +36094,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -51058,6 +51268,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -51338,6 +51558,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "422": {
             "content": {
@@ -55242,6 +55472,16 @@
             },
             "description": "Bad request \u2014 invalid standards parameters"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "429": {
             "content": {
               "application/problem+json": {
@@ -55312,6 +55552,16 @@
               }
             },
             "description": "Bad request \u2014 invalid standards parameters"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "429": {
             "content": {
@@ -55394,6 +55644,16 @@
               }
             },
             "description": "Bad request \u2014 invalid standards parameters"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -55549,6 +55809,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -55662,6 +55932,16 @@
               }
             },
             "description": "Bad request \u2014 invalid standards parameters"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -55828,6 +56108,16 @@
               }
             },
             "description": "Bad request \u2014 invalid standards parameters"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -56041,6 +56331,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -56141,6 +56441,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -56353,6 +56663,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -56603,6 +56923,16 @@
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
           },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
           "404": {
             "content": {
               "application/problem+json": {
@@ -56706,6 +57036,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -56818,6 +57158,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {
@@ -56997,6 +57347,16 @@
               }
             },
             "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
           },
           "404": {
             "content": {

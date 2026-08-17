@@ -25,8 +25,18 @@ from app.processing.tiles.router import (
 
 
 class _FakeRequest:
-    def __init__(self, headers: dict | None = None):
+    """Minimal stand-in for starlette's Request.
+
+    fix(#1518): ``query_params`` is part of the shape now, not decoration.
+    ``_authorize_vector_tile_request`` reaches ``request_carries_credentials``,
+    which reads the deprecated ``?api_key=`` lane as well as the headers, and a
+    double missing the attribute fails with AttributeError rather than
+    exercising the branch. A real Request always has it.
+    """
+
+    def __init__(self, headers: dict | None = None, query_params: dict | None = None):
         self.headers = headers or {}
+        self.query_params = query_params or {}
 
 
 def _meta(visibility: str, record_status: str = "published") -> _DatasetMeta:

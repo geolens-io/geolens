@@ -480,11 +480,19 @@ async def get_shared_map(
     user_roles: set[str] | None = None,
     embed_token: str | None = None,
     request: "Request | None" = None,
-) -> tuple[dict, list[dict], list[str] | None] | str | None:
+) -> tuple[dict, list[dict], list[str] | None, bool] | str | None:
     """Fetch a shared map by token.
 
     Returns:
-        tuple: (map_dict, layers, allowed_origins) on success.
+        tuple: (map_dict, layers, allowed_origins, embed_authorized) on success.
+            ``embed_authorized`` is True when the supplied ``embed_token``
+            resolved to a NON-EMPTY scope for this map — i.e. the capability
+            actually authorized something. The router needs it to sequence the
+            #1518 fail-closed rule: a capability that authorized nothing was not
+            load-bearing, so an unresolvable user credential sent alongside it
+            still earns a 401. Reported from here rather than re-derived in the
+            router because this is where the scope is resolved; a second lookup
+            there could disagree with this one.
             ``allowed_origins`` is the active EmbedToken.allowed_origins for the
             map (``None`` when no active EmbedToken exists; ``[]`` when the
             token exists but no origins are configured). Callers use this to
@@ -605,7 +613,7 @@ async def get_shared_map(
             "has_non_public_layers": False,
             "legend_title": map_obj.legend_title,
         }
-        return map_data, [], allowed_origins
+        return map_data, [], allowed_origins, bool(embed_scope)
 
     has_non_public = False
     layers = []
@@ -671,7 +679,7 @@ async def get_shared_map(
         "legend_title": map_row.legend_title,
     }
 
-    return map_data, layers, allowed_origins
+    return map_data, layers, allowed_origins, bool(embed_scope)
 
 
 # Nullable members of the published-maps sort allowlist. `creator` is null for

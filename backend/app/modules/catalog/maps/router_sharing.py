@@ -26,6 +26,8 @@ from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import (
     get_current_active_user,
     get_optional_user,
+    get_optional_user_fail_open,
+    reject_unresolvable_credentials,
     require_permission,
 )
 from app.modules.catalog.authorization import get_user_roles
@@ -136,7 +138,7 @@ async def get_shared_map_endpoint(
     token: str,
     response: Response,
     request: Request,
-    user: Identity | None = Depends(get_optional_user),
+    user: Identity | None = Depends(get_optional_user_fail_open),
     embed_token: str | None = Header(
         default=None,
         alias="X-Embed-Token",
@@ -164,6 +166,14 @@ async def get_shared_map_endpoint(
         embed_token=embed_token,
         request=request,
     )
+    # fix(#1518 codex P2 round 4): the 404 and 410 arms are EXEMPT from the
+    # credential rule. It stops a dead credential being absorbed into an answer
+    # it could have changed, and here it could not: `_validate_share_token`
+    # takes no user, and the second `None` arm turns on a visibility check read
+    # through an unfiltered `get_map`, so an admin with a perfect bearer gets
+    # the same 404 and 410 as an anonymous caller. The share token ADDRESSES the
+    # resource; identity only widens which layers come back. A 401 also costs the
+    # viewer their one actionable message (`PublicViewerPage.tsx:84` has a 410 card).
     if result is None:
         raise HTTPException(status_code=404, detail="Shared map not found")
     if result == "expired":
@@ -171,7 +181,14 @@ async def get_shared_map_endpoint(
             status_code=status.HTTP_410_GONE,
             detail="This shared map link has expired or been revoked",
         )
-    map_data, layers, allowed_origins = result
+    map_data, layers, allowed_origins, embed_authorized = result
+
+    # The success arm IS covered: identity decides which layers come back, so a
+    # bearer that failed to resolve silently narrows the response. An embed token
+    # that authorized a real scope makes it noise; anything else 401s.
+    if not embed_authorized:
+        reject_unresolvable_credentials(request, user)
+
     response.headers["Content-Security-Policy"] = _build_frame_ancestors(
         allowed_origins
     )
