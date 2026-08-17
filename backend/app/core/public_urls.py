@@ -5,9 +5,9 @@ from __future__ import annotations
 import codecs
 import ipaddress
 import time
-import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
+import idna
 from fastapi import Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -261,12 +261,6 @@ def canonical_host_error(host: str) -> str | None:
 
 _ACE_PREFIX = "xn--"
 
-# Categories a decoded label may not contain: C0/C1 controls, surrogates, and
-# every flavour of space. Deliberately NOT the whole of category C — format
-# characters (Cf) include ZWJ and ZWNJ, which CONTEXTJ permits in real Persian
-# and Indic domains, and rejecting them would deny a working configuration.
-_FORBIDDEN_DECODED_CATEGORIES = frozenset({"Cc", "Cs", "Zs", "Zl", "Zp"})
-
 
 def _ace_label_error(label: str) -> str | None:
     """None if this ``xn--`` label is one a browser will accept.
@@ -278,39 +272,44 @@ def _ace_label_error(label: str) -> str | None:
     against it is unusable from the moment it is minted, which is exactly the
     class this rule exists for: a spelling no browser will ever present.
 
-    What is checked, and why not more. This is a REJECTION of provable garbage,
-    not an implementation of UTS #46 — approximating the browser's IDNA is the
-    thing #1548 refused to do, and a check that is stricter than the browser
-    denies configurations that work, which is the worse direction. So each
-    clause below is one a browser demonstrably enforces:
+    An A-label is what a browser SENDS, which makes it the output of UTS #46
+    mapping. So the check is: decode it, and confirm the U-label is already what
+    that mapping produces.
 
     * the label decodes as punycode at all (``xn--0``, ``xn--x``);
     * it decodes to something (``xn--``, whose suffix Python decodes to the
       empty string rather than raising);
     * the result contains a non-ASCII character (RFC 5891 §4.2.3.1 — an A-label
       whose U-label is pure ASCII is invalid; catches ``xn--a-``);
-    * the result carries no control, surrogate or space character (catches
-      ``xn--a``, which Python decodes to U+0080);
-    * the result is already lowercase and NFC — the two mappings UTS #46 applies
-      before encoding, so a label whose U-label needs either is not the form a
-      browser would have produced (catches ``xn--w-uia``, which decodes to
-      ``Ėw``). ``.lower()`` rather than ``.casefold()`` on purpose: casefold
-      turns ``faß`` into ``fass``, and ``xn--fa-hia`` is a label browsers
-      accept;
+    * ``idna.uts46_remap`` leaves the result unchanged. This IS the mapping
+      browsers apply (non-transitional, per WHATWG), so it is not an
+      approximation of one: it raises ``InvalidCodepoint`` for a disallowed
+      character (catches ``xn--a``, which decodes to U+0080, and ``xn--a-ecp``,
+      which decodes to ``a⒈`` where U+2488 is disallowed), normalizes to NFC as
+      its second step, and case-maps in the direction the tables say rather than
+      the direction ``str.lower`` assumes;
     * re-encoding reproduces the label (catches ``xn---``).
 
-    Measured against ``new URL()`` in Node over 63 labels, not assumed: no false
-    rejections, one false accept. The labels themselves are in the shared
-    fixture (``public-app-url-shape.cases.json``, see ``_ace_note``), so the
-    frontend — which simply asks the browser — runs the same ones.
+    fix(#1555 review): the previous revision asked ``decoded == decoded.lower()``
+    instead of the remap, and that was the failure mode this function's own
+    docstring warns about — stricter than the browser. Cherokee case-maps UPWARD
+    in UTS #46: ``xn--bbe`` decodes to ``Ꮘ`` (U+13B8), which ``str.lower``
+    turns into U+AB98, so a label ``new URL()`` accepts unchanged was refused
+    here. The lowercase form is the one browsers rewrite (``xn--p09a`` remaps
+    back to ``Ꮘ`` and is therefore not what a browser sends), which is exactly
+    backwards from what ``.lower()`` assumes. Asking the real tables also
+    removes the ``.lower()``-not-``.casefold()`` special case that kept
+    ``xn--fa-hia`` working: non-transitional processing leaves ``ß`` alone.
 
-    The residue, recorded rather than papered over: a label that decodes to a
-    character UTS #46 disallows for reasons of its own still passes here —
-    ``xn--a-ecp`` decodes to ``a⒈``, whose mapping introduces a label separator,
-    and a browser rejects it while this does not. Catching that means the full
-    UTS #46 mapping table. It leaves an operator with a token that does not
-    work, which is the pre-existing behaviour for every unreachable hostname
-    (see ``assert_domain_lock_is_enforceable``), not a new one.
+    ``idna`` is a declared backend dependency (``pyproject.toml``, ``>=3.18``
+    for the ``idna.encode`` DoS fix; this calls ``uts46_remap``, not
+    ``encode``). Its tables ARE the UTS #46 ones, which is why this is allowed
+    to be exact where #1548 refused to approximate.
+
+    Measured against ``new URL()`` in Node over 65 labels, not assumed: no false
+    rejections and no false accepts. The labels are in the shared fixture
+    (``public-app-url-shape.cases.json``, see ``_ace_note``), so the frontend —
+    which simply asks the browser — runs the same ones.
     """
     suffix = label[len(_ACE_PREFIX) :]
     invalid = (
@@ -326,11 +325,11 @@ def _ace_label_error(label: str) -> str | None:
         return invalid
     if not decoded or decoded.isascii():
         return invalid
-    if any(
-        unicodedata.category(char) in _FORBIDDEN_DECODED_CATEGORIES for char in decoded
-    ):
+    try:
+        remapped = idna.uts46_remap(decoded, std3_rules=False, transitional=False)
+    except (idna.IDNAError, UnicodeError, ValueError):
         return invalid
-    if decoded != decoded.lower() or decoded != unicodedata.normalize("NFC", decoded):
+    if remapped != decoded:
         return invalid
     try:
         reencoded = codecs.encode(decoded, "punycode").decode("ascii")

@@ -16,6 +16,7 @@
     "https://xn--fa-hia.de",
     "https://xn--ls8h.example",
     "https://xn--80ak6aa92e.com",
+    "https://xn--bbe.example",
     "http://192.168.0.1",
     "https://MAPS.Example.com",
     "http://[2001:db8::1]"
@@ -63,6 +64,8 @@
     "https://xn--x.example",
     "https://xn--0.example",
     "https://xn--w-uia.example",
+    "https://xn--a-ecp.example",
+    "https://xn--p09a.example",
     "https://sub.xn--.example"
   ],
   "_canonical_note": "canonical_origin maps a path-less configured value to the spelling a BROWSER presents, which is the string both sides must compare against: lowercased host, no userinfo, default port dropped. Backend: _normalize_origin(). Frontend: new URL(x).origin. A value and an origin that name the same place but spell it differently never match. Hosts here are already ASCII — see _idn_note for why no IDNA conversion appears.",
@@ -99,7 +102,7 @@
     "http://192.168.0.1",
     "http://[2001:db8::1]"
   ],
-  "_ace_note": "The xn-- entries under invalid are labels new URL() rejects outright, so no browser can ever present them and a domain lock issued against one is unusable the moment it is minted. The backend cannot ask a browser, so it states the rule (_ace_label_error): decodes as punycode, to something, non-ASCII, free of controls/surrogates/spaces, already lowercase and NFC, and re-encoding reproduces the label. It is deliberately a rejection of provable garbage rather than an implementation of UTS #46 — stricter than the browser would deny working configurations, which is the worse direction. Measured against Node's new URL() over 63 labels: no false rejections, one false accept (xn--a-ecp, which decodes to 'a⒈' whose UTS #46 mapping introduces a label separator). The valid list keeps xn--ls8h (an emoji label) and xn--80ak6aa92e as the counterfactual: browsers accept them and so must we.",
+  "_ace_note": "The xn-- entries under invalid are labels new URL() rejects outright, so no browser can ever present them and a domain lock issued against one is unusable the moment it is minted. The backend cannot ask a browser, so _ace_label_error asks the same tables the browser uses: the label decodes as punycode, decodes to something, contains a non-ASCII character, survives idna.uts46_remap(std3_rules=False, transitional=False) unchanged, and re-encodes to itself. uts46_remap IS the WHATWG/UTS #46 mapping, not an approximation of it, which is what lets this side be exact where #1548 refused to guess. Measured against Node's new URL() over 65 labels: no false rejections and no false accepts. THE CHEROKEE PAIR IS WHY THE RULE IS THE TABLES AND NOT str.lower: xn--bbe decodes to Ꮘ (U+13B8) and is VALID, while its lowercase form xn--p09a is INVALID because UTS #46 case-maps Cherokee UPWARD and a browser therefore rewrites it. An earlier revision asked decoded == decoded.lower() and refused xn--bbe, which is the stricter-than-the-browser direction that denies a working configuration. xn--ls8h (emoji), xn--80ak6aa92e and xn--fa-hia are the rest of the counterfactual: browsers accept them, so we must too, and non-transitional processing is what keeps ß intact.",
   "_idn_note": "An internationalized domain must be configured in its punycode (xn--) form. It is NOT translated for the operator: Python's built-in idna codec is IDNA2003 and maps faß.de to fass.de, while browsers follow WHATWG/UTS #46 and send xn--fa-hia.de. A near match denies every request while looking correct, so the class is removed rather than approximated.",
   "_host_note": "The two sides reach the same answers by DIFFERENT methods, deliberately: the frontend has a browser URL parser and compares the host as written against the host that parser produced; the backend has none and must assert the rule directly (canonical_host_error). It cannot test stability under its own parser instead — 192.168.1 round-trips through urlsplit unchanged and is still read as 192.168.0.1 by every browser. Measured disagreements: 192.168.1 -> 192.168.0.1, 010.0.0.1 -> 8.0.0.1 (octal), 0x7f.1 -> 127.0.0.1 (hex), 2130706433 -> 127.0.0.1, and uncompressed IPv6 literals get compressed. Uppercase is accepted because both parsers lowercase it, so it is not a disagreement. fix(#1555): IPv4-MAPPED IPv6 literals are refused outright, by both sides, because neither can call the other's output canonical — Python spells ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser spells ::ffff:127.0.0.1 as ::ffff:7f00:1, so [::ffff:192.168.1.5] used to be accepted by the backend and rejected by the frontend. The plain IPv4 form is unambiguous."
 }
