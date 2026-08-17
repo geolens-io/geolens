@@ -78,7 +78,10 @@ async def _recover_stale_jobs_for_current_scope() -> None:
     """
     from app.core.db import async_session
     from app.platform.jobs.models import IngestJob
-    from app.platform.jobs.router import JOB_TIMEOUT_SECONDS
+    from app.platform.jobs.router import (
+        JOB_TIMEOUT_SECONDS,
+        audit_settled_embedding_backfill,
+    )
 
     now = datetime.now(timezone.utc)
     stale_cutoff = now - timedelta(seconds=JOB_TIMEOUT_SECONDS)
@@ -130,6 +133,24 @@ async def _recover_stale_jobs_for_current_scope() -> None:
                 "Recovered stale running job",
                 job_id=str(job.id),
             )
+            # fix(#1556): this pass is the FOURTH actor that can settle an
+            # embedding backfill row, and #1550 taught only three of them
+            # (the worker's own exits, the status poll, the lifespan sweep)
+            # to close the audit trail. It is also the one that matters most
+            # for the case the trail exists for: after a hard kill the row is
+            # usually reached by the restarted worker's startup pass, not by
+            # the 5-minute lifespan sweep, and once this pass has made the row
+            # terminal no later sweep will look at it again. Emitted on this
+            # session so the status change and the entry commit as one, the
+            # same rule `fail_stale_jobs` follows. A no-op for every other
+            # kind of job.
+            await audit_settled_embedding_backfill(
+                session,
+                job_id=job.id,
+                user_metadata=job.user_metadata,
+                created_by=job.created_by,
+                error_code="worker_lost",
+            )
 
         # Recover orphaned pending jobs (never queued).
         # fix(#1235 review r2): through the shared clauses, which this site
@@ -160,6 +181,18 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             log.warning(
                 "Recovered orphaned pending job",
                 job_id=str(job.id),
+            )
+            # fix(#1556): the other half, same reason. A backfill whose
+            # dispatch never landed is `pending` with no queue row, which is
+            # exactly what this clause reaps — and the unique index counts
+            # pending, so the row is holding the single active-backfill slot
+            # while its trail still reads `requested`.
+            await audit_settled_embedding_backfill(
+                session,
+                job_id=job.id,
+                user_metadata=job.user_metadata,
+                created_by=job.created_by,
+                error_code="never_started",
             )
 
         # GAP-002: sweep VRT assets stuck in status='regenerating' past the timeout.

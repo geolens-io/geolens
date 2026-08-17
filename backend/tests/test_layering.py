@@ -3516,7 +3516,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stat is handed down through _cog_size_once so a conditional request that
     # goes on to transfer bytes still measures once, and _managed_key names the
     # tenant-key seam the block now crosses in a second place.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1656,
+    #
+    # fix(#1554): +30, and 3 of them are code. `If-None-Match: *` is evaluated
+    # whatever the row's digest is, because RFC 9110 section 13.1.2 makes the
+    # wildcard a question about whether a representation EXISTS rather than
+    # about which one it is — so a row predating the sha256 column answered a
+    # revalidation by transferring the whole COG. The rest is the reasoning
+    # this route keeps needing on hand: why the wildcard is checked before the
+    # digest and the specific tags after it, why a 304 with no ETag is the
+    # right answer rather than a gap to fill, and why an unconditional 304 is
+    # licensed here at all (this path serves GET and HEAD, and the section
+    # gives `*` a different answer for anything that would create a
+    # representation). Cap 1656 -> 1686, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1686,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because

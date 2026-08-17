@@ -58,6 +58,12 @@ from tests.factories import get_user_id
 # test_range_spanning_multiple_chunks_is_byte_exact).
 _COG_BYTES = bytes(range(256)) * 800  # 204_800 bytes, every byte value present
 
+# The route's registered path, as the app sees it. Asserted against the OpenAPI
+# document by `test_cog_head_stays_out_of_the_openapi_schema`, so a rename that
+# broke `test_the_cog_download_answers_only_safe_methods` breaks that one too
+# rather than leaving a method scan quietly matching nothing.
+_COG_DOWNLOAD_PATH = "/datasets/{dataset_id}/download/cog"
+
 
 async def _raster_dataset(
     session,
@@ -2399,6 +2405,320 @@ async def test_a_remote_cog_publishes_no_validator(
 
 
 # ---------------------------------------------------------------------------
+# fix(#1554): the wildcard, on rows this route can publish no validator for
+# ---------------------------------------------------------------------------
+
+
+async def test_a_wildcard_revalidation_is_304_on_a_row_with_no_digest(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """fix(#1554): ``If-None-Match: *`` asks about existence, not about a digest.
+
+    RFC 9110 section 13.1.2: for GET and HEAD, ``*`` matches when ANY current
+    representation of the target resource exists. Nothing in that sentence is
+    conditional on the server being able to emit an entity-tag, and a 304 does
+    not need to carry one when the 200 it replaces would not have carried one
+    either (section 15.4.5 asks for the header fields the 200 would send).
+
+    fix(#1540 review P2) evaluated ``If-None-Match`` only when the row had a
+    ``sha256`` to compare against, which is the right guard for a specific tag
+    and the wrong one for the wildcard. On a legacy row the client got 200 —
+    multiple gigabytes of COG, transferred to answer a question it had already
+    been told the answer to by its own cache.
+
+    All three shapes, like ``test_if_none_match_answers_304_for_every_request
+    _shape``: section 13.2.2 evaluates If-None-Match ahead of Range, so the
+    ranged request is a 304 too rather than a 206 of a slice.
+    """
+    dataset, raster_asset = await _raster_dataset(test_db_session, sha256=None)
+    await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+    wildcard = {**admin_auth_header, "If-None-Match": "*"}
+
+    head = await client.head(url, headers=wildcard)
+    whole = await client.get(url, headers=wildcard)
+    sliced = await client.get(url, headers={**wildcard, "Range": "bytes=0-99"})
+
+    for name, resp in (("HEAD", head), ("GET", whole), ("ranged GET", sliced)):
+        assert resp.status_code == 304, (
+            f"a wildcard revalidating {name} on a digest-less row got "
+            f"{resp.status_code} and {len(resp.content)} bytes; the object "
+            f"exists, so `*` matches it whether or not this route can name it."
+        )
+        assert resp.content == b"", f"the 304 for {name} carried a body"
+        assert "content-length" not in resp.headers, (
+            f"the 304 for {name} carried content-length="
+            f"{resp.headers.get('content-length')!r}"
+        )
+        assert "etag" not in resp.headers, (
+            f"the 304 for {name} carried etag={resp.headers.get('etag')!r}. "
+            f"There is no stored digest to name, and an invented validator "
+            f"would authorize resumes this route cannot vouch for — the same "
+            f"call `test_a_row_with_no_digest_refuses_a_conditional_range` "
+            f"makes about the 200."
+        )
+
+
+async def test_a_wildcard_revalidation_is_304_on_s3_without_a_digest_too(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """The wildcard is answered above the storage branching, so s3 gets it.
+
+    Sibling of ``test_if_none_match_answers_304_on_s3_too``, on the rows that
+    publish no validator. It is worth more here than anywhere else: without it
+    the GET is a 302 the client follows to the bucket, which then bills the
+    whole object as egress to answer a revalidation.
+
+    ``history == []`` is the half that separates the fix from a redirect that
+    happens to end in a 304 somewhere else. Nothing behind that redirect knows
+    about this route's preconditions — MEASURED in
+    ``test_cog_s3_head_wire_1540.py``: a presigned GET ignores ``If-None-Match``
+    outright.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=None,
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+    wildcard = {**admin_auth_header, "If-None-Match": "*"}
+
+    revalidated = await client.get(url, headers=wildcard, follow_redirects=True)
+    probed = await client.head(url, headers=wildcard, follow_redirects=True)
+
+    assert revalidated.history == [], (
+        f"the wildcard GET was redirected to "
+        f"{[r.headers.get('location') for r in revalidated.history]}; the "
+        f"bucket does not evaluate this route's preconditions, so that "
+        f"redirect ends in the whole COG."
+    )
+    assert revalidated.status_code == 304, (
+        f"a wildcard revalidating GET on s3 returned {revalidated.status_code} "
+        f"and {len(revalidated.content)} bytes"
+    )
+    assert probed.status_code == 304, (
+        f"a wildcard revalidating HEAD on s3 returned {probed.status_code}"
+    )
+
+
+async def test_a_wildcard_is_the_only_tag_that_matches_a_digest_less_row(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """The vacuity guard for the wildcard: everything else still downloads.
+
+    "No digest" must not collapse into "matches anything". A specific tag
+    against a row with no ``sha256`` cannot be compared — RFC 9110 section
+    13.1.2 evaluates If-None-Match with the weak comparison function, and a
+    representation with no entity-tag matches no tag at all — so the condition
+    is true and the client gets the bytes.
+
+    That is the same answer this route gave before fix(#1554), and it is the
+    half a wrong fix breaks: reading "unverifiable" as "unchanged" hands every
+    client holding a stale copy of a legacy COG a 304 forever.
+
+    The weak spelling and the list are here because the wildcard branch runs
+    before both, so a fix that short-circuits too early takes them with it.
+    """
+    dataset, raster_asset = await _raster_dataset(test_db_session, sha256=None)
+    await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    shapes = {
+        "a foreign strong tag": '"a-cog-from-last-week"',
+        "a foreign weak tag": 'W/"a-cog-from-last-week"',
+        "a list of them": '"one-from-monday", W/"one-from-tuesday"',
+    }
+    for name, header in shapes.items():
+        resp = await client.get(
+            url, headers={**admin_auth_header, "If-None-Match": header}
+        )
+        assert resp.status_code == 200, (
+            f"If-None-Match with {name} returned {resp.status_code} for a row "
+            f"with no digest. Nothing was compared, so nothing matched, and "
+            f"the client needs the bytes."
+        )
+        assert resp.content == _COG_BYTES, (
+            f"If-None-Match with {name} answered 200 with "
+            f"{len(resp.content)} of {len(_COG_BYTES)} bytes"
+        )
+
+
+async def test_a_wildcard_revalidation_for_bytes_that_are_gone_is_still_404(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """``*`` matches a representation that EXISTS, so the stat still comes first.
+
+    The catalog row can outlive its stored bytes, and the unconditional GET has
+    always answered 404 for that (``test_head_cog_matches_get_on_missing
+    _object``). fix(#1540 review P2) moved the stat above the precondition block
+    so a validator could not talk a cache into keeping a copy of something that
+    is gone; the wildcard has to stay behind that same stat.
+
+    This is the wrong fix that reads most naturally: `*` asks whether a current
+    representation exists, the RasterAsset row looks like the answer, and
+    answering from the row alone turns a deleted object into 304 — the exact
+    lie section 13.2.1's ordering exists to prevent, now reachable without the
+    client knowing any digest at all.
+
+    Sibling of ``test_a_conditional_request_for_bytes_that_are_gone_is_a_404``,
+    which covers the specific-tag spelling on a row that has a digest.
+    """
+    dataset, _ = await _raster_dataset(
+        test_db_session, sha256=None
+    )  # no bytes ever written to storage
+    url = f"/datasets/{dataset.id}/download/cog"
+    wildcard = {**admin_auth_header, "If-None-Match": "*"}
+
+    unconditional = await client.get(url, headers=admin_auth_header)
+    revalidated = await client.get(url, headers=wildcard)
+    probed = await client.head(url, headers=wildcard)
+
+    assert unconditional.status_code == 404, (
+        f"precondition: the plain GET should 404, got {unconditional.status_code}"
+    )
+    assert revalidated.status_code == 404, (
+        f"a wildcard GET answered {revalidated.status_code} for an object that "
+        f"is gone. `*` matches a representation that exists; there is none."
+    )
+    assert probed.status_code == 404, (
+        f"HEAD and GET must agree on a missing object under the wildcard too, "
+        f"got HEAD {probed.status_code} vs GET {revalidated.status_code}"
+    )
+
+
+async def test_the_cog_download_answers_only_safe_methods(client: AsyncClient):
+    """Why ``*`` may be a 304 here at all, pinned as a test.
+
+    RFC 9110 section 13.1.2 gives ``If-None-Match: *`` two different answers.
+    For GET and HEAD a match is 304. For any other method — one that would
+    create or modify a representation — a match is 412, because the client is
+    saying "only do this if it does not already exist".
+
+    This path answers GET and HEAD and nothing else, which is what makes the
+    single unconditional 304 above correct rather than a coincidence. Adding a
+    PUT that reuses ``download_cog``'s precondition block would need the second
+    answer, and would fail here first.
+
+    The walk goes through ``iter_route_contexts`` for the reason
+    ``test_rule1_structural.py`` documents: fastapi's ``include_router`` is
+    lazy, so a scan of ``app.routes`` alone sees a fraction of the table and
+    would answer "no methods at all" for this path — which is why the assertion
+    is written to fail on the empty set rather than pass over it.
+    """
+    from fastapi.routing import iter_route_contexts
+
+    from app.api.main import app
+
+    methods: set[str] = set()
+    for ctx in iter_route_contexts(app.routes):
+        if (ctx.path or ctx.route.path) == _COG_DOWNLOAD_PATH:
+            methods |= set(getattr(ctx.route, "methods", None) or ())
+
+    assert methods == {"GET", "HEAD"}, (
+        f"the COG download path answers {sorted(methods)}. `If-None-Match: *` "
+        f"is answered 304 unconditionally, which RFC 9110 section 13.1.2 only "
+        f"licenses for GET and HEAD."
+    )
+
+
+async def test_an_unverifiable_if_range_on_s3_is_ignored_rather_than_honoured(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """RFC 9110 section 13.1.5 has one answer for a validator that does not match.
+
+    Ignore the Range and serve the complete representation. Not 206 — that is
+    the splice fix(#1540 review P2) closed — and not 412, which the section
+    gives ``If-Range`` no license for at all: unlike ``If-Match`` it is an
+    optimization the server may decline, so refusing the request outright would
+    break a client that was only trying to save bandwidth.
+
+    ``test_a_row_with_no_digest_refuses_a_conditional_range`` makes this call
+    for local storage. The s3 branch decides it in its own code — the bucket
+    cannot be asked to, since a presigned GET answers a non-matching If-Range
+    with a 206 anyway — so "ignore it" has to mean the same thing on both, and
+    here that means NOT redirecting: the client re-sends its Range across the
+    hop and the bucket honours it.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=None,
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    resumed = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            "If-Range": '"whatever-the-client-remembers"',
+        },
+        follow_redirects=True,
+    )
+
+    assert resumed.history == [], (
+        f"the unverifiable resume was redirected to "
+        f"{[r.headers.get('location') for r in resumed.history]}; the client "
+        f"re-sends its Range across a 302 and the bucket answers 206, which is "
+        f"the partial response this branch just decided not to send."
+    )
+    assert resumed.status_code == 200, (
+        f"an If-Range this route cannot check answered {resumed.status_code}; "
+        f"section 13.1.5 says ignore the Range, which is 200 with the whole "
+        f"representation."
+    )
+    assert resumed.content == _COG_BYTES
+    assert "content-range" not in resumed.headers
+
+
+async def test_a_row_with_no_digest_refuses_a_specific_if_match_on_s3_too(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """RFC 9110 section 13.1.1, on the backend whose pass-path is a redirect.
+
+    A specific tag can never match a representation this route holds no entity
+    tag for, so the condition is false and the answer is 412 — the same call
+    ``test_a_row_with_no_digest_refuses_a_specific_if_match_but_allows_star``
+    makes for local storage. ``*`` is the other question, and the object exists,
+    so the request proceeds: on s3 that is the ordinary presigned redirect.
+
+    Both spellings are asserted together because the precondition block sits
+    above the storage branching, and "evaluated for local, skipped for s3" is
+    the shape this route has had to be corrected into twice already.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=None,
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    specific = await client.get(
+        url,
+        headers={**admin_auth_header, "If-Match": '"a-cog-from-last-week"'},
+        follow_redirects=False,
+    )
+    star = await client.get(
+        url, headers={**admin_auth_header, "If-Match": "*"}, follow_redirects=False
+    )
+
+    assert specific.status_code == 412, (
+        f"a tag this route cannot check returned {specific.status_code} on s3; "
+        f"unverifiable must not mean honoured, and a 302 here hands the "
+        f"precondition to a bucket that does not evaluate it."
+    )
+    assert star.status_code == 302, (
+        f"If-Match: * returned {star.status_code} for an object that exists; "
+        f"the request should proceed to the ordinary redirect."
+    )
+
+
+# ---------------------------------------------------------------------------
 # API surface
 # ---------------------------------------------------------------------------
 
@@ -2411,7 +2731,7 @@ async def test_cog_head_stays_out_of_the_openapi_schema(client: AsyncClient):
     ``headDownloadCog`` to both SDKs and the CLI for no gain.
     """
     spec = (await client.get("/openapi.json")).json()
-    methods = spec["paths"]["/datasets/{dataset_id}/download/cog"]
+    methods = spec["paths"][_COG_DOWNLOAD_PATH]
 
     assert set(methods) == {"get"}, (
         f"The COG download path publishes {sorted(methods)}; the HEAD route "
