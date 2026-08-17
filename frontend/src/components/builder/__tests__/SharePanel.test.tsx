@@ -100,6 +100,7 @@ function setup({
   publishMapFn = vi.fn().mockResolvedValue({}),
   publicAppUrl = window.location.origin,
   forceActiveEmbedToken = false,
+  lockOriginsAfterCreate = null,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -123,6 +124,12 @@ function setup({
   /** Return an active embed token even when the share link is created at
    *  runtime — the domain-locked branch needs both. */
   forceActiveEmbedToken?: boolean;
+  /** Origins that appear on the active token only AFTER one is created here.
+   *  Mirrors the real builder sequence — a token is minted unlocked and the
+   *  origins are PATCHed on afterwards — and is the only way to reach a
+   *  domain-locked PREVIEW, since createEmbed() skips when a token already
+   *  exists and the raw token is available only at creation. */
+  lockOriginsAfterCreate?: string[] | null;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -130,12 +137,16 @@ function setup({
     expires_at: null,
     is_active: true,
   });
-  const createEmbedToken = createEmbedTokenFn ?? vi.fn().mockResolvedValue({
-    id: 'embed-2',
-    raw_token: 'raw-token',
-    token_hint: 'raw...',
-    expires_at: FUTURE_EMBED_EXPIRES_AT,
-    is_active: true,
+  let embedTokenCreated = false;
+  const createEmbedToken = createEmbedTokenFn ?? vi.fn().mockImplementation(async () => {
+    embedTokenCreated = true;
+    return {
+      id: 'embed-2',
+      raw_token: 'raw-token',
+      token_hint: 'raw...',
+      expires_at: FUTURE_EMBED_EXPIRES_AT,
+      is_active: true,
+    };
   });
 
   mockedUseTileConfig.mockReturnValue({
@@ -180,10 +191,32 @@ function setup({
     isLoading: false,
     isError: false,
   } as never);
-  mockedUseMapEmbedTokens.mockReturnValue({
-    data: {
-      tokens: hasShareToken || forceActiveEmbedToken
-        ? [
+  const embedTokenRow = (origins: string[]) => ({
+    id: 'embed-1',
+    map_id: 'map-1',
+    token_hint: 'emb...',
+    scoped_dataset_ids: [],
+    allowed_origins: origins,
+    expires_at: FUTURE_EMBED_EXPIRES_AT,
+    is_active: true,
+    use_count: 0,
+    created_at: '2026-05-01T00:00:00Z',
+  });
+  mockedUseMapEmbedTokens.mockImplementation((() => {
+    if (lockOriginsAfterCreate && embedTokenCreated) {
+      return {
+        data: { tokens: [embedTokenRow(lockOriginsAfterCreate)], total: 1 },
+        isLoading: false,
+        isError: false,
+      };
+    }
+    if (lockOriginsAfterCreate) {
+      return { data: { tokens: [], total: 0 }, isLoading: false, isError: false };
+    }
+    return {
+      data: {
+        tokens: hasShareToken || forceActiveEmbedToken
+          ? [
             {
               id: 'embed-1',
               map_id: 'map-1',
@@ -195,13 +228,14 @@ function setup({
               use_count: 0,
               created_at: '2026-05-01T00:00:00Z',
             },
-          ]
-        : [],
-      total: hasShareToken || forceActiveEmbedToken ? 1 : 0,
-    },
-    isLoading: false,
-    isError: false,
-  } as never);
+            ]
+          : [],
+        total: hasShareToken || forceActiveEmbedToken ? 1 : 0,
+      },
+      isLoading: false,
+      isError: false,
+    };
+  }) as never);
   mockedCheckMapVisibility.mockResolvedValue({
     has_non_public: hasNonPublic,
     non_public_datasets: hasNonPublic ? ['Private dataset'] : [],
@@ -1409,6 +1443,76 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
     });
   });
 
+  /**
+   * fix(#1548 review r6): you genuinely cannot preview a domain-locked embed
+   * from a host the lock does not permit — that is the feature working. Saying
+   * so beats rendering a map with no layers in it and letting the operator
+   * conclude the embed is broken.
+   */
+  describe('suppresses the locked preview with no trustworthy public origin', () => {
+    // The shipped-default row needs the browser somewhere other than loopback:
+    // on a genuine localhost install a localhost PUBLIC_APP_URL is correct.
+    const realLocation = window.location;
+    beforeEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: { ...realLocation, origin: 'https://maps.example.com' },
+        writable: true,
+        configurable: true,
+      });
+    });
+    afterEach(() => {
+      Object.defineProperty(window, 'location', {
+        value: realLocation,
+        writable: true,
+        configurable: true,
+      });
+    });
+
+    it.each([
+      ['nothing is configured', null],
+      ['the config is the shipped localhost default', 'http://localhost:8080'],
+      ['the config is malformed', 'not-a-url'],
+    ])('when %s', async (_label, publicAppUrl) => {
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl,
+      });
+      await generateShareLinkAndWait(user);
+
+      expect(
+        screen.queryByRole('button', { name: /preview/i }),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByTestId('share-preview-iframe')).not.toBeInTheDocument();
+      // The preview explains itself in its own words — the snippet above it is
+      // withheld too and also names PUBLIC_APP_URL, so match the preview copy.
+      expect(await screen.findByText(/only be previewed from/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/PUBLIC_APP_URL/).length).toBeGreaterThan(0);
+    });
+  });
+
+  it('keeps previewing an UNLOCKED embed on the shipped localhost default', async () => {
+    // The regression guard for the case above: suppression is about the LOCK,
+    // not about the configuration alone. An unrestricted preview still loads.
+    const user = userEvent.setup();
+    setup({
+      hasShareToken: false,
+      hasNonPublic: true,
+      allowedOrigins: [],
+      publicAppUrl: 'http://localhost:8080',
+    });
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = (await screen.findByTestId(
+      'share-preview-iframe',
+    )) as HTMLIFrameElement;
+    expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
+  });
+
   it('withholds a domain-locked snippet when nothing is configured', async () => {
     const user = userEvent.setup();
     setup({
@@ -1479,6 +1583,32 @@ describe('#1548 r3 shareable URLs use the configured public origin', () => {
       // nothing, which is strictly worse than previewing from the serving host.
       expect(iframe.src).toContain(`${window.location.origin}/m/share-token`);
       expect(iframe.src).not.toContain(PUBLIC_HOST);
+    });
+
+    /**
+     * fix(#1548 review r6): the domain-locked preview is a FOURTH case — opened
+     * by this browser AND subject to the lock. Loaded from the current origin
+     * its own API calls carry an origin the lock does not permit, so it renders
+     * without its scoped layers: the exact silent failure this PR exists to
+     * end. Only the configured origin satisfies both.
+     */
+    it('previews a DOMAIN-LOCKED embed from the configured origin instead', async () => {
+      const user = userEvent.setup();
+      setup({
+        enterprise: true,
+        hasShareToken: false,
+        hasNonPublic: true,
+        lockOriginsAfterCreate: ['https://customer.example.com'],
+        publicAppUrl: PUBLIC_HOST,
+      });
+      await generateShareLinkAndWait(user);
+      await user.click(screen.getByRole('button', { name: /preview/i }));
+
+      const iframe = (await screen.findByTestId(
+        'share-preview-iframe',
+      )) as HTMLIFrameElement;
+      expect(iframe.src).toContain(`${PUBLIC_HOST}/m/share-token`);
+      expect(iframe.src).not.toContain(window.location.origin);
     });
 
     it('still copies a link on the public host, because the customer opens that', async () => {

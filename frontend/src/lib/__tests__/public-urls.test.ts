@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { getPublicAppBaseUrl, getShareableBaseUrl } from '@/lib/public-urls';
+import {
+  getPublicAppBaseUrl,
+  getShareableBaseUrl,
+  resolvePublicAppUrl,
+} from '@/lib/public-urls';
 
 const SERVED_AT = 'https://maps.example.com';
 // What both compose files inject when the operator never set PUBLIC_APP_URL.
@@ -104,6 +108,98 @@ describe('getShareableBaseUrl', () => {
 });
 
 /**
+ * fix(#1548 review r6): the states, asserted by name.
+ *
+ * PUBLIC_APP_URL has been treated as a boolean three times on this PR — "is it
+ * set" — and each round the missed case was a state nobody had written down.
+ * Naming them in the type is only half the fix; this pins that each one is
+ * actually reached, so a future branch that collapses two of them fails here
+ * rather than in review.
+ */
+describe('resolvePublicAppUrl enumerates every state of the setting', () => {
+  const SERVED_AT = 'https://maps.example.com';
+
+  it('unset', () => {
+    expect(resolvePublicAppUrl(undefined, SERVED_AT)).toEqual({ kind: 'unset' });
+    expect(resolvePublicAppUrl(null, SERVED_AT)).toEqual({ kind: 'unset' });
+    expect(resolvePublicAppUrl({ public_app_url: null }, SERVED_AT)).toEqual({
+      kind: 'unset',
+    });
+    expect(resolvePublicAppUrl({ public_app_url: '   ' }, SERVED_AT)).toEqual({
+      kind: 'unset',
+    });
+  });
+
+  /**
+   * The backend Settings field takes PUBLIC_APP_URL from the environment as a
+   * raw string and never parses it, so tile-config hands back whatever was
+   * typed. A previous revision asked `isLoopbackOrigin()` first and read its
+   * PARSE FAILURE as "not loopback, therefore fine" — a narrower predicate
+   * standing in for trust — and built card links like `not-a-url/api/...`.
+   */
+  it.each([
+    ['plain text', 'not-a-url'],
+    ['scheme-less host', 'maps.example.com'],
+    ['non-HTTP scheme', 'ftp://maps.example.com'],
+    ['mailto', 'mailto:ops@example.com'],
+    ['javascript', 'javascript:alert(1)'],
+    ['file', 'file:///etc/hosts'],
+  ])('malformed: %s', (_label, value) => {
+    expect(resolvePublicAppUrl({ public_app_url: value }, SERVED_AT)).toEqual({
+      kind: 'malformed',
+      value,
+    });
+  });
+
+  it('loopback-default', () => {
+    expect(
+      resolvePublicAppUrl({ public_app_url: 'http://localhost:8080' }, SERVED_AT),
+    ).toEqual({ kind: 'loopback-default', value: 'http://localhost:8080' });
+  });
+
+  it('trusted', () => {
+    expect(resolvePublicAppUrl({ public_app_url: SERVED_AT }, SERVED_AT)).toEqual({
+      kind: 'trusted',
+      baseUrl: SERVED_AT,
+    });
+  });
+
+  it('trusted, for a genuine localhost install', () => {
+    expect(
+      resolvePublicAppUrl(
+        { public_app_url: 'http://localhost:8080' },
+        'http://localhost:3000',
+      ),
+    ).toEqual({ kind: 'trusted', baseUrl: 'http://localhost:8080' });
+  });
+
+  it('has no state for VALID BUT WRONG, and must not invent one', () => {
+    // A stale public hostname parses, is not loopback, and only DNS knows it
+    // no longer serves GeoLens. Guessing here would refuse working setups.
+    expect(
+      resolvePublicAppUrl({ public_app_url: 'https://old.example.com' }, SERVED_AT),
+    ).toEqual({ kind: 'trusted', baseUrl: 'https://old.example.com' });
+  });
+});
+
+describe('a malformed value is never handed out', () => {
+  const SERVED_AT = 'https://maps.example.com';
+
+  it.each(['not-a-url', 'maps.example.com', 'javascript:alert(1)'])(
+    'getPublicAppBaseUrl rejects %s',
+    (value) => {
+      expect(getPublicAppBaseUrl({ public_app_url: value }, SERVED_AT)).toBeNull();
+    },
+  );
+
+  it('getShareableBaseUrl falls back to the serving origin instead', () => {
+    expect(getShareableBaseUrl({ public_app_url: 'not-a-url' }, SERVED_AT)).toBe(
+      SERVED_AT,
+    );
+  });
+});
+
+/**
  * fix(#1548 review r3/r5): cover the class, not just the one call site.
  *
  * SharePanel resolves three origins, and the question that picks between them
@@ -157,10 +253,17 @@ describe('SharePanel resolves each URL from the right origin', () => {
     );
   });
 
-  it('previews from the current origin, since this browser loads it', () => {
+  it('previews from previewBaseUrl, which splits on the lock', () => {
     const pane = source.slice(source.indexOf('<EmbedPreviewPane'));
-    const origin = pane.slice(0, pane.indexOf('/>'));
-    expect(origin).toContain('origin={currentOrigin}');
+    expect(pane.slice(0, pane.indexOf('/>'))).toContain('origin={previewBaseUrl}');
+
+    // fix(#1548 review r6): the preview is the one URL that is opened HERE and
+    // must also satisfy the lock, so it is neither of the other two rules.
+    // Unlocked it uses the origin this browser reached; locked it must use the
+    // configured one, the only origin its own API calls may present.
+    expect(source).toContain(
+      'const previewBaseUrl = isDomainLocked ? trustedAppBaseUrl : currentOrigin;',
+    );
   });
 
   it('no builder reaches for window.location.origin inline', () => {

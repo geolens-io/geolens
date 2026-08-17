@@ -624,9 +624,19 @@ interface EmbedPreviewPaneProps {
   shareToken: string;
   embedTokenRaw: string;
   origin: string;
+  /** fix(#1548 review r6): a locked preview is loaded from the CONFIGURED
+   *  origin, which this browser may not be able to reach at all (split-horizon
+   *  deployments route the public host externally only). Reachability cannot be
+   *  predicted from here, so the existing load-failure state explains it. */
+  isDomainLocked?: boolean;
 }
 
-function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPaneProps) {
+function EmbedPreviewPane({
+  shareToken,
+  embedTokenRaw,
+  origin,
+  isDomainLocked = false,
+}: EmbedPreviewPaneProps) {
   const { t } = useTranslation('builder');
   const [expanded, setExpanded] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -696,7 +706,9 @@ function EmbedPreviewPane({ shareToken, embedTokenRaw, origin }: EmbedPreviewPan
                 {t('share.iframeErrorTitle', { defaultValue: 'Preview unavailable' })}
               </p>
               <p className="text-xs text-muted-foreground text-center">
-                {t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
+                {isDomainLocked
+                  ? t('share.iframeErrorBodyDomainLocked')
+                  : t('share.iframeErrorBody', { defaultValue: 'Check that the embed token is valid and the share link is active. Reload to retry.' })}
               </p>
               <button
                 type="button"
@@ -949,14 +961,20 @@ export function ShareDialog({
   //  1. HANDED TO SOMEONE ELSE — the copied link, its /card twin, the iframe
   //     snippet. The recipient is not on this network, so these must name the
   //     address people use to reach GeoLens (shareBaseUrl / embedBaseUrl).
-  //  2. OPENED BY THIS BROWSER — the "Open" button and the embed preview. These
-  //     use currentOrigin directly and are deliberately NEITHER of the others:
-  //     this browser demonstrably reaches this host, and may not reach the
-  //     public one at all. An externally routed public hostname unreachable
+  //  2. OPENED BY THIS BROWSER — the "Open" button and an UNLOCKED preview.
+  //     These use currentOrigin directly and are deliberately NEITHER of the
+  //     others: this browser demonstrably reaches this host, and may not reach
+  //     the public one at all. An externally routed public hostname unreachable
   //     from the internal admin network is a normal split-horizon deployment,
   //     not a misconfiguration, and pointing a local affordance at it means an
   //     admin can use GeoLens yet cannot open the share they just created.
-  //  3. The domain-lock decision is a further split within (1), below.
+  //  3. OPENED BY THIS BROWSER *AND* SUBJECT TO THE LOCK — a DOMAIN-LOCKED
+  //     preview. It belongs to neither bucket above: loaded from currentOrigin
+  //     its own API calls carry an origin the lock does not permit, so it
+  //     renders without its scoped layers — the exact silent failure this PR
+  //     exists to end. It must use the configured origin, and when there is
+  //     none it cannot be shown at all. See previewBaseUrl below.
+  //  4. The domain-lock decision for the SNIPPET is a further split within (1).
   //
   // See lib/public-urls.ts for why "configured" is not the same question as
   // "correct".
@@ -1010,6 +1028,15 @@ export function ShareDialog({
   // predates the guard or a deployment whose URL changed under it.
   const isDomainLocked = configOrigins.length > 0;
   const embedBaseUrl = isDomainLocked ? trustedAppBaseUrl : shareBaseUrl;
+
+  // fix(#1548 review r6): category (3). A locked preview has to satisfy the
+  // same check the customer's embed will, and only the configured origin does
+  // — so unlike the "Open" button it gets no current-origin fallback, and
+  // unlike the snippet it cannot fall back to a serving origin either. Null
+  // here means the preview is genuinely impossible: you cannot preview a
+  // domain-locked embed from a host the lock does not permit. Saying so beats
+  // rendering a map with no layers in it.
+  const previewBaseUrl = isDomainLocked ? trustedAppBaseUrl : currentOrigin;
 
   const createEmbedToken = tokens.embedMutation;
   const revokeEmbedToken = tokens.revokeEmbedMutation;
@@ -1540,17 +1567,28 @@ export function ShareDialog({
                     </div>
                   )}
                   {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
-                  {/* fix(#1548 review r5): category (2) — the preview loads in
-                      THIS browser, so it must use an origin this browser can
-                      actually reach. Pointed at a public host that is routed
-                      only externally it would render nothing at all, which is
-                      strictly worse than previewing from the serving host. */}
-                  {embedTokenRaw && (
+                  {/* fix(#1548 review r5/r6): an UNLOCKED preview loads in THIS
+                      browser and uses the origin this browser reached — pointed
+                      at a public host routed only externally it would render
+                      nothing. A DOMAIN-LOCKED preview instead has to come from
+                      the configured origin, because that is the only one its
+                      own API calls may present; with no such origin it is
+                      suppressed rather than shown empty. */}
+                  {embedTokenRaw && previewBaseUrl && (
                     <EmbedPreviewPane
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
-                      origin={currentOrigin}
+                      origin={previewBaseUrl}
+                      isDomainLocked={isDomainLocked}
                     />
+                  )}
+                  {embedTokenRaw && !previewBaseUrl && (
+                    <p
+                      role="status"
+                      className="text-xs text-muted-foreground border-t pt-3"
+                    >
+                      {t('share.lockedPreviewNeedsPublicUrl')}
+                    </p>
                   )}
                 </div>
               )}

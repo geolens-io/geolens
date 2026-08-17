@@ -644,6 +644,8 @@
     "copyShareLink": "Copier le lien de partage",
     "copyEmbedCode": "Copier le code d'intégration",
     "publicAppUrlNotConfigured": "Ce déploiement n'a pas d'URL publique configurée, donc GeoLens ne peut pas créer de lien qui fonctionnera sur le site d'une autre personne. Demandez à un administrateur de définir PUBLIC_APP_URL avec l'adresse utilisée pour accéder à GeoLens.",
+    "lockedPreviewNeedsPublicUrl": "Une intégration restreinte par domaine ne peut être prévisualisée que depuis l'adresse publique de ce déploiement, qui n'est pas configurée. Demandez à un administrateur de définir PUBLIC_APP_URL, ou retirez la restriction de domaine pour prévisualiser.",
+    "iframeErrorBodyDomainLocked": "Une intégration restreinte par domaine est prévisualisée depuis l'adresse publique de ce déploiement, que ce navigateur ne peut peut-être pas atteindre. L'intégration peut malgré tout fonctionner pour les visiteurs. Rechargez pour réessayer.",
     "cannotPublish": "Impossible de publier : les jeux de données {{datasets}} ne sont pas publics",
     "embedTokenInfo": "Des couches non publiques sont incluses. Un jeton d'intégration gère l'accès automatiquement.",
     "unsavedWarning": "Les modifications non enregistrées sont uniquement dans l'aperçu du constructeur. Enregistrez avant de copier des liens ou des intégrations.",

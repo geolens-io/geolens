@@ -5,50 +5,60 @@ import type { TileConfig } from '@/api/settings';
 // urlparse strips, so both spellings are listed.
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-function isLoopbackOrigin(url: string): boolean {
+/**
+ * Every state `PUBLIC_APP_URL` can be in, named.
+ *
+ * fix(#1548 review r6): this enumeration is the point. The setting has been
+ * treated as a boolean three separate times on this PR — "is it set" — and each
+ * time the case that was missed was a state nobody had written down. Listing
+ * them here means the next reader sees all of them at once instead of
+ * rediscovering one in review.
+ *
+ *  - `unset`             nothing configured, or blank.
+ *  - `malformed`         present but not a usable HTTP(S) URL. Reachable from
+ *                        the environment, which the backend `Settings` field
+ *                        accepts as a raw string without parsing it.
+ *  - `loopback-default`  a loopback URL while this browser is somewhere else.
+ *                        Almost always the shipped compose default
+ *                        `${PUBLIC_APP_URL:-http://localhost:8080}` left alone.
+ *  - `trusted`           a real HTTP(S) origin we are willing to hand out.
+ *
+ * The fifth state — VALID BUT WRONG, a stale or mistyped public hostname — is
+ * deliberately absent, because nothing here can detect it: it parses, it is not
+ * loopback, and only DNS knows it no longer serves GeoLens. It is reported by
+ * the backend at runtime instead (`embed_token_domain_lock_denied`), and a
+ * share link built from it fails loudly rather than silently.
+ */
+export type PublicAppUrlState =
+  | { kind: 'trusted'; baseUrl: string }
+  | { kind: 'unset' }
+  | { kind: 'malformed'; value: string }
+  | { kind: 'loopback-default'; value: string };
+
+function parseOrigin(url: string): URL | null {
   try {
-    return LOOPBACK_HOSTS.has(new URL(url).hostname.toLowerCase());
+    const parsed = new URL(url);
+    // Scheme is checked explicitly rather than inferred from a parse success:
+    // `new URL('mailto:x')` and `new URL('javascript:alert(1)')` both parse.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed;
   } catch {
-    return false;
+    return null;
   }
 }
 
 /**
- * The deployment's public origin, but only when it is one this deployment can
- * actually be reached at. Null otherwise — including when it is *set to the
- * wrong thing*, which is the case a null check cannot see.
+ * Classify the deployment's configured public app URL.
  *
- * fix(#1548 review r4): "configured" is not a boolean. `PUBLIC_APP_URL` has a
- * third state — present, non-null, and wrong — because both compose files
- * inject `${PUBLIC_APP_URL:-http://localhost:8080}` and `/settings/tile-config/`
- * hands that back as a perfectly good-looking string. An operator who never set
- * the variable, which is the default install, gets `http://localhost:8080` while
- * being reached at https://maps.example.com.
- *
- * So the test is not "is it set" but "is it somewhere a viewer could open".
- * The one origin this browser knows is reachable is its own, and that gives the
- * discriminator: a loopback configured origin is untrustworthy exactly when the
- * browser is NOT itself on loopback. That is the same predicate
- * `assert_domain_lock_is_enforceable` applies server-side (a real, non-loopback
- * request origin against an all-loopback set of self-origins), so the two agree
- * about which deployments are misconfigured — deliberately, since a UI that
- * withheld a snippet the API would have accepted, or the reverse, is the
- * two-readers-of-one-policy bug this PR started as.
- *
- * A genuine localhost install is not caught: there the browser is on loopback
- * too, the value is right, and it is returned.
- *
- * CALLERS MUST SPLIT ON WHAT FAILURE COSTS, and the split is why this returns
- * null rather than falling back for you:
- *
- * - An ordinary share link or unrestricted embed should fall back to the
- *   current origin. It is a serving origin even when it is not the canonical
- *   public one, so the link still opens; a localhost URL opens for nobody.
- *   These worked before any of this and must not start failing now.
- * - A DOMAIN-LOCKED embed must not fall back. There a wrong origin does not
- *   degrade: the shell loads, its own API calls carry an origin the backend
- *   does not recognize as first-party, and the map stays empty with nothing
- *   said. Withhold the snippet and name PUBLIC_APP_URL instead.
+ * The question is never "is it set" but "is it somewhere a viewer could open".
+ * The one origin a browser knows is reachable is its own, and that gives the
+ * discriminator for `loopback-default`: a loopback configured origin is
+ * untrustworthy exactly when the browser is NOT itself on loopback. That is the
+ * same predicate `assert_domain_lock_is_enforceable` applies server-side
+ * (backend/app/modules/embed_tokens/service.py), so the UI and the API agree
+ * about which deployments are misconfigured rather than each holding its own
+ * opinion. A genuine localhost install is not caught: there the browser is on
+ * loopback too, the value is right, and it is trusted.
  *
  * `public_app_url` comes from `/settings/tile-config/`, whose own description
  * calls it "the browser-facing app URL used for share links". A configured
@@ -56,14 +66,55 @@ function isLoopbackOrigin(url: string): boolean {
  * is trimmed — because it is part of where the app lives. The backend compares
  * origins with the path already dropped, so the two still agree.
  */
+export function resolvePublicAppUrl(
+  tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
+  currentOrigin: string,
+): PublicAppUrlState {
+  const raw = tileConfig?.public_app_url?.trim().replace(/\/+$/, '');
+  if (!raw) return { kind: 'unset' };
+
+  // Parse FIRST, and require the parse to succeed. A previous revision asked
+  // `isLoopbackOrigin()` and read its parse failure as "not loopback, therefore
+  // fine" — a narrower predicate standing in for trust, so `not-a-url` was
+  // handed out in card links and iframe sources. Trust is earned here, never
+  // inherited from another check's failure mode.
+  const parsed = parseOrigin(raw);
+  if (parsed === null) return { kind: 'malformed', value: raw };
+
+  const currentIsLoopback = (() => {
+    const current = parseOrigin(currentOrigin);
+    return current !== null && LOOPBACK_HOSTS.has(current.hostname.toLowerCase());
+  })();
+
+  if (LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase()) && !currentIsLoopback) {
+    return { kind: 'loopback-default', value: raw };
+  }
+
+  return { kind: 'trusted', baseUrl: raw };
+}
+
+/**
+ * The configured public origin when it can be trusted, else null.
+ *
+ * CALLERS MUST SPLIT ON WHO OPENS THE URL, and on what a wrong origin costs:
+ *
+ *  - Handed to someone else (copied link, /card twin, iframe snippet) → prefer
+ *    this, falling back via `getShareableBaseUrl` where a wrong-but-serving
+ *    origin still opens.
+ *  - Opened by THIS browser (the "Open" button, an UNLOCKED preview) → use
+ *    `window.location.origin` directly, not this. A public host routed only
+ *    externally is a normal split-horizon deployment, and a local affordance
+ *    pointed at it simply fails.
+ *  - A DOMAIN-LOCKED preview → this, with no fallback. It is opened here AND
+ *    must satisfy the lock, and only the configured origin does both. When this
+ *    is null the preview cannot be shown at all, which is the feature working.
+ */
 export function getPublicAppBaseUrl(
   tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
   currentOrigin: string,
 ): string | null {
-  const base = tileConfig?.public_app_url?.trim().replace(/\/+$/, '');
-  if (!base) return null;
-  if (isLoopbackOrigin(base) && !isLoopbackOrigin(currentOrigin)) return null;
-  return base;
+  const state = resolvePublicAppUrl(tileConfig, currentOrigin);
+  return state.kind === 'trusted' ? state.baseUrl : null;
 }
 
 /**
@@ -71,9 +122,10 @@ export function getPublicAppBaseUrl(
  *
  * Prefers the configured public origin, because a URL someone else opens should
  * name the address people use to reach GeoLens rather than whatever hostname
- * this admin happens to be on. Falls back to the current origin when there is
- * no trustworthy configured value, since a link that opens beats a correct-
- * looking one that does not.
+ * this admin happens to be on. Falls back to the current origin for every
+ * untrusted state, since a link that opens beats a correct-looking one that
+ * does not — and `loopback-default` is the DEFAULT install, where these links
+ * worked before any of this.
  */
 export function getShareableBaseUrl(
   tileConfig: Pick<TileConfig, 'public_app_url'> | null | undefined,
