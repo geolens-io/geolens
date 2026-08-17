@@ -201,6 +201,48 @@ describe('a malformed value is never handed out', () => {
 });
 
 /**
+ * fix(#1548 review r8): the shape rule, from the one file that states it.
+ *
+ * The backend runs the same table against `is_usable_public_origin` in
+ * backend/tests/test_public_app_url_shape_contract_1548.py. Two independent
+ * validators for one setting is what produced this round's findings — the
+ * frontend had learned about malformed values and the backend had not — so the
+ * SPEC is shared even though the implementations cannot be.
+ */
+describe('the shared PUBLIC_APP_URL shape rule', () => {
+  const spec = JSON.parse(
+    readFileSync(
+      join(process.cwd(), 'src/lib/__tests__/public-app-url-shape.cases.json'),
+      'utf-8',
+    ),
+  ) as { valid: string[]; invalid: string[] };
+
+  // Exercised through resolvePublicAppUrl from a LOOPBACK browser origin, so
+  // the loopback-default rule cannot fire and the only thing under test is
+  // shape. That separation is the point: shape and trust are different
+  // questions and the fixture covers only the first.
+  const asState = (value: string) =>
+    resolvePublicAppUrl({ public_app_url: value }, 'http://localhost:3000');
+
+  it('has cases on both sides, so neither list can quietly empty', () => {
+    expect(spec.valid.length).toBeGreaterThan(0);
+    expect(spec.invalid.length).toBeGreaterThan(0);
+  });
+
+  it.each(
+    // Blank strings are `unset`, not `malformed` — a distinct state, asserted
+    // above. Here we only care that they are not trusted.
+    spec.valid,
+  )('accepts %j', (value) => {
+    expect(asState(value)).toEqual({ kind: 'trusted', baseUrl: value });
+  });
+
+  it.each(spec.invalid)('rejects %j', (value) => {
+    expect(asState(value).kind).not.toBe('trusted');
+  });
+});
+
+/**
  * fix(#1548 review r7): a domain-locked preview must satisfy two browser rules
  * at once, and for a split-horizon deployment nothing satisfies both.
  *

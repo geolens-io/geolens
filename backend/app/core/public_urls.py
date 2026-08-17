@@ -31,6 +31,52 @@ class PublicUrlNotConfiguredError(RuntimeError):
     policies. Forcing explicit configuration closes that path."""
 
 
+def is_usable_public_origin(value: str | None) -> bool:
+    """Is this a value a browser could actually be sent to?
+
+    fix(#1548 review r8): ONE shape rule for ``PUBLIC_APP_URL``, stated here and
+    mirrored by ``parseUsablePublicUrl`` in ``frontend/src/lib/public-urls.ts``.
+    The rule: an absolute HTTP(S) URL, with a host, and no query or fragment.
+
+    Everything else is untrusted, and each consumer already knows what to do
+    with untrusted — the backend refuses to issue a domain lock, the frontend
+    falls back for ordinary shares and suppresses a locked preview.
+
+    Why each clause is load-bearing, since none of them is hypothetical:
+
+    * ABSOLUTE, WITH A SCHEME AND HOST. ``_normalize_origin`` prepends
+      ``https://`` to anything that does not already start with http(s), so an
+      environment value of ``ftp://maps.example.com`` becomes the pseudo-origin
+      ``https://ftp:``, ``mailto:ops@example.com`` becomes
+      ``https://mailto:ops@example.com`` and ``file:///etc/hosts`` becomes
+      ``https://file:``. Each is non-loopback, so the domain-lock gate read the
+      deployment as configured and issued a lock no embed shell could ever
+      satisfy — this PR's original bug, returning through the check added to
+      prevent it.
+    * NO QUERY OR FRAGMENT. The backend drops them when it normalizes, so its
+      own comparison survives, but the frontend appends ``/m/<token>`` to the
+      configured string — putting the path inside the query or after the
+      fragment and producing links nobody can open.
+
+    The setting is environment-backed and therefore never passes through the
+    persistent-setting validator, so this is the only place it is checked.
+    """
+    if value is None:
+        return False
+    candidate = value.strip()
+    if not candidate:
+        return False
+    try:
+        parts = urlsplit(candidate)
+    except ValueError:
+        return False
+    if parts.scheme not in ("http", "https"):
+        return False
+    if not parts.hostname:
+        return False
+    return not parts.query and not parts.fragment
+
+
 def normalize_public_url(url: str | None) -> str | None:
     if url is None:
         return None

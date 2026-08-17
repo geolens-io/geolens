@@ -3481,7 +3481,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a stale or concurrently revoked token id and told its owner to go
     # reconfigure PUBLIC_APP_URL. The router and update_embed_token share the
     # one query rather than carrying a copy each. Cap 1013 -> 1029, exact.
-    "backend/app/modules/embed_tokens/service.py": 1029,
+    # fix(#1548 review r8): +9 — gate the self-origin candidates on
+    # is_usable_public_origin before normalizing them. The comment is most of
+    # it, and it records why the order matters: _normalize_origin PREPENDS
+    # https:// to anything without an http(s) scheme, so an environment value of
+    # ftp://maps.example.com arrived as the plausible non-loopback origin
+    # https://ftp: and convinced the domain-lock gate the deployment was
+    # configured. Cap 1029 -> 1038, exact.
+    "backend/app/modules/embed_tokens/service.py": 1038,
 }
 
 

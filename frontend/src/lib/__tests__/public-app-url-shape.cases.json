@@ -1,0 +1,29 @@
+{
+  "_rule": "PUBLIC_APP_URL is usable only as an absolute HTTP(S) URL with a host and no query or fragment. This file is the ONE statement of that rule; the Python and TypeScript validators are each tested against it so they cannot drift. Backend: is_usable_public_origin() in backend/app/core/public_urls.py. Frontend: parseUsablePublicUrl() in frontend/src/lib/public-urls.ts.",
+  "_scope": "SHAPE only. Whether a shape-valid value is TRUSTED in context is a separate question — a loopback origin is shape-valid but untrusted when the browser is elsewhere — so loopback entries appear under valid here on purpose.",
+  "valid": [
+    "https://maps.example.com",
+    "http://maps.example.com",
+    "https://maps.example.com:8443",
+    "https://example.com/geolens",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "http://[::1]:8080"
+  ],
+  "invalid": [
+    "",
+    "   ",
+    "not-a-url",
+    "maps.example.com",
+    "//maps.example.com",
+    "ftp://maps.example.com",
+    "mailto:ops@example.com",
+    "javascript:alert(1)",
+    "file:///etc/hosts",
+    "data:text/html,x",
+    "https://maps.example.com?tenant=a",
+    "https://maps.example.com#section",
+    "https://maps.example.com/path?a=1",
+    "https://maps.example.com/path#f"
+  ]
+}

@@ -15,9 +15,12 @@ const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
  * rediscovering one in review.
  *
  *  - `unset`             nothing configured, or blank.
- *  - `malformed`         present but not a usable HTTP(S) URL. Reachable from
+ *  - `malformed`         present but not a usable HTTP(S) URL — wrong scheme,
+ *                        no host, or carrying a query or fragment that every
+ *                        caller here would append a path after. Reachable from
  *                        the environment, which the backend `Settings` field
- *                        accepts as a raw string without parsing it.
+ *                        accepts as a raw string without parsing it. See
+ *                        `parseUsablePublicUrl` for the full rule.
  *  - `loopback-default`  a loopback URL while this browser is somewhere else.
  *                        Almost always the shipped compose default
  *                        `${PUBLIC_APP_URL:-http://localhost:8080}` left alone.
@@ -35,16 +38,42 @@ export type PublicAppUrlState =
   | { kind: 'malformed'; value: string }
   | { kind: 'loopback-default'; value: string };
 
-function parseOrigin(url: string): URL | null {
+/**
+ * Is this a value a browser could actually be sent to?
+ *
+ * fix(#1548 review r8): ONE shape rule for `PUBLIC_APP_URL` — an absolute
+ * HTTP(S) URL, with a host, and no query or fragment. The backend states the
+ * same rule in `is_usable_public_origin` (backend/app/core/public_urls.py), and
+ * `__tests__/public-app-url-shape.cases.json` is the single case table both are
+ * tested against, because two independent validators for one setting is exactly
+ * the arrangement that let each side learn about a different invalid shape.
+ *
+ * Each clause earns its place:
+ *
+ *  - SCHEME, checked explicitly rather than inferred from a parse success:
+ *    `new URL('mailto:x')` and `new URL('javascript:alert(1)')` both parse
+ *    happily. On the backend the same values are worse than useless — its
+ *    normalizer prepends `https://` and turns `ftp://maps.example.com` into the
+ *    plausible non-loopback origin `https://ftp:`.
+ *  - HOST, because `https://?x` parses with an empty hostname.
+ *  - NO QUERY OR FRAGMENT, because every caller here APPENDS to this value:
+ *    `${base}/m/${token}` against `https://maps.example.com?tenant=a` puts the
+ *    path inside the query string, and against `...#section` puts it after the
+ *    fragment. Either way the copied link and the iframe src are unopenable.
+ *
+ * Returns the parsed URL so callers can compare origins without parsing twice.
+ */
+function parseUsablePublicUrl(url: string): URL | null {
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    // Scheme is checked explicitly rather than inferred from a parse success:
-    // `new URL('mailto:x')` and `new URL('javascript:alert(1)')` both parse.
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
-    return parsed;
+    parsed = new URL(url);
   } catch {
     return null;
   }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+  if (!parsed.hostname) return null;
+  if (parsed.search || parsed.hash) return null;
+  return parsed;
 }
 
 /**
@@ -73,16 +102,16 @@ export function resolvePublicAppUrl(
   const raw = tileConfig?.public_app_url?.trim().replace(/\/+$/, '');
   if (!raw) return { kind: 'unset' };
 
-  // Parse FIRST, and require the parse to succeed. A previous revision asked
-  // `isLoopbackOrigin()` and read its parse failure as "not loopback, therefore
-  // fine" — a narrower predicate standing in for trust, so `not-a-url` was
-  // handed out in card links and iframe sources. Trust is earned here, never
-  // inherited from another check's failure mode.
-  const parsed = parseOrigin(raw);
+  // Shape FIRST, and it must pass. A previous revision asked `isLoopbackOrigin()`
+  // and read its parse failure as "not loopback, therefore fine" — a narrower
+  // predicate standing in for trust, so `not-a-url` was handed out in card links
+  // and iframe sources. Trust is earned here, never inherited from another
+  // check's failure mode.
+  const parsed = parseUsablePublicUrl(raw);
   if (parsed === null) return { kind: 'malformed', value: raw };
 
   const currentIsLoopback = (() => {
-    const current = parseOrigin(currentOrigin);
+    const current = parseUsablePublicUrl(currentOrigin);
     return current !== null && LOOPBACK_HOSTS.has(current.hostname.toLowerCase());
   })();
 
@@ -150,8 +179,8 @@ export function getLockedPreviewBaseUrl(
 ): string | null {
   const baseUrl = getPublicAppBaseUrl(tileConfig, currentOrigin);
   if (baseUrl === null) return null;
-  const configured = parseOrigin(baseUrl);
-  const current = parseOrigin(currentOrigin);
+  const configured = parseUsablePublicUrl(baseUrl);
+  const current = parseUsablePublicUrl(currentOrigin);
   if (configured === null || current === null) return null;
   return configured.origin === current.origin ? baseUrl : null;
 }

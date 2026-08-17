@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.edition import is_enterprise
-from app.core.public_urls import get_public_app_url
+from app.core.public_urls import get_public_app_url, is_usable_public_origin
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.platform.cache.provider import get_cache
@@ -139,7 +139,7 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
     # depending on middleware ordering staying the way it is today.
     if is_multi_tenant():
         tenant_origin = getattr(request.state, "tenant_public_origin", None)
-        if tenant_origin:
+        if tenant_origin and is_usable_public_origin(tenant_origin):
             try:
                 origins.add(_normalize_origin(tenant_origin))
             except ValueError:
@@ -157,10 +157,19 @@ async def _resolve_self_origins(db: AsyncSession, request: Request) -> set[str]:
         logger.warning("embed_self_origin_lookup_failed", exc_info=True)
         return origins
 
-    try:
-        origins.add(_normalize_origin(app_url))
-    except ValueError:
-        pass
+    # fix(#1548 review r8): the shape gate runs BEFORE normalization, because
+    # normalization is what hides the problem. `_normalize_origin` prepends
+    # https:// to anything lacking an http(s) scheme, so an environment value of
+    # `ftp://maps.example.com` arrives here as the plausible-looking, non-loopback
+    # `https://ftp:` — and `assert_domain_lock_is_enforceable` then reads the
+    # deployment as configured and issues a lock no embed shell can satisfy.
+    # `is_usable_public_origin` is the single statement of that rule, mirrored by
+    # parseUsablePublicUrl in frontend/src/lib/public-urls.ts.
+    if is_usable_public_origin(app_url):
+        try:
+            origins.add(_normalize_origin(app_url))
+        except ValueError:
+            pass
 
     return origins
 
