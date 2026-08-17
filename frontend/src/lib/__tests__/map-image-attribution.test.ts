@@ -371,11 +371,15 @@ describe('readRenderedAttribution', () => {
       container.appendChild(inner);
       return { getContainer: () => container };
     };
-    // Markup with no text and no image: nothing was declared to lose.
-    expect(readRenderedAttribution(control('<div>  </div>'))).toEqual([]);
+    // No elements and no text: nothing was declared to lose.
+    expect(readRenderedAttribution(control('   '))).toEqual([]);
     // But a lone decorative image IS a declaration; see the source-level rule.
     expect(readRenderedAttribution(control('<img src="https://a.example/l.gif" alt="">'))).toEqual([
       '(image credit: a.example)',
+    ]);
+    // And so is markup that renders without naming itself (round 8).
+    expect(readRenderedAttribution(control('<svg><path d="M0 0h4v4H0z"/></svg>'))).toEqual([
+      '(image credit)',
     ]);
   });
 
@@ -417,8 +421,38 @@ describe('readRenderedAttribution', () => {
     expect(credits).toEqual(['© Named Provider', '(image credit: logo.example.com)']);
   });
 
-  it('drops a declaration that has neither text nor an image', () => {
-    expect(readRenderedAttribution(sourcesMap('<div>   </div>', '<span></span>'))).toEqual([]);
+  /* fix(#1541 codex P2 round 8): the unnameable-credit fallback recognised
+   * only <img>, so an unlabelled inline <svg> or a CSS-backed logo — both of
+   * which MapLibre renders visibly — derived no text, matched no image, and
+   * vanished without even reaching the marker. The test is now the question
+   * itself: did the declaration put something on screen we could not name? */
+
+  it('counts an unlabelled inline SVG credit rather than dropping it', () => {
+    const credits = readRenderedAttribution(
+      sourcesMap('© Named Provider', '<svg viewBox="0 0 24 24"><path d="M0 0h24v24H0z"/></svg>'),
+    );
+    expect(credits).toEqual(['© Named Provider', '(image credit)']);
+  });
+
+  it('counts a CSS-backed logo with no element we could name', () => {
+    expect(
+      readRenderedAttribution(sourcesMap('<div class="provider-logo"></div>')),
+    ).toEqual(['(image credit)']);
+  });
+
+  it('still names an image by its host when the declaration has one', () => {
+    // The image path keeps its better placeholder even when other elements
+    // are present, since a host is the only identifying text available.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<span><svg></svg><img src="https://tiles.acme.com/l.png"></span>'),
+      ),
+    ).toEqual(['(image credit: tiles.acme.com)']);
+  });
+
+  it('drops a declaration with no elements and no text', () => {
+    // The only genuinely empty case left: nothing was declared to lose.
+    expect(readRenderedAttribution(sourcesMap('   ', '\n\t'))).toEqual([]);
   });
 
   /* fix(#1541 codex P1): "no `used` gating — over-crediting is the safe
@@ -585,6 +619,58 @@ describe('readRenderedAttribution', () => {
       layeredMap({ a: '© Shown', b: '© Also Shown' }, [{ source: 'a' }, { source: 'b' }]),
     );
     expect(credits).toEqual(['© Shown', '© Also Shown']);
+  });
+
+  /* fix(#1541 codex P2 round 8): MapLibre's AttributionControl drops an entry
+   * another entry contains whole, so `© Acme` beside `© Acme — CC BY 4.0`
+   * showed once on screen and twice in the image. Asymmetric failure: source
+   * order could let the redundant fragment take the budget and leave the
+   * complete licensing statement as the thing elided. */
+
+  it('drops a credit another credit already contains whole', () => {
+    expect(
+      readRenderedAttribution(sourcesMap('© Acme', '© Acme — CC BY 4.0')),
+    ).toEqual(['© Acme — CC BY 4.0']);
+    // Order-independent: the fragment goes whichever side it is declared.
+    expect(
+      readRenderedAttribution(sourcesMap('© Acme — CC BY 4.0', '© Acme')),
+    ).toEqual(['© Acme — CC BY 4.0']);
+  });
+
+  it('keeps two credits that merely share a prefix', () => {
+    expect(
+      readRenderedAttribution(sourcesMap('© Acme Northern', '© Acme Southern')),
+    ).toEqual(['© Acme Northern', '© Acme Southern']);
+  });
+
+  it('never lets a hidden credit suppress a shown one', () => {
+    // The caveat that matters: suppression runs WITHIN a group. Across them it
+    // would delete the shown text and leave the superstring in the group the
+    // marker elides first — the crowding-out bug through a different door.
+    const credits = readRenderedAttribution(
+      layeredMap(
+        { hiddenLong: '© Acme — CC BY 4.0', shownShort: '© Acme' },
+        [
+          { source: 'hiddenLong', hidden: true },
+          { source: 'shownShort' },
+        ],
+      ),
+    );
+    expect(credits).toEqual(['© Acme', '© Acme — CC BY 4.0']);
+  });
+
+  it('does not collapse two identical credits into nothing', () => {
+    // Strictly-longer containment, so equal strings cannot suppress each
+    // other; the exact dedupe owns that case and keeps one.
+    expect(readRenderedAttribution(sourcesMap('© Same', '© Same'))).toEqual(['© Same']);
+  });
+
+  it('suppresses a chain of containments down to the fullest statement', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap('© Acme', '© Acme — CC BY', '© Acme — CC BY 4.0, all rights reserved'),
+      ),
+    ).toEqual(['© Acme — CC BY 4.0, all rights reserved']);
   });
 
   it('leaves a style with no layers in its declared order', () => {

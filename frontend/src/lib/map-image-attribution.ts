@@ -221,9 +221,22 @@ function normalizeCreditText(raw: string): string {
  * image with no alternative gets, which both renders it and makes it one of
  * the `credits.length` the overflow marker counts.
  *
- * A declaration that derives no text and contains no image is genuinely empty
- * (`'   '`, `<div></div>`) and still contributes nothing. Nothing was declared
- * to lose.
+ * fix(#1541 codex P2 round 8): that fallback then recognised only `<img>`, so
+ * an unlabelled inline `<svg>` or a CSS-backed logo — both of which MapLibre
+ * renders perfectly visibly — derived no text, matched no image, and vanished
+ * without even reaching the marker. Enumerating a third tag list would only
+ * move the boundary, so the question asked here is the one actually meant: DID
+ * THIS DECLARATION PUT SOMETHING ON SCREEN THAT WE COULD NOT NAME? Any element
+ * is the answer. Markup with no text is displaying something graphical — a
+ * logo, a glyph, a background — and no tag list is needed to know that.
+ *
+ * The conservatism is deliberate and one-directional. Neither a parsed fragment
+ * (no layout, no CSS) nor a headless read can prove an element paints pixels,
+ * so `<div></div>` is counted as a credit it probably is not. That costs a
+ * `(image credit)` line on a declaration no provider would author. The other
+ * direction costs a real provider its credit, silently. Only a declaration with
+ * no elements AND no text (`'   '`, `''`) contributes nothing: there is
+ * genuinely nothing there to lose.
  *
  * Note the layering: within a credit, alt="" still contributes nothing —
  * `© Provider <img alt="">` is "© Provider", not "© Provider (image credit)".
@@ -232,8 +245,12 @@ function normalizeCreditText(raw: string): string {
 function declaredCreditText(root: Element): string {
   const text = normalizeCreditText(collectCreditText(root));
   if (text) return text;
-  const image = root.querySelector?.('img, input[type="image"]');
-  return image ? unnamedImageCredit(image) : '';
+  const rendered = root.querySelector?.('*');
+  if (!rendered) return '';
+  // An image can at least be named by its host; anything else takes the bare
+  // placeholder. Both are counted, which is the point.
+  const image = root.querySelector?.('img[src], input[type="image"][src]');
+  return unnamedImageCredit(image ?? rendered);
 }
 
 /** Credit text for an editor-supplied HTML string, parsed inertly. */
@@ -358,6 +375,36 @@ interface AttributionStyle {
 }
 
 /**
+ * Drop each credit that another credit already contains whole.
+ *
+ * fix(#1541 codex P2 round 8): MapLibre's own AttributionControl does this —
+ * `sort((a, b) => a.length - b.length)`, then drop any entry a later one
+ * `includes` — so `© Acme` beside `© Acme — CC BY 4.0` shows once on screen and
+ * showed twice in the image. The failure is asymmetric, which is why it earns a
+ * fix: source order could let the redundant fragment take the line budget and
+ * leave the COMPLETE licensing statement as "+1 more credit".
+ *
+ * Only the suppression is mirrored, not the sort. MapLibre reorders by length;
+ * this list is ordered shown-first and by style order within that, which is
+ * load-bearing (see `readRenderedAttribution`).
+ *
+ * STRICTLY longer, and WITHIN ONE PRIORITY GROUP ONLY. Strictly longer so two
+ * equal strings cannot suppress each other into nothing — `dedupe` owns that
+ * case. Within one group because a hidden credit suppressing a shown one would
+ * reinstate the crowding-out bug through a different door: the shown text would
+ * leave the list, and the hidden superstring still carrying it could then be
+ * the entry the marker elides.
+ */
+function suppressContainedCredits(entries: string[]): string[] {
+  return entries.filter(
+    (entry, i) =>
+      !entries.some(
+        (other, j) => j !== i && other.length > entry.length && other.includes(entry),
+      ),
+  );
+}
+
+/**
  * Source ids that are rendering. AN APPROXIMATION OF MAPLIBRE'S `used` /
  * `usedForTerrain`, computed from public signals, and stated as one so the next
  * gap in it is a known limit rather than a bug report.
@@ -458,9 +505,13 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
       const decoded = decodeHtmlText(raw);
       if (decoded) (shown.has(id) ? fromShown : fromHidden).push(decoded);
     }
-    // Deduped ACROSS the two groups, so a credit carried by both a shown and a
-    // hidden source keeps the shown one's leading position.
-    const deduped = dedupe([...fromShown, ...fromHidden]);
+    // Contained credits are suppressed inside each group and never across
+    // them; the exact-duplicate dedupe then runs ACROSS both, so a credit
+    // carried by a shown and a hidden source keeps the shown one's position.
+    const deduped = dedupe([
+      ...suppressContainedCredits(fromShown),
+      ...suppressContainedCredits(fromHidden),
+    ]);
     if (deduped.length > 0) return deduped;
   }
 
