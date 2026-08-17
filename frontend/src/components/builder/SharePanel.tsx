@@ -14,9 +14,11 @@ import {
 } from '@/components/ui/select';
 import { ApiError } from '@/api/client';
 import { classifyApiError } from '@/lib/error-map';
+import { getPublicAppBaseUrl } from '@/lib/public-urls';
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/use-edition';
+import { useTileConfig } from '@/hooks/use-settings';
 import {
   Dialog,
   DialogContent,
@@ -935,6 +937,14 @@ export function ShareDialog({
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
 
+  // fix(#1548 review r3): every URL handed to someone else — the share link,
+  // its unfurlable /card twin, the iframe snippet, the preview standing in for
+  // that snippet — is built from the deployment's configured public origin, not
+  // from whatever hostname this admin is using. See lib/public-urls.ts. Null
+  // when unconfigured, which the UI surfaces rather than papering over.
+  const { data: tileConfig } = useTileConfig();
+  const publicAppBaseUrl = getPublicAppBaseUrl(tileConfig);
+
   // fix(#430 V-17): names of layers that would be silently hidden from this map's
   // audience — e.g. a private/unpublished dataset added to a public/shared
   // map. Empty for a private map (no audience beyond the owner/grantees).
@@ -1039,9 +1049,16 @@ export function ShareDialog({
     }
   }
 
+  /** fix(#1548 review r3): navigation only — this one feeds the "Open" button,
+   *  which opens the viewer in THIS admin's browser and hands the URL to nobody.
+   *  It prefers the configured origin so the admin sees what a viewer sees, but
+   *  keeps working from the current origin when there is none, because a local
+   *  affordance has no reason to go dead over a deployment setting. Everything
+   *  that is copied or embedded (getShareCardUrl, getEmbedCode, the preview) has
+   *  no such fallback. */
   function getShareUrl() {
     if (!rawShareToken) return '';
-    return `${window.location.origin}/m/${rawShareToken}`;
+    return `${publicAppBaseUrl ?? window.location.origin}/m/${rawShareToken}`;
   }
 
   /** SHARE-08 (Phase 1142): returns the crawler-unfurlable /card URL so the
@@ -1053,15 +1070,16 @@ export function ShareDialog({
    *  new tab" affordance (direct, redirect-free viewer load). The embed iframe
    *  src is unchanged (see generateEmbedCode). */
   function getShareCardUrl() {
-    if (!rawShareToken) return '';
-    return `${window.location.origin}/api/maps/shared/${rawShareToken}/card`;
+    if (!rawShareToken || !publicAppBaseUrl) return '';
+    return `${publicAppBaseUrl}/api/maps/shared/${rawShareToken}/card`;
   }
 
   function getEmbedCode() {
+    if (!publicAppBaseUrl) return '';
     return generateEmbedCode({
       shareToken: rawShareToken || '',
       embedTokenRaw: embedTokenRaw || '',
-      origin: window.location.origin,
+      origin: publicAppBaseUrl,
     });
   }
 
@@ -1069,7 +1087,13 @@ export function ShareDialog({
     // SHARE-08: copy the /card URL so the pasted link unfurls in social clients.
     // The label ("Copy Link") is unchanged — only the copied value changes.
     const url = getShareCardUrl();
-    if (!url) return;
+    if (!url) {
+      // fix(#1548 review r3): a copied link goes to someone else, so there is
+      // no correct value to put on the clipboard without a configured public
+      // origin. Say why instead of leaving the button silently dead.
+      if (!publicAppBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
+      return;
+    }
     try {
       await navigator.clipboard.writeText(url);
       toast.success(t('toasts.shareLinkCopied'));
@@ -1080,7 +1104,12 @@ export function ShareDialog({
 
   async function handleCopyEmbedCode() {
     const code = getEmbedCode();
-    if (!code) return;
+    if (!code) {
+      // fix(#1548 review r3): same posture as the share link — the snippet is
+      // pasted on someone else's site, so an unconfigured origin has no answer.
+      if (!publicAppBaseUrl) toast.error(t('share.publicAppUrlNotConfigured'));
+      return;
+    }
     try {
       await navigator.clipboard.writeText(code);
       toast.success(t('toasts.embedCodeCopied'));
@@ -1368,23 +1397,39 @@ export function ShareDialog({
                     <Code className="h-3.5 w-3.5 text-muted-foreground" />
                     <span className="text-sm font-semibold">{t('share.embedCode')}</span>
                   </div>
-                  <div className="relative">
-                    <Textarea
-                      readOnly
-                      value={getEmbedCode()}
-                      rows={3}
-                      className="bg-muted/30 text-xs font-mono resize-none"
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon-xs"
-                      className="absolute top-1.5 end-1.5"
-                      onClick={handleCopyEmbedCode}
-                      title={t('share.copyEmbedCode')}
+                  {/* fix(#1548 review r3): with no configured public origin
+                      there is no correct URL to put in a snippet a customer
+                      will paste on their own site, so say so instead of
+                      emitting one built from this admin's hostname. */}
+                  {!publicAppBaseUrl ? (
+                    <div
+                      role="status"
+                      className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 px-3 py-2"
                     >
-                      <Copy className="h-3 w-3" />
-                    </Button>
-                  </div>
+                      <AlertTriangle className="h-3.5 w-3.5 text-warning mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-muted-foreground">
+                        {t('share.publicAppUrlNotConfigured')}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <Textarea
+                        readOnly
+                        value={getEmbedCode()}
+                        rows={3}
+                        className="bg-muted/30 text-xs font-mono resize-none"
+                      />
+                      <Button
+                        variant="outline"
+                        size="icon-xs"
+                        className="absolute top-1.5 end-1.5"
+                        onClick={handleCopyEmbedCode}
+                        title={t('share.copyEmbedCode')}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  )}
                   {hasNonPublic && (
                     <div className="flex items-start gap-2 rounded-md border border-info/30 bg-info/5 px-3 py-2">
                       <Info className="h-3.5 w-3.5 text-info mt-0.5 flex-shrink-0" />
@@ -1467,11 +1512,11 @@ export function ShareDialog({
                     </div>
                   )}
                   {/* SHARE-03: embed preview pane — gated on embedTokenRaw to ensure et= param is available */}
-                  {embedTokenRaw && (
+                  {embedTokenRaw && publicAppBaseUrl && (
                     <EmbedPreviewPane
                       shareToken={rawShareToken}
                       embedTokenRaw={embedTokenRaw}
-                      origin={window.location.origin}
+                      origin={publicAppBaseUrl}
                     />
                   )}
                 </div>

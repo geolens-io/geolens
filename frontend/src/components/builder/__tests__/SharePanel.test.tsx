@@ -12,6 +12,7 @@ import {
   useUpdateEmbedToken,
 } from '@/components/builder/hooks/use-embed-tokens';
 import { useEdition } from '@/hooks/use-edition';
+import { useTileConfig } from '@/hooks/use-settings';
 import {
   useCreateShareToken,
   useMapShareToken,
@@ -39,6 +40,14 @@ vi.mock('@/hooks/use-maps', () => ({
   useUpdateShareToken: vi.fn(),
 }));
 
+// fix(#1548 review r3): SharePanel now reads the deployment's configured
+// public origin for every URL it hands out. Default the mock to the current
+// origin so tests written before that change emit byte-identical URLs; the
+// tests that care drive a DIFFERENT hostname, which is the whole point.
+vi.mock('@/hooks/use-settings', () => ({
+  useTileConfig: vi.fn(),
+}));
+
 vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
   useCreateEmbedToken: vi.fn(),
   useMapEmbedTokens: vi.fn(),
@@ -46,6 +55,7 @@ vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
   useRevokeEmbedToken: vi.fn(),
 }));
 
+const mockedUseTileConfig = vi.mocked(useTileConfig);
 const mockedUseEdition = vi.mocked(useEdition);
 const mockedCheckMapVisibility = vi.mocked(checkMapVisibility);
 const mockedUsePublishMap = vi.mocked(usePublishMap);
@@ -88,6 +98,7 @@ function setup({
   visibility = 'public',
   layers,
   publishMapFn = vi.fn().mockResolvedValue({}),
+  publicAppUrl = window.location.origin,
 }: {
   enterprise?: boolean;
   hasShareToken?: boolean;
@@ -106,6 +117,8 @@ function setup({
   layers?: ComponentProps<typeof ShareDialog>['layers'];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   publishMapFn?: (...args: any[]) => any;
+  /** The deployment's configured PUBLIC_APP_URL. null = unconfigured. */
+  publicAppUrl?: string | null;
 } = {}) {
   const createShareToken = vi.fn().mockResolvedValue({
     token: 'share-token',
@@ -120,6 +133,17 @@ function setup({
     expires_at: FUTURE_EMBED_EXPIRES_AT,
     is_active: true,
   });
+
+  mockedUseTileConfig.mockReturnValue({
+    data: {
+      cdn_base_url: null,
+      public_app_url: publicAppUrl,
+      public_api_url: publicAppUrl ? `${publicAppUrl}/api` : null,
+      public_base_url: null,
+      mvt_source_layer_prefix: 'data',
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
 
   mockedUseEdition.mockReturnValue({
     edition: enterprise ? 'enterprise' : 'community',
@@ -1209,5 +1233,118 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     });
     expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/*  #1548 review r3: shareable URLs come from PUBLIC_APP_URL           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A snippet is copied so a CUSTOMER can paste it on THEIR site, and a share
+ * link is pasted into Slack. Building either from `window.location.origin`
+ * means an operator who administers GeoLens over an internal hostname hands out
+ * a URL that will not resolve for anyone else — a bug that exists with or
+ * without domain locking.
+ *
+ * It also silently breaks a domain-locked embed: the shell's own API calls
+ * carry the shell's origin, and the backend recognizes only the CONFIGURED
+ * origin as first-party, so a snippet built from a different-but-real hostname
+ * loads and then returns no layers.
+ *
+ * `PUBLIC_APP_URL` here is deliberately NOT the current origin, so a builder
+ * that ignored it would fail every assertion below.
+ */
+describe('#1548 r3 shareable URLs use the configured public origin', () => {
+  const CONFIGURED = 'https://maps.example.com';
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('builds the embed snippet from PUBLIC_APP_URL, not the admin hostname', async () => {
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: CONFIGURED });
+    await generateShareLinkAndWait(user);
+
+    const textarea = (await screen.findByRole('textbox')) as HTMLTextAreaElement;
+    expect(textarea.value).toContain(`src="${CONFIGURED}/m/share-token`);
+    expect(textarea.value).not.toContain(window.location.origin);
+  });
+
+  it('points the preview iframe at the configured origin too', async () => {
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: CONFIGURED });
+    await generateShareLinkAndWait(user);
+    await user.click(screen.getByRole('button', { name: /preview/i }));
+
+    const iframe = (await screen.findByTestId(
+      'share-preview-iframe',
+    )) as HTMLIFrameElement;
+    expect(iframe.src).toContain(`${CONFIGURED}/m/share-token`);
+    expect(iframe.src).not.toContain(window.location.origin);
+  });
+
+  it('copies a share link on the configured origin', async () => {
+    // userEvent.setup() installs its own clipboard stub, so the spy has to be
+    // planted AFTER it — the existing SHARE-08 test does the same.
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    setup({ hasShareToken: false, publicAppUrl: CONFIGURED });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /copy link/i }));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(writeText.mock.calls[0][0]).toBe(
+      `${CONFIGURED}/api/maps/shared/share-token/card`,
+    );
+  });
+
+  it('refuses to emit a snippet at all when no public URL is configured', async () => {
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: null });
+    await generateShareLinkAndWait(user);
+
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
+    expect(screen.getByText(/PUBLIC_APP_URL/)).toBeInTheDocument();
+  });
+
+  it('says why instead of silently copying nothing', async () => {
+    // userEvent.setup() installs its own clipboard stub, so the spy has to be
+    // planted AFTER it — the existing SHARE-08 test does the same.
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText },
+      writable: true,
+      configurable: true,
+    });
+    setup({ hasShareToken: false, publicAppUrl: null });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /copy link/i }));
+    await waitFor(() => expect(vi.mocked(toast.error)).toHaveBeenCalled());
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it('keeps the local Open affordance working without a configured URL', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
+    const user = userEvent.setup();
+    setup({ hasShareToken: false, hasNonPublic: true, publicAppUrl: null });
+    await generateShareLinkAndWait(user);
+
+    await user.click(screen.getByRole('button', { name: /^open$/i }));
+    // Navigation in THIS admin's browser, handed to nobody — it has no reason
+    // to go dead over a deployment setting.
+    expect(openSpy).toHaveBeenCalledWith(
+      `${window.location.origin}/m/share-token`,
+      '_blank',
+    );
+    openSpy.mockRestore();
   });
 });

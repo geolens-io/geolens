@@ -643,6 +643,7 @@
     "open": "Ouvrir",
     "copyShareLink": "Copier le lien de partage",
     "copyEmbedCode": "Copier le code d'intégration",
+    "publicAppUrlNotConfigured": "Ce déploiement n'a pas d'URL publique configurée, donc GeoLens ne peut pas créer de lien qui fonctionnera sur le site d'une autre personne. Demandez à un administrateur de définir PUBLIC_APP_URL avec l'adresse utilisée pour accéder à GeoLens.",
     "cannotPublish": "Impossible de publier : les jeux de données {{datasets}} ne sont pas publics",
     "embedTokenInfo": "Des couches non publiques sont incluses. Un jeton d'intégration gère l'accès automatiquement.",
     "unsavedWarning": "Les modifications non enregistrées sont uniquement dans l'aperçu du constructeur. Enregistrez avant de copier des liens ou des intégrations.",

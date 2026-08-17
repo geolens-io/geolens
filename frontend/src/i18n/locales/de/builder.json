@@ -643,6 +643,7 @@
     "open": "Öffnen",
     "copyShareLink": "Freigabelink kopieren",
     "copyEmbedCode": "Einbettungscode kopieren",
+    "publicAppUrlNotConfigured": "Für diese Installation ist keine öffentliche URL konfiguriert, daher kann GeoLens keinen Link erzeugen, der auf der Website einer anderen Person funktioniert. Bitte eine Administratorin oder einen Administrator, PUBLIC_APP_URL auf die Adresse zu setzen, über die GeoLens erreicht wird.",
     "cannotPublish": "Veröffentlichung nicht möglich: Datensätze {{datasets}} sind nicht öffentlich",
     "embedTokenInfo": "Nicht-öffentliche Layer sind enthalten. Ein Einbettungs-Token regelt den Zugriff automatisch.",
     "unsavedWarning": "Ungespeicherte Änderungen sind nur in der Builder-Vorschau sichtbar. Speichere, bevor du Links oder Einbettungen kopierst.",
