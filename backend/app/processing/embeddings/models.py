@@ -77,33 +77,78 @@ class RecordEmbedding(Base):
         either a catalog-wide re-embed nobody asked to pay for or a search that
         returns nothing until one finishes.
 
-        fix(#1580 review r2): ``config_fingerprint`` may be None, and then the
-        answer is the model name ALONE — an unstamped row is comparable to every
-        space of its model, so an unstamped ANCHOR must be comparable to every
-        space of its model too.
+        This is the predicate for a reader comparing a FRESH vector against
+        stored rows: semantic search, the backfill's coverage question, the
+        admin panel. It always receives a resolved configuration, never None.
 
-        That symmetry is the whole point, and losing it is a real defect rather
-        than a rounding error. Comparability of two stored rows is a property of
-        the PAIR: whether A and B may be compared cannot depend on which one you
-        started from. The stamped branch already lets a stamped anchor see NULL
-        rows; rendering the None branch as ``IS NULL`` (SQLAlchemy's reading of
-        ``== None``) meant a NULL anchor could not see stamped ones, and the two
-        halves disagreed about the same pair.
+        A reader comparing two STORED rows uses ``usable_by_stored_anchor``
+        below. The two expressions agree today; they are separate because the
+        questions are, and because fix(#1580 review r2) had to argue out what a
+        NULL row means from the anchor side. That argument belongs next to the
+        reader it governs, not folded into this one.
+        """
+        return and_(
+            cls.model_name == model_name,
+            or_(
+                cls.config_fingerprint.is_(None),
+                cls.config_fingerprint == config_fingerprint,
+            ),
+        )
 
-        The catalog that produces it is the ordinary one. Day zero after
-        migration 0052 every row is NULL. Any edit re-embeds and stamps ONE
-        record. From that moment the stamped record vanishes from every legacy
-        record's related list while still listing them itself, and it never
-        heals — Generate Missing treats a NULL row as covered, so nothing goes
-        back to stamp the rest. Every legacy list shrinks toward the records
-        nobody has touched, for as long as the instance runs.
+    @classmethod
+    def usable_by_stored_anchor(
+        cls, model_name: str, config_fingerprint: str | None
+    ) -> ColumnElement[bool]:
+        """Match rows comparable against ANOTHER STORED row's configuration.
 
-        The other symmetric rule — a stamped anchor matching its exact
-        fingerprint and nothing else — was considered and rejected. It empties a
-        freshly edited record's related list the day after an upgrade, and it
-        contradicts what #1546 already decided a NULL row MEANS: comparable to
-        any live space of its model. Search and related items have to agree
-        about that, and this is the reading that keeps them agreeing.
+        fix(#1580 review r2). Related items compares two stored rows, so the
+        pair — not the live configuration — decides comparability, and the
+        anchor's fingerprint may itself be NULL. That raises a question search
+        never has to answer: what may a NULL side be compared against?
+
+        **The rule: an unstamped side is comparable to every space of its
+        model, whichever side it is on.** A NULL anchor matches every row of its
+        model; a stamped anchor matches its own fingerprint OR NULL.
+
+        The alternative was strict — a stamped anchor matching its exact
+        fingerprint and nothing else — and the argument for it is real: a
+        stamped anchor is evidence the catalog is past upgrade morning, a NULL
+        candidate's space is unknown, and after an endpoint change plus a
+        partial re-embed the rows still carrying NULL are probably the old
+        space, so lenient produces some meaningless pairs.
+
+        Lenient won on three counts.
+
+        A stamped anchor is evidence the catalog is past upgrade morning; it is
+        NOT evidence the configuration changed. On the common path — every
+        deployment upgrading with the same model and endpoint — every NULL row
+        IS the same space as every stamped one, and strict makes both partitions
+        sparse for nothing: legacy records see only legacy, stamped see only
+        stamped.
+
+        Neither partition heals. Generate Missing treats a NULL row as covered,
+        so nothing goes back to stamp the rest, and the split persists for as
+        long as the instance runs rather than until the next backfill.
+
+        And search and related items have to agree about what a NULL row means.
+        #1546 already decided: comparable to any live space of its model. Strict
+        would have search return B for A while related items omitted it, on the
+        same two rows.
+
+        The rare path keeps its cost — some meaningless pairs after an endpoint
+        change — which is the acceptance #1546 already made for search, with
+        Regenerate All as the remedy.
+
+        SYMMETRY is the part that is not a judgement call. Comparability is a
+        property of the PAIR: whether A and B may be compared cannot depend on
+        which one you start from. Before this, ``usable_by_config(m, F)`` let a
+        stamped anchor see NULL rows while ``usable_by_config(m, None)``
+        rendered both arms as ``IS NULL`` (SQLAlchemy's reading of ``== None``)
+        so the NULL side could not see back — and the ordinary catalog produces
+        it, because one edit after an upgrade stamps ONE record and that record
+        then vanishes from every legacy record's list while still listing them.
+        Both candidate rules are symmetric; only the shipped one is also
+        consistent with what #1546 decided a NULL row means.
         """
         if config_fingerprint is None:
             return cls.model_name == model_name

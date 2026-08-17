@@ -394,7 +394,7 @@ async def get_anchor_embedding_row(
     The identity comes back with the vector for the same reason the caller
     cannot re-derive it: a list of floats does not say which model or endpoint
     produced it. Everything downstream filters with
-    ``RecordEmbedding.usable_by_config(model_name, config_fingerprint)``, so the
+    ``RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)``, so the
     comparison stays inside the anchor's own space.
 
     WHICH row, when a record has several: the most recently written one, ties
@@ -444,7 +444,9 @@ async def get_nearest_record_ids(
     has no embedding or no neighbors are within the distance threshold.
 
     fix(#1580): the neighbours are restricted to the anchor row's own vector
-    space, through the same ``usable_by_config`` every other reader applies.
+    space, through ``usable_by_stored_anchor`` — the stored-vs-stored reading of
+    the same rule, which is where fix(#1580 review r2) argues out what a NULL
+    side may be compared against and why the answer is the lenient one.
     Both sides of this comparison are STORED rows, so the rule is "same model
     and same stamp as the ANCHOR", not "same as the live configuration" —
     a record embedded under a superseded configuration should still find its own
@@ -484,7 +486,7 @@ async def get_nearest_record_ids(
         select(RecordEmbedding.record_id)
         .join(RecordEmbedding.record)
         .where(RecordEmbedding.record_id != record_id)
-        .where(RecordEmbedding.usable_by_config(model_name, config_fingerprint))
+        .where(RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint))
         .where(RecordEmbedding.embedding.cosine_distance(embedding) <= max_distance)
         .order_by(RecordEmbedding.embedding.cosine_distance(embedding))
         .limit(limit)

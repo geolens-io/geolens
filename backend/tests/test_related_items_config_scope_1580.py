@@ -637,6 +637,56 @@ async def test_the_port_hands_the_anchors_identity_to_its_caller(
     ), "the port and the ranking helper must resolve the same anchor row"
 
 
+def test_both_stored_readers_use_the_stored_anchor_predicate():
+    """The selection and the scoring must apply the same rule.
+
+    They are two independent readers of one question, and fix(#1580) already had
+    to fix this exact pair once — scoping the selection left the scoring
+    reporting distances measured off a foreign model's row. A rule that lives in
+    two call sites can drift in the source even when no test data can tell them
+    apart.
+
+    Which is the situation here: `uq_record_embedding_model` is
+    `(record_id, model_name)`, so one record cannot hold both a stamped and an
+    unstamped row of the same model, and a neighbour whose only row would be
+    filtered is already removed by the selection. There is no catalog that
+    exercises the scoring query's NULL arm on its own, so the coupling is
+    asserted directly instead.
+
+    Comments are stripped and the CALL form is matched, not the bare name. The
+    first version of this scanned raw source and failed on the explanatory
+    comment beside the call it was checking — a predicate that cannot tell a
+    mention from a use answers a question nobody asked.
+    """
+    import inspect
+
+    from app.platform.extensions import defaults_catalog_port
+    from app.processing.embeddings import helpers
+
+    def _code(fn) -> str:
+        return "\n".join(
+            line
+            for line in inspect.getsource(fn).splitlines()
+            if not line.strip().startswith("#")
+        )
+
+    readers = {
+        "selection": _code(helpers.get_nearest_record_ids),
+        "scoring": _code(
+            defaults_catalog_port.DefaultCatalogPort.get_embedding_distances
+        ),
+    }
+
+    for name, source in readers.items():
+        assert "usable_by_stored_anchor(" in source, (
+            f"the {name} query does not call the stored-vs-stored predicate"
+        )
+        assert "usable_by_config(" not in source, (
+            f"the {name} query calls search's predicate. The two agree today, "
+            f"which is exactly why a divergence here would be silent."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Review r2: one read, not two
 # ---------------------------------------------------------------------------

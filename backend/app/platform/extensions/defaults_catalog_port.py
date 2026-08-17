@@ -418,7 +418,7 @@ class DefaultCatalogPort:
                 # rows are all there is) and wrong here — a stamped anchor is
                 # evidence of a partly regenerated catalog, and the rows still
                 # carrying NULL are most likely the old space.
-                RecordEmbedding.usable_by_config(model_name, config_fingerprint)
+                RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)
             )
         )
         return {row.record_id: row.distance for row in result.all()}
