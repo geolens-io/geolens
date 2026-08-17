@@ -4,7 +4,6 @@ import os
 import re
 import shutil
 import uuid
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
@@ -21,11 +20,14 @@ from app.core.dependencies import get_db
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.platform.extensions import get_permission_extension, get_processing_port
+from app.platform.storage import get_storage
+from app.processing.export import artifact_cache, artifact_response
 from app.processing.export.ogr import ExportError, bbox_where_sql
 from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import (
     export_dataset,
     export_descriptor,
+    file_response_content_disposition,
     validate_where_clause,
 )
 from app.processing.export.where_validator import canonical_where
@@ -63,6 +65,50 @@ def _cleanup_export(path: str) -> None:
     """Remove the temporary export directory after response is sent."""
     if os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
+
+
+async def _emit_export_audit(
+    db: AsyncSession,
+    request: Request,
+    *,
+    user: Identity | None,
+    dataset_id: uuid.UUID,
+    format: ExportFormat,
+    target_crs: str | None,
+    bbox: str | None,
+    where: str | None,
+) -> None:
+    """Record one export download. user_id may be None for anonymous (EXP-01).
+
+    fix(#1532): one function because there are two paths that transfer bytes
+    now — the conversion path and the cache-hit path — and they must write the
+    same row. A cached read is still a download; only HEAD, which transfers
+    nothing, stays out of the log.
+
+    ``details.range`` distinguishes a tile-sized read from a full download when
+    the log is read back. A range-probing client emits a row per read, which is
+    a deliberate volume cost taken because the alternative is an audit blind
+    spot: a caller could otherwise pull a whole export in ranges and appear
+    once.
+    """
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id if user is not None else None,
+            action="dataset.export",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "format": format,
+                "target_crs": target_crs,
+                "bbox": bbox,
+                "where": where,
+                "range": request.headers.get("range"),
+            },
+            ip_address=request.client.host if request.client else None,
+        ),
+    )
+    await db.commit()
 
 
 async def _count_selected_features(
@@ -141,27 +187,6 @@ async def _count_selected_features(
     return result.scalar_one()
 
 
-def _file_response_content_disposition(filename: str) -> str:
-    """Restate starlette ``FileResponse``'s Content-Disposition rule.
-
-    The GET half of this route hands ``filename=`` to ``FileResponse``, which
-    derives the header itself (``starlette/responses.py``, ``FileResponse
-    .__init__``): a quoted ``filename=`` for names that survive percent-
-    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
-    file to hand it, so the rule is restated here.
-
-    Not ``safe_content_disposition()`` from ``export/service.py``: that one
-    always appends ``filename*``, so HEAD would advertise a different header
-    than the GET delivers. ``test_head_export_content_disposition_matches_get``
-    pins the two byte-for-byte, over both branches, so a starlette change
-    fails a test instead of shipping the mismatch.
-    """
-    quoted = quote(filename)
-    if quoted != filename:
-        return f"attachment; filename*=utf-8''{quoted}"
-    return f'attachment; filename="{filename}"'
-
-
 def _head_export_response(dataset_title: str, format_key: str) -> Response:
     """fix(#1513): the HEAD half of the export route.
 
@@ -219,7 +244,7 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         status_code=status.HTTP_200_OK,
         media_type=media_type,
         headers={
-            "content-disposition": _file_response_content_disposition(filename),
+            "content-disposition": file_response_content_disposition(filename),
             # The GET this describes is a FileResponse, which serves 206 byte
             # ranges, and this is also what lets a size-less HEAD work: vsicurl
             # learns the length from the first range response. It promises
@@ -477,12 +502,63 @@ async def export_dataset_endpoint(
                 detail=str(e),
             )
 
-    # 6d. HEAD stops here — after every gate that decides the status, before
+    # 6d. fix(#1532): the cached artifact this selection would be served from,
+    # if there is a usable one. Resolved before the HEAD return because HEAD is
+    # the request that most wants it — a length is what GDAL is probing for —
+    # and before the conversion because a hit is the whole point.
+    #
+    # `served_from_cache` is carried into the response as the answer to "did
+    # this artifact exist before this request", which is what decides whether a
+    # Range may be honoured. See artifact_response.read_response.
+    selection = artifact_cache.selection_key(
+        dataset_id=dataset_id,
+        table_name=dataset.table_name,
+        dataset_title=dataset.record.title,
+        tile_cache_version=dataset.tile_cache_version,
+        format_key=str(format),
+        target_crs=target_crs,
+        bbox=bbox,
+        where=where,
+    )
+    artifact = await artifact_cache.lookup(dataset_id, selection)
+
+    # 6e. HEAD stops here — after every gate that decides the status, before
     # the conversion that decides the bytes. No audit event either: nothing was
     # exported, and a `dataset.export` row for a probe would misreport who
     # downloaded what.
+    #
+    # fix(#1532): with an artifact in hand, HEAD answers a real Content-Length
+    # and the artifact's ETag. Without one it answers as before, length omitted
+    # under RFC 9110 section 9.3.2 — deliberately, because BUILDING an export to
+    # learn its length is the denial-of-service foot-gun this branch exists to
+    # avoid, and a size-less HEAD is a case GDAL already handles (it retries
+    # with a limited range GET). So a first open costs one conversion on the
+    # range GET, and every open after that gets its length for free.
     if request.method == "HEAD":
+        if artifact is not None:
+            return artifact_response.head_response(artifact)
         return _head_export_response(dataset.record.title, format)
+
+    if artifact is not None:
+        # A cache hit still audits: bytes are being transferred, and the audit
+        # row is what makes a range read distinguishable from a full download
+        # when the log is read back.
+        await _emit_export_audit(
+            db,
+            request,
+            user=user,
+            dataset_id=dataset_id,
+            format=format,
+            target_crs=target_crs,
+            bbox=bbox,
+            where=where,
+        )
+        return artifact_response.read_response(
+            get_storage(),
+            artifact,
+            range_header=request.headers.get("range"),
+            may_serve_range=True,
+        )
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.
@@ -539,26 +615,54 @@ async def export_dataset_endpoint(
     # in between used to strand the directory on the staging volume.
     temp_dir = os.path.dirname(file_path)
     try:
-        await audit_emit(
+        await _emit_export_audit(
             db,
-            AuditEvent(
-                user_id=user.id if user is not None else None,
-                action="dataset.export",
-                resource_type="dataset",
-                resource_id=dataset_id,
-                details={
-                    "format": format,
-                    "target_crs": target_crs,
-                    "bbox": bbox,
-                    "where": where,
-                },
-                ip_address=request.client.host if request.client else None,
-            ),
+            request,
+            user=user,
+            dataset_id=dataset_id,
+            format=format,
+            target_crs=target_crs,
+            bbox=bbox,
+            where=where,
         )
-        await db.commit()
     except BaseException:
         _cleanup_export(temp_dir)
         raise
+
+    # 8b. fix(#1532): publish what was just built, so the next request — which
+    # for a range-probing client is moments away — is a slice of THIS object
+    # rather than a fresh conversion. Storing before the response is what makes
+    # the artifact available to the next probe; storing after would leave the
+    # burst of ranges that follows a HEAD racing the write that serves them.
+    #
+    # A store failure is not a download failure: the file is in hand and the
+    # FileResponse below still works, which is why `store` returns None instead
+    # of raising.
+    stored = await artifact_cache.store(
+        dataset_id,
+        selection,
+        file_path=file_path,
+        filename=filename,
+        media_type=media_type,
+    )
+    if stored is not None:
+        # may_serve_range=False: this request BUILT the artifact, so it cannot
+        # know which representation the client's offsets were measured against.
+        # Ignoring the Range and answering with the whole thing is the safe half
+        # of RFC 9110 section 14.2 and is what keeps a rebuild from splicing.
+        #
+        # The cleanup rides the response, exactly as fix(#435) arranged it for
+        # the FileResponse below. Deleting eagerly here — the bytes are in
+        # storage, so it looked safe — is what an earlier revision did, and
+        # test_export_antimeridian caught it: a caller whose temp directory is
+        # not per-export loses more than the export.
+        return artifact_response.read_response(
+            get_storage(),
+            stored,
+            range_header=request.headers.get("range"),
+            may_serve_range=False,
+            background=BackgroundTask(_cleanup_export, temp_dir),
+        )
 
     # 9. Return file with background cleanup
     # fix(#1435 codex round 2): touch the file's mtime right before handing it

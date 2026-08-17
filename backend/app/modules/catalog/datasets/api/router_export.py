@@ -1,6 +1,5 @@
 """Dataset export endpoints: DCAT JSON-LD catalog and COG download."""
 
-import re
 import uuid
 
 import jwt
@@ -62,6 +61,7 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.core.public_urls import get_public_urls
 from app.platform.extensions import get_catalog_port
+from app.platform.http.ranges import RANGE_UNSATISFIABLE, parse_byte_range
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import (
@@ -720,110 +720,13 @@ async def get_geodcat_ap_record(
 # used to live here belongs to the provider now, along with the loop that used
 # it; see the note where `_iter_storage_range` was.
 
-# One anchored pattern, deliberately strict about what it accepts:
-#   bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX
-# `[0-9]` rather than `\d` because Python's `\d` is unicode-aware, and
-# int("٣") succeeds while int("²") raises — a header parser should not have
-# opinions about Arabic-Indic digits. Anything this does not match (a second
-# range, an unknown unit, a reversed pair) is IGNORED per RFC 9110 section
-# 14.2, which is the safe direction: the client gets the whole representation
-# it can already handle, never a partial one mislabelled as something else.
-#
-# fix(#1540 review P2): the unit match is case-INSENSITIVE. A range unit is a
-# token (RFC 9110 section 14.1), and tokens compare case-insensitively unless
-# the grammar says otherwise, so `Bytes=0-16383` is a conforming request. Being
-# strict about it did not reject that request — "ignore the Range" sent the
-# whole COG with a 200, turning a 16 KiB tile read into a multi-gigabyte
-# transfer. Strictness that fails toward MORE bytes is not strictness.
-#
-# Only the unit. The digits stay `[0-9]`, and the entity-tag comparisons in
-# `_range_bound_to_this_version` and `_if_none_match_matches` stay
-# case-SENSITIVE, because an entity-tag is opaque and section 8.8.3.2 compares
-# it octet by octet — and the weak prefix is `%s"W/"`, spelled with a
-# case-sensitive string literal in the grammar itself.
-_BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$", re.IGNORECASE)
-
-# The Range named no byte of the representation (first-byte-pos at or past the
-# end, or a zero-length suffix). RFC 9110 section 15.5.17 wants a 416 carrying
-# the real size, NOT a 200 with the whole object: a client that asked for one
-# tile and silently received the entire COG splices it at the wrong offset.
-_RANGE_UNSATISFIABLE = "unsatisfiable"
-
-# fix(#1540 review P2): every numeric field is saturated at this many digits
-# before it reaches int(). CPython refuses to convert an integer literal longer
-# than sys.get_int_max_str_digits() (4300 by default) and raises ValueError, so
-# an unbounded `int(group)` turns `Range: bytes=<4301 digits>-` — which fits
-# comfortably inside the 8 KiB per-header budget nginx and uvicorn both allow —
-# into a 500 on a header RFC 9110 lets a server ignore.
-#
-# Saturating rather than rejecting because the RFC answer to each of these is
-# already defined and none of them is "serve the whole object": a first-byte-pos
-# past the end is a 416 carrying the real size (section 15.5.17), and a
-# last-byte-pos or suffix past the end clamps to the object (section 14.1.1).
-# Dropping an over-long value on the floor and replying 200 would hand a client
-# that asked for one tile the entire COG — the corrupt-splice failure
-# `_RANGE_UNSATISFIABLE` exists to prevent.
-#
-# 19 digits because 2**63-1 has 19 and no object is that large; every value
-# above it compares against `size` identically.
-_MAX_RANGE_DIGITS = 19
-
-
-def _range_int(digits: str, size: int) -> int:
-    """``int(digits)``, saturated above any size a stored object can have.
-
-    Leading zeros are stripped before the length test so that a padded literal
-    is measured by its value and not by its typing: ``bytes=-0000...0`` is a
-    zero-length suffix and must reach the 416 branch, not be mistaken for an
-    astronomically large one.
-    """
-    trimmed = digits.lstrip("0") or "0"
-    if len(trimmed) > _MAX_RANGE_DIGITS:
-        return size + 1
-    return int(trimmed)
-
-
-def _parse_cog_range(raw: str | None, size: int) -> tuple[int, int] | str | None:
-    """Resolve a Range header to an inclusive ``(start, end)`` byte pair.
-
-    Returns ``None`` when there is no usable range and the caller should serve
-    the complete representation, ``_RANGE_UNSATISFIABLE`` when it must answer
-    416, and otherwise the resolved pair — already clamped to the object, so
-    callers never have to re-check the bounds.
-
-    Multi-range requests return ``None``. RFC 9110 section 14.2 lets a server
-    answer a multi-range request with a single range or with the whole
-    representation; ``multipart/byteranges`` is not implemented here, and
-    answering the FIRST range while echoing only its Content-Range would be
-    the corrupt-download failure — a client expecting two parts writes one of
-    them over both offsets.
-    """
-    if not raw:
-        return None
-    match = _BYTE_RANGE_RE.match(raw.strip())
-    if match is None:
-        return None
-    first, last, suffix = match.groups()
-
-    if suffix is not None:
-        # bytes=-N: the final N bytes. A zero-length suffix names nothing.
-        wanted = _range_int(suffix, size)
-        if wanted == 0 or size == 0:
-            return _RANGE_UNSATISFIABLE
-        return (max(0, size - wanted), size - 1)
-
-    start = _range_int(first, size)
-    if size == 0 or start >= size:
-        return _RANGE_UNSATISFIABLE
-    if last == "":
-        # bytes=N-: from N to the end.
-        return (start, size - 1)
-    end = _range_int(last, size)
-    if end < start:
-        return None  # reversed pair: invalid, so ignore rather than reject
-    # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
-    # not know the size ask for more than exists on purpose.
-    return (start, min(end, size - 1))
+# fix(#1532): the byte-range parser moved to `app/platform/http/ranges.py`.
+# The export download at `processing/export/router.py` had to serve ranges off a
+# stored artifact too, and `processing/` may not import `modules/catalog/`, so
+# the choice was one parser in a shared home or two that agree until one is
+# fixed. Everything the seven review rounds settled — the case-insensitive unit,
+# the saturating digit guard, ignore-versus-416 — travelled with it, comments
+# included.
 
 
 # fix(#1540 review P1): `_iter_storage_range` used to live here, looping
@@ -1627,7 +1530,7 @@ async def _local_cog_response(
     if request.method == "HEAD":
         return _cog_head_response(total_bytes, filename, etag)
 
-    byte_range = _parse_cog_range(request.headers.get("range"), total_bytes)
+    byte_range = parse_byte_range(request.headers.get("range"), total_bytes)
 
     if byte_range is not None and not _range_bound_to_this_version(
         request.headers.get("if-range"), etag
@@ -1645,7 +1548,7 @@ async def _local_cog_response(
         # would be answering a question that is no longer being asked.
         byte_range = None
 
-    if byte_range == _RANGE_UNSATISFIABLE:
+    if byte_range == RANGE_UNSATISFIABLE:
         raise HTTPException(
             status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
             detail="Requested range not satisfiable",

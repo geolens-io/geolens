@@ -32,6 +32,27 @@ def safe_content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
 
 
+def file_response_content_disposition(filename: str) -> str:
+    """Restate starlette ``FileResponse``'s Content-Disposition rule.
+
+    The GET half of this route hands ``filename=`` to ``FileResponse``, which
+    derives the header itself (``starlette/responses.py``, ``FileResponse
+    .__init__``): a quoted ``filename=`` for names that survive percent-
+    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
+    file to hand it, so the rule is restated here.
+
+    Not ``safe_content_disposition()`` from ``export/service.py``: that one
+    always appends ``filename*``, so HEAD would advertise a different header
+    than the GET delivers. ``test_head_export_content_disposition_matches_get``
+    pins the two byte-for-byte, over both branches, so a starlette change
+    fails a test instead of shipping the mismatch.
+    """
+    quoted = quote(filename)
+    if quoted != filename:
+        return f"attachment; filename*=utf-8''{quoted}"
+    return f'attachment; filename="{filename}"'
+
+
 # SQL keywords to ignore during where-clause column validation
 _SQL_KEYWORDS = frozenset(
     {

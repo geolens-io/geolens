@@ -3551,7 +3551,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # licensed here at all (this path serves GET and HEAD, and the section
     # gives `*` a different answer for anything that would create a
     # representation). Cap 1656 -> 1686, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1686,
+    # fix(#1532): -97, the first time this cap has come DOWN. The byte-range
+    # parser moved to app/platform/http/ranges.py because the export download
+    # needs the same one and lives under processing/, which may not import
+    # modules/catalog/. Nothing about the parsing changed; it is the same file's
+    # worth of reasoning, now in a place both callers can reach.
+    # Cap 1686 -> 1589, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1589,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
