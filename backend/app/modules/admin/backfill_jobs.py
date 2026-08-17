@@ -22,6 +22,7 @@ through ``task_app.import_paths`` in ``processing/ingest/tasks_common.py``.
 
 import asyncio
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -209,47 +210,55 @@ async def _emit_outcome_audit(
         )
 
 
-async def _fail_cancelled_backfill(
-    job_uuid: uuid.UUID,
-    attempt_uuid: uuid.UUID,
-    *,
-    metadata: dict[str, Any] | None,
-    audit_context: dict[str, Any],
-) -> None:
-    """Settle a run that a worker shutdown cancelled, on a fresh session.
+@dataclass
+class _TerminalState:
+    """What this run decided, and how much of that decision has been recorded.
 
-    fix(#1550 review P2): ``asyncio.CancelledError`` inherits from
-    ``BaseException``, so a deploy cancelling this multi-minute task walked
-    straight past ``except Exception``. The row stayed ``running``, which now
-    means it holds the single active-backfill slot until the 60-minute stale
-    sweep — the concurrency guard turning into a denial of service on itself
-    after an ordinary deploy — and the audit trail stayed at ``requested`` even
-    if a force run had already deleted every vector.
-
-    A fresh session because the caller's may be mid-statement when the
-    cancellation lands. Mirrors ``_fail_cancelled_job`` in the analysis worker.
+    fix(#1550 review P2, round 3): this PR fixed the "job row and audit trail
+    must agree" class four times — the dispatch failure, the lost fence, the
+    cancellation — and each fix revealed one more exit that did not go through
+    it. The exits are not the problem; a handler per exception type is. Every
+    way this task can end now funnels through :func:`_settle`, and this record
+    is what makes that safe: it knows whether the terminal row write has already
+    landed, so the recovery path never overwrites a committed outcome and never
+    skips one that is still missing.
     """
-    from app.core.db import async_session
 
-    async with async_session() as session:
-        applied = await _finalize(
-            session,
-            job_uuid,
-            attempt_uuid,
-            status="failed",
-            metadata=metadata,
-            error_message=(
-                "Embedding backfill was cancelled by a worker shutdown. If this "
-                "was a regenerate, existing vectors may already have been "
-                "deleted — re-run to restore coverage."
-            ),
-        )
-    await _emit_terminal_audit(
-        **audit_context,
-        applied=applied,
-        outcome="failed",
-        extra={"error_code": "worker_cancelled"},
-    )
+    status: str | None = None  # job row status: "complete" | "failed"
+    outcome: str | None = None  # audit outcome: "completed" | "failed"
+    error_code: str | None = None
+    error_message: str | None = None
+    result: dict[str, int] | None = None
+    # "We ran the fenced UPDATE and got an answer" — NOT "the answer was yes".
+    # A lost fence is a settled question; a raised exception is not, and only
+    # the second one may be retried.
+    row_attempted: bool = False
+    row_applied: bool = False
+    audited: bool = False
+
+    def decide_complete(self, result: dict[str, int]) -> None:
+        self.status = "complete"
+        self.outcome = "completed"
+        self.result = result
+
+    def decide_failed(
+        self,
+        *,
+        error_code: str,
+        message: str,
+        result: dict[str, int] | None = None,
+    ) -> None:
+        self.status = "failed"
+        self.outcome = "failed"
+        self.error_code = error_code
+        self.error_message = message
+        self.result = result
+
+    def audit_extra(self) -> dict[str, Any]:
+        extra: dict[str, Any] = dict(self.result or {})
+        if self.error_code is not None:
+            extra["error_code"] = self.error_code
+        return extra
 
 
 async def _emit_terminal_audit(
@@ -278,6 +287,83 @@ async def _emit_terminal_audit(
         },
         **context,
     )
+
+
+async def _settle(
+    session: AsyncSession,
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    metadata: dict[str, Any] | None,
+    state: _TerminalState,
+    audit_context: dict[str, Any],
+) -> None:
+    """Record the run's terminal state — the row, then the trail — exactly once.
+
+    Idempotent by construction: each half is skipped if it has already been
+    done. That is what lets the recovery path call this again after a failure or
+    a cancellation without overwriting a committed outcome. It is deliberately
+    the SAME function on both paths, so a recovery cannot drift from the happy
+    path it is recovering.
+    """
+    if state.status is None:
+        return
+    if not state.row_attempted:
+        state.row_applied = await _finalize(
+            session,
+            job_uuid,
+            attempt_uuid,
+            status=state.status,
+            metadata=metadata,
+            result=state.result,
+            error_message=state.error_message,
+        )
+        state.row_attempted = True
+    if not state.audited:
+        await _emit_terminal_audit(
+            **audit_context,
+            applied=state.row_applied,
+            outcome=state.outcome or "failed",
+            extra=state.audit_extra(),
+        )
+        state.audited = True
+
+
+async def _recover_unsettled(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    metadata: dict[str, Any] | None,
+    state: _TerminalState,
+    audit_context: dict[str, Any],
+    error_code: str,
+    message: str,
+) -> None:
+    """Finish whatever :func:`_settle` did not, on a fresh session.
+
+    A fresh session because the caller's may be mid-statement or poisoned by
+    the very failure that brought us here — a cancellation lands wherever it
+    lands, and a connection blip during the terminal UPDATE leaves the session
+    unusable for the retry.
+
+    When the run never reached a decision (cancelled during the provider work)
+    one is made here. When it did, the decision stands: a run whose row already
+    committed ``complete`` is NOT rewritten to failed because a shutdown arrived
+    a moment later — the work is durably done and the trail must say so.
+    """
+    from app.core.db import async_session
+
+    if state.status is None:
+        state.decide_failed(error_code=error_code, message=message)
+    async with async_session() as session:
+        await _settle(
+            session,
+            job_uuid,
+            attempt_uuid,
+            metadata=metadata,
+            state=state,
+            audit_context=audit_context,
+        )
 
 
 @task_app.task(queue="ingest", retry=0)
@@ -346,6 +432,7 @@ async def run_embedding_backfill(
                 extra={"error_code": "attempt_not_owned"},
             )
             return
+        state = _TerminalState()
         try:
             try:
                 result = await backfill_embeddings(session, force=force)
@@ -357,107 +444,113 @@ async def run_embedding_backfill(
                     operation_id=operation_id,
                 )
                 await session.rollback()
-                applied = await _finalize(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    status="failed",
-                    metadata=metadata,
-                    error_message=BACKFILL_FAILED_MESSAGE,
+                state.decide_failed(
+                    error_code="backfill_failed", message=BACKFILL_FAILED_MESSAGE
                 )
-                await _emit_terminal_audit(
-                    **audit_context,
-                    applied=applied,
-                    outcome="failed",
-                    extra={"error_code": "backfill_failed"},
-                )
-                return
-            if result["errors"] and not result["created"]:
-                # fix(#1550 review P1): `backfill_embeddings` swallows per-record
-                # provider errors and returns counts rather than raising, so a
-                # run where EVERY embedding failed returned normally and was
-                # stamped `complete`. On the force path that reads as a finished
-                # regenerate over a catalog whose vectors were deleted and never
-                # rebuilt — zero coverage reported as success, which is the one
-                # state an operator most needs to be told about. A run that
-                # created nothing did not do what was asked.
-                logger.error(
-                    "embedding_backfill_all_records_failed",
-                    job_id=job_id,
-                    force=force,
-                    operation_id=operation_id,
-                    **result,
-                )
-                applied = await _finalize(
-                    session,
-                    job_uuid,
-                    attempt_uuid,
-                    status="failed",
-                    metadata=metadata,
-                    result=result,
-                    error_message=(
-                        f"Embedding backfill failed: all {result['errors']} "
-                        "embeddings were rejected and none were created. "
-                        "Check the embedding provider and configuration, then "
-                        "re-run to restore coverage."
-                    ),
-                )
-                await _emit_terminal_audit(
-                    **audit_context,
-                    applied=applied,
-                    outcome="failed",
-                    extra={"error_code": "all_embeddings_failed", **result},
-                )
-                return
-            applied = await _finalize(
+            else:
+                if result["errors"] and not result["created"]:
+                    # fix(#1550 review P1): `backfill_embeddings` swallows
+                    # per-record provider errors and returns counts rather than
+                    # raising, so a run where EVERY embedding failed returned
+                    # normally and was stamped `complete`. On the force path
+                    # that reads as a finished regenerate over a catalog whose
+                    # vectors were deleted and never rebuilt — zero coverage
+                    # reported as success, which is the one state an operator
+                    # most needs to be told about.
+                    logger.error(
+                        "embedding_backfill_all_records_failed",
+                        job_id=job_id,
+                        force=force,
+                        operation_id=operation_id,
+                        **result,
+                    )
+                    state.decide_failed(
+                        error_code="all_embeddings_failed",
+                        message=(
+                            f"Embedding backfill failed: all {result['errors']} "
+                            "embeddings were rejected and none were created. "
+                            "Check the embedding provider and configuration, "
+                            "then re-run to restore coverage."
+                        ),
+                        result=result,
+                    )
+                else:
+                    state.decide_complete(result)
+            # The single terminal write. Deciding the outcome and RECORDING it
+            # are separate steps on purpose: everything above only decides, so
+            # there is exactly one place where the job row and the audit trail
+            # are written, and exactly one place the recovery below has to
+            # resume from.
+            await _settle(
                 session,
                 job_uuid,
                 attempt_uuid,
-                status="complete",
                 metadata=metadata,
-                result=result,
+                state=state,
+                audit_context=audit_context,
             )
-            await _emit_terminal_audit(
-                **audit_context,
-                applied=applied,
-                outcome="completed",
-                extra=dict(result),
-            )
-        except asyncio.CancelledError:
-            # The exit that is not an `Exception`. A graceful worker shutdown
-            # cancels this task after the drain window, and `retry=0` means no
-            # redelivery, so without this branch the row strands in `running`
-            # holding the single active-backfill slot until the 60-minute sweep.
-            # Placed on the OUTER try so it covers the whole claimed region —
-            # the provider work, the finalize and the audit — not just the
-            # backfill call.
+        except BaseException as exc:
+            # THE guarded exit — one, not one per exception type. Reached by a
+            # cancellation (a deploy draining the worker), by a failure of the
+            # terminal write itself (a connection blip after the provider work
+            # finished), and by anything else that unwinds past a claimed job.
             #
-            # Shielded so the cancellation that triggered the cleanup does not
-            # also cancel it, bounded so a hung database cannot stall shutdown,
-            # and re-raised afterwards: swallowing it would break cooperative
-            # shutdown and tell the queue the task ran to completion.
+            # fix(#1550 review P2 round 3): the previous revision caught only
+            # `CancelledError` here, so an `Exception` raised INSIDE the
+            # terminal write escaped — leaving the row `running`, holding the
+            # single active-backfill slot until the 60-minute sweep, and
+            # reporting finished provider work as nothing at all. Same harm as
+            # the cancellation bug, reached one line further in.
+            #
+            # `_settle` is idempotent and `state` records how far it got, so
+            # this never rewrites an outcome that already committed: a shutdown
+            # arriving after `complete` landed emits the COMPLETED audit rather
+            # than contradicting a durable success.
+            cancelled = isinstance(exc, asyncio.CancelledError)
             logger.warning(
-                "embedding_backfill_cancelled",
+                "embedding_backfill_cancelled"
+                if cancelled
+                else "embedding_backfill_settle_failed",
                 job_id=job_id,
                 force=force,
                 operation_id=operation_id,
+                exc_info=not cancelled,
             )
             try:
+                # Shielded so the cancellation that triggered the recovery does
+                # not also cancel it, and bounded so a hung database cannot
+                # stall a deploy.
                 await asyncio.shield(
                     asyncio.wait_for(
-                        _fail_cancelled_backfill(
+                        _recover_unsettled(
                             job_uuid,
                             attempt_uuid,
                             metadata=metadata,
+                            state=state,
                             audit_context=audit_context,
+                            error_code=(
+                                "worker_cancelled" if cancelled else "settle_failed"
+                            ),
+                            message=(
+                                "Embedding backfill was cancelled by a worker "
+                                "shutdown. If this was a regenerate, existing "
+                                "vectors may already have been deleted — re-run "
+                                "to restore coverage."
+                                if cancelled
+                                else "Embedding backfill could not record its "
+                                "outcome. See server logs for details."
+                            ),
                         ),
                         timeout=15,
                     )
                 )
-            except BaseException:  # broad: best-effort cleanup during shutdown; the raise below preserves the abort
+            except BaseException:  # broad: best-effort recovery during shutdown; the raise below preserves the abort
                 logger.warning(
-                    "embedding_backfill_cancel_cleanup_failed", job_id=job_id
+                    "embedding_backfill_recovery_failed", job_id=job_id, exc_info=True
                 )
+            # Re-raised, always: swallowing a cancellation breaks cooperative
+            # shutdown, and swallowing a settle failure would tell the queue a
+            # run recorded itself when it may not have.
             raise
         finally:
             await stop_ingest_job_heartbeat(heartbeat)

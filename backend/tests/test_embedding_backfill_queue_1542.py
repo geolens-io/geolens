@@ -1033,3 +1033,139 @@ async def test_a_partly_failed_run_still_completes(
     job = await _load_job(test_db_session, job_id)
     assert job.status == "complete"
     assert job.rows_processed == 10
+
+
+# ---------------------------------------------------------------------------
+# One guarded terminal exit (#1550 review round 3)
+# ---------------------------------------------------------------------------
+#
+# This class of defect was fixed four times — the dispatch failure, the lost
+# fence, the cancellation — and each fix revealed one more exit that did not go
+# through it. These two cover the exits that a handler-per-exception-type shape
+# structurally cannot: a failure of the terminal write ITSELF, and a
+# cancellation arriving after the terminal write already committed.
+
+
+@pytest.mark.anyio
+async def test_a_failing_terminal_write_does_not_wedge_the_slot(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """A connection blip during the terminal UPDATE, after the work finished.
+
+    The old shape caught only `CancelledError` around the terminal write, so an
+    ordinary `Exception` raised inside it escaped: the row stayed `running`,
+    holding the single active-backfill slot until the 60-minute sweep, with the
+    completed provider work recorded nowhere. Recovery retries on a fresh
+    session — which is the point of using a fresh one, since the session that
+    just raised may be unusable.
+    """
+    real_update = backfill_jobs.update_ingest_job_for_attempt
+    calls = {"n": 0}
+
+    async def _first_write_blows_up(*args, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("connection reset during terminal update")
+        return await real_update(*args, **kwargs)
+
+    monkeypatch.setattr(
+        backfill_jobs, "update_ingest_job_for_attempt", _first_write_blows_up
+    )
+
+    async def _worked_fine(session, *, force=False):
+        return {"processed": 4, "created": 4, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    # The task re-raises rather than pretending it recorded itself.
+    with pytest.raises(RuntimeError):
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    # The harm first — the `pytest.raises` above already proves the terminal
+    # write genuinely blew up, so this is not vacuous.
+    job = await _load_job(test_db_session, job_id)
+    assert job.status != "running", (
+        "the run is still holding the single active-backfill slot after a "
+        "failed terminal write"
+    )
+    assert job.status == "complete"
+    # And it was the recovery that settled it, not an undisturbed happy path.
+    assert calls["n"] >= 2, "the terminal write did not fail and retry"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["outcome"] == "completed"
+
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        again = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert again.status_code == 200, again.text
+
+
+@pytest.mark.anyio
+async def test_a_late_cancellation_does_not_contradict_a_committed_success(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The shutdown lands after `complete` committed, before the audit finishes.
+
+    The previous revision sent every cancellation through a "mark it failed"
+    cleanup. Its fenced update could not apply to an already-complete row, so it
+    recorded `unresolved` with `intended_outcome="failed"` over a job that had
+    durably succeeded — worse than the divergence it replaced, because the trail
+    then actively contradicts a committed outcome rather than merely lagging it.
+    """
+    real_terminal_audit = backfill_jobs._emit_terminal_audit
+    calls = {"n": 0}
+
+    async def _cancelled_on_the_first_audit(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise asyncio.CancelledError()
+        await real_terminal_audit(**kwargs)
+
+    monkeypatch.setattr(
+        backfill_jobs, "_emit_terminal_audit", _cancelled_on_the_first_audit
+    )
+
+    async def _worked_fine(session, *, force=False):
+        return {"processed": 5, "created": 5, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    # Non-vacuity: the row must genuinely have committed `complete` BEFORE the
+    # cancellation, or there is no committed outcome to contradict.
+    assert job.status == "complete", (
+        "the terminal write never landed, so this proves nothing about "
+        "overwriting a committed success"
+    )
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    details = terminal[0]["details"]
+    assert details["outcome"] == "completed", (
+        f"the trail says {details['outcome']!r} over a job the database "
+        "records as complete"
+    )
+    assert "intended_outcome" not in details
+    assert details.get("error_code") != "worker_cancelled"
