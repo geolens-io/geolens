@@ -119,10 +119,7 @@ def read_response(
     """
     headers = artifact_headers(artifact)
 
-    if not may_serve_range:
-        return _whole(storage, artifact, headers, background)
-
-    # fix(#1532 review r1): evaluate If-Range before slicing. The artifact now
+    # fix(#1532 review r1): evaluate If-Range before slicing. The artifact
     # publishes a strong validator, so a client CAN name the representation it
     # is resuming — curl -C, browsers, and any future GDAL that learns to — and
     # a client that names the previous artifact must not be handed a slice of
@@ -134,8 +131,22 @@ def read_response(
     # is not a reason to answer wrongly for the ones that do. Strong comparison
     # and ignore-on-mismatch are RFC 9110 section 13.1.5, and the evaluation is
     # the one fix(#1540) settled on the COG route rather than a second copy.
-    if not range_bound_to_this_version(if_range, artifact.etag):
-        return _whole(storage, artifact, headers, background)
+    #
+    # fix(#1532 review r12): a MATCHING If-Range outranks `may_serve_range`. That
+    # flag is the fallback for a client that cannot say which bytes its offsets
+    # belong to — a bare Range after a rebuild, or against a contested selection
+    # — and a client sending this artifact's exact strong ETag has said exactly
+    # that. Refusing it there would deny a resume to the only clients that did
+    # the work to make one safe, on the strength of a doubt they have resolved.
+    proven = if_range is not None and range_bound_to_this_version(
+        if_range, artifact.etag
+    )
+    if not proven:
+        if not may_serve_range:
+            return _whole(storage, artifact, headers, background)
+        if if_range is not None:
+            # Present and not matching: section 13.1.5 says ignore the Range.
+            return _whole(storage, artifact, headers, background)
 
     byte_range = parse_byte_range(range_header, artifact.size)
     if byte_range is None:

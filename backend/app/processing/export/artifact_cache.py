@@ -182,10 +182,17 @@ class ExportArtifact:
     # Nothing prevents two artifacts inside one TTL: every client that arrives
     # during a slow build misses and builds its own, and the herd repeats at each
     # window boundary. The bytes differ whenever the format is GPKG — the default,
-    # and it stamps `gpkg_contents.last_change` per build — or whenever a write
-    # landed without moving `tile_cache_version`. So "a forgotten bump costs one
-    # TTL of staleness" was really "a forgotten bump plus overlapping builders
-    # costs a silent splice".
+    # whenever a write landed without moving `tile_cache_version`. So "a
+    # forgotten bump costs one TTL of staleness" was really "a forgotten bump
+    # plus overlapping builders costs a silent splice".
+    #
+    # fix(#1532 review r12): GeoPackage used to be the other source of distinct
+    # bytes, because ogr2ogr stamped `gpkg_contents.last_change` per conversion —
+    # which made the DEFAULT format permanently contested under steady traffic
+    # and meant it never served a range at all. `normalize_gpkg_timestamps` fixed
+    # the input rather than this rule: unchanged data now hashes the same twice,
+    # so only a genuine change contests a selection, which is the case that
+    # SHOULD refuse ranges.
     #
     # The caller answers ranges with the complete representation while this is
     # set. HEAD and the ETag are unaffected: each artifact is still internally

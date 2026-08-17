@@ -25,6 +25,70 @@ def _zip_export_files(temp_dir: str, zip_path: str) -> None:
                 zf.write(os.path.join(temp_dir, fname), fname)
 
 
+# fix(#1532 review r12): the timestamp ogr2ogr stamps into every GeoPackage, and
+# the value it is rewritten to. Any constant works; the GeoPackage epoch is
+# chosen because it reads as "deliberately not a time" rather than as a wrong
+# one.
+_GPKG_FIXED_LAST_CHANGE = "1970-01-01T00:00:00.000Z"
+
+# Tables the GeoPackage spec gives a timestamp column. `gpkg_contents` is always
+# present; the metadata one only when the driver wrote metadata, so both are
+# attempted and a missing table is not an error.
+_GPKG_TIMESTAMP_COLUMNS = (
+    ("gpkg_contents", "last_change"),
+    ("gpkg_metadata_reference", "timestamp"),
+)
+
+
+def normalize_gpkg_timestamps(path: str) -> None:
+    """Make a GeoPackage byte-deterministic for unchanged data.
+
+    ogr2ogr stamps ``gpkg_contents.last_change`` with the moment of conversion,
+    so two exports of identical data differ — and #1532 builds its whole safety
+    model on the digest of the bytes. A per-build digest means every rebuild
+    looks like a DIFFERENT representation, which is exactly what
+    ``contested`` is designed to notice: under steady traffic each freshness
+    rollover added a distinct sibling while the previous one was retained for the
+    reclamation horizon, so the selection was permanently contested and every
+    range was answered with a whole 200. Ranges never worked for the default
+    export format.
+
+    Fixing the digest rather than the rule, because the rule is right: distinct
+    bytes under one selection SHOULD refuse ranges, since a slice of each spliced
+    together is a corrupt file. What was wrong was the input — GeoPackage
+    reported a change that had not happened. GeoJSON already has this property
+    (#1532 measured two conversions to one sha256); this gives it to GPKG.
+
+    Residual, stated: a selection whose data genuinely changes faster than the
+    reclamation horizon still serves whole responses under continuous traffic.
+    That is correct — those artifacts really are different — and it is slower
+    rather than wrong.
+
+    Uses stdlib sqlite3 rather than GDAL: a GeoPackage is a SQLite database, the
+    columns are spec-defined, and going through the driver to rewrite two cells
+    would mean another full open and rewrite of the file.
+    """
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        for table, column in _GPKG_TIMESTAMP_COLUMNS:
+            try:
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ?",  # noqa: S608 - spec-fixed names
+                    (_GPKG_FIXED_LAST_CHANGE,),
+                )
+            except sqlite3.OperationalError:
+                # The table is optional in the spec; its absence is not an error.
+                continue
+        conn.commit()
+    finally:
+        # Closed explicitly: sqlite3's context manager commits but does NOT
+        # close, and an open handle can leave the rollback journal beside the
+        # file — which the caller is about to hash.
+        conn.close()
+
+
 def safe_content_disposition(filename: str) -> str:
     """Build Content-Disposition header with RFC 5987 encoding for non-ASCII filenames."""
     ascii_name = filename.encode("ascii", "replace").decode()
@@ -260,6 +324,11 @@ async def export_dataset(
             where=where,
             format_key=format_key,
         )
+        if format_key == "gpkg":
+            # fix(#1532 review r12): off the event loop, like every other
+            # blocking step here — it is a SQLite write over a file that can be
+            # gigabytes.
+            await run_in_thread_draining(normalize_gpkg_timestamps, output_path)
 
         return output_path, filename, media_type
     except BaseException:

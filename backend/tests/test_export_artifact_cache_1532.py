@@ -2626,3 +2626,204 @@ async def test_the_build_path_answers_validators_too(
         f"a {header} on the build path returned {resp.status_code}, not "
         f"{expected}; the rebuild ignored a claim the client was right to make"
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r12
+# ---------------------------------------------------------------------------
+
+
+def test_two_gpkg_conversions_of_unchanged_data_are_byte_identical(tmp_path):
+    """GeoPackage must hash the same twice, or ranges never work for it.
+
+    ogr2ogr stamps `gpkg_contents.last_change` with the moment of conversion, so
+    every rebuild of UNCHANGED data produced a different digest — and #1532
+    builds its safety model on that digest. A per-build digest means every
+    rebuild looks like a different representation, which is exactly what
+    `contested` is designed to notice: under steady traffic each freshness
+    rollover added a distinct sibling while the previous was retained for the
+    reclamation horizon, so the selection was permanently contested and every
+    range was answered with a whole 200. The DEFAULT export format could not be
+    ranged at all.
+
+    Run against the real driver, because the property being claimed is about
+    what ogr2ogr writes. The unnormalized pair is asserted DIFFERENT first: with
+    a fast enough machine both conversions could land in the same millisecond,
+    and then the normalized comparison would prove nothing.
+    """
+    import shutil as _shutil
+    import sqlite3
+    import subprocess
+
+    from app.processing.export.service import normalize_gpkg_timestamps
+
+    if _shutil.which("ogr2ogr") is None:
+        pytest.skip("ogr2ogr not available")
+
+    source = tmp_path / "src.geojson"
+    source.write_text(
+        '{"type":"FeatureCollection","features":[{"type":"Feature",'
+        '"properties":{"n":1},"geometry":{"type":"Point","coordinates":[1,2]}}]}'
+    )
+
+    def _convert(name: str) -> Path:
+        out = tmp_path / name
+        subprocess.run(
+            ["ogr2ogr", "-f", "GPKG", str(out), str(source)],
+            check=True,
+            capture_output=True,
+        )
+        return out
+
+    first = _convert("a.gpkg")
+    time.sleep(0.05)  # `last_change` has millisecond precision
+    second = _convert("b.gpkg")
+
+    def _last_change(path: Path) -> str:
+        conn = sqlite3.connect(path)
+        try:
+            return conn.execute("SELECT last_change FROM gpkg_contents").fetchone()[0]
+        finally:
+            conn.close()
+
+    # Editing one of them to force a difference would ALSO bump SQLite's file
+    # change counter, and the two would then differ forever however the
+    # timestamps were normalized — the first version of this test did exactly
+    # that and read its own artefact as a failure of the fix.
+    if _last_change(first) == _last_change(second):
+        pytest.skip("both conversions landed in the same millisecond")
+
+    assert (
+        hashlib.sha256(first.read_bytes()).digest()
+        != hashlib.sha256(second.read_bytes()).digest()
+    ), (
+        "the two conversions were already identical, so this test would pass "
+        "without the normalization it exists to check"
+    )
+
+    normalize_gpkg_timestamps(str(first))
+    normalize_gpkg_timestamps(str(second))
+
+    assert (
+        hashlib.sha256(first.read_bytes()).hexdigest()
+        == hashlib.sha256(second.read_bytes()).hexdigest()
+    ), (
+        "two GeoPackage exports of unchanged data still differ, so every rebuild "
+        "registers as a new representation and the selection is permanently "
+        "contested — no range is ever served for the default format"
+    )
+
+
+async def test_an_unchanged_rebuild_does_not_contest_the_selection(test_db_session):
+    """The consequence of the above, at the level that matters.
+
+    A rebuild of unchanged data must land on the SAME digest, so the selection
+    holds one and ranges keep working across a freshness rollover. Changed data
+    still contests, and still should: a slice of each spliced together is a
+    corrupt file.
+    """
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Deterministic Rebuild")
+    payload = b"the same export bytes, twice"
+
+    async def _publish() -> None:
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(payload)
+            path = handle.name
+        await cache.store(
+            dataset.id,
+            "steady",
+            file_path=path,
+            filename="x.gpkg",
+            media_type="application/geopackage+sqlite3",
+        )
+
+    await _publish()
+    # A rollover: the first artifact expires but is retained until the horizon.
+    cache._ttl_seconds = lambda: 0
+    try:
+        await _publish()
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    hit = await cache.lookup(
+        dataset.id,
+        "steady",
+        filename="x.gpkg",
+        media_type="application/geopackage+sqlite3",
+    )
+
+    keys = await get_storage().list(
+        f"export-cache/{cache._tenant_segment()}/{dataset.id}/steady/"
+    )
+    assert len({cache.parse_artifact_key(k)[2] for k in keys}) == 1, (
+        f"two rebuilds of identical bytes produced {len(keys)} distinct digests; "
+        f"every rollover would add another and the selection never uncontests"
+    )
+    assert hit is not None and not hit.contested, (
+        "an unchanged rebuild left the selection contested, so no range is "
+        "served for as long as traffic continues"
+    )
+
+
+async def test_a_matching_if_range_resumes_even_on_a_contested_selection(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A client that proved which bytes it holds gets its slice.
+
+    `may_serve_range=False` is the fallback for a client that CANNOT say which
+    representation its offsets belong to — a bare Range after a rebuild, or
+    against a contested selection. A client sending this artifact's exact strong
+    ETag has said precisely that, so refusing it denies a resume to the only
+    clients that did the work to make one safe, over a doubt they have already
+    resolved.
+
+    The non-matching case is asserted alongside, because a rule that honoured
+    every If-Range would pass the first half and reintroduce the splice.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Proven Resume")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    etag = first.headers["etag"]
+    selection = [
+        k.rsplit("/", 2)[1]
+        for k in await get_storage().list(
+            f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+        )
+    ][0]
+    rival = b"a second builder's output, same window"
+    await get_storage().put(
+        cache._artifact_key(dataset.id, selection, "c" * 64, len(rival), time.time()),
+        rival,
+    )
+
+    proven = await client.get(
+        url,
+        headers={**admin_auth_header, "Range": "bytes=0-31", "If-Range": etag},
+    )
+    unproven = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=0-31",
+            "If-Range": '"an-export-from-last-week"',
+        },
+    )
+
+    assert proven.status_code == 206, (
+        f"a client offering the exact ETag of the artifact it is reading got "
+        f"{proven.status_code}; it has proved its offsets belong to these bytes"
+    )
+    assert unproven.status_code == 200, (
+        f"a non-matching If-Range returned {unproven.status_code}; section "
+        f"13.1.5 says ignore the Range, and on a contested selection that is the "
+        f"only safe answer"
+    )
