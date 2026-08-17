@@ -4055,3 +4055,115 @@ async def test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact(test_db_ses
         "the r10 property regressed: a slow upload whose bytes landed recently "
         "was reclaimed on the strength of a stamp taken before the push"
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r25
+# ---------------------------------------------------------------------------
+
+
+async def test_the_artifact_is_stamped_with_the_snapshot_not_the_upload(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """The key's stamp is taken BEFORE the conversion reads the data.
+
+    fix(#1532 review r25): it was minted just before the upload, after the
+    conversion had finished. A mutation that misses `tile_cache_version` and
+    lands during a long conversion makes an artifact stale at birth, and a
+    stamp taken after the build let it age from after the staleness began —
+    served for the rest of the build plus the upload plus the TTL. Stamped from
+    the snapshot, `_published_at`'s ceiling bounds build plus upload, and the
+    data behind a served artifact is never older than TTL plus that ceiling.
+
+    The conversion is made to take two seconds. The key stamp is whole seconds,
+    so a stamp that follows the build lands at least a full second after the
+    request began, and one that precedes it never lands after `before` at all.
+    """
+    import asyncio
+
+    from app.processing.export import artifact_cache as cache
+    from app.processing.export import router as export_router
+
+    dataset = await _dataset(test_db_session, "Snapshot Stamp")
+    real_conversion = export_router.export_dataset
+
+    async def _slow(*args, **kwargs):
+        await asyncio.sleep(2.0)
+        return await real_conversion(*args, **kwargs)
+
+    monkeypatch.setattr(export_router, "export_dataset", _slow)
+
+    before = time.time()
+    resp = await client.get(_url(dataset.id), headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert conversions.count == 1
+
+    selection = cache.selection_key(
+        dataset_id=dataset.id,
+        table_name=dataset.table_name,
+        dataset_title=dataset.record.title,
+        tile_cache_version=dataset.tile_cache_version,
+        format_key="geojson",
+        target_crs=None,
+        bbox=None,
+        where=None,
+    )
+    artifact = await cache.lookup(
+        dataset.id, selection, filename="x.geojson", media_type="application/geo+json"
+    )
+    assert artifact is not None
+    assert artifact.built_at <= before, (
+        f"the artifact is stamped {artifact.built_at - before:.2f}s after the request "
+        f"began, i.e. AFTER a 2s conversion; the stamp must precede the read so "
+        f"the ceiling bounds the data's age, not just the upload's"
+    )
+
+
+@pytest.mark.parametrize("snapshot_age,expected", [(30, "hit"), (700, "miss")])
+async def test_an_artifact_whose_snapshot_is_older_than_the_ceiling_is_not_served(
+    test_db_session, monkeypatch, snapshot_age, expected
+):
+    """Build plus upload past the ceiling yields an artifact no request uses.
+
+    fix(#1532 review r25): with the stamp on the snapshot, `_published_at`
+    places publication no later than the stamp plus `_MAX_PUBLISH_SECONDS`, so
+    an artifact whose data is older than TTL plus that ceiling at publication is
+    expired the moment it exists. That is the promise, stated in the module
+    docstring; a conversion that outlives the edge's request budget has lost
+    its client anyway.
+    """
+    import tempfile
+
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, f"Old Snapshot {snapshot_age}")
+    monkeypatch.setattr(cache, "_ttl_seconds", lambda: 60)
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"snapshot-aged export")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "aged",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+        snapshot_at=time.time() - snapshot_age,
+    )
+    assert stored is not None, "publication itself is unconditional"
+
+    resolved = await cache.lookup(
+        dataset.id, "aged", filename="x.geojson", media_type="application/geo+json"
+    )
+    if expected == "hit":
+        assert resolved is not None and resolved.key == stored.key
+    else:
+        assert resolved is None, (
+            "an artifact whose snapshot is older than the ceiling plus the TTL was "
+            "served; the data behind it can be arbitrarily stale"
+        )

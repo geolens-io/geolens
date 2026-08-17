@@ -3,6 +3,7 @@
 import os
 import re
 import shutil
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -678,6 +679,16 @@ async def export_dataset_endpoint(
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.
+    #
+    # fix(#1532 review r25): the moment the conversion is about to read the
+    # data, carried into publication as the artifact's stamp. A mutation that
+    # misses `tile_cache_version` and lands DURING a long conversion makes an
+    # artifact stale at birth; stamping publication time let it age from after
+    # that, so it served for the rest of the build plus the upload plus the
+    # TTL. Stamped from here, the cache's ceiling on "publication after stamp"
+    # bounds build plus upload, and the data behind a served artifact is never
+    # older than TTL plus that ceiling.
+    snapshot_at = time.time()
     try:
         if format == ExportFormat.parquet:
             from app.processing.export.parquet import export_parquet
@@ -768,6 +779,7 @@ async def export_dataset_endpoint(
             media_type=media_type,
             digest=digest,
             size=size,
+            snapshot_at=snapshot_at,
         )
     except BaseException:
         _cleanup_export(temp_dir)

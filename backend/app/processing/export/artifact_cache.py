@@ -64,9 +64,14 @@ So correctness rests on ``_ttl_seconds()``, a property nobody can forget to
 maintain. The counter still earns its keep — it is folded into ``selection_key``,
 where a bump moves the request to a different key and invalidates instantly — but
 as a key input it can only ever invalidate MORE often than the TTL already
-forces. A missed bump costs one TTL of staleness, not a wrong answer. That
-inversion is the whole design: the audited list is an optimization by
-construction rather than by promise.
+forces. A missed bump costs bounded staleness, not a wrong answer: an artifact
+answers for one TTL after publication, its key is stamped with the moment the
+conversion took its snapshot of the data, and publication is placed no later
+than ``_MAX_PUBLISH_SECONDS`` after that stamp (fix(#1532 review r25)) — so a
+request served from the cache sees data at most TTL plus that ceiling old, and
+a conversion plus upload that outlives the ceiling produces an artifact no
+request will use. That inversion is the whole design: the audited list is an
+optimization by construction rather than by promise.
 
 A data-derived version (``count(*)`` plus ``max(xmin)`` over the selection) was
 the other candidate and is rejected on cost, not on correctness: it is complete
@@ -129,14 +134,15 @@ _SWEEP_INTERVAL_SECONDS = 900
 # sibling because the newest wins.
 _CLOCK_SLACK_SECONDS = 5
 
-# fix(#1532 review r23): the longest an upload can take and still have a
-# client waiting for the response it precedes. `frontend/nginx.conf` closes the
-# request at `proxy_read_timeout 600s`, and the publish runs before the first
-# response byte, so a put that outlives this has already lost its request. It
-# is the ceiling on how far past its key stamp an artifact's publication may
-# be placed (see `_published_at`), which is what bounds a store clock running
-# ahead. Not a settings field: it restates an edge fact, and raising it widens
-# the staleness bound.
+# fix(#1532 review r23, then r25): the longest a conversion and its upload can
+# take and still have a client waiting for the response they precede.
+# `frontend/nginx.conf` closes the request at `proxy_read_timeout 600s`, and
+# both run before the first response byte, so a publication that outlives this
+# has already lost its request. It is the ceiling on how far past its key stamp
+# — the conversion's snapshot time — an artifact's publication may be placed
+# (see `_published_at`), which bounds a store clock running ahead AND how old
+# the data behind a served artifact can be. Not a settings field: it restates
+# an edge fact, and raising it widens the staleness bound.
 _MAX_PUBLISH_SECONDS = 600
 
 # fix(#1532 review, internal): the ceiling on what this cache may hold.
@@ -275,7 +281,8 @@ def selection_key(
 
     As a key INPUT it cannot do that. A bump can only ever move the request to a
     different key, so it can only make the cache invalidate MORE often than the
-    TTL already forces. A writer that forgets costs one TTL of staleness; a
+    TTL already forces. A writer that forgets costs bounded staleness (the
+    module docstring states the bound); a
     writer that remembers costs nothing and invalidates instantly. The
     hand-maintained list is an optimization by construction rather than by
     promise, which is the property the issue asks for and the one an audit cannot
@@ -521,10 +528,12 @@ def _published_at(modified: float, built_at: float) -> float:
       writer minted before uploading, so ``built_at`` is the FLOOR. Worst case
       is the pre-r9 rule, which is a cache that works.
     - A store clock AHEAD reports a publication later than it was. The CEILING
-      is ``built_at`` plus the longest an upload can take with a client still
-      waiting: ``_MAX_PUBLISH_SECONDS``. Past that, a modified time carries no
-      information about THIS artifact — the request that produced it has
-      already been closed at the edge — so it is not trusted.
+      is ``built_at`` plus the longest a build and its upload can take with a
+      client still waiting: ``_MAX_PUBLISH_SECONDS``. Past that, a modified
+      time carries no information about THIS artifact — the request that
+      produced it has already been closed at the edge — so it is not trusted.
+      (``built_at`` is the conversion's snapshot time since r25, so this also
+      bounds how old the DATA behind a served artifact can be.)
 
     A pure function of the object, deliberately (r23). An earlier revision
     distrusted a modified time beyond ``now`` plus the jitter allowance and
@@ -534,9 +543,9 @@ def _published_at(modified: float, built_at: float) -> float:
     past the TTL, on a schedule set by the skew. Nothing here reads ``now``, so
     an artifact's verdict can only ever go fresh → expired.
 
-    Honest bound, restated: an artifact can be at most TTL plus
-    ``min(upload duration, _MAX_PUBLISH_SECONDS)`` old under honest clocks, and
-    a store clock ahead can add at most the unused part of that allowance.
+    Honest bound, restated: the data behind a served artifact is at most TTL
+    plus ``min(build + upload, _MAX_PUBLISH_SECONDS)`` old under honest clocks,
+    and a store clock ahead can add at most the unused part of that allowance.
     """
     return min(max(modified, built_at), built_at + _MAX_PUBLISH_SECONDS)
 
@@ -550,8 +559,18 @@ async def store(
     media_type: str,
     digest: str | None = None,
     size: int | None = None,
+    snapshot_at: float | None = None,
 ) -> ExportArtifact | None:
     """Publish a freshly converted file. One ``put``, nothing rewritten.
+
+    ``snapshot_at`` is when the conversion read the data, and it becomes the
+    key's stamp (fix(#1532 review r25)). The stamp used to be minted just before
+    the upload, so a mutation that missed ``tile_cache_version`` and landed
+    during a long conversion produced an artifact that was stale at birth and
+    then aged from a point AFTER the staleness began. Stamping the snapshot
+    makes ``built_at`` mean what its name says, and the publish ceiling in
+    ``_published_at`` then bounds build plus upload rather than upload alone.
+    None means now, for callers that convert and store in one breath.
 
     ``digest`` and ``size`` may be supplied by a caller that has already run
     ``digest_and_size`` — the route does, so the validator it evaluates
@@ -622,7 +641,12 @@ async def store(
                 logger.warning("export_cache_budget_exhausted", size=size)
                 return None
         built_at, key = await _put_with_reclaim(
-            dataset_id, selection, digest, size, file_path
+            dataset_id,
+            selection,
+            digest,
+            size,
+            file_path,
+            built_at=time.time() if snapshot_at is None else snapshot_at,
         )
         # fix(#1532 review r7): PUBLICATION IS FINAL. A post-write re-check that
         # dropped this artifact when the total had moved lived here for one
@@ -654,7 +678,13 @@ async def store(
 
 
 async def _put_with_reclaim(
-    dataset_id: uuid.UUID, selection: str, digest: str, size: int, file_path: str
+    dataset_id: uuid.UUID,
+    selection: str,
+    digest: str,
+    size: int,
+    file_path: str,
+    *,
+    built_at: float,
 ) -> tuple[float, str]:
     """Write the artifact, reclaiming and retrying once if the store is full.
 
@@ -687,7 +717,8 @@ async def _put_with_reclaim(
     attempted: list[str] = []
 
     async def _write() -> tuple[float, str]:
-        built_at = time.time()
+        # The stamp is the caller's snapshot time (r25), the same on a retry:
+        # the bytes did not get any newer for having failed to upload once.
         key = _artifact_key(dataset_id, selection, digest, size, built_at)
         attempted.append(key)
         with open(file_path, "rb") as handle:
