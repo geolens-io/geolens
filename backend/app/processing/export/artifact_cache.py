@@ -904,8 +904,18 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
                 # `last_modified` raises it to publication. Both are already in
                 # hand here, and neither moves for a writer-owned key that
                 # nothing copies.
-                built_at = max(built_at, obj.last_modified.timestamp())
-                if built_at >= cutoff:
+                #
+                # fix(#1532 review r24): through the SAME bound freshness uses.
+                # An unbounded `max` let a store clock running ahead push the
+                # age origin into the future, and an object then lived a full
+                # horizon past a time that had not happened yet — the inventory
+                # pinned at its ceiling and every later export forced onto the
+                # uncached path. `_published_at` caps publication at the stamp
+                # plus the publish ceiling, so the worst an ahead store can do
+                # to reclamation is what it can do to freshness: at most that
+                # allowance, once, per object.
+                published_at = _published_at(obj.last_modified.timestamp(), built_at)
+                if published_at >= cutoff:
                     continue
                 try:
                     await storage.delete(obj.key)

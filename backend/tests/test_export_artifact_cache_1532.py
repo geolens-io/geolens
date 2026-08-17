@@ -2559,6 +2559,14 @@ async def test_a_slow_upload_is_not_reclaimed_the_moment_it_appears(
 
     The double reports a key stamped past the horizon and a modified time of
     now, which is exactly the slow-upload shape.
+
+    fix(#1532 review r23/r24): the upload is five minutes, not five hours. The
+    sweep ages through `_published_at` now, which caps publication at the stamp
+    plus `_MAX_PUBLISH_SECONDS` — the longest an upload can take with a client
+    still waiting — so a "push" that outlived that ceiling is not a publication
+    anyone can be streaming, and IS reclaimed once the stamp plus the ceiling
+    passes the horizon (`test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact`
+    pins that side). Inside the ceiling, the r10 property holds unchanged.
     """
     from app.platform.storage import get_storage
     from app.platform.storage.provider import StoredObject
@@ -2566,7 +2574,7 @@ async def test_a_slow_upload_is_not_reclaimed_the_moment_it_appears(
 
     dataset = await _dataset(test_db_session, "Slow Upload Sweep")
     storage = get_storage()
-    stale_stamp = time.time() - 5 * 3600
+    stale_stamp = time.time() - 3600 - 300  # past the horizon; upload took 5 min
     key = cache._artifact_key(dataset.id, "slow", "a" * 64, 6, stale_stamp)
     await storage.put(key, b"abcdef")
 
@@ -3988,4 +3996,62 @@ def test_publication_is_a_pure_function_of_the_object(modified_offset):
     assert "now" not in inspect.signature(cache._published_at).parameters, (
         "the publication bound must not depend on the lookup's clock; that is "
         "what let a future mtime resurrect an expired artifact"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r24
+# ---------------------------------------------------------------------------
+
+
+async def test_the_sweep_does_not_let_a_future_mtime_pin_an_artifact(test_db_session):
+    """Reclamation ages through the same bound freshness uses.
+
+    fix(#1532 review r24): the sweep took `max(stamp, last_modified)` with no
+    ceiling, so a store clock running ahead placed the age origin in the
+    future and the object lived a full horizon past a time that had not
+    happened yet — the byte inventory pinned at its ceiling and every later
+    export forced onto the uncached path. `_published_at` caps publication at
+    the stamp plus the publish ceiling; the sweep now reads it too, so the
+    worst an ahead store can do to reclamation is the same allowance, once.
+
+    Seeded past the horizon by the stamp, with an mtime an hour in the future:
+    reclaimed. The counterfactual keeps the r10 property — a stamp past the
+    horizon whose honest mtime is recent (a slow upload) is NOT reclaimed.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Sweep Future Mtime")
+    storage = get_storage()
+    now = time.time()
+    horizon = cache._SWEEP_AGE_SECONDS
+
+    async def _seed(selection: str, stamp_age: float, mtime_offset: float) -> str:
+        payload = selection.encode()
+        key = cache._artifact_key(
+            dataset.id,
+            selection,
+            hashlib.sha256(payload).hexdigest(),
+            len(payload),
+            now - stamp_age,
+        )
+        await storage.put(key, payload)
+        when = now + mtime_offset
+        os.utime(Path(storage.base_dir) / key, (when, when))
+        return key
+
+    pinned = await _seed("future-mtime", stamp_age=horizon + 3600, mtime_offset=+3600)
+    slow = await _seed("slow-upload", stamp_age=horizon + 60, mtime_offset=-30)
+
+    await cache.sweep()
+
+    assert not await storage.exists(pinned), (
+        "an artifact past the horizon by its stamp survived the sweep because "
+        "its mtime lay an hour in the future; a store clock ahead of the worker "
+        "must not be able to pin objects past the horizon"
+    )
+    assert await storage.exists(slow), (
+        "the r10 property regressed: a slow upload whose bytes landed recently "
+        "was reclaimed on the strength of a stamp taken before the push"
     )
