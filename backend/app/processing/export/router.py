@@ -638,26 +638,33 @@ async def export_dataset_endpoint(
     # avoid, and a size-less HEAD is a case GDAL already handles (it retries
     # with a limited range GET). So a first open costs one conversion on the
     # range GET, and every open after that gets its length for free.
+    # fix(#1532 review r21): the preconditions, against NO validator, on the
+    # cold path. Nothing has been built, so there is no entity-tag — but the
+    # resource still has a current representation (a GET is about to produce
+    # one), and whether a conditional request is honoured must not depend on
+    # whether the cache happens to be warm.
+    #
+    # `If-None-Match: *` is therefore a 304 for BOTH verbs, and for GET it is
+    # answered before the conversion: the client has said it holds some
+    # representation and wants bytes only if there is none, so building a
+    # multi-gigabyte export to tell it to keep what it has is work the answer
+    # never needed. A specific If-None-Match tag cannot match no validator and
+    # proceeds — to the build, which then evaluates it exactly.
+    if if_none_match_matches(request.headers.get("if-none-match"), None):
+        return not_modified_response(None)
     if request.method == "HEAD":
-        # Only the cold case reaches here; a hit returned above.
-        #
-        # fix(#1532 review r21): the same preconditions, against NO validator.
-        # A cold HEAD builds nothing, so it holds no entity-tag — but the
-        # resource still has a current representation (a GET would produce
-        # one), and whether a conditional request is honoured must not depend
-        # on whether the cache happens to be warm. `*` therefore sees the
-        # representation (If-None-Match: * is a 304, If-Match: * passes) and a
-        # specific tag, which nothing here can verify, is refused rather than
-        # guessed — the call the shared helpers already make for a COG row
-        # with no stored digest, and the one the rebuild path makes when the
-        # file could not be hashed.
+        # Only the cold case reaches here; a hit returned above. HEAD holds no
+        # validator and will not build one, so a specific If-Match tag, which
+        # nothing here can verify, is refused rather than guessed — the call the
+        # shared helpers already make for a COG row with no stored digest, and
+        # the one the rebuild path makes when the file could not be hashed.
+        # (`If-Match: *` passes: the representation exists.) GET leaves If-Match
+        # to the build below, which can answer it exactly.
         if not if_match_passes(request.headers.get("if-match"), None):
             raise HTTPException(
                 status_code=status.HTTP_412_PRECONDITION_FAILED,
                 detail="Export has changed since the version you hold",
             )
-        if if_none_match_matches(request.headers.get("if-none-match"), None):
-            return not_modified_response(None)
         return _head_export_response(dataset.record.title, format)
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL

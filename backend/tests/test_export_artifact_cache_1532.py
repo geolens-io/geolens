@@ -3809,3 +3809,32 @@ async def test_a_cold_head_evaluates_preconditions_without_building(
     )
     if expected == 200:
         assert "content-length" not in resp.headers
+
+
+async def test_a_cold_get_with_if_none_match_star_answers_304_without_building(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """`GET If-None-Match: *` on a cold cache is a 304 that converts nothing.
+
+    fix(#1532 review r21): the wildcard asks "does the resource have a
+    representation at all", which is answerable without producing one. Before
+    this the cold GET converted the whole export and then answered 304 from the
+    freshly built validator — the correct status, reached by doing all the work
+    the status says was unnecessary. A specific tag still proceeds to the build,
+    which is the only place it can be evaluated exactly.
+    """
+    dataset = await _dataset(test_db_session, "Cold GET Star")
+
+    resp = await client.get(
+        _url(dataset.id), headers={**admin_auth_header, "If-None-Match": "*"}
+    )
+
+    assert resp.status_code == 304, resp.text
+    assert conversions.count == 0, "the wildcard revalidation ran the conversion"
+    assert "etag" not in resp.headers
+
+    specific = await client.get(
+        _url(dataset.id), headers={**admin_auth_header, "If-None-Match": '"held"'}
+    )
+    assert specific.status_code == 200
+    assert conversions.count == 1, "a specific tag must reach the build to be evaluated"
