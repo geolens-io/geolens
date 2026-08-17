@@ -36,6 +36,22 @@ on the cache-HIT path would pay a sequential scan — 509 ms on the 5M-row table
 #905 measured. Ten of those to save ten conversions is the wrong trade against a
 timestamp comparison that costs nothing.
 
+Who cleans up
+-------------
+One mechanism: the sweep. fix(#1532 review r1) removed an eviction-on-build step
+that ran alongside it, because the two answered the same question with different
+safety margins and the cheaper one was racy. Two builders publishing at once —
+which for a non-deterministic format means two different objects — each computed
+"everything but mine and the one I superseded" and deleted the other's, so the
+surviving pointer could name a key that was already gone.
+
+That was fixable by preserving more, but not worth keeping once the sweep had to
+learn about orphans anyway: reclamation is exactly the question "could anything
+still be reading this", it has one right answer (an age horizon well past any
+download), and having two mechanisms answer it meant the stricter one was
+deciding while the looser one was the one that mattered. So the horizon is the
+only rule, and nothing deletes an object a request might still be streaming.
+
 Why the artifact is content-addressed
 -------------------------------------
 The stored object is named by the SHA-256 of its own bytes, and a small pointer
@@ -209,8 +225,38 @@ def _pointer_key(dataset_id: uuid.UUID, selection: str) -> str:
     return f"{_dataset_prefix(dataset_id)}/{selection}/current.json"
 
 
-def _artifact_key(dataset_id: uuid.UUID, selection: str, digest: str) -> str:
-    return f"{_dataset_prefix(dataset_id)}/{selection}/{digest}.bin"
+def _artifact_key(
+    dataset_id: uuid.UUID, selection: str, digest: str, built_at: float
+) -> str:
+    """``{built_at}-{digest}.bin``.
+
+    fix(#1532 review r1): the timestamp is in the NAME because the sweep has to
+    be able to age an object whose pointer never landed. An upload that succeeds
+    and a pointer write that does not — a failed request, a process killed
+    between the two — leaves a ``.bin`` no ``current.json`` mentions, and a sweep
+    that derives every deletion from pointers leaks it forever. Multi-gigabyte,
+    for a one-off bbox export nobody repeats.
+
+    ``StorageProvider`` exposes no modified time, and adding one is a port
+    signature change, so the object carries its own age. The digest stays in the
+    name: it is still what makes the object content-addressed and it is still the
+    ETag.
+    """
+    return f"{_dataset_prefix(dataset_id)}/{selection}/{int(built_at)}-{digest}.bin"
+
+
+def _key_built_at(key: str) -> float | None:
+    """The build time encoded in an artifact key, or None if it has none.
+
+    None means "not one of ours" and the sweep leaves it alone. A key it cannot
+    date is a key it cannot prove is abandoned, and deleting on a parse failure
+    is how a sweep turns a naming change into data loss.
+    """
+    name = key.rsplit("/", 1)[-1]
+    stamp, _, rest = name.partition("-")
+    if not rest.endswith(".bin") or not stamp.isdigit():
+        return None
+    return float(stamp)
 
 
 async def lookup_raw(dataset_id: uuid.UUID, selection: str) -> ExportArtifact | None:
@@ -279,7 +325,8 @@ async def store(
     """
     try:
         digest, size = await _digest_and_size(file_path)
-        key = _artifact_key(dataset_id, selection, digest)
+        built_at = time.time()
+        key = _artifact_key(dataset_id, selection, digest, built_at)
         storage = get_storage()
         with open(file_path, "rb") as handle:
             await storage.put(key, handle)
@@ -287,11 +334,10 @@ async def store(
             key=key,
             digest=digest,
             size=size,
-            built_at=time.time(),
+            built_at=built_at,
             filename=filename,
             media_type=media_type,
         )
-        superseded = await lookup_raw(dataset_id, selection)
         await storage.put(
             _pointer_key(dataset_id, selection),
             json.dumps(
@@ -304,12 +350,6 @@ async def store(
                     "media_type": artifact.media_type,
                 }
             ).encode(),
-        )
-        await _evict_superseded(
-            storage,
-            dataset_id,
-            selection,
-            keep={artifact.key} | ({superseded.key} if superseded else set()),
         )
         await _sweep_occasionally()
         return artifact
@@ -344,36 +384,6 @@ async def _digest_and_size(file_path: str) -> tuple[str, int]:
     return await run_in_thread_draining(_hash)
 
 
-async def _evict_superseded(
-    storage, dataset_id: uuid.UUID, selection: str, keep: set[str]
-) -> None:
-    """Drop this selection's older artifacts, keeping the two most recent.
-
-    Who cleans up, answer one: the next build of the same selection. Growth is
-    therefore bounded at two objects per selection without anything periodic
-    having to run, and without asking the storage protocol for a modified time it
-    does not expose portably.
-
-    TWO rather than one, and the extra generation is the point. A reader that
-    resolved the previous pointer may still be streaming from the object it
-    names, and deleting it the instant a rebuild lands would truncate that
-    download — reintroducing, as a delete instead of a splice, exactly the
-    mid-read incoherence this module exists to remove.
-    """
-    prefix = f"{_dataset_prefix(dataset_id)}/{selection}/"
-    try:
-        keys = await storage.list(prefix)
-    except Exception:  # broad: eviction is housekeeping, never a request failure
-        return
-    for key in keys:
-        if key.endswith("current.json") or key in keep:
-            continue
-        try:
-            await storage.delete(key)
-        except Exception:  # broad: the periodic sweep will get it
-            logger.warning("export_cache_evict_failed", key=key, exc_info=True)
-
-
 async def _sweep_occasionally() -> None:
     """Run the sweep at most once every ``_SWEEP_INTERVAL_SECONDS`` per process.
 
@@ -398,17 +408,30 @@ async def _sweep_occasionally() -> None:
 
 
 async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
-    """Reclaim whole selections nobody has rebuilt in a long time. Returns how many keys went.
+    """Reclaim what nothing can still be reading. Returns how many keys went.
 
-    Who cleans up, answer two. Eviction-on-build bounds a selection that keeps
-    being asked for; this bounds the ones that stop — a one-off export with an
-    unusual bbox would otherwise keep its two objects forever.
+    The only reclamation path (fix(#1532 review r1); see the module docstring for
+    what was removed and why). Three populations, because they go stale for
+    different reasons:
 
-    Age comes from the pointer's own ``built_at`` rather than from object mtime.
-    That is what makes this portable: ``StorageProvider`` exposes no modified
-    time, S3 and the local provider would answer differently if it did, and a
-    copy resets it. The artifact records when it was made, so the sweep reads it
-    back instead of asking the filesystem to remember.
+    - **Abandoned selections.** A pointer older than the horizon means nobody has
+      rebuilt this selection in an hour, so the pointer and everything under it
+      goes. Age comes from the pointer's own ``built_at`` rather than from object
+      mtime, which is what makes this portable: ``StorageProvider`` exposes no
+      modified time, S3 and the local provider would answer differently if it
+      did, and a copy resets it.
+
+    - **Superseded artifacts.** A rebuild publishes a new object and leaves the
+      previous one unreferenced. It is kept until the horizon so a reader that
+      resolved the old pointer can finish, which is the margin the removed
+      eviction step could not offer.
+
+    - **Orphans.** An upload that succeeded while its pointer write did not
+      leaves a ``.bin`` no pointer mentions. Deriving every deletion from
+      pointers, as the first revision did, leaked those forever. They are aged
+      from the timestamp in their own key instead, and only removed when no LIVE
+      pointer names them — so an object published seconds ago is safe even though
+      the sweep has not seen its pointer yet.
 
     An hour rather than the TTL because expiry and reclamation are different
     questions. Expiry asks whether an artifact may answer a NEW request;
@@ -424,6 +447,7 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
         return 0
 
     stale_prefixes: list[str] = []
+    live_artifacts: set[str] = set()
     for key in keys:
         if not key.endswith("current.json"):
             continue
@@ -431,13 +455,24 @@ async def sweep(*, age_threshold_seconds: int = _SWEEP_AGE_SECONDS) -> int:
             pointer = json.loads(await storage.get(key))
             if float(pointer["built_at"]) < cutoff:
                 stale_prefixes.append(key[: -len("current.json")])
+            else:
+                live_artifacts.add(str(pointer["key"]))
         except Exception:  # broad: an unreadable pointer is left for a human
             continue
 
-    removed = 0
+    doomed: list[str] = []
     for key in keys:
-        if not any(key.startswith(prefix) for prefix in stale_prefixes):
+        if any(key.startswith(prefix) for prefix in stale_prefixes):
+            doomed.append(key)
             continue
+        if key in live_artifacts or key.endswith("current.json"):
+            continue
+        built_at = _key_built_at(key)
+        if built_at is not None and built_at < cutoff:
+            doomed.append(key)
+
+    removed = 0
+    for key in doomed:
         try:
             await storage.delete(key)
             removed += 1

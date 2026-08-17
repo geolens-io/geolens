@@ -25,6 +25,7 @@ Requirements:
 import os
 import shutil
 import tempfile
+import time
 import uuid
 
 import pytest
@@ -520,4 +521,394 @@ async def test_a_storage_failure_still_serves_the_download(
     assert resp.content == conversions.body
     assert conversions.count == 1, (
         "the download came from a conversion, which is the fallback this test is about"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r1: a client that names what it is resuming
+# ---------------------------------------------------------------------------
+
+
+async def test_a_resume_naming_the_previous_artifact_is_not_sliced(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """fix(#1532 review r1): `If-Range` is evaluated before the artifact is sliced.
+
+    The artifact publishes a strong validator now, so a careful client CAN name
+    the representation it is resuming — curl -C does, browsers do, and GDAL may
+    one day. Without evaluating it, such a client got a 206 of the CURRENT
+    artifact at the offsets it measured against the previous one: the same splice
+    `may_serve_range` closes for the rebuild case, arriving through the very
+    header the client sent to prevent it.
+
+    RFC 9110 section 13.1.5 gives one answer for a validator that does not match:
+    ignore the Range and serve the complete representation. Not a 206, and not a
+    412 — `If-Range` is an optimization the server may decline.
+    """
+    dataset = await _dataset(test_db_session, "IfRange Stale")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    stale_etag = first.headers["etag"]
+
+    conversions.body = b"the export after the data moved on" * 8
+    dataset.bump_tile_cache_version()
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+    await client.get(url, headers=admin_auth_header)  # publishes the new artifact
+
+    resumed = await client.get(
+        url,
+        headers={**admin_auth_header, "Range": "bytes=10-19", "If-Range": stale_etag},
+    )
+
+    assert resumed.status_code == 200, (
+        f"a resume naming the previous artifact returned {resumed.status_code}. "
+        f"A 206 here is ten bytes of the new export at offsets measured against "
+        f"the old one, which is the splice this PR exists to prevent."
+    )
+    assert resumed.content == conversions.body
+    assert "content-range" not in resumed.headers
+
+
+async def test_a_matching_if_range_still_resumes(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The vacuity guard: `If-Range` must admit the requests it should.
+
+    An implementation that ignored every Range whenever `If-Range` was present
+    would pass the test above and break resumable downloads for exactly the
+    clients careful enough to use the header.
+    """
+    dataset = await _dataset(test_db_session, "IfRange Match")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    etag = first.headers["etag"]
+
+    resumed = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=10-19", "If-Range": etag}
+    )
+
+    assert resumed.status_code == 206, (
+        f"a matching If-Range returned {resumed.status_code}; resumable "
+        f"downloads through this header are broken"
+    )
+    assert resumed.content == first.content[10:20]
+
+
+async def test_a_weak_if_range_never_authorizes_a_resume(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """`W/` is not a match, even wrapping the right digest.
+
+    Section 13.1.5 specifies the STRONG comparison function for `If-Range`,
+    unlike `If-None-Match`, and the difference is not an oversight: a resumed
+    range needs the two representations byte-identical at the offsets it skipped,
+    where a cache revalidation only needs them equivalent.
+    """
+    dataset = await _dataset(test_db_session, "IfRange Weak")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+
+    resumed = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=10-19",
+            "If-Range": f"W/{first.headers['etag']}",
+        },
+    )
+
+    assert resumed.status_code == 200, (
+        f"a weak If-Range returned {resumed.status_code}; strong comparison "
+        f"means W/ can never authorize a resume, however familiar the digest "
+        f"inside it looks"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r1: the read path on every provider
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method", ["get_stream", "get_range_stream", "size", "exists"])
+def test_no_provider_stubs_out_a_method_the_read_path_calls(method):
+    """fix(#1532 review r1): every provider must really implement the read path.
+
+    ``AzureBlobStorageProvider.get_stream`` raised ``NotImplementedError`` behind
+    a docstring asserting "the router returns a SAS-signed redirect for the azure
+    storage backend, so this method is unreachable". It was reachable, and the
+    claim was already stale before this PR — fix(#1540) established that no
+    ingest path writes ``storage_backend="azure"`` at all, so managed assets take
+    the LOCAL branch, whose whole-object GET calls exactly that method. The
+    cached export made a second caller.
+
+    The failure mode is what makes this worth a structural test rather than an
+    integration one. The raise happens while ``StreamingResponse`` is consuming
+    the iterator — after the response has begun — so the client gets a truncated
+    body rather than a clean 500, and no status-code assertion anywhere would
+    have seen it.
+
+    Source inspection rather than a call, deliberately: this has to run in the
+    default suite, and S3 and Azure both need a backend to call. A docstring
+    explaining why a method is unreachable is exactly what this catches, because
+    that is the form the bug took.
+    """
+    import inspect
+
+    from app.platform.storage.azure import AzureBlobStorageProvider
+    from app.platform.storage.local import LocalStorageProvider
+    from app.platform.storage.s3 import S3StorageProvider
+
+    for provider in (LocalStorageProvider, S3StorageProvider, AzureBlobStorageProvider):
+        source = inspect.getsource(getattr(provider, method))
+        assert "raise NotImplementedError" not in source, (
+            f"{provider.__name__}.{method} is a NotImplementedError stub, and the "
+            f"export and COG read paths both call it. On that backend the "
+            f"download fails mid-stream, which reads to the client as a truncated "
+            f"file rather than an error."
+        )
+
+
+class _NoPresignProvider:
+    """A provider shaped like Azure: real reads, no presigned URLs.
+
+    Azure signs with SAS tokens and raises ``NotImplementedError`` from both
+    presign methods. This double keeps that shape over a real local provider so
+    the route's cold and cache-hit paths can be driven end to end without an
+    emulator, and so any attempt to reach for a presigned URL on this path fails
+    loudly instead of quietly working on the two backends that have one.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        if name.startswith("generate_presigned"):
+            raise NotImplementedError(
+                "Azure uses SAS tokens; this provider has no presigned URLs"
+            )
+        return getattr(self._inner, name)
+
+
+async def test_a_provider_without_presigning_serves_cold_and_hit(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """Both paths, on the provider shape that has no redirect to fall back to.
+
+    Cold (the request that builds and stores) and hit (a later request with no
+    usable Range) both end in ``get_stream``. Asserting them together is the
+    point: the cold path was reachable before this PR too, and a change that
+    fixed one while leaving the other would pass a test that checked one.
+    """
+    from app.platform.storage import get_storage
+
+    dataset = await _dataset(test_db_session, "Azure Shaped")
+    wrapped = _NoPresignProvider(get_storage())
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage", lambda: wrapped
+    )
+    monkeypatch.setattr("app.processing.export.router.get_storage", lambda: wrapped)
+
+    cold = await client.get(_url(dataset.id), headers=admin_auth_header)
+    hit = await client.get(_url(dataset.id), headers=admin_auth_header)
+
+    assert conversions.count == 1, "precondition: the second request is a cache hit"
+    assert cold.status_code == 200 and cold.content == conversions.body, (
+        "the cold path streamed nothing usable on a provider with no presigned "
+        "URL to redirect to"
+    )
+    assert hit.status_code == 200 and hit.content == conversions.body, (
+        "the cache-hit path streamed nothing usable"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Review r1: two publishers
+# ---------------------------------------------------------------------------
+
+
+async def test_two_publishers_do_not_evict_each_others_artifacts(
+    test_db_session, monkeypatch
+):
+    """fix(#1532 review r1): cleanup must not delete another writer's truth.
+
+    An eviction-on-build step used to run here and computed "delete everything
+    but mine and the one I superseded". Two builders racing a cold or expired
+    selection — which for a non-deterministic format like GPKG really do produce
+    different bytes, and so different keys — each read the same previous pointer,
+    published their own, and then evicted. Interleaved, each deleted the other's
+    object and the surviving pointer could name a key that was already gone: a
+    404 for a resource that plainly exists, from a cache whose whole job is to
+    make the URL stable.
+
+    The step is gone; the sweep's age horizon is the only reclamation rule now,
+    and it is chosen so nothing deletes an object a request might still be
+    streaming. This test is what keeps it gone. Anything that reintroduces
+    delete-on-publish fails here, because the losing builder's object is exactly
+    what such a step would remove.
+
+    The overlap is FORCED, not hoped for. A barrier holds both builders at their
+    pre-publish pointer read until both have arrived, so neither can have seen
+    the other's publish — which is the state that made the bug reachable. A
+    sequence of two ``store`` calls proves nothing about a race; the assertion
+    below that both arrived is what makes this one about concurrency.
+    """
+    import asyncio
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Two Publishers")
+    selection = "race"
+    storage = get_storage()
+
+    arrived = asyncio.Event()
+    waiting = 0
+    real_digest = cache._digest_and_size
+
+    async def _barriered(file_path):
+        """Hold both builders after hashing and before publishing.
+
+        The digest is the last thing that happens before an object and a pointer
+        are written, so releasing both here puts the two publishes inside each
+        other — the interleaving the removed eviction step could not survive.
+        """
+        nonlocal waiting
+        result = await real_digest(file_path)
+        if waiting < 2:
+            waiting += 1
+            if waiting == 2:
+                arrived.set()
+            await asyncio.wait_for(arrived.wait(), timeout=5)
+        return result
+
+    monkeypatch.setattr(cache, "_digest_and_size", _barriered)
+
+    async def _publish(payload: bytes):
+        with tempfile.NamedTemporaryFile(delete=False) as handle:
+            handle.write(payload)
+            path = handle.name
+        return await cache.store(
+            dataset.id,
+            selection,
+            file_path=path,
+            filename="x.geojson",
+            media_type="application/geo+json",
+        )
+
+    first, second = await asyncio.gather(
+        _publish(b"builder one output"), _publish(b"builder two output")
+    )
+
+    assert waiting == 2, (
+        "the two builders did not overlap, so this test would have proved "
+        "nothing about the race it is named for"
+    )
+    assert first is not None and second is not None
+    assert first.key != second.key, (
+        "precondition: the two builders must produce different objects, which is "
+        "what a non-deterministic format does and what makes eviction a race"
+    )
+
+    pointer = await cache.lookup_raw(dataset.id, selection)
+    assert pointer is not None
+    assert await storage.exists(pointer.key), (
+        f"the surviving pointer names {pointer.key}, which the other publisher's "
+        f"eviction deleted. Every request for this selection now 404s on an "
+        f"object the catalog says exists."
+    )
+    for artifact in (first, second):
+        assert await storage.exists(artifact.key), (
+            f"{artifact.key} was evicted while a reader could still be streaming "
+            f"it; both in-flight downloads have to survive the other's cleanup"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Review r1: orphans
+# ---------------------------------------------------------------------------
+
+
+async def test_the_sweep_reclaims_an_artifact_whose_pointer_never_landed(
+    test_db_session,
+):
+    """fix(#1532 review r1): an upload that outlived its pointer is not immortal.
+
+    ``store`` writes the object and then the pointer, which is the safe order —
+    a published pointer always names bytes that are already there. The residue is
+    the other case: a pointer write that fails, or a process killed between the
+    two, leaves a ``.bin`` no ``current.json`` mentions. The first revision
+    derived every deletion from pointers, so those leaked forever, at whatever
+    size a one-off bbox export happens to be.
+
+    They are aged from the timestamp in their own key now, because
+    ``StorageProvider`` exposes no modified time and adding one is a port
+    signature change.
+    """
+    from app.processing.export import artifact_cache as cache
+    from app.platform.storage import get_storage
+
+    dataset = await _dataset(test_db_session, "Orphan Sweep")
+    storage = get_storage()
+    old = time.time() - 7200
+    orphan = cache._artifact_key(dataset.id, "abandoned", "d" * 64, old)
+    await storage.put(orphan, b"bytes nobody points at")
+
+    assert await storage.exists(orphan), "precondition: the orphan is there"
+
+    removed = await cache.sweep(age_threshold_seconds=3600)
+
+    assert not await storage.exists(orphan), (
+        f"the sweep removed {removed} key(s) and left the orphan. Nothing else "
+        f"will ever reclaim it: no pointer names it, so a pointer-derived sweep "
+        f"cannot see it."
+    )
+
+
+async def test_the_sweep_keeps_what_is_still_published(test_db_session):
+    """The vacuity guard for the orphan sweep, and the sharper half.
+
+    A sweep that reclaimed every object no pointer named would delete an artifact
+    published one second ago, because it scans a listing rather than a
+    transaction — and it would do it while that artifact is being downloaded.
+    Live pointers are consulted first, and an object too young to have aged out
+    is kept regardless.
+    """
+    from app.processing.export import artifact_cache as cache
+    from app.platform.storage import get_storage
+
+    dataset = await _dataset(test_db_session, "Sweep Keeps")
+    storage = get_storage()
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"a freshly published export")
+        path = handle.name
+    artifact = await cache.store(
+        dataset.id,
+        "live",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+    assert artifact is not None
+
+    young_orphan = cache._artifact_key(dataset.id, "live", "e" * 64, time.time())
+    await storage.put(young_orphan, b"published moments ago, pointer pending")
+
+    await cache.sweep(age_threshold_seconds=3600)
+
+    assert await storage.exists(artifact.key), (
+        "the sweep deleted a published artifact; a live pointer names it"
+    )
+    assert await storage.exists(young_orphan), (
+        "the sweep deleted an object younger than the horizon. A publish is two "
+        "writes, and a sweep that raced the second one would delete the first."
     )

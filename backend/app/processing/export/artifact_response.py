@@ -19,6 +19,13 @@ representation; every later request inside the freshness window is a slice of
 that one stored object; and the first request after the data changes builds again
 and gets a whole representation again. No two responses in that sequence are ever
 parts of different files presented as parts of one.
+
+**A client that CAN name what it is resuming is held to it.** The artifact
+publishes a strong validator, so `If-Range` is evaluated here too (fix(#1532)
+review r1): a non-matching or weak one means ignore the Range and answer 200,
+per RFC 9110 section 13.1.5. Without that, a client resuming the previous
+artifact after a rebuild got a 206 of the current one — the same splice, reached
+through the header a careful client sends precisely to avoid it.
 """
 
 from fastapi import HTTPException, status
@@ -26,7 +33,11 @@ from fastapi.responses import StreamingResponse
 from starlette.background import BackgroundTask
 from starlette.responses import Response
 
-from app.platform.http.ranges import RANGE_UNSATISFIABLE, parse_byte_range
+from app.platform.http.ranges import (
+    RANGE_UNSATISFIABLE,
+    parse_byte_range,
+    range_bound_to_this_version,
+)
 from app.processing.export.artifact_cache import ExportArtifact
 from app.processing.export.service import file_response_content_disposition
 
@@ -78,6 +89,7 @@ def read_response(
     artifact: ExportArtifact,
     *,
     range_header: str | None,
+    if_range: str | None = None,
     may_serve_range: bool,
     background: BackgroundTask | None = None,
 ) -> Response:
@@ -102,6 +114,21 @@ def read_response(
     headers = artifact_headers(artifact)
 
     if not may_serve_range:
+        return _whole(storage, artifact, headers, background)
+
+    # fix(#1532 review r1): evaluate If-Range before slicing. The artifact now
+    # publishes a strong validator, so a client CAN name the representation it
+    # is resuming — curl -C, browsers, and any future GDAL that learns to — and
+    # a client that names the previous artifact must not be handed a slice of
+    # the current one at those offsets. That is the same splice `may_serve_range`
+    # closes for the rebuild case, arriving through the header a careful client
+    # sends precisely to avoid it.
+    #
+    # "GDAL sends neither" was true of the client this issue was filed for and
+    # is not a reason to answer wrongly for the ones that do. Strong comparison
+    # and ignore-on-mismatch are RFC 9110 section 13.1.5, and the evaluation is
+    # the one fix(#1540) settled on the COG route rather than a second copy.
+    if not range_bound_to_this_version(if_range, artifact.etag):
         return _whole(storage, artifact, headers, background)
 
     byte_range = parse_byte_range(range_header, artifact.size)

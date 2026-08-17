@@ -3556,8 +3556,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # needs the same one and lives under processing/, which may not import
     # modules/catalog/. Nothing about the parsing changed; it is the same file's
     # worth of reasoning, now in a place both callers can reach.
-    # Cap 1686 -> 1589, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1589,
+    # fix(#1532 review r1): -18 more. `_range_bound_to_this_version` followed the
+    # parser into the shared module, because the export route has to evaluate the
+    # same If-Range precondition and a second implementation of strong comparison
+    # is how the two would drift.
+    # Cap 1686 -> 1571, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1571,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because

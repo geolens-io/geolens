@@ -230,6 +230,35 @@ async def test_get_range_stream_round_trip(azurite_provider):
 
 
 @pytest.mark.asyncio
+async def test_get_stream_round_trip(azurite_provider):
+    """The whole blob streams back byte-exact from one download call.
+
+    fix(#1532 review r1): this method raised ``NotImplementedError`` behind a
+    docstring claiming the router always redirects Azure through a SAS URL. It
+    does not — fix(#1540) established that no ingest path writes
+    ``storage_backend="azure"``, so managed assets take the LOCAL branch, whose
+    whole-object GET calls this — and the cached export download added a second
+    caller. The raise landed while ``StreamingResponse`` was already consuming
+    the iterator, so the client saw a truncated body rather than an error.
+    """
+    payload = bytes(range(256)) * 4096  # 1 MiB exactly
+    key = "test/whole_stream.bin"
+    await azurite_provider.put(key, payload)
+
+    chunks = [chunk async for chunk in azurite_provider.get_stream(key)]
+
+    assert b"".join(chunks) == payload
+
+
+@pytest.mark.asyncio
+async def test_get_stream_missing_key_raises(azurite_provider):
+    """Same FileNotFoundError contract every provider normalizes to (#430 BA-24)."""
+    with pytest.raises(FileNotFoundError):
+        async for _ in azurite_provider.get_stream("nope.bin"):
+            pass
+
+
+@pytest.mark.asyncio
 async def test_get_range_stream_missing_key_raises(azurite_provider):
     """Same FileNotFoundError contract every provider normalizes to (#430 BA-24)."""
     with pytest.raises(FileNotFoundError):

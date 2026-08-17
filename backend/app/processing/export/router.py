@@ -557,6 +557,7 @@ async def export_dataset_endpoint(
             get_storage(),
             artifact,
             range_header=request.headers.get("range"),
+            if_range=request.headers.get("if-range"),
             may_serve_range=True,
         )
 
@@ -660,6 +661,7 @@ async def export_dataset_endpoint(
             get_storage(),
             stored,
             range_header=request.headers.get("range"),
+            if_range=request.headers.get("if-range"),
             may_serve_range=False,
             background=BackgroundTask(_cleanup_export, temp_dir),
         )

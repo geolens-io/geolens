@@ -139,18 +139,45 @@ class AzureBlobStorageProvider:
         return await asyncio.to_thread(_get_range)
 
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
-        """Azure streaming is served via SAS redirect; this method should never be reached.
+        """Stream a whole blob from ONE ``download_blob`` call.
 
-        The router returns a SAS-signed redirect for the azure storage backend,
-        so this method is unreachable in the current code path. Defining it
-        explicitly satisfies the StorageProvider Protocol and surfaces a clear
-        error if a future refactor accidentally invokes it on Azure.
+        fix(#1532 review r1): this used to raise ``NotImplementedError`` on the
+        strength of a docstring saying "the router returns a SAS-signed redirect
+        for the azure storage backend, so this method is unreachable". It was not
+        unreachable, and the claim was already stale before this PR: fix(#1540)
+        established that no ingest path writes ``storage_backend="s3"`` or
+        ``"azure"`` at all, so every managed asset takes the LOCAL branch — whose
+        whole-object GET calls exactly this method. The cached export made a
+        second caller, and both would have failed on an Azure deployment.
+
+        Worse than failing: the raise happens while ``StreamingResponse`` is
+        consuming the iterator, which is after the response has begun, so the
+        client sees a truncated body rather than a clean 500.
+
+        Same shape as ``get_range_stream`` above, minus the window, and the same
+        precision about what "one call" means: one ``download_blob``, chunked as
+        it arrives, with the SDK's own transfer strategy deciding how many
+        requests a large blob becomes.
         """
-        raise NotImplementedError(
-            "Azure streaming is served via SAS redirect; this method should "
-            "never be reached."
-        )
-        yield b""  # unreachable, satisfies AsyncIterator return type
+        blob = self._client.get_blob_client(container=self.container, blob=key)
+
+        def _open():
+            try:
+                return blob.download_blob()
+            except ResourceNotFoundError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError
+                # across providers, the same call get_range_stream makes.
+                raise FileNotFoundError(key) from e
+
+        downloader = await asyncio.to_thread(_open)
+        chunks = await asyncio.to_thread(downloader.chunks)
+        iterator = iter(chunks)
+        sentinel = object()
+        while True:
+            chunk = await asyncio.to_thread(next, iterator, sentinel)
+            if chunk is sentinel or not chunk:
+                return
+            yield chunk
 
     async def get_range_stream(
         self, key: str, start: int, length: int

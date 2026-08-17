@@ -115,3 +115,37 @@ def parse_byte_range(raw: str | None, size: int) -> tuple[int, int] | str | None
     # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
     # not know the size ask for more than exists on purpose.
     return (start, min(end, size - 1))
+
+
+def range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
+    """May this Range be served, given the client's ``If-Range`` precondition?
+
+    RFC 9110 section 13.1.5: ``If-Range`` is evaluated with the STRONG
+    comparison function, and on a mismatch the server MUST ignore the Range
+    header field — which means answering 200 with the whole representation, not
+    416 and not a 206 of the new bytes. The client throws away the prefix it
+    was resuming and starts again, which is the outcome that keeps two versions
+    of an object from being spliced into one file.
+
+    Three ways this returns False, all of them "cannot prove the client is
+    resuming the object it started":
+
+    - the validators differ (the usual case: a replacement landed);
+    - the client sent ``W/"..."``, which strong comparison never matches;
+    - this representation has no validator at all, so there is nothing to
+      compare against.
+
+    An absent ``If-Range`` returns True: the client asked for a range with no
+    precondition, and RFC 9110 gives the server nothing to check it against.
+    Such a client can still splice across a replacement, and no server-side
+    change can stop it — which is why the validator has to be ON the response,
+    where a client that wants to resume safely can pick it up.
+
+    fix(#1532 review r1): moved here from the COG route alongside the parser,
+    because the export download needs the identical evaluation and lives under
+    ``processing/``. Reimplementing strong comparison a second time is how the
+    two would drift.
+    """
+    if if_range is None:
+        return True
+    return etag is not None and if_range.strip() == etag

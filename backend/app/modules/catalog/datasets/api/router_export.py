@@ -61,7 +61,11 @@ from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.core.public_urls import get_public_urls
 from app.platform.extensions import get_catalog_port
-from app.platform.http.ranges import RANGE_UNSATISFIABLE, parse_byte_range
+from app.platform.http.ranges import (
+    RANGE_UNSATISFIABLE,
+    parse_byte_range,
+    range_bound_to_this_version,
+)
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_storage_key
 from app.standards.ogc.errors import (
@@ -1173,7 +1177,7 @@ async def _s3_cog_response(
             etag,
         )
 
-    if request.headers.get("range") and not _range_bound_to_this_version(
+    if request.headers.get("range") and not range_bound_to_this_version(
         request.headers.get("if-range"), etag
     ):
         # fix(#1540 review P1): ONE get_object, streamed — not
@@ -1342,32 +1346,10 @@ def _cog_etag(raster_asset) -> str | None:
     return f'"{sha}"' if sha else None
 
 
-def _range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
-    """May this Range be served, given the client's ``If-Range`` precondition?
-
-    RFC 9110 section 13.1.5: ``If-Range`` is evaluated with the STRONG
-    comparison function, and on a mismatch the server MUST ignore the Range
-    header field — which means answering 200 with the whole representation, not
-    416 and not a 206 of the new bytes. The client throws away the prefix it
-    was resuming and starts again, which is the outcome that keeps two COGs
-    from being spliced into one file.
-
-    Three ways this returns False, all of them "cannot prove the client is
-    resuming the object it started":
-
-    - the validators differ (the usual case: a replacement landed);
-    - the client sent ``W/"..."``, which strong comparison never matches;
-    - this row has no ``sha256`` at all, so there is nothing to compare against.
-
-    An absent ``If-Range`` returns True: the client asked for a range with no
-    precondition, and RFC 9110 gives the server nothing to check it against.
-    Such a client can still splice across a replacement, and no server-side
-    change can stop it — which is why the validator has to be ON the response,
-    where a client that wants to resume safely can pick it up.
-    """
-    if if_range is None:
-        return True
-    return etag is not None and if_range.strip() == etag
+# fix(#1532 review r1): `_range_bound_to_this_version` moved to
+# `app/platform/http/ranges.py` as `range_bound_to_this_version`, alongside the
+# parser, for the same reason: the export download evaluates the identical
+# If-Range precondition and cannot import this module.
 
 
 async def _cog_object_size(
@@ -1532,7 +1514,7 @@ async def _local_cog_response(
 
     byte_range = parse_byte_range(request.headers.get("range"), total_bytes)
 
-    if byte_range is not None and not _range_bound_to_this_version(
+    if byte_range is not None and not range_bound_to_this_version(
         request.headers.get("if-range"), etag
     ):
         # fix(#1540 review P2): the resumed range names a version this object is
