@@ -1213,11 +1213,18 @@ async def _s3_cog_response(
     if request.headers.get("range") and not _range_bound_to_this_version(
         request.headers.get("if-range"), etag
     ):
+        # fix(#1540 review P1): ONE get_object, streamed — not
+        # `_iter_storage_range` over the whole object, which issues a ranged
+        # request per 1 MiB chunk. A caller can select this branch deliberately
+        # by sending any stale validator, so at a chunk apiece a 5 GiB COG cost
+        # 5,120 object-store requests that the per-request rate limiter counts
+        # as one. `_iter_storage_range` is right where the client named a
+        # window and wrong here, where the answer is the entire object.
         total_bytes = await _cog_object_size(
             storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
         )
         return StreamingResponse(
-            _iter_storage_range(storage, physical_asset_key, 0, total_bytes),
+            storage.get_stream(physical_asset_key),
             media_type="image/tiff",
             headers={
                 **_cog_headers(filename, etag),

@@ -92,18 +92,36 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
 
     @staticmethod
     def _set_cors_headers(response: Response, origin: str) -> None:
-        """Add standard CORS headers to the response."""
+        """Add standard CORS headers to the response.
+
+        fix(#1540 review P2): HEAD, the conditional/range request headers, and
+        the range response headers are all here because #1528 gave
+        ``/datasets/{id}/download/cog`` a HEAD, byte ranges, an ``ETag`` and
+        ``If-Range``/``If-None-Match`` handling, and a browser client could use
+        none of it. A preflight for ``If-Range`` was refused, so a resumable
+        cross-origin download never started; and where the request did succeed,
+        JavaScript could not read ``ETag`` or ``Content-Range``, because a
+        response header not named in ``Access-Control-Expose-Headers`` is not
+        merely undocumented — it is invisible to the caller.
+
+        ``Range`` is listed even though the Fetch standard safelists simple
+        byte-range values: the safelisting is conditional on the syntax, and a
+        request pairing it with ``If-Range`` is preflighted regardless.
+        ``Content-Length`` is NOT listed because it is already a safelisted
+        response header, and repeating it here would suggest the others are too.
+        """
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
         response.headers["Access-Control-Allow-Methods"] = (
-            "GET, POST, PUT, PATCH, DELETE, OPTIONS"
+            "GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS"
         )
         response.headers["Access-Control-Allow-Headers"] = (
             "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token, "
-            "X-Config-Preview-Token"
+            "X-Config-Preview-Token, Range, If-Range, If-None-Match"
         )
         response.headers["Access-Control-Expose-Headers"] = (
             "X-Total-Count, Link, Content-Crs, Content-Language, "
+            "ETag, Content-Range, Accept-Ranges, Content-Disposition, "
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "

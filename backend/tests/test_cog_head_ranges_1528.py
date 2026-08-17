@@ -893,6 +893,101 @@ async def test_a_bucket_issued_validator_is_not_recognized_and_fails_safe(
     assert resumed.content == _COG_BYTES
 
 
+async def test_a_full_download_works_when_the_provider_is_s3(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """The shape a real S3 deployment has, which is NOT the ``s3`` row.
+
+    ``storage_backend`` is a property of the ASSET, and no ingest path writes
+    ``"s3"`` to it: ``tasks_raster_common.py`` and ``tasks_vrt.py`` both create
+    rows as ``"local"``, the replace swap resets them to ``"local"``, and STAC
+    imports write ``"remote"``. ``"local"`` means "GeoLens owns these bytes";
+    which object store holds them is ``get_storage()``'s business. So on a
+    deployment configured for S3 the COG download takes this branch, with an
+    ``S3StorageProvider`` underneath — and its whole-object GET calls
+    ``get_stream``, which raised ``NotImplementedError`` on the strength of a
+    docstring saying the router always redirects for s3.
+
+    That is fixed as a consequence of fix(#1540 review P1), which needed a real
+    ``get_stream`` for the stale-resume fallback. This test is here because the
+    two facts are independent: the fallback could be implemented some other way
+    and this path would silently go back to raising.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="local",  # what ingest actually writes, S3 or not
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/managed.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    whole = await client.get(
+        f"/datasets/{dataset.id}/download/cog", headers=admin_auth_header
+    )
+
+    assert whole.status_code == 200, (
+        f"a full COG download on an S3-backed deployment returned "
+        f"{whole.status_code}; this is the path every managed raster takes."
+    )
+    assert whole.content == _COG_BYTES
+    assert whole.headers.get("etag") == f'"{raster_asset.sha256}"'
+
+
+async def test_the_stale_resume_fallback_makes_one_object_store_request(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """fix(#1540 review P1): the fallback must not re-request the object per MiB.
+
+    Answering a stale resume with the whole representation is the RFC 9110
+    section 13.1.5 contract and is not in question. How the body is produced
+    was: streaming it through ``_iter_storage_range`` issued a ranged
+    ``get_object`` per 1 MiB, so a 5 GiB COG cost 5,120 object-store requests
+    and the per-request rate limiter counted the lot as one.
+
+    It is selectable, too. Any caller who can reach this route — including an
+    anonymous holder of a download token for a public dataset — sends one stale
+    validator and picks the expensive branch on purpose.
+
+    3 MiB rather than the module's usual payload because the amplification is
+    invisible below the chunk size: at 204,800 bytes the old loop and the new
+    stream both make exactly one request.
+    """
+    big = bytes(range(256)) * (3 * 1024 * 4)  # 3 MiB exactly
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/big.cog.tif",
+        sha256=hashlib.sha256(big).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, big)
+
+    calls: list[str] = []
+    s3_storage.client.meta.events.register(
+        "before-call.s3", lambda model, **kwargs: calls.append(model.name)
+    )
+
+    resumed = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=1048576-2097151",
+            "If-Range": '"' + "0" * 64 + '"',
+        },
+        follow_redirects=False,
+    )
+
+    assert resumed.status_code == 200, (
+        f"precondition: the stale resume should serve the whole object, got "
+        f"{resumed.status_code}"
+    )
+    assert resumed.content == big
+    assert calls == ["HeadObject", "GetObject"], (
+        f"serving a 3 MiB object took {len(calls)} object-store requests "
+        f"{calls}. One stat for the length and one body: a request per chunk "
+        f"is an amplification a caller can select with a header."
+    )
+
+
 async def test_s3_keeps_redirecting_everything_that_is_not_a_stale_resume(
     client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
 ):

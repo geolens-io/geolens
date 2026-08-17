@@ -3424,7 +3424,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # If-Range) and a 302 cannot strip the client's Range on the way past. The rest
     # is _if_none_match_matches and _cog_not_modified, so the ETag this route
     # publishes can end a revalidation with 304 instead of another multi-GB body.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1525,
+    #
+    # +7, all comment. The stale-resume fallback now streams from one get_object
+    # rather than _iter_storage_range over the whole object, which issued a ranged
+    # request per 1 MiB — 5,120 of them for a 5 GiB COG, selectable by any caller
+    # willing to send a stale validator and counted by the rate limiter as one
+    # request. The lines say which of the two streaming helpers belongs where.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1532,
 }
 
 
