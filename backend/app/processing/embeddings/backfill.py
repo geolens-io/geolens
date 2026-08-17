@@ -58,6 +58,18 @@ def _compact_error(exc: BaseException) -> str:
     Redacted because this message now reaches the log on its own rather than
     buried in one traceback among thousands: a provider error names its
     endpoint, and an endpoint can carry a key in its query string.
+
+    fix(#1577 review, codex P1): redact BEFORE truncating. The redactor
+    recognises userinfo by its terminating `@`, so a cut that lands between the
+    password and that `@` leaves `https://alice:hunter2` behind, which
+    `redact_url_credentials` then reads as a host and a port and passes through
+    untouched. Truncating last also costs nothing extra on the path this fix is
+    about: the two passes above already walk the whole message, and the
+    `DBAPIError` case redacts 73 characters of driver message where the old
+    order redacted the full 200. The redactor is linear (0.0028 ms at 73
+    characters, 13 ms at 100 KB), so a message large enough to matter would have
+    to be pathological — and it could not be helped by a cheaper cut first,
+    since a cut before redaction is the bug being fixed, at whatever offset.
     """
     origin = getattr(exc, "orig", None)
     message = str(origin if origin is not None else exc)
@@ -65,9 +77,10 @@ def _compact_error(exc: BaseException) -> str:
     if marker != -1:
         message = message[:marker]
     message = " ".join(message.split())
+    message = redact_url_credentials(message)
     if len(message) > _MAX_ERROR_CHARS:
         message = message[: _MAX_ERROR_CHARS - 3] + "..."
-    return redact_url_credentials(message)
+    return message
 
 
 def _error_fields(exc: BaseException, traced: set[str]) -> dict[str, Any]:

@@ -264,19 +264,88 @@ async def test_per_record_line_names_the_failure_without_the_vector():
 
 
 def test_compact_error_redacts_a_credential_in_an_endpoint():
-    """A provider error names its endpoint, and an endpoint can carry a key."""
+    """A provider error names its endpoint, and an endpoint can carry a key.
+
+    Asserted as equality on the whole line rather than as a substring. It pins
+    the redactor's actual output, which a containment check does not, and it
+    keeps the endpoint visible without writing `"…example.com" in compact` —
+    a shape CodeQL flags as incomplete URL sanitization wherever it appears
+    (fix(#1577 review)).
+    """
     from app.processing.embeddings.backfill import _compact_error
 
     exc = RuntimeError(
         "embedding request failed: POST "
         "https://embeddings.example.com/v1/embeddings?api_key=hunter2 returned 401"
     )
-    compact = _compact_error(exc)
 
-    assert "hunter2" not in compact
-    assert "embeddings.example.com" in compact, "the endpoint itself is still useful"
+    assert _compact_error(exc) == (
+        "embedding request failed: POST "
+        "https://embeddings.example.com/v1/embeddings?api_key=%3Credacted%3E "
+        "returned 401"
+    )
     # Counterfactual: the secret is genuinely in the message being logged.
     assert "hunter2" in str(exc)
+
+
+def _message_placing_at_past_the_truncation_point(url: str, offset: int) -> str:
+    """A message whose truncation point falls `offset` characters before `url`'s `@`.
+
+    The prefix length is computed from `_MAX_ERROR_CHARS` rather than written
+    down, so the test keeps testing the boundary if that constant moves.
+    """
+    from app.processing.embeddings.backfill import _MAX_ERROR_CHARS
+
+    return "x" * (_MAX_ERROR_CHARS - 3 - url.index("@") + offset) + url
+
+
+def test_compact_error_redacts_userinfo_the_truncation_point_would_have_split():
+    """The order of redact and truncate is load-bearing (#1577 review, codex P1).
+
+    The redactor recognises userinfo by its terminating `@`. Truncate first and
+    a message long enough to push that `@` one character past the cut leaves
+    `https://alice:hunter2` behind, which parses as a host and a port and
+    survives redaction intact — on every compact line, which is the fast path
+    this whole change exists to make cheap.
+    """
+    from app.processing.embeddings.backfill import _MAX_ERROR_CHARS, _compact_error
+
+    url = "https://alice:hunter2@example.com/v1"
+    message = _message_placing_at_past_the_truncation_point(url, 0)
+    cut = _MAX_ERROR_CHARS - 3
+
+    # Non-vacuity: the `@` sits exactly one character past the cut, and the
+    # whole password sits before it. Truncating first therefore hands the
+    # redactor a string it cannot recognise as carrying userinfo.
+    assert message.index("@") == cut
+    assert message[:cut].endswith("https://alice:hunter2")
+
+    compact = _compact_error(RuntimeError(message))
+
+    assert "hunter2" not in compact, compact
+    assert compact.endswith("..."), "the message was long enough to be truncated"
+
+
+def test_compact_error_redacts_userinfo_the_truncation_point_would_have_entered():
+    """The neighbouring boundary: the cut lands inside the password, not after it.
+
+    Truncating first leaves a fragment (`https://alice:hun`) that carries part
+    of the secret and all of the username. Redacting first leaves neither, so
+    no `user:` fragment reaches the log at any cut position.
+    """
+    from app.processing.embeddings.backfill import _MAX_ERROR_CHARS, _compact_error
+
+    url = "https://alice:hunter2@example.com/v1"
+    message = _message_placing_at_past_the_truncation_point(url, 4)
+    cut = _MAX_ERROR_CHARS - 3
+
+    # Non-vacuity: the cut lands three characters into the password.
+    assert message[:cut].endswith("https://alice:hun")
+
+    compact = _compact_error(RuntimeError(message))
+
+    assert "alice:" not in compact, compact
+    assert "hun" not in compact, compact
 
 
 def test_compact_error_truncates_a_long_message():
