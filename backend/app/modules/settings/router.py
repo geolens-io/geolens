@@ -526,9 +526,14 @@ async def update_settings(
                     db, old_model_value, user_id=user.id, ip_address=ip, commit=False
                 )
             await db.commit()
-            await EMBEDDING_DIMS.apply_side_effects(old_dims_value)
+            # fix(#1543): and in ONE step, for the same reason the rollback is
+            # one transaction. Evicting the two keys in sequence would put the
+            # mismatched pair back into readable state on the way out of a
+            # rollback whose whole purpose is to prevent it.
+            rolled_back: list[tuple] = [(EMBEDDING_DIMS, old_dims_value)]
             if rollback_model:
-                await EMBEDDING_MODEL.apply_side_effects(old_model_value)
+                rolled_back.append((EMBEDDING_MODEL, old_model_value))
+            await apply_side_effects_batch(rolled_back)
             logger.exception(
                 "Embedding column rebuild failed, rolling back the embedding pair",
                 old_dims=old_dims_value,
