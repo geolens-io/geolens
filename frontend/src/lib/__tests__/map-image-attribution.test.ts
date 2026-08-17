@@ -403,6 +403,123 @@ describe('readRenderedAttribution', () => {
   it('drops a declaration that has neither text nor an image', () => {
     expect(readRenderedAttribution(sourcesMap('<div>   </div>', '<span></span>'))).toEqual([]);
   });
+
+  /* fix(#1541 codex P1): "no `used` gating — over-crediting is the safe
+   * direction" was true while the band could grow without limit. Once the
+   * outputs gained a capacity limit and a prefix fit, an unused credit stopped
+   * being extra information and became a credit that DISPLACES a required one,
+   * and prefix-fitting makes position decisive. Shown sources sort first. */
+
+  /** A style with layers, so the reader can tell shown sources from hidden. */
+  function layeredMap(
+    sources: Record<string, string>,
+    layers: { source: string; hidden?: boolean }[],
+  ) {
+    return {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: Object.fromEntries(
+          Object.entries(sources).map(([id, attribution]) => [id, { attribution }]),
+        ),
+        layers: layers.map(({ source, hidden }, i) => ({
+          id: `layer-${i}`,
+          source,
+          layout: hidden ? { visibility: 'none' } : {},
+        })),
+      }),
+    };
+  }
+
+  it('puts shown sources ahead of hidden ones, whatever order the style declares', () => {
+    const credits = readRenderedAttribution(
+      layeredMap(
+        { hiddenFirst: '© Hidden Provider', basemap: '© Visible Provider' },
+        [
+          { source: 'hiddenFirst', hidden: true },
+          { source: 'basemap' },
+        ],
+      ),
+    );
+    // The hidden source is declared FIRST and would otherwise lead — which is
+    // what let it consume a bounded budget and reduce the visible provider to
+    // a bare marker.
+    expect(credits).toEqual(['© Visible Provider', '© Hidden Provider']);
+  });
+
+  it('credits a hidden source when there is room, rather than filtering it out', () => {
+    // Ordering, not filtering: a source hidden at capture time can still be
+    // part of what the map is of, so nothing is dropped while it fits.
+    const credits = readRenderedAttribution(
+      layeredMap({ a: '© Shown', b: '© Hidden' }, [{ source: 'a' }, { source: 'b', hidden: true }]),
+    );
+    expect(credits).toEqual(['© Shown', '© Hidden']);
+  });
+
+  it('keeps the style order inside each group', () => {
+    const credits = readRenderedAttribution(
+      layeredMap(
+        { h1: '© Hidden One', s1: '© Shown One', h2: '© Hidden Two', s2: '© Shown Two' },
+        [
+          { source: 'h1', hidden: true },
+          { source: 's1' },
+          { source: 'h2', hidden: true },
+          { source: 's2' },
+        ],
+      ),
+    );
+    expect(credits).toEqual(['© Shown One', '© Shown Two', '© Hidden One', '© Hidden Two']);
+  });
+
+  it('treats a source no layer references as hidden', () => {
+    const credits = readRenderedAttribution(
+      layeredMap({ orphan: '© Orphan', live: '© Live' }, [{ source: 'live' }]),
+    );
+    expect(credits).toEqual(['© Live', '© Orphan']);
+  });
+
+  it('keeps the shown position for a credit that both a shown and a hidden source carry', () => {
+    // Deduped across the groups, not within them, or the hidden copy would win
+    // the leading slot back.
+    const credits = readRenderedAttribution(
+      layeredMap(
+        { hidden: '© Shared', other: '© Other', shown: '© Shared' },
+        [
+          { source: 'hidden', hidden: true },
+          { source: 'other' },
+          { source: 'shown' },
+        ],
+      ),
+    );
+    expect(credits).toEqual(['© Other', '© Shared']);
+  });
+
+  it('leaves a style with no layers in its declared order', () => {
+    // Nothing to sort by, and no reason to invent one.
+    expect(readRenderedAttribution(sourcesMap('© First', '© Second'))).toEqual([
+      '© First',
+      '© Second',
+    ]);
+  });
+
+  it('does not let a hidden credit crowd a visible one out of a bounded output', () => {
+    // The whole point, asserted at an output rather than at the reader: a
+    // 5,000-character hidden credit against a 250px thumbnail.
+    const hidden = `© Hidden Provider ${'licensing statement '.repeat(300)}`.slice(0, 5000);
+    const map = layeredMap({ hiddenSrc: hidden, shownSrc: '© Visible Provider' }, [
+      { source: 'hiddenSrc', hidden: true },
+      { source: 'shownSrc' },
+    ]);
+    const ctx = makeCtx();
+    drawAttributionOverlay(
+      makeCanvas(400, 250, ctx),
+      readRenderedAttribution(map),
+      THUMBNAIL_ATTRIBUTION,
+    );
+    const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+    expect(drawn.join(' ')).toContain('© Visible Provider');
+    // The hidden one is what the marker elides, which is the correct loss.
+    expect(drawn[drawn.length - 1]).toBe('+1 more credit');
+  });
 });
 
 /* fix(#1541 codex P1 x2): every output used to elide — the export band via a
@@ -718,7 +835,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     // Line count here is the STUB's, not the browser's — the 0.5em metric only
     // approximates real glyph widths, so this pins the height FORMULA and the
     // totality, not the header table's measured "real load" column.
-    const budget = attributionBandHeightBudget(1056, 600 + 32, 1);
+    const budget = attributionBandHeightBudget(1056, 600 + 32);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
@@ -874,7 +991,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
 describe('measureAttributionBand / drawAttributionBand', () => {
   /** The budget a real 1056x600 export at dpr 1 hands the band. Big enough
    *  that these cases never reach it; the ceiling has its own describe below. */
-  const ROOMY = attributionBandHeightBudget(1056, 632, 1);
+  const ROOMY = attributionBandHeightBudget(1056, 632);
 
   it('reserves gap + lines + gap, scaled by dpr', () => {
     const ctx = makeCtx();
@@ -988,9 +1105,9 @@ describe('export canvas ceiling', () => {
 
   it('costs an ordinary desktop export nothing', () => {
     // The numbers the constants' comment quotes, so they cannot drift from it.
-    expect(attributionBandLineCapacity(attributionBandHeightBudget(1056, 632, 1), 1)).toBe(951);
+    expect(attributionBandLineCapacity(attributionBandHeightBudget(1056, 632), 1)).toBe(951);
     // A maximized builder on a 5K display at dpr 2: 4400x2400 map, 32px footer.
-    expect(attributionBandLineCapacity(attributionBandHeightBudget(4400, 2432, 2), 2)).toBe(41);
+    expect(attributionBandLineCapacity(attributionBandHeightBudget(4400, 2432), 2)).toBe(41);
   });
 
   it('costs the same pixels at any dpr, so the cap is a canvas budget not a line count', () => {
@@ -999,26 +1116,34 @@ describe('export canvas ceiling', () => {
     expect(attributionBandLineCapacity(10, 1)).toBe(0);
   });
 
-  it('floors the band at one line when the fixed blocks have spent the ceiling', () => {
-    // A canvas already past the cap on its own is past it with or without a
-    // band, so dropping every credit there would trade a licensing obligation
-    // for nothing. One line, and the marker counts what it could not show.
-    const budget = attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION, 1);
-    expect(budget).toBe(12 + 16 + 12);
-    expect(attributionBandLineCapacity(budget, 1)).toBe(1);
+  /* fix(#1541 codex P2 round 5): the budget used to be floored at one minimum
+   * band, which overran the very ceiling it sat inside — a floor and a ceiling
+   * that did not know about each other. It never exceeds actual headroom now,
+   * and under one line's worth it declines rather than drawing something
+   * invalid. codex's case is the first assertion. */
 
+  it('never exceeds actual headroom, even to keep one line', () => {
+    // width 2048, dpr 2, 8,140px reserved: 52px of headroom against an 8,192px
+    // ceiling. The old floor answered 80 and produced an 8,220px canvas whose
+    // area is past 16,777,216.
+    const budget = attributionBandHeightBudget(2048, 8140);
+    expect(budget).toBe(52);
+    expect(8140 + budget).toBeLessThanOrEqual(exportCanvasHeightCeiling(2048));
+    expect(2048 * (8140 + budget)).toBeLessThanOrEqual(EXPORT_CANVAS_MAX_AREA);
+
+    // 52px cannot hold a line at dpr 2, so the band declines outright: no
+    // credit, no marker, and critically no pixels added to a canvas at the cap.
+    expect(attributionBandLineCapacity(budget, 2)).toBe(0);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
-      { maxWidth: EXPORT_MAX_TEXT_WIDTH, dpr: 1, maxHeight: budget },
+      { maxWidth: EXPORT_MAX_TEXT_WIDTH, dpr: 2, maxHeight: budget },
     );
-    expect(measured.lines).toEqual([`+${REAL_CREDITS.length} more credits`]);
-    expect(measured.height).toBe(40);
-    // Scaled by dpr, since the floor is one LINE and a line is dpr-sized.
-    expect(attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION, 2)).toBe(80);
+    expect(measured).toEqual({ lines: [], fontPx: 24, height: 0 });
   });
 
-  it('draws nothing only when a caller passes no room at all', () => {
+  it('gives the band nothing once the fixed blocks have spent the ceiling', () => {
+    expect(attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION)).toBe(0);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
@@ -1027,11 +1152,25 @@ describe('export canvas ceiling', () => {
     expect(measured).toEqual({ lines: [], fontPx: 12, height: 0 });
   });
 
+  it('still marks rather than declines when one line does fit', () => {
+    // The boundary above it: exactly one line of budget renders the marker,
+    // so declining is reserved for genuinely having nowhere to put anything.
+    const budget = 12 + 16 + 12;
+    expect(attributionBandLineCapacity(budget, 1)).toBe(1);
+    const measured = measureAttributionBand(
+      makeCtx() as unknown as CanvasRenderingContext2D,
+      REAL_CREDITS,
+      { maxWidth: EXPORT_MAX_TEXT_WIDTH, dpr: 1, maxHeight: budget },
+    );
+    expect(measured.lines).toEqual([`+${REAL_CREDITS.length} more credits`]);
+    expect(measured.height).toBe(40);
+  });
+
   it('at 200 credits x 5,000 characters: the canvas stays encodable, every credit accounted for', () => {
     const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
     for (const c of credits) expect(c).toHaveLength(5000);
 
-    const budget = attributionBandHeightBudget(EXPORT_WIDTH, RESERVED, 1);
+    const budget = attributionBandHeightBudget(EXPORT_WIDTH, RESERVED);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       credits,
@@ -1068,7 +1207,7 @@ describe('export canvas ceiling', () => {
       {
         maxWidth: EXPORT_MAX_TEXT_WIDTH,
         dpr: 1,
-        maxHeight: attributionBandHeightBudget(EXPORT_WIDTH, RESERVED, 1),
+        maxHeight: attributionBandHeightBudget(EXPORT_WIDTH, RESERVED),
       },
     );
     expect(measured.lines.length).toBeGreaterThan(2);

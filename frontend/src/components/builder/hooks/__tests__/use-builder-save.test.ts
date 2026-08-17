@@ -163,11 +163,15 @@ function createMockMap(
   }
   return {
     getContainer: vi.fn(() => container),
-    // The structured path the reader prefers: one source per credit.
+    // The structured path the reader prefers: one source per credit, each
+    // referenced by a visible layer. fix(#1541 codex P1): the reader sorts
+    // shown sources ahead of hidden ones, and a style whose sources no layer
+    // references reads as all-hidden — a state no real map is in.
     getStyle: vi.fn(() => ({
       sources: Object.fromEntries(
         credits.map((credit, i) => [`src-${i}`, { attribution: credit }]),
       ),
+      layers: credits.map((_, i) => ({ id: `layer-${i}`, source: `src-${i}`, layout: {} })),
     })),
     getCenter: vi.fn(() => ({ lng: -73.9, lat: 40.7 })),
     getZoom: vi.fn(() => 10),

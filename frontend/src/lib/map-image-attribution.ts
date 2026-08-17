@@ -284,11 +284,35 @@ function dedupe(entries: string[]): string[] {
  *     that survives one reader and not its sibling is still a lost credit.
  *  3. Nothing, with a DEV warning.
  *
- * Two costs of preferring (1), both accepted:
+ * Within (1), SHOWN SOURCES COME FIRST.
  *
- *  - The `used` gating. MapLibre hides a source whose layers are all hidden and
- *    the source list does not, so the image may credit a source the screen does
- *    not. Over-crediting is the safe direction.
+ * fix(#1541 codex P1): the list used to be in whatever order the style declared
+ * its sources, and "no `used` gating — over-crediting is the safe direction"
+ * was an accepted cost of that. It stopped being safe the moment the outputs
+ * gained a capacity limit and a prefix fit. Over-crediting is free only while
+ * everything fits; once entries compete for a bounded budget an unused credit
+ * does not add information, it DISPLACES a required one, and prefix-fitting
+ * makes position decisive. A hidden source that happened to sort first could
+ * eat all 18 lines of a thumbnail and reduce the visible provider to "+1 more
+ * credit". The builder deliberately leaves attribution on hidden sources
+ * (map-sync.ts: MapLibre recomputes its own control from the live `used` flag,
+ * so hiding every layer on a source drops its credit with no code of ours
+ * running), so the reader sees credits the screen does not.
+ *
+ * Ordering rather than filtering, deliberately: a source hidden at capture time
+ * can still be part of what the map is OF, and `used` is a live-render concept
+ * a headless export cannot always reproduce. Everything is still credited when
+ * there is room — the over-crediting property is intact — and what the marker
+ * elides first is now the hidden sources, which is the correct thing to lose.
+ *
+ * `shownSourceIds` is a deliberately coarse approximation of `used`: a source
+ * is shown if any style layer references it and that layer is not
+ * `visibility: none`. It ignores zoom ranges, so it over-reports. That costs
+ * nothing, because the answer only ORDERS the list — a source it gets wrong is
+ * mis-sorted, never dropped.
+ *
+ * One cost of preferring (1), accepted:
+ *
  *  - MapLibre's own "MapLibre" self-credit does not reach the image. It is a
  *    control default rather than a source, so no structured list contains it,
  *    and it was DECIDED on #1541 review that it should stay out rather than be
@@ -299,17 +323,35 @@ function dedupe(entries: string[]): string[] {
  *    exists to remove, to satisfy an obligation that does not exist. The
  *    interactive map still shows it — the control default is untouched.
  *
- * Both are the price of a credit list that cannot be mangled by its own
- * content, which is the property the whole marker count rests on.
+ * That is the price of a credit list that cannot be mangled by its own content,
+ * which is the property the whole marker count rests on.
  */
+interface AttributionStyle {
+  sources?: Record<string, { attribution?: string | null } | null>;
+  layers?: ({ source?: unknown; layout?: { visibility?: string } | null } | null)[];
+}
+
+/** Source ids a visible style layer references — a coarse stand-in for
+ *  MapLibre's live `used` flag, sound enough to ORDER by. See the docstring:
+ *  it over-reports, and over-reporting only mis-sorts. */
+function shownSourceIds(style: AttributionStyle | null | undefined): Set<string> {
+  const shown = new Set<string>();
+  for (const layer of style?.layers ?? []) {
+    if (!layer || layer.layout?.visibility === 'none') continue;
+    if (typeof layer.source === 'string') shown.add(layer.source);
+  }
+  return shown;
+}
+
 export function readRenderedAttribution(map: AttributionMapLike): string[] {
-  const style = map.getStyle?.() as
-    | { sources?: Record<string, { attribution?: string | null } | null> }
-    | null
-    | undefined;
+  const style = map.getStyle?.() as AttributionStyle | null | undefined;
   const sources = style?.sources;
   if (sources) {
-    const fromSources: string[] = [];
+    // Partitioned rather than sorted, so the style's own order survives inside
+    // each group and the result is stable without depending on sort stability.
+    const shown = shownSourceIds(style);
+    const fromShown: string[] = [];
+    const fromHidden: string[] = [];
     for (const id of Object.keys(sources)) {
       // The LIVE source first: a vector source loaded from a TileJSON `url`
       // receives its attribution in that response, and `getStyle()` serializes
@@ -322,9 +364,11 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
       const raw = typeof live === 'string' && live.trim() ? live : sources[id]?.attribution;
       if (typeof raw !== 'string' || !raw.trim()) continue;
       const decoded = decodeHtmlText(raw);
-      if (decoded) fromSources.push(decoded);
+      if (decoded) (shown.has(id) ? fromShown : fromHidden).push(decoded);
     }
-    const deduped = dedupe(fromSources);
+    // Deduped ACROSS the two groups, so a credit carried by both a shown and a
+    // hidden source keeps the shown one's leading position.
+    const deduped = dedupe([...fromShown, ...fromHidden]);
     if (deduped.length > 0) return deduped;
   }
 
@@ -807,9 +851,10 @@ const BAND_GAP = 12;
  * What it costs a desktop export: nothing until the MAP canvas alone is around
  * 4,096x4,096 device pixels. The measured 1056px-wide export still gets 951
  * lines of band; a 4400x2400 canvas (a maximized builder on a 5K display at
- * dpr 2) still gets 41. Past that the fixed blocks have spent the whole
- * ceiling, and the band falls to the one-line floor below rather than to
- * nothing — see `attributionBandHeightBudget`.
+ * dpr 2) still gets 41. Past that the fixed blocks have spent the ceiling on
+ * their own and the band gets whatever is left, down to nothing — see
+ * `attributionBandHeightBudget` for why it does not overrun the cap to keep a
+ * line, and what that costs.
  */
 export const EXPORT_CANVAS_MAX_DIMENSION = 16_384;
 export const EXPORT_CANVAS_MAX_AREA = 16_777_216;
@@ -825,32 +870,37 @@ export function exportCanvasHeightCeiling(canvasWidth: number): number {
   );
 }
 
-/** One line of band, gaps included: the least height that can carry a credit
- *  or the marker that counts the ones it could not. */
-function minimumBandHeight(dpr: number): number {
-  return (BAND_GAP * 2 + BAND_LINE_HEIGHT) * (dpr || 1);
-}
-
 /**
  * How much of that ceiling is left for the band once the fixed blocks (title,
  * map, legend, footer) have taken theirs. The band is the only elastic term in
  * the export's height, so it absorbs the whole clamp.
  *
- * Floored at one line rather than at zero. The fixed blocks can spend the whole
- * conservative ceiling on their own — a map canvas past ~4,096x4,096 does it —
- * and that canvas is over the cap with or without a band, so suppressing the
- * credit there would trade a licensing obligation for nothing. One line plus
- * the marker still says what the image is crediting and how much it is not.
- * The property that matters is preserved either way: the band is never the term
- * that pushes an otherwise-encodable canvas over.
+ * fix(#1541 codex P2 round 5): this used to be floored at one minimum band, so
+ * that a canvas whose fixed blocks had eaten the ceiling still got a credit.
+ * A floor and a ceiling that did not know about each other: at width 2048, dpr
+ * 2 and 8,140px reserved, the ceiling is 8,192, and the floor replaced the
+ * remaining 52px with 80 — an 8,220px canvas, past the very area limit the
+ * ceiling exists to hold. It defeated the fix it was sitting inside.
+ *
+ * ACTUAL POSITIVE HEADROOM, never more. Under one line's worth the band
+ * declines entirely rather than drawing something invalid, which is the same
+ * call `drawAttributionOverlay` makes at `capacity < 1`.
+ *
+ * The residual, stated rather than hidden: in that window the export carries no
+ * credit and no marker, because there is nowhere to put either. It is reachable
+ * only when the fixed blocks are within one band-height of the cap — for the
+ * 200-layer legend at dpr 2 on an iPad-sized canvas, the legend alone is past
+ * the ceiling before the band is measured. Such a canvas is at or over the cap
+ * whatever the band does, and the alternative is the one the ceiling was added
+ * to prevent: an image that cannot be encoded at all. Collapsing the band's own
+ * gaps would buy back a ~40px window; it is not worth threading a variable gap
+ * through the measure/draw pair for a window that narrow.
  */
 export function attributionBandHeightBudget(
   canvasWidth: number,
   reservedHeight: number,
-  dpr: number,
 ): number {
-  const headroom = exportCanvasHeightCeiling(canvasWidth) - Math.ceil(reservedHeight);
-  return Math.max(minimumBandHeight(dpr), headroom);
+  return Math.max(0, exportCanvasHeightCeiling(canvasWidth) - Math.ceil(reservedHeight));
 }
 
 /** How many credit lines fit a band budget of `maxHeight` device pixels, the
