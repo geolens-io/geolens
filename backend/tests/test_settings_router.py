@@ -265,6 +265,38 @@ async def test_get_tile_config_never_derives_the_app_url():
     assert set(configured.await_args.kwargs) == {"request"}
 
 
+def test_tile_config_resolves_the_app_url_through_the_sharing_accessor():
+    """Pin which resolver the handler depends on, because the mocks must match it.
+
+    fix(#1548 review r12): this is the second rename in this PR to leave a mock
+    naming a function ``get_tile_config`` no longer calls. Both times the patch
+    silently did nothing, the REAL resolver ran against the ``db=object()`` these
+    tests pass, and it raised ``AttributeError: 'object' object has no attribute
+    'execute'``.
+
+    Both times a full-file run stayed green and hid it: an earlier test in the
+    file primes the 60s module-global public-URL cache, so the loader returns the
+    cached dict without ever touching ``db``. Only a selection that runs these
+    tests without that priming — which is what CI's sharding did — reaches the
+    database access and fails. So a green file is not evidence here; this
+    assertion is.
+    """
+    import inspect
+
+    from app.modules.settings import router as settings_router
+
+    source = inspect.getsource(settings_router.get_tile_config)
+    assert "get_shareable_app_url(" in source, (
+        "tile-config must resolve the app URL through get_shareable_app_url, "
+        "which answers a hosted tenant with its middleware-validated origin"
+    )
+    assert "get_public_app_url(" not in source, (
+        "tile-config must NOT use the resolver: its fallbacks name an "
+        "/api-stripped PUBLIC_API_URL or the caller's own headers, and this "
+        "field feeds share and embed URL generation"
+    )
+
+
 @pytest.mark.anyio
 async def test_get_tile_config_exposes_tenant_mvt_source_layer_prefix():
     """The frontend receives the exact source-layer prefix emitted by MVT."""
@@ -290,8 +322,11 @@ async def test_get_tile_config_exposes_tenant_mvt_source_layer_prefix():
             "tenant_data_schema",
             return_value=expected,
         ) as schema_name,
+        # fix(#1548 review r12): the tile-config handler resolves the app URL
+        # through get_shareable_app_url, not the resolver. Left mocking the old
+        # name, the real one runs against `db=object()` and raises AttributeError.
         patch(
-            "app.modules.settings.router.get_public_app_url",
+            "app.modules.settings.router.get_shareable_app_url",
             AsyncMock(return_value="https://acme.example.com"),
         ),
         patch(
@@ -323,8 +358,9 @@ async def test_get_tile_config_fails_closed_without_tenant_context():
             SimpleNamespace(cdn_base_url=None),
         ),
         patch.object(settings_router, "is_multi_tenant", return_value=True),
+        # fix(#1548 review r12): see the note above — get_shareable_app_url.
         patch(
-            "app.modules.settings.router.get_public_app_url",
+            "app.modules.settings.router.get_shareable_app_url",
             AsyncMock(return_value=None),
         ),
         patch(
