@@ -650,21 +650,30 @@ async def export_dataset_endpoint(
     # multi-gigabyte export to tell it to keep what it has is work the answer
     # never needed. A specific If-None-Match tag cannot match no validator and
     # proceeds — to the build, which then evaluates it exactly.
-    if if_none_match_matches(request.headers.get("if-none-match"), None):
+    #
+    # fix(#1532 review r22): in the ORDER section 13.2.2 fixes — If-Match is
+    # authoritative before If-None-Match, so a request carrying a stale
+    # specific If-Match beside `If-None-Match: *` is a 412, never a 304. HEAD
+    # holds no validator and will not build one, so a specific If-Match tag,
+    # which nothing here can verify, is refused rather than guessed — the call
+    # the shared helpers already make for a COG row with no stored digest, and
+    # the one the rebuild path makes when the file could not be hashed.
+    # (`If-Match: *` passes: the representation exists.) GET takes the
+    # wildcard shortcut only when If-Match cannot fail without a validator;
+    # otherwise it proceeds to the build, which answers both exactly and in
+    # order.
+    if_match_ok_unbuilt = if_match_passes(request.headers.get("if-match"), None)
+    if request.method == "HEAD" and not if_match_ok_unbuilt:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="Export has changed since the version you hold",
+        )
+    if if_match_ok_unbuilt and if_none_match_matches(
+        request.headers.get("if-none-match"), None
+    ):
         return not_modified_response(None)
     if request.method == "HEAD":
-        # Only the cold case reaches here; a hit returned above. HEAD holds no
-        # validator and will not build one, so a specific If-Match tag, which
-        # nothing here can verify, is refused rather than guessed — the call the
-        # shared helpers already make for a COG row with no stored digest, and
-        # the one the rebuild path makes when the file could not be hashed.
-        # (`If-Match: *` passes: the representation exists.) GET leaves If-Match
-        # to the build below, which can answer it exactly.
-        if not if_match_passes(request.headers.get("if-match"), None):
-            raise HTTPException(
-                status_code=status.HTTP_412_PRECONDITION_FAILED,
-                detail="Export has changed since the version you hold",
-            )
+        # Only the cold case reaches here; a hit returned above.
         return _head_export_response(dataset.record.title, format)
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL

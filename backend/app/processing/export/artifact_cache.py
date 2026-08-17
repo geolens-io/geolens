@@ -463,7 +463,7 @@ async def lookup(
             # key's stamp, so a future one would outrank every honest sibling
             # for as long as the skew lasts. Skipping it costs a rebuild.
             continue
-        published_at = modified.get(key, built_at)
+        published_at = _published_at(modified.get(key, built_at), built_at, now)
         if cutoff <= published_at:
             candidates.append((built_at, size, digest, key))
 
@@ -493,6 +493,34 @@ async def lookup(
             contested=contested,
         )
     return None
+
+
+def _published_at(modified: float, built_at: float, now: float) -> float:
+    """When this artifact became readable, bounded by clocks this worker owns.
+
+    ``modified`` is the object's ``last_modified`` and comes from the STORE's
+    clock; ``built_at`` is the key stamp and ``now`` the cutoff, both from THIS
+    worker's clock. Freshness compares them, so a skew between the two clocks
+    moves the window (fix(#1532 review r22)):
+
+    - A store clock BEHIND the worker by more than the TTL made every artifact
+      expired the moment it appeared, and every probe reconverted and uploaded
+      it — the cache silently dead. Publication cannot precede the stamp the
+      worker minted before uploading, so ``built_at`` is the floor: the store's
+      answer is used when it is later, and the worker's own when it is not.
+      Worst case is the pre-r9 rule, which is a cache that works.
+    - A store clock AHEAD reports a publication this worker has not reached
+      yet. A value beyond ``now`` plus the ordinary jitter allowance is not a
+      time this worker can reason about, so it falls back to ``built_at``
+      rather than being trusted. Residual, stated: an ahead-running store
+      lengthens the window by up to its skew once this worker's clock has
+      caught up to the reported time, and by no more than the jitter allowance
+      before that. On S3 and Azure that skew is bounded by the request signing
+      window, outside which the worker could not have written at all.
+    """
+    if modified > now + _CLOCK_SLACK_SECONDS:
+        return built_at
+    return max(modified, built_at)
 
 
 async def store(

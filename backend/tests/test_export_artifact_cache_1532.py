@@ -3838,3 +3838,117 @@ async def test_a_cold_get_with_if_none_match_star_answers_304_without_building(
     )
     assert specific.status_code == 200
     assert conversions.count == 1, "a specific tag must reach the build to be evaluated"
+
+
+# ---------------------------------------------------------------------------
+# Review r22
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("method,expected_conversions", [("HEAD", 0), ("GET", 1)])
+async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    method,
+    expected_conversions,
+):
+    """`If-Match: "stale"` + `If-None-Match: *` is a 412 cold, as it is warm.
+
+    fix(#1532 review r22): RFC 9110 section 13.2.2 evaluates If-Match before
+    If-None-Match, so a failed If-Match is authoritative. The cold wildcard
+    shortcut (r21) returned 304 first, which made the answer depend on cache
+    state: the hit and rebuild paths already gave 412. HEAD refuses the
+    unverifiable tag without building; GET builds — the only place a specific
+    tag can be evaluated exactly — and then refuses it, in order.
+    """
+    dataset = await _dataset(test_db_session, f"Cold Order {method}")
+    headers = {
+        **admin_auth_header,
+        "If-Match": '"an-export-from-last-week"',
+        "If-None-Match": "*",
+    }
+    resp = await client.request(method, _url(dataset.id), headers=headers)
+
+    assert resp.status_code == 412, resp.text
+    assert conversions.count == expected_conversions
+
+    # The counterfactual: with If-Match satisfiable, the wildcard is a 304 for
+    # both verbs, and neither converts to say so.
+    fine = await client.request(
+        method,
+        _url(dataset.id),
+        headers={**admin_auth_header, "If-Match": "*", "If-None-Match": "*"},
+    )
+    assert fine.status_code == 304, fine.text
+    assert conversions.count == expected_conversions
+
+
+@pytest.mark.parametrize(
+    "stamp_age,mtime_offset,expected",
+    [
+        # store clock BEHIND by 2 TTL: the object looks published long ago,
+        # but this worker minted the stamp just now — floor at the stamp.
+        (0, -1200, "hit"),
+        # store clock AHEAD, on an artifact that really is stale: a future
+        # modified time is not trusted; the stamp says expired.
+        (1200, +600, "miss"),
+        # store clock AHEAD, on a fresh artifact: falls back to the stamp,
+        # which is fresh.
+        (0, +600, "hit"),
+        # controls: honest clocks, stale; and r9's slow upload — stamp old,
+        # published recently — still fresh.
+        (1200, -1200, "miss"),
+        (700, -10, "hit"),
+    ],
+)
+async def test_freshness_is_bounded_by_the_workers_own_clock(
+    test_db_session, stamp_age, mtime_offset, expected
+):
+    """`last_modified` is the store's clock; the cutoff and the stamp are ours.
+
+    fix(#1532 review r22): freshness compared the two directly. A store clock
+    behind by more than the TTL made every artifact expired the moment it
+    appeared — every probe reconverted and uploaded, and the cache was silently
+    dead. A store clock ahead reported a publication this worker had not
+    reached and lengthened the window by the skew. Publication is now floored
+    at the worker's own key stamp (it cannot precede the upload it names), and
+    a modified time beyond `now` plus the jitter allowance is not trusted at
+    all — the stamp answers instead.
+
+    Seeded with the key stamp and the file's mtime set INDEPENDENTLY, because
+    the skew IS the difference between them; `_seed_aged_artifact` deliberately
+    keeps them equal and is the wrong helper here.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, f"Clock Skew {stamp_age} {mtime_offset}")
+    storage = get_storage()
+    selection = "skew"
+    payload = b"skewed"
+    digest = hashlib.sha256(payload).hexdigest()
+
+    now = time.time()
+    key = cache._artifact_key(
+        dataset.id, selection, digest, len(payload), now - stamp_age
+    )
+    await storage.put(key, payload)
+    when = now + mtime_offset
+    os.utime(Path(storage.base_dir) / key, (when, when))
+
+    resolved = await cache.lookup(
+        dataset.id, selection, filename="x.geojson", media_type="application/geo+json"
+    )
+    if expected == "hit":
+        assert resolved is not None and resolved.key == key, (
+            f"stamp {stamp_age}s old, modified {mtime_offset:+}s: the artifact was "
+            f"not served. A store clock behind this worker's must not expire what "
+            f"this worker just published."
+        )
+    else:
+        assert resolved is None, (
+            f"stamp {stamp_age}s old, modified {mtime_offset:+}s: a stale artifact "
+            f"was served on the strength of a modified time from the future"
+        )
