@@ -307,26 +307,31 @@ async def test_an_anchor_from_a_superseded_configuration_still_finds_its_own_spa
     )
 
 
-async def test_an_unstamped_anchor_matches_unstamped_rows_of_its_model(
+async def test_an_unstamped_anchor_reaches_every_space_of_its_model(
     client: AsyncClient, admin_auth_header: dict, test_db_session, space
 ):
-    """Grandfathering, read from the anchor side (#1546's NULL arm).
+    """Grandfathering, read from the anchor side, and it is SYMMETRIC.
 
-    Every row in the table before migration 0052 is unstamped, and #1546 kept
-    them usable rather than empty semantic search on upgrade. The same has to
-    hold here, or related-items goes blank the morning after an upgrade on a
-    catalog where nothing is wrong.
+    #1546 decided what a NULL row means: comparable to any live space of its
+    model, because every row is NULL the day migration 0052 lands and refusing
+    them would empty semantic search until a catalog-wide re-embed finished.
+    Related items has to agree with that, and agree in both directions.
 
-    `usable_by_config(model, None)` renders `config_fingerprint IS NULL`, so an
-    unstamped anchor selects the unstamped rows of its own model. A stamped row
-    belongs to a configuration this one cannot be compared against, and the
-    second assertion is the counterfactual for the first: without it this test
-    would pass against a reader that ignored the stamp entirely, which is the
-    state being fixed.
+    Comparability of two stored rows is a property of the PAIR. Whether A and B
+    may be compared cannot depend on which one you start from, so if a stamped
+    anchor sees a NULL row — which it does, and did before this PR — then a NULL
+    anchor must see the stamped one. ``usable_by_config(model, None)`` returning
+    the model predicate ALONE is what makes those two statements the same
+    statement.
+
+    The counterfactual is a NULL row under ANOTHER model, which must still be
+    excluded: without it this would pass against a reader that had dropped the
+    model half as well, and "comparable to everything" is not the rule.
     """
     anchor = await _dataset(test_db_session, "Legacy Anchor")
     legacy_peer = await _dataset(test_db_session, "Legacy Peer")
     stamped = await _dataset(test_db_session, "Legacy Stamped")
+    foreign_model = await _dataset(test_db_session, "Legacy Other Model")
 
     await _add_row(test_db_session, anchor.record_id, _V_ANCHOR, model_name=space.model)
     await _add_row(
@@ -335,22 +340,84 @@ async def test_an_unstamped_anchor_matches_unstamped_rows_of_its_model(
     await _add_row(
         test_db_session,
         stamped.record_id,
-        _V_ANCHOR,
+        _V_NEAR,
         model_name=space.model,
         config_fingerprint=space.config_a,
+    )
+    await _add_row(
+        test_db_session,
+        foreign_model.record_id,
+        _V_ANCHOR,
+        model_name=space.other_model,
     )
 
     names = set(await _related(client, admin_auth_header, anchor.id))
 
     assert "Legacy Peer" in names, (
         f"related items returned {sorted(names)}. An all-unstamped catalog is "
-        f"what every instance looks like the day it upgrades, and it must "
-        f"behave exactly as it did before."
+        f"what every instance looks like the day it upgrades."
     )
-    assert "Legacy Stamped" not in names, (
-        f"related items returned {sorted(names)}. A stamped row belongs to a "
-        f"known configuration and an unstamped one does not, so the two are not "
-        f"comparable in the direction that matters."
+    assert "Legacy Stamped" in names, (
+        f"related items returned {sorted(names)}. A stamped anchor sees this "
+        f"record's NULL sibling, so this record must see it back — otherwise the "
+        f"same pair is comparable or not depending on which end you ask from, "
+        f"and every legacy list shrinks as records get re-embedded one at a time."
+    )
+    assert "Legacy Other Model" not in names, (
+        f"related items returned {sorted(names)}. Grandfathering a NULL "
+        f"fingerprint must not grandfather the model name with it."
+    )
+
+
+async def test_comparability_is_the_same_in_both_directions(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, space
+):
+    """``related(A)`` contains B if and only if ``related(B)`` contains A.
+
+    The defect this pins is not a wrong answer in one response; it is two
+    responses that disagree about one pair. ``usable_by_config(m, F)`` let a
+    stamped anchor see NULL rows while ``usable_by_config(m, None)`` rendered
+    both arms as ``IS NULL``, so the NULL side could not see back.
+
+    The path to it is the ordinary one, which is why it earns a test. Day zero
+    after migration 0052 every row is NULL. One edit re-embeds and stamps ONE
+    record. From then on that record vanishes from every legacy record's related
+    list while still listing them itself, and it never heals: Generate Missing
+    treats a NULL row as covered, so nothing goes back to stamp the rest.
+
+    Asserted as an equivalence, then pinned to the true side. The equivalence
+    alone holds when NEITHER direction finds the other, which is a different
+    (and also wrong) rule rather than the one being described.
+    """
+    stamped = await _dataset(test_db_session, "Symmetry Stamped")
+    legacy = await _dataset(test_db_session, "Symmetry Legacy")
+
+    await _add_row(
+        test_db_session,
+        stamped.record_id,
+        _V_ANCHOR,
+        model_name=space.model,
+        config_fingerprint=space.config_a,
+    )
+    await _add_row(test_db_session, legacy.record_id, _V_NEAR, model_name=space.model)
+
+    from_stamped = "Symmetry Legacy" in await _related(
+        client, admin_auth_header, stamped.id
+    )
+    from_legacy = "Symmetry Stamped" in await _related(
+        client, admin_auth_header, legacy.id
+    )
+
+    assert from_stamped == from_legacy, (
+        f"the stamped record lists the legacy one: {from_stamped}. The legacy "
+        f"record lists the stamped one: {from_legacy}. Comparability is a "
+        f"property of the pair, so these cannot differ — and when they do, the "
+        f"legacy record's list quietly shrinks every time another record is "
+        f"re-embedded."
+    )
+    assert from_stamped, (
+        "neither direction found the other, so the equivalence above holds "
+        "vacuously; a NULL row is comparable to any space of its model"
     )
 
 
@@ -568,144 +635,6 @@ async def test_the_port_hands_the_anchors_identity_to_its_caller(
     assert returned == await helpers.get_anchor_embedding_row(
         test_db_session, record.record_id
     ), "the port and the ranking helper must resolve the same anchor row"
-
-
-# ---------------------------------------------------------------------------
-# Review r2: grandfathering is for the side that has no choice
-# ---------------------------------------------------------------------------
-
-
-async def test_a_stamped_anchor_does_not_reach_legacy_unstamped_rows(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, space
-):
-    """fix(#1580 review r2): the stored-vs-stored predicate does not grandfather.
-
-    `usable_by_config` matches an unstamped row against any fingerprint, and
-    that is right for SEARCH: its caller holds a vector made moments ago, and on
-    upgrade day every row in the table is unstamped, so refusing them would
-    return nothing until a catalog-wide re-embed finished. The unstamped rows
-    are all there is.
-
-    Here both sides are stored and a STAMPED anchor is evidence the catalog is
-    past that morning and at least partly regenerated. The catalog where this
-    bites is an endpoint change followed by a partial re-embed: the rows still
-    carrying NULL are most likely the ones in the OLD space, and comparing them
-    against a new-space anchor is precisely the well-formed meaningless distance
-    this PR removes — on the records least likely to be looked at twice.
-
-    The legacy row here carries the anchor's own vector, so it is the nearest
-    neighbour that exists and nothing but the predicate can keep it out.
-    """
-    anchor = await _dataset(test_db_session, "Stamped Anchor")
-    same_space = await _dataset(test_db_session, "Stamped Peer")
-    legacy = await _dataset(test_db_session, "Legacy Leftover")
-
-    await _add_row(
-        test_db_session,
-        anchor.record_id,
-        _V_ANCHOR,
-        model_name=space.model,
-        config_fingerprint=space.config_a,
-    )
-    await _add_row(
-        test_db_session,
-        same_space.record_id,
-        _V_NEAR,
-        model_name=space.model,
-        config_fingerprint=space.config_a,
-    )
-    await _add_row(test_db_session, legacy.record_id, _V_ANCHOR, model_name=space.model)
-
-    items = await _related(client, admin_auth_header, anchor.id)
-
-    assert "Legacy Leftover" not in items, (
-        f"related items returned {sorted(items)}. That row predates the stamp, "
-        f"so which space it is in is unknown — and on the catalog this matters "
-        f"for, a partial re-embed, unknown means the old one."
-    )
-    assert "Stamped Peer" in items, (
-        f"related items returned {sorted(items)}; refusing NULL must not cost a "
-        f"record its own-configuration neighbours"
-    )
-
-
-def test_both_stored_readers_use_the_stored_anchor_predicate():
-    """The scoring query must not keep search's grandfathering either.
-
-    Asserted structurally rather than through data, because the data case is
-    unreachable: ``uq_record_embedding_model`` is ``(record_id, model_name)``, so
-    one record cannot hold both a stamped and an unstamped row of the same
-    model, and a neighbour whose only row is unstamped is already removed by the
-    selection filter. There is no catalog that exercises the scoring query's
-    NULL arm on its own.
-
-    Which is exactly why it needs pinning some other way. The selection and the
-    scoring are two independent readers of the same rule — fix(#1580) already
-    had to fix this pair once, when scoping the selection left the scoring
-    reporting distances from a foreign model — and a rule that cannot drift
-    apart in a test can still drift apart in the source.
-
-    A test that only named the wanted call would pass against a file that called
-    both, so the unwanted one is asserted absent too.
-
-    Comments are stripped and the CALL form is matched, not the bare name. The
-    first version of this scanned raw source and failed on the explanatory
-    comment beside the call it was checking — a predicate that cannot tell a
-    mention from a use answers a question nobody asked.
-    """
-    import inspect
-
-    from app.platform.extensions import defaults_catalog_port
-    from app.processing.embeddings import helpers
-
-    def _code(fn) -> str:
-        return "\n".join(
-            line
-            for line in inspect.getsource(fn).splitlines()
-            if not line.strip().startswith("#")
-        )
-
-    readers = {
-        "selection": _code(helpers.get_nearest_record_ids),
-        "scoring": _code(
-            defaults_catalog_port.DefaultCatalogPort.get_embedding_distances
-        ),
-    }
-
-    for name, source in readers.items():
-        assert "usable_by_stored_anchor(" in source, (
-            f"the {name} query does not call the stored-vs-stored predicate"
-        )
-        assert "usable_by_config(" not in source, (
-            f"the {name} query still calls search's predicate, which matches an "
-            f"unstamped row against a stamped anchor. Right for a fresh query "
-            f"vector, wrong for two stored rows."
-        )
-
-
-async def test_an_all_legacy_catalog_still_finds_its_neighbours(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, space
-):
-    """The half that must NOT change: upgrade day still works.
-
-    Refusing NULL against a stamped anchor is only defensible because an
-    unstamped anchor keeps matching unstamped rows. Without this the morning
-    after migration 0052 — when every row in the table is unstamped — related
-    items would go blank on a catalog where nothing is wrong, which is the
-    outcome #1546's grandfathering exists to prevent.
-    """
-    anchor = await _dataset(test_db_session, "All Legacy Anchor")
-    peer = await _dataset(test_db_session, "All Legacy Peer")
-
-    await _add_row(test_db_session, anchor.record_id, _V_ANCHOR, model_name=space.model)
-    await _add_row(test_db_session, peer.record_id, _V_NEAR, model_name=space.model)
-
-    items = await _related(client, admin_auth_header, anchor.id)
-
-    assert "All Legacy Peer" in items, (
-        f"related items returned {sorted(items)} on an all-unstamped catalog, "
-        f"which is what every instance looks like the day it upgrades"
-    )
 
 
 # ---------------------------------------------------------------------------

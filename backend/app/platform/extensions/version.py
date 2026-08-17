@@ -127,7 +127,7 @@ logger = logging.getLogger(__name__)
 # STORED rows, so the caller has to name the vector space the anchor is in and
 # hold every later read to it, and a list of floats cannot say which model or
 # endpoint produced it. An overlay still returning a bare list is unpacked into
-# three names by ``service_relationships._load_self_record_and_embedding`` and
+# three names by ``service_relationships._compute_neighbor_distances`` and
 # raises on the first related-items request.
 #
 # ``get_embedding_distances`` gains required keyword-only ``model_name`` and

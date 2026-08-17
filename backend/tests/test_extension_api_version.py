@@ -83,8 +83,9 @@ class TestExtensionApiVersionConstant:
         ``(embedding, model_name, config_fingerprint)`` rather than a bare
         vector, because that comparison is between two STORED rows and the
         caller has to be able to name the space it is working in; an overlay
-        still returning a list is unpacked into three names and raises on the
-        first related-items request. ``get_embedding_distances`` gains required
+        still returning a list is unpacked into three names by
+        ``_compute_neighbor_distances`` and raises on the first related-items
+        request. ``get_embedding_distances`` gains required
         keyword-only ``model_name`` and ``config_fingerprint``, required rather
         than defaulted so an overlay cannot keep scoring neighbours in a foreign
         space by omission; the old signature raises TypeError on the same

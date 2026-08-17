@@ -77,58 +77,40 @@ class RecordEmbedding(Base):
         either a catalog-wide re-embed nobody asked to pay for or a search that
         returns nothing until one finishes.
 
-        This is the predicate for readers comparing a FRESH vector against
-        stored rows: semantic search, the backfill's coverage question, the
-        admin panel. A reader comparing two STORED rows wants
-        ``usable_by_stored_anchor`` below, and fix(#1580 review r2) explains why
-        the two cannot be the same expression.
+        fix(#1580 review r2): ``config_fingerprint`` may be None, and then the
+        answer is the model name ALONE — an unstamped row is comparable to every
+        space of its model, so an unstamped ANCHOR must be comparable to every
+        space of its model too.
+
+        That symmetry is the whole point, and losing it is a real defect rather
+        than a rounding error. Comparability of two stored rows is a property of
+        the PAIR: whether A and B may be compared cannot depend on which one you
+        started from. The stamped branch already lets a stamped anchor see NULL
+        rows; rendering the None branch as ``IS NULL`` (SQLAlchemy's reading of
+        ``== None``) meant a NULL anchor could not see stamped ones, and the two
+        halves disagreed about the same pair.
+
+        The catalog that produces it is the ordinary one. Day zero after
+        migration 0052 every row is NULL. Any edit re-embeds and stamps ONE
+        record. From that moment the stamped record vanishes from every legacy
+        record's related list while still listing them itself, and it never
+        heals — Generate Missing treats a NULL row as covered, so nothing goes
+        back to stamp the rest. Every legacy list shrinks toward the records
+        nobody has touched, for as long as the instance runs.
+
+        The other symmetric rule — a stamped anchor matching its exact
+        fingerprint and nothing else — was considered and rejected. It empties a
+        freshly edited record's related list the day after an upgrade, and it
+        contradicts what #1546 already decided a NULL row MEANS: comparable to
+        any live space of its model. Search and related items have to agree
+        about that, and this is the reading that keeps them agreeing.
         """
+        if config_fingerprint is None:
+            return cls.model_name == model_name
         return and_(
             cls.model_name == model_name,
             or_(
                 cls.config_fingerprint.is_(None),
                 cls.config_fingerprint == config_fingerprint,
             ),
-        )
-
-    @classmethod
-    def usable_by_stored_anchor(
-        cls, model_name: str, config_fingerprint: str | None
-    ) -> ColumnElement[bool]:
-        """Match rows comparable against ANOTHER STORED row's configuration.
-
-        fix(#1580 review r2): a sibling of ``usable_by_config`` rather than a
-        call to it, because the two readers are asking different questions and
-        the answers differ on exactly one case — a stamped side meeting an
-        unstamped row.
-
-        ``usable_by_config`` grandfathers NULL because its caller holds a vector
-        made moments ago and the alternative was emptying semantic search on
-        upgrade day: every row in the table is unstamped then, so refusing them
-        would have returned nothing until a catalog-wide re-embed finished. The
-        weaker guarantee is worth it there because the unstamped rows are all
-        there is.
-
-        Here both sides are stored, and a STAMPED anchor is itself evidence that
-        the catalog is past that morning and at least partly regenerated. A NULL
-        candidate's space is unknown, and on the catalog where the distinction
-        bites — an endpoint change followed by a partial re-embed — the rows
-        still carrying NULL are most likely the ones in the OLD space. Comparing
-        them against a new-space anchor produces exactly the well-formed
-        meaningless cosine distance #1580 exists to remove, and it does so on
-        the records least likely to be looked at twice.
-
-        So: an unstamped anchor matches the unstamped rows of its model, which
-        keeps an all-legacy catalog's related items working unchanged; a stamped
-        anchor matches its exact fingerprint and nothing else. Grandfathering is
-        for the side that has no choice, not for the side that has evidence.
-        """
-        if config_fingerprint is None:
-            return and_(
-                cls.model_name == model_name,
-                cls.config_fingerprint.is_(None),
-            )
-        return and_(
-            cls.model_name == model_name,
-            cls.config_fingerprint == config_fingerprint,
         )

@@ -2,10 +2,9 @@
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -501,7 +500,14 @@ async def generate_and_store_embedding(
         # the insert branch — leaving the old stamp would label the new vector
         # with the configuration of the one it replaced.
         existing.config_fingerprint = config_fingerprint
-        existing.updated_at = datetime.now(timezone.utc)
+        # fix(#1580 review r2): the DB clock, like the insert branch's
+        # server_default and like backfill.py's upsert. This stamped the APP
+        # clock, and fix(#1580) made the column load-bearing — the anchor row
+        # for a related-items comparison is the most recently written one, so a
+        # worker whose clock runs behind the database's could write a row that
+        # sorts BEFORE the one it replaced and leave the superseded vector
+        # answering as the anchor.
+        existing.updated_at = func.now()
     else:
         session.add(
             RecordEmbedding(

@@ -351,15 +351,15 @@ class DefaultCatalogPort:
         return await set_hnsw_recall(session)
 
     async def get_record_embedding(self, session, record_id):  # type: ignore[no-untyped-def]
-        # fix(#1580): returns the anchor row's identity with its vector, and
-        # reads it through the one helper `get_nearest_record_ids` reads it
-        # through. This used to be a second, independent `LIMIT 1` off an
-        # unordered query: on a catalog holding more than one model's rows the
-        # ranking and the scoring could anchor on different vectors, and the
-        # caller had no way to ask which space it was handed because a list of
-        # floats does not say. See `get_anchor_embedding_row` for why the
-        # anchor's own pair is the right question here rather than the live
-        # configuration's.
+        # fix(#1580): returns the anchor row's identity with its vector. This
+        # used to be a second, independent `LIMIT 1` off an unordered query: on
+        # a catalog holding more than one model's rows the ranking and the
+        # scoring could anchor on different vectors, and the caller had no way
+        # to ask which space it was handed because a list of floats does not
+        # say. fix(#1580 review r2): it is now the ONLY anchor read on this
+        # path — the caller passes what this returns into
+        # `get_nearest_record_ids`, so the ranking and the scoring share one
+        # row rather than two statements that happen to order the same way.
         from app.processing.embeddings.helpers import get_anchor_embedding_row
 
         return await get_anchor_embedding_row(session, record_id)
@@ -418,7 +418,7 @@ class DefaultCatalogPort:
                 # rows are all there is) and wrong here — a stamped anchor is
                 # evidence of a partly regenerated catalog, and the rows still
                 # carrying NULL are most likely the old space.
-                RecordEmbedding.usable_by_stored_anchor(model_name, config_fingerprint)
+                RecordEmbedding.usable_by_config(model_name, config_fingerprint)
             )
         )
         return {row.record_id: row.distance for row in result.all()}
