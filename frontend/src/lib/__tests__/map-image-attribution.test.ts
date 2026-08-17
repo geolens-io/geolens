@@ -12,6 +12,7 @@ import {
   drawAttributionOverlay,
   fitAttributionText,
   measureAttributionBand,
+  overlayLineCapacity,
   readRenderedAttribution,
   OG_ATTRIBUTION,
   THUMBNAIL_ATTRIBUTION,
@@ -343,6 +344,91 @@ describe('drawAttributionOverlay', () => {
   it('draws nothing when the canvas has no 2D context', () => {
     const canvas = { width: 400, height: 250, getContext: () => null } as unknown as HTMLCanvasElement;
     expect(drawAttributionOverlay(canvas, ['© A'], THUMBNAIL_ATTRIBUTION)).toBe(false);
+  });
+});
+
+/* fix(#1541 codex P1): the documented legibility floor, as assertions rather
+ * than as prose. Removing the fitter's elision left exactly one way for a crop
+ * to lose a credit — a band taller than the image it annotates — and these pin
+ * both where that is and that it is loud when reached. */
+describe('overlayLineCapacity: the documented ceiling', () => {
+  it('matches the header table for both crops', () => {
+    // 250 - 6 inset - 3*2 padding = 238 usable / 13 line height.
+    expect(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250)).toBe(18);
+    // 630 - 12 inset - 5*2 padding = 608 usable / 20 line height.
+    expect(overlayLineCapacity(OG_ATTRIBUTION, 630)).toBe(30);
+  });
+
+  it('never returns a negative capacity for a frame smaller than its own inset', () => {
+    expect(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 4)).toBe(0);
+    expect(overlayLineCapacity(OG_ATTRIBUTION, 0)).toBe(0);
+  });
+
+  it('leaves the real credit load a long way clear of the ceiling', () => {
+    // The documented "real 5-credit load" column: 6 of 18 lines on the
+    // thumbnail (33.6% of a 250px frame), 4 of 30 on the OG card (14.3%).
+    for (const [spec, w, h, lines, pct] of [
+      [THUMBNAIL_ATTRIBUTION, 400, 250, 6, 33.6],
+      [OG_ATTRIBUTION, 1200, 630, 4, 14.3],
+    ] as const) {
+      const ctx = makeCtx();
+      drawAttributionOverlay(makeCanvas(w, h, ctx), REAL_CREDITS, spec);
+      const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(drawn).toHaveLength(lines);
+      expect(drawn.length).toBeLessThan(overlayLineCapacity(spec, h));
+      const [, , , boxH] = ctx.fillRect.mock.calls[0] as unknown as number[];
+      expect(((boxH / h) * 100).toFixed(1)).toBe(pct.toFixed(1));
+    }
+  });
+
+  it('pins the export row of the same table, which has no ceiling to reach', () => {
+    // The measured 1056px-wide export at dpr 1, less 20px of pad a side.
+    const measured = measureAttributionBand(
+      makeCtx() as unknown as CanvasRenderingContext2D,
+      REAL_CREDITS,
+      { maxWidth: 1016, dpr: 1 },
+    );
+    expect(measured.lines).toHaveLength(4);
+    expect(measured.height).toBe(88); // 12 gap + 4 * 16 + 12 gap
+    expectTotal(measured.lines, REAL_CREDITS);
+  });
+
+  it('warns rather than clipping quietly once the band outgrows the frame', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const ctx = makeCtx();
+      // 40 entries at ~75 characters a line is comfortably past the 18-line
+      // thumbnail ceiling; nothing short of that reaches it.
+      const flood = Array.from(
+        { length: 40 },
+        (_, i) => `© Data Provider Number ${i}, a licensing statement of some length`,
+      );
+      expect(drawAttributionOverlay(makeCanvas(400, 250, ctx), flood, THUMBNAIL_ATTRIBUTION)).toBe(
+        true,
+      );
+
+      // Still total at the fitter: every provider is in the line set, and the
+      // loss is the frame's, not the layout's.
+      const drawn = ctx.fillText.mock.calls.map((c: unknown[]) => String(c[0]));
+      expectTotal(drawn, flood);
+      expect(drawn.length).toBeGreaterThan(overlayLineCapacity(THUMBNAIL_ATTRIBUTION, 250));
+
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining('credit lines do not fit a 400x250 image at 10px'),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stays quiet for a credit load that fits', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      drawAttributionOverlay(makeCanvas(400, 250, makeCtx()), REAL_CREDITS, THUMBNAIL_ATTRIBUTION);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
   });
 });
 

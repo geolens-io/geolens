@@ -148,16 +148,42 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  *   OG card      16px over a scrim     (1200x630 JPEG, quality 0.85)
  *   Thumbnail    10px over a scrim     (400x250 JPEG, quality 0.7)
  *
- * There is deliberately no shrink ladder. Shrinking traded legibility for area,
- * and now that spending area is allowed, the trade is the wrong way round: 10px
- * over a scrim is legible at 1:1, 9px under JPEG chroma subsampling is where
- * small text starts to mush. The gallery displays the thumbnail at 176x112, but
- * that is a display-size decision and not an argument about the file.
+ * 10px is the floor of the three. There is deliberately no shrink ladder:
+ * shrinking traded legibility for area, and now that spending area is allowed
+ * the trade is the wrong way round — 10px over a scrim is legible at 1:1, 9px
+ * under JPEG chroma subsampling is where small text starts to mush. The gallery
+ * displays the thumbnail at 176x112, but that is a display-size decision and
+ * not an argument about the file.
  *
- * The one residual limit: a single credit longer than a full line wraps
- * MID-STRING, on word boundaries, and on characters for a word that still does
- * not fit. That splits a provider's name across lines, which is legible and
- * complete. It never truncates one.
+ * How much of each image the band can eat, and where it runs out. The line
+ * counts, percentages and ceilings below are asserted in
+ * lib/__tests__/map-image-attribution.test.ts rather than left as prose claims;
+ * `overlayLineCapacity` computes the ceiling column. The chars/line column is
+ * the only estimate, since real glyph widths are font-dependent.
+ *
+ *               line    usable    chars/   real 5-credit    ceiling
+ *               height  width     line     load             (band fills frame)
+ *   Thumbnail   13px    378px     ~75      6 lines, 33.6%   18 lines, ~1350 chars
+ *   OG card     20px    1160px    ~145     4 lines, 14.3%   30 lines, ~4350 chars
+ *   PNG export  16px    1016px*   ~169     4 lines, 88px    none — canvas grows
+ *
+ *   * the measured 1056px-wide export at dpr 1, less 20px of pad a side.
+ *
+ * The export has no ceiling at all: its canvas is sized AFTER the band is
+ * measured, so the band's height is an input to the image rather than a budget
+ * inside it. Only the two crops have one, and it is where the scrim reaches the
+ * top edge — the band has by then eaten every map pixel there is. Past it no
+ * layout at 10px can place the remaining lines, so they fall off the bottom.
+ * That ceiling is ~3.3x the measured real-world credit load for the thumbnail
+ * (411 characters across five providers) and ~10x for the OG card, and no
+ * basemap-plus-dataset stack comes near it. It is still a limit rather than a
+ * promise, so `drawAttributionOverlay` warns in DEV naming the lines it cannot
+ * place. A credit that cannot be shown is at least never lost quietly.
+ *
+ * The one residual limit within the ceiling: a single credit longer than a full
+ * line wraps MID-STRING, on word boundaries, and on characters for a word that
+ * still does not fit. That splits a provider's name across lines, which is
+ * legible and complete. It never truncates one.
  */
 
 /** Greedy wrap on entry boundaries, so a provider's name stays on one line.
@@ -311,6 +337,22 @@ export const OG_ATTRIBUTION: AttributionOverlaySpec = {
   radius: 4,
 };
 
+/**
+ * How many lines of `spec` a `canvasHeight`-tall frame can hold before the
+ * scrim reaches the top edge and the band has eaten every map pixel there is.
+ *
+ * The crops' only real ceiling, and the number the module's legibility floor is
+ * documented against. The export band has no equivalent: its canvas is sized
+ * after the band is measured, so there is nothing for it to run out of.
+ */
+export function overlayLineCapacity(
+  spec: AttributionOverlaySpec,
+  canvasHeight: number,
+): number {
+  const usable = canvasHeight - spec.inset - spec.paddingY * 2;
+  return Math.max(0, Math.floor(usable / spec.lineHeight));
+}
+
 /** Rounded scrim, falling back to a square fill where `roundRect` is absent
  *  (older engines, and the 2D-context stubs the hook tests use). */
 function fillScrim(
@@ -364,6 +406,18 @@ export function drawAttributionOverlay(
   const maxWidth = canvas.width - spec.inset * 2 - spec.paddingX * 2;
   const fitted = fitAttributionText(ctx, entries, { maxWidth, fontPx: spec.fontPx });
   if (fitted.lines.length === 0) return false;
+
+  // fix(#1541 codex P1): removing the fitter's elision moved the only remaining
+  // way to lose a credit out here, to the frame edge — `boxY` clamps at 0, so a
+  // band taller than the image draws its last lines off the bottom. Geometry,
+  // not policy: at 10px there is no layout that fits them. Say so instead of
+  // letting it happen quietly. See the capacity table in this module's header.
+  const capacity = overlayLineCapacity(spec, canvas.height);
+  if (import.meta.env.DEV && fitted.lines.length > capacity) {
+    console.warn(
+      `[attribution] ${fitted.lines.length - capacity} of ${fitted.lines.length} credit lines do not fit a ${canvas.width}x${canvas.height} image at ${spec.fontPx}px and will be clipped`,
+    );
+  }
 
   ctx.font = attributionFont(fitted.fontPx);
   const textWidth = fitted.lines.reduce(

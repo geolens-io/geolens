@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { MAP_COLORS } from '@/lib/map-colors';
+import { OG_ATTRIBUTION, THUMBNAIL_ATTRIBUTION } from '@/lib/map-image-attribution';
 import { act } from '@testing-library/react';
 import { renderHook as baseRenderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
@@ -105,10 +106,12 @@ function createMockCanvas() {
     fill: vi.fn(),
     stroke: vi.fn(),
     createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
-    // feat(#1486): the attribution overlay measures before it draws. Constant
-    // width is enough here — the fitter's real behaviour (size ladder, elide
-    // boundary) is exercised in lib/__tests__/map-image-attribution.test.ts
-    // against a length-proportional stub.
+    // feat(#1486): the attribution overlay measures before it draws.
+    // fix(#1541 codex P1): length-proportional, not constant. A constant makes
+    // every credit set "fit" on one line, so no test at this level could see a
+    // wrap boundary — which is how the dropped credits went unnoticed here.
+    // The fitter's own wrap arithmetic is exercised in
+    // lib/__tests__/map-image-attribution.test.ts.
     measureText: vi.fn((text: string) => ({ width: text.length * 5 })),
   };
   return {
@@ -1675,6 +1678,63 @@ describe('useBuilderSave', () => {
         expect(crop.fills.some((f) => f.style === MAP_COLORS.exportImage.attributionScrim))
           .toBe(true);
       }
+
+      vi.useRealTimers();
+    });
+
+    // fix(#1541 codex P1): the sibling above uses a two-credit line that fits
+    // whole, so it could never have caught `maxLines: 1`. This one drives the
+    // same pipeline — crop, overlay, upload — with the five-credit load that
+    // measurably lost two providers, and asserts at the crops rather than at
+    // the fitter: the credit has to survive the path, not just the helper.
+    it('carries every credit into BOTH crops when the set needs wrapping (#1541)', async () => {
+      vi.useFakeTimers();
+      const canvases: ReturnType<typeof createMockCanvas>[] = [];
+      createElementSpy.mockImplementation((tag: string, options?: ElementCreationOptions) => {
+        if (tag !== 'canvas') return origCreateElement(tag, options);
+        const canvas = createMockCanvas();
+        canvases.push(canvas);
+        return canvas as unknown as HTMLCanvasElement;
+      });
+
+      const credits = [
+        'MapLibre',
+        '© OpenStreetMap contributors, climbing route geometry retrieved via the Overpass API, licensed under ODbL 1.0',
+        '© U.S. Geological Survey Earthquake Hazards Program, ANSS Comprehensive Earthquake Catalog (ComCat), public domain',
+        '© swisstopo swissALTI3D, 2m lidar digital elevation model, Federal Office of Topography, reproduced with authorisation',
+        'OpenFreeMap © OpenMapTiles Data from OpenStreetMap',
+      ];
+      const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+      await triggerSaveSuccess(mockMap);
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+      const credited = canvases.filter((c) => c.ctx.fillText.mock.calls.length > 0);
+      // The 400x250 thumbnail and the 1200x630 OG card.
+      expect(credited).toHaveLength(2);
+      expect(credited.map((c) => `${c.width}x${c.height}`)).toEqual(['400x250', '1200x630']);
+
+      for (const crop of credited) {
+        const drawn = crop.ctx.fillText.mock.calls.map((call: unknown[]) => String(call[0]));
+        // It wrapped rather than fitting by luck, and lost nothing doing it.
+        expect(drawn.length).toBeGreaterThan(1);
+        const rendered = drawn.join(' ');
+        for (const credit of credits) {
+          expect(rendered, `missing credit on ${crop.width}x${crop.height}: ${credit}`).toContain(
+            credit,
+          );
+        }
+        expect(rendered).not.toContain('…');
+        // The scrim was sized for every line, so none of them sits on bare map.
+        const scrim = crop.fills.find((f) => f.style === MAP_COLORS.exportImage.attributionScrim)!;
+        expect(scrim).toBeDefined();
+        const spec = crop.width === 400 ? THUMBNAIL_ATTRIBUTION : OG_ATTRIBUTION;
+        expect(scrim.rect[3]).toBe(drawn.length * spec.lineHeight + spec.paddingY * 2);
+      }
+
+      // Ate map pixels rather than dropping a provider, and the image itself is
+      // unchanged: a fixed-size crop stays fixed-size.
+      expect(mockUploadThumbnail).toHaveBeenCalled();
 
       vi.useRealTimers();
     });
