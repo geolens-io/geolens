@@ -21,6 +21,7 @@ Requirements:
   - Docker database must be running (docker compose up db)
 """
 
+import asyncio
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -768,11 +769,14 @@ async def test_the_index_refuses_a_second_active_run_when_the_check_is_blind(
 async def test_two_concurrent_transactions_cannot_both_create_an_active_run(
     test_db_session: AsyncSession,
 ):
-    """The invariant itself, at the level that enforces it.
+    """The invariant itself, under genuine contention.
 
-    Two sessions, two open transactions, neither having committed when the
-    other writes — the shape no application-level check can refuse. The second
-    commit must fail, whichever order they land in.
+    An earlier version of this test committed the first transaction before the
+    second even flushed, which is a sequence, not a race — it would have passed
+    against a plain non-unique index. Here the second insert is issued while the
+    first is still uncommitted, so PostgreSQL makes it WAIT on the unresolved
+    index key, and the assertion that it is still blocked is the proof that the
+    two transactions genuinely contended rather than took turns.
     """
     from sqlalchemy.exc import IntegrityError
 
@@ -793,15 +797,23 @@ async def test_two_concurrent_transactions_cannot_both_create_an_active_run(
 
     async with async_session() as first, async_session() as second:
         first.add(_row())
+        await first.flush()  # holds the index key, uncommitted
+
         second.add(_row())
-        await first.flush()
-        # Non-vacuity: the second transaction is genuinely open and unaware —
-        # its own flush is what the index has to arbitrate, and it blocks on
-        # the first transaction's uncommitted key until that commit lands.
-        await first.commit()
+        contender = asyncio.create_task(second.flush())
+        # Give it room to either block or fail. Blocking is the correct
+        # behaviour: PostgreSQL cannot decide uniqueness until the first
+        # transaction resolves.
+        await asyncio.sleep(0.5)
+        assert not contender.done(), (
+            "the second insert did not contend for the key — the two "
+            "transactions took turns, so this proves nothing about a race"
+        )
+
+        await first.commit()  # the winner resolves; the contender can now fail
+
         with pytest.raises(IntegrityError) as caught:
-            await second.flush()
-            await second.commit()
+            await contender
         assert ACTIVE_BACKFILL_INDEX_NAME in str(caught.value)
         await second.rollback()
 
@@ -809,71 +821,215 @@ async def test_two_concurrent_transactions_cannot_both_create_an_active_run(
 
 
 @pytest.mark.anyio
-async def test_a_dispatch_whose_rollback_also_fails_does_not_claim_the_run_failed(
+async def test_two_concurrent_force_requests_produce_exactly_one_delete(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session: AsyncSession,
     monkeypatch,
 ):
-    """The nastier half of the dispatch failure, and the reason the guard reports.
+    """The safety case, measured end to end under real concurrency.
 
-    When the queue is unreachable AND the orphan guard's own rollback fails, the
-    job row is left `pending` — and a pending row goes on holding the backfill
-    slot, so every later attempt is refused by the guard. Recording "failed"
-    there would tell an operator chasing "why is every backfill refused" that
-    this run is over, in an audit trail written on a different session that
-    survives the request's failure. The trail has to say what the row says.
+    Two force runs fired together, both racing the same guard, with the queue
+    hop EAGER so whichever request wins actually executes its task and reaches
+    the DELETE. The measurement is the delete count: two concurrent force runs
+    must produce exactly one, whatever order the two requests interleave in.
     """
-    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+    await _seed_embedding(test_db_session, f"Race Delete {uuid.uuid4().hex[:6]}")
+    before = await _embedding_count(test_db_session)
+    assert before > 0  # non-vacuity: there is something a DELETE could take
 
-    async def _queue_is_down(_task, /, **kwargs):
-        raise RuntimeError("procrastinate connector: connection refused")
+    deletes = 0
 
-    def _rollback_also_fails(job, *, message_prefix=""):
-        async def _rollback(_exc):
-            raise RuntimeError("database went away during rollback")
+    async def _destructive_backfill(session, *, force=False):
+        nonlocal deletes
+        deletes += 1
+        await session.execute(delete(RecordEmbedding))
+        await session.commit()
+        return {"processed": 1, "created": 1, "skipped": 0, "errors": 0}
 
-        return _rollback
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _destructive_backfill)
 
-    with (
-        patch.object(
-            admin_router,
-            "defer_async_with_tenant",
-            AsyncMock(side_effect=_queue_is_down),
-        ),
-        patch.object(
-            admin_router, "make_ingest_job_failed_rollback", _rollback_also_fails
-        ),
-    ):
-        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    async def _run_immediately(_task, /, **kwargs):
+        await run_embedding_backfill(**kwargs)
 
-    assert resp.status_code == 503, resp.text
-
-    job = (
+    # Scope the row count to this episode: the file's other tests leave backfill
+    # rows behind, so any time-window filter would count theirs too.
+    existing = set(
         (
             await test_db_session.execute(
-                select(IngestJob)
-                .where(IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY))
-                .order_by(IngestJob.created_at.desc())
-                .limit(1)
+                select(IngestJob.id).where(
+                    IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY)
+                )
             )
-        )
-        .scalars()
-        .first()
+        ).scalars()
     )
-    assert job is not None
-    # Non-vacuity: if the row had been reverted, the audit claim below would be
-    # about a state that never existed and the test would prove nothing.
-    assert job.status == "pending", "the rollback landed — wrong branch under test"
-    job_id = str(job.id)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock(side_effect=_run_immediately)
+    ):
+        first, second = await asyncio.gather(
+            client.post(_FORCE_URL, headers=admin_auth_header),
+            client.post(_FORCE_URL, headers=admin_auth_header),
+        )
+
+    # The safety claim first: the status codes are how the operator learns, the
+    # delete count is what the guard exists to hold.
+    assert deletes == 1, (
+        f"two concurrent force runs reached the DELETE {deletes} times — the "
+        "guard did not hold under contention"
+    )
+    assert await _embedding_count(test_db_session) == 0, (
+        "the winner's DELETE never ran, so the count above is vacuous"
+    )
+    assert sorted([first.status_code, second.status_code]) == [200, 409], (
+        f"expected exactly one winner, got {first.status_code} and {second.status_code}"
+    )
+
+    # And exactly one job row was created for the whole episode — the loser's
+    # transaction rolled back, so it leaves no trace of a run that never ran.
+    created_now = (
+        set(
+            (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(
+                        IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY)
+                    )
+                )
+            ).scalars()
+        )
+        - existing
+    )
+    assert len(created_now) == 1, created_now
+
+
+@pytest.mark.anyio
+async def test_a_cancelled_worker_releases_the_slot_and_closes_the_trail(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The exit that is not an `Exception` (#1550 review).
+
+    A deploy cancels this multi-minute task after it has claimed the job.
+    `asyncio.CancelledError` inherits from `BaseException`, so it walks past
+    `except Exception`: the row stayed `running` and — since the guard is now a
+    unique index over exactly that status — held the single active-run slot
+    until the 60-minute sweep. An ordinary deploy turned the concurrency guard
+    into a denial of service on itself, with the trail still reading
+    `requested` even if a force run had already deleted every vector.
+    """
+
+    async def _cancelled_mid_run(session, *, force=False):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _cancelled_mid_run)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    # Cooperative shutdown depends on the cancellation propagating, so the task
+    # must re-raise rather than swallow it.
+    with pytest.raises(asyncio.CancelledError):
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    assert job.status == "failed", (
+        "the cancelled run is still holding the single active-backfill slot"
+    )
+    assert "cancelled" in (job.error_message or "").lower()
 
     terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
     assert len(terminal) == 1, terminal
-    details = terminal[0]["details"]
-    assert details["outcome"] != "failed", (
-        "the audit says the run failed while its row is still pending and still "
-        "blocking every later backfill"
+    assert terminal[0]["details"]["error_code"] == "worker_cancelled"
+
+    # The slot is genuinely free: a new run is admitted.
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+    with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
+        again = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert again.status_code == 200, again.text
+
+
+@pytest.mark.anyio
+async def test_a_run_that_created_nothing_is_not_reported_as_complete(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """Zero coverage must not read as a finished regenerate (#1550 review P1).
+
+    `backfill_embeddings` catches per-record provider errors and RETURNS counts
+    rather than raising, so a run where every embedding was rejected came back
+    normally. On the force path that is a catalog whose vectors were deleted and
+    never rebuilt, stamped `complete` — and the job-status response does not
+    expose the nested counts, so polling saw a clean success.
+    """
+
+    async def _every_record_failed(session, *, force=False):
+        return {"processed": 9, "created": 0, "skipped": 0, "errors": 9}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _every_record_failed)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    assert job.status == "failed", (
+        "a run that created zero embeddings after deleting every vector is "
+        "reported as a completed regenerate"
     )
-    assert details["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
-    assert details["error_code"] == "dispatch_rollback_failed"
-    assert details["intended_outcome"] == "failed"
+    assert job.current_step != "complete"
+    # The counts survive anyway — they are the evidence for the diagnosis.
+    result = (job.user_metadata or {})[EMBEDDING_BACKFILL_METADATA_KEY]["result"]
+    assert result["errors"] == 9
+
+    status_resp = await client.get(f"/jobs/{job_id}", headers=admin_auth_header)
+    assert status_resp.status_code == 200
+    assert status_resp.json()["status"] == "failed"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["outcome"] == "failed"
+    assert terminal[0]["details"]["error_code"] == "all_embeddings_failed"
+
+
+@pytest.mark.anyio
+async def test_a_partly_failed_run_still_completes(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The counterpart, so the rule above is a rule and not a blanket.
+
+    One rejected record out of many is not a failed run — it is a run with a
+    known gap, and failing it would push an operator to repeat a ten-minute
+    regenerate over a catalog that is mostly covered.
+    """
+
+    async def _mostly_worked(session, *, force=False):
+        return {"processed": 10, "created": 9, "skipped": 0, "errors": 1}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _mostly_worked)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    assert job.status == "complete"
+    assert job.rows_processed == 10

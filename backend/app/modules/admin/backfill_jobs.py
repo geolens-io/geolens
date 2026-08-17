@@ -20,6 +20,7 @@ in ``tests/test_layering.py`` may shrink, never grow). The worker picks it up
 through ``task_app.import_paths`` in ``processing/ingest/tasks_common.py``.
 """
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -131,9 +132,13 @@ async def _finalize(
     backfill_meta = dict((metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY) or {})
     if result is not None:
         backfill_meta["result"] = result
-        values["current_step"] = "complete"
-        values["progress"] = 1.0
         values["rows_processed"] = result["processed"]
+        # Only a run that actually succeeded gets the completion stamps. A run
+        # whose every embedding failed still records its counts — that is the
+        # evidence an operator needs — but must not read as finished work.
+        if status == "complete":
+            values["current_step"] = "complete"
+            values["progress"] = 1.0
     values["user_metadata"] = {
         **(metadata or {}),
         EMBEDDING_BACKFILL_METADATA_KEY: backfill_meta,
@@ -202,6 +207,49 @@ async def _emit_outcome_audit(
             job_id=job_id,
             outcome=outcome,
         )
+
+
+async def _fail_cancelled_backfill(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    metadata: dict[str, Any] | None,
+    audit_context: dict[str, Any],
+) -> None:
+    """Settle a run that a worker shutdown cancelled, on a fresh session.
+
+    fix(#1550 review P2): ``asyncio.CancelledError`` inherits from
+    ``BaseException``, so a deploy cancelling this multi-minute task walked
+    straight past ``except Exception``. The row stayed ``running``, which now
+    means it holds the single active-backfill slot until the 60-minute stale
+    sweep — the concurrency guard turning into a denial of service on itself
+    after an ordinary deploy — and the audit trail stayed at ``requested`` even
+    if a force run had already deleted every vector.
+
+    A fresh session because the caller's may be mid-statement when the
+    cancellation lands. Mirrors ``_fail_cancelled_job`` in the analysis worker.
+    """
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        applied = await _finalize(
+            session,
+            job_uuid,
+            attempt_uuid,
+            status="failed",
+            metadata=metadata,
+            error_message=(
+                "Embedding backfill was cancelled by a worker shutdown. If this "
+                "was a regenerate, existing vectors may already have been "
+                "deleted — re-run to restore coverage."
+            ),
+        )
+    await _emit_terminal_audit(
+        **audit_context,
+        applied=applied,
+        outcome="failed",
+        extra={"error_code": "worker_cancelled"},
+    )
 
 
 async def _emit_terminal_audit(
@@ -324,6 +372,43 @@ async def run_embedding_backfill(
                     extra={"error_code": "backfill_failed"},
                 )
                 return
+            if result["errors"] and not result["created"]:
+                # fix(#1550 review P1): `backfill_embeddings` swallows per-record
+                # provider errors and returns counts rather than raising, so a
+                # run where EVERY embedding failed returned normally and was
+                # stamped `complete`. On the force path that reads as a finished
+                # regenerate over a catalog whose vectors were deleted and never
+                # rebuilt — zero coverage reported as success, which is the one
+                # state an operator most needs to be told about. A run that
+                # created nothing did not do what was asked.
+                logger.error(
+                    "embedding_backfill_all_records_failed",
+                    job_id=job_id,
+                    force=force,
+                    operation_id=operation_id,
+                    **result,
+                )
+                applied = await _finalize(
+                    session,
+                    job_uuid,
+                    attempt_uuid,
+                    status="failed",
+                    metadata=metadata,
+                    result=result,
+                    error_message=(
+                        f"Embedding backfill failed: all {result['errors']} "
+                        "embeddings were rejected and none were created. "
+                        "Check the embedding provider and configuration, then "
+                        "re-run to restore coverage."
+                    ),
+                )
+                await _emit_terminal_audit(
+                    **audit_context,
+                    applied=applied,
+                    outcome="failed",
+                    extra={"error_code": "all_embeddings_failed", **result},
+                )
+                return
             applied = await _finalize(
                 session,
                 job_uuid,
@@ -338,5 +423,41 @@ async def run_embedding_backfill(
                 outcome="completed",
                 extra=dict(result),
             )
+        except asyncio.CancelledError:
+            # The exit that is not an `Exception`. A graceful worker shutdown
+            # cancels this task after the drain window, and `retry=0` means no
+            # redelivery, so without this branch the row strands in `running`
+            # holding the single active-backfill slot until the 60-minute sweep.
+            # Placed on the OUTER try so it covers the whole claimed region —
+            # the provider work, the finalize and the audit — not just the
+            # backfill call.
+            #
+            # Shielded so the cancellation that triggered the cleanup does not
+            # also cancel it, bounded so a hung database cannot stall shutdown,
+            # and re-raised afterwards: swallowing it would break cooperative
+            # shutdown and tell the queue the task ran to completion.
+            logger.warning(
+                "embedding_backfill_cancelled",
+                job_id=job_id,
+                force=force,
+                operation_id=operation_id,
+            )
+            try:
+                await asyncio.shield(
+                    asyncio.wait_for(
+                        _fail_cancelled_backfill(
+                            job_uuid,
+                            attempt_uuid,
+                            metadata=metadata,
+                            audit_context=audit_context,
+                        ),
+                        timeout=15,
+                    )
+                )
+            except BaseException:  # broad: best-effort cleanup during shutdown; the raise below preserves the abort
+                logger.warning(
+                    "embedding_backfill_cancel_cleanup_failed", job_id=job_id
+                )
+            raise
         finally:
             await stop_ingest_job_heartbeat(heartbeat)
