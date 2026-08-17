@@ -12,8 +12,11 @@
  * were writes. This is the gate so there is no seventh round.
  *
  * THE RULE (one condition, no exemptions): every member access of
- * `sessionStorage`/`localStorage` under `src/` must sit lexically inside a
- * `try` block, without crossing a function boundary on the way up.
+ * `sessionStorage`/`localStorage` under `src/` must sit lexically inside the
+ * block of a `try` that CATCHES, without crossing a function boundary on the
+ * way up. A `try`/`finally` with no `catch` does not count — the finally runs
+ * and the SecurityError carries on out of the statement. See `isGuarded` for
+ * the other ways an enclosing try fails to protect.
  *
  * Why no exemption for `lib/storage.ts`: it does not need one. Its own six raw
  * accesses are already inside `try` blocks, so the single rule covers the
@@ -115,6 +118,11 @@ const RUNS_IN_ENCLOSING_FRAME: ReadonlySet<ts.SyntaxKind> = new Set([
   ts.SyntaxKind.ReturnStatement,
   ts.SyntaxKind.ThrowStatement,
   ts.SyntaxKind.LabeledStatement,
+  // A catch body runs synchronously on the frame that threw. Whether the try it
+  // belongs to protects an access INSIDE that body is a separate question,
+  // answered at the TryStatement in isGuarded — reaching a try from its catch
+  // never counts as guarded there.
+  ts.SyntaxKind.CatchClause,
   // A class body's STATIC parts evaluate when the class definition does, so a
   // try around the class really does cover them. Non-static field initializers
   // are handled in runsInEnclosingFrame below and are NOT covered.
@@ -176,11 +184,79 @@ function runsInEnclosingFrame(node: ts.Node): boolean {
 }
 
 /**
- * Guarded means: a `try` block encloses the access lexically, and every node on
- * the way up to it runs in that same frame.
+ * Does this `catch` stop the exception, or hand it back?
  *
- * A callback declared inside a try runs later, off that stack, so the try does
- * not protect it:
+ * Any `throw` anywhere in the catch body counts as handing it back. That is
+ * deliberately blunt: `throw e`, `throw new Error(...)` and `if (x) throw e`
+ * all read the same here, because a conditional rethrow protects the access on
+ * some paths and not others, and "some paths" is not a guard. Sorting the
+ * reachable throws from the dead ones is control-flow analysis, and the
+ * cautious answer costs a false positive while the clever one costs the
+ * invariant.
+ *
+ * Two shapes are over-reported and one is missed, all noted rather than coded
+ * around:
+ *   - over: a throw the catch body catches itself,
+ *     `catch (e) { try { throw e; } catch {} }`.
+ *   - over: a throw inside a callback the catch body merely schedules,
+ *     `catch (e) { queueMicrotask(() => { throw e; }); }`. Telling that from
+ *     `arr.forEach(() => { throw e; })`, which does propagate, means knowing
+ *     what the callee does with the function. Pinned as a fixture.
+ *   - missed: `catch (e) { fail(e); }` where `fail` throws. Cross-function, so
+ *     nothing lexical can see it. Catching it needs whole-program analysis,
+ *     which this file does not do and should not start doing.
+ * The over-reports cost noise, which this gate accepts. The miss is the honest
+ * limit of a lexical rule, stated so nobody reads a pass here as proof that a
+ * catch swallows.
+ */
+function catchStopsTheThrow(clause: ts.CatchClause): boolean {
+  let rethrows = false;
+  const visit = (n: ts.Node): void => {
+    if (rethrows) return;
+    if (ts.isThrowStatement(n)) {
+      rethrows = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(clause.block);
+  return !rethrows;
+}
+
+/**
+ * Guarded means: some enclosing `try` CATCHES the throw, and every node between
+ * the access and that try's block runs in the same frame.
+ *
+ * fix(#1545 codex P2, round 3): the old version asked "is there an enclosing
+ * try", which is a different question — `try { ... } finally { ... }` runs the
+ * finally and then lets the SecurityError carry on out. That was the third
+ * false negative in a gate whose docstring promises none, so here is the
+ * enumeration rather than a fourth point fix. An enclosing `try` fails to
+ * protect the access when:
+ *
+ *   1. it has no `catch`. Detected exactly, from `catchClause`.
+ *   2. the access is in the `catch` block — a throw there propagates as if the
+ *      try were not there. Detected exactly, from the arrival position.
+ *   3. the access is in the `finally` block. Same, detected the same way.
+ *   4. the `catch` rethrows, conditionally or not. Detected conservatively;
+ *      `catchStopsTheThrow` says what that costs in both directions.
+ *   5. the `catch` calls something that throws. NOT detected and deliberately
+ *      not attempted — a whole-program question, and a lexical rule guessing at
+ *      it would be wrong in both directions.
+ *   6. the `catch` swallows the error and then does something worse: the
+ *      asset-guard reload in this file's header. NOT detected, for the reason
+ *      given up there. Read the catch block yourself.
+ *
+ * None of 1 through 4 answers on its own, because the catching try is not
+ * always the nearest one:
+ *   try { try { sessionStorage.getItem(k); } finally { a(); } } catch {}
+ * is guarded. So each of them keeps climbing, and only running out of enclosing
+ * nodes is an answer. Stopping at the first TryStatement made the catch- and
+ * finally-arrival cases false POSITIVES, which the fixtures now pin alongside
+ * the negatives.
+ *
+ * The frame rule is unchanged. A callback declared inside a try runs later, off
+ * that stack, so the try does not protect it:
  *   try { el.addEventListener('x', () => sessionStorage.getItem(k)); } catch {}
  * Nor does it protect an instance field initializer, which runs at `new`:
  *   try { class C { v = sessionStorage.getItem(k); } } catch {}
@@ -188,15 +264,25 @@ function runsInEnclosingFrame(node: ts.Node): boolean {
  *
  * This can flag a helper that is only ever called from inside a try, which is a
  * false positive worth discussing. It cannot miss a real one.
- *
- * Arriving at a TryStatement from its catch or finally does not count either:
- * a throw in a catch block propagates exactly as if the try were not there.
  */
 function isGuarded(node: ts.Node): boolean {
   let child: ts.Node = node;
   let parent: ts.Node | undefined = node.parent;
   while (parent) {
-    if (ts.isTryStatement(parent)) return child === parent.tryBlock;
+    if (ts.isTryStatement(parent)) {
+      if (
+        child === parent.tryBlock &&
+        parent.catchClause &&
+        catchStopsTheThrow(parent.catchClause)
+      ) {
+        return true;
+      }
+      // The throw leaves this statement — no catch, a catch that may rethrow,
+      // or we came up out of the catch/finally. An outer try may still stop it.
+      child = parent;
+      parent = parent.parent;
+      continue;
+    }
     if (!runsInEnclosingFrame(parent)) return false;
     child = parent;
     parent = parent.parent;
@@ -453,6 +539,38 @@ describe('#1536: detector fixtures', () => {
       'a constructor body inside a try',
       `try { class C { constructor() { sessionStorage.getItem('k'); } } } catch {}`,
     ],
+    // fix(#1545 codex P2 round 3): a try that does not CATCH does not guard.
+    // `finally` runs and the SecurityError carries on out of the statement, so
+    // every one of these still crashes the frame the access ran on.
+    ['a try with only a finally', `try { sessionStorage.getItem('k'); } finally { done(); }`],
+    [
+      'nested try/finally with no catch anywhere',
+      `try { try { sessionStorage.getItem('k'); } finally { a(); } } finally { b(); }`,
+    ],
+    [
+      'a catch that rethrows the error',
+      `try { sessionStorage.getItem('k'); } catch (e) { throw e; }`,
+    ],
+    [
+      'a catch that throws a wrapped error',
+      `try { sessionStorage.getItem('k'); } catch { throw new Error('storage'); }`,
+    ],
+    [
+      'a catch that rethrows conditionally',
+      `try { sessionStorage.getItem('k'); } catch (e) { if (!ok(e)) throw e; }`,
+    ],
+    [
+      'a catch that rethrows from a nested block',
+      `try { sessionStorage.getItem('k'); } catch (e) { if (a) { log(e); throw e; } }`,
+    ],
+    // Deliberately over-reported: the throw is deferred, so this catch really
+    // does contain the SecurityError. Distinguishing it needs to know whether
+    // `queue` defers, which is the whole-program question this walk refuses to
+    // guess at. Pinned so the over-report is a choice, not a surprise.
+    [
+      'a catch whose only throw is inside a deferred callback',
+      `try { sessionStorage.getItem('k'); } catch (e) { queue(() => { throw e; }); }`,
+    ],
   ])('flags %s', (_name, src) => {
     expect(detected(src)).toBe(1);
     expect(unguarded(src)).toBe(1);
@@ -491,6 +609,31 @@ describe('#1536: detector fixtures', () => {
     [
       'a JSX attribute inside a try',
       `try { render(<div title={sessionStorage.getItem('k')} />); } catch {}`,
+    ],
+    // fix(#1545 codex P2 round 3): the catching try is not always the nearest
+    // one — each of these reaches an outer `catch` that does stop the throw.
+    // The old rule answered at the first TryStatement it met, so it reported
+    // the last two outright; the middle pair passed only because stopping early
+    // happened to land on the right answer.
+    [
+      'a try with a catch and a finally',
+      `try { sessionStorage.getItem('k'); } catch {} finally { done(); }`,
+    ],
+    [
+      'a try/finally nested inside a try/catch',
+      `try { try { sessionStorage.getItem('k'); } finally { a(); } } catch {}`,
+    ],
+    [
+      'a rethrowing catch nested inside a try/catch',
+      `try { try { sessionStorage.getItem('k'); } catch (e) { throw e; } } catch {}`,
+    ],
+    [
+      'a catch block nested inside an outer try/catch',
+      `try { try { g(); } catch { sessionStorage.setItem('k', 'v'); } } catch {}`,
+    ],
+    [
+      'a finally block nested inside an outer try/catch',
+      `try { try { g(); } finally { sessionStorage.setItem('k', 'v'); } } catch {}`,
     ],
   ])('accepts %s', (_name, src) => {
     expect(detected(src)).toBe(1);
