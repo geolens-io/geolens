@@ -33,6 +33,7 @@ from app.modules.catalog.datasets.domain.models import Record
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings import service as service_module
 from app.processing.embeddings.models import RecordEmbedding
+from app.processing.embeddings.service import compute_content_hash
 
 from tests.factories import create_dataset, get_user_id
 
@@ -112,23 +113,29 @@ async def _rows_for(
     return sorted((row[0], row[1]) for row in result.all())
 
 
-async def _touch(session, record_id: uuid.UUID, marker: str) -> None:
-    """Stand in for a write the ingest path makes while the run is going.
+async def _ingest_write(session, record_id: uuid.UUID, title: str) -> None:
+    """Write a vector the way the INGEST PATH does, mid-run.
 
-    `clock_timestamp()`, matching what a real write stamps (fix(#1583 review)).
-    Writing `now()` here made this test fail, and instructively: `now()` is
-    transaction-START time, and the session's transaction was already open, so
-    the "mid-run" write got a stamp EARLIER than the run began and was
-    reclaimed. That is the inversion #1583 hit through the related-items
-    anchor, reproduced by accident in a test written for something else.
+    fix(#1584 review r2, codex P2): this calls the real writer rather than
+    UPDATEing `updated_at` by hand. The reclamation compares stored stamps
+    against a cutoff read from the DATABASE, so the guarantee only holds while
+    the writer stamps from the database clock too. A hand-rolled UPDATE with
+    `clock_timestamp()` asserts that the comparison works and says nothing
+    about whether the real writer participates in it — and this writer did
+    assign `datetime.now(timezone.utc)` from the APP clock until #1583 moved it
+    to `func.clock_timestamp()`. With Postgres ahead of the worker, that stamp
+    can land before a cutoff taken after it and the fresh vector is reclaimed.
+
+    Driving the real writer means a future change back to the application clock
+    fails here instead of shipping.
     """
-    await session.execute(
-        text(
-            "UPDATE catalog.record_embeddings "
-            "SET updated_at = clock_timestamp(), content_hash = :marker "
-            "WHERE record_id = :record_id"
-        ),
-        {"record_id": record_id, "marker": marker},
+    await service_module.generate_and_store_embedding(
+        session=session,
+        record_id=record_id,
+        title=title,
+        summary=None,
+        keywords=None,
+        lineage=None,
     )
     await session.commit()
 
@@ -457,7 +464,7 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
         # The fetch IS the observation: it is where these records are seen as
         # empty. The edit lands before it returns, which is the interval the
         # cutoff has to already cover.
-        await _touch(session, edited_during_fetch, "written-during-the-fetch")
+        await _ingest_write(session, edited_during_fetch, "Edited During Fetch")
         return [
             _as_record(embeddable, title="Reclaim Keeps Embeddable"),
             _as_record(edited_during_fetch, title=None),
@@ -474,10 +481,20 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
         service_module, "settings", SimpleNamespace(openai_api_key="partial-run-key")
     )
 
+    async def _provider(texts, _sess, *, model, dimensions, base_url):
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    # The ingest writer calls `generate_embeddings_batch` through its OWN
+    # module, so it needs its own stub; patching the backfill's copy does not
+    # reach it. That separation is the point of driving the real writer.
+    monkeypatch.setattr(service_module, "generate_embeddings_batch", _provider)
+
     async def _fake_batch(texts, sess, *, model, dimensions, base_url):
         if texts != [backfill_module._PREFLIGHT_TEXT]:
-            await _touch(sess, edited_during_batch, "written-during-the-run")
-        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+            await _ingest_write(sess, edited_during_batch, "Edited During Batch")
+        return await _provider(
+            texts, sess, model=model, dimensions=dimensions, base_url=base_url
+        )
 
     monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
 
@@ -486,13 +503,16 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
     assert result["skipped"] == 2
     # The record that still had content was replaced, as always.
     await _assert_replaced(session, embeddable, marker="Reclaim Keeps Embeddable")
-    # And both vectors written DURING the run survived the reclamation.
-    assert await _rows_for(session, edited_during_fetch) == [
-        (_MODEL_BEFORE, "written-during-the-fetch")
-    ]
-    assert await _rows_for(session, edited_during_batch) == [
-        (_MODEL_BEFORE, "written-during-the-run")
-    ]
+    # Both vectors the ingest path wrote DURING the run survived, and the stale
+    # rows they superseded did not: each record holds exactly the row the real
+    # writer put there, under the live model, hashing the text it was given.
+    for record_id, title in (
+        (edited_during_fetch, "Edited During Fetch"),
+        (edited_during_batch, "Edited During Batch"),
+    ):
+        assert await _rows_for(session, record_id) == [
+            (_MODEL, compute_content_hash(title))
+        ]
 
 
 @pytest.mark.anyio
