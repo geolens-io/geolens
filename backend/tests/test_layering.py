@@ -2706,11 +2706,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # session so the status change and the audit entry commit as one. Most of
     # the lines are the docstring recording why the trail cannot be closed
     # anywhere else, and why `audit_emit_durable` would be the wrong tool here.
-    # Cap 1403 -> 1529, exact. The second raise adds
+    # Cap 1403 -> 1522, exact. The second raise adds
     # `terminal_backfill_audit_exists`: one operation gets one terminal entry,
     # whoever writes it first, because three actors can legitimately close the
     # same run and two of them disagreeing is the defect.
-    "backend/app/platform/jobs/sweep.py": 1529,
+    "backend/app/platform/jobs/sweep.py": 1522,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

@@ -193,22 +193,15 @@ async def _emit_outcome_audit(
     # final state rather than the one this worker intended. See
     # `_emit_terminal_audit` for the rule and the module's tests for the
     # enumeration of paths it covers.
-    from app.core.db import async_session
     from app.modules.audit.service import AuditEvent, audit_emit_durable
-    from app.platform.jobs.sweep import terminal_backfill_audit_exists
 
     try:
-        # One operation, one terminal entry, whoever writes it first. The poll
-        # and the sweeper can both legitimately close a run this worker is
-        # still inside — see `terminal_backfill_audit_exists`.
-        async with async_session() as probe:
-            if await terminal_backfill_audit_exists(probe, job_id):
-                logger.info(
-                    "embedding_backfill_outcome_already_recorded",
-                    job_id=job_id,
-                    skipped_outcome=outcome,
-                )
-                return
+        # One operation, one terminal entry, and the DATABASE decides which —
+        # `uq_audit_logs_terminal_embedding_backfill` (migration 0051). The
+        # poll and the sweeper can both legitimately close a run this worker is
+        # still inside, so a check here would be a check-then-insert. Losing
+        # that race raises IntegrityError, which `audit_emit_durable` contains
+        # on its own session.
         await audit_emit_durable(
             AuditEvent(
                 user_id=uuid.UUID(user_id) if user_id else None,

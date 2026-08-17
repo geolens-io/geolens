@@ -20,6 +20,7 @@ from typing import Literal, overload
 
 import structlog
 from sqlalchemy import and_, delete, func, not_, or_, select, text, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
@@ -1429,40 +1430,6 @@ async def fail_stale_jobs(
     return outcome.pending_failed, outcome.running_failed
 
 
-async def terminal_backfill_audit_exists(session: AsyncSession, job_id: str) -> bool:
-    """Has this backfill run already had its outcome recorded by anyone?
-
-    fix(#1550 review): three actors can close a run's trail — the worker, the
-    status poll and the stale sweeper — and more than one can be right about
-    the same run. A poll that expires a live worker's lease records
-    `worker_lost`; the worker then returns, loses its fenced finalize, and
-    records `unresolved`. Two terminal entries for one operation, with
-    conflicting outcomes.
-
-    Idempotency rather than coordination: one operation gets one terminal
-    entry, whoever writes it first. Teaching each actor to check the other two
-    is the shape that keeps finding a next case.
-
-    A simultaneous dead heat could still produce two rows — this is a read
-    before a write, not a constraint. The actors are separated by the lease
-    window in every path that has come up, and the cost of losing that race is
-    a duplicate record rather than a wrong one, which is the opposite trade
-    from the concurrency guard on the runs themselves.
-    """
-    from app.modules.audit.models import AuditLog
-
-    existing = await session.execute(
-        select(AuditLog.id)
-        .where(
-            AuditLog.action == "embedding.backfill",
-            AuditLog.details["job_id"].astext == job_id,
-            AuditLog.details["outcome"].astext != "requested",
-        )
-        .limit(1)
-    )
-    return existing.first() is not None
-
-
 async def audit_settled_embedding_backfill(
     session: AsyncSession,
     *,
@@ -1498,10 +1465,36 @@ async def audit_settled_embedding_backfill(
     marker = (user_metadata or {}).get(EMBEDDING_BACKFILL_METADATA_KEY)
     if not marker:
         return
-    if await terminal_backfill_audit_exists(session, str(job_id)):
-        # Another actor already closed this run. One operation, one terminal
-        # entry — see `terminal_backfill_audit_exists`.
-        return
+    # One operation gets one terminal entry, and the DATABASE decides which —
+    # `uq_audit_logs_terminal_embedding_backfill` (migration 0051). Three
+    # actors can close the same run, so an existence check here would be a
+    # check-then-insert: both read "nothing yet", both insert, and the trail
+    # carries two conflicting outcomes.
+    #
+    # Wrapped in a SAVEPOINT so losing that race rolls back only this insert.
+    # The audit is emitted on the caller's session precisely so it commits with
+    # the status change; an unguarded IntegrityError would take the status
+    # change down with it.
+    try:
+        async with session.begin_nested():
+            await _emit_terminal_backfill_event(
+                session, marker, job_id, created_by, error_code
+            )
+    except IntegrityError:
+        log.info(
+            "embedding_backfill_terminal_audit_already_recorded",
+            job_id=str(job_id),
+            skipped_error_code=error_code,
+        )
+
+
+async def _emit_terminal_backfill_event(
+    session: AsyncSession,
+    marker: dict,
+    job_id: uuid.UUID,
+    created_by: uuid.UUID | None,
+    error_code: str,
+) -> None:
     # Deferred by design to preserve the platform -> modules layer boundary,
     # matching `cleanup_stale_jobs` above.
     from app.modules.audit.service import AuditEvent, audit_emit
