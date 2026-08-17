@@ -67,11 +67,22 @@ class TestExtensionApiVersionConstant:
         keeping a freed table name from reaching a successor that would inherit
         its predecessor's cached authorization.
 
+        v8 carries TWO ``CatalogPort`` changes (fix(#1546)). A required
+        ``resolve_embedding_config`` method: stored embeddings now record the
+        configuration that produced them, semantic search filters on it, and
+        ``modules/catalog/`` may not import ``app.processing.*``, so the answer
+        crosses the port on every hybrid search. And a widened
+        ``generate_embedding``, which takes a keyword-only ``pinned`` triple so
+        the query vector is produced under the very configuration its ranking
+        filters on; an overlay still implementing the two-argument signature
+        raises TypeError on the first semantic search. Both are required in the
+        convention's sense, and both land in one change, so they share a bump.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 7
+        assert EXTENSION_API_VERSION == 8
 
 
 class TestCheckExtensionApiVersion:

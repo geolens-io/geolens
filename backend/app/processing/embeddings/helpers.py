@@ -37,14 +37,59 @@ UNKNOWN_EMBEDDING_MODEL = "__model_unknown__"
 UNKNOWN_EMBEDDING_CONFIG = "__config_unknown__"
 
 
+# fix(#1546 review r2, codex P2): ceiling on how far an iterative scan will go
+# looking for rows that survive the filter. pgvector's own default is 20000;
+# stating it here makes the bound visible at the one place iterative scan is
+# turned on, and keeps a pathological catalog from turning one search into a
+# full index walk.
+_HNSW_MAX_SCAN_TUPLES = 20000
+
+
 async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
-    """Tune HNSW ef_search for the current transaction.
+    """Tune HNSW recall for the current transaction.
 
     Default ``ef_search`` (40) misses relevant matches in recall-sensitive
-    queries like related-items and semantic-search. ``SET LOCAL`` scopes the
-    change to this transaction so other queries are unaffected.
+    queries like related-items and semantic-search. These are transaction-local
+    (``set_config(..., is_local => true)`` is ``SET LOCAL``), so other queries
+    are unaffected.
+
+    fix(#1546 review r2, codex P2): iterative scan, because every caller filters
+    the index's output AFTER the approximate scan has chosen its candidates.
+    Semantic search asks for rows a configuration can use; related-items asks
+    for a record's neighbours. With a fixed ``ef_search`` and no iterative scan
+    the index hands back at most that many candidates and the filter runs on
+    them, so a catalog whose nearest neighbours are mostly rows the filter
+    rejects can have every candidate discarded before a usable one is visited.
+    Semantic search then returns nothing and silently falls back to FTS while
+    matching vectors sit in the table.
+
+    A partly complete regenerate after a configuration change is the realistic
+    way to get there: most rows carry the superseded stamp, and they are exactly
+    as near the query as their replacements would be. #1546 widened the
+    predicate, so it widened this, but it did not create it — a model-only
+    filter starves the same way on a catalog holding two models' rows in one
+    index, which is the state #1506 was written for.
+
+    ``relaxed_order`` rather than ``strict_order``: the caller turns distances
+    into positional ranks and merges them with FTS through RRF, so a slight
+    reordering inside the returned window costs nothing, and relaxed is the
+    cheaper mode. Needs pgvector >= 0.8.0; the shipped image installs
+    ``postgresql-18-pgvector`` from PGDG (0.8.5 at time of writing). On an older
+    pgvector the setting is accepted as an inert placeholder rather than an
+    error, because Postgres allows any ``prefix.name`` GUC, so this degrades to
+    the previous behaviour instead of failing the query.
+
+    One statement rather than three: this runs on the search hot path, and
+    ``SET LOCAL`` cannot carry more than one setting.
     """
-    await session.execute(text(f"SET LOCAL hnsw.ef_search = {int(ef)}"))
+    await session.execute(
+        text(
+            "SELECT set_config('hnsw.ef_search', :ef, true), "
+            "set_config('hnsw.iterative_scan', 'relaxed_order', true), "
+            "set_config('hnsw.max_scan_tuples', :max_scan_tuples, true)"
+        ),
+        {"ef": str(int(ef)), "max_scan_tuples": str(_HNSW_MAX_SCAN_TUPLES)},
+    )
 
 
 async def resolve_embedding_model_name(
