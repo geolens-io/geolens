@@ -96,12 +96,7 @@ logger = logging.getLogger(__name__)
 # 5 -> 6: a Protocol method a structural implementer must supply is required,
 # whatever else the addition is shaped like.
 #
-# 7 -> 8 (fix(#1546), then fix(#1580)): FOUR CatalogPort changes, one bump.
-#
-# The first two land with #1546 and the second two with #1580, in the same
-# release with no core release between them. An overlay author sees one contract
-# change, so they get one number: a second bump inside a release is a second pin
-# to maintain for a migration nobody performs separately.
+# 7 -> 8 (fix(#1546)): TWO CatalogPort changes, one bump.
 #
 # A required ``resolve_embedding_config`` method. Stored embeddings now carry
 # the identity of the configuration that produced them, and semantic search
@@ -124,18 +119,16 @@ logger = logging.getLogger(__name__)
 # Riding the same bump because both land in the same change; an overlay
 # updating to 8 has to do both.
 #
-# Then fix(#1580), the related-items path, on the same number. Related items
-# compared one record's stored vector against every other record's across model
-# and configuration spaces; scoping that comparison needs the anchor row's
-# identity to reach two more readers.
+# 8 -> 9 (fix(#1580)): TWO CatalogPort shape changes on the related-items path,
+# one bump, for the same reason 7 -> 8 carried two.
 #
-# ``get_record_embedding`` returns ``(embedding, model_name,
-# config_fingerprint)`` instead of a bare vector. Both sides of that comparison
-# are STORED rows, so the caller has to name the vector space the anchor is in
-# and hold every later read to it, and a list of floats cannot say which model
-# or endpoint produced it. An overlay still returning a bare list is unpacked
-# into three names by ``service_relationships._load_self_record_and_embedding``
-# and raises on the first related-items request.
+# ``get_record_embedding`` now returns ``(embedding, model_name,
+# config_fingerprint)`` instead of a bare vector. Related-items compares two
+# STORED rows, so the caller has to name the vector space the anchor is in and
+# hold every later read to it, and a list of floats cannot say which model or
+# endpoint produced it. An overlay still returning a bare list is unpacked into
+# three names by ``service_relationships._load_self_record_and_embedding`` and
+# raises on the first related-items request.
 #
 # ``get_embedding_distances`` gains required keyword-only ``model_name`` and
 # ``config_fingerprint``. Required rather than optional on purpose: defaulting
@@ -143,10 +136,21 @@ logger = logging.getLogger(__name__)
 # defect is a similarity percentage computed in the wrong space. An overlay
 # implementing the old signature raises TypeError on the same request.
 #
-# All four are the same test every bump before this one applied: a Protocol
-# method a structural implementer must supply, in a shape the core caller
-# depends on. An overlay updating to 8 has to do all four.
-EXTENSION_API_VERSION: int = 8
+# Same test as every bump before it: a Protocol method a structural implementer
+# must supply, in a shape the core caller depends on.
+#
+# These two were briefly folded INTO 7 -> 8, on the reasoning that #1546 and
+# #1580 ship in one release with no core release between them, so an overlay
+# author performs one migration. That was wrong and the history says so rather
+# than hiding it. The constant pins the contract at a COMMIT, not at a release:
+# main has been a v8 contract since #1546 merged, so an overlay built and
+# declared against it boots cleanly against post-#1580 core and then meets a
+# ``get_record_embedding`` of a different shape and a ``get_embedding_distances``
+# wanting two new keywords. The first related-items request fails inside the
+# broad handler and returns an empty list — silent skew, which is the exact
+# thing this check exists to refuse. Release boundaries are not what the number
+# is about.
+EXTENSION_API_VERSION: int = 9
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:
