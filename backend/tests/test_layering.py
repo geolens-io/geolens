@@ -2276,7 +2276,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # openapi.json and the rendered /docs page), and the answer could not be
     # written down before #1518 because it depended on which router you hit.
     # Cap 1470 -> 1499, exact.
-    "backend/app/api/main.py": 1573,
+    # fix(#1540 review P2): +20 — image/tiff joins starlette's default gzip
+    # exclusions, and the comment says why it is a correctness fix rather than a
+    # CPU one: the middleware compresses a 200 and skips a 206, so one strong
+    # ETag named gzip bytes on the full download and raw bytes on every range,
+    # and a client resuming the encoded representation could splice raw bytes at
+    # encoded offsets. Cap 1573 -> 1593, exact.
+    "backend/app/api/main.py": 1593,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3370,6 +3376,92 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # otherwise a stable set of CRUD helpers over the record's related tables
     # and is not where new domains should land.
     "backend/app/modules/catalog/records/service.py": 1007,
+    # fix(#1528): crossed the inclusion threshold, and this is the file the
+    # inclusion rule's own comment named as one of the two "routers-by-role the
+    # glob's filename match cannot see ... watched by nothing until they cross
+    # 1000". It just did.
+    #
+    # What the lines bought: HEAD and byte-range service on
+    # /datasets/{id}/download/cog. A COG exists to be read by range — client
+    # reads the header, fetches only the tiles it needs — and this endpoint
+    # served neither, so GDAL /vsicurl/ could not open it at all (measured:
+    # ERROR 4, not a slow download). The additions are the Range parser and its
+    # RFC 9110 ignore/clamp/416 rules, a chunked range streamer that keeps a
+    # multi-GB range off the heap, the 200/206/416 response shapes, and
+    # _local_cog_response, which exists because folding three representations
+    # into a handler that already branches over three storage backends put
+    # download_cog past ruff's C901 ceiling.
+    #
+    # Roughly half the diff is comment: which starlette behaviour each explicit
+    # header displaces, and why HEAD here carries a Content-Length where the
+    # export route's deliberately omits one. Cap at the exact size. The DCAT
+    # feed handlers above are the natural split if this grows again.
+    #
+    # +93 for the two fix(#1540) review findings. P1 pulled the object stat and
+    # the HEAD response out of _local_cog_response into _cog_object_size /
+    # _cog_headers / _cog_head_response so the `s3` branch can answer HEAD from
+    # metadata instead of redirecting to a URL signed for GET — sharing them is
+    # what makes HEAD provably identical on both backends, and it moved the long
+    # explanatory comments from inline into three docstrings. P2 added
+    # _range_int, which saturates every Range numeric field before int() so a
+    # 4301-digit header cannot raise ValueError into a 500.
+    #
+    # +7, all prose. The double-stat review finding DELETED code — _cog_object_size
+    # now calls size() once and maps its FileNotFoundError to 404 instead of asking
+    # exists() first — and the lines are the paragraph saying why the second
+    # head_object was worth removing: it doubled the round trips and the request
+    # charges on every /vsicurl/ probe, against a design chosen for costing one,
+    # and the gap between the two calls turned a deleted object into a 503.
+    #
+    # +90 for the range validator, which is what finishes the range feature rather
+    # than extending it. _cog_etag publishes the COG's own sha256 as a strong ETag
+    # on every stored-bytes response, and _range_bound_to_this_version evaluates
+    # If-Range so a range resumed across a raster replacement returns the whole
+    # current object instead of a 206 the client appends to a prefix of the COG it
+    # is no longer reading. Ranges without a validator are how two COGs become one
+    # corrupt file with no error anywhere, so the explanation is on the two helpers
+    # and at the branch. If this file grows again, the DCAT feed handlers remain
+    # the natural split.
+    #
+    # +111 for the two halves of that binding the first pass missed. _s3_cog_response
+    # is an extraction, not new branching: the s3 block moved out of download_cog so
+    # it could evaluate If-Range before redirecting, which it has to do because the
+    # bucket does not (MEASURED: a presigned GET answers 206 for a non-matching
+    # If-Range) and a 302 cannot strip the client's Range on the way past. The rest
+    # is _if_none_match_matches and _cog_not_modified, so the ETag this route
+    # publishes can end a revalidation with 304 instead of another multi-GB body.
+    #
+    # +7, all comment. The stale-resume fallback now streams from one get_object
+    # rather than _iter_storage_range over the whole object, which issued a ranged
+    # request per 1 MiB — 5,120 of them for a 5 GiB COG, selectable by any caller
+    # willing to send a stale validator and counted by the rate limiter as one
+    # request. The lines say which of the two streaming helpers belongs where.
+    #
+    # +4 net, and the code went DOWN: `_iter_storage_range` is deleted. Serving a
+    # range by calling get_range per 1 MiB issued an object-store request per
+    # chunk on the ORDINARY path this time, which on an S3 or Azure deployment is
+    # every managed raster's range request. Only the provider can ask for a window
+    # once and stream the answer, so `get_range_stream` is where the bound lives
+    # now; what is left here is the note saying why a helper that turns one range
+    # into N reads was removed rather than retuned.
+    #
+    # +53 for If-Match. A resuming client may spell "only if this is still my
+    # representation" as If-Match rather than If-Range, and honouring one while
+    # ignoring the other left the absent If-Range reading as permission — the
+    # same splice through the other header. _if_match_passes is strong comparison
+    # with * handling, _this_service_owns_the_bytes names the rule that already
+    # governed the remote branch's blank validator row, and the 412 carries the
+    # ETag that IS current so a refused client can restart in one round trip.
+    #
+    # +36 for the last two review findings. If-Match had to be reachable from a
+    # browser (the CORS half is enforced by a test now, not a memory), and the
+    # precondition block had to stat the object before answering: a row whose
+    # bytes are gone answers 404 unconditionally, so a 304 there told a cache its
+    # stale copy was current for a representation that no longer exists. That
+    # stat is handed down through _cog_size_once so a conditional request that
+    # goes on to transfer bytes still measures once, and _managed_key names the
+    # tenant-key seam the block now crosses in a second place.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1656,
 }
 
 

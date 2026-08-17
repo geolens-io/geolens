@@ -32,6 +32,10 @@ from botocore.exceptions import ClientError
 
 from app.platform.storage.provider import StoredObject
 
+# Matches LocalStorageProvider's chunk size: one 1 MiB buffer resident per
+# stream, whatever the object weighs.
+_STREAM_CHUNK_BYTES = 1024 * 1024
+
 
 def _as_utc(value: datetime) -> datetime:
     """Normalize a provider timestamp to timezone-aware UTC.
@@ -166,21 +170,93 @@ class S3StorageProvider:
         return await asyncio.to_thread(_get_range)
 
     async def get_stream(self, key: str) -> AsyncIterator[bytes]:
-        """S3 streaming is served via presigned GET redirect; never reached.
+        """Stream the whole object from ONE ``get_object``, in 1 MiB chunks.
 
-        The router (``router_export.py:375-379``) returns
-        ``RedirectResponse(presigned_url, 302)`` for the ``s3`` storage
-        backend, so this method is unreachable in the current code path.
-        Defining it explicitly satisfies the ``StorageProvider`` Protocol
-        and surfaces a clear error if a future refactor accidentally
-        invokes it on S3.
+        fix(#1540 review P1): this used to raise ``NotImplementedError`` on the
+        grounds that the s3 backend always redirects. That stopped being true
+        when the COG download route gained the one case it cannot delegate to
+        the bucket — a resumed range whose ``If-Range`` no longer matches, which
+        RFC 9110 section 13.1.5 says must be answered with the complete
+        representation, and which a presigned URL cannot answer because the
+        bucket does not evaluate the precondition.
+
+        The first version of that fallback streamed through
+        ``_iter_storage_range``, which issues a separate ranged ``get_object``
+        per chunk: 5,120 object-store requests for a 5 GiB COG, selectable by
+        any caller willing to send a stale validator, and counted by the rate
+        limiter as one request. One ``get_object``, read in chunks off the
+        socket, costs the same as any other full download.
+
+        Chunked rather than ``.read()`` for the reason the local provider gives:
+        a multi-GB COG must never be materialized as a single ``bytes``. The
+        body is closed in a ``finally`` so a client that disconnects mid-stream
+        releases its connection back to the pool instead of leaking it.
         """
-        raise NotImplementedError(
-            "S3 streaming is served via presigned GET redirect from the "
-            "router; this method should never be reached. See "
-            "router_export.py:375-379."
-        )
-        yield b""  # unreachable, satisfies AsyncIterator return type
+
+        def _open():
+            try:
+                return self.client.get_object(Bucket=self.bucket, Key=key)["Body"]
+            except ClientError as e:
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(key) from e
+                raise
+
+        body = await asyncio.to_thread(_open)
+        try:
+            while True:
+                chunk = await asyncio.to_thread(body.read, _STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            await asyncio.to_thread(body.close)
+
+    async def get_range_stream(
+        self, key: str, start: int, length: int
+    ) -> AsyncIterator[bytes]:
+        """Stream a byte window from ONE ranged ``get_object``.
+
+        fix(#1540 review P1): this is the method whose absence produced the
+        defect twice. Serving a range by calling ``get_range`` per 1 MiB chunk
+        issues a separate ``GetObject`` per chunk, so an ordinary
+        ``Range: bytes=0-`` against a 5 GiB COG became 5,120 serial object-store
+        requests — one API request by the rate limiter's count, thousands by the
+        bill's. The window is requested once here and the body is read off the
+        socket in chunks, which is what a range request should cost.
+
+        A window starting at or past the end is an empty stream rather than an
+        error, matching ``get_range`` and local/POSIX seek-then-read: the caller
+        has already decided what a zero-length window means.
+        """
+
+        def _open():
+            try:
+                return self.client.get_object(
+                    Bucket=self.bucket,
+                    Key=key,
+                    Range=f"bytes={start}-{start + length - 1}",
+                )["Body"]
+            except ClientError as e:
+                code = e.response.get("Error", {}).get("Code")
+                # fix(#430 BA-24): normalize missing-object to FileNotFoundError across providers.
+                if code in ("404", "NoSuchKey"):
+                    raise FileNotFoundError(key) from e
+                if code in ("416", "InvalidRange", "RequestedRangeNotSatisfiable"):
+                    return None
+                raise
+
+        body = await asyncio.to_thread(_open)
+        if body is None:
+            return
+        try:
+            while True:
+                chunk = await asyncio.to_thread(body.read, _STREAM_CHUNK_BYTES)
+                if not chunk:
+                    break
+                yield chunk
+        finally:
+            await asyncio.to_thread(body.close)
 
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Download key to a local file path. Creates parent dirs."""

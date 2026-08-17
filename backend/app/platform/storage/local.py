@@ -138,6 +138,38 @@ class LocalStorageProvider:
         finally:
             await asyncio.to_thread(f.close)
 
+    async def get_range_stream(
+        self, key: str, start: int, length: int
+    ) -> AsyncIterator[bytes]:
+        """Stream ``length`` bytes from ``start`` off ONE open file handle.
+
+        fix(#1540 review P1): the interesting implementation is S3's, where the
+        alternative was a request per chunk. Local storage never paid that, but
+        it implements the same method so the route has one call to make and the
+        object stores are not a special case at the call site.
+
+        Handle closed in a ``finally`` for the reason ``get_stream`` gives:
+        a client disconnecting mid-range must not leak a descriptor.
+        """
+        path = self._resolve_contained(key)
+        if not await asyncio.to_thread(path.exists):
+            raise FileNotFoundError(f"Storage key not found: {key}")
+
+        f = await asyncio.to_thread(open, path, "rb")
+        try:
+            await asyncio.to_thread(f.seek, start)
+            remaining = length
+            while remaining > 0:
+                chunk = await asyncio.to_thread(
+                    f.read, min(remaining, _STREAM_CHUNK_BYTES)
+                )
+                if not chunk:
+                    return
+                yield chunk
+                remaining -= len(chunk)
+        finally:
+            await asyncio.to_thread(f.close)
+
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Copy file to dest. If src == dest, return as-is."""
         src = self._resolve_contained(key)

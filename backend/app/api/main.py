@@ -20,7 +20,7 @@ configure_gdal_s3_env(settings)
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select, text
-from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from app.api.router import api_router
@@ -972,7 +972,27 @@ app.add_middleware(
 # Pinned by tests/test_phase_273_middleware_order.py — do not flip without
 # updating that regression test.
 app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(GZipMiddleware, minimum_size=256, compresslevel=4)
+# fix(#1540 review P2): image/tiff joins starlette's default exclusions, which
+# already cover avif/gif/jpeg/png/webp and simply predate anyone serving TIFF.
+#
+# Not a CPU optimization, though it is that too — a COG is internally compressed
+# already, so DEFLATE over a multi-GB one buys close to nothing. It is a
+# CORRECTNESS fix for the strong ETag the COG download route publishes. A strong
+# validator must identify one representation including its content coding, and
+# this middleware compresses a 200 while skipping a 206 by design
+# (`self.partial_response = status == 206`). One ETag therefore named two
+# different byte streams: gzip bytes on the full download, raw bytes on every
+# range. A client resuming the encoded representation could have its validator
+# accepted and splice raw bytes at encoded offsets — doing everything right and
+# still assembling a corrupt file. Excluding the type restores the invariant
+# without variant-specific validators, which would need their own HEAD metadata
+# and Vary story.
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=256,
+    compresslevel=4,
+    exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",),
+)
 app.add_middleware(DynamicCORSMiddleware)
 
 app.include_router(api_router)

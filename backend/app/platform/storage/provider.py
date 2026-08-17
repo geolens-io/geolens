@@ -69,6 +69,32 @@ class StorageProvider(Protocol):
         """
         ...
 
+    def get_range_stream(
+        self, key: str, start: int, length: int
+    ) -> AsyncIterator[bytes]:
+        """Stream a bounded window as ``get_range``, in chunks as ``get_stream``.
+
+        fix(#1540 review P1): the COG download route needs both properties at
+        once and had neither method that gives them. ``get_range`` returns
+        ``bytes``, so a multi-GB range would be materialized whole; calling it
+        in a loop instead — which is what the route did — turns ONE range
+        request into a separate object-store request per chunk. A client asking
+        for ``Range: bytes=0-`` on a 5 GiB COG cost 5,120 of them, serially,
+        while the per-request rate limiter counted a single API call.
+
+        **Implementations must issue one provider read for the whole window**
+        and chunk the response as it arrives. That is what makes a range
+        request cost what a range request should cost, and it is the property
+        the route depends on rather than a suggestion.
+
+        ``length`` must be positive. The stream ends early if the object is
+        shorter than the window — a truncated response against a declared
+        Content-Length is a transfer error every HTTP client reports, which is
+        the loud failure; padding to length would be the quiet corrupt one.
+        Raises FileNotFoundError if the key does not exist (BA-24).
+        """
+        ...
+
     async def get_to_file(self, key: str, dest: Path) -> Path:
         """Download key to a local file path. For ogr2ogr consumption."""
         ...

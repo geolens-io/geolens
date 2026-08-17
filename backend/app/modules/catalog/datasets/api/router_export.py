@@ -1,5 +1,6 @@
 """Dataset export endpoints: DCAT JSON-LD catalog and COG download."""
 
+import re
 import uuid
 
 import jwt
@@ -713,6 +714,134 @@ async def get_geodcat_ap_record(
 # COG download
 # ---------------------------------------------------------------------------
 
+# fix(#1528): a range can be most of a multi-GB COG, so it is read in bounded
+# pieces rather than buffered whole — the same reason the full-object path
+# streams via get_stream() (ING-03). fix(#1540 review P1): the chunk size that
+# used to live here belongs to the provider now, along with the loop that used
+# it; see the note where `_iter_storage_range` was.
+
+# One anchored pattern, deliberately strict about what it accepts:
+#   bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX
+# `[0-9]` rather than `\d` because Python's `\d` is unicode-aware, and
+# int("٣") succeeds while int("²") raises — a header parser should not have
+# opinions about Arabic-Indic digits. Anything this does not match (a second
+# range, an unknown unit, a reversed pair) is IGNORED per RFC 9110 section
+# 14.2, which is the safe direction: the client gets the whole representation
+# it can already handle, never a partial one mislabelled as something else.
+#
+# fix(#1540 review P2): the unit match is case-INSENSITIVE. A range unit is a
+# token (RFC 9110 section 14.1), and tokens compare case-insensitively unless
+# the grammar says otherwise, so `Bytes=0-16383` is a conforming request. Being
+# strict about it did not reject that request — "ignore the Range" sent the
+# whole COG with a 200, turning a 16 KiB tile read into a multi-gigabyte
+# transfer. Strictness that fails toward MORE bytes is not strictness.
+#
+# Only the unit. The digits stay `[0-9]`, and the entity-tag comparisons in
+# `_range_bound_to_this_version` and `_if_none_match_matches` stay
+# case-SENSITIVE, because an entity-tag is opaque and section 8.8.3.2 compares
+# it octet by octet — and the weak prefix is `%s"W/"`, spelled with a
+# case-sensitive string literal in the grammar itself.
+_BYTE_RANGE_RE = re.compile(r"^bytes=(?:([0-9]+)-([0-9]*)|-([0-9]+))$", re.IGNORECASE)
+
+# The Range named no byte of the representation (first-byte-pos at or past the
+# end, or a zero-length suffix). RFC 9110 section 15.5.17 wants a 416 carrying
+# the real size, NOT a 200 with the whole object: a client that asked for one
+# tile and silently received the entire COG splices it at the wrong offset.
+_RANGE_UNSATISFIABLE = "unsatisfiable"
+
+# fix(#1540 review P2): every numeric field is saturated at this many digits
+# before it reaches int(). CPython refuses to convert an integer literal longer
+# than sys.get_int_max_str_digits() (4300 by default) and raises ValueError, so
+# an unbounded `int(group)` turns `Range: bytes=<4301 digits>-` — which fits
+# comfortably inside the 8 KiB per-header budget nginx and uvicorn both allow —
+# into a 500 on a header RFC 9110 lets a server ignore.
+#
+# Saturating rather than rejecting because the RFC answer to each of these is
+# already defined and none of them is "serve the whole object": a first-byte-pos
+# past the end is a 416 carrying the real size (section 15.5.17), and a
+# last-byte-pos or suffix past the end clamps to the object (section 14.1.1).
+# Dropping an over-long value on the floor and replying 200 would hand a client
+# that asked for one tile the entire COG — the corrupt-splice failure
+# `_RANGE_UNSATISFIABLE` exists to prevent.
+#
+# 19 digits because 2**63-1 has 19 and no object is that large; every value
+# above it compares against `size` identically.
+_MAX_RANGE_DIGITS = 19
+
+
+def _range_int(digits: str, size: int) -> int:
+    """``int(digits)``, saturated above any size a stored object can have.
+
+    Leading zeros are stripped before the length test so that a padded literal
+    is measured by its value and not by its typing: ``bytes=-0000...0`` is a
+    zero-length suffix and must reach the 416 branch, not be mistaken for an
+    astronomically large one.
+    """
+    trimmed = digits.lstrip("0") or "0"
+    if len(trimmed) > _MAX_RANGE_DIGITS:
+        return size + 1
+    return int(trimmed)
+
+
+def _parse_cog_range(raw: str | None, size: int) -> tuple[int, int] | str | None:
+    """Resolve a Range header to an inclusive ``(start, end)`` byte pair.
+
+    Returns ``None`` when there is no usable range and the caller should serve
+    the complete representation, ``_RANGE_UNSATISFIABLE`` when it must answer
+    416, and otherwise the resolved pair — already clamped to the object, so
+    callers never have to re-check the bounds.
+
+    Multi-range requests return ``None``. RFC 9110 section 14.2 lets a server
+    answer a multi-range request with a single range or with the whole
+    representation; ``multipart/byteranges`` is not implemented here, and
+    answering the FIRST range while echoing only its Content-Range would be
+    the corrupt-download failure — a client expecting two parts writes one of
+    them over both offsets.
+    """
+    if not raw:
+        return None
+    match = _BYTE_RANGE_RE.match(raw.strip())
+    if match is None:
+        return None
+    first, last, suffix = match.groups()
+
+    if suffix is not None:
+        # bytes=-N: the final N bytes. A zero-length suffix names nothing.
+        wanted = _range_int(suffix, size)
+        if wanted == 0 or size == 0:
+            return _RANGE_UNSATISFIABLE
+        return (max(0, size - wanted), size - 1)
+
+    start = _range_int(first, size)
+    if size == 0 or start >= size:
+        return _RANGE_UNSATISFIABLE
+    if last == "":
+        # bytes=N-: from N to the end.
+        return (start, size - 1)
+    end = _range_int(last, size)
+    if end < start:
+        return None  # reversed pair: invalid, so ignore rather than reject
+    # A last-byte-pos past the end is CLAMPED, not rejected — clients that do
+    # not know the size ask for more than exists on purpose.
+    return (start, min(end, size - 1))
+
+
+# fix(#1540 review P1): `_iter_storage_range` used to live here, looping
+# `storage.get_range` at `_COG_RANGE_CHUNK_BYTES` a call. It kept resident
+# memory to one chunk, which was the point, and paid for it in object-store
+# requests: one per chunk, so `Range: bytes=0-` on a 5 GiB COG issued 5,120 of
+# them serially while the rate limiter counted one API request. That is the
+# same amplification the stale-resume fallback was fixed for a round earlier,
+# on the path an ordinary tile read takes — and on an S3 or Azure deployment
+# every managed raster takes it, because ingest writes `storage_backend="local"`
+# whatever the object store is.
+#
+# The bound belongs in the provider, which is the only layer that can ask for a
+# window once and hand back the response as it arrives. `get_range_stream` is
+# that method; see its contract in `platform/storage/provider.py`. Deleting the
+# loop rather than repairing it is deliberate: a helper that turns one range
+# into N reads has no correct chunk size, only less-wrong ones.
+
 
 async def _resolve_download_user(
     request: Request,
@@ -828,6 +957,26 @@ async def _resolve_download_user(
     )
 
 
+# fix(#1528): HEAD alongside GET. FastAPI's APIRoute does not add it the way
+# starlette's plain Route does, so this answered `405 allow: GET` — refusing
+# every client that probes before downloading (GDAL/QGIS `/vsicurl/`, resumable
+# downloaders, link checkers). Same gap fix(#1513) closed for the export route,
+# and `_register_standards_head_routes` in app/api/main.py for the standards
+# surface.
+#
+# The HEAD is stronger than the export route's, and the difference is the
+# point. That route runs a live conversion, so its length is unknowable before
+# generating the content and its HEAD omits Content-Length under RFC 9110
+# section 9.3.2. This one serves STORED bytes: one storage.size() gives a real
+# Content-Length, and the `Accept-Ranges: bytes` it advertises is backed by an
+# actual 206 below rather than by starlette's FileResponse re-running a
+# conversion per range (the instability fix(#1532) tracks). A COG endpoint that
+# could not serve ranges would be a COG endpoint in name only.
+#
+# include_in_schema=False for the reason `_clone_api_route` gives: a derived
+# route documents nothing the canonical one does not, and publishing it would
+# churn both SDKs and the CLI.
+@router.head("/{dataset_id}/download/cog", include_in_schema=False)
 @router.get(
     "/{dataset_id}/download/cog",
     response_class=Response,
@@ -851,6 +1000,13 @@ async def download_cog(
     user-None to enforce public visibility and emit the audit row with
     user_id=NULL.
     """
+    # The docstring above is the published OpenAPI description for the GET
+    # operation, so it describes the GET only — the HEAD route is
+    # include_in_schema=False and, since fix(#1540) review P1, answers the s3
+    # backend from object metadata rather than redirecting. Adding that to the
+    # docstring moves openapi.json and churns both SDKs and the CLI for prose
+    # about an operation the schema does not carry, so it lives on the branch
+    # itself instead.
     from slugify import slugify
 
     from app.modules.auth.permissions import get_effective_permissions
@@ -906,28 +1062,93 @@ async def download_cog(
     # 5. Build filename
     filename = f"{slugify(dataset.record.title)}.cog.tif"
 
+    # 5b. Conditional request. fix(#1540 review P2): the ETag this route
+    # publishes is only half a cache contract — a client that stores it and
+    # revalidates has to be told "unchanged", or it re-downloads a COG it
+    # already has, which for a multi-GB raster is the entire cost the header
+    # was supposed to save.
+    #
+    # Before the audit row, and above the storage branching, for the reason
+    # HEAD skips the audit: neither a 412 nor a 304 transfers bytes, so
+    # recording either as `dataset.download_cog` would misreport who downloaded
+    # what. The sequence is the one RFC 9110 section 13.2.2 fixes: If-Match,
+    # then If-None-Match, then Range and If-Range.
+    storage = get_storage()
+    etag = _cog_etag(raster_asset)
+    total_bytes: int | None = None
+
+    if _this_service_owns_the_bytes(raster_asset) and (
+        request.headers.get("if-match") or request.headers.get("if-none-match")
+    ):
+        # fix(#1540 review P2): stat BEFORE answering either precondition. RFC
+        # 9110 section 13.2.1 puts preconditions after the normal request
+        # checks, and existence is one: a row whose object has been deleted
+        # answers 404 unconditionally, so a 304 here told a cache its stale copy
+        # was a current representation of something that no longer exists — and
+        # the same URL disagreed with itself about whether it existed depending
+        # on whether the client sent a validator. The size is carried down
+        # rather than re-measured, so a conditional request that goes on to
+        # transfer bytes still stats exactly once (fix(#1540 review P2), the
+        # double-stat round).
+        total_bytes = await _cog_object_size(
+            storage,
+            physical_asset_key=_managed_key(raster_asset),
+            dataset_id=dataset_id,
+        )
+        if not _if_match_passes(request.headers.get("if-match"), etag):
+            # A resuming client may say "only if this is still the
+            # representation I have" with If-Match instead of If-Range.
+            # Ignoring it left the absent If-Range reading as permission, so a
+            # replacement mid-download was answered with a 206 of the new COG
+            # at the old offsets — the same splice, through the header the
+            # client happened to choose. A failed If-Match is a 412, not a
+            # degradation: unlike If-Range, the RFC gives it no "ignore and
+            # serve the whole thing" fallback.
+            raise HTTPException(
+                status_code=status.HTTP_412_PRECONDITION_FAILED,
+                detail="COG has changed since the version you hold",
+                headers={"ETag": etag} if etag is not None else None,
+            )
+        if etag is not None and _if_none_match_matches(
+            request.headers.get("if-none-match"), etag
+        ):
+            return _cog_not_modified(etag)
+
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
     # uuid.UUID | None to match.
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id if user is not None else None,
-            action="dataset.download_cog",
-            resource_type="dataset",
-            resource_id=dataset_id,
-            details={
-                "filename": filename,
-                "storage_backend": raster_asset.storage_backend,
-            },
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
-    await db.commit()
+    #
+    # fix(#1528): not for HEAD. Nothing is transferred, so a
+    # `dataset.download_cog` row for a probe misreports who downloaded what,
+    # and every /vsicurl/ open begins with one. Same call fix(#1513) made on
+    # the export route.
+    #
+    # Range GETs ARE audited, each one. That is a deliberate volume cost — a
+    # COG client reading tiles emits a row per read where it used to emit one
+    # per download — taken because the alternative is an audit blind spot: a
+    # caller could otherwise pull an entire COG in ranges and appear in the log
+    # zero times. `details.range` is what separates a tile read from a full
+    # download when reading the log back.
+    if request.method != "HEAD":
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id if user is not None else None,
+                action="dataset.download_cog",
+                resource_type="dataset",
+                resource_id=dataset_id,
+                details={
+                    "filename": filename,
+                    "storage_backend": raster_asset.storage_backend,
+                    "range": request.headers.get("range"),
+                },
+                ip_address=request.client.host if request.client else None,
+            ),
+        )
+        await db.commit()
 
-    # 7. Storage-backend branching
-    storage = get_storage()
-
+    # 7. Storage-backend branching. `storage` was resolved above, because the
+    # precondition block may already have had to stat the object.
     if raster_asset.storage_backend == "remote":
         # STAC import: asset_uri is the original remote COG URL — redirect.
         # SEC-06 / M-68: DNS records can change between import time (when
@@ -956,31 +1177,303 @@ async def download_cog(
 
         return RedirectResponse(url=raster_asset.asset_uri, status_code=302)
 
-    physical_asset_key = resolve_storage_key(
+    physical_asset_key = _managed_key(raster_asset)
+
+    if raster_asset.storage_backend == "s3":
+        return await _s3_cog_response(
+            request,
+            storage,
+            physical_asset_key=physical_asset_key,
+            filename=filename,
+            dataset_id=dataset_id,
+            etag=etag,
+            total_bytes=total_bytes,
+        )
+
+    return await _local_cog_response(
+        request,
+        storage,
+        physical_asset_key=physical_asset_key,
+        filename=filename,
+        dataset_id=dataset_id,
+        etag=etag,
+        total_bytes=total_bytes,
+    )
+
+
+def _managed_key(raster_asset) -> str:
+    """The physical storage key for an asset whose bytes this service owns.
+
+    One call site became three when the precondition block had to stat the
+    object before answering (fix(#1540 review P2)), and the tenant namespace
+    this crosses is exactly the seam ``resolve_storage_key`` exists to own.
+    """
+    return resolve_storage_key(
         raster_asset.asset_uri, tenant_id=current_tenant_var.get()
     )
 
-    if raster_asset.storage_backend == "s3":
-        url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
-        return RedirectResponse(url=url, status_code=302)
 
-    # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
-    # The full file is NOT buffered into memory — a 5 GB COG no longer pins
-    # 5 GB of resident memory before the first byte streams.
-    #
-    # Probe existence upfront so FileNotFoundError surfaces as 404 BEFORE the
-    # async iterator is handed to StreamingResponse. Starlette consumes the
-    # iterator after returning the response, so a deferred raise inside the
-    # generator would produce a 500 (or a broken Transfer-Encoding chunk)
-    # rather than a clean 404.
+async def _s3_cog_response(
+    request: Request,
+    storage,
+    *,
+    physical_asset_key: str,
+    filename: str,
+    dataset_id: uuid.UUID,
+    etag: str | None,
+    total_bytes: int | None = None,
+) -> Response:
+    """The s3 backend: HEAD here, a stale resume here, everything else redirected.
+
+    fix(#1540 review P1): HEAD is answered from object metadata instead of
+    falling through to the presigned redirect. `generate_presigned_get_url`
+    signs `get_object`, and the HTTP method is part of an S3/MinIO SigV4
+    canonical request. A redirect-following client keeps HEAD across a 302 (RFC
+    9110 section 15.4 only rewrites the method for 303), so the redirected HEAD
+    arrives at the bucket signed for the wrong verb and is refused. MEASURED
+    against MinIO RELEASE.2025-09-07: a presigned get_object URL answers GET 200
+    and HEAD 403, and the mirror image — a head_object URL fetched with GET —
+    returns `SignatureDoesNotMatch`, the same rejection with a readable payload.
+    Every /vsicurl/ open begins with that probe.
+
+    fix(#1540 review P2): a resumed range whose validator no longer matches is
+    also answered here, and this is the one case where the bytes come through
+    this process. The bucket cannot be asked to decide it. MEASURED against the
+    same MinIO: a presigned GET carrying `Range` plus an `If-Range` that does
+    not match the object answers **206 anyway** — for the bucket's own ETag, for
+    a foreign one, and for `If-None-Match` as well. The precondition is simply
+    not evaluated. So a 302 here would hand a client resuming the OLD COG a 206
+    of the NEW one, which is the splice fix(#1540 review P2) exists to prevent,
+    and no redirect can prevent it: the client re-sends its `Range` across the
+    hop and nothing in a 302 can strip it.
+
+    Everything else still redirects, which is what keeps the design honest —
+    whole-object GETs and matching resumes never touch this process's
+    bandwidth, and they are the requests that carry the multi-GB payloads. The
+    proxied case needs a replacement to have landed mid-download, and its cost
+    is the same object the client was already downloading, moved from the
+    bucket's egress to ours.
+    """
+    if request.method == "HEAD":
+        return _cog_head_response(
+            await _cog_size_once(
+                total_bytes,
+                storage,
+                physical_asset_key=physical_asset_key,
+                dataset_id=dataset_id,
+            ),
+            filename,
+            etag,
+        )
+
+    if request.headers.get("range") and not _range_bound_to_this_version(
+        request.headers.get("if-range"), etag
+    ):
+        # fix(#1540 review P1): ONE get_object, streamed — not
+        # `_iter_storage_range` over the whole object, which issues a ranged
+        # request per 1 MiB chunk. A caller can select this branch deliberately
+        # by sending any stale validator, so at a chunk apiece a 5 GiB COG cost
+        # 5,120 object-store requests that the per-request rate limiter counts
+        # as one. `_iter_storage_range` is right where the client named a
+        # window and wrong here, where the answer is the entire object.
+        total_bytes = await _cog_size_once(
+            total_bytes,
+            storage,
+            physical_asset_key=physical_asset_key,
+            dataset_id=dataset_id,
+        )
+        return StreamingResponse(
+            storage.get_stream(physical_asset_key),
+            media_type="image/tiff",
+            headers={
+                **_cog_headers(filename, etag),
+                "Content-Length": str(total_bytes),
+            },
+        )
+
+    url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
+    return RedirectResponse(url=url, status_code=302)
+
+
+def _this_service_owns_the_bytes(raster_asset) -> bool:
+    """Is this asset's content ours to make claims about?
+
+    The ``remote`` backend is a redirect to a third-party origin whose bytes
+    this service never reads. It publishes no validator (see ``_cog_etag``) and
+    evaluates no precondition: a client's ``If-Match`` there was issued by that
+    origin, travels to it across the redirect, and is answered by the only party
+    that can answer it. Managed backends are the opposite case — this service is
+    the origin server, so an unverifiable precondition is a 412 rather than a
+    shrug.
+    """
+    return raster_asset.storage_backend != "remote"
+
+
+def _if_match_passes(if_match: str | None, etag: str | None) -> bool:
+    """May this request proceed, given the client's ``If-Match``? Section 13.1.1.
+
+    STRONG comparison, like ``If-Range`` and unlike ``If-None-Match``: the
+    client is saying "only act on the representation I already hold", and a
+    weak validator cannot promise byte-for-byte identity.
+
+    ``*`` passes whenever a current representation exists, which by this point
+    is what the RasterAsset row asserts — deliberately including a row with no
+    digest, because ``*`` asks whether there is a representation at all, not
+    whether it is the one the client remembers.
+
+    A specific tag against a row with no ``sha256`` is False: unverifiable is
+    not a pass. That is the same call ``_range_bound_to_this_version`` makes,
+    and it costs those rows nothing a conditional request was going to give
+    them anyway.
+    """
+    if not if_match:
+        return True
+    candidates = [tag.strip() for tag in if_match.split(",")]
+    if "*" in candidates:
+        return True
+    return etag is not None and etag in candidates
+
+
+def _if_none_match_matches(if_none_match: str | None, etag: str) -> bool:
+    """Does the client already hold this representation? RFC 9110 section 13.1.2.
+
+    WEAK comparison, unlike ``If-Range`` above, and the difference is not an
+    oversight: a cache revalidation only needs the two representations to be
+    equivalent, while a resumed range needs them byte-identical. The spec picks
+    a different comparison function for each, so this route does too.
+
+    ``*`` matches any current representation, which by the time this is called
+    is exactly the one whose ETag was passed in. A list is a list: a client may
+    hold several versions and offer all of them.
+    """
+    if not if_none_match:
+        return False
+    candidates = [tag.strip() for tag in if_none_match.split(",")]
+    if "*" in candidates:
+        return True
+    return any(_without_weak_prefix(tag) == etag for tag in candidates)
+
+
+def _without_weak_prefix(tag: str) -> str:
+    return tag[2:] if tag.startswith("W/") else tag
+
+
+def _cog_not_modified(etag: str) -> Response:
+    """304: the client's copy is current, so send it nothing else.
+
+    The ETag goes back per RFC 9110 section 15.4.5, and ``Accept-Ranges``
+    with it so a client revalidating before a resume does not have to
+    re-probe to learn ranges are available. No body and no ``Content-Length``:
+    starlette's ``init_headers`` skips the length for 304 (and 204) exactly as
+    the spec requires, which is why this response does not need the explicit
+    header ``_cog_head_response`` has to pass.
+    """
+    return Response(
+        status_code=status.HTTP_304_NOT_MODIFIED,
+        headers={"ETag": etag, "Accept-Ranges": "bytes"},
+    )
+
+
+def _cog_etag(raster_asset) -> str | None:
+    """The stored COG's own SHA-256, quoted as a STRONG entity-tag.
+
+    fix(#1540 review P2): a range response has to say which version of the
+    object it is a slice of, or a resumable client can splice two of them. The
+    stable download URL names a dataset, not a build: a replacement swaps
+    ``asset_uri`` and ``sha256`` on the same row
+    (``tasks_raster_swap.py:_write_swapped_fields``), so consecutive range GETs
+    to one URL can read different objects while every response is a 206. The
+    client assembles a prefix of the old COG and a suffix of the new one, gets
+    no error at any point, and treats the result as a raster.
+
+    ``sha256`` is the digest of the COG bytes themselves (``sha256_file`` over
+    the converted file in ``tasks_raster.py``), so it changes if and only if
+    those bytes change. That is the definition of a strong validator, and it is
+    why nothing weaker is offered: ``Last-Modified`` has one-second granularity,
+    and a replacement that lands inside the same second as its predecessor is
+    exactly the case this exists to catch.
+
+    None on rows ingested before the column was populated. A response then
+    carries no validator, and ``_range_bound_to_this_version`` refuses to honour
+    a conditional range rather than guessing — see its docstring.
+
+    None for the ``remote`` backend too, and for a different reason: those bytes
+    belong to a third-party origin this service redirects to and never reads.
+    Publishing a digest recorded at import time would claim an object is
+    unchanged on the strength of a measurement that may be months old, and the
+    origin already answers with validators of its own.
+    """
+    if not _this_service_owns_the_bytes(raster_asset):
+        return None
+    sha = raster_asset.sha256
+    return f'"{sha}"' if sha else None
+
+
+def _range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
+    """May this Range be served, given the client's ``If-Range`` precondition?
+
+    RFC 9110 section 13.1.5: ``If-Range`` is evaluated with the STRONG
+    comparison function, and on a mismatch the server MUST ignore the Range
+    header field — which means answering 200 with the whole representation, not
+    416 and not a 206 of the new bytes. The client throws away the prefix it
+    was resuming and starts again, which is the outcome that keeps two COGs
+    from being spliced into one file.
+
+    Three ways this returns False, all of them "cannot prove the client is
+    resuming the object it started":
+
+    - the validators differ (the usual case: a replacement landed);
+    - the client sent ``W/"..."``, which strong comparison never matches;
+    - this row has no ``sha256`` at all, so there is nothing to compare against.
+
+    An absent ``If-Range`` returns True: the client asked for a range with no
+    precondition, and RFC 9110 gives the server nothing to check it against.
+    Such a client can still splice across a replacement, and no server-side
+    change can stop it — which is why the validator has to be ON the response,
+    where a client that wants to resume safely can pick it up.
+    """
+    if if_range is None:
+        return True
+    return etag is not None and if_range.strip() == etag
+
+
+async def _cog_object_size(
+    storage, *, physical_asset_key: str, dataset_id: uuid.UUID
+) -> int:
+    """Stat the stored COG ONCE: 404 when it is gone, 503 when the backend is not.
+
+    Stat'ing upfront is what lets a missing object surface as a 404 BEFORE an
+    async iterator is handed to ``StreamingResponse``. Starlette consumes that
+    iterator after returning the response, so a deferred raise inside the
+    generator would produce a 500 (or a broken Transfer-Encoding chunk) rather
+    than a clean 404. The size is that same call's answer, which is what makes
+    both halves of fix(#1528) honest — a real Content-Length on HEAD and on the
+    full GET, and the denominator of every Content-Range.
+
+    fix(#1540 review P2): ONE ``size()``, not ``exists()`` then ``size()``. Every
+    provider normalizes a missing object to ``FileNotFoundError`` (the
+    ``StorageProvider`` protocol says so; S3 and Azure convert their native
+    not-found under fix(#430 BA-24)), so the existence answer was already inside
+    the size answer, and asking twice cost a second ``head_object`` per
+    ``/vsicurl/`` probe — against a PR whose argument for answering HEAD here
+    rather than signing a second URL was that it is ONE round trip. It also
+    opened a window: a delete landing between the calls made ``exists()`` say yes
+    and ``size()`` raise, which the handler below turned into a 503 for an object
+    that was merely gone. ``test_head_cog_issues_exactly_one_s3_metadata_call``
+    and ``test_a_delete_racing_the_stat_is_a_404_not_a_503`` fail if either half
+    comes back.
+
+    fix(#1540 review P1): shared with the ``s3`` branch rather than living
+    inside the local one, so a HEAD gets the same 200/404/503 answer whichever
+    backend holds the bytes.
+    """
     try:
-        if not await storage.exists(physical_asset_key):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="COG file not found",
-            )
-    except HTTPException:
-        raise
+        return await storage.size(physical_asset_key)
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="COG file not found",
+        )
     except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 503
         logger.exception("cog_storage_error", dataset_id=str(dataset_id))
         raise HTTPException(
@@ -988,10 +1481,176 @@ async def download_cog(
             detail="COG download temporarily unavailable",
         )
 
+
+async def _cog_size_once(
+    already_known: int | None,
+    storage,
+    *,
+    physical_asset_key: str,
+    dataset_id: uuid.UUID,
+) -> int:
+    """The object's size, stat'ing only if the caller has not already.
+
+    fix(#1540 review P2): the precondition block has to stat before it can
+    answer a 304 — a row whose bytes are gone must 404 whether or not the
+    client sent a validator. Handing that measurement down is what keeps the
+    single-stat property the double-stat round established: a conditional
+    request that goes on to transfer bytes still touches object metadata once.
+    """
+    if already_known is not None:
+        return already_known
+    return await _cog_object_size(
+        storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+    )
+
+
+def _cog_headers(filename: str, etag: str | None) -> dict[str, str]:
+    """Headers every stored-bytes response from this route carries.
+
+    fix(#1528): ``accept-ranges`` goes on all of them, including the 416 — RFC
+    9110 section 14.3 scopes it to the RESOURCE, not to the one response
+    carrying it, and a client that just got a 416 is precisely the one that
+    needs telling it may retry with a corrected range.
+
+    fix(#1540 review P2): ``ETag`` likewise, on the 200, the 206 and the HEAD.
+    Advertising ``Accept-Ranges`` without a validator invites exactly the
+    resumable client that can splice two COGs, and the 206 in particular is
+    useless for that client unless it can name the version its slice came from.
+
+    Content-Disposition does NOT go on the 416, which is why the caller merges
+    this dict rather than the 416 reusing it. That response's body is the JSON
+    error, not the raster; naming it ``attachment; filename="....cog.tif"``
+    would have a browser save an error document under the COG's filename.
+    """
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": get_catalog_port().safe_content_disposition(filename),
+    }
+    if etag is not None:
+        headers["ETag"] = etag
+    return headers
+
+
+def _cog_head_response(total_bytes: int, filename: str, etag: str | None) -> Response:
+    """The HEAD answer: one stat, no read, a real length.
+
+    A HEAD that streamed the object to learn its length would make every
+    /vsicurl/ open cost a full download — the amplification the export route's
+    HEAD avoids by not running its conversion.
+
+    A Range on a HEAD is deliberately ignored. HEAD describes the selected
+    representation, so answering 206 here would report a tile's length as the
+    size of the COG.
+
+    Passing content-length explicitly also suppresses starlette's own:
+    ``init_headers`` populates it from the body, which for this empty one is
+    ``content-length: 0`` — a confident wrong answer that reads as an empty COG,
+    and strictly worse than the 405 this replaces. fix(#1513) had to strip that
+    header for the same reason; here the real value displaces it.
+    ``test_head_cog_carries_the_real_content_length`` fails if this is ever
+    dropped back to the default.
+
+    The ETag matters most on THIS response: a HEAD is how a resumable client
+    learns both that ranges are available and which version it is about to
+    start reading, and it is the only answer the ``s3`` backend gets from this
+    process at all.
+    """
+    return Response(
+        status_code=status.HTTP_200_OK,
+        media_type="image/tiff",
+        headers={**_cog_headers(filename, etag), "Content-Length": str(total_bytes)},
+    )
+
+
+async def _local_cog_response(
+    request: Request,
+    storage,
+    *,
+    physical_asset_key: str,
+    filename: str,
+    dataset_id: uuid.UUID,
+    etag: str | None,
+    total_bytes: int | None = None,
+) -> Response:
+    """Serve stored COG bytes: HEAD, a byte range, or the whole object.
+
+    Split out of ``download_cog`` in fix(#1528) — folding three response
+    shapes into a handler that already branches over three storage backends put
+    it past ruff's complexity ceiling (C901, 17 > 15).
+
+    Everything that decides the STATUS has already run in the caller: access
+    control, the raster-type gate, and the RasterAsset lookup. This function
+    only decides which representation to send, which is why it is safe for HEAD
+    and GET to share it.
+    """
+    # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
+    # The full file is NOT buffered into memory — a 5 GB COG no longer pins
+    # 5 GB of resident memory before the first byte streams.
+    total_bytes = await _cog_size_once(
+        total_bytes,
+        storage,
+        physical_asset_key=physical_asset_key,
+        dataset_id=dataset_id,
+    )
+    cog_headers = _cog_headers(filename, etag)
+
+    if request.method == "HEAD":
+        return _cog_head_response(total_bytes, filename, etag)
+
+    byte_range = _parse_cog_range(request.headers.get("range"), total_bytes)
+
+    if byte_range is not None and not _range_bound_to_this_version(
+        request.headers.get("if-range"), etag
+    ):
+        # fix(#1540 review P2): the resumed range names a version this object is
+        # no longer at — a replacement landed between the client's requests.
+        # RFC 9110 section 13.1.5 says ignore the Range, so the client gets the
+        # whole current COG and 200. Before the ETag it got a 206 of the NEW
+        # bytes at the OLD offsets, appended those to the prefix it already had,
+        # and wrote out a file that is half of each: no error anywhere, and a
+        # raster it then treats as authoritative.
+        #
+        # Before the 416 check on purpose. "Ignore the Range" means ignore it,
+        # including when the stale offsets no longer fit the new object; a 416
+        # would be answering a question that is no longer being asked.
+        byte_range = None
+
+    if byte_range == _RANGE_UNSATISFIABLE:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Requested range not satisfiable",
+            headers={
+                "Accept-Ranges": "bytes",
+                # The size is the whole point of the 416: it is how a client
+                # that guessed at the length learns the real one and retries.
+                "Content-Range": f"bytes */{total_bytes}",
+                # And the version that size belongs to: a client that retries
+                # against a length it learned here should be able to tell if the
+                # object changed again in between.
+                **({"ETag": etag} if etag is not None else {}),
+            },
+        )
+
+    if byte_range is not None:
+        # The reason the format exists: a client reads the COG header, then
+        # fetches only the tiles it needs. Served through get_range() so the
+        # bytes outside the window are never read — see
+        # `test_range_request_does_not_read_the_whole_object`, which fails if
+        # this is ever implemented by slicing a full-object stream.
+        start, end = byte_range
+        return StreamingResponse(
+            storage.get_range_stream(physical_asset_key, start, end - start + 1),
+            status_code=status.HTTP_206_PARTIAL_CONTENT,
+            media_type="image/tiff",
+            headers={
+                **cog_headers,
+                "Content-Range": f"bytes {start}-{end}/{total_bytes}",
+                "Content-Length": str(end - start + 1),
+            },
+        )
+
     return StreamingResponse(
         storage.get_stream(physical_asset_key),
         media_type="image/tiff",
-        headers={
-            "Content-Disposition": get_catalog_port().safe_content_disposition(filename)
-        },
+        headers={**cog_headers, "Content-Length": str(total_bytes)},
     )
