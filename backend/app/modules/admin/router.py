@@ -1040,11 +1040,45 @@ async def trigger_backfill(
             operation_id=operation_id,
         )
 
-    await defer_with_orphan_guard(
-        _defer,
-        rollback=make_ingest_job_failed_rollback(
-            job, message_prefix="Failed to queue embedding backfill"
-        ),
-        db=db,
-    )
+    job_id = str(job.id)
+    try:
+        await defer_with_orphan_guard(
+            _defer,
+            rollback=make_ingest_job_failed_rollback(
+                job, message_prefix="Failed to queue embedding backfill"
+            ),
+            db=db,
+        )
+    except HTTPException:
+        # fix(#1550 review P2): the orphan guard has already marked the job
+        # failed and committed, then raised 503. No worker will ever pick this
+        # run up, so nothing else can close the trail — without this, the
+        # already-committed "requested" entry is the last word and the
+        # operation reads as perpetually in flight. The job row and the audit
+        # trail are two records of one state, and every path that terminates a
+        # run has to write both.
+        try:
+            await audit_emit_durable(
+                AuditEvent(
+                    user_id=current_user_id,
+                    action="embedding.backfill",
+                    resource_type="record_embedding",
+                    details={
+                        "force": force,
+                        "operation_id": operation_id,
+                        "job_id": job_id,
+                        "outcome": "failed",
+                        "error_code": "dispatch_failed",
+                    },
+                    ip_address=ip_address,
+                ),
+            )
+        except Exception:  # broad: the audit write must not mask the 503
+            logger.exception(
+                "embedding_backfill_dispatch_audit_failed",
+                user_id=str(current_user_id),
+                operation_id=operation_id,
+                job_id=job_id,
+            )
+        raise
     return BackfillResponse(job_id=job.id, status="pending")

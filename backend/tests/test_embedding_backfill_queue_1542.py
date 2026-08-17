@@ -444,3 +444,242 @@ async def test_backfill_still_requires_admin(
     """The queue move does not widen who may start a run."""
     resp = await client.post(_FORCE_URL, headers=viewer_auth_header)
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Job row and audit trail are two records of one state (#1550 review P2)
+# ---------------------------------------------------------------------------
+#
+# A run's state is written by independent paths, so any path that updates the
+# job row without the audit trail — or the audit trail without the row — opens
+# a window where the two disagree. The enumeration of every terminating path is
+# in the PR body; these cover the ones this code owns. The two directions are
+# not equally bad: a missing terminal entry leaves an administrative operation
+# looking perpetually in flight, while a terminal entry the row does not support
+# actively lies about what happened.
+
+
+async def _terminal_audit_entries(
+    client: AsyncClient, headers: dict, job_id: str
+) -> list[dict]:
+    """Every non-`requested` audit entry for one backfill run."""
+    resp = await client.get(
+        "/admin/audit-logs/",
+        params={"action": "embedding.backfill"},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return [
+        entry
+        for entry in resp.json()["logs"]
+        if entry["details"].get("job_id") == job_id
+        and entry["details"]["outcome"] != "requested"
+    ]
+
+
+@pytest.mark.anyio
+async def test_a_dispatch_failure_closes_the_audit_trail(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """A run that never reached the queue still has to reach a terminal record.
+
+    The queue lives inside PostgreSQL, so "the queue is unreachable" is a real
+    operational state, not a hypothetical. The orphan guard marks the job failed
+    and answers 503 — and no worker will ever pick this run up, so if the route
+    does not close the trail here, nothing ever does and the already-committed
+    `requested` entry stands as the last word forever.
+    """
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", AsyncMock())
+
+    async def _queue_is_down(_task, /, **kwargs):
+        raise RuntimeError("procrastinate connector: connection refused")
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock(side_effect=_queue_is_down)
+    ):
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+
+    assert resp.status_code == 503, resp.text
+
+    # The job row's half of the pair — the orphan guard's existing behaviour.
+    job = (
+        (
+            await test_db_session.execute(
+                select(IngestJob)
+                .where(IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY))
+                .order_by(IngestJob.created_at.desc())
+                .limit(1)
+            )
+        )
+        .scalars()
+        .first()
+    )
+    assert job is not None
+    assert job.status == "failed"
+    job_id = str(job.id)
+
+    # The audit trail's half. Without it the operation reads as still running.
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["outcome"] == "failed"
+    assert terminal[0]["details"]["error_code"] == "dispatch_failed"
+    assert terminal[0]["details"]["force"] is True
+
+
+@pytest.mark.anyio
+async def test_losing_the_fence_never_audits_a_completion_that_did_not_land(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The lie case: failed job row, "completed" audit entry.
+
+    Driven through the real mechanism rather than a stubbed return — the stale
+    job sweeper expires the worker's lease mid-run, exactly as it does when a
+    long backfill's heartbeat lapses, and `_finalize`'s fenced UPDATE then
+    matches nothing. The audit must not claim the run completed, because the row
+    says it failed and the row is what an operator reads.
+    """
+    from app.core.db import async_session
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    async def _backfill_then_lose_the_lease(session, *, force=False):
+        # A different actor, on its own connection, as the sweeper really is.
+        async with async_session() as other:
+            expired = datetime.now(timezone.utc) - timedelta(
+                seconds=backfill_jobs._lease_seconds() + 120
+            )
+            await other.execute(
+                update(IngestJob)
+                .where(
+                    IngestJob.user_metadata.has_key(EMBEDDING_BACKFILL_METADATA_KEY),
+                    IngestJob.status == "running",
+                )
+                .values(started_at=expired, heartbeat_at=expired)
+            )
+            await other.commit()
+            await fail_stale_jobs(other)
+        return {"processed": 3, "created": 3, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(
+        backfill_module, "backfill_embeddings", _backfill_then_lose_the_lease
+    )
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    # Non-vacuity: if the sweeper did not actually take the row, the fence was
+    # never lost and this test proves nothing about the branch it targets.
+    assert job.status == "failed", "the lease was never expired — test is vacuous"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    details = terminal[0]["details"]
+    assert details["outcome"] != "completed", (
+        "the audit claims a completion the job row does not support"
+    )
+    assert details["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
+    assert details["error_code"] == "finalize_lost_attempt"
+    # The work did finish, and the record says so without claiming the row.
+    assert details["intended_outcome"] == "completed"
+
+
+@pytest.mark.anyio
+async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The reaper failed the row before the worker got to it.
+
+    Same class as the dispatch failure, at the other end of the queue hop: the
+    run ends without this worker ever owning it, and nothing downstream will
+    emit its outcome.
+    """
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    ran = False
+
+    async def _should_not_run(session, *, force=False):
+        nonlocal ran
+        ran = True
+        return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _should_not_run)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    job_id = resp.json()["job_id"]
+
+    # Age the queued row past the pending-abandonment policy and let the real
+    # reaper take it, before the worker ever picks the delivery up.
+    await test_db_session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == uuid.UUID(job_id))
+        .values(created_at=datetime.now(timezone.utc) - timedelta(hours=3))
+    )
+    await test_db_session.commit()
+    await fail_stale_jobs(test_db_session)
+    reaped = await _load_job(test_db_session, job_id)
+    assert reaped.status == "failed", (
+        "the reaper did not take the row — test is vacuous"
+    )
+
+    await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    assert ran is False, "the worker ran a job it did not own"
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    assert terminal[0]["details"]["outcome"] == backfill_jobs.UNRESOLVED_OUTCOME
+    assert terminal[0]["details"]["error_code"] == "attempt_not_owned"
+
+
+@pytest.mark.anyio
+async def test_every_terminating_path_writes_exactly_one_terminal_audit_entry(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    monkeypatch,
+):
+    """The invariant behind the four tests above, asserted as one property.
+
+    Worker success and worker failure are the two paths where the row and the
+    trail agree the easy way; they are here so the property is stated over the
+    whole set rather than only over the broken paths, and so a future path added
+    without an audit write fails a test that is about the rule, not about it.
+    """
+
+    async def _ok(session, *, force=False):
+        return {"processed": 2, "created": 2, "skipped": 0, "errors": 0}
+
+    async def _boom(session, *, force=False):
+        raise RuntimeError("provider down")
+
+    for backfill_impl, expected_outcome in ((_ok, "completed"), (_boom, "failed")):
+        monkeypatch.setattr(backfill_module, "backfill_embeddings", backfill_impl)
+        with patch.object(
+            admin_router, "defer_async_with_tenant", AsyncMock()
+        ) as mock_defer:
+            resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        job_id = resp.json()["job_id"]
+
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+        terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+        assert len(terminal) == 1, terminal
+        assert terminal[0]["details"]["outcome"] == expected_outcome

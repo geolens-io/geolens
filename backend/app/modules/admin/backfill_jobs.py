@@ -46,6 +46,12 @@ logger = structlog.stdlib.get_logger(__name__)
 # route applied to its 502 body).
 BACKFILL_FAILED_MESSAGE = "Embedding backfill failed. See server logs for details."
 
+# Audit outcome for a run whose fate could not be written to its job row —
+# another actor settled the row first. It is terminal (the operation is over and
+# the trail says so) but it deliberately does not claim the run succeeded or
+# failed, because on this path the worker no longer owns that answer.
+UNRESOLVED_OUTCOME = "unresolved"
+
 
 def _lease_seconds() -> float:
     """Seconds a ``running`` backfill row holds the slot without a heartbeat.
@@ -110,8 +116,15 @@ async def _finalize(
     metadata: dict[str, Any] | None,
     result: dict[str, int] | None = None,
     error_message: str | None = None,
-) -> None:
-    """Stamp the terminal job state, fenced on the attempt this worker owns."""
+) -> bool:
+    """Stamp the terminal job state, fenced on the attempt this worker owns.
+
+    Returns whether the row actually took the update. It is fenced, so "I asked"
+    and "it happened" are different facts, and the caller writes the audit trail
+    off this answer — see ``_emit_terminal_audit``. Returning ``None`` and
+    letting the caller assume success is what let a lost fence produce a failed
+    job row under a "completed" audit entry.
+    """
     values: dict[str, object] = {
         "status": status,
         "completed_at": datetime.now(timezone.utc),
@@ -139,8 +152,9 @@ async def _finalize(
             intended_status=status,
         )
         await session.rollback()
-        return
+        return False
     await session.commit()
+    return True
 
 
 async def _emit_outcome_audit(
@@ -160,6 +174,12 @@ async def _emit_outcome_audit(
     long gone — so the actor and client IP ride along as task kwargs to keep the
     pair readable as one operation.
     """
+    # fix(#1550 review P2): a run's state lives in two places — the job row and
+    # the audit trail — written by independent paths. Every path that TERMINATES
+    # a run has to write both, and the audit has to describe the row's actual
+    # final state rather than the one this worker intended. See
+    # `_emit_terminal_audit` for the rule and the module's tests for the
+    # enumeration of paths it covers.
     from app.modules.audit.service import AuditEvent, audit_emit_durable
 
     try:
@@ -186,6 +206,34 @@ async def _emit_outcome_audit(
         )
 
 
+async def _emit_terminal_audit(
+    *, applied: bool, outcome: str, extra: dict[str, Any], **context: Any
+) -> None:
+    """Close the audit trail with what actually happened to the job row.
+
+    ``applied`` is ``_finalize``'s answer. When the fenced update did not land,
+    another actor (the stale-job sweeper, a status poll expiring the lease) has
+    already settled the row, and claiming the outcome this worker intended would
+    put a "completed" entry over a failed job. Record UNRESOLVED instead, and
+    carry the intended outcome so an operator can still see what the run did —
+    "the regenerate finished but its row was settled by someone else" is a
+    different incident from "the regenerate failed", and only one of them means
+    the vectors are missing.
+    """
+    if applied:
+        await _emit_outcome_audit(outcome=outcome, extra=extra, **context)
+        return
+    await _emit_outcome_audit(
+        outcome=UNRESOLVED_OUTCOME,
+        extra={
+            "error_code": "finalize_lost_attempt",
+            "intended_outcome": outcome,
+            **extra,
+        },
+        **context,
+    )
+
+
 @task_app.task(queue="ingest", retry=0)
 @tenant_task
 async def run_embedding_backfill(
@@ -205,10 +253,33 @@ async def run_embedding_backfill(
     from app.core.db import async_session
     from app.processing.embeddings.backfill import backfill_embeddings
 
+    # Every `return` below closes the audit trail. The route has already
+    # committed a "requested" entry, so a path that ends the run without a
+    # terminal entry leaves an administrative operation looking perpetually
+    # in flight — the same divergence as claiming an outcome that did not
+    # happen, in the other direction.
+    audit_context: dict[str, Any] = {
+        "user_id": user_id,
+        "ip_address": ip_address,
+        "operation_id": operation_id,
+        "job_id": job_id,
+        "force": force,
+    }
+
     resolved = await resolve_ingest_attempt_or_skip(
         job_id, attempt_id, task_label="embedding backfill"
     )
     if resolved is None:
+        # A tokenless legacy delivery that could not adopt the row. The route
+        # always sends an attempt id, so this is unreachable today and stays
+        # covered anyway: an unreachable path that silently drops the run is
+        # exactly what a future change to the dispatch would turn into a live
+        # one, with no signal that it had.
+        await _emit_outcome_audit(
+            **audit_context,
+            outcome=UNRESOLVED_OUTCOME,
+            extra={"error_code": "attempt_unresolvable"},
+        )
         return
     job_uuid, attempt_uuid = resolved
 
@@ -219,7 +290,15 @@ async def run_embedding_backfill(
             session, job_uuid, attempt_uuid
         )
         if heartbeat is None:
+            # The row was not `pending` under this attempt — the stale-pending
+            # reaper got there first, or a retry rotated the token. This worker
+            # never took the run, and nothing else will emit its outcome.
             logger.warning("embedding_backfill_attempt_no_longer_owned", job_id=job_id)
+            await _emit_outcome_audit(
+                **audit_context,
+                outcome=UNRESOLVED_OUTCOME,
+                extra={"error_code": "attempt_not_owned"},
+            )
             return
         try:
             try:
@@ -232,7 +311,7 @@ async def run_embedding_backfill(
                     operation_id=operation_id,
                 )
                 await session.rollback()
-                await _finalize(
+                applied = await _finalize(
                     session,
                     job_uuid,
                     attempt_uuid,
@@ -240,17 +319,14 @@ async def run_embedding_backfill(
                     metadata=metadata,
                     error_message=BACKFILL_FAILED_MESSAGE,
                 )
-                await _emit_outcome_audit(
-                    user_id=user_id,
-                    ip_address=ip_address,
-                    operation_id=operation_id,
-                    job_id=job_id,
-                    force=force,
+                await _emit_terminal_audit(
+                    **audit_context,
+                    applied=applied,
                     outcome="failed",
                     extra={"error_code": "backfill_failed"},
                 )
                 return
-            await _finalize(
+            applied = await _finalize(
                 session,
                 job_uuid,
                 attempt_uuid,
@@ -258,12 +334,9 @@ async def run_embedding_backfill(
                 metadata=metadata,
                 result=result,
             )
-            await _emit_outcome_audit(
-                user_id=user_id,
-                ip_address=ip_address,
-                operation_id=operation_id,
-                job_id=job_id,
-                force=force,
+            await _emit_terminal_audit(
+                **audit_context,
+                applied=applied,
                 outcome="completed",
                 extra=dict(result),
             )
