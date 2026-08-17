@@ -1,5 +1,7 @@
 """Shared embedding helpers used across AI, search, admin, and ingest modules."""
 
+import hashlib
+import json
 import time
 import uuid
 
@@ -27,6 +29,12 @@ _HAS_EMBEDDINGS_MAX = 8  # bounded; operators rarely run more than 2-3 models
 # matches no stored row; a WRITE-side caller has to check for it explicitly
 # (see DefaultProcessingPort.get_records_without_embeddings).
 UNKNOWN_EMBEDDING_MODEL = "__model_unknown__"
+
+# fix(#1546): the sibling of the above for the whole configuration. Not a hex
+# digest, so it can never collide with a real fingerprint and therefore matches
+# no STAMPED row. It does still match an unstamped one, which is the same
+# grandfathering `RecordEmbedding.usable_by_config` applies everywhere else.
+UNKNOWN_EMBEDDING_CONFIG = "__config_unknown__"
 
 
 async def set_hnsw_recall(session: AsyncSession, *, ef: int = 100) -> None:
@@ -82,6 +90,110 @@ async def resolve_embedding_model_name(
     except Exception:  # broad: persistent_config resolution can fail for any DB/cache reason; fall back to sentinel
         logger.warning("has_embeddings_model_resolution_failed", exc_info=True)
         return UNKNOWN_EMBEDDING_MODEL
+
+
+def embedding_config_fingerprint(
+    model_name: str, dimensions: int | None, base_url: str | None
+) -> str:
+    """Identity of the configuration a stored vector came out of (#1546).
+
+    The three arguments are the whole of what decides the vector space: the
+    model, the width it was asked for, and the endpoint that served it. Two
+    rows with the same fingerprint are comparable; two with different ones are
+    not, whatever their `model_name` says.
+
+    Stable across restarts and across processes. SHA-256 over a canonical JSON
+    array, deliberately NOT Python's `hash()`, which is salted per interpreter
+    (`PYTHONHASHSEED`) and would give the same configuration a different
+    identity after every restart — rows stamped by one worker would then be
+    invisible to the next.
+
+    JSON rather than a delimiter join: it keeps `None` distinct from the string
+    `"None"` and from `""` (all three are reachable — an unset endpoint
+    resolves to `None`, an unset width to `None`), and it escapes the strings,
+    so ("a|b", None) cannot collide with ("a", "b|None").
+
+    A change to WHICH values make up the identity changes every fingerprint,
+    which reads as a configuration change to every reader and makes existing
+    rows invisible until they are regenerated. That is the honest outcome — a
+    different notion of identity really does mean the old stamps are not
+    comparable — but it is a catalog-wide re-embed, so do not extend this
+    lightly.
+    """
+    payload = json.dumps(
+        [model_name, dimensions, base_url],
+        separators=(",", ":"),
+        ensure_ascii=True,
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def resolve_embedding_config_fingerprint(
+    session: AsyncSession,
+    *,
+    model_name: str | None = None,
+    uncached: bool = False,
+) -> str:
+    """Fingerprint the LIVE embedding configuration, or answer with a sentinel.
+
+    fix(#1546): the read-side counterpart of `embedding_config_fingerprint`.
+    Writers stamp from the configuration they PINNED (that is the whole point —
+    the stamp has to name what actually produced the vector); readers ask this
+    what the live configuration is so they can ignore rows from another one.
+
+    ``model_name`` is for callers that already resolved it. They pass it rather
+    than let this read it again, so the model they filter on and the model
+    inside the fingerprint are one read and cannot straddle a config change.
+
+    Never raises. The endpoint resolves through the provider extension, and for
+    the shipped provider that call raises whenever the database endpoint
+    diverges from the operator-approved environment URL
+    (`ai_credentials.bind_openai_credential_base_url`). A reader that turned
+    that into a 500 would take search down over a setting it is only consulting
+    to be careful, so an unresolvable configuration answers with
+    `UNKNOWN_EMBEDDING_CONFIG` and every stamped row reads as foreign — the
+    same under-report `resolve_embedding_model_name`'s sentinel produces, in
+    the same safe direction.
+
+    The read is CACHED by default, unlike the backfill's pre-delete snapshot.
+    A reader has nothing to destroy: the worst a stale cache entry does here is
+    make stamped rows briefly invisible, which degrades semantic search to FTS
+    for one cache TTL and heals itself. An uncached read costs a DB round trip
+    on the search hot path for that.
+
+    One thing "never raises" does NOT mean: if the failure was a DATABASE error
+    on `session`, that session's transaction is aborted and the caller's next
+    statement will fail too. Swallowing here cannot undo that, and the same is
+    already true of `resolve_embedding_model_name` above. Every caller today
+    sits inside a broad handler that degrades — search falls back to FTS, the
+    admin panel reads zeros, the backfill selection returns nothing — so the
+    poisoned transaction changes nothing about the outcome. A future caller
+    that wants to keep using the session after a failure here needs a
+    SAVEPOINT; that is not paid for on the search hot path for a mode the
+    runtime role cannot reach (it reads `app_settings` on every request).
+    """
+    from app.core.persistent_config import EMBEDDING_DIMS
+
+    try:
+        if model_name is None:
+            model_name = await resolve_embedding_model_name(session, uncached=uncached)
+        if model_name == UNKNOWN_EMBEDDING_MODEL:
+            return UNKNOWN_EMBEDDING_CONFIG
+        dimensions = await (
+            EMBEDDING_DIMS.get_uncached(session)
+            if uncached
+            else EMBEDDING_DIMS.get(session)
+        )
+        # Imported in-function because the edge runs the other way at module
+        # level: `service` imports `embedding_config_fingerprint` from here, so
+        # a module-level import back would be a cycle.
+        from app.processing.embeddings.service import resolve_embedding_base_url
+
+        base_url = await resolve_embedding_base_url(session)
+    except Exception:  # broad: config/provider resolution fails for many reasons; a reader must degrade, not raise
+        logger.warning("embedding_config_fingerprint_unresolved", exc_info=True)
+        return UNKNOWN_EMBEDDING_CONFIG
+    return embedding_config_fingerprint(model_name, dimensions, base_url)
 
 
 async def has_embeddings(session: AsyncSession) -> bool:

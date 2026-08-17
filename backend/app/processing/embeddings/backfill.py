@@ -15,11 +15,13 @@ Can be run as a module: python -m app.embeddings.backfill
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS
 from app.platform.extensions import get_processing_port
+from app.processing.embeddings.helpers import embedding_config_fingerprint
 from app.processing.embeddings.models import RecordEmbedding
 from app.processing.embeddings.service import (
     build_content_text,
@@ -38,6 +40,36 @@ _BATCH_SIZE = 128
 # Text for the force-path pre-flight embedding. Short, so the call is cheap,
 # and constant, so a provider's cache can serve it.
 _PREFLIGHT_TEXT = "geolens embedding preflight"
+
+
+def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-def]
+    """INSERT the batch, replacing any row this record already has for the model.
+
+    fix(#1546): a plain INSERT stopped being safe once rows carry a
+    configuration stamp. `uq_record_embedding_model` is `(record_id,
+    model_name)`, and the non-force run now offers a record whose only row for
+    the ACTIVE model was written under a different configuration — that row is
+    invisible to search, so the record genuinely is uncovered — which a plain
+    INSERT would answer with a unique violation instead of a vector.
+
+    Replacing in place rather than widening the constraint: one row per
+    (record, model) keeps the table's size independent of how many
+    configurations an instance has been through, and leaves the key that #1549
+    needs for a per-batch delete-and-replace intact.
+
+    `updated_at` is set explicitly because `onupdate=` is an ORM-level default
+    and this is a Core statement.
+    """
+    stmt = pg_insert(RecordEmbedding).values(rows)
+    return stmt.on_conflict_do_update(
+        index_elements=["record_id", "model_name"],
+        set_={
+            "embedding": stmt.excluded.embedding,
+            "content_hash": stmt.excluded.content_hash,
+            "config_fingerprint": stmt.excluded.config_fingerprint,
+            "updated_at": func.now(),
+        },
+    )
 
 
 async def _snapshot_embedding_config(
@@ -239,12 +271,24 @@ async def _retry_batch_per_record(
                 base_url=base_url,
             )
             await _raise_on_pin_drift(session, pinned, created + made, error=_PinDrift)
-            session.add(
-                RecordEmbedding(
-                    record_id=record_id,
-                    embedding=vector,
-                    model_name=model_name,
-                    content_hash=compute_content_hash(content),
+            await session.execute(
+                _upsert_embeddings(
+                    [
+                        {
+                            "record_id": record_id,
+                            "embedding": vector,
+                            "model_name": model_name,
+                            # fix(#1546): from `pinned`, which IS the
+                            # configuration this call was made under — the
+                            # retry passes the same three values to the
+                            # provider. Re-resolving here would stamp what the
+                            # config says now rather than what produced the
+                            # vector, which is the fabrication the whole column
+                            # exists to avoid.
+                            "config_fingerprint": embedding_config_fingerprint(*pinned),
+                            "content_hash": compute_content_hash(content),
+                        }
+                    ]
                 )
             )
             await session.commit()
@@ -500,18 +544,21 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # key, exhausted quota, dimensions the model rejects.
         await _preflight_embedding(session, pinned)
 
-        # DESTRUCTIVE-FIRST, DELIBERATELY (#1549). This commits before the run
-        # knows it can finish, so a drift abort in the batch loop below leaves
-        # the table empty and the operator has to re-run. That is the chosen
-        # side of the trade, not an oversight: rows record only `model_name`,
-        # so a run that carried on under a stale pin would leave a FULL table
-        # whose vectors live in a space the active search silently fails to
-        # match. Empty is loud and one re-run away; populated-and-wrong looks
-        # healthy and is not. Removing the destructive-first shape needs
-        # per-batch delete-and-replace in one transaction (which wants #1546's
-        # per-row configuration stamp first, or it trades a loud failure for a
-        # silent one), a shadow table and swap, or the job lifecycle in #1542 —
-        # none of which belong in a PR about pinning a configuration.
+        # DESTRUCTIVE-FIRST, STILL (#1549). This commits before the run knows it
+        # can finish, so a drift abort in the batch loop below leaves the table
+        # empty and the operator has to re-run.
+        #
+        # That was the chosen side of a trade whose other side has now moved:
+        # while rows recorded only `model_name`, a run that carried on under a
+        # stale pin left a FULL table whose vectors lived in a space the active
+        # search silently failed to match, and empty-and-loud beat
+        # populated-and-wrong. fix(#1546): rows carry the configuration that
+        # produced them, so a partial run leaves a MIX that search can tell
+        # apart — old rows go invisible instead of the table going empty. That
+        # removes the objection to per-batch delete-and-replace in one
+        # transaction, which is #1549's direction 1 and does not belong in a PR
+        # about stamping rows. The other routes remain a shadow table and swap,
+        # or the run lifecycle #1542 landed.
         #
         # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
@@ -591,6 +638,12 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     if pinned is None:
         pinned = await _snapshot_embedding_config(session)
     model_name, embedding_dims, base_url = pinned
+    # fix(#1546): every row this run writes is stamped with THIS, the identity
+    # of the configuration the run pinned. Not a fresh read at write time: the
+    # endpoint half in particular has to be the one the provider call was made
+    # against, and `base_url` above is exactly the value passed to
+    # `generate_embeddings_batch` below.
+    config_fingerprint = embedding_config_fingerprint(*pinned)
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
     skipped = 0
@@ -618,11 +671,16 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # config moving underneath it, but nothing was noticing that it HAD
         # moved. A run pinned to endpoint A that keeps going after the active
         # endpoint becomes B writes A-space vectors for the rest of the
-        # catalog, and `RecordEmbedding` records only `model_name`, so semantic
-        # search later builds its query vector from the live endpoint and
-        # filters stored rows by model alone — B-space queries against A-space
-        # documents under one label, and the backfill reported success. Persisting
-        # an endpoint identity per row so search can filter on it is #1546.
+        # catalog, and `RecordEmbedding` recorded only `model_name`, so semantic
+        # search later built its query vector from the live endpoint and
+        # filtered stored rows by model alone — B-space queries against A-space
+        # documents under one label, and the backfill reported success.
+        #
+        # fix(#1546): those rows are now stamped with the pin, so search skips
+        # them rather than matching them. This check stays: invisible is better
+        # than wrong, but not writing a whole catalog nobody can use is better
+        # than either, and stopping is also what tells the operator to re-run
+        # under the new configuration.
         #
         # Outside the try below, deliberately: this must stop the run, not be
         # counted as a batch error and retried per record. The sibling check
@@ -654,15 +712,26 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # committed, so the run stops without adding a row nothing will
             # match. `_PinDrift` is re-raised past the batch handler below.
             await _raise_on_pin_drift(session, pinned, created, error=_PinDrift)
-            for (record_id, content), vector in zip(batch, vectors):
-                session.add(
-                    RecordEmbedding(
-                        record_id=record_id,
-                        embedding=vector,
-                        model_name=model_name,
-                        content_hash=compute_content_hash(content),
-                    )
+            await session.execute(
+                _upsert_embeddings(
+                    [
+                        {
+                            "record_id": record_id,
+                            "embedding": vector,
+                            "model_name": model_name,
+                            # fix(#1546): stamped from the PIN. `pinned` is the
+                            # triple that was handed to the provider call above,
+                            # so the stamp names the configuration that actually
+                            # produced this vector rather than whatever the live
+                            # configuration happens to be by the time the row is
+                            # written.
+                            "config_fingerprint": config_fingerprint,
+                            "content_hash": compute_content_hash(content),
+                        }
+                        for (record_id, content), vector in zip(batch, vectors)
+                    ]
                 )
+            )
             await session.commit()
             created += len(batch)
         except _PinDrift:

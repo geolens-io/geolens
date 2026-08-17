@@ -217,6 +217,13 @@ class CatalogPort(Protocol):
 
     async def has_embeddings(self, session: AsyncSession) -> bool: ...
 
+    async def resolve_embedding_config_fingerprint(
+        self,
+        session: AsyncSession,
+        *,
+        model_name: str | None = None,
+    ) -> str: ...
+
     async def generate_embedding(
         self, text: str, session: AsyncSession
     ) -> list[float]: ...

@@ -95,7 +95,19 @@ logger = logging.getLogger(__name__)
 # inherits its predecessor's cached authorization. Same reasoning as 4 -> 5 and
 # 5 -> 6: a Protocol method a structural implementer must supply is required,
 # whatever else the addition is shaped like.
-EXTENSION_API_VERSION: int = 7
+#
+# 7 -> 8 (fix(#1546)): CatalogPort gained a required
+# ``resolve_embedding_config_fingerprint`` method. Stored embeddings now carry
+# the identity of the configuration that produced them, and semantic search
+# filters on it, so the search path has to be able to ask what the live
+# configuration is; ``modules/catalog/`` may not import ``app.processing.*``,
+# which is why the answer crosses the port. Every hybrid search calls it, so an
+# overlay replacing the ``catalog_port`` slot without it would load cleanly at
+# version 7 and then raise AttributeError on the first query long enough to
+# reach the vector arm. Same reasoning as 5 -> 6: a Protocol method a
+# structural implementer must supply is required, whatever else it is shaped
+# like.
+EXTENSION_API_VERSION: int = 8
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

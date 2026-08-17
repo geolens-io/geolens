@@ -312,6 +312,17 @@ class DefaultCatalogPort:
 
         return await has_embeddings(session)
 
+    async def resolve_embedding_config_fingerprint(self, session, *, model_name=None):  # type: ignore[no-untyped-def]
+        # fix(#1546): semantic search filters stored rows on this, and
+        # `modules/catalog/` may not import `app.processing.*`.
+        from app.processing.embeddings.helpers import (
+            resolve_embedding_config_fingerprint,
+        )
+
+        return await resolve_embedding_config_fingerprint(
+            session, model_name=model_name
+        )
+
     async def generate_embedding(self, text, session):  # type: ignore[no-untyped-def]
         from app.processing.embeddings.service import generate_embedding
 

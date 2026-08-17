@@ -1677,7 +1677,18 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # fix(#625): +9 LOC — the _MIN_SEMANTIC_QUERY_LEN gate that drops
         # typeahead prefixes before they reach the provider, plus its rationale
         # comment. Cap 390 → 395, exact: the next addition needs its own review.
-        "backend/app/modules/catalog/search/service_semantic.py": 395,
+        # fix(#1546): +61 — stored rows now carry the identity of the
+        # configuration that produced them and the vector arm filters on it.
+        # Around fifteen lines are mechanism: `_live_embedding_identity`,
+        # resolving it once below the has_embeddings gate and handing it back
+        # out of `_get_vector_ranks` so the counts filter on what the ranks were
+        # taken under, the query-embedding cache key, and `usable_by_config` at
+        # the three filter sites. The rest is why the cache key had to change
+        # with them — the memoized query vector is a third independent reader of
+        # the configuration, and filtering rows by the live one while serving a
+        # vector made under the previous one moves the bug rather than fixing
+        # it. Cap 395 -> 456, exact.
+        "backend/app/modules/catalog/search/service_semantic.py": 456,
         # fix(#430 V-14): _replace_layers now reconciles layers by id (update-in-place
         # + create/delete) instead of delete-all-then-recreate, so a PUT preserves
         # layer UUIDs. +~35 LOC over the 350 default. Cap → 400 (~34 headroom).
@@ -1859,7 +1870,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # deferred-import shape as its sibling; a separate method rather than a
         # keyword because widening a port signature is an
         # EXTENSION_API_VERSION bump. Cap 445 -> 450.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 450,
+        # fix(#1546): +11 — resolve_embedding_config_fingerprint, the answer
+        # semantic search needs to tell a stored vector from one made under
+        # another endpoint. Same deferred-import shape as its neighbours;
+        # `modules/catalog/` may not import `app.processing.*`, so it crosses
+        # here. Cap 450 -> 461, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 461,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -1891,7 +1907,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # "missing" means "missing under THIS model", and why an unresolvable
         # model returns nothing here while the same sentinel is allowed to
         # read as zero coverage in admin's stats. Cap 499 -> 537, exact.
-        "backend/app/platform/extensions/defaults_processing_port.py": 537,
+        # fix(#1546): +27 — "missing" narrows once more, from "no vector this
+        # MODEL can use" to "no vector this CONFIGURATION can use", so a row
+        # written against another endpoint is picked up instead of reading as
+        # coverage the search cannot use. Six lines are the fingerprint
+        # resolution and its fail-closed branch; the rest records why an
+        # UNSTAMPED row still counts as covering the record, which is the only
+        # thing keeping an upgrade from turning the next Generate Missing into
+        # a catalog-wide re-embed. Cap 537 -> 564, exact.
+        "backend/app/platform/extensions/defaults_processing_port.py": 564,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same

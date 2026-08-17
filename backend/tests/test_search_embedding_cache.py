@@ -33,12 +33,28 @@ def _mock_session_with_model(model_name: str = "text-embedding-3-small"):
     return session
 
 
+# fix(#1546): the cache key carries the configuration fingerprint alongside the
+# model name. These tests are about the OTHER key components, so they hold it
+# constant; `test_cache_partitioned_by_configuration` below is the one that
+# moves it.
+_FINGERPRINT = "cfg-fingerprint-a"
+
+
+def _mock_port(*, return_value=None, side_effect=None, fingerprint=_FINGERPRINT):
+    """CatalogPort double: the provider call plus the #1546 configuration read."""
+    port = MagicMock()
+    port.generate_embedding = AsyncMock(
+        return_value=return_value, side_effect=side_effect
+    )
+    port.resolve_embedding_config_fingerprint = AsyncMock(return_value=fingerprint)
+    return port
+
+
 @pytest.mark.asyncio
 async def test_generate_embedding_caches_result_on_second_call():
     """Second call with identical text + model should hit the cache."""
     fake_vector = [0.1] * 1536
-    mock_port = MagicMock()
-    mock_port.generate_embedding = AsyncMock(return_value=fake_vector)
+    mock_port = _mock_port(return_value=fake_vector)
     session = _mock_session_with_model()
 
     with (
@@ -62,8 +78,7 @@ async def test_generate_embedding_caches_result_on_second_call():
 async def test_cache_key_is_case_insensitive_and_strips_whitespace():
     """`(text.strip().lower(), model)` cache key collides on case + whitespace."""
     fake_vector = [0.2] * 1536
-    mock_port = MagicMock()
-    mock_port.generate_embedding = AsyncMock(return_value=fake_vector)
+    mock_port = _mock_port(return_value=fake_vector)
     session = _mock_session_with_model()
 
     with (
@@ -87,8 +102,7 @@ async def test_cache_partitioned_by_model_name():
     """Two different model names should NOT share cache entries."""
     fake_v1 = [0.3] * 1536
     fake_v2 = [0.4] * 1536
-    mock_port = MagicMock()
-    mock_port.generate_embedding = AsyncMock(side_effect=[fake_v1, fake_v2])
+    mock_port = _mock_port(side_effect=[fake_v1, fake_v2])
     session = _mock_session_with_model()
 
     with patch.object(service_semantic, "get_catalog_port", return_value=mock_port):
@@ -111,14 +125,56 @@ async def test_cache_partitioned_by_model_name():
 
 
 @pytest.mark.asyncio
+async def test_cache_partitioned_by_configuration():
+    """fix(#1546): one model name, two configurations, two cache entries.
+
+    The stored rows are filtered by the LIVE configuration. If this cache kept
+    serving a query vector generated under the previous one, the filter would
+    be selecting rows from configuration B and comparing them against a vector
+    made under configuration A — the cross-space comparison #1546 is about,
+    with the row filter looking entirely correct. The bug would have moved into
+    the cache rather than been fixed.
+    """
+    fake_a = [0.7] * 1536
+    fake_b = [0.8] * 1536
+    mock_port = _mock_port(side_effect=[fake_a, fake_b])
+    session = _mock_session_with_model()
+
+    with (
+        patch.object(service_semantic, "get_catalog_port", return_value=mock_port),
+        patch.object(
+            service_semantic.EMBEDDING_MODEL,
+            "get",
+            # Same model name throughout: the endpoint moved, not the model.
+            new=AsyncMock(return_value="text-embedding-3-small"),
+        ),
+    ):
+        mock_port.resolve_embedding_config_fingerprint = AsyncMock(
+            return_value="cfg-endpoint-a"
+        )
+        first = await service_semantic.generate_embedding("query", session)
+        repeat = await service_semantic.generate_embedding("query", session)
+
+        mock_port.resolve_embedding_config_fingerprint = AsyncMock(
+            return_value="cfg-endpoint-b"
+        )
+        after_change = await service_semantic.generate_embedding("query", session)
+
+    # The repeat under one configuration is still a cache hit — the partition
+    # must not be a blanket disable.
+    assert first == repeat == fake_a
+    assert after_change == fake_b
+    assert mock_port.generate_embedding.call_count == 2
+
+
+@pytest.mark.asyncio
 async def test_cache_partitioned_by_tenant(monkeypatch: pytest.MonkeyPatch):
     """The same provider/model label must not share vectors across tenants."""
     tenant_a = "00000000-0000-0000-0000-0000000000a1"
     tenant_b = "00000000-0000-0000-0000-0000000000b2"
     fake_a = [0.31] * 1536
     fake_b = [0.42] * 1536
-    mock_port = MagicMock()
-    mock_port.generate_embedding = AsyncMock(side_effect=[fake_a, fake_b])
+    mock_port = _mock_port(side_effect=[fake_a, fake_b])
     session = _mock_session_with_model()
     monkeypatch.setattr(settings, "geolens_tenancy_mode", "multi_tenant")
 
@@ -151,8 +207,7 @@ async def test_cache_expires_entries_after_ttl():
     """Entries older than the TTL must NOT be returned from cache."""
     fake_v1 = [0.5] * 1536
     fake_v2 = [0.6] * 1536
-    mock_port = MagicMock()
-    mock_port.generate_embedding = AsyncMock(side_effect=[fake_v1, fake_v2])
+    mock_port = _mock_port(side_effect=[fake_v1, fake_v2])
     session = _mock_session_with_model()
 
     with (
@@ -167,7 +222,7 @@ async def test_cache_expires_entries_after_ttl():
         await service_semantic.generate_embedding("expire me", session)
         # Manually expire by rewinding the cached entry's expires_at
         # to a past timestamp (more reliable than sleeping 300s).
-        key = ("expire me", "text-embedding-3-small")
+        key = ("expire me", "text-embedding-3-small", _FINGERPRINT)
         _, vector = service_semantic._embedding_cache[key]
         service_semantic._embedding_cache[key] = (time.monotonic() - 1, vector)
 
@@ -180,8 +235,7 @@ async def test_cache_expires_entries_after_ttl():
 @pytest.mark.asyncio
 async def test_empty_input_does_not_populate_cache():
     """Empty strings must bypass cache + delegate directly to provider."""
-    mock_port = MagicMock()
-    mock_port.generate_embedding = AsyncMock(side_effect=ValueError("empty"))
+    mock_port = _mock_port(side_effect=ValueError("empty"))
     session = _mock_session_with_model()
 
     with (
@@ -205,10 +259,7 @@ async def test_cache_evicts_oldest_when_over_max_size():
     original_max = service_semantic._EMBEDDING_CACHE_MAX_SIZE
     service_semantic._EMBEDDING_CACHE_MAX_SIZE = 3
     try:
-        mock_port = MagicMock()
-        mock_port.generate_embedding = AsyncMock(
-            side_effect=[[float(i)] for i in range(5)]
-        )
+        mock_port = _mock_port(side_effect=[[float(i)] for i in range(5)])
         session = _mock_session_with_model()
 
         with (
@@ -224,10 +275,10 @@ async def test_cache_evicts_oldest_when_over_max_size():
 
         # Only the 3 most-recently-inserted survive.
         assert len(service_semantic._embedding_cache) == 3
-        assert ("q0", "model") not in service_semantic._embedding_cache
-        assert ("q1", "model") not in service_semantic._embedding_cache
-        assert ("q2", "model") in service_semantic._embedding_cache
-        assert ("q3", "model") in service_semantic._embedding_cache
-        assert ("q4", "model") in service_semantic._embedding_cache
+        assert ("q0", "model", _FINGERPRINT) not in service_semantic._embedding_cache
+        assert ("q1", "model", _FINGERPRINT) not in service_semantic._embedding_cache
+        assert ("q2", "model", _FINGERPRINT) in service_semantic._embedding_cache
+        assert ("q3", "model", _FINGERPRINT) in service_semantic._embedding_cache
+        assert ("q4", "model", _FINGERPRINT) in service_semantic._embedding_cache
     finally:
         service_semantic._EMBEDDING_CACHE_MAX_SIZE = original_max

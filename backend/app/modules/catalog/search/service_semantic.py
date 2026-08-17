@@ -30,9 +30,18 @@ EmbeddingUnavailableError = get_catalog_port().embedding_unavailable_error_class
 # OpenAI text-embedding-3-small at 200-800 ms per call). Repeated identical
 # queries within ~5 minutes are common during user sessions and should not
 # pay that cost on every request. The cache key is `(tenant-scoped query text,
-# model_name)` so case variations and accidental whitespace collide without
-# sharing a provider result across tenants. TTL is 300 seconds (matches audit
-# recommendation), max 512 entries.
+# model_name, configuration fingerprint)` so case variations and accidental
+# whitespace collide without sharing a provider result across tenants. TTL is
+# 300 seconds (matches audit recommendation), max 512 entries.
+#
+# fix(#1546): the fingerprint is part of the key, not decoration. This cache is
+# the third independent reader of the embedding configuration in one request —
+# the stored rows, the provider call, and this. Filtering rows by the live
+# configuration while serving a query vector generated under the previous one
+# would compare across spaces exactly as before, with the filter looking
+# correct: the bug would have moved into the cache rather than been fixed. A
+# configuration change makes every entry unreachable, which costs one provider
+# call per distinct query and is the point.
 _EMBEDDING_CACHE_TTL_SECONDS = 300.0
 _EMBEDDING_CACHE_MAX_SIZE = 512
 
@@ -46,12 +55,12 @@ _EXACT_SEMANTIC_COUNT_MAX_ROWS = 5000
 # anyway; the 300s cache can't help, every prefix is a distinct key. Shorter
 # queries skip the vector path entirely.
 _MIN_SEMANTIC_QUERY_LEN = 4
-_embedding_cache: "OrderedDict[tuple[str, str], tuple[float, list[float]]]" = (
+_embedding_cache: "OrderedDict[tuple[str, str, str], tuple[float, list[float]]]" = (
     OrderedDict()
 )
 
 
-def _embedding_cache_get(key: tuple[str, str]) -> list[float] | None:
+def _embedding_cache_get(key: tuple[str, str, str]) -> list[float] | None:
     """Return a cached embedding if present and not expired; else None."""
     entry = _embedding_cache.get(key)
     if entry is None:
@@ -65,7 +74,7 @@ def _embedding_cache_get(key: tuple[str, str]) -> list[float] | None:
     return vector
 
 
-def _embedding_cache_put(key: tuple[str, str], vector: list[float]) -> None:
+def _embedding_cache_put(key: tuple[str, str, str], vector: list[float]) -> None:
     """Insert with TTL; evict oldest when over capacity."""
     expires_at = time.monotonic() + _EMBEDDING_CACHE_TTL_SECONDS
     _embedding_cache[key] = (expires_at, vector)
@@ -94,21 +103,47 @@ async def _embed_with_deadline(text: str, session: AsyncSession) -> list[float]:
     )
 
 
-async def generate_embedding(text: str, session: AsyncSession) -> list[float]:
+async def _live_embedding_identity(session: AsyncSession) -> tuple[str, str]:
+    """Return (active model name, live configuration fingerprint) — #1546.
+
+    One read of the model, threaded into the fingerprint, so the value the
+    query filters on and the value inside the fingerprint cannot land on
+    opposite sides of a settings change. The port call never raises; an
+    unresolvable configuration answers with a sentinel that matches no stamped
+    row, so the vector arm degrades to whatever is unstamped rather than
+    returning cross-space matches.
+    """
+    model_name = await EMBEDDING_MODEL.get(session)
+    fingerprint = await get_catalog_port().resolve_embedding_config_fingerprint(
+        session, model_name=model_name
+    )
+    return model_name, fingerprint
+
+
+async def generate_embedding(
+    text: str,
+    session: AsyncSession,
+    *,
+    identity: tuple[str, str] | None = None,
+) -> list[float]:
     """Generate an embedding through the configured CatalogPort provider.
 
     Phase 269 H-22: results are memoized in a TTL LRU cache keyed on
-    `(tenant-scoped text.strip().lower(), model_name)`, TTL 300s. Cache write
-    only happens on the success path; provider errors propagate to callers as
-    before.
+    `(tenant-scoped text.strip().lower(), model_name, configuration
+    fingerprint)`, TTL 300s. Cache write only happens on the success path;
+    provider errors propagate to callers as before.
+
+    ``identity`` is the `(model, fingerprint)` pair from
+    `_live_embedding_identity`, passed by a caller that already resolved it so
+    one search request resolves it once. Omit it and this resolves its own.
     """
     normalized = text.strip().lower()
     if not normalized:
         # Don't cache empty inputs — let the provider raise its usual error.
         return await _embed_with_deadline(text, session)
 
-    model_name = await EMBEDDING_MODEL.get(session)
-    cache_key = (tenant_cache_key(normalized), model_name)
+    model_name, fingerprint = identity or await _live_embedding_identity(session)
+    cache_key = (tenant_cache_key(normalized), model_name, fingerprint)
 
     cached = _embedding_cache_get(cache_key)
     if cached is not None:
@@ -148,7 +183,7 @@ async def _get_vector_ranks(
     query_text: str,
     limit: int,
     restrict_stmt: Select | None = None,
-) -> tuple[dict[str, int], list[float] | None]:
+) -> tuple[dict[str, int], list[float] | None, tuple[str, str] | None]:
     """Run vector similarity search.
 
     ``restrict_stmt`` is a ``select(Record.id)`` carrying the active visibility +
@@ -156,40 +191,56 @@ async def _get_vector_ranks(
     in that set, so a nearer but non-visible / filtered-out embedding cannot crowd
     a valid match out of the top ``limit`` rows.
 
-    Returns ``({record_id_hex: rank}, query_vector)``. The query vector is returned
-    so the caller can run an accurate total-match COUNT (which the ``limit``-bounded
-    ranks cannot provide). Returns ``({}, None)`` on any failure (silent fallback).
+    Returns ``({record_id_hex: rank}, query_vector, identity)``. The query vector is
+    returned so the caller can run an accurate total-match COUNT (which the
+    ``limit``-bounded ranks cannot provide); fix(#1546) added the identity for the
+    same reason, so that COUNT filters on the configuration these ranks were taken
+    under. Returns ``({}, None, None)`` on any failure (silent fallback).
     """
     # Check if any embeddings exist at all
     if not await get_catalog_port().has_embeddings(session):
-        return {}, None
+        return {}, None, None
+
+    # fix(#1546): the query vector and the row filter must come from ONE reading
+    # of the configuration. Resolved once, here, below the has_embeddings gate
+    # so a catalog with no vectors does not pay for it, and handed back to the
+    # caller so a settings change landing mid-request cannot rank under one
+    # configuration and count under another.
+    identity = await _live_embedding_identity(session)
+    model_name, config_fingerprint = identity
 
     # Generate query embedding
     try:
-        query_vector = await generate_embedding(query_text.strip(), session)
+        query_vector = await generate_embedding(
+            query_text.strip(), session, identity=identity
+        )
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
-        return {}, None
+        return {}, None, None
     except Exception:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
         logger.warning(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
-        return {}, None
+        return {}, None, None
 
     try:
-        # Get current model name for filtering
-        model_name = await EMBEDDING_MODEL.get(session)
-
         # Tune HNSW recall -- default ef_search=40 may miss relevant results
         await get_catalog_port().set_hnsw_recall(session)
         RecordEmbedding = get_catalog_port().record_embedding_orm_class()
 
         # Vector similarity query: cosine distance <= 0.7 means similarity >= 0.3
+        # fix(#1546): scoped to rows the live configuration can be compared
+        # against, not merely to rows carrying its model name. A model served
+        # from two endpoints is two vector spaces under one label, and cosine
+        # distance across them comes back well-formed and meaningless. Rows from
+        # another configuration are now invisible rather than wrong;
+        # `usable_by_config` is where an unstamped legacy row keeps the old
+        # model-name-only guarantee.
         vector_stmt = select(
             RecordEmbedding.record_id,
             RecordEmbedding.embedding.cosine_distance(query_vector).label("distance"),
         ).where(
-            RecordEmbedding.model_name == model_name,
+            RecordEmbedding.usable_by_config(model_name, config_fingerprint),
             RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
         )
         if restrict_stmt is not None:
@@ -209,10 +260,14 @@ async def _get_vector_ranks(
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True
         )
-        return {}, None
+        return {}, None, None
 
     # Assign positional ranks (1-based)
-    return {str(row.record_id): rank + 1 for rank, row in enumerate(rows)}, query_vector
+    return (
+        {str(row.record_id): rank + 1 for rank, row in enumerate(rows)},
+        query_vector,
+        identity,
+    )
 
 
 def _compute_rrf_scores(
@@ -279,12 +334,14 @@ async def _run_rrf_merge(
     # Vector similarity ranks, restricted to the visibility/filter-vetted set so the
     # cosine top-k contains only records the caller may see that satisfy every active
     # filter (empty dict on any failure = FTS-only). The query vector is returned for
-    # the total-match count below.
-    vector_ranks, query_vector = await _get_vector_ranks(
+    # the total-match count below, and fix(#1546) the embedding configuration those
+    # ranks were taken under, so the counts filter on the same one rather than
+    # resolving it a second time and possibly counting rows they did not rank.
+    vector_ranks, query_vector, identity = await _get_vector_ranks(
         session, q_stripped, page_end, restrict_stmt=vet_stmt
     )
 
-    if not vector_ranks:
+    if not vector_ranks or identity is None:
         logger.info(
             "rrf_fallback_to_fts",
             extra={"reason": "empty_vector_ranks", "q_prefix": q_stripped[:50]},
@@ -321,7 +378,7 @@ async def _run_rrf_merge(
         .join(Record, Dataset.record_id == Record.id)
         .where(stmt.whereclause)
     )
-    model_name = await EMBEDDING_MODEL.get(session)
+    model_name, config_fingerprint = identity
     RecordEmbedding = get_catalog_port().record_embedding_orm_class()
     # fix(#448): the exact COUNT below re-computes cosine distance against
     # EVERY stored embedding — a second full O(N)·dims vector scan per search
@@ -330,12 +387,16 @@ async def _run_rrf_merge(
     # the vector-only surplus from the vetted top-k ranks already in hand.
     # numberMatched becomes a lower bound (may under-report distant tail
     # matches); a full-window sentinel below keeps `next` links alive.
+    # fix(#1546): both counts below use the same predicate the ranks were taken
+    # under. The row gate decides whether the exact count is affordable, so
+    # counting rows the ranking cannot see would push a catalog over the gate on
+    # the strength of vectors no search will ever return.
     emb_rows = (
         await session.execute(
             select(func.count())
             .select_from(RecordEmbedding)
             .join(Record, RecordEmbedding.record_id == Record.id)
-            .where(RecordEmbedding.model_name == model_name)
+            .where(RecordEmbedding.usable_by_config(model_name, config_fingerprint))
         )
     ).scalar_one()
     if emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS:
@@ -343,7 +404,7 @@ async def _run_rrf_merge(
             select(func.count())
             .select_from(RecordEmbedding)
             .where(
-                RecordEmbedding.model_name == model_name,
+                RecordEmbedding.usable_by_config(model_name, config_fingerprint),
                 RecordEmbedding.embedding.cosine_distance(query_vector) <= 0.7,
                 RecordEmbedding.record_id.in_(vet_stmt),
                 RecordEmbedding.record_id.notin_(fts_match_subq),

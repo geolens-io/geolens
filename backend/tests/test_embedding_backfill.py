@@ -37,6 +37,28 @@ def _make_query_result(records):
     return result
 
 
+def _written_rows(session) -> list[dict]:
+    """Return the embedding rows the run wrote.
+
+    fix(#1546): rows go in through a Core INSERT ... ON CONFLICT DO UPDATE
+    rather than `session.add`, because a record whose only row for the active
+    model came from a different configuration is now offered as missing and a
+    plain INSERT would answer it with a unique violation. So these tests count
+    what the statement carries instead of counting `session.add` calls.
+    """
+    from sqlalchemy.dialects.postgresql.dml import Insert
+
+    rows: list[dict] = []
+    for call in session.execute.await_args_list:
+        stmt = call.args[0] if call.args else None
+        if isinstance(stmt, Insert):
+            for group in stmt._multi_values:
+                rows.extend(
+                    {col.name: value for col, value in row.items()} for row in group
+                )
+    return rows
+
+
 def _patch_backfill_gates(stack: ExitStack, *, ai_enabled=True):
     """Patch the run-level PersistentConfig gates the backfill reads once.
 
@@ -92,7 +114,19 @@ class TestBackfillEmbeddings:
         assert result["processed"] == 2
         assert result["created"] == 2
         assert result["errors"] == 0
-        assert session.add.call_count == 2
+
+        rows = _written_rows(session)
+        assert len(rows) == 2
+        # fix(#1546): every row carries the identity of the configuration that
+        # produced it, and it is the pinned one — the same (model, dimensions,
+        # endpoint) triple handed to the provider call above.
+        from app.processing.embeddings.helpers import embedding_config_fingerprint
+
+        pinned = mock_batch.call_args.kwargs
+        pinned_stamp = embedding_config_fingerprint(
+            pinned["model"], pinned["dimensions"], pinned["base_url"]
+        )
+        assert {row["config_fingerprint"] for row in rows} == {pinned_stamp}
 
     @pytest.mark.asyncio
     async def test_batch_errors_do_not_stop_backfill(self):
@@ -162,7 +196,7 @@ class TestBackfillEmbeddings:
         assert result["processed"] == 2
         assert result["created"] == 1
         assert result["errors"] == 1
-        assert session.add.call_count == 1
+        assert len(_written_rows(session)) == 1
 
     @pytest.mark.asyncio
     async def test_returns_correct_counts(self):
