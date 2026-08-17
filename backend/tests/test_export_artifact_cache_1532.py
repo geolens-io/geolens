@@ -3099,3 +3099,109 @@ def test_no_export_format_escapes_the_determinism_check():
     assert PARQUET_MEDIA_TYPE and "parquet" in covered, (
         "the route emits parquet outside FORMAT_MAP, so it has to be named"
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r14
+# ---------------------------------------------------------------------------
+
+
+def test_the_scratch_sweep_walks_once_per_horizon_not_once_per_cycle(tmp_path):
+    """The reclaimer must not re-walk everything stored every five minutes.
+
+    It rides the credential sweeper's 300 s loop, but what it looks for cannot
+    be reclaimed until it is four hours old, and the tree it walks is the whole
+    staging root: originals, COGs, quicklooks, VRTs, map assets. So the cost is
+    O(everything stored), it grows with the catalog, it is paid on every replica,
+    and on all but roughly one pass in fifty it finds nothing eligible.
+
+    Asserted through the consequence rather than by counting calls. A file that
+    IS eligible is planted after the first pass: if the second pass walked, it
+    would take it. Surviving is the only observable difference between a skipped
+    walk and a walk that found nothing, and a call-counting assertion would pass
+    just as well against a version that walked and returned early.
+
+    The counterfactual runs last, because "the file survived" is also what a
+    sweeper broken in some unrelated way produces. Releasing the guard and
+    sweeping again must take it, or this test is pinning a bug.
+    """
+    from app.core.runtime import staging
+
+    def _plant(name: str) -> Path:
+        scratch = tmp_path / "rasters" / name
+        scratch.parent.mkdir(parents=True, exist_ok=True)
+        scratch.write_bytes(b"half a COG")
+        old = time.time() - 10 * 3600
+        os.utime(scratch, (old, old))
+        return scratch
+
+    staging._last_scratch_sweep_at = 0.0
+    try:
+        first = _plant("a.cog.tif.0123456789abcdef0123456789abcdef.tmp")
+        assert (
+            staging.sweep_orphaned_write_scratch_occasionally(
+                tmp_path, age_threshold_seconds=4 * 3600
+            )
+            == 1
+        ), "the first pass of a fresh process must walk"
+        assert not first.exists()
+
+        second = _plant("b.cog.tif.fedcba9876543210fedcba9876543210.tmp")
+        assert (
+            staging.sweep_orphaned_write_scratch_occasionally(
+                tmp_path, age_threshold_seconds=4 * 3600
+            )
+            == 0
+        ), "a second pass inside the horizon reported work, so it walked the tree"
+        assert second.exists(), (
+            "the second pass reclaimed a file, so it walked the whole staging "
+            "root again five minutes after the last walk"
+        )
+
+        # Counterfactual: that file really was eligible, and the guard is the
+        # only reason it survived.
+        staging._last_scratch_sweep_at = 0.0
+        assert (
+            staging.sweep_orphaned_write_scratch_occasionally(
+                tmp_path, age_threshold_seconds=4 * 3600
+            )
+            == 1
+        ), "the surviving file was never eligible, so the assertion above was vacuous"
+        assert not second.exists()
+    finally:
+        staging._last_scratch_sweep_at = 0.0
+
+
+def test_the_scratch_sweep_interval_follows_the_horizon_it_is_given(tmp_path):
+    """The cadence is the horizon argument, not a constant of its own.
+
+    Two numbers that have to agree are two numbers that can drift, and the pair
+    here has a failure mode in each direction: an interval longer than the
+    horizon leaves residue for longer than intended, and one shorter than it
+    reintroduces exactly the repeated walk this guard exists to stop. Deriving
+    the cadence from the argument removes the second number.
+    """
+    from app.core.runtime import staging
+
+    staging._last_scratch_sweep_at = 0.0
+    try:
+        assert (
+            staging.sweep_orphaned_write_scratch_occasionally(
+                tmp_path, age_threshold_seconds=0
+            )
+            == 0
+        )
+        first_walk_at = staging._last_scratch_sweep_at
+        assert first_walk_at > 0, "the first pass did not record a walk"
+
+        time.sleep(0.01)
+        staging.sweep_orphaned_write_scratch_occasionally(
+            tmp_path, age_threshold_seconds=0
+        )
+        assert staging._last_scratch_sweep_at > first_walk_at, (
+            "a zero horizon means nothing is ever too recent to reclaim, so "
+            "every pass must walk; this one was skipped, which means the "
+            "interval is pinned to something other than the horizon"
+        )
+    finally:
+        staging._last_scratch_sweep_at = 0.0

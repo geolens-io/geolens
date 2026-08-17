@@ -2365,7 +2365,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # now, through a middleware in its own module; `image/tiff` stays a
     # media-type exclusion because there the type and the route are the same
     # set. Cap 1622 -> 1626, exact.
-    "backend/app/api/main.py": 1626,
+    # fix(#1532 review r14): +2 — the scratch reclaimer now rides this loop's
+    # 300 s cadence but keeps its own, so a replica walks the whole staging root
+    # once per horizon instead of every five minutes. Two lines of docstring say
+    # why the two passes on this line differ; the guard itself lives beside the
+    # function it guards, in staging.py. Cap 1626 -> 1628, exact.
+    "backend/app/api/main.py": 1628,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

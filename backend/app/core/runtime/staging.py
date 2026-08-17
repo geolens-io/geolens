@@ -81,6 +81,42 @@ def sweep_orphaned_write_scratch(
     return removed
 
 
+# fix(#1532 review r14): when this process last walked the tree. Module-level and
+# per-process, exactly like `artifact_cache._last_sweep_at`; nothing coordinates
+# replicas and nothing needs to, since each is bounding its own work.
+_last_scratch_sweep_at = 0.0
+
+
+def sweep_orphaned_write_scratch_occasionally(
+    root: Path,
+    *,
+    age_threshold_seconds: int = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+) -> int:
+    """``sweep_orphaned_write_scratch``, at most once per horizon per process.
+
+    fix(#1532 review r14): the unguarded call rode the credential sweeper's
+    300 s cadence, so every API replica did a full recursive walk of the staging
+    root every five minutes. That root holds originals, COGs, quicklooks, VRTs
+    and map assets, so the cost is O(everything stored) and grows with the
+    catalog, while what it looks for cannot be reclaimed until it is four hours
+    old. Almost every pass was reading the whole tree to find nothing eligible.
+
+    The interval IS the horizon, taken from the same argument rather than from a
+    constant of its own, so the two cannot drift apart. The cost is retention:
+    a file that turns eligible just after a pass waits for the next one, so the
+    worst case is two horizons rather than one. That is the right trade for
+    residue from a process that has already died.
+    """
+    global _last_scratch_sweep_at
+    now = time.time()
+    if now - _last_scratch_sweep_at < age_threshold_seconds:
+        return 0
+    _last_scratch_sweep_at = now
+    return sweep_orphaned_write_scratch(
+        root, age_threshold_seconds=age_threshold_seconds
+    )
+
+
 def _latest_mtime(entry: Path) -> float:
     """The most recent mtime of ``entry`` itself, or (one level deep) any
     file directly inside it.

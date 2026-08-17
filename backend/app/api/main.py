@@ -44,7 +44,7 @@ from app.core.runtime.staging import (
     EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     ensure_staging_ready,
     sweep_orphaned_exports,
-    sweep_orphaned_write_scratch,
+    sweep_orphaned_write_scratch_occasionally,
 )
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
@@ -288,9 +288,11 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
     so a process killed mid-write leaves one behind under whatever prefix it was
     writing — COGs, originals, VRTs, map assets. This sweeper is the right home
     because it already walks the staging tree on a schedule and, unlike anything
-    storage-backed, needs no ``init_storage`` to run.
+    storage-backed, needs no ``init_storage`` to run. It rides this loop's 300 s
+    cadence but keeps its own (fix(#1532 review r14)): the exports pass below
+    scans one directory, the scratch pass walks everything stored.
     """
-    scratch = sweep_orphaned_write_scratch(
+    scratch = sweep_orphaned_write_scratch_occasionally(
         Path(settings.upload_staging_dir),
         age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     )
