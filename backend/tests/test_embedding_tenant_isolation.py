@@ -60,6 +60,23 @@ async def test_embedding_helper_queries_join_rls_visible_records(monkeypatch):
         "resolve_embedding_model_name",
         AsyncMock(return_value="tenant-isolation-model"),
     )
+    # fix(#1580 review r4): the fingerprint resolver too. The anchor read orders
+    # by "the row search would use", so it asks what the live configuration IS
+    # before running its own query — and that resolution goes to the database on
+    # a cold persistent-config cache, consuming one of the three results queued
+    # below and killing the test with StopAsyncIteration.
+    #
+    # It went unnoticed because the failure is ORDER-DEPENDENT: run after any
+    # test that warms the config cache and the resolver answers without a query,
+    # so a whole-file or whole-suite run is green and this node alone is red.
+    # Both resolvers are stubbed now, so what this test asserts — that every
+    # embedding helper crosses the Record boundary — no longer depends on what
+    # ran before it.
+    monkeypatch.setattr(
+        helpers,
+        "resolve_embedding_config_fingerprint",
+        AsyncMock(return_value="f" * 64),
+    )
 
     presence_session = AsyncMock()
     presence_session.execute.return_value = _result(scalar=True)
