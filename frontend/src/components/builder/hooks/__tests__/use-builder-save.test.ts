@@ -2910,6 +2910,51 @@ describe('SHARE-09 export PNG composition', () => {
     expect(joined).not.toContain('…');
   });
 
+  /* fix(#1541 codex P2 round 4): the budget used to be a DESKTOP figure while
+   * the comment above it named iOS Safari's smaller one. codex's case, and the
+   * numbers here are iOS Safari's measured ceiling written out rather than read
+   * from the constant — the whole point is that the bound holds on the smallest
+   * engine, so a test that reads the constant would relax with it. */
+  it('keeps an iPad-sized export inside iOS Safari\'s ceiling (#1541)', async () => {
+    const { toast } = await import('sonner');
+    const IOS_MAX_AREA = 4096 * 4096; // 16,777,216
+    const IOS_CEILING_AT_2048 = IOS_MAX_AREA / 2048; // 8,192px tall
+
+    const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
+    const mockMap = createMockMap({ loaded: true, attribution: credits.join(' | ') });
+    // A valid iPad canvas, which exports fine today.
+    const iPadCanvas = createMockCanvas();
+    iPadCanvas.width = 2048;
+    iPadCanvas.height = 2732;
+    mockMap.getCanvas = vi.fn(() => iPadCanvas);
+
+    const state = makeSaveState({
+      localName: '',
+      localDescription: '',
+      localLayers: [],
+      mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+    });
+    const { result } = renderHook(() => useBuilderSave(state));
+
+    act(() => { result.current.handleExportPNG(); });
+    act(() => { fireRenderCallback(mockMap); });
+
+    expect(offscreenCanvas.width).toBe(2048);
+    expect(offscreenCanvas.height).toBeLessThanOrEqual(IOS_CEILING_AT_2048);
+    expect(offscreenCanvas.width * offscreenCanvas.height).toBeLessThanOrEqual(IOS_MAX_AREA);
+    expect(encodedBlobs).toEqual([expect.any(Blob)]);
+    expect(toast.error).not.toHaveBeenCalled();
+
+    // Still crediting: what fits, plus a marker for the rest.
+    const drawn = fillTextSpy.mock.calls.map((c: unknown[]) => String(c[0]));
+    const joined = drawn.join(' ');
+    const rendered = credits.filter((c) => joined.includes(c)).length;
+    const markerLine = drawn.find((text) => /\+\d+ more credit/.test(text));
+    expect(rendered).toBeGreaterThan(0);
+    expect(markerLine).toBeDefined();
+    expect(rendered + Number(/\+(\d+)/.exec(markerLine!)![1])).toBe(credits.length);
+  });
+
   it('leaves an ordinary multi-credit export growing and complete (#1541)', () => {
     // 40 credits: many lines, and still three orders of magnitude below the cap.
     const credits = Array.from(

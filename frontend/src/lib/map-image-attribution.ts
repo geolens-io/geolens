@@ -87,9 +87,11 @@ function attributionFont(fontPx: number): string {
  * work without naming SVG anywhere, and `<svg><title>…</title></svg>` already
  * worked because a <title> element IS DOM text.
  *
- * `alt=""` is honoured as its author meant it: an explicitly decorative image
- * contributes nothing and gets no placeholder. That is the one case where an
- * image yields no credit by design rather than by accident.
+ * `alt=""` is honoured as its author meant it — but LAST, after the other two
+ * alternatives, because alt="" means decorative only when nothing else names
+ * the image. `<img alt="" aria-label="© Provider">` has an accessible name and
+ * is a credit. And a source whose WHOLE attribution reduces to nothing that
+ * way is still a declared credit; see `declaredCreditText`.
  *
  * Whichever reader is in play, the parse stays inert. DOMParser documents run
  * no script and fetch no image or iframe, which `el.innerHTML = s` cannot
@@ -152,9 +154,18 @@ function collectCreditText(node: Node): string {
   const isImage =
     tag === 'IMG' || (tag === 'INPUT' && el.getAttribute('type')?.toLowerCase() === 'image');
   if (isImage) {
-    // A decorative image says so with alt="", and is not a credit.
+    // fix(#1541 codex P2 round 4): alternatives FIRST. The decorative shortcut
+    // used to run ahead of them, so `<img alt="" aria-label="© Provider">` was
+    // suppressed even though the ARIA label gives it an accessible name and
+    // MapLibre renders the logo. alt="" means decorative only when nothing
+    // else names the image — that is the accessibility rule, and a shortcut
+    // that runs before the thing it is a shortcut for is just a bug.
+    const alternative = textAlternative(el);
+    if (alternative) return alternative;
+    // Nothing names it. An author who wrote alt="" said "not content"; one who
+    // omitted alt said nothing at all, and gets the placeholder.
     if (el.getAttribute('alt')?.trim() === '') return '';
-    return textAlternative(el) ?? unnamedImageCredit(el);
+    return unnamedImageCredit(el);
   }
 
   let inner = '';
@@ -178,11 +189,37 @@ function normalizeCreditText(raw: string): string {
     .join(SEPARATOR);
 }
 
+/**
+ * Credit text for a node whose owner DECLARED an attribution.
+ *
+ * fix(#1541 codex P2 round 4): honouring alt="" opened the gap beside it. A
+ * source whose entire attribution is a lone decorative image derives no text,
+ * and an empty derivation used to drop the source from the list — so it was
+ * counted nowhere, marker included, which is the silent loss this module
+ * exists to prevent. Empty text with an image present is an UN-NAMEABLE
+ * credit, not an absent one: it gets the same host-derived placeholder an
+ * image with no alternative gets, which both renders it and makes it one of
+ * the `credits.length` the overflow marker counts.
+ *
+ * A declaration that derives no text and contains no image is genuinely empty
+ * (`'   '`, `<div></div>`) and still contributes nothing. Nothing was declared
+ * to lose.
+ *
+ * Note the layering: within a credit, alt="" still contributes nothing —
+ * `© Provider <img alt="">` is "© Provider", not "© Provider (image credit)".
+ * The placeholder is a SOURCE-level floor, not a per-image one.
+ */
+function declaredCreditText(root: Element): string {
+  const text = normalizeCreditText(collectCreditText(root));
+  if (text) return text;
+  const image = root.querySelector?.('img, input[type="image"]');
+  return image ? unnamedImageCredit(image) : '';
+}
+
 /** Credit text for an editor-supplied HTML string, parsed inertly. */
 function decodeHtmlText(raw: string): string {
   try {
-    const doc = new DOMParser().parseFromString(raw, 'text/html');
-    return normalizeCreditText(collectCreditText(doc.body));
+    return declaredCreditText(new DOMParser().parseFromString(raw, 'text/html').body);
   } catch {
     return raw.trim();
   }
@@ -193,7 +230,7 @@ function decodeHtmlText(raw: string): string {
  *  goes missing from exactly one of the two ways it can be read. */
 function elementCreditText(el: Element): string {
   try {
-    return normalizeCreditText(collectCreditText(el));
+    return declaredCreditText(el);
   } catch {
     return el.textContent?.trim() ?? '';
   }
@@ -349,7 +386,7 @@ export function readRenderedAttribution(map: AttributionMapLike): string[] {
  *               height  width     line     load             (band runs out)
  *   Thumbnail   13px    378px     ~75      6 lines, 33.6%   18 lines, ~1350 chars
  *   OG card     20px    1160px    ~145     4 lines, 14.3%   30 lines, ~4350 chars
- *   PNG export  16px    1016px*   ~169     4 lines, 88px    983 lines, ~166k chars
+ *   PNG export  16px    1016px*   ~169     4 lines, 88px    951 lines, ~161k chars
  *
  *   * the measured 1056px-wide export at dpr 1, less 20px of pad a side.
  *
@@ -745,28 +782,37 @@ const BAND_GAP = 12;
  * A bounded band with a counted marker loses some provider names; an
  * unencodable canvas loses every one of them along with the map.
  *
- * The figures below are the smallest limits for a DESKTOP engine in
- * canvas-size's measured table (jhildenbiddle/canvas-size, src/test-sizes.js),
- * which is the only published per-engine measurement of these limits:
+ * The figures are the SMALLEST measured for any engine in canvas-size's table
+ * (jhildenbiddle/canvas-size, src/test-sizes.js), the only published per-engine
+ * measurement of these limits:
  *
  *   per side  Chrome 83 65,535 · Chrome 70 and Firefox 63 32,767 · Edge 17 and
  *             IE 11 16,384. We take 16,384: half the floor of any engine this
  *             app supports, and the only browsers that ever enforced it are
  *             retired, so the margin is free.
  *   area      Chrome 70 / Edge 17 / Safari 7-12 (Mac) 16,384² = 268,435,456 ·
- *             Firefox 63 11,180² = 124,992,400. We take Firefox's, the
- *             smallest desktop area measured.
+ *             Firefox 63 11,180² = 124,992,400 · Safari on iOS 4,096² =
+ *             16,777,216. We take iOS Safari's.
  *
- * Safari on iOS is smaller again (4,096² = 16,777,216) and is deliberately NOT
- * the figure used. A retina desktop map canvas alone already exceeds it, so
- * adopting it would delete credits from exports that work today without making
- * any iOS export work. What is bounded here is the band's CONTRIBUTION: it can
- * never be the term that makes the canvas unencodable. A map canvas already
- * past an engine's limit on its own is a different constraint, and not one that
- * credit growth caused or can fix.
+ * fix(#1541 codex P2 round 4): iOS Safari's is deliberately conservative, and
+ * an earlier revision of this comment named it and then budgeted against the
+ * desktop figure anyway. That is a bound that holds only where it was measured:
+ * an iPad's 2048x2732 canvas is valid and exports today, and enough supported
+ * credits grew it past 8,192px high, `toBlob` returned null, and the credit
+ * band broke the very export it was added to. A bound is worth only the worst
+ * environment it has to hold in. We do not probe the engine's real capability
+ * and we never sniff the user agent, so the cap is the floor of what every
+ * supported engine can do.
+ *
+ * What it costs a desktop export: nothing until the MAP canvas alone is around
+ * 4,096x4,096 device pixels. The measured 1056px-wide export still gets 951
+ * lines of band; a 4400x2400 canvas (a maximized builder on a 5K display at
+ * dpr 2) still gets 41. Past that the fixed blocks have spent the whole
+ * ceiling, and the band falls to the one-line floor below rather than to
+ * nothing — see `attributionBandHeightBudget`.
  */
 export const EXPORT_CANVAS_MAX_DIMENSION = 16_384;
-export const EXPORT_CANVAS_MAX_AREA = 124_992_400;
+export const EXPORT_CANVAS_MAX_AREA = 16_777_216;
 
 /** The tallest export canvas a browser will still encode at `canvasWidth`,
  *  in device pixels. Area-limited for a very wide canvas, side-limited for the
@@ -779,21 +825,32 @@ export function exportCanvasHeightCeiling(canvasWidth: number): number {
   );
 }
 
+/** One line of band, gaps included: the least height that can carry a credit
+ *  or the marker that counts the ones it could not. */
+function minimumBandHeight(dpr: number): number {
+  return (BAND_GAP * 2 + BAND_LINE_HEIGHT) * (dpr || 1);
+}
+
 /**
  * How much of that ceiling is left for the band once the fixed blocks (title,
  * map, legend, footer) have taken theirs. The band is the only elastic term in
  * the export's height, so it absorbs the whole clamp.
  *
- * Zero when the rest of the image has already spent the ceiling. That is not a
- * silent credit drop: such a canvas cannot be encoded whatever the band does,
- * so the export fails visibly and the user is told, which is the same outcome
- * they would get from a band-free export at that size.
+ * Floored at one line rather than at zero. The fixed blocks can spend the whole
+ * conservative ceiling on their own — a map canvas past ~4,096x4,096 does it —
+ * and that canvas is over the cap with or without a band, so suppressing the
+ * credit there would trade a licensing obligation for nothing. One line plus
+ * the marker still says what the image is crediting and how much it is not.
+ * The property that matters is preserved either way: the band is never the term
+ * that pushes an otherwise-encodable canvas over.
  */
 export function attributionBandHeightBudget(
   canvasWidth: number,
   reservedHeight: number,
+  dpr: number,
 ): number {
-  return Math.max(0, exportCanvasHeightCeiling(canvasWidth) - Math.ceil(reservedHeight));
+  const headroom = exportCanvasHeightCeiling(canvasWidth) - Math.ceil(reservedHeight);
+  return Math.max(minimumBandHeight(dpr), headroom);
 }
 
 /** How many credit lines fit a band budget of `maxHeight` device pixels, the

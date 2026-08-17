@@ -1129,7 +1129,7 @@ export function useBuilderSave(state: SaveState) {
             {
               maxWidth: totalW - pad * 2,
               dpr,
-              maxHeight: attributionBandHeightBudget(totalW, reservedH),
+              maxHeight: attributionBandHeightBudget(totalW, reservedH, dpr),
             },
           );
 

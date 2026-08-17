@@ -345,13 +345,63 @@ describe('readRenderedAttribution', () => {
     ]);
   });
 
-  it('warns and returns nothing only when the control is genuinely empty', () => {
-    const container = document.createElement('div');
-    const inner = document.createElement('div');
-    inner.className = 'maplibregl-ctrl-attrib-inner';
-    inner.innerHTML = '<img src="https://a.example/spacer.gif" alt="">';
-    container.appendChild(inner);
-    expect(readRenderedAttribution({ getContainer: () => container })).toEqual([]);
+  it('returns nothing only when the control declares nothing at all', () => {
+    const control = (html: string) => {
+      const container = document.createElement('div');
+      const inner = document.createElement('div');
+      inner.className = 'maplibregl-ctrl-attrib-inner';
+      inner.innerHTML = html;
+      container.appendChild(inner);
+      return { getContainer: () => container };
+    };
+    // Markup with no text and no image: nothing was declared to lose.
+    expect(readRenderedAttribution(control('<div>  </div>'))).toEqual([]);
+    // But a lone decorative image IS a declaration; see the source-level rule.
+    expect(readRenderedAttribution(control('<img src="https://a.example/l.gif" alt="">'))).toEqual([
+      '(image credit: a.example)',
+    ]);
+  });
+
+  /* fix(#1541 codex P2 round 4): honouring alt="" opened the gap beside it.
+   * The shortcut ran BEFORE the ARIA alternatives, and a source whose whole
+   * attribution reduced to nothing was dropped from the list entirely — so it
+   * was counted nowhere, marker included. */
+
+  it('lets an ARIA alternative override an empty alt', () => {
+    // alt="" means decorative only when nothing else names the image. These
+    // all have an accessible name, so MapLibre renders a credit and so do we.
+    expect(
+      readRenderedAttribution(
+        sourcesMap(
+          '<img src="https://a.example/l.png" alt="" aria-label="© Aria Provider">',
+          '<img src="https://b.example/l.png" alt="" title="© Title Provider">',
+          '<img src="https://c.example/l.png" alt="  " aria-label="© Spaces Provider">',
+        ),
+      ),
+    ).toEqual(['© Aria Provider', '© Title Provider', '© Spaces Provider']);
+  });
+
+  it('still drops a decorative image from INSIDE a credit that has text', () => {
+    // The alt="" rule is intact where it belongs: a spacer next to real text
+    // adds nothing. The placeholder is a source-level floor, not a per-image one.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('© Provider <img src="https://a.example/spacer.gif" alt="">'),
+      ),
+    ).toEqual(['© Provider']);
+  });
+
+  it('counts a source whose whole credit is a decorative image, rather than swallowing it', () => {
+    const credits = readRenderedAttribution(
+      sourcesMap('© Named Provider', '<img src="https://logo.example.com/l.gif" alt="">'),
+    );
+    // Two sources declared a credit, so two credits reach the images — the
+    // second un-nameable but present, and therefore counted by the marker.
+    expect(credits).toEqual(['© Named Provider', '(image credit: logo.example.com)']);
+  });
+
+  it('drops a declaration that has neither text nor an image', () => {
+    expect(readRenderedAttribution(sourcesMap('<div>   </div>', '<span></span>'))).toEqual([]);
   });
 });
 
@@ -668,7 +718,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     // Line count here is the STUB's, not the browser's — the 0.5em metric only
     // approximates real glyph widths, so this pins the height FORMULA and the
     // totality, not the header table's measured "real load" column.
-    const budget = attributionBandHeightBudget(1056, 600 + 32);
+    const budget = attributionBandHeightBudget(1056, 600 + 32, 1);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
@@ -676,9 +726,9 @@ describe('overlayLineCapacity: the documented ceiling', () => {
     );
     expect(measured.height).toBe(12 + measured.lines.length * 16 + 12);
     expectTotal(measured.lines, REAL_CREDITS);
-    // The documented header-table row: 983 lines of ceiling for a real load of
+    // The documented header-table row: 951 lines of ceiling for a real load of
     // four, so the bound is nowhere near the ordinary export.
-    expect(attributionBandLineCapacity(budget, 1)).toBe(983);
+    expect(attributionBandLineCapacity(budget, 1)).toBe(951);
     expect(measured.lines.length).toBeLessThan(20);
   });
 
@@ -824,7 +874,7 @@ describe('overlayLineCapacity: the documented ceiling', () => {
 describe('measureAttributionBand / drawAttributionBand', () => {
   /** The budget a real 1056x600 export at dpr 1 hands the band. Big enough
    *  that these cases never reach it; the ceiling has its own describe below. */
-  const ROOMY = attributionBandHeightBudget(1056, 632);
+  const ROOMY = attributionBandHeightBudget(1056, 632, 1);
 
   it('reserves gap + lines + gap, scaled by dpr', () => {
     const ctx = makeCtx();
@@ -920,12 +970,27 @@ describe('export canvas ceiling', () => {
   // 600px of map plus a 32px branding footer, the shape the hook composes.
   const RESERVED = 632;
 
-  it('is side-limited at ordinary export widths and area-limited at extreme ones', () => {
-    expect(exportCanvasHeightCeiling(EXPORT_WIDTH)).toBe(EXPORT_CANVAS_MAX_DIMENSION);
-    // The crossover sits at ~7,629px wide; past it the area limit binds first.
-    expect(exportCanvasHeightCeiling(8000)).toBe(Math.floor(EXPORT_CANVAS_MAX_AREA / 8000));
-    expect(exportCanvasHeightCeiling(8000)).toBeLessThan(EXPORT_CANVAS_MAX_DIMENSION);
+  it('budgets against the smallest measured engine ceiling, not the roomiest', () => {
+    // fix(#1541 codex P2 round 4): the area cap is iOS Safari's 4,096² and NOT
+    // a desktop figure. codex's case: an iPad's 2048x2732 canvas is valid and
+    // exports today, and the desktop budget let the band grow it past 8,192px
+    // high, where toBlob returns null and the export produces nothing.
+    expect(EXPORT_CANVAS_MAX_AREA).toBe(4096 * 4096);
+    expect(exportCanvasHeightCeiling(2048)).toBe(8192);
+    // Side-limited only for a narrow canvas; the area cap binds past 1,024px.
+    expect(exportCanvasHeightCeiling(1024)).toBe(EXPORT_CANVAS_MAX_DIMENSION);
+    expect(exportCanvasHeightCeiling(EXPORT_WIDTH)).toBe(
+      Math.floor(EXPORT_CANVAS_MAX_AREA / EXPORT_WIDTH),
+    );
+    expect(exportCanvasHeightCeiling(EXPORT_WIDTH)).toBeLessThan(EXPORT_CANVAS_MAX_DIMENSION);
     expect(exportCanvasHeightCeiling(0)).toBe(0);
+  });
+
+  it('costs an ordinary desktop export nothing', () => {
+    // The numbers the constants' comment quotes, so they cannot drift from it.
+    expect(attributionBandLineCapacity(attributionBandHeightBudget(1056, 632, 1), 1)).toBe(951);
+    // A maximized builder on a 5K display at dpr 2: 4400x2400 map, 32px footer.
+    expect(attributionBandLineCapacity(attributionBandHeightBudget(4400, 2432, 2), 2)).toBe(41);
   });
 
   it('costs the same pixels at any dpr, so the cap is a canvas budget not a line count', () => {
@@ -934,8 +999,26 @@ describe('export canvas ceiling', () => {
     expect(attributionBandLineCapacity(10, 1)).toBe(0);
   });
 
-  it('hands the band no height when the rest of the image has spent the ceiling', () => {
-    expect(attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION)).toBe(0);
+  it('floors the band at one line when the fixed blocks have spent the ceiling', () => {
+    // A canvas already past the cap on its own is past it with or without a
+    // band, so dropping every credit there would trade a licensing obligation
+    // for nothing. One line, and the marker counts what it could not show.
+    const budget = attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION, 1);
+    expect(budget).toBe(12 + 16 + 12);
+    expect(attributionBandLineCapacity(budget, 1)).toBe(1);
+
+    const measured = measureAttributionBand(
+      makeCtx() as unknown as CanvasRenderingContext2D,
+      REAL_CREDITS,
+      { maxWidth: EXPORT_MAX_TEXT_WIDTH, dpr: 1, maxHeight: budget },
+    );
+    expect(measured.lines).toEqual([`+${REAL_CREDITS.length} more credits`]);
+    expect(measured.height).toBe(40);
+    // Scaled by dpr, since the floor is one LINE and a line is dpr-sized.
+    expect(attributionBandHeightBudget(EXPORT_WIDTH, EXPORT_CANVAS_MAX_DIMENSION, 2)).toBe(80);
+  });
+
+  it('draws nothing only when a caller passes no room at all', () => {
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       REAL_CREDITS,
@@ -948,7 +1031,7 @@ describe('export canvas ceiling', () => {
     const credits = Array.from({ length: 200 }, (_, i) => maxedCredit(i));
     for (const c of credits) expect(c).toHaveLength(5000);
 
-    const budget = attributionBandHeightBudget(EXPORT_WIDTH, RESERVED);
+    const budget = attributionBandHeightBudget(EXPORT_WIDTH, RESERVED, 1);
     const measured = measureAttributionBand(
       makeCtx() as unknown as CanvasRenderingContext2D,
       credits,
@@ -985,7 +1068,7 @@ describe('export canvas ceiling', () => {
       {
         maxWidth: EXPORT_MAX_TEXT_WIDTH,
         dpr: 1,
-        maxHeight: attributionBandHeightBudget(EXPORT_WIDTH, RESERVED),
+        maxHeight: attributionBandHeightBudget(EXPORT_WIDTH, RESERVED, 1),
       },
     );
     expect(measured.lines.length).toBeGreaterThan(2);
