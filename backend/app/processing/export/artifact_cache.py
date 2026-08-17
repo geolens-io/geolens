@@ -384,9 +384,33 @@ async def lookup(
     now = time.time()
     cutoff = now - _ttl_seconds()
     horizon = now + _CLOCK_SLACK_SECONDS
+    # fix(#1532 review r9): freshness is measured from the object's own modified
+    # time, which every backend reports as COMPLETION time — S3 and Azure use
+    # the put's completion, and locally it is the temp file's last write, since
+    # the atomic rename preserves it. The key's stamp is taken BEFORE the
+    # upload, so a multi-gigabyte push to an object store spent the whole TTL
+    # getting there and the artifact was expired the moment it existed: the next
+    # probe missed and reconverted, defeating the cache for exactly the exports
+    # big enough to need ranges.
+    #
+    # The key keeps its stamp, and reclamation keeps using it — that decision is
+    # about whether anything could still be reading, it must be portable, and it
+    # must not depend on a value a backend could revise.
+    #
+    # The honest bound: an artifact can be up to TTL plus its own upload
+    # duration old. That is inherent rather than a compromise — bytes cannot
+    # answer before they exist, and a client pulling a ten-gigabyte export is
+    # spending that long anyway — and `tile_cache_version` in the selection key
+    # still invalidates a known mutation instantly.
     try:
         storage = get_storage()
-        keys = await storage.list(_selection_prefix(dataset_id, selection))
+        modified: dict[str, float] = {}
+        async for page in storage.iter_object_pages(
+            _selection_prefix(dataset_id, selection)
+        ):
+            for obj in page:
+                modified[obj.key] = obj.last_modified.timestamp()
+        keys = list(modified)
     except Exception:  # broad: an unreachable store is a miss, not a failure
         return None
 
@@ -411,7 +435,16 @@ async def lookup(
         # streaming it. Freshness answers "may this serve a NEW request"; this
         # question is "could anyone be part-way through a different one".
         siblings.add(digest)
-        if cutoff <= built_at <= horizon:
+        if built_at > horizon:
+            # A key stamped in the future, from a worker whose clock runs ahead.
+            # fix(#1532 review r9) moved FRESHNESS onto the object's modified
+            # time, which comes from the backend rather than that worker and so
+            # is no longer fooled — but the ordering below still sorts on the
+            # key's stamp, so a future one would outrank every honest sibling
+            # for as long as the skew lasts. Skipping it costs a rebuild.
+            continue
+        published_at = modified.get(key, built_at)
+        if cutoff <= published_at:
             candidates.append((built_at, size, digest, key))
 
     # The cost, stated: a selection that ever had two distinct artifacts serves

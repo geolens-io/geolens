@@ -63,6 +63,9 @@ from app.core.public_urls import get_public_urls
 from app.platform.extensions import get_catalog_port
 from app.platform.http.ranges import (
     RANGE_UNSATISFIABLE,
+    if_match_passes,
+    if_none_match_matches,
+    not_modified_response,
     parse_byte_range,
     range_bound_to_this_version,
 )
@@ -1002,7 +1005,7 @@ async def download_cog(
             physical_asset_key=_managed_key(raster_asset),
             dataset_id=dataset_id,
         )
-        if not _if_match_passes(request.headers.get("if-match"), etag):
+        if not if_match_passes(request.headers.get("if-match"), etag):
             # A resuming client may say "only if this is still the
             # representation I have" with If-Match instead of If-Range.
             # Ignoring it left the absent If-Range reading as permission, so a
@@ -1022,8 +1025,8 @@ async def download_cog(
         # which one it is — so a legacy row with no `sha256` answered a
         # wildcard revalidation with the whole COG. The stat above is what
         # makes that existence question answerable here.
-        if _if_none_match_matches(request.headers.get("if-none-match"), etag):
-            return _cog_not_modified(etag)
+        if if_none_match_matches(request.headers.get("if-none-match"), etag):
+            return not_modified_response(etag)
 
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
@@ -1220,97 +1223,13 @@ def _this_service_owns_the_bytes(raster_asset) -> bool:
     return raster_asset.storage_backend != "remote"
 
 
-def _if_match_passes(if_match: str | None, etag: str | None) -> bool:
-    """May this request proceed, given the client's ``If-Match``? Section 13.1.1.
-
-    STRONG comparison, like ``If-Range`` and unlike ``If-None-Match``: the
-    client is saying "only act on the representation I already hold", and a
-    weak validator cannot promise byte-for-byte identity.
-
-    ``*`` passes whenever a current representation exists, which by this point
-    is what the RasterAsset row asserts — deliberately including a row with no
-    digest, because ``*`` asks whether there is a representation at all, not
-    whether it is the one the client remembers.
-
-    A specific tag against a row with no ``sha256`` is False: unverifiable is
-    not a pass. That is the same call ``range_bound_to_this_version`` makes,
-    and it costs those rows nothing a conditional request was going to give
-    them anyway.
-    """
-    if not if_match:
-        return True
-    candidates = [tag.strip() for tag in if_match.split(",")]
-    if "*" in candidates:
-        return True
-    return etag is not None and etag in candidates
-
-
-def _if_none_match_matches(if_none_match: str | None, etag: str | None) -> bool:
-    """Does the client already hold this representation? RFC 9110 section 13.1.2.
-
-    WEAK comparison, unlike ``If-Range`` above, and the difference is not an
-    oversight: a cache revalidation only needs the two representations to be
-    equivalent, while a resumed range needs them byte-identical. The spec picks
-    a different comparison function for each, so this route does too.
-
-    ``*`` matches any current representation, and fix(#1554) is that it does so
-    even when ``etag`` is None. The section says "if the field value is '*',
-    the condition is false if the origin server has a current representation" —
-    a statement about the RESOURCE, with no clause about the server being able
-    to name it. A row predating the ``sha256`` column has bytes in storage, the
-    caller stat'd them before asking, and answering 200 there transfers a
-    multi-gigabyte COG to tell a cache what it already knew.
-
-    The wildcard is checked before ``etag`` for that reason, and the specific
-    tags after it are still refused when there is nothing to compare: a
-    representation this route holds no entity-tag for matches no entity-tag,
-    so the condition is true and the client gets the bytes it asked for.
-
-    A match is answered 304 unconditionally because this path serves GET and
-    HEAD only (``test_the_cog_download_answers_only_safe_methods`` pins that).
-    The same section makes ``*`` a 412 for a method that would create or
-    replace a representation, which is a different answer this route has no
-    caller for.
-
-    A list is a list: a client may hold several versions and offer all of them.
-    """
-    if not if_none_match:
-        return False
-    candidates = [tag.strip() for tag in if_none_match.split(",")]
-    if "*" in candidates:
-        return True
-    if etag is None:
-        return False
-    return any(_without_weak_prefix(tag) == etag for tag in candidates)
-
-
-def _without_weak_prefix(tag: str) -> str:
-    return tag[2:] if tag.startswith("W/") else tag
-
-
-def _cog_not_modified(etag: str | None) -> Response:
-    """304: the client's copy is current, so send it nothing else.
-
-    The ETag goes back per RFC 9110 section 15.4.5, and ``Accept-Ranges``
-    with it so a client revalidating before a resume does not have to
-    re-probe to learn ranges are available. No body and no ``Content-Length``:
-    starlette's ``init_headers`` skips the length for 304 (and 204) exactly as
-    the spec requires, which is why this response does not need the explicit
-    header ``_cog_head_response`` has to pass.
-
-    fix(#1554): ``etag`` may be None, and then the 304 carries none. Section
-    15.4.5 asks for the header fields a 200 would have sent, and the 200 for a
-    row with no stored digest sends no validator either (``_cog_headers`` omits
-    it for the same reason). Minting one to fill the slot would be worse than
-    the blank: it would authorize the resume ``range_bound_to_this_version``
-    refuses on exactly these rows.
-    """
-    headers = {"Accept-Ranges": "bytes"}
-    if etag is not None:
-        headers["ETag"] = etag
-    return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)
-
-
+# fix(#1532 review r9): `if_match_passes`, `_if_none_match_matches`,
+# `_without_weak_prefix` and `_cog_not_modified` moved to
+# `app/platform/http/ranges.py`, joining the parser and the If-Range comparison
+# that went there earlier. The export download evaluates the same preconditions
+# against the same kind of strong ETag and lives under `processing/`, which
+# cannot import this module — so it was one implementation in a shared home or
+# two that agree until one is fixed.
 def _cog_etag(raster_asset) -> str | None:
     """The stored COG's own SHA-256, quoted as a STRONG entity-tag.
 

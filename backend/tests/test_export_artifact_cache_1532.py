@@ -1516,9 +1516,15 @@ async def test_a_second_publisher_does_not_add_to_a_fresh_selection(
 async def test_a_future_stamped_artifact_is_not_served(test_db_session):
     """A clock-ahead worker's key must not outrank every honest one.
 
-    The newest key wins, so a future stamp is fresh for the TTL plus the skew and
-    unreclaimable for the horizon plus the skew — and it beats every sibling for
-    the whole of it. Ignoring it costs a rebuild.
+    Candidates are ordered by the stamp in the key, so a future one beats every
+    honest sibling for as long as the skew lasts.
+
+    fix(#1532 review r9) narrowed this without removing it. Freshness now comes
+    from the object's own modified time, which the BACKEND stamps, so a bad
+    worker clock can no longer keep an artifact alive past its TTL. What it can
+    still do is win the sort — and reclamation, which must stay portable, still
+    reads the key — so a future-stamped candidate is skipped outright. Ignoring
+    it costs a rebuild.
     """
     from app.platform.storage import get_storage
     from app.processing.export import artifact_cache as cache
@@ -2202,3 +2208,199 @@ def test_both_remote_puts_drain_their_upload_thread():
             f"{provider.__name__}.put still hands the upload to a bare "
             f"to_thread, which is the call that returns before the write does"
         )
+
+
+# ---------------------------------------------------------------------------
+# Review r9
+# ---------------------------------------------------------------------------
+
+
+def test_every_export_media_type_is_excluded_from_gzip():
+    """A gzipped 200 and a raw 206 must not share one ETag.
+
+    `GZipMiddleware` compresses a full response and skips a 206 by design. The
+    cached artifact's ETag names the RAW stored bytes and every range is a slice
+    of exactly those, so a client that took the validator from a compressed 200
+    and later sent it back on an `If-Range` would have it accepted and splice raw
+    bytes at compressed offsets — doing everything right and assembling a corrupt
+    file.
+
+    fix(#1540) hit this with `image/tiff` and excluded it. #1532 made the export
+    route sliceable under a strong ETag, so GeoPackage, GeoJSON, Shapefile-zip,
+    CSV and GeoParquet reach the same shape.
+
+    Asserted against `FORMAT_MAP` rather than a written-out list, so a new export
+    format cannot be added without joining the exclusion — a hardcoded list would
+    pass forever while the newest format shipped unprotected.
+    """
+    from app.api.main import app
+    from app.processing.export.ogr import EXPORT_MEDIA_TYPES, FORMAT_MAP
+
+    gzip_layer = next(
+        m for m in app.user_middleware if m.cls.__name__ == "GZipMiddleware"
+    )
+    excluded = set(gzip_layer.kwargs["exclude_content_types"])
+
+    for fmt in FORMAT_MAP.values():
+        assert fmt["media"] in excluded, (
+            f"{fmt['media']} is compressed on a 200 and raw on a 206, under one "
+            f"validator that names the raw bytes"
+        )
+    for media in EXPORT_MEDIA_TYPES:
+        assert media in excluded, f"{media} is missing from the gzip exclusion"
+    assert "image/tiff" in excluded, (
+        "the COG exclusion fix(#1540) added must survive this change"
+    )
+
+
+async def test_a_slow_upload_does_not_expire_its_own_artifact(
+    test_db_session, monkeypatch
+):
+    """The freshness clock starts at publication, not before the upload.
+
+    `built_at` is stamped before `put`, so a multi-gigabyte push to an object
+    store spent the whole TTL getting there and the artifact was expired the
+    moment it existed — the next probe missed and reconverted, defeating the
+    cache for exactly the exports big enough to need ranges.
+
+    Freshness reads the object's own modified time now, which every backend
+    reports as completion. The key keeps its stamp for reclamation, which is a
+    different question (could anything still be reading) and has to stay
+    portable.
+
+    The double sleeps past the TTL inside `put`, which is what a slow upload
+    looks like from here.
+    """
+    import asyncio
+    import tempfile
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Slow Upload")
+    monkeypatch.setattr(cache, "_ttl_seconds", lambda: 1)
+
+    class _SlowUpload:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def put(self, key, data):
+            await asyncio.sleep(1.4)  # longer than the TTL
+            return await self._inner.put(key, data)
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _SlowUpload(get_storage()),
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"an export that took a while to upload")
+        path = handle.name
+
+    stored = await cache.store(
+        dataset.id,
+        "slow",
+        file_path=path,
+        filename="x.geojson",
+        media_type="application/geo+json",
+    )
+    assert stored is not None
+
+    monkeypatch.undo()
+    monkeypatch.setattr(cache, "_ttl_seconds", lambda: 1)
+
+    hit = await cache.lookup(
+        dataset.id, "slow", filename="x.geojson", media_type="application/geo+json"
+    )
+
+    assert hit is not None, (
+        "the artifact was expired the moment it was published, because its clock "
+        "started before the upload it was waiting on"
+    )
+    assert hit.key == stored.key
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+async def test_a_revalidating_client_gets_304_from_the_cache(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions, method
+):
+    """The ETag this route advertises has to be answerable.
+
+    Publishing a strong validator and then ignoring `If-None-Match` is the
+    expensive half of a cache contract: the client stores it, offers it back and
+    receives the whole export it already has. Both verbs, because a probing
+    client revalidates too, and the cached HEAD returns even earlier than the
+    GET.
+    """
+    dataset = await _dataset(test_db_session, "Revalidate")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    etag = first.headers["etag"]
+
+    resp = await client.request(
+        method, url, headers={**admin_auth_header, "If-None-Match": etag}
+    )
+
+    assert resp.status_code == 304, (
+        f"a revalidating {method} got {resp.status_code}; the client already "
+        f"holds this representation and is being sent it again"
+    )
+    assert resp.content == b""
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+async def test_a_stale_if_match_is_refused_by_the_cache(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions, method
+):
+    """A client naming a version that has moved gets 412, not the new bytes.
+
+    `If-Match` is the other way a careful client says "only if this is still the
+    representation I have". RFC 9110 section 13.1.1 gives it no ignore-and-serve
+    fallback, unlike `If-Range` — so a stale one is refused, and the 412 carries
+    the ETag that IS current so the client can restart in one round trip.
+    """
+    dataset = await _dataset(test_db_session, "Stale IfMatch")
+    url = _url(dataset.id)
+
+    await client.get(url, headers=admin_auth_header)
+
+    resp = await client.request(
+        method,
+        url,
+        headers={**admin_auth_header, "If-Match": '"an-export-from-last-week"'},
+    )
+
+    assert resp.status_code == 412, (
+        f"a stale If-Match on a {method} returned {resp.status_code}; a client "
+        f"asking to act only on the version it holds was handed a different one"
+    )
+    assert resp.headers.get("etag"), "the 412 must name the version that IS current"
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+async def test_a_matching_if_match_still_serves_the_export(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions, method
+):
+    """The vacuity guard: preconditions must admit the requests they should.
+
+    An implementation that answered 412 to every `If-Match` and 304 to every
+    `If-None-Match` would pass both tests above and break every conforming
+    client, which is the population these headers exist for.
+    """
+    dataset = await _dataset(test_db_session, "Matching IfMatch")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    etag = first.headers["etag"]
+
+    resp = await client.request(
+        method, url, headers={**admin_auth_header, "If-Match": etag}
+    )
+
+    assert resp.status_code == 200, (
+        f"a matching If-Match on a {method} returned {resp.status_code}"
+    )

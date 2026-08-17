@@ -2327,7 +2327,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # This sweeper is the right home because it already walks the staging tree
     # on a schedule and needs no `init_storage`, unlike anything storage-backed.
     # Cap 1593 -> 1608, exact.
-    "backend/app/api/main.py": 1608,
+    # fix(#1532 review r9): +14 — the export media types join `image/tiff` in
+    # the gzip exclusion. #1532 made this route sliceable under a strong ETag
+    # naming the RAW bytes, so a compressed 200 beside a raw 206 is the splice
+    # fix(#1540) already closed for COGs, now reachable through GeoPackage,
+    # GeoJSON, Shapefile-zip, CSV and GeoParquet. Cap 1608 -> 1622, exact.
+    "backend/app/api/main.py": 1622,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3614,8 +3619,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # parser into the shared module, because the export route has to evaluate the
     # same If-Range precondition and a second implementation of strong comparison
     # is how the two would drift.
-    # Cap 1686 -> 1571, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1571,
+    # fix(#1532 review r9): -81 more, same reason a third time. If-Match,
+    # If-None-Match and the 304 builder went to app/platform/http/ranges.py so
+    # the export download can evaluate the same preconditions against the same
+    # kind of strong ETag. Everything seven review rounds settled travelled with
+    # them; only the home changed. Cap 1686 -> 1490, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1490,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because

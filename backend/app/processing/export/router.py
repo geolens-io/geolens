@@ -20,6 +20,11 @@ from app.core.dependencies import get_db
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.platform.extensions import get_permission_extension, get_processing_port
+from app.platform.http.ranges import (
+    if_match_passes,
+    if_none_match_matches,
+    not_modified_response,
+)
 from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
 from app.processing.export.ogr import ExportError, bbox_where_sql
@@ -465,6 +470,23 @@ async def export_dataset_endpoint(
     )
 
     if artifact is not None:
+        # fix(#1532 review r9): preconditions first, in the order RFC 9110
+        # section 13.2.2 fixes — If-Match, then If-None-Match, then Range and
+        # If-Range. The artifact publishes a strong ETag, so a client CAN
+        # revalidate it, and until now one that did was answered with the whole
+        # export it already had. Both verbs, and above the HEAD return because
+        # a probe revalidates too.
+        #
+        # The same evaluation the COG route settled over seven rounds of #1540,
+        # through the shared helpers rather than a second copy.
+        if not if_match_passes(request.headers.get("if-match"), artifact.etag):
+            raise HTTPException(
+                status_code=status.HTTP_412_PRECONDITION_FAILED,
+                detail="Export has changed since the version you hold",
+                headers={"etag": artifact.etag},
+            )
+        if if_none_match_matches(request.headers.get("if-none-match"), artifact.etag):
+            return not_modified_response(artifact.etag)
         # fix(#1532 review r4): the HEAD answer for a hit lives HERE, above the
         # planning, not below it. Left below, every cached parquet PROBE ran the
         # planner — which is the request a range-reading client makes first and

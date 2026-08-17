@@ -20,6 +20,13 @@ class ExportError(Exception):
     """Raised when an ogr2ogr export subprocess fails."""
 
 
+# fix(#1532 review r9): the parquet media type lives HERE rather than in
+# `parquet.py`, which imports pyarrow at module scope — `api/main.py` needs the
+# full set of export media types to configure GZipMiddleware, and pulling
+# pyarrow into the app's import graph for a string is not a trade worth making.
+# `parquet.py` re-exports it, so its own callers are unchanged.
+PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
+
 FORMAT_MAP: dict[str, dict[str, str]] = {
     "gpkg": {
         "driver": "GPKG",
@@ -42,6 +49,16 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "media": "text/csv",
     },
 }
+
+
+# fix(#1532 review r9): every media type this route can emit, derived rather
+# than restated. `api/main.py` excludes them from GZipMiddleware, because the
+# cached artifact's strong ETag names raw bytes and a gzipped 200 beside a raw
+# 206 under one validator is a splice waiting to happen (#1540 hit it with
+# image/tiff). Deriving it means a new format joins the exclusion by existing.
+EXPORT_MEDIA_TYPES: tuple[str, ...] = tuple(
+    sorted({fmt["media"] for fmt in FORMAT_MAP.values()} | {PARQUET_MEDIA_TYPE})
+)
 
 
 def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:

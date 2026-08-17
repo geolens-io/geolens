@@ -12,6 +12,9 @@ that PR's, kept with its reasoning so a reader here does not have to go find it.
 
 import re
 
+from fastapi import status
+from starlette.responses import Response
+
 # One anchored pattern, deliberately strict about what it accepts:
 #   bytes=FIRST-LAST | bytes=FIRST- | bytes=-SUFFIX
 # `[0-9]` rather than `\d` because Python's `\d` is unicode-aware, and
@@ -149,3 +152,94 @@ def range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
     if if_range is None:
         return True
     return etag is not None and if_range.strip() == etag
+
+
+def if_match_passes(if_match: str | None, etag: str | None) -> bool:
+    """May this request proceed, given the client's ``If-Match``? Section 13.1.1.
+
+    STRONG comparison, like ``If-Range`` and unlike ``If-None-Match``: the
+    client is saying "only act on the representation I already hold", and a
+    weak validator cannot promise byte-for-byte identity.
+
+    ``*`` passes whenever a current representation exists, which by this point
+    is what the RasterAsset row asserts — deliberately including a row with no
+    digest, because ``*`` asks whether there is a representation at all, not
+    whether it is the one the client remembers.
+
+    A specific tag against a row with no ``sha256`` is False: unverifiable is
+    not a pass. That is the same call ``range_bound_to_this_version`` makes,
+    and it costs those rows nothing a conditional request was going to give
+    them anyway.
+    """
+    if not if_match:
+        return True
+    candidates = [tag.strip() for tag in if_match.split(",")]
+    if "*" in candidates:
+        return True
+    return etag is not None and etag in candidates
+
+
+def if_none_match_matches(if_none_match: str | None, etag: str | None) -> bool:
+    """Does the client already hold this representation? RFC 9110 section 13.1.2.
+
+    WEAK comparison, unlike ``If-Range`` above, and the difference is not an
+    oversight: a cache revalidation only needs the two representations to be
+    equivalent, while a resumed range needs them byte-identical. The spec picks
+    a different comparison function for each, so this route does too.
+
+    ``*`` matches any current representation, and fix(#1554) is that it does so
+    even when ``etag`` is None. The section says "if the field value is '*',
+    the condition is false if the origin server has a current representation" —
+    a statement about the RESOURCE, with no clause about the server being able
+    to name it. A row predating the ``sha256`` column has bytes in storage, the
+    caller stat'd them before asking, and answering 200 there transfers a
+    multi-gigabyte COG to tell a cache what it already knew.
+
+    The wildcard is checked before ``etag`` for that reason, and the specific
+    tags after it are still refused when there is nothing to compare: a
+    representation this route holds no entity-tag for matches no entity-tag,
+    so the condition is true and the client gets the bytes it asked for.
+
+    A match is answered 304 unconditionally because this path serves GET and
+    HEAD only (``test_the_cog_download_answers_only_safe_methods`` pins that).
+    The same section makes ``*`` a 412 for a method that would create or
+    replace a representation, which is a different answer this route has no
+    caller for.
+
+    A list is a list: a client may hold several versions and offer all of them.
+    """
+    if not if_none_match:
+        return False
+    candidates = [tag.strip() for tag in if_none_match.split(",")]
+    if "*" in candidates:
+        return True
+    if etag is None:
+        return False
+    return any(_without_weak_prefix(tag) == etag for tag in candidates)
+
+
+def _without_weak_prefix(tag: str) -> str:
+    return tag[2:] if tag.startswith("W/") else tag
+
+
+def not_modified_response(etag: str | None) -> Response:
+    """304: the client's copy is current, so send it nothing else.
+
+    The ETag goes back per RFC 9110 section 15.4.5, and ``Accept-Ranges``
+    with it so a client revalidating before a resume does not have to
+    re-probe to learn ranges are available. No body and no ``Content-Length``:
+    starlette's ``init_headers`` skips the length for 304 (and 204) exactly as
+    the spec requires, which is why this response does not need the explicit
+    header ``_cog_head_response`` has to pass.
+
+    fix(#1554): ``etag`` may be None, and then the 304 carries none. Section
+    15.4.5 asks for the header fields a 200 would have sent, and the 200 for a
+    row with no stored digest sends no validator either (the response helpers omits
+    it for the same reason). Minting one to fill the slot would be worse than
+    the blank: it would authorize the resume ``range_bound_to_this_version``
+    refuses on exactly these rows.
+    """
+    headers = {"Accept-Ranges": "bytes"}
+    if etag is not None:
+        headers["ETag"] = etag
+    return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=headers)

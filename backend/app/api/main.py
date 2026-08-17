@@ -39,6 +39,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
+from app.processing.export.ogr import EXPORT_MEDIA_TYPES
 from app.core.runtime.staging import (
     EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     ensure_staging_ready,
@@ -1002,11 +1003,24 @@ app.add_middleware(SecurityHeadersMiddleware)
 # still assembling a corrupt file. Excluding the type restores the invariant
 # without variant-specific validators, which would need their own HEAD metadata
 # and Vary story.
+# fix(#1532 review r9): the export formats join it, for the identical reason.
+# #1532 gave `/datasets/{id}/export` a cached artifact with a strong ETag taken
+# from the stored bytes, and ranges served as slices of exactly those bytes —
+# so a gzipped 200 and a raw 206 under one validator is the same corrupt splice
+# the COG route hit, now reachable through GeoPackage, GeoJSON, Shapefile-zip,
+# CSV and GeoParquet. The zip and the parquet are already compressed and gain
+# nothing from a second pass; GeoJSON and CSV lose real compression on the wire,
+# which is the price of the artifact being sliceable.
+#
+# `EXPORT_MEDIA_TYPES` is derived from `FORMAT_MAP` rather than restated, so a
+# new export format cannot be added without joining the exclusion.
 app.add_middleware(
     GZipMiddleware,
     minimum_size=256,
     compresslevel=4,
-    exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",),
+    exclude_content_types=(
+        DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",) + EXPORT_MEDIA_TYPES
+    ),
 )
 app.add_middleware(DynamicCORSMiddleware)
 
