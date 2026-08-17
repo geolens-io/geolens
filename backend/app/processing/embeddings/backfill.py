@@ -159,6 +159,63 @@ async def _snapshot_embedding_config(
     return model_name, dimensions, base_url
 
 
+async def _pinned_config_drift(
+    session: AsyncSession, pinned: tuple[str, int | None, str | None]
+) -> str | None:
+    """Describe how the live config has left the pinned one, or None if it has not.
+
+    fix(#1525 review r4, codex P2): every guard on this path so far protects a
+    run from config moving DURING a read. This one notices that the run itself
+    has outlived the configuration it pinned, which no amount of care inside a
+    single batch can see.
+
+    Read the same way `_snapshot_embedding_config` reads, for the same reason:
+    a cached read can agree with a stale entry and report no drift.
+
+    Two states are deliberately NOT treated as drift, because neither is
+    evidence that the pinned configuration stopped being the right one:
+
+    - An unresolvable model. `resolve_embedding_model_name` answers with its
+      sentinel when persistent-config resolution fails for any reason, so
+      treating it as a change would abort a long run on a transient DB blip.
+    - A provider resolve that RAISES. For the shipped provider that is what an
+      endpoint edit diverging from the operator-approved environment URL looks
+      like (`ai_credentials.bind_openai_credential_base_url`), and it says
+      nothing about where vectors are going: `embed` re-binds to that same
+      approved URL, so the pin is still accurate. Aborting there would undo the
+      abandon-the-catalog fix earlier in this PR. Only a resolve that SUCCEEDS
+      and answers differently means the endpoint actually moved.
+    """
+    from app.processing.embeddings.helpers import (
+        UNKNOWN_EMBEDDING_MODEL,
+        resolve_embedding_model_name,
+    )
+
+    model_name, dimensions, base_url = pinned
+
+    active_model = await resolve_embedding_model_name(session, uncached=True)
+    if active_model not in (model_name, UNKNOWN_EMBEDDING_MODEL):
+        return f"the embedding model changed from {model_name!r} to {active_model!r}"
+
+    active_dims = await EMBEDDING_DIMS.get_uncached(session)
+    if active_dims != dimensions:
+        return (
+            f"the embedding dimensions changed from {dimensions!r} to {active_dims!r}"
+        )
+
+    try:
+        active_base_url = await resolve_embedding_base_url(session)
+    except (
+        Exception
+    ):  # broad: an endpoint that cannot be resolved is not an endpoint that moved
+        return None
+    if active_base_url != base_url:
+        # Deliberately unquoted: an endpoint can name an internal host, and this
+        # string reaches an audit log.
+        return "the embedding endpoint changed"
+    return None
+
+
 async def _preflight_embedding(
     session: AsyncSession, pinned: tuple[str, int | None, str | None]
 ) -> None:
@@ -429,6 +486,28 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     errors = 0
 
     for start in range(0, len(items), _BATCH_SIZE):
+        # fix(#1525 review r4, codex P2): the pin protects each batch from the
+        # config moving underneath it, but nothing was noticing that it HAD
+        # moved. A run pinned to endpoint A that keeps going after the active
+        # endpoint becomes B writes A-space vectors for the rest of the
+        # catalog, and `RecordEmbedding` records only `model_name`, so semantic
+        # search later builds its query vector from the live endpoint and
+        # filters stored rows by model alone — B-space queries against A-space
+        # documents under one label, and the backfill reported success. Persisting
+        # an endpoint identity per row so search can filter on it is #1546.
+        #
+        # Outside the try below, deliberately: this must stop the run, not be
+        # counted as a batch error and retried per record.
+        drift = await _pinned_config_drift(session, pinned)
+        if drift is not None:
+            logger.error("backfill_aborted_pin_drift", detail=drift, processed=created)
+            raise RuntimeError(
+                f"Embedding regeneration stopped after {created} records: "
+                f"{drift} while the run was in progress. The rows already "
+                "written are consistent with the configuration that produced "
+                "them; re-run to cover the rest under the new one."
+            )
+
         batch = items[start : start + _BATCH_SIZE]
         try:
             vectors = await generate_embeddings_batch(

@@ -278,19 +278,36 @@ async def test_a_mid_run_endpoint_edit_cannot_split_a_run_across_providers(
     # batch size of 128 the non-force path makes exactly one.
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
 
-    await backfill_module.backfill_embeddings(test_db_session, force=force)
+    # fix(#1525 review r4, codex P2): the run STOPS at the next batch boundary
+    # once the endpoint it pinned is no longer the active one, instead of
+    # quietly finishing the catalog in a vector space the live search will
+    # never match. So "one run reached two endpoints" is now unreachable rather
+    # than merely avoided — the guard prevents the second call, it does not
+    # make the second call use the right value.
+    #
+    # Which means this test no longer covers the pin ITSELF: with the
+    # `base_url=` argument removed from the batch calls, the first batch would
+    # re-resolve, still get _URL_A because the edit has not landed yet, and the
+    # run would stop at the same boundary with the same observables. The pin is
+    # covered by `test_an_endpoint_that_resolves_to_none_is_still_pinned`,
+    # which counts resolves and so sees a batch resolving a value for itself.
+    stopped = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=force)
+    except RuntimeError:
+        stopped = True
 
-    # Non-vacuity, both halves. With fewer than two calls there is no pair of
-    # endpoints to compare and the set assertion below passes on nothing; with
-    # the edit never landing there was no switch to survive in the first place.
-    assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
+    # Non-vacuity, both halves. No provider call means no argument to compare,
+    # and the edit never landing means there was no switch to survive.
+    assert provider.calls, "the provider was never called"
     assert await EMBEDDING_BASE_URL.get(test_db_session) == _URL_B, (
         "the admin edit never landed"
     )
 
-    # The finding itself: one run, one endpoint, and it is the one the run
-    # resolved rather than whatever the config said by the time it was called.
+    # The finding itself: every vector this run produced came from the endpoint
+    # it resolved, never from the one the config moved to.
     assert {call["base_url"] for call in provider.calls} == {_URL_A}
+    assert stopped
 
 
 @pytest.mark.anyio
@@ -529,9 +546,12 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     # Non-vacuity: with fewer than two batches there is no per-batch growth to
     # detect, and the count below would hold on the unfixed tree too.
     assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
-    # Two, and only two: `_snapshot_embedding_config` captures then re-reads.
-    # Anything more means a batch resolved the config for itself.
-    assert provider.resolves == 2
+    # Two for `_snapshot_embedding_config` (capture then re-read), plus exactly
+    # one per batch for the drift check added by #1525 review r4. A batch that
+    # resolved the config for its own VALUE as well would add a second per
+    # batch, which is the bug: with `base_url is None` as the pin test, a
+    # resolved None reads as an omission and every batch re-resolves.
+    assert provider.resolves == 2 + len(provider.calls)
     # And the pinned value actually reached the provider as itself.
     assert {call["base_url"] for call in provider.calls} == {None}
 

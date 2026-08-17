@@ -144,7 +144,12 @@ class _SwitchingProvider(_RecordingProvider):
             base_url=base_url,
             timeout=timeout,
         )
-        if not self._switched:
+        # Not during the force path's pre-flight. That call happens before the
+        # first batch, so a swap landing there is caught by the drift check at
+        # the batch boundary and the run stops having written nothing — a real
+        # behaviour, covered in test_embedding_backfill_base_url_pinning.py,
+        # but not the "already generating" window this file is about.
+        if not self._switched and list(texts) != [backfill_module._PREFLIGHT_TEXT]:
             self._switched = True
             await EMBEDDING_MODEL.set(self._session, _MODEL_B)
             await EMBEDDING_DIMS.set(self._session, _DIMS_B)
@@ -202,18 +207,29 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     monkeypatch.setattr(
         service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
     )
-    # One record per provider call. The swap lands during the first call, so
-    # the run needs a second one for it to be in front of; at the default batch
-    # size of 128 the non-force path makes exactly one and the assertions below
-    # would hold on an unpinned tree too.
-    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 1)
+    # One batch for the whole run, deliberately. The drift check added by
+    # #1525 review r4 runs at each batch boundary, so with several batches this
+    # run would stop at the second one and the record whose label is asserted
+    # below might never be written — the order records come back in is not
+    # fixed. A single batch keeps this test on the question it asks (does the
+    # label describe the vector) and leaves the stop-on-drift behaviour to
+    # test_embedding_backfill_base_url_pinning.py, which asserts it directly.
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
 
+    # fix(#1525 review r4, codex P2): this test no longer covers the pin
+    # ITSELF. With the swap landing during the batch's own provider call, an
+    # unpinned tree reads the config before the swap and produces the same
+    # single call a pinned one does; and with several batches the run would
+    # stop at the next boundary rather than make a divergent call. What it
+    # still covers is the label: every vector this run wrote came from one
+    # model, and the rows carry that model's name. The pin's own contract is
+    # asserted in
+    # test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config.
     await backfill_module.backfill_embeddings(test_db_session, force=force)
 
-    # Non-vacuity: with fewer than two provider calls there is no post-swap call
-    # to catch, and with no stored row there is no label. Both would pass
-    # silently below.
-    assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
+    # Non-vacuity: no provider call means no argument to compare, and no stored
+    # row means no label. Both would pass silently below.
+    assert provider.calls, "the provider was never called"
     assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B, (
         "the admin swap never landed"
     )
@@ -232,6 +248,54 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     # whatever the config happened to say by the time the provider was called.
     assert {call["model"] for call in provider.calls} == {_MODEL_A}
     assert {call["dimensions"] for call in provider.calls} == {_DIMS_A}
+
+
+@pytest.mark.anyio
+async def test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """The pin's own contract, asserted without the backfill loop around it.
+
+    The run-level tests above cannot cover this any more. #1525 review r4 added
+    a drift check at the batch boundary, so a config change mid-run stops the
+    run before an unpinned re-read could produce a divergent second call, and
+    an unpinned tree therefore produces the same observables there as a pinned
+    one.
+
+    The pin still matters, and this is where. It governs the batch ALREADY IN
+    FLIGHT: without it, `generate_embeddings_batch` re-reads the config it was
+    handed values for, and the rows that batch writes get a model the label
+    does not name. The drift check only notices at the next boundary, by which
+    time those rows exist.
+    """
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL_B)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS_B)
+
+    provider = _RecordingProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+
+    await service_module.generate_embeddings_batch(
+        ["a text to embed"],
+        test_db_session,
+        model=_MODEL_A,
+        dimensions=_DIMS_A,
+        base_url="http://pinned.invalid",
+    )
+
+    # Vacuity: the live config genuinely says something else, so "used what it
+    # was given" is a different outcome from "read the config". Without this,
+    # a call that ignored its arguments entirely could still pass.
+    assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B
+    assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS_B
+
+    assert provider.calls == [{"model": _MODEL_A, "dimensions": _DIMS_A}]
 
 
 @pytest.mark.anyio
