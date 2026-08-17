@@ -2758,6 +2758,30 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # note the next reader assumes an atomic eviction covered both.
     # Cap 1007 -> 1018, exact.
     "backend/app/core/persistent_config.py": 1018,
+    # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
+    # that made the run notice the embedding column moving under it. Two
+    # guards, both small: _live_column_dims (one pg_attribute read, shared with
+    # the pre-flight so a rebuild cannot land between two reads of the same
+    # width) and _generated_width_mismatch (the width the provider ACTUALLY
+    # returned, checked against the width the run pinned, before the insert).
+    # Most of the lines are comment, and they are the part worth keeping. They
+    # record why the baseline is the width the run OBSERVED rather than
+    # EMBEDDING_DIMS — the two legitimately disagree at rest under
+    # ENV_ONLY_CONFIG, so comparing them aborts a healthy run — and why the
+    # column read sits ahead of the endpoint block, which returns None from its
+    # except and would otherwise skip every check below it on exactly the
+    # half-configured install where a column gets altered by hand. The third
+    # note is the one a reader would otherwise re-derive: the obvious symmetry
+    # of running the force path's pre-flight on the non-force path too costs a
+    # provider call per run and breaks the #449 partial-success contract that
+    # test_batch_errors_do_not_stop_backfill and
+    # test_failed_batch_retries_per_record pin.
+    # fix(#1544): the same file also carries the compact-error helpers, whose
+    # docstrings record the ordering invariant two review rounds found the hard
+    # way — the redactor runs first, on the raw string, because truncation and
+    # whitespace collapse each break the pattern it matches on.
+    # Cap 1013, exact.
+    "backend/app/processing/embeddings/backfill.py": 1013,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

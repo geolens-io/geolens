@@ -324,3 +324,53 @@ async def test_the_settings_route_still_reports_itself_as_a_settings_change(
     finally:
         await EMBEDDING_DIMS.set(test_db_session, pinned_dims)
         await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_a_non_force_run_stops_instead_of_retrying_a_width_it_cannot_store(
+    test_db_session, monkeypatch
+):
+    """The sibling class: the column is already wrong when the run starts.
+
+    Not drift. Nothing moves during this run, so every check above is silent and
+    correct to be. The force path catches this state in its pre-flight, before
+    the DELETE. The non-force path has no pre-flight, so the first batch insert
+    fails the typmod, every record is retried individually, and each retry
+    spends a provider call before dying on the same error.
+
+    A pre-flight here would cost a provider call per run and would abort a run
+    that a single transient provider failure could otherwise survive, which is
+    the #449 contract two tests in `test_embedding_backfill.py` pin. Comparing
+    the width the provider actually produced against the width the run pinned
+    costs no call at all and stops before the first insert.
+    """
+    start_width = await _column_dims()
+    moved_width = 768 if start_width != 768 else 384
+
+    # Records with NO embedding, so the non-force path selects them.
+    user_id = await get_user_id(test_db_session, "admin")
+    for index in range(_SEEDED):
+        await create_dataset(
+            test_db_session, created_by=user_id, name=f"Non-force Width {index}"
+        )
+    await test_db_session.commit()
+
+    await _set_column_dims(test_db_session, moved_width)
+
+    _pin_model(monkeypatch)
+    calls: list[int] = []
+    monkeypatch.setattr(
+        backfill_module, "generate_embeddings_batch", _provider(calls, start_width)
+    )
+
+    try:
+        with pytest.raises(
+            RuntimeError, match="catalog.record_embeddings.embedding is vector"
+        ):
+            await backfill_module.backfill_embeddings(test_db_session)
+
+        # One batch call, and no per-record retry after it.
+        assert calls == [len(calls) and calls[0]], calls
+        assert len(calls) == 1, calls
+    finally:
+        await _set_column_dims(test_db_session, start_width)

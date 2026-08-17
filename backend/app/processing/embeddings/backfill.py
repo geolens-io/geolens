@@ -153,6 +153,74 @@ async def _live_column_dims(session: AsyncSession) -> int | None:
     ).scalar_one_or_none()
 
 
+def _generated_width_mismatch(
+    vector: list[float], pinned_column_dims: int | None
+) -> str | None:
+    """Describe a generated vector the column will not accept, or None if it will.
+
+    fix(#1533): the sibling class to drift, and the one the non-force path is
+    otherwise blind to. Drift is a width that MOVES; this is a width that was
+    already wrong when the run started, which every comparison guard is
+    correctly silent about because nothing changed. The force path catches it in
+    `_preflight_embedding`, ahead of the DELETE. The non-force path has no
+    pre-flight, so the first batch insert failed the typmod, the batch was
+    retried per record, and each retry spent a provider call before dying on the
+    same error.
+
+    Deliberately NOT a pre-flight on the non-force path, which is the obvious
+    symmetry and is wrong twice over. It costs a provider call per run, on a
+    path that destroys nothing and therefore has nothing to promise. Worse, it
+    aborts a run that a single transient provider failure would otherwise
+    survive: `test_batch_errors_do_not_stop_backfill` and
+    `test_failed_batch_retries_per_record` pin the #449 contract that a failed
+    batch is retried per record and only the bad records count, and a pre-flight
+    consuming the first provider call turns a partial success into no run at
+    all. Measured on the tree: adding one there fails 5 of the 7 tests in
+    `test_embedding_backfill.py`, two of them for that reason rather than for
+    test-double churn.
+
+    Asking the vector the provider ACTUALLY returned costs nothing extra, and it
+    answers the same question the pre-flight asks: will storage take this.
+
+    `isinstance` rather than `is not None`, because `scalar_one_or_none` answers
+    `int | None` and -1 means an unconstrained `vector`, which accepts any width
+    and so can never mismatch.
+    """
+    if not isinstance(pinned_column_dims, int) or pinned_column_dims <= 0:
+        return None
+    generated = len(vector)
+    if generated == pinned_column_dims:
+        return None
+    return (
+        f"the model produced {generated}-dimension vectors but "
+        f"catalog.record_embeddings.embedding is vector({pinned_column_dims})"
+    )
+
+
+async def _raise_on_generated_width(
+    vector: list[float],
+    pinned_column_dims: int | None,
+    processed: int,
+    error: type[RuntimeError],
+) -> None:
+    """Stop the run if the provider's vectors do not fit the column.
+
+    Raises `_PinDrift` from both call sites, so the broad handlers re-raise it
+    rather than retrying the batch record by record. Retrying is precisely the
+    behaviour this exists to prevent: every record would fail the same typmod,
+    one paid provider call at a time.
+    """
+    detail = _generated_width_mismatch(vector, pinned_column_dims)
+    if detail is None:
+        return
+    logger.error("backfill_aborted_width_mismatch", detail=detail, processed=processed)
+    raise error(
+        f"Embedding regeneration stopped after {processed} records: {detail}. "
+        "Re-save the embedding configuration in Settings so the column is "
+        "rebuilt, then re-run."
+    )
+
+
 async def _snapshot_embedding_config(
     session: AsyncSession,
 ) -> tuple[str, int | None, str | None]:
@@ -288,6 +356,11 @@ class _PinDrift(RuntimeError):
     per-record one instead of counting it as a bad input. It is a
     `RuntimeError`, so every caller that already treats this module's aborts as
     one — the admin route included — is unaffected.
+
+    fix(#1533): also carries the generated-width mismatch, which is not drift.
+    The name is narrower than the job: what the two handlers need is "a
+    run-stopping condition discovered with a batch already generated", and both
+    conditions want exactly the same treatment from them.
     """
 
 
@@ -380,6 +453,12 @@ async def _retry_batch_per_record(
                 created + made,
                 pinned_column_dims=pinned_column_dims,
                 error=_PinDrift,
+            )
+            # fix(#1533): per vector on this path, not per batch. This loop is
+            # where a mismatch costs a provider call per record, so it is the
+            # one that has to stop on the first.
+            await _raise_on_generated_width(
+                vector, pinned_column_dims, created + made, _PinDrift
             )
             session.add(
                 RecordEmbedding(
@@ -847,6 +926,14 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 created,
                 pinned_column_dims=pinned_column_dims,
                 error=_PinDrift,
+            )
+            # fix(#1533): the first vector stands in for the batch. A provider
+            # answering one width for one input and another for the next is not
+            # a shape worth a per-vector loop here, and it is not missed either:
+            # the odd insert fails, the batch drops into the retry loop, and
+            # every vector is checked on its own down there.
+            await _raise_on_generated_width(
+                vectors[0], pinned_column_dims, created, _PinDrift
             )
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
