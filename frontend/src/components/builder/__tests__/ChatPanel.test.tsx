@@ -1,5 +1,6 @@
 import { render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { denySessionStorage } from '@/test/deny-storage';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { ChatPanel, type LayerActions } from '../ChatPanel';
@@ -1876,5 +1877,53 @@ describe('ChatPanel — sessionStorage persistence (#723)', () => {
     expect(raw).toContain('show_query_result');
     expect(raw).toContain('row_count');
     expect(raw).toContain('Buffered the parcels');
+  });
+});
+
+describe('ChatPanel — storage-denied contexts (#1536)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionStorage.clear();
+  });
+
+  // fix(#1536): cleanStaleLayerRefs read sessionStorage one line ABOVE the try
+  // that wrapped the rest of it, and the property access is what raises
+  // SecurityError in a sandboxed frame with an opaque origin. acceptAll
+  // dispatches the staged batch in a bare for loop with no per-action catch
+  // (chat-action-staging.ts), so the throw aborted the batch and every action
+  // ordered after the remove was silently dropped.
+  //
+  // The add is deliberately ordered AFTER the remove: that makes this a test of
+  // the feature (the batch completes) rather than of the line that changed.
+  // Asserting onRemove alone would pass either way, because onRemove(layerId)
+  // runs one line BEFORE cleanStaleLayerRefs.
+  it('applies the whole staged batch when sessionStorage access throws', async () => {
+    const restore = denySessionStorage();
+    try {
+      mockStreamChat.mockImplementation(async function* () {
+        yield {
+          event: 'actions',
+          data: {
+            actions: [
+              { type: 'remove_layer', layer_id: 'layer-1' },
+              { type: 'add_layer', dataset_id: 'ds-C', dataset_name: 'C' },
+            ],
+          },
+        };
+        yield { event: 'done', data: { explanation: 'Swapped the layer' } };
+      });
+
+      const user = userEvent.setup();
+      const props = renderPanel();
+      await typeAndSend(user, 'swap the parcels layer for C');
+      await user.click(await screen.findByRole('button', { name: /accept all/i }));
+
+      await waitFor(() => {
+        expect(props.onRemove).toHaveBeenCalledWith('layer-1');
+        expect(props.onAddDataset).toHaveBeenCalledWith('ds-C');
+      });
+    } finally {
+      restore();
+    }
   });
 });

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { sendChatMessage, streamChatMessage } from '@/api/maps';
 import { ApiError } from '@/api/client';
 import { cn } from '@/lib/utils';
+import { readSessionStorage } from '@/lib/storage';
 import { truncateGraphemes } from '@/lib/text';
 import { chatOverlayCompleteness, overlayFeatureCount } from '@/lib/chat-result-completeness';
 import { assertNever, normalizeLayerOpacity } from '@/components/builder/builder-action-contract';
@@ -74,7 +75,18 @@ function classifyChatError(
 
 /** Remove chat history entries that reference a removed layer. */
 function cleanStaleLayerRefs(mapId: string, removedLayerId: string) {
-  const stored = sessionStorage.getItem(`geolens-chat-${mapId}`);
+  // fix(#1536): route the read through the helper. The property access itself
+  // raises SecurityError under an opaque origin, and this sat one line ABOVE
+  // the try below, so the throw escaped into acceptAll's dispatch loop
+  // (chat-action-staging.ts) and killed the rest of the staged batch.
+  //
+  // Only the read moves. The writes on this key stay raw on purpose:
+  // writeSessionStorage drops the stored value when a write fails and serves an
+  // in-memory mirror instead, which is right for the auth markers it was built
+  // for and wrong here. A quota failure on chat history (ux(#723), the live
+  // failure mode for this key) must leave the persisted conversation in place
+  // for the next reload to find, and the mirror does not survive a reload.
+  const stored = readSessionStorage(`geolens-chat-${mapId}`);
   if (!stored) return;
   try {
     const history = JSON.parse(stored);
