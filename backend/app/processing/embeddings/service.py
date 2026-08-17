@@ -2,10 +2,9 @@
 
 import hashlib
 import uuid
-from datetime import datetime, timezone
 
 import structlog
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -501,7 +500,22 @@ async def generate_and_store_embedding(
         # the insert branch — leaving the old stamp would label the new vector
         # with the configuration of the one it replaced.
         existing.config_fingerprint = config_fingerprint
-        existing.updated_at = datetime.now(timezone.utc)
+        # fix(#1580 review r2): the DB clock rather than the app's. fix(#1580)
+        # made this column load-bearing — related items anchors on a record's
+        # most recently written row — and a worker whose clock runs behind the
+        # database's could otherwise write a row that sorts BEFORE the one it
+        # replaced.
+        #
+        # fix(#1580 review r3): `clock_timestamp()`, not `now()`. `now()` is
+        # TRANSACTION-START time, so a job that opens its transaction, spends
+        # thirty seconds in a provider call and commits after another model's
+        # job carries the EARLIER stamp despite being the later write. Both
+        # branches are stamped explicitly for the same reason: the column's
+        # `server_default` is `now()` too, so an INSERT that took the default
+        # would disagree with an UPDATE that did not. The default itself stays
+        # as it is — changing it is a migration, and it is the fallback for
+        # rows nothing writes deliberately.
+        existing.updated_at = func.clock_timestamp()
     else:
         session.add(
             RecordEmbedding(
@@ -510,6 +524,7 @@ async def generate_and_store_embedding(
                 model_name=model_name,
                 config_fingerprint=config_fingerprint,
                 content_hash=content_hash,
+                updated_at=func.clock_timestamp(),
             )
         )
 
