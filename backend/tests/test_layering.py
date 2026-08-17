@@ -3510,7 +3510,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unset it derives an app URL from an /api-stripped PUBLIC_API_URL, and a
     # split app/API deployment then had the API host accepted as a self-origin,
     # so a lock was issued that every shell request missed. Cap 1038 -> 1042.
-    "backend/app/modules/embed_tokens/service.py": 1042,
+    # fix(#1555): +14, all comment except two lines. _is_localhost_origin now
+    # asks is_loopback_host (app/core/public_urls.py) instead of an enumerated
+    # set of three spellings, because 127.0.0.0/8 is loopback in its entirety
+    # and http://127.0.0.2:8080 was read as a routable public origin — enough
+    # for the gate to issue a domain lock every recipient resolves to their own
+    # machine. The rest records why _LOOPBACK_CLIENT_IPS stays an exact set:
+    # that one GATES the localhost bypass, so a miss there denies, while a miss
+    # in the other ISSUES an unenforceable lock. Cap 1042 -> 1056.
+    "backend/app/modules/embed_tokens/service.py": 1056,
 }
 
 

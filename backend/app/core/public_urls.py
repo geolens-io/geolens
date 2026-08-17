@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import codecs
 import ipaddress
 import time
+import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import Request
@@ -58,9 +60,19 @@ def is_usable_public_origin(value: str | None) -> bool:
       own comparison survives, but the frontend appends ``/m/<token>`` to the
       configured string — putting the path inside the query or after the
       fragment and producing links nobody can open.
+    * NO ``/api`` PATH. fix(#1555): the same clause the persistent-setting
+      validator has always had (``validate_public_app_url``, "must point to the
+      app, not the /api base"), applied to the entry point that skipped it. An
+      environment ``PUBLIC_APP_URL=https://maps.example.com/api`` reached
+      ``SharePanel`` through tile-config and built ``/api/api/maps/...`` card
+      links and ``/api/m/...`` iframe sources, while the domain-lock gate saw a
+      non-loopback origin and issued a token whose shell URL does not exist.
+      One rule with two entry points, only one of them checking.
 
-    The setting is environment-backed and therefore never passes through the
-    persistent-setting validator, so this is the only place it is checked.
+    The setting is environment-backed, so the environment path never passes
+    through the persistent-setting validator; that validator now defers to this
+    function for everything it does not say itself, so both entry points give
+    the same answer.
     """
     if value is None:
         return False
@@ -103,7 +115,53 @@ def is_usable_public_origin(value: str | None) -> bool:
         return False
     if canonical_host_error(parts.hostname or "") is not None:
         return False
+    if is_api_base_path(parts.path):
+        return False
     return not parts.query and not parts.fragment
+
+
+def is_api_base_path(path: str) -> bool:
+    """Does this path name the API base rather than the app?
+
+    fix(#1555): stated once because two entry points ask it — the environment
+    path through ``is_usable_public_origin`` and the persistent-setting path
+    through ``validate_public_app_url``, which had it and was the only one
+    checking. ``/apiary`` is not an API base; ``/geolens/api/`` is.
+    """
+    return path.rstrip("/").endswith("/api")
+
+
+def is_loopback_host(host: str) -> bool:
+    """True when a browser served from ``host`` is talking to its own machine.
+
+    fix(#1555): the predicate this replaces was an enumerated set of three
+    spellings (``localhost``, ``127.0.0.1``, ``::1``). Loopback is a RANGE:
+    ``127.0.0.0/8`` is loopback in its entirety, so a deployment configured as
+    ``http://127.0.0.2:8080`` was classified non-loopback, and
+    ``assert_domain_lock_is_enforceable`` read that as "this deployment knows
+    its public origin" and issued a domain lock every recipient resolves to
+    their OWN machine. The list form fails toward permitting the lock, which is
+    the direction that costs an operator a silently empty embed.
+
+    ``*.localhost`` counts. RFC 6761 §6.3 says resolvers should treat the
+    ``localhost`` zone as loopback and browsers do, so ``http://app.localhost``
+    is the same misconfiguration wearing a subdomain.
+
+    Bracketed IPv6 literals are accepted here because callers disagree about
+    whether they strip: ``urlsplit(...).hostname`` does, ``URL.hostname`` in a
+    browser does not.
+    """
+    candidate = host.strip().lower()
+    if candidate.startswith("[") and candidate.endswith("]"):
+        candidate = candidate[1:-1]
+    if not candidate:
+        return False
+    if candidate == "localhost" or candidate.endswith(".localhost"):
+        return True
+    try:
+        return ipaddress.ip_address(candidate).is_loopback
+    except ValueError:
+        return False
 
 
 def canonical_host_error(host: str) -> str | None:
@@ -143,9 +201,23 @@ def canonical_host_error(host: str) -> str | None:
 
     if ":" in host:  # IPv6 literal; urlsplit has already stripped the brackets.
         try:
-            compressed = str(ipaddress.IPv6Address(host))
+            address = ipaddress.IPv6Address(host)
         except ValueError:
             return f"{host!r} is not a valid IPv6 address."
+        # fix(#1555): an IPv4-MAPPED literal has no agreed spelling. Python
+        # renders ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser renders
+        # ::ffff:127.0.0.1 as ::ffff:7f00:1, so each side calls the other's
+        # canonical form non-canonical and the class had no answer both halves
+        # accept. Refused outright rather than translated, for the same reason
+        # as a non-ASCII host: the plain IPv4 form is unambiguous and is what a
+        # browser presents anyway.
+        if address.ipv4_mapped is not None:
+            return (
+                f"{host!r} is an IPv4-mapped IPv6 literal, which browsers and "
+                "this server spell differently. Write the IPv4 address: "
+                f"{address.ipv4_mapped}"
+            )
+        compressed = str(address)
         if compressed != host:
             return f"Write the IPv6 literal in its compressed form: [{compressed}]"
         return None
@@ -179,6 +251,93 @@ def canonical_host_error(host: str) -> str | None:
         return f"{host!r} has an empty label."
     if not all(c.isalnum() or c == "-" for label in labels for c in label):
         return f"{host!r} contains a character that is not valid in a hostname."
+    for label in labels:
+        if label.lower().startswith(_ACE_PREFIX):
+            problem = _ace_label_error(label)
+            if problem is not None:
+                return problem
+    return None
+
+
+_ACE_PREFIX = "xn--"
+
+# Categories a decoded label may not contain: C0/C1 controls, surrogates, and
+# every flavour of space. Deliberately NOT the whole of category C — format
+# characters (Cf) include ZWJ and ZWNJ, which CONTEXTJ permits in real Persian
+# and Indic domains, and rejecting them would deny a working configuration.
+_FORBIDDEN_DECODED_CATEGORIES = frozenset({"Cc", "Cs", "Zs", "Zl", "Zp"})
+
+
+def _ace_label_error(label: str) -> str | None:
+    """None if this ``xn--`` label is one a browser will accept.
+
+    fix(#1555): ``https://xn--.example`` is ASCII, alphanumeric-and-hyphens, and
+    therefore passed the registered-name check above — so the backend read it as
+    a usable non-loopback self origin and permitted a domain lock, while
+    ``new URL()`` and every browser reject the URL outright. A token issued
+    against it is unusable from the moment it is minted, which is exactly the
+    class this rule exists for: a spelling no browser will ever present.
+
+    What is checked, and why not more. This is a REJECTION of provable garbage,
+    not an implementation of UTS #46 — approximating the browser's IDNA is the
+    thing #1548 refused to do, and a check that is stricter than the browser
+    denies configurations that work, which is the worse direction. So each
+    clause below is one a browser demonstrably enforces:
+
+    * the label decodes as punycode at all (``xn--0``, ``xn--x``);
+    * it decodes to something (``xn--``, whose suffix Python decodes to the
+      empty string rather than raising);
+    * the result contains a non-ASCII character (RFC 5891 §4.2.3.1 — an A-label
+      whose U-label is pure ASCII is invalid; catches ``xn--a-``);
+    * the result carries no control, surrogate or space character (catches
+      ``xn--a``, which Python decodes to U+0080);
+    * the result is already lowercase and NFC — the two mappings UTS #46 applies
+      before encoding, so a label whose U-label needs either is not the form a
+      browser would have produced (catches ``xn--w-uia``, which decodes to
+      ``Ėw``). ``.lower()`` rather than ``.casefold()`` on purpose: casefold
+      turns ``faß`` into ``fass``, and ``xn--fa-hia`` is a label browsers
+      accept;
+    * re-encoding reproduces the label (catches ``xn---``).
+
+    Measured against ``new URL()`` in Node over 63 labels, not assumed: no false
+    rejections, one false accept. The labels themselves are in the shared
+    fixture (``public-app-url-shape.cases.json``, see ``_ace_note``), so the
+    frontend — which simply asks the browser — runs the same ones.
+
+    The residue, recorded rather than papered over: a label that decodes to a
+    character UTS #46 disallows for reasons of its own still passes here —
+    ``xn--a-ecp`` decodes to ``a⒈``, whose mapping introduces a label separator,
+    and a browser rejects it while this does not. Catching that means the full
+    UTS #46 mapping table. It leaves an operator with a token that does not
+    work, which is the pre-existing behaviour for every unreachable hostname
+    (see ``assert_domain_lock_is_enforceable``), not a new one.
+    """
+    suffix = label[len(_ACE_PREFIX) :]
+    invalid = (
+        f"{label!r} is not a valid punycode label; browsers reject the URL "
+        "outright. An internationalized domain must be given in the exact "
+        "xn-- form the browser sends."
+    )
+    if not suffix:
+        return invalid
+    try:
+        decoded = codecs.decode(suffix.encode("ascii"), "punycode")
+    except (UnicodeError, ValueError):
+        return invalid
+    if not decoded or decoded.isascii():
+        return invalid
+    if any(
+        unicodedata.category(char) in _FORBIDDEN_DECODED_CATEGORIES for char in decoded
+    ):
+        return invalid
+    if decoded != decoded.lower() or decoded != unicodedata.normalize("NFC", decoded):
+        return invalid
+    try:
+        reencoded = codecs.encode(decoded, "punycode").decode("ascii")
+    except (UnicodeError, ValueError):
+        return invalid
+    if reencoded.lower() != suffix.lower():
+        return invalid
     return None
 
 

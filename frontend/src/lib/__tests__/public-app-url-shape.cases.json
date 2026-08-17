@@ -1,17 +1,21 @@
 {
-  "_rule": "PUBLIC_APP_URL is usable only as an absolute HTTP(S) URL with a host, no query or fragment, none of percent-encoding / backslash / non-ASCII, and a host ALREADY SPELLED THE WAY A BROWSER SERIALIZES IT. The refusals exist because the two URL parsers READ THOSE INPUTS DIFFERENTLY, and a value the two halves disagree about is the bug class itself. This file is the ONE statement of the rule; the Python and TypeScript validators are each tested against it so they cannot drift. Backend: is_usable_public_origin() in backend/app/core/public_urls.py. Frontend: parseUsablePublicUrl() in frontend/src/lib/public-urls.ts.",
-  "_scope": "SHAPE only. Whether a shape-valid value is TRUSTED in context is a separate question — a loopback origin is shape-valid but untrusted when the browser is elsewhere — so loopback entries appear under valid here on purpose.",
+  "_rule": "PUBLIC_APP_URL is usable only as an absolute HTTP(S) URL with a host, no query or fragment, no path naming the /api base, none of percent-encoding / backslash / non-ASCII, and a host ALREADY SPELLED THE WAY A BROWSER SERIALIZES IT. The refusals exist because the two URL parsers READ THOSE INPUTS DIFFERENTLY, and a value the two halves disagree about is the bug class itself. This file is the ONE statement of the rule; the Python and TypeScript validators are each tested against it so they cannot drift. Backend: is_usable_public_origin() in backend/app/core/public_urls.py. Frontend: parseUsablePublicUrl() in frontend/src/lib/public-urls.ts.",
+  "_scope": "SHAPE only, plus the loopback classification below. Whether a shape-valid value is TRUSTED in context is a separate question — a loopback origin is shape-valid but untrusted when the browser is elsewhere — so loopback entries appear under valid here on purpose.",
   "valid": [
     "https://maps.example.com",
     "http://maps.example.com",
     "https://maps.example.com:8443",
     "https://example.com/geolens",
+    "https://maps.example.com/apiary",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
+    "http://127.0.0.2:8080",
     "http://[::1]:8080",
     "https://xn--mp-mia.example",
     "https://ops:secret@maps.example.com",
     "https://xn--fa-hia.de",
+    "https://xn--ls8h.example",
+    "https://xn--80ak6aa92e.com",
     "http://192.168.0.1",
     "https://MAPS.Example.com",
     "http://[2001:db8::1]"
@@ -46,7 +50,20 @@
     "http://2130706433",
     "http://192.168.0.256",
     "http://[2001:0db8:0000:0000:0000:0000:0000:0001]",
-    "https://maps.example.com."
+    "http://[::ffff:127.0.0.1]",
+    "http://[::ffff:7f00:1]",
+    "https://maps.example.com.",
+    "https://maps.example.com/api",
+    "https://maps.example.com/api/",
+    "https://example.com/geolens/api",
+    "https://xn--.example",
+    "https://xn---.example",
+    "https://xn--a.example",
+    "https://xn--a-.example",
+    "https://xn--x.example",
+    "https://xn--0.example",
+    "https://xn--w-uia.example",
+    "https://sub.xn--.example"
   ],
   "_canonical_note": "canonical_origin maps a path-less configured value to the spelling a BROWSER presents, which is the string both sides must compare against: lowercased host, no userinfo, default port dropped. Backend: _normalize_origin(). Frontend: new URL(x).origin. A value and an origin that name the same place but spell it differently never match. Hosts here are already ASCII — see _idn_note for why no IDNA conversion appears.",
   "canonical_origin": {
@@ -63,6 +80,26 @@
     "http://192.168.0.1": "http://192.168.0.1",
     "http://[2001:db8::1]": "http://[2001:db8::1]"
   },
+  "_loopback_note": "Loopback is a RANGE, not a list of three spellings. A configured origin inside it is one only the machine running the browser can reach, so a deployment offering a domain lock from there issues a token whose shell URL every recipient resolves to their own machine — which is why the classification is part of this contract rather than each side's private opinion. Backend: is_loopback_host() in backend/app/core/public_urls.py, reached through _is_localhost_origin() in the embed service. Frontend: isLoopbackHostname() in frontend/src/lib/public-urls.ts, reached through resolvePublicAppUrl's loopback-default state. Every entry below is SHAPE-VALID, so both sides actually get as far as asking. *.localhost counts (RFC 6761 §6.3); 126/8 and 128/8 do not, and are here as the range's edges.",
+  "loopback": [
+    "http://localhost:8080",
+    "http://LOCALHOST:8080",
+    "http://app.localhost",
+    "http://127.0.0.1",
+    "http://127.0.0.2:8080",
+    "http://127.1.2.3",
+    "http://127.255.255.255",
+    "http://[::1]:8080"
+  ],
+  "not_loopback": [
+    "https://maps.example.com",
+    "http://mylocalhost.example",
+    "http://126.255.255.255",
+    "http://128.0.0.1",
+    "http://192.168.0.1",
+    "http://[2001:db8::1]"
+  ],
+  "_ace_note": "The xn-- entries under invalid are labels new URL() rejects outright, so no browser can ever present them and a domain lock issued against one is unusable the moment it is minted. The backend cannot ask a browser, so it states the rule (_ace_label_error): decodes as punycode, to something, non-ASCII, free of controls/surrogates/spaces, already lowercase and NFC, and re-encoding reproduces the label. It is deliberately a rejection of provable garbage rather than an implementation of UTS #46 — stricter than the browser would deny working configurations, which is the worse direction. Measured against Node's new URL() over 63 labels: no false rejections, one false accept (xn--a-ecp, which decodes to 'a⒈' whose UTS #46 mapping introduces a label separator). The valid list keeps xn--ls8h (an emoji label) and xn--80ak6aa92e as the counterfactual: browsers accept them and so must we.",
   "_idn_note": "An internationalized domain must be configured in its punycode (xn--) form. It is NOT translated for the operator: Python's built-in idna codec is IDNA2003 and maps faß.de to fass.de, while browsers follow WHATWG/UTS #46 and send xn--fa-hia.de. A near match denies every request while looking correct, so the class is removed rather than approximated.",
-  "_host_note": "The two sides reach the same answers by DIFFERENT methods, deliberately: the frontend has a browser URL parser and compares the host as written against the host that parser produced; the backend has none and must assert the rule directly (canonical_host_error). It cannot test stability under its own parser instead — 192.168.1 round-trips through urlsplit unchanged and is still read as 192.168.0.1 by every browser. Measured disagreements: 192.168.1 -> 192.168.0.1, 010.0.0.1 -> 8.0.0.1 (octal), 0x7f.1 -> 127.0.0.1 (hex), 2130706433 -> 127.0.0.1, and uncompressed IPv6 literals get compressed. Uppercase is accepted because both parsers lowercase it, so it is not a disagreement."
+  "_host_note": "The two sides reach the same answers by DIFFERENT methods, deliberately: the frontend has a browser URL parser and compares the host as written against the host that parser produced; the backend has none and must assert the rule directly (canonical_host_error). It cannot test stability under its own parser instead — 192.168.1 round-trips through urlsplit unchanged and is still read as 192.168.0.1 by every browser. Measured disagreements: 192.168.1 -> 192.168.0.1, 010.0.0.1 -> 8.0.0.1 (octal), 0x7f.1 -> 127.0.0.1 (hex), 2130706433 -> 127.0.0.1, and uncompressed IPv6 literals get compressed. Uppercase is accepted because both parsers lowercase it, so it is not a disagreement. fix(#1555): IPv4-MAPPED IPv6 literals are refused outright, by both sides, because neither can call the other's output canonical — Python spells ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser spells ::ffff:127.0.0.1 as ::ffff:7f00:1, so [::ffff:192.168.1.5] used to be accepted by the backend and rejected by the frontend. The plain IPv4 form is unambiguous."
 }
