@@ -470,6 +470,52 @@ async def _recover_unsettled(
         )
 
 
+UNDISPATCHED_RUN_MESSAGE = (
+    "Embedding backfill was cancelled before it could be queued. "
+    "Nothing was deleted; start the backfill again."
+)
+
+
+async def _fail_undispatched_pending_row(job_uuid: uuid.UUID) -> bool:
+    """Fail the still-``pending`` row and report whether it took the update."""
+    from app.core.db import async_session
+
+    async with async_session() as session:
+        result = await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_uuid, IngestJob.status == "pending")
+            .values(
+                status="failed",
+                completed_at=datetime.now(timezone.utc),
+                error_message=UNDISPATCHED_RUN_MESSAGE,
+            )
+        )
+        await session.commit()
+        return bool(result.rowcount)
+
+
+async def _undispatched_row_was_failed(job_uuid: uuid.UUID) -> bool:
+    """Ask the row whether the lost write landed, on a fresh connection.
+
+    Bounded separately, like ``_release_caller_transaction``: this runs during
+    a shutdown that has already lost one database round trip, and a second one
+    hanging must not extend the drain.
+    """
+    from app.core.db import async_session
+
+    async def _read() -> bool:
+        async with async_session() as fresh:
+            observed = await fresh.get(IngestJob, job_uuid)
+        # `failed` is the status THIS write produces. Any other terminal status
+        # is somebody else's decision about the row, and a live one means the
+        # write did not land — in both cases the trail belongs to whoever owns
+        # the row now, which is the same rule `_recover_unsettled` applies at
+        # the other end of the run.
+        return observed is not None and observed.status == "failed"
+
+    return await asyncio.wait_for(_read(), timeout=5)
+
+
 async def settle_undispatched_run(
     job_uuid: uuid.UUID, *, audit_context: dict[str, Any]
 ) -> None:
@@ -488,25 +534,30 @@ async def settle_undispatched_run(
     after all — the dispatch may well have reached the queue before the
     cancellation landed, which is precisely why this is fenced rather than
     unconditional.
-    """
-    from app.core.db import async_session
 
-    async with async_session() as session:
-        result = await session.execute(
-            update(IngestJob)
-            .where(IngestJob.id == job_uuid, IngestJob.status == "pending")
-            .values(
-                status="failed",
-                completed_at=datetime.now(timezone.utc),
-                error_message=(
-                    "Embedding backfill was cancelled before it could be queued. "
-                    "Nothing was deleted; start the backfill again."
-                ),
-            )
+    fix(#1556): the settle's own commit is the last awaited commit on this
+    lifecycle that still sat outside the recovery boundary. It runs under the
+    cancellation that triggered it, so losing its acknowledgement is the
+    ordinary case rather than the exotic one — and the row it leaves behind is
+    ``failed``, which every sweeper skips because it is terminal. Nothing
+    would ever have closed the trail, so the run would keep ``requested`` as
+    its last word over a job the database records as failed. Same rule as
+    ``_recover_unsettled``: when the answer is lost, read the row.
+    """
+    try:
+        settled = await _fail_undispatched_pending_row(job_uuid)
+    except BaseException:  # broad: a lost acknowledgement is the case recovered here
+        logger.warning(
+            "embedding_backfill_dispatch_settle_unacknowledged",
+            job_id=audit_context["job_id"],
+            exc_info=True,
         )
-        await session.commit()
-    if not result.rowcount:
-        # A worker took it. Leave both records to whoever owns it now.
+        settled = await _undispatched_row_was_failed(job_uuid)
+    if not settled:
+        # A worker took it, or the lost write never landed after all. Leave
+        # both records to whoever owns the row now — for a row still
+        # ``pending`` that is the stale-pending sweep, which closes the status
+        # and the trail in one transaction.
         logger.info(
             "embedding_backfill_dispatch_cancel_found_run_in_progress",
             job_id=audit_context["job_id"],
