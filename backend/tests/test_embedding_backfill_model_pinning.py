@@ -183,9 +183,9 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     restore_embedding_config,
     force,
 ):
-    """The label on a stored row must name the model that produced it."""
+    """A model swap landing mid-generation must leave no row behind."""
     user_id = await get_user_id(test_db_session, "admin")
-    dataset = await create_dataset(
+    await create_dataset(
         test_db_session, created_by=user_id, name=f"Model Pinning {force}"
     )
     # A second record, so the non-force path always has work for a second
@@ -199,6 +199,8 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
 
     await EMBEDDING_MODEL.set(test_db_session, _MODEL_A)
     await EMBEDDING_DIMS.set(test_db_session, _DIMS_A)
+
+    before = await _embedding_count(test_db_session)
 
     provider = _SwitchingProvider()
     monkeypatch.setattr(
@@ -216,38 +218,45 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     # test_embedding_backfill_base_url_pinning.py, which asserts it directly.
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
 
-    # fix(#1525 review r4, codex P2): this test no longer covers the pin
-    # ITSELF. With the swap landing during the batch's own provider call, an
-    # unpinned tree reads the config before the swap and produces the same
-    # single call a pinned one does; and with several batches the run would
-    # stop at the next boundary rather than make a divergent call. What it
-    # still covers is the label: every vector this run wrote came from one
-    # model, and the rows carry that model's name. The pin's own contract is
-    # asserted in
-    # test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config.
-    await backfill_module.backfill_embeddings(test_db_session, force=force)
+    # fix(#1525 review r5, codex P2): the swap lands during this batch's own
+    # provider call, and the drift check that runs before the batch is ACCEPTED
+    # now catches it, so the batch is discarded rather than committed. The
+    # label can no longer be wrong because no label is written — a stronger
+    # guarantee than the one this test was built to check, and it changes what
+    # is observable here: there is no stored row left to compare against.
+    #
+    # So this test no longer covers the pin ITSELF either. That is asserted in
+    # test_generate_embeddings_batch_uses_the_pinned_pair_not_the_live_config,
+    # and the caller threading it through is covered by the cache tests in
+    # test_embedding_backfill_base_url_pinning.py. What it covers now is the
+    # run's behaviour: a swap mid-generation writes nothing at all.
+    stopped = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=force)
+    except RuntimeError:
+        stopped = True
 
-    # Non-vacuity: no provider call means no argument to compare, and no stored
-    # row means no label. Both would pass silently below.
+    # Non-vacuity: no provider call means no argument to compare, and no swap
+    # means nothing for the drift check to catch.
     assert provider.calls, "the provider was never called"
     assert await EMBEDDING_MODEL.get(test_db_session) == _MODEL_B, (
         "the admin swap never landed"
     )
-    stored_label = (
-        await test_db_session.execute(
-            select(RecordEmbedding.model_name).where(
-                RecordEmbedding.record_id == dataset.record_id
-            )
-        )
-    ).scalar_one()
 
-    # The finding itself: the row's label has to describe the vector in it, and
-    # EVERY call has to agree, not just the one before the swap.
-    assert {call["model"] for call in provider.calls} == {stored_label}
-    # And both halves have to come from the run's own resolution, not from
-    # whatever the config happened to say by the time the provider was called.
+    # Every call came from the run's own resolution, not from whatever the
+    # config said by the time the provider was reached.
     assert {call["model"] for call in provider.calls} == {_MODEL_A}
     assert {call["dimensions"] for call in provider.calls} == {_DIMS_A}
+
+    # And nothing was stored. On the force path that means an EMPTY table: the
+    # delete committed before the run could know it would finish, which is the
+    # #1549 trade taken deliberately — empty and loud beats populated with
+    # vectors the active search will silently fail to match.
+    remaining = (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
+    assert remaining == (0 if force else before)
+    assert stopped
 
 
 @pytest.mark.anyio

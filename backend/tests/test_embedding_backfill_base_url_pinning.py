@@ -546,12 +546,13 @@ async def test_an_endpoint_that_resolves_to_none_is_still_pinned(
     # Non-vacuity: with fewer than two batches there is no per-batch growth to
     # detect, and the count below would hold on the unfixed tree too.
     assert len(provider.calls) >= 2, "the run made fewer than two provider calls"
-    # Two for `_snapshot_embedding_config` (capture then re-read), plus exactly
-    # one per batch for the drift check added by #1525 review r4. A batch that
-    # resolved the config for its own VALUE as well would add a second per
-    # batch, which is the bug: with `base_url is None` as the pin test, a
-    # resolved None reads as an omission and every batch re-resolves.
-    assert provider.resolves == 2 + len(provider.calls)
+    # Two for `_snapshot_embedding_config` (capture then re-read), plus two per
+    # batch for the drift checks: one before requesting it (#1525 review r4)
+    # and one before accepting it (r5). A batch that resolved the config for
+    # its own VALUE as well would add a third, which is the bug: with
+    # `base_url is None` as the pin test, a resolved None reads as an omission
+    # and every batch re-resolves.
+    assert provider.resolves == 2 + 2 * len(provider.calls)
     # And the pinned value actually reached the provider as itself.
     assert {call["base_url"] for call in provider.calls} == {None}
 
@@ -621,7 +622,7 @@ async def test_a_half_evicted_cache_cannot_pin_a_mixed_pair(
     assert await EMBEDDING_DIMS.get(test_db_session) == _DIMS
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _DIMS_AFTER
 
-    provider = _EndpointRecordingProvider()
+    provider = _QuietRecordingProvider()
     monkeypatch.setattr(
         service_module, "get_embedding_provider", lambda _name: provider
     )
@@ -712,3 +713,63 @@ async def test_a_wholly_stale_cache_cannot_pin_a_superseded_pair(
     # it wrote carry this same model name, so the label names the active model.
     assert {call["model"] for call in provider.calls} == {_MODEL_AFTER}
     assert {call["dimensions"] for call in provider.calls} == {_DIMS_AFTER}
+
+
+@pytest.mark.anyio
+async def test_an_edit_during_the_final_batch_is_not_committed(
+    test_db_session,
+    monkeypatch,
+    restore_embedding_config,
+):
+    """The batch with no successor to catch it.
+
+    fix(#1525 review r5, codex P2): checking for drift before requesting each
+    batch leaves the LAST one uncovered, because there is no next iteration.
+    An edit landing during that final provider call was never observed: the
+    vectors were generated against the pinned endpoint, committed, and the run
+    reported success while the active endpoint had already moved. Rows record
+    only `model_name`, so semantic search would then query the new endpoint's
+    vector space and silently fail to match them.
+
+    So the check runs again before ACCEPTING the batch. The run here is forced
+    into a single batch, which makes that batch both the first and the last —
+    the exact shape the pre-request check cannot see.
+    """
+    await _seed_two_records(test_db_session, "Final Batch")
+    await EMBEDDING_MODEL.set(test_db_session, _MODEL)
+    await EMBEDDING_DIMS.set(test_db_session, _DIMS)
+    await EMBEDDING_BASE_URL.set(test_db_session, _URL_A)
+
+    before = (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one()
+
+    provider = _EndpointRecordingProvider()
+    monkeypatch.setattr(
+        service_module, "get_embedding_provider", lambda _name: provider
+    )
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="pin-test-key")
+    )
+    # One batch for the whole run, so the only provider call is the final one.
+    monkeypatch.setattr(backfill_module, "_BATCH_SIZE", 10_000)
+
+    stopped = False
+    try:
+        await backfill_module.backfill_embeddings(test_db_session, force=False)
+    except RuntimeError:
+        stopped = True
+
+    # Non-vacuity: the edit lands from inside the provider call, so without a
+    # call there was no edit and nothing for the check to catch.
+    assert provider.calls, "the provider was never called"
+    assert await EMBEDDING_BASE_URL.get(test_db_session) == _URL_B, (
+        "the admin edit never landed"
+    )
+
+    # The finding: the generated batch must not reach the table. An unfixed
+    # tree commits it and returns a success dict.
+    assert (
+        await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
+    ).scalar_one() == before
+    assert stopped

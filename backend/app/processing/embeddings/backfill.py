@@ -159,6 +159,36 @@ async def _snapshot_embedding_config(
     return model_name, dimensions, base_url
 
 
+class _PinDrift(RuntimeError):
+    """Drift detected with a batch already generated but not yet committed.
+
+    A distinct type only so the per-batch handler can re-raise it instead of
+    counting it as a provider failure and retrying the batch record by record.
+    It is a `RuntimeError`, so every caller that already treats this module's
+    aborts as one — the admin route included — is unaffected.
+    """
+
+
+async def _raise_on_pin_drift(
+    session: AsyncSession,
+    pinned: tuple[str, int | None, str | None],
+    processed: int,
+    *,
+    error: type[RuntimeError] = RuntimeError,
+) -> None:
+    """Stop the run if the configuration it pinned is no longer the active one."""
+    drift = await _pinned_config_drift(session, pinned)
+    if drift is None:
+        return
+    logger.error("backfill_aborted_pin_drift", detail=drift, processed=processed)
+    raise error(
+        f"Embedding regeneration stopped after {processed} records: {drift} "
+        "while the run was in progress. The rows already written are "
+        "consistent with the configuration that produced them; re-run to "
+        "cover the rest under the new one."
+    )
+
+
 async def _pinned_config_drift(
     session: AsyncSession, pinned: tuple[str, int | None, str | None]
 ) -> str | None:
@@ -391,6 +421,19 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # key, exhausted quota, dimensions the model rejects.
         await _preflight_embedding(session, pinned)
 
+        # DESTRUCTIVE-FIRST, DELIBERATELY (#1549). This commits before the run
+        # knows it can finish, so a drift abort in the batch loop below leaves
+        # the table empty and the operator has to re-run. That is the chosen
+        # side of the trade, not an oversight: rows record only `model_name`,
+        # so a run that carried on under a stale pin would leave a FULL table
+        # whose vectors live in a space the active search silently fails to
+        # match. Empty is loud and one re-run away; populated-and-wrong looks
+        # healthy and is not. Removing the destructive-first shape needs
+        # per-batch delete-and-replace in one transaction (which wants #1546's
+        # per-row configuration stamp first, or it trades a loud failure for a
+        # silent one), a shadow table and swap, or the job lifecycle in #1542 —
+        # none of which belong in a PR about pinning a configuration.
+        #
         # The HNSW index lives in Alembic migration 0012 (and is recreated
         # by service.rebuild_embedding_column on dimension change). On
         # force=True we just clear the active tenant's rows; no need to drop
@@ -503,16 +546,16 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # an endpoint identity per row so search can filter on it is #1546.
         #
         # Outside the try below, deliberately: this must stop the run, not be
-        # counted as a batch error and retried per record.
-        drift = await _pinned_config_drift(session, pinned)
-        if drift is not None:
-            logger.error("backfill_aborted_pin_drift", detail=drift, processed=created)
-            raise RuntimeError(
-                f"Embedding regeneration stopped after {created} records: "
-                f"{drift} while the run was in progress. The rows already "
-                "written are consistent with the configuration that produced "
-                "them; re-run to cover the rest under the new one."
-            )
+        # counted as a batch error and retried per record. The sibling check
+        # after the provider call cannot have that placement, so it raises
+        # `_PinDrift` and the batch handler re-raises it to the same effect.
+        #
+        # Kept alongside that one rather than replaced by it: a post-call check
+        # alone is sufficient for correctness, but drift that lands BETWEEN
+        # batches would then only surface after the next batch had already been
+        # generated and paid for. One config read per batch is the cheaper half
+        # of that trade.
+        await _raise_on_pin_drift(session, pinned, created)
 
         batch = items[start : start + _BATCH_SIZE]
         try:
@@ -523,6 +566,15 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 dimensions=embedding_dims,
                 base_url=base_url,
             )
+            # fix(#1525 review r5, codex P2): and again before ACCEPTING the
+            # batch, not only before requesting it. The check above has no
+            # successor for the LAST batch, so an edit landing during that
+            # final provider call was never observed: the vectors were written
+            # and the run reported success while the active endpoint had moved.
+            # Checking here means the batch in flight is discarded rather than
+            # committed, so the run stops without adding a row nothing will
+            # match. `_PinDrift` is re-raised past the batch handler below.
+            await _raise_on_pin_drift(session, pinned, created, error=_PinDrift)
             for (record_id, content), vector in zip(batch, vectors):
                 session.add(
                     RecordEmbedding(
@@ -534,6 +586,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 )
             await session.commit()
             created += len(batch)
+        except _PinDrift:
+            # fix(#1525 review r5, codex P2): not a batch failure. Retrying it
+            # per record would generate the same vectors against the same stale
+            # pin and commit them one at a time, which is the outcome the check
+            # exists to prevent.
+            await session.rollback()
+            raise
         except Exception:  # broad: per-batch backfill is isolated; embedding API/DB errors are counted not raised
             await session.rollback()
             logger.warning(
