@@ -127,8 +127,64 @@ def is_api_base_path(path: str) -> bool:
     path through ``is_usable_public_origin`` and the persistent-setting path
     through ``validate_public_app_url``, which had it and was the only one
     checking. ``/apiary`` is not an API base; ``/geolens/api/`` is.
+
+    fix(#1555 review): the question is asked of the path a BROWSER resolves,
+    which is not the path ``urlsplit`` hands back. ``/api/.`` and
+    ``/foo/../api/.`` are left untouched by Python and normalized to ``/api/``
+    by every browser, so both backend doors accepted them while the frontend —
+    reading ``URL.pathname``, already resolved — refused. Measured, not
+    assumed: before this, ``validate_public_app_url('https://maps.example.com/
+    api/.')`` returned the value and the domain-lock gate read it as a
+    configured origin.
     """
-    return path.rstrip("/").endswith("/api")
+    return _remove_dot_segments(path).rstrip("/").endswith("/api")
+
+
+# WHATWG treats a percent-encoded dot as a dot segment, in either case, and in
+# either half of a double-dot. RFC 3986 §5.2.4 knows only the literal spellings.
+_SINGLE_DOT_SEGMENTS = frozenset({".", "%2e"})
+_DOUBLE_DOT_SEGMENTS = frozenset({"..", ".%2e", "%2e.", "%2e%2e"})
+
+
+def _remove_dot_segments(path: str) -> str:
+    """Resolve ``.`` and ``..`` the way a URL parser does.
+
+    RFC 3986 §5.2.4, with the ``%2e`` equivalences the URL Standard adds. Takes
+    the path of an ABSOLUTE URL, so it is either empty or rooted.
+
+    A trailing dot segment leaves the slash behind: ``/api/.`` is ``/api/``,
+    matching ``new URL().pathname``, which is the whole point of the function.
+
+    The ``%2e`` half cannot be reached through ``is_usable_public_origin``
+    today: it refuses any candidate containing ``%`` several clauses earlier,
+    because Python leaves percent-encoding literal where a browser decodes it.
+    That refusal is a different rule with a different reason, though, and one
+    that a later change could narrow to "decode it instead" without anyone
+    noticing this depended on it. So the equivalence is implemented here rather
+    than assumed, and pinned by a test that calls this classifier directly —
+    an end-to-end test of a ``%2e`` value would pass on the percent clause
+    alone and prove nothing about this code.
+    """
+    if not path:
+        return path
+    segments = path.split("/")
+    output: list[str] = []
+    for index, segment in enumerate(segments):
+        lowered = segment.lower()
+        is_last = index == len(segments) - 1
+        if lowered in _SINGLE_DOT_SEGMENTS:
+            if is_last:
+                output.append("")
+            continue
+        if lowered in _DOUBLE_DOT_SEGMENTS:
+            # Never pop the leading empty segment: it is the root, not a step.
+            if len(output) > 1:
+                output.pop()
+            if is_last:
+                output.append("")
+            continue
+        output.append(segment)
+    return "/".join(output)
 
 
 def is_loopback_host(host: str) -> bool:

@@ -318,6 +318,11 @@ async def test_a_deployment_on_a_routable_host_still_gets_its_domain_lock(
         "https://example.com/geolens/api",
         "https://192.168.1",
         "https://xn--.example",
+        # fix(#1555 review): resolve to the API base in a browser, and were
+        # left alone by urlsplit, so both doors used to take them.
+        "https://maps.example.com/api/.",
+        "https://maps.example.com/api/./",
+        "https://maps.example.com/foo/../api/.",
     ],
 )
 def test_both_entry_points_of_the_setting_refuse_the_same_values(configured):
@@ -360,3 +365,50 @@ def test_both_entry_points_accept_a_value_a_viewer_could_reach(configured):
 
     assert is_usable_public_origin(configured)
     assert validate_public_app_url(configured) == configured
+
+
+@pytest.mark.parametrize(
+    ("path", "browser_resolves_to", "is_api_base"),
+    [
+        # The three that were live: urlsplit leaves them, browsers resolve them.
+        ("/api/.", "/api/", True),
+        ("/api/./", "/api/", True),
+        ("/foo/../api/.", "/api/", True),
+        # Percent-encoded dot segments. UNREACHABLE end to end — every candidate
+        # containing '%' is refused several clauses earlier, on both sides —
+        # which is exactly why they are asserted HERE, against the classifier
+        # itself. Through the front door these cases would pass on the percent
+        # rule and say nothing about this code.
+        ("/api/%2e", "/api/", True),
+        ("/api/%2E/", "/api/", True),
+        ("/api/.%2e", "/", False),
+        ("/api/%2e%2e", "/", False),
+        # Dot segments that resolve AWAY from the API base. The counterfactual:
+        # a normalizer that simply looked for '/api' anywhere would refuse a
+        # deployment that is not on the API base at all.
+        ("/api/..", "/", False),
+        ("/apiary/.", "/apiary/", False),
+        ("/geolens/./x", "/geolens/x", False),
+        ("/a/./b/../api", "/a/api", True),
+        # Unchanged by normalization, so the ordinary answers must not move.
+        ("/api", "/api", True),
+        ("/apiary", "/apiary", False),
+        ("/geolens", "/geolens", False),
+        ("", "", False),
+    ],
+)
+def test_the_api_path_rule_reads_the_path_a_browser_resolves(
+    path, browser_resolves_to, is_api_base
+):
+    """fix(#1555 review): ``urlsplit`` is not a URL parser's normalizer.
+
+    ``expected`` is what ``new URL('https://x' + path).pathname`` returns,
+    measured in Node rather than reasoned about, with one deliberate exception:
+    a path-less URL, where a browser supplies ``/`` and this function leaves the
+    empty string alone. Supplying a default path is not resolving dot segments,
+    and the classification is the same either way.
+    """
+    from app.core.public_urls import _remove_dot_segments, is_api_base_path
+
+    assert _remove_dot_segments(path) == browser_resolves_to
+    assert is_api_base_path(path) is is_api_base

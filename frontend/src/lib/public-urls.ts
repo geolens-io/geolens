@@ -111,6 +111,11 @@ function parseUsablePublicUrl(url: string): URL | null {
   // tile-config and built `/api/api/maps/...` card links and `/api/m/...`
   // iframe sources. `is_api_base_path` (backend/app/core/public_urls.py) is now
   // the one statement of it, and both entry points ask it.
+  //
+  // `parsed.pathname` has ALREADY resolved dot segments, so `/api/.` arrives
+  // here as `/api/` and is refused for free. That is precisely why the backend
+  // needed `_remove_dot_segments`: `urlsplit` leaves `/api/.` alone, so it used
+  // to accept a value this side rejects.
   if (parsed.pathname.replace(/\/+$/, '').endsWith('/api')) return null;
   // fix(#1548 review r9/r10): three refusals, all on the RAW string rather than
   // on `parsed`, because this parser has already decoded and punycoded by the

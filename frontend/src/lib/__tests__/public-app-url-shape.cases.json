@@ -7,6 +7,8 @@
     "https://maps.example.com:8443",
     "https://example.com/geolens",
     "https://maps.example.com/apiary",
+    "https://maps.example.com/apiary/.",
+    "https://maps.example.com/api/..",
     "http://localhost:8080",
     "http://127.0.0.1:8080",
     "http://127.0.0.2:8080",
@@ -57,6 +59,11 @@
     "https://maps.example.com/api",
     "https://maps.example.com/api/",
     "https://example.com/geolens/api",
+    "https://maps.example.com/api/.",
+    "https://maps.example.com/api/./",
+    "https://maps.example.com/foo/../api/.",
+    "https://maps.example.com/api/%2e",
+    "https://maps.example.com/api/%2E/",
     "https://xn--.example",
     "https://xn---.example",
     "https://xn--a.example",
@@ -83,6 +90,7 @@
     "http://192.168.0.1": "http://192.168.0.1",
     "http://[2001:db8::1]": "http://[2001:db8::1]"
   },
+  "_api_path_note": "The /api rule is asked of the path a BROWSER RESOLVES, not the one the parser was handed. https://maps.example.com/api/. and /foo/../api/. are left untouched by Python's urlsplit and normalized to /api/ by every browser, so both backend doors accepted them while the frontend, reading the already-resolved URL.pathname, refused. The backend implements RFC 3986 remove_dot_segments plus the URL Standard's %2e equivalences (_remove_dot_segments); this side gets it free from new URL(). Measured against Node over 34 paths: the resolved paths agree everywhere except a path-less URL, where a browser supplies / and the normalizer leaves the empty string alone, and the /api classification agrees on all 34. The %2e entries are refused by BOTH sides today on the percent-encoding clause several steps earlier, so they pin the answer rather than the normalizer; the normalizer's own %2e handling is pinned by a direct unit test instead. /api/.. and /apiary/. sit under valid as the counterfactual: dot segments that resolve AWAY from an API base must not be refused.",
   "_loopback_note": "Loopback is a RANGE, not a list of three spellings. A configured origin inside it is one only the machine running the browser can reach, so a deployment offering a domain lock from there issues a token whose shell URL every recipient resolves to their own machine — which is why the classification is part of this contract rather than each side's private opinion. Backend: is_loopback_host() in backend/app/core/public_urls.py, reached through _is_localhost_origin() in the embed service. Frontend: isLoopbackHostname() in frontend/src/lib/public-urls.ts, reached through resolvePublicAppUrl's loopback-default state. Every entry below is SHAPE-VALID, so both sides actually get as far as asking. *.localhost counts (RFC 6761 §6.3); 126/8 and 128/8 do not, and are here as the range's edges.",
   "loopback": [
     "http://localhost:8080",
