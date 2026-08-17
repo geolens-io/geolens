@@ -22,6 +22,7 @@ configurable via env vars.
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
@@ -30,6 +31,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from app.core.async_io import run_in_thread_draining
 from app.platform.storage.provider import StoredObject
 
 # Matches LocalStorageProvider's chunk size: one 1 MiB buffer resident per
@@ -97,13 +99,30 @@ class S3StorageProvider:
         self.client = boto3.client(**kwargs)
 
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
-        """Store data at key. Returns s3://bucket/key URI."""
+        """Store data at key. Returns s3://bucket/key URI.
+
+        fix(#1532 review r8): drained on cancellation, like the local provider's
+        write and like the export cache's digest step. A bare ``to_thread``
+        RETURNS on a cancel while the SDK upload keeps running in the executor,
+        so the caller's cleanup — deleting the key it was writing, closing the
+        source file, removing the conversion directory — races a live upload. It
+        can commit after the delete, read a handle that has already been closed,
+        or leave multipart parts behind that no lifecycle rule is configured to
+        collect.
+
+        Draining costs a cancelled request the rest of its upload. That is the
+        right trade: the alternative is an object store holding bytes nothing
+        will ever reference, or a delete that lands before the write it was
+        meant to undo.
+        """
         if isinstance(data, bytes):
-            await asyncio.to_thread(
-                self.client.put_object, Bucket=self.bucket, Key=key, Body=data
+            await run_in_thread_draining(
+                partial(self.client.put_object, Bucket=self.bucket, Key=key, Body=data)
             )
         else:
-            await asyncio.to_thread(self.client.upload_fileobj, data, self.bucket, key)
+            await run_in_thread_draining(
+                self.client.upload_fileobj, data, self.bucket, key
+            )
         return f"s3://{self.bucket}/{key}"
 
     async def get(self, key: str) -> bytes:

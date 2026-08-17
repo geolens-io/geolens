@@ -38,6 +38,7 @@ from typing import AsyncIterator, BinaryIO
 from azure.core.exceptions import HttpResponseError, ResourceNotFoundError
 from azure.storage.blob import BlobServiceClient
 
+from app.core.async_io import run_in_thread_draining
 from app.platform.storage.provider import StoredObject
 
 
@@ -77,13 +78,20 @@ class AzureBlobStorageProvider:
             )
 
     async def put(self, key: str, data: BinaryIO | bytes) -> str:
-        """Store data at key. Returns az://container/key URI."""
+        """Store data at key. Returns az://container/key URI.
+
+        fix(#1532 review r8): drained on cancellation, for the reason
+        ``S3StorageProvider.put`` gives. A bare ``to_thread`` returns on a cancel
+        while the SDK upload keeps running, so the caller's cleanup races a live
+        upload — it can commit after the delete meant to undo it, read a source
+        handle that has already been closed, or leave staged blocks behind.
+        """
 
         def _put() -> None:
             blob = self._client.get_blob_client(container=self.container, blob=key)
             blob.upload_blob(data, overwrite=True)
 
-        await asyncio.to_thread(_put)
+        await run_in_thread_draining(_put)
         return f"az://{self.container}/{key}"
 
     async def get(self, key: str) -> bytes:

@@ -391,15 +391,35 @@ async def lookup(
         return None
 
     candidates: list[tuple[float, int, str, str]] = []
+    siblings: set[str] = set()
     for key in keys:
         parsed = parse_artifact_key(key)
         if parsed is None:
             continue
         built_at, size, digest = parsed
+        # fix(#1532 review r8): `contested` counts EVERY sibling under this
+        # selection, not just the fresh ones. Computed over the fresh set it
+        # missed the staggered case entirely: two builders a second apart are
+        # both inside the window at first, so ranges are correctly refused —
+        # and then the older one crosses the TTL, the fresh set holds one
+        # digest, `contested` flips false, and a bare-Range client that started
+        # on the older artifact resumes into a 206 of the newer. The silent
+        # splice, arriving late.
+        #
+        # Old siblings are exactly the ones a client can still be reading: they
+        # live until the horizon by design, so a reader that resolved one keeps
+        # streaming it. Freshness answers "may this serve a NEW request"; this
+        # question is "could anyone be part-way through a different one".
+        siblings.add(digest)
         if cutoff <= built_at <= horizon:
             candidates.append((built_at, size, digest, key))
 
-    contested = len({digest for _, _, digest, _ in candidates}) > 1
+    # The cost, stated: a selection that ever had two distinct artifacts serves
+    # no ranges until the sweep clears the older, which is up to a horizon. Only
+    # bare-Range clients pay it — anything sending If-Range is already safe
+    # through the strong ETag — and the pre-publish re-check keeps a second
+    # artifact rare in the first place.
+    contested = len(siblings) > 1
 
     for built_at, size, digest, key in sorted(candidates, reverse=True):
         try:

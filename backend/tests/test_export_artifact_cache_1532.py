@@ -2015,3 +2015,190 @@ async def test_the_sweep_prunes_its_own_empty_selection_dirs(test_db_session):
         f"{[p.name for p in leftover[:3]]}. Filters are caller-controlled, so "
         f"they accumulate without limit and every later listing walks them."
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r8
+# ---------------------------------------------------------------------------
+
+
+async def test_a_staggered_sibling_still_refuses_ranges_after_it_expires(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """`contested` must see every sibling, not only the fresh ones.
+
+    Two builders a second apart are both inside the window at first, so ranges
+    are correctly refused. Then the older one crosses the TTL: the fresh set
+    holds a single digest, `contested` flips false, and a bare-Range client that
+    started on the OLDER artifact resumes into a 206 of the newer. The same
+    silent splice, arriving late through the staggered window rather than the
+    overlapping one.
+
+    The older sibling is exactly the artifact a client can still be reading —
+    it lives until the horizon by design, so a reader that resolved it keeps
+    streaming it. Freshness answers "may this serve a NEW request"; this asks
+    "could anyone be part-way through a different one", and those are not the
+    same question.
+
+    The older artifact here is aged past the TTL and well inside the horizon,
+    which is the exact window the fresh-set computation could not see.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Staggered")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200
+    selection = [
+        k.rsplit("/", 2)[1]
+        for k in await get_storage().list(
+            f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+        )
+    ][0]
+
+    # A second builder's output, published a moment later and then aged out of
+    # the freshness window — still reclaimable only by the horizon.
+    older = b"the artifact a client is part-way through"
+    await get_storage().put(
+        cache._artifact_key(
+            dataset.id, selection, "d" * 64, len(older), time.time() - 600
+        ),
+        older,
+    )
+
+    sliced = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-31"})
+
+    assert sliced.status_code == 200, (
+        f"a range returned {sliced.status_code} for a selection whose older "
+        f"sibling has expired but not been reclaimed. That sibling is what a "
+        f"resuming client is holding offsets against."
+    )
+    assert "content-range" not in sliced.headers
+
+
+async def test_a_remote_put_drains_its_thread_before_the_caller_cleans_up(
+    test_db_session, monkeypatch
+):
+    """A cancelled remote upload must finish before its cleanup runs.
+
+    S3 and Azure handed their uploads to a bare `asyncio.to_thread`, which
+    RETURNS on a cancel while the SDK keeps running in the executor. The
+    caller's cleanup then races a live upload: `_discard` deletes the key being
+    written, the router closes the source file underneath it, and the upload can
+    commit after the delete, read a closed handle, or leave multipart residue no
+    lifecycle rule is configured to collect.
+
+    Only the local provider drained. Both remote ones do now, through the same
+    helper the digest step uses.
+
+    The double's thread sleeps past the cancel, and the assertion is on ORDER
+    rather than on a status: the discard must not be observed before the upload
+    thread returns. A test that only checked the final state would pass against
+    the racing version whenever the scheduler happened to be kind.
+
+    What this does NOT prove is that S3 and Azure drain — the double drains, so
+    it would pass against providers that do not. It pins the half that is this
+    module's: given a draining put, the cleanup is ordered after it.
+    ``test_both_remote_puts_drain_their_upload_thread`` pins the other half.
+    """
+    import asyncio
+    import tempfile
+    import threading
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Drain On Cancel")
+    events: list[str] = []
+    upload_started = threading.Event()
+
+    class _SlowRemote:
+        def __init__(self, inner):
+            self._inner = inner
+
+        def __getattr__(self, name):
+            return getattr(self._inner, name)
+
+        async def put(self, key, data):
+            from app.core.async_io import run_in_thread_draining
+
+            def _upload():
+                upload_started.set()
+                time.sleep(0.3)  # the SDK still working after the cancel
+                events.append("upload-returned")
+
+            await run_in_thread_draining(_upload)
+            return "ok"
+
+        async def delete(self, key):
+            events.append("discard")
+            return await self._inner.delete(key)
+
+    monkeypatch.setattr(
+        "app.processing.export.artifact_cache.get_storage",
+        lambda: _SlowRemote(get_storage()),
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False) as handle:
+        handle.write(b"an export whose client hangs up mid-upload")
+        path = handle.name
+
+    task = asyncio.ensure_future(
+        cache.store(
+            dataset.id,
+            "cancelled-upload",
+            file_path=path,
+            filename="x.geojson",
+            media_type="application/geo+json",
+        )
+    )
+    await asyncio.to_thread(upload_started.wait, 5)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert events and events[0] == "upload-returned", (
+        f"cleanup ran before the upload thread returned: {events}. The delete "
+        f"then races a live upload that can commit after it."
+    )
+
+
+def test_both_remote_puts_drain_their_upload_thread():
+    """S3 and Azure must hand their uploads to the draining helper.
+
+    A bare ``asyncio.to_thread`` RETURNS on a cancel while the SDK upload keeps
+    running in the executor, so the caller's cleanup races a live upload: it can
+    delete the key mid-write, close the source handle underneath it, or leave
+    multipart parts and staged blocks behind that no lifecycle rule is
+    configured to collect. Only the local provider drained.
+
+    Structural, and for the same reason the read-path stub test is: exercising
+    the real ones needs a backend, and this has to run in the default suite. The
+    unwanted call is asserted absent as well as the wanted one present —
+    `run_in_thread_draining` appearing somewhere in the method proves nothing if
+    the upload itself still goes through `to_thread`.
+
+    Comments are stripped and the call form is matched, so an explanatory
+    mention of ``asyncio.to_thread`` beside the fixed call does not read as one.
+    """
+    import inspect
+
+    from app.platform.storage.azure import AzureBlobStorageProvider
+    from app.platform.storage.s3 import S3StorageProvider
+
+    for provider in (S3StorageProvider, AzureBlobStorageProvider):
+        source = "\n".join(
+            line
+            for line in inspect.getsource(provider.put).splitlines()
+            if not line.strip().startswith("#")
+        )
+        assert "run_in_thread_draining(" in source, (
+            f"{provider.__name__}.put does not drain its upload thread; a "
+            f"cancelled request returns while the SDK is still writing"
+        )
+        assert "asyncio.to_thread(" not in source, (
+            f"{provider.__name__}.put still hands the upload to a bare "
+            f"to_thread, which is the call that returns before the write does"
+        )
