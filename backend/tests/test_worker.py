@@ -147,6 +147,11 @@ async def test_recover_stale_jobs_marks_running_as_failed():
     fake_job.error_message = None
     fake_job.completed_at = None
     fake_job.started_at = None
+    # fix(#1556): recovery now closes an embedding backfill's audit trail, and
+    # it decides whether a row is one by reading `user_metadata`. A bare
+    # MagicMock attribute is truthy, so a double without this claims to be a
+    # backfill — an ordinary upload's metadata is what this double stands for.
+    fake_job.user_metadata = {"file_type": "vector"}
 
     # Two extra empty results for the GAP-002 VRT stale sweep
     # (stale regenerating RasterAssets, stale VrtGeneration rows).
@@ -171,6 +176,7 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
     fake_job.status = "pending"
     fake_job.error_message = None
     fake_job.completed_at = None
+    fake_job.user_metadata = {"file_type": "vector"}  # see #1556 note above
 
     # Two extra empty results for the GAP-002 VRT stale sweep.
     mock_session = _make_mock_session([], [fake_job], [], [], [])
@@ -232,6 +238,7 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     job1.error_message = None
     job1.completed_at = None
     job1.started_at = None
+    job1.user_metadata = {"file_type": "vector"}  # see #1556 note above
 
     job2 = MagicMock()
     job2.id = uuid4()
@@ -239,6 +246,7 @@ async def test_recover_stale_jobs_logs_individual_job_ids():
     job2.error_message = None
     job2.completed_at = None
     job2.started_at = None
+    job2.user_metadata = {"file_type": "vector"}  # see #1556 note above
 
     # Two extra empty results for the GAP-002 VRT stale sweep.
     mock_session = _make_mock_session([job1, job2], [], [], [], [])

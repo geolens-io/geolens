@@ -784,6 +784,9 @@ __all__ = [
     "TemporalParseKey",
     "_RECHECK_TRANSFER_MARGIN_SECONDS",
     "_reap_stale_generation_storage",
+    # fix(#1556): the worker's startup recovery settles the same rows this
+    # module's sweep does, so it needs the same helper through the same façade.
+    "audit_settled_embedding_backfill",
     "fail_stale_jobs",
     "get_retry_capability",
     "post_expiry_sweep_after_seconds",
