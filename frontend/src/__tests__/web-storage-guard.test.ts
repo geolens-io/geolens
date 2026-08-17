@@ -66,28 +66,128 @@ function isProductionSource(path: string): boolean {
 const sources = Object.entries(allModules).filter(([path]) => isProductionSource(path));
 const excludedCount = Object.keys(allModules).length - sources.length;
 
-function isFunctionLike(node: ts.Node): boolean {
-  return (
-    ts.isFunctionDeclaration(node) ||
-    ts.isFunctionExpression(node) ||
-    ts.isArrowFunction(node) ||
-    ts.isMethodDeclaration(node) ||
-    ts.isConstructorDeclaration(node) ||
-    ts.isGetAccessor(node) ||
-    ts.isSetAccessor(node)
-  );
+/**
+ * fix(#1545 codex P2, round 2): this list is an ALLOWLIST, and that is the
+ * whole design.
+ *
+ * The previous version asked the opposite question: it climbed toward the `try`
+ * and stopped at anything it recognised as function-like. Everything it did not
+ * recognise was assumed to run synchronously. That is a blocklist of
+ * deferred-execution constructs, and a blocklist of those in TypeScript will
+ * never be complete. Two rounds of review found two holes in it: a callback is
+ * obvious, a non-static class field initializer is not, and neither is the next
+ * one nobody has thought of. Every gap was a silent FALSE NEGATIVE in a gate
+ * whose docstring promises there are none.
+ *
+ * So the question is inverted. An access counts as guarded only if EVERY node
+ * between it and the `try` is listed below as running in the enclosing frame.
+ * Anything unrecognised is treated as a boundary, so the access gets reported.
+ * That fails toward false positives, which this gate accepts by design, instead
+ * of toward silence. A construct nobody anticipated now makes the gate noisy
+ * rather than blind, and noisy is a bug report.
+ *
+ * Note what this buys for free. Arrow functions, function expressions, methods,
+ * constructors, getters, setters and generator bodies are all boundaries
+ * without being named anywhere: they simply are not on this list. The old code
+ * had to enumerate each one, which is exactly why it could miss one.
+ *
+ * If you are here because the gate flagged something that is genuinely
+ * synchronous, add that kind here with a one-line reason. Adding a kind is a
+ * deliberate widening and should read like one.
+ */
+const RUNS_IN_ENCLOSING_FRAME: ReadonlySet<ts.SyntaxKind> = new Set([
+  // Statements and control flow.
+  ts.SyntaxKind.Block,
+  ts.SyntaxKind.ExpressionStatement,
+  ts.SyntaxKind.VariableStatement,
+  ts.SyntaxKind.VariableDeclarationList,
+  ts.SyntaxKind.VariableDeclaration,
+  ts.SyntaxKind.IfStatement,
+  ts.SyntaxKind.ForStatement,
+  ts.SyntaxKind.ForInStatement,
+  ts.SyntaxKind.ForOfStatement,
+  ts.SyntaxKind.WhileStatement,
+  ts.SyntaxKind.DoStatement,
+  ts.SyntaxKind.SwitchStatement,
+  ts.SyntaxKind.CaseBlock,
+  ts.SyntaxKind.CaseClause,
+  ts.SyntaxKind.DefaultClause,
+  ts.SyntaxKind.ReturnStatement,
+  ts.SyntaxKind.ThrowStatement,
+  ts.SyntaxKind.LabeledStatement,
+  // A class body's STATIC parts evaluate when the class definition does, so a
+  // try around the class really does cover them. Non-static field initializers
+  // are handled in runsInEnclosingFrame below and are NOT covered.
+  ts.SyntaxKind.ClassDeclaration,
+  ts.SyntaxKind.ClassExpression,
+  ts.SyntaxKind.ClassStaticBlockDeclaration,
+  // Expressions.
+  ts.SyntaxKind.PropertyAccessExpression,
+  ts.SyntaxKind.ElementAccessExpression,
+  ts.SyntaxKind.CallExpression,
+  ts.SyntaxKind.NewExpression,
+  ts.SyntaxKind.BinaryExpression,
+  ts.SyntaxKind.ConditionalExpression,
+  ts.SyntaxKind.ParenthesizedExpression,
+  ts.SyntaxKind.PrefixUnaryExpression,
+  ts.SyntaxKind.PostfixUnaryExpression,
+  ts.SyntaxKind.TypeOfExpression,
+  ts.SyntaxKind.VoidExpression,
+  ts.SyntaxKind.DeleteExpression,
+  ts.SyntaxKind.AwaitExpression,
+  ts.SyntaxKind.ArrayLiteralExpression,
+  ts.SyntaxKind.ObjectLiteralExpression,
+  ts.SyntaxKind.PropertyAssignment,
+  ts.SyntaxKind.ShorthandPropertyAssignment,
+  ts.SyntaxKind.SpreadAssignment,
+  ts.SyntaxKind.SpreadElement,
+  ts.SyntaxKind.TemplateExpression,
+  ts.SyntaxKind.TemplateSpan,
+  ts.SyntaxKind.TaggedTemplateExpression,
+  ts.SyntaxKind.AsExpression,
+  ts.SyntaxKind.SatisfiesExpression,
+  ts.SyntaxKind.NonNullExpression,
+  ts.SyntaxKind.TypeAssertionExpression,
+  ts.SyntaxKind.CommaListExpression,
+  ts.SyntaxKind.ComputedPropertyName,
+  ts.SyntaxKind.ObjectBindingPattern,
+  ts.SyntaxKind.ArrayBindingPattern,
+  ts.SyntaxKind.BindingElement,
+  // JSX evaluates during render, on the frame that renders it.
+  ts.SyntaxKind.JsxElement,
+  ts.SyntaxKind.JsxSelfClosingElement,
+  ts.SyntaxKind.JsxFragment,
+  ts.SyntaxKind.JsxOpeningElement,
+  ts.SyntaxKind.JsxAttributes,
+  ts.SyntaxKind.JsxAttribute,
+  ts.SyntaxKind.JsxSpreadAttribute,
+  ts.SyntaxKind.JsxExpression,
+]);
+
+function runsInEnclosingFrame(node: ts.Node): boolean {
+  // The static/non-static split is the one place the kind alone is not enough.
+  // `static v = sessionStorage.getItem(k)` runs at class-definition time, so a
+  // try around the class does cover it. `v = sessionStorage.getItem(k)` runs at
+  // construction, on whatever frame calls `new`, which can be anywhere.
+  if (ts.isPropertyDeclaration(node)) {
+    return node.modifiers?.some((m) => m.kind === ts.SyntaxKind.StaticKeyword) ?? false;
+  }
+  return RUNS_IN_ENCLOSING_FRAME.has(node.kind);
 }
 
 /**
- * Guarded means: a `try` block encloses the access lexically, reached without
- * crossing a function boundary.
+ * Guarded means: a `try` block encloses the access lexically, and every node on
+ * the way up to it runs in that same frame.
  *
- * Crossing one matters. A callback declared inside a try runs later, off that
- * stack, so the try does not protect it:
+ * A callback declared inside a try runs later, off that stack, so the try does
+ * not protect it:
  *   try { el.addEventListener('x', () => sessionStorage.getItem(k)); } catch {}
- * This is the conservative direction. It can flag a helper that is only ever
- * called from inside a try (a false positive worth discussing), but it cannot
- * miss a real one.
+ * Nor does it protect an instance field initializer, which runs at `new`:
+ *   try { class C { v = sessionStorage.getItem(k); } } catch {}
+ * Both fall out of the allowlist above rather than being special-cased.
+ *
+ * This can flag a helper that is only ever called from inside a try, which is a
+ * false positive worth discussing. It cannot miss a real one.
  *
  * Arriving at a TryStatement from its catch or finally does not count either:
  * a throw in a catch block propagates exactly as if the try were not there.
@@ -96,8 +196,8 @@ function isGuarded(node: ts.Node): boolean {
   let child: ts.Node = node;
   let parent: ts.Node | undefined = node.parent;
   while (parent) {
-    if (ts.isTryStatement(parent) && child === parent.tryBlock) return true;
-    if (isFunctionLike(parent)) return false;
+    if (ts.isTryStatement(parent)) return child === parent.tryBlock;
+    if (!runsInEnclosingFrame(parent)) return false;
     child = parent;
     parent = parent.parent;
   }
@@ -321,6 +421,38 @@ describe('#1536: detector fixtures', () => {
     ['computed-key destructuring', `const { ['sessionStorage']: s } = window;`],
     ['assignment destructuring', `let s; ({ sessionStorage: s } = window);`],
     ['shorthand assignment destructuring', `let sessionStorage; ({ sessionStorage } = window);`],
+    // fix(#1545 codex P2 round 2): the deferred-execution class. Each of these
+    // sits lexically inside a try whose frame is gone by the time the code
+    // runs. None is special-cased; they are all simply absent from
+    // RUNS_IN_ENCLOSING_FRAME, which is the point of the inversion.
+    [
+      'an instance field initializer inside a try',
+      `try { class C { v = sessionStorage.getItem('k'); } } catch {}`,
+    ],
+    [
+      'a getter body inside a try',
+      `try { class C { get v() { return sessionStorage.getItem('k'); } } } catch {}`,
+    ],
+    [
+      'a setter body inside a try',
+      `try { class C { set v(_x) { sessionStorage.setItem('k', _x); } } } catch {}`,
+    ],
+    [
+      'a generator body inside a try',
+      `try { function* g() { yield sessionStorage.getItem('k'); } } catch {}`,
+    ],
+    [
+      'a default parameter value inside a try',
+      `try { function f(a = sessionStorage.getItem('k')) { return a; } } catch {}`,
+    ],
+    [
+      'an object-literal method inside a try',
+      `try { const o = { m() { return sessionStorage.getItem('k'); } }; } catch {}`,
+    ],
+    [
+      'a constructor body inside a try',
+      `try { class C { constructor() { sessionStorage.getItem('k'); } } } catch {}`,
+    ],
   ])('flags %s', (_name, src) => {
     expect(detected(src)).toBe(1);
     expect(unguarded(src)).toBe(1);
@@ -334,6 +466,32 @@ describe('#1536: detector fixtures', () => {
       `function f() { try { return sessionStorage.getItem('k'); } catch { return null; } }`,
     ],
     ['destructuring inside a try', `try { const { sessionStorage: s } = window; use(s); } catch {}`],
+    // The counterexample that keeps the static/non-static split honest. A
+    // static initializer runs when the class definition is evaluated, which IS
+    // inside the try. Deleting this distinction would look like a
+    // simplification and would be a false positive.
+    [
+      'a STATIC field initializer inside a try',
+      `try { class C { static v = sessionStorage.getItem('k'); } } catch {}`,
+    ],
+    [
+      'a static block inside a try',
+      `try { class C { static { sessionStorage.getItem('k'); } } } catch {}`,
+    ],
+    // Ordinary synchronous nesting must keep passing, or the inversion would
+    // have made the gate useless by flagging everything.
+    [
+      'nested control flow inside a try',
+      `try { for (const k of ks) { if (a) { sessionStorage.getItem(k); } } } catch {}`,
+    ],
+    [
+      'a ternary inside a try',
+      `try { const v = a ? sessionStorage.getItem('k') : null; use(v); } catch {}`,
+    ],
+    [
+      'a JSX attribute inside a try',
+      `try { render(<div title={sessionStorage.getItem('k')} />); } catch {}`,
+    ],
   ])('accepts %s', (_name, src) => {
     expect(detected(src)).toBe(1);
     expect(unguarded(src)).toBe(0);
