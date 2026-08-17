@@ -738,7 +738,17 @@ async def export_dataset_endpoint(
     except BaseException:
         _cleanup_export(temp_dir)
         raise
-    etag = artifact_cache.strong_etag(digest) if digest is not None else None
+    # fix(#1532 review r20): the validator comes from the PUBLISHED artifact
+    # when there is one. `store` recomputes the digest if it was handed None, so
+    # a hash that failed here and succeeded there left `etag` None beside a
+    # response advertising `stored.etag` — a matching If-Match was refused and
+    # a matching If-None-Match transferred the export it named.
+    if stored is not None:
+        etag = stored.etag
+    elif digest is not None:
+        etag = artifact_cache.strong_etag(digest)
+    else:
+        etag = None
 
     # fix(#1532 review r10): the same preconditions the hit path evaluates.
     # They were only on that branch, so a client whose validator matched what

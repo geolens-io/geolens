@@ -3690,3 +3690,68 @@ async def test_the_fallback_honours_a_proven_if_range_with_a_local_slice(
         if os.path.isdir(os.path.join(conversions.root, name))
     ]
     assert leftovers == [], f"the conversion directory {leftovers} was stranded"
+
+
+# ---------------------------------------------------------------------------
+# Review r20
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("header,expected", [("If-None-Match", 304), ("If-Match", 200)])
+async def test_a_hash_that_fails_here_and_succeeds_in_store_still_yields_the_validator(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+    header,
+    expected,
+):
+    """The precondition validator is the published artifact's when there is one.
+
+    fix(#1532 review r20): the route hashes the file itself and hands the result
+    to `store`, which recomputes it if handed None. A hash that failed on the
+    route and succeeded inside `store` therefore left the route's `etag` None
+    while the response advertised `stored.etag`: a matching `If-Match` was
+    refused with 412, and a matching `If-None-Match` transferred the export it
+    named. The validator now comes from `stored` whenever publication happened.
+
+    The first `digest_and_size` call raises and the second delegates, so this
+    is exactly "failed here, recovered there"; `conversions.count == 2` pins
+    that the second request rebuilt.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, f"Recovered Hash {expected}")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers=admin_auth_header)
+    assert first.status_code == 200, first.text
+    etag = first.headers["etag"]
+    assert conversions.count == 1
+
+    real = cache.digest_and_size
+    calls = {"n": 0}
+
+    async def _flaky(file_path):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("transient read failure")
+        return await real(file_path)
+
+    monkeypatch.setattr(cache, "digest_and_size", _flaky)
+    cache._ttl_seconds = lambda: 0  # force the next request to rebuild
+    try:
+        resp = await client.get(url, headers={**admin_auth_header, header: etag})
+    finally:
+        cache._ttl_seconds = lambda: 600
+
+    assert conversions.count == 2, "precondition: the second request rebuilt"
+    assert calls["n"] == 2, (
+        "precondition: the hash failed on the route and ran in store"
+    )
+    assert resp.status_code == expected, (
+        f"{header}: {etag} against a rebuild whose published ETag is {etag} "
+        f"answered {resp.status_code}; the route evaluated it against no validator"
+    )
+    assert resp.headers.get("etag") == etag
