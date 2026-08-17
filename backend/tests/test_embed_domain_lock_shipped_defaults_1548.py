@@ -66,11 +66,36 @@ def enterprise_edition(monkeypatch):
 def public_app_url(monkeypatch):
     """Set the deployment's configured public app URL, the way an operator does.
 
-    The 60s module-global ``_PUBLIC_URL_CACHE`` is cleared on both sides: it is
-    memoized per process, so without this a value primed by an earlier test
-    would decide this one's outcome — the exact order-dependence that hid the
-    other half of this review.
+    THE SETTING HAS TWO SOURCES AND THE ROW WINS. ``get_configured_public_app_url``
+    reads ``overrides.get(PUBLIC_APP_URL_KEY, settings.public_app_url)`` — a
+    persisted ``AppSetting`` row takes precedence over the environment-backed
+    ``settings`` attribute. Patching only ``settings`` therefore sets the LOWER
+    of the two, and any run whose database already carries a ``public_app_url``
+    row ignores this fixture completely and answers with the row.
+
+    That is what turned this file red in CI while it passed locally: CI's shared
+    test database had the row, a developer database did not, so every assertion
+    of ``is None`` got back ``http://localhost:8080`` instead. Not the 60s
+    memoization — the fixture already invalidated that correctly, and clearing a
+    cache cannot help when the value behind it is the one being read.
+
+    So the override layer is neutralized for the duration, which makes
+    ``settings`` authoritative and the result independent of both the database
+    and the cache. ``test_a_persisted_row_outranks_the_environment`` covers the
+    precedence itself, so stubbing it here hides nothing.
+
+    The cache is still cleared on both sides. This file cannot leak a primed one
+    — with the loader stubbed it never populates the cache, and every call here
+    only ever clears it — but a value primed by an earlier test would otherwise
+    still be sitting there when this file's own reads go through.
     """
+
+    async def _no_persisted_overrides(db):
+        return {}
+
+    monkeypatch.setattr(
+        public_urls, "_load_public_url_overrides", _no_persisted_overrides
+    )
 
     def _set(value: str | None) -> None:
         monkeypatch.setattr(settings, "public_app_url", value)
@@ -78,6 +103,7 @@ def public_app_url(monkeypatch):
         monkeypatch.setattr(settings, "public_base_url", None)
         public_urls.invalidate_public_url_cache()
 
+    public_urls.invalidate_public_url_cache()
     yield _set
     public_urls.invalidate_public_url_cache()
 
@@ -880,3 +906,46 @@ class TestHostedTenantKeepsItsOwnOrigin:
             await public_urls.get_shareable_app_url(test_db_session, request=request)
             is None
         )
+
+
+async def test_a_persisted_row_outranks_the_environment(
+    test_db_session: AsyncSession, monkeypatch
+):
+    """The precedence the ``public_app_url`` fixture stubs out, covered directly.
+
+    ``get_configured_public_app_url`` prefers a persisted ``AppSetting`` row over
+    the environment-backed ``settings`` attribute, which is correct — the row is
+    an operator's explicit choice made through the settings UI. Every other test
+    in this file neutralizes that layer so it can control the value, and this is
+    the one that proves the layer still works, so stubbing it elsewhere hides
+    nothing.
+
+    It is also the assumption whose absence turned this file red in CI: a
+    database carrying the row answers with the row no matter what the
+    environment says, and nothing here asserted that until it cost a build.
+    """
+    monkeypatch.setattr(settings, "public_app_url", "https://from-env.example")
+    public_urls.invalidate_public_url_cache()
+    try:
+        assert await public_urls.get_configured_public_app_url(test_db_session) == (
+            "https://from-env.example"
+        ), "with no row, the environment is the source"
+
+        async def _row(db):
+            return {"public_app_url": "https://from-a-settings-row.example"}
+
+        monkeypatch.setattr(public_urls, "_load_public_url_overrides", _row)
+        public_urls.invalidate_public_url_cache()
+        assert await public_urls.get_configured_public_app_url(test_db_session) == (
+            "https://from-a-settings-row.example"
+        ), "a persisted row is the operator's explicit choice and outranks the env"
+
+        # And the row is held to the same shape rule as everything else.
+        async def _bad_row(db):
+            return {"public_app_url": "ftp://from-a-settings-row.example"}
+
+        monkeypatch.setattr(public_urls, "_load_public_url_overrides", _bad_row)
+        public_urls.invalidate_public_url_cache()
+        assert await public_urls.get_configured_public_app_url(test_db_session) is None
+    finally:
+        public_urls.invalidate_public_url_cache()
