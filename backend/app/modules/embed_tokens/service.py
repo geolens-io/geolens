@@ -604,6 +604,29 @@ async def revoke_embed_tokens_for_dropped_datasets(
     return 0
 
 
+async def get_active_embed_token(
+    db: AsyncSession,
+    token_id: uuid.UUID,
+    map_id: uuid.UUID,
+) -> EmbedToken | None:
+    """Load the active token a write targets, or None if there is none.
+
+    fix(#1548 review r2): exists so a caller can settle whether the resource is
+    THERE before applying a precondition about the deployment. The router asks
+    first and 404s; ``update_embed_token`` asks again when it goes to write.
+    Both go through this one query so the "which token does this PATCH mean"
+    rule cannot drift between them.
+    """
+    result = await db.execute(
+        select(EmbedToken).where(
+            EmbedToken.id == token_id,
+            EmbedToken.map_id == map_id,
+            EmbedToken.is_active.is_(True),
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def update_embed_token(
     db: AsyncSession,
     token_id: uuid.UUID,
@@ -614,14 +637,7 @@ async def update_embed_token(
     if not is_enterprise() and bool(allowed_origins):
         raise ValueError(ADVANCED_SHARING_ERROR)
 
-    result = await db.execute(
-        select(EmbedToken).where(
-            EmbedToken.id == token_id,
-            EmbedToken.map_id == map_id,
-            EmbedToken.is_active.is_(True),
-        )
-    )
-    token = result.scalar_one_or_none()
+    token = await get_active_embed_token(db, token_id, map_id)
     if token is None:
         return None
 

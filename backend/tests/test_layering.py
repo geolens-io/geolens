@@ -3475,7 +3475,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # what each gets wrong. Cap at the exact size. This module is the embed
     # token domain end to end — CRUD, the single policy reader both validators
     # share, and now this precondition — and is not where new domains belong.
-    "backend/app/modules/embed_tokens/service.py": 1013,
+    # fix(#1548 review r2): +16 — get_active_embed_token, so the PATCH handler
+    # can settle whether the token exists BEFORE applying the precondition
+    # above. Asked in the other order, a deployment-level refusal answered for
+    # a stale or concurrently revoked token id and told its owner to go
+    # reconfigure PUBLIC_APP_URL. The router and update_embed_token share the
+    # one query rather than carrying a copy each. Cap 1013 -> 1029, exact.
+    "backend/app/modules/embed_tokens/service.py": 1029,
 }
 
 

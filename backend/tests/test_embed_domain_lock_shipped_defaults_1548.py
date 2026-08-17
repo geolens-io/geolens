@@ -358,3 +358,226 @@ async def test_clearing_a_lock_is_allowed_under_the_shipped_default(
     assert resp.status_code == 200, resp.text
     await test_db_session.refresh(token)
     assert token.allowed_origins is None
+
+
+# ---------------------------------------------------------------------------
+# Ordering: existence is settled before the deployment-level precondition
+# ---------------------------------------------------------------------------
+
+
+async def test_patch_404s_a_missing_token_instead_of_naming_public_app_url(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    public_app_url,
+    enterprise_edition,
+):
+    """fix(#1548 review r2): the gate answers a question about the DEPLOYMENT,
+    not about this token. Asked before existence, it told the owner of a stale
+    token id to go and reconfigure their server, when the real answer is that
+    their token is gone. A stale id in an open builder tab and a concurrent
+    revoke both reach this.
+    """
+    public_app_url(COMPOSE_DEFAULT_APP_URL)
+    user_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_map(test_db_session, created_by=user_id)
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/maps/{map_obj.id}/embed-tokens/{uuid.uuid4()}/",
+        json={"allowed_origins": [CUSTOMER_ORIGIN]},
+        headers={**admin_auth_header, "Origin": SELF_HOSTED_ORIGIN},
+    )
+
+    assert resp.status_code == 404, resp.text
+    detail = resp.json()["detail"]
+    assert detail == "Embed token not found"
+    assert "PUBLIC_APP_URL" not in detail, (
+        "a caller whose token does not exist must not be sent to reconfigure "
+        "the deployment"
+    )
+
+
+async def test_patch_404s_a_revoked_token_instead_of_naming_public_app_url(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    public_app_url,
+    enterprise_edition,
+):
+    """The concurrent-revocation half of the same path: the row is there, but
+    ``is_active`` is False, so the write would have returned None and 404'd."""
+    public_app_url(COMPOSE_DEFAULT_APP_URL)
+    user_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_map(test_db_session, created_by=user_id)
+    token, _raw = await _existing_token(
+        test_db_session, map_id=map_obj.id, created_by=user_id
+    )
+    token.is_active = False
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/maps/{map_obj.id}/embed-tokens/{token.id}/",
+        json={"allowed_origins": [CUSTOMER_ORIGIN]},
+        headers={**admin_auth_header, "Origin": SELF_HOSTED_ORIGIN},
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert "PUBLIC_APP_URL" not in resp.json()["detail"]
+
+
+async def test_a_token_on_another_map_is_not_found_rather_than_refused(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    public_app_url,
+    enterprise_edition,
+):
+    """The existence check is scoped by map_id, exactly as the write is, so a
+    real token id addressed through the wrong map takes the 404 too."""
+    public_app_url(COMPOSE_DEFAULT_APP_URL)
+    user_id = await get_user_id(test_db_session, "admin")
+    owning_map = await _create_map(test_db_session, created_by=user_id)
+    other_map = await _create_map(test_db_session, created_by=user_id)
+    token, _raw = await _existing_token(
+        test_db_session, map_id=owning_map.id, created_by=user_id
+    )
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/maps/{other_map.id}/embed-tokens/{token.id}/",
+        json={"allowed_origins": [CUSTOMER_ORIGIN]},
+        headers={**admin_auth_header, "Origin": SELF_HOSTED_ORIGIN},
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert "PUBLIC_APP_URL" not in resp.json()["detail"]
+
+
+async def test_an_existing_token_still_gets_the_refusal(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    public_app_url,
+    enterprise_edition,
+):
+    """The other side of the ordering: reordering must not have turned the
+    refusal off for the token it is actually meant for. Without this pair, a
+    gate deleted outright would pass all three 404 tests above."""
+    public_app_url(COMPOSE_DEFAULT_APP_URL)
+    user_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_map(test_db_session, created_by=user_id)
+    token, _raw = await _existing_token(
+        test_db_session, map_id=map_obj.id, created_by=user_id
+    )
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/maps/{map_obj.id}/embed-tokens/{token.id}/",
+        json={"allowed_origins": [CUSTOMER_ORIGIN]},
+        headers={**admin_auth_header, "Origin": SELF_HOSTED_ORIGIN},
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert "PUBLIC_APP_URL" in resp.json()["detail"]
+
+
+def test_the_precondition_never_precedes_authorization_or_existence():
+    """Structural pin on the ordering, for both handlers.
+
+    Both orderings read as reasonable in isolation, which is what made this one
+    easy to miss, so assert the sequence rather than trusting a reviewer to
+    re-derive it. In each handler that gates, every authorization and existence
+    check must appear BEFORE assert_domain_lock_is_enforceable.
+
+    POST legitimately has no token-existence check: it is creating the token.
+    Its map lookup and ownership check are still required to come first.
+    """
+    import ast
+    import inspect
+
+    from app.modules.embed_tokens import router as embed_router
+
+    tree = ast.parse(inspect.getsource(embed_router))
+    must_precede = {
+        "get_map",
+        "check_map_ownership",
+        "get_active_embed_token",
+    }
+
+    checked: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        calls = [
+            (call.func.id, call.lineno)
+            for call in ast.walk(node)
+            if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
+        ]
+        gate = [
+            line for name, line in calls if name == "assert_domain_lock_is_enforceable"
+        ]
+        if not gate:
+            continue
+        checked.append(node.name)
+        for name, line in calls:
+            if name in must_precede:
+                assert line < gate[0], (
+                    f"{node.name}: {name}() runs at line {line}, after the "
+                    f"domain-lock precondition at line {gate[0]}. A precondition "
+                    "about the DEPLOYMENT must never answer ahead of whether the "
+                    "caller is allowed to be here or whether the resource exists."
+                )
+
+    assert sorted(checked) == [
+        "create_embed_token_endpoint",
+        "update_embed_token_endpoint",
+    ], f"gated handlers changed; ordering unchecked for some: {sorted(checked)}"
+    assert "get_active_embed_token" in inspect.getsource(
+        embed_router.update_embed_token_endpoint
+    ), "the PATCH handler must settle token existence itself, before the gate"
+
+
+@pytest.mark.parametrize("token_exists", [True, False], ids=["exists", "missing"])
+async def test_neither_status_is_reachable_without_ownership(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    editor_auth_header: dict,
+    test_db_session: AsyncSession,
+    public_app_url,
+    enterprise_edition,
+    token_exists,
+):
+    """Ordering existence first DOES make the status distinguish a token that
+    exists (422) from one that does not (404) — before the reorder both were
+    422. That is not a disclosure, and this is the reason why: ``check_map_
+    ownership`` 403s everyone but the map's owner and admins, so neither status
+    is reachable without already being able to GET /maps/{id}/embed-tokens/ and
+    read the list directly. The sibling revoke endpoint has always 404'd a
+    missing token on the same terms.
+
+    Asserted for both existence states, since a 403 that only held in one of
+    them would be the leak this rules out.
+    """
+    public_app_url(COMPOSE_DEFAULT_APP_URL)
+    user_id = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_map(test_db_session, created_by=user_id)
+    if token_exists:
+        token, _raw = await _existing_token(
+            test_db_session, map_id=map_obj.id, created_by=user_id
+        )
+        token_id = token.id
+    else:
+        token_id = uuid.uuid4()
+    await test_db_session.commit()
+
+    resp = await client.patch(
+        f"/maps/{map_obj.id}/embed-tokens/{token_id}/",
+        json={"allowed_origins": [CUSTOMER_ORIGIN]},
+        headers={**editor_auth_header, "Origin": SELF_HOSTED_ORIGIN},
+    )
+
+    assert resp.status_code == 403, resp.text
+    detail = resp.json()["detail"]
+    assert "PUBLIC_APP_URL" not in detail
+    assert "Embed token not found" not in detail

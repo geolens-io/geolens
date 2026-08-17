@@ -37,6 +37,7 @@ from app.modules.embed_tokens.service import (
     DomainLockNotEnforceableError,
     assert_domain_lock_is_enforceable,
     create_embed_token,
+    get_active_embed_token,
     list_embed_tokens,
     revoke_embed_token,
     update_embed_token,
@@ -180,6 +181,19 @@ async def update_embed_token_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+
+    # fix(#1548 review r2): settle EXISTENCE before the deployment-level
+    # precondition below. The gate answers "could this deployment enforce a
+    # domain lock", which is not a question about this token at all — asked
+    # first, it told the owner of a stale or concurrently revoked token id to
+    # go and reconfigure PUBLIC_APP_URL, when the real answer is that their
+    # token is gone. The write re-reads through the same helper, so a token
+    # revoked in the window between still falls through to the 404 below.
+    if await get_active_embed_token(db, token_id, map_id) is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Embed token not found",
+        )
 
     # fix(#1548 review P2): same gate as the POST handler. Clearing a lock
     # (allowed_origins=None) is unaffected.
