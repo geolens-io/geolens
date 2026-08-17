@@ -2213,6 +2213,103 @@ async def test_a_star_if_none_match_revalidates_and_a_foreign_one_downloads(
     assert stale.content == _COG_BYTES
 
 
+async def test_a_conditional_request_for_bytes_that_are_gone_is_a_404(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """fix(#1540 review P2): a validator cannot vouch for an object that is gone.
+
+    The catalog row outliving its stored bytes is the case
+    ``test_head_cog_matches_get_on_missing_object`` already covers: 404, on both
+    verbs. Add a matching ``If-None-Match`` and the route used to answer 304
+    before it ever looked at storage — so the same URL disagreed with itself
+    about whether the resource existed, depending on whether the client held a
+    validator. The 304 is the worse half: it tells a cache its stale copy is a
+    current representation of something that no longer exists, and the cache
+    goes on serving it.
+
+    RFC 9110 section 13.2.1 puts preconditions after the normal request checks
+    for exactly this reason. ``If-Match`` is asserted alongside because it takes
+    the same path and would otherwise answer 412 — also wrong, and wrong in a
+    way that reads as "your version is stale" rather than "there is nothing
+    here".
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(_COG_BYTES).hexdigest()
+    )  # no bytes ever written to storage
+    url = f"/datasets/{dataset.id}/download/cog"
+    validator = f'"{raster_asset.sha256}"'
+
+    unconditional = await client.get(url, headers=admin_auth_header)
+    revalidated = await client.get(
+        url, headers={**admin_auth_header, "If-None-Match": validator}
+    )
+    matched = await client.get(
+        url, headers={**admin_auth_header, "If-Match": validator}
+    )
+    probed = await client.head(
+        url, headers={**admin_auth_header, "If-None-Match": validator}
+    )
+
+    assert unconditional.status_code == 404, (
+        f"precondition: the plain GET should 404, got {unconditional.status_code}"
+    )
+    assert revalidated.status_code == 404, (
+        f"a conditional GET answered {revalidated.status_code} for an object "
+        f"that is gone. A 304 tells a cache to keep serving its copy of a "
+        f"representation that no longer exists."
+    )
+    assert matched.status_code == 404, (
+        f"If-Match answered {matched.status_code}; 412 says the client's "
+        f"version is stale, when the truth is there is no version at all."
+    )
+    assert probed.status_code == 404, (
+        f"HEAD and GET must agree on a missing object with a validator too, "
+        f"got HEAD {probed.status_code} vs GET {revalidated.status_code}"
+    )
+
+
+async def test_a_conditional_request_that_transfers_still_stats_once(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, s3_storage
+):
+    """The existence check must not reintroduce the double stat.
+
+    Answering a precondition needs the object's size, and so does the response
+    that follows when the precondition passes. Measuring twice would undo
+    fix(#1540 review P2)'s first finding — two ``head_object`` round trips per
+    request — on any client that sends a validator, which after this PR is
+    every well-behaved resumable downloader.
+
+    The size is carried from the precondition block into the response instead.
+    """
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session,
+        storage_backend="s3",
+        asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
+    )
+    await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
+
+    calls: list[str] = []
+    s3_storage.client.meta.events.register(
+        "before-call.s3", lambda model, **kwargs: calls.append(model.name)
+    )
+
+    probed = await client.head(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={**admin_auth_header, "If-Match": f'"{raster_asset.sha256}"'},
+    )
+
+    assert probed.status_code == 200, (
+        f"precondition: a matching If-Match should let the HEAD through, got "
+        f"{probed.status_code}"
+    )
+    assert calls == ["HeadObject"], (
+        f"a conditional HEAD made {len(calls)} object-store requests {calls}. "
+        f"The precondition check and the response need the same measurement, "
+        f"so it is taken once and handed down."
+    )
+
+
 async def test_a_304_writes_no_download_audit_row(
     client: AsyncClient, admin_auth_header: dict, local_cog, test_db_session
 ):

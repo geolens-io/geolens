@@ -3452,7 +3452,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # with * handling, _this_service_owns_the_bytes names the rule that already
     # governed the remote branch's blank validator row, and the 412 carries the
     # ETag that IS current so a refused client can restart in one round trip.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1589,
+    #
+    # +36 for the last two review findings. If-Match had to be reachable from a
+    # browser (the CORS half is enforced by a test now, not a memory), and the
+    # precondition block had to stat the object before answering: a row whose
+    # bytes are gone answers 404 unconditionally, so a 304 there told a cache its
+    # stale copy was current for a representation that no longer exists. That
+    # stat is handed down through _cog_size_once so a conditional request that
+    # goes on to transfer bytes still measures once, and _managed_key names the
+    # tenant-key seam the block now crosses in a second place.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1656,
 }
 
 

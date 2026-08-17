@@ -1073,26 +1073,46 @@ async def download_cog(
     # recording either as `dataset.download_cog` would misreport who downloaded
     # what. The sequence is the one RFC 9110 section 13.2.2 fixes: If-Match,
     # then If-None-Match, then Range and If-Range.
+    storage = get_storage()
     etag = _cog_etag(raster_asset)
-    if _this_service_owns_the_bytes(raster_asset) and not _if_match_passes(
-        request.headers.get("if-match"), etag
+    total_bytes: int | None = None
+
+    if _this_service_owns_the_bytes(raster_asset) and (
+        request.headers.get("if-match") or request.headers.get("if-none-match")
     ):
-        # fix(#1540 review P2): a resuming client may say "only if this is still
-        # the representation I have" with If-Match instead of If-Range. Ignoring
-        # it left the absent If-Range reading as permission, so a replacement
-        # mid-download was answered with a 206 of the new COG at the old offsets
-        # — the same splice, through the header the client happened to choose.
-        # A failed If-Match is a 412, not a degradation: unlike If-Range, the
-        # RFC gives it no "ignore and serve the whole thing" fallback.
-        raise HTTPException(
-            status_code=status.HTTP_412_PRECONDITION_FAILED,
-            detail="COG has changed since the version you hold",
-            headers={"ETag": etag} if etag is not None else None,
+        # fix(#1540 review P2): stat BEFORE answering either precondition. RFC
+        # 9110 section 13.2.1 puts preconditions after the normal request
+        # checks, and existence is one: a row whose object has been deleted
+        # answers 404 unconditionally, so a 304 here told a cache its stale copy
+        # was a current representation of something that no longer exists — and
+        # the same URL disagreed with itself about whether it existed depending
+        # on whether the client sent a validator. The size is carried down
+        # rather than re-measured, so a conditional request that goes on to
+        # transfer bytes still stats exactly once (fix(#1540 review P2), the
+        # double-stat round).
+        total_bytes = await _cog_object_size(
+            storage,
+            physical_asset_key=_managed_key(raster_asset),
+            dataset_id=dataset_id,
         )
-    if etag is not None and _if_none_match_matches(
-        request.headers.get("if-none-match"), etag
-    ):
-        return _cog_not_modified(etag)
+        if not _if_match_passes(request.headers.get("if-match"), etag):
+            # A resuming client may say "only if this is still the
+            # representation I have" with If-Match instead of If-Range.
+            # Ignoring it left the absent If-Range reading as permission, so a
+            # replacement mid-download was answered with a 206 of the new COG
+            # at the old offsets — the same splice, through the header the
+            # client happened to choose. A failed If-Match is a 412, not a
+            # degradation: unlike If-Range, the RFC gives it no "ignore and
+            # serve the whole thing" fallback.
+            raise HTTPException(
+                status_code=status.HTTP_412_PRECONDITION_FAILED,
+                detail="COG has changed since the version you hold",
+                headers={"ETag": etag} if etag is not None else None,
+            )
+        if etag is not None and _if_none_match_matches(
+            request.headers.get("if-none-match"), etag
+        ):
+            return _cog_not_modified(etag)
 
     # 6. Audit log. user_id may be None for anonymous downloads (KNOWN-01).
     # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
@@ -1127,9 +1147,8 @@ async def download_cog(
         )
         await db.commit()
 
-    # 7. Storage-backend branching
-    storage = get_storage()
-
+    # 7. Storage-backend branching. `storage` was resolved above, because the
+    # precondition block may already have had to stat the object.
     if raster_asset.storage_backend == "remote":
         # STAC import: asset_uri is the original remote COG URL — redirect.
         # SEC-06 / M-68: DNS records can change between import time (when
@@ -1158,9 +1177,7 @@ async def download_cog(
 
         return RedirectResponse(url=raster_asset.asset_uri, status_code=302)
 
-    physical_asset_key = resolve_storage_key(
-        raster_asset.asset_uri, tenant_id=current_tenant_var.get()
-    )
+    physical_asset_key = _managed_key(raster_asset)
 
     if raster_asset.storage_backend == "s3":
         return await _s3_cog_response(
@@ -1170,6 +1187,7 @@ async def download_cog(
             filename=filename,
             dataset_id=dataset_id,
             etag=etag,
+            total_bytes=total_bytes,
         )
 
     return await _local_cog_response(
@@ -1179,6 +1197,19 @@ async def download_cog(
         filename=filename,
         dataset_id=dataset_id,
         etag=etag,
+        total_bytes=total_bytes,
+    )
+
+
+def _managed_key(raster_asset) -> str:
+    """The physical storage key for an asset whose bytes this service owns.
+
+    One call site became three when the precondition block had to stat the
+    object before answering (fix(#1540 review P2)), and the tenant namespace
+    this crosses is exactly the seam ``resolve_storage_key`` exists to own.
+    """
+    return resolve_storage_key(
+        raster_asset.asset_uri, tenant_id=current_tenant_var.get()
     )
 
 
@@ -1190,6 +1221,7 @@ async def _s3_cog_response(
     filename: str,
     dataset_id: uuid.UUID,
     etag: str | None,
+    total_bytes: int | None = None,
 ) -> Response:
     """The s3 backend: HEAD here, a stale resume here, everything else redirected.
 
@@ -1223,10 +1255,16 @@ async def _s3_cog_response(
     bucket's egress to ours.
     """
     if request.method == "HEAD":
-        total_bytes = await _cog_object_size(
-            storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+        return _cog_head_response(
+            await _cog_size_once(
+                total_bytes,
+                storage,
+                physical_asset_key=physical_asset_key,
+                dataset_id=dataset_id,
+            ),
+            filename,
+            etag,
         )
-        return _cog_head_response(total_bytes, filename, etag)
 
     if request.headers.get("range") and not _range_bound_to_this_version(
         request.headers.get("if-range"), etag
@@ -1238,8 +1276,11 @@ async def _s3_cog_response(
         # 5,120 object-store requests that the per-request rate limiter counts
         # as one. `_iter_storage_range` is right where the client named a
         # window and wrong here, where the answer is the entire object.
-        total_bytes = await _cog_object_size(
-            storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+        total_bytes = await _cog_size_once(
+            total_bytes,
+            storage,
+            physical_asset_key=physical_asset_key,
+            dataset_id=dataset_id,
         )
         return StreamingResponse(
             storage.get_stream(physical_asset_key),
@@ -1441,6 +1482,28 @@ async def _cog_object_size(
         )
 
 
+async def _cog_size_once(
+    already_known: int | None,
+    storage,
+    *,
+    physical_asset_key: str,
+    dataset_id: uuid.UUID,
+) -> int:
+    """The object's size, stat'ing only if the caller has not already.
+
+    fix(#1540 review P2): the precondition block has to stat before it can
+    answer a 304 — a row whose bytes are gone must 404 whether or not the
+    client sent a validator. Handing that measurement down is what keeps the
+    single-stat property the double-stat round established: a conditional
+    request that goes on to transfer bytes still touches object metadata once.
+    """
+    if already_known is not None:
+        return already_known
+    return await _cog_object_size(
+        storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+    )
+
+
 def _cog_headers(filename: str, etag: str | None) -> dict[str, str]:
     """Headers every stored-bytes response from this route carries.
 
@@ -1507,6 +1570,7 @@ async def _local_cog_response(
     filename: str,
     dataset_id: uuid.UUID,
     etag: str | None,
+    total_bytes: int | None = None,
 ) -> Response:
     """Serve stored COG bytes: HEAD, a byte range, or the whole object.
 
@@ -1522,8 +1586,11 @@ async def _local_cog_response(
     # Local storage: stream bytes from disk in 1 MiB chunks (ING-03 / P2-03).
     # The full file is NOT buffered into memory — a 5 GB COG no longer pins
     # 5 GB of resident memory before the first byte streams.
-    total_bytes = await _cog_object_size(
-        storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
+    total_bytes = await _cog_size_once(
+        total_bytes,
+        storage,
+        physical_asset_key=physical_asset_key,
+        dataset_id=dataset_id,
     )
     cog_headers = _cog_headers(filename, etag)
 

@@ -109,6 +109,14 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         request pairing it with ``If-Range`` is preflighted regardless.
         ``Content-Length`` is NOT listed because it is already a safelisted
         response header, and repeating it here would suggest the others are too.
+
+        ``If-Match`` arrived a round later than the rest, and its absence was
+        the same defect a second time: the endpoint grew a precondition and this
+        list did not learn about it. Remembering to edit both is not a control,
+        so ``tests/test_cors_range_headers_1540.py`` now reads the route's own
+        source for the conditional headers it evaluates and the response headers
+        it sets, and fails if either is missing here. Add a header there and
+        this list is what breaks — before a browser console does.
         """
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -117,7 +125,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         )
         response.headers["Access-Control-Allow-Headers"] = (
             "Authorization, Content-Type, Accept, X-Api-Key, X-Embed-Token, "
-            "X-Config-Preview-Token, Range, If-Range, If-None-Match"
+            "X-Config-Preview-Token, Range, If-Range, If-None-Match, If-Match"
         )
         response.headers["Access-Control-Expose-Headers"] = (
             "X-Total-Count, Link, Content-Crs, Content-Language, "
