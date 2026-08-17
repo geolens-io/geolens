@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.platform.extensions import get_embedding_provider
-from app.processing.embeddings.helpers import embedding_config_fingerprint
+from app.processing.embeddings.helpers import resolve_live_embedding_config
 from app.processing.embeddings.models import RecordEmbedding
 from app.core.persistent_config import AI_ENABLED, EMBEDDING_DIMS, EMBEDDING_MODEL
 
@@ -399,7 +399,40 @@ async def generate_and_store_embedding(
         return False
 
     content_hash = compute_content_hash(content_text)
-    model_name = await EMBEDDING_MODEL.get(session)
+
+    # fix(#1546): this function writes its own `model_name` label, which
+    # `generate_embeddings_batch` documents as the case that MUST pin all three
+    # values. It did not: it labelled rows from `EMBEDDING_MODEL.get()` and then
+    # let the provider re-read the configuration for itself, so a swap landing
+    # between the two produced a row labelled with one model and holding
+    # another's vector.
+    #
+    # fix(#1546 review r3, codex P2): and the pin is resolved as ONE verified
+    # set, before anything else depends on the model name. Assembling it from a
+    # `model_name` read here and a dimensions/endpoint read further down let a
+    # settings publish land in between and pin (old model, new dimensions, new
+    # endpoint) — a triple that was never live, whose fingerprint no live
+    # configuration will ever equal. The row would be invisible for good while
+    # looking stamped, which is worse than the unstamped rows the column exists
+    # to tell apart.
+    #
+    # The model has to come out of the same verified set, not a separate read,
+    # because the lookup below uses it to find the row this call may UPDATE. A
+    # lookup under one model and a pin under another would write the new
+    # model's vector into the old model's row, mislabelled — the #1511 bug by
+    # another route.
+    #
+    # This costs the resolution on the "record touched, text unchanged" path,
+    # which an earlier revision skipped by reading the model on its own first.
+    # That shortcut is exactly what made the pin composable from two instants.
+    resolved = await resolve_live_embedding_config(session, uncached=True, verify=True)
+    if resolved is None:
+        logger.warning(
+            "Embedding configuration could not be resolved, skipping",
+            record_id=str(record_id),
+        )
+        return False
+    model_name, dimensions, base_url, config_fingerprint = resolved
 
     # Check existing embedding for hash match
     result = await session.execute(
@@ -415,10 +448,6 @@ async def generate_and_store_embedding(
     # search still matches it on model name alone, so unchanged content is
     # still a skip — a record does not get re-embedded at provider cost just to
     # earn a stamp. A force regenerate is what replaces those.
-    #
-    # This branch is also what keeps the resolution below off the hot path for
-    # the common "record touched, embeddable text identical" case on an
-    # instance that has not regenerated since upgrading.
     if unchanged and existing.config_fingerprint is None:
         logger.debug(
             "Hash unchanged, skipping embedding",
@@ -426,25 +455,6 @@ async def generate_and_store_embedding(
             content_hash=content_hash,
         )
         return False
-
-    # fix(#1546): this function writes its own `model_name` label, which
-    # `generate_embeddings_batch` documents as the case that MUST pin all three
-    # values. It did not: it labelled rows from `EMBEDDING_MODEL.get()` and then
-    # let the provider re-read the configuration for itself, so a swap landing
-    # between the two produced a row labelled with one model and holding
-    # another's vector. Pinning here fixes that and is what makes the stamp
-    # below true rather than decorative.
-    try:
-        dimensions = await EMBEDDING_DIMS.get(session)
-        base_url = await resolve_embedding_base_url(session)
-    except Exception:  # broad: same non-fatal contract as the generate call below
-        logger.warning(
-            "Embedding configuration could not be resolved, skipping",
-            record_id=str(record_id),
-            exc_info=True,
-        )
-        return False
-    config_fingerprint = embedding_config_fingerprint(model_name, dimensions, base_url)
 
     # fix(#1546): unchanged content is only a skip when the stored vector also
     # came from the configuration that is live now. A row stamped with another

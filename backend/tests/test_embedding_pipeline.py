@@ -15,6 +15,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.processing.embeddings.helpers import embedding_config_fingerprint
 
+# fix(#1546 review r3, codex P2): `generate_and_store_embedding` resolves its
+# whole pin through ONE call now, so that call is the seam these unit tests
+# stub. Patching `EMBEDDING_MODEL` no longer reaches it, and patching the three
+# reads separately would rebuild in the test the very composition the fix
+# removed from the code.
+_MODEL = "text-embedding-3-small"
+_DIMS = 1536
+_URL = "https://api.openai.com/v1"
+_FINGERPRINT = embedding_config_fingerprint(_MODEL, _DIMS, _URL)
+_RESOLVED = (_MODEL, _DIMS, _URL, _FINGERPRINT)
+
 
 # ---------------------------------------------------------------------------
 # build_content_text
@@ -162,9 +173,7 @@ class TestGenerateAndStoreEmbedding:
         mock_existing = MagicMock()
         mock_existing.content_hash = expected_hash
         # fix(#1546): an UNSTAMPED row. Semantic search still matches it on
-        # model name alone, so unchanged content is still a skip and the
-        # configuration is never resolved — which is what the assertion on
-        # resolve_embedding_base_url below pins.
+        # model name alone, so unchanged content is still a skip.
         mock_existing.config_fingerprint = None
 
         mock_result = MagicMock()
@@ -175,14 +184,13 @@ class TestGenerateAndStoreEmbedding:
 
         with (
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
-                "app.processing.embeddings.service.resolve_embedding_base_url",
+                "app.processing.embeddings.service.resolve_live_embedding_config",
                 new_callable=AsyncMock,
-            ) as mock_base_url,
+                return_value=_RESOLVED,
+            ) as mock_resolve,
         ):
             mock_ai.get = AsyncMock(return_value=True)
-            mock_model.get = AsyncMock(return_value="text-embedding-3-small")
 
             result = await generate_and_store_embedding(
                 session=session,
@@ -193,7 +201,14 @@ class TestGenerateAndStoreEmbedding:
                 lineage=None,
             )
             assert result is False
-            mock_base_url.assert_not_called()
+            # fix(#1546 review r3, codex P2): the configuration IS resolved now,
+            # before the row lookup, because the model this call writes and the
+            # model it looks the row up by have to come from one verified read.
+            # An earlier revision skipped the resolution on this path to keep it
+            # cheap, and that shortcut is precisely what let the pin be composed
+            # from two instants. Asserted rather than left implicit, because
+            # "cheap" is the reason someone would reintroduce it.
+            mock_resolve.assert_awaited()
 
     @pytest.mark.asyncio
     async def test_upserts_on_success(self):
@@ -211,19 +226,17 @@ class TestGenerateAndStoreEmbedding:
 
         with (
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
                 "app.processing.embeddings.service.generate_embeddings_batch",
                 new_callable=AsyncMock,
             ) as mock_gen,
             patch(
-                "app.processing.embeddings.service.resolve_embedding_base_url",
+                "app.processing.embeddings.service.resolve_live_embedding_config",
                 new_callable=AsyncMock,
-                return_value="https://api.openai.com/v1",
+                return_value=_RESOLVED,
             ),
         ):
             mock_ai.get = AsyncMock(return_value=True)
-            mock_model.get = AsyncMock(return_value="text-embedding-3-small")
             # fix(#1546): this caller labels its own rows, so it now pins the
             # configuration and calls the batch entry point directly rather
             # than letting the provider re-read the config for itself.
@@ -246,11 +259,12 @@ class TestGenerateAndStoreEmbedding:
             # fix(#1546): the row names the configuration it was pinned to, not
             # just the model. `EMBEDDING_DIMS` is unpatched here, so the width
             # comes from config the same way the production path reads it.
-            assert added_obj.config_fingerprint == embedding_config_fingerprint(
-                mock_gen.call_args.kwargs["model"],
-                mock_gen.call_args.kwargs["dimensions"],
-                mock_gen.call_args.kwargs["base_url"],
-            )
+            assert added_obj.config_fingerprint == _FINGERPRINT
+            # The row is stamped with the configuration the provider was given,
+            # which is the single resolved set and not a re-read.
+            assert mock_gen.call_args.kwargs["model"] == _MODEL
+            assert mock_gen.call_args.kwargs["dimensions"] == _DIMS
+            assert mock_gen.call_args.kwargs["base_url"] == _URL
             session.flush.assert_called_once()
 
     @pytest.mark.asyncio
@@ -271,19 +285,17 @@ class TestGenerateAndStoreEmbedding:
 
         with (
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
                 "app.processing.embeddings.service.generate_embeddings_batch",
                 new_callable=AsyncMock,
             ) as mock_gen,
             patch(
-                "app.processing.embeddings.service.resolve_embedding_base_url",
+                "app.processing.embeddings.service.resolve_live_embedding_config",
                 new_callable=AsyncMock,
-                return_value="https://api.openai.com/v1",
+                return_value=_RESOLVED,
             ),
         ):
             mock_ai.get = AsyncMock(return_value=True)
-            mock_model.get = AsyncMock(return_value="text-embedding-3-small")
             # fix(#1546): this caller labels its own rows, so it now pins the
             # configuration and calls the batch entry point directly rather
             # than letting the provider re-read the config for itself.
@@ -303,11 +315,7 @@ class TestGenerateAndStoreEmbedding:
             # configuration change that keeps the model lands on this UPDATE
             # branch. Leaving the old stamp would label the new vector with the
             # configuration of the one it replaced.
-            assert mock_existing.config_fingerprint == embedding_config_fingerprint(
-                mock_gen.call_args.kwargs["model"],
-                mock_gen.call_args.kwargs["dimensions"],
-                mock_gen.call_args.kwargs["base_url"],
-            )
+            assert mock_existing.config_fingerprint == _FINGERPRINT
             session.flush.assert_called_once()
 
     @pytest.mark.asyncio
@@ -337,19 +345,17 @@ class TestGenerateAndStoreEmbedding:
 
         with (
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
                 "app.processing.embeddings.service.generate_embeddings_batch",
                 new_callable=AsyncMock,
             ) as mock_gen,
             patch(
-                "app.processing.embeddings.service.resolve_embedding_base_url",
+                "app.processing.embeddings.service.resolve_live_embedding_config",
                 new_callable=AsyncMock,
-                return_value="https://api.openai.com/v1",
+                return_value=_RESOLVED,
             ),
         ):
             mock_ai.get = AsyncMock(return_value=True)
-            mock_model.get = AsyncMock(return_value="text-embedding-3-small")
             mock_gen.return_value = [fake_vector]
 
             result = await generate_and_store_embedding(
@@ -383,19 +389,17 @@ class TestGenerateAndStoreEmbedding:
 
         with (
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
                 "app.processing.embeddings.service.generate_embeddings_batch",
                 new_callable=AsyncMock,
             ) as mock_gen,
             patch(
-                "app.processing.embeddings.service.resolve_embedding_base_url",
+                "app.processing.embeddings.service.resolve_live_embedding_config",
                 new_callable=AsyncMock,
-                return_value="https://api.openai.com/v1",
+                return_value=_RESOLVED,
             ),
         ):
             mock_ai.get = AsyncMock(return_value=True)
-            mock_model.get = AsyncMock(return_value="text-embedding-3-small")
             mock_gen.side_effect = EmbeddingUnavailableError("No API key")
 
             result = await generate_and_store_embedding(
@@ -423,19 +427,17 @@ class TestGenerateAndStoreEmbedding:
 
         with (
             patch("app.processing.embeddings.service.AI_ENABLED") as mock_ai,
-            patch("app.processing.embeddings.service.EMBEDDING_MODEL") as mock_model,
             patch(
                 "app.processing.embeddings.service.generate_embeddings_batch",
                 new_callable=AsyncMock,
             ) as mock_gen,
             patch(
-                "app.processing.embeddings.service.resolve_embedding_base_url",
+                "app.processing.embeddings.service.resolve_live_embedding_config",
                 new_callable=AsyncMock,
-                return_value="https://api.openai.com/v1",
+                return_value=_RESOLVED,
             ),
         ):
             mock_ai.get = AsyncMock(return_value=True)
-            mock_model.get = AsyncMock(return_value="text-embedding-3-small")
             mock_gen.side_effect = RuntimeError("Connection timeout")
 
             result = await generate_and_store_embedding(

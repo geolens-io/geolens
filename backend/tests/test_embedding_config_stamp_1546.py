@@ -49,6 +49,11 @@ from tests.factories import create_dataset, get_user_id
 
 _DIMS = 1536
 _MODEL = "stamp-1546-model"
+_MODEL_AFTER = "stamp-1546-model-after"
+# The publish moves the WIDTH too. With only the model moving, the hybrid
+# (old model, new width) fingerprints identically to the old configuration and
+# the assertion below could not tell them apart.
+_DIMS_AFTER = 768
 # A second configuration differing ONLY in the endpoint. Same model name, same
 # width — which is exactly the case `model_name` cannot tell apart.
 _FOREIGN_URL = "https://embeddings-elsewhere.invalid/v1"
@@ -453,6 +458,105 @@ async def test_a_legacy_unstamped_row_stays_searchable_after_upgrade(
     assert response.status_code == 200
     titles = [f["properties"]["title"] for f in response.json()["features"]]
     assert "Zqz Stamp Legacy" in titles
+
+
+@pytest.mark.anyio
+async def test_the_ingest_pin_is_never_a_configuration_that_was_never_live(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1546 review r3, codex P2): the third writer, same relocated pair.
+
+    `generate_and_store_embedding` composed its pin from a `model_name` read at
+    the top and a dimensions/endpoint read further down. `PersistentConfig.set`
+    is explicit that committing then evicting as one step makes the WRITER
+    atomic and does nothing for a reader, so a settings publish landing between
+    those two reads pins (old model, new dimensions, new endpoint) — a triple
+    that was never live. Unlike the same mistake in a reader, this one is
+    STAMPED: the row carries a fingerprint no live configuration will ever
+    equal, so it is invisible for good while looking stamped.
+
+    The publish is driven through the real setter from inside the first
+    dimensions read, which is where the window actually is. The assertion is
+    the one that matters: whatever ends up on the row, it is the fingerprint of
+    a configuration that was really live, never a mixture of two.
+    """
+    session = test_db_session
+    user_id = await get_user_id(session, "admin")
+    dataset = await create_dataset(session, created_by=user_id, name="Ingest Pin DS")
+
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+    base_url = await resolve_embedding_base_url(session)
+    before = embedding_config_fingerprint(_MODEL, _DIMS, base_url)
+    after = embedding_config_fingerprint(_MODEL_AFTER, _DIMS_AFTER, base_url)
+    # The pairing the unfixed composition produces: the model read BEFORE the
+    # publish, the width read AFTER it. It has to be distinct from both real
+    # configurations or this test cannot see the defect.
+    hybrid = embedding_config_fingerprint(_MODEL, _DIMS_AFTER, base_url)
+    assert len({before, after, hybrid}) == 3
+
+    original_get_uncached = EMBEDDING_DIMS.get_uncached
+    published = {"done": False}
+
+    async def _publish_then_read(sess):
+        if not published["done"]:
+            published["done"] = True
+            # Lands the admin's publish through the real setter, between the
+            # model read above it and the endpoint read below it.
+            await EMBEDDING_MODEL.set(sess, _MODEL_AFTER)
+            await EMBEDDING_DIMS.set(sess, _DIMS_AFTER)
+        return await original_get_uncached(sess)
+
+    monkeypatch.setattr(EMBEDDING_DIMS, "get_uncached", _publish_then_read)
+    monkeypatch.setattr(
+        service_module, "settings", SimpleNamespace(openai_api_key="stamp-test-key")
+    )
+
+    async def _fake_batch(texts, _session, *, model, dimensions, base_url):
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(service_module, "generate_embeddings_batch", _fake_batch)
+
+    stored = await service_module.generate_and_store_embedding(
+        session=session,
+        record_id=dataset.record_id,
+        title="Ingest Pin DS",
+        summary=None,
+        keywords=None,
+        lineage=None,
+    )
+    await session.commit()
+
+    # Non-vacuity: the publish really landed.
+    assert published["done"]
+    assert await EMBEDDING_MODEL.get_uncached(session) == _MODEL_AFTER
+
+    rows = (
+        await session.execute(
+            select(
+                RecordEmbedding.model_name, RecordEmbedding.config_fingerprint
+            ).where(RecordEmbedding.record_id == dataset.record_id)
+        )
+    ).all()
+    if not stored:
+        # Declining to write is a valid outcome: two disagreeing reads mean the
+        # writer could not name one configuration, and writing nothing beats
+        # writing a triple nobody chose.
+        assert rows == []
+        return
+
+    ((model_name, fingerprint),) = rows
+    # The defect, named directly: never the pairing that was never live.
+    assert fingerprint != hybrid
+    # And what was written names a configuration that really was live, with the
+    # label agreeing with the stamp rather than coming from an earlier read.
+    assert fingerprint in {before, after}
+    expected_dims = _DIMS if fingerprint == before else _DIMS_AFTER
+    assert fingerprint == embedding_config_fingerprint(
+        model_name, expected_dims, base_url
+    )
 
 
 # ---------------------------------------------------------------------------

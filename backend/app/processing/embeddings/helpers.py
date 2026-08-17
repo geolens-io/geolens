@@ -178,6 +178,7 @@ async def resolve_live_embedding_config(
     *,
     model_name: str | None = None,
     uncached: bool = False,
+    verify: bool = False,
 ) -> tuple[str, int | None, str | None, str] | None:
     """The live (model, dimensions, endpoint, fingerprint), or None if unresolvable.
 
@@ -194,11 +195,50 @@ async def resolve_live_embedding_config(
     name the configuration cannot safely compare vectors against anything, and
     the provider call it would make next resolves through the same machinery
     and would fail too, so the honest answer is to stop rather than to guess.
+
+    fix(#1546 review r3, codex P2): ``verify`` is for callers that STAMP what
+    they resolve. The three values come from three ``get`` calls, and
+    `PersistentConfig.set` says the quiet part out loud: committing then
+    evicting as one step makes the WRITER atomic and does nothing for a reader,
+    whose separate ``get`` calls sample at different instants and can straddle
+    the whole step. Composing a pin that way can produce (old model, new
+    dimensions, new endpoint) — a triple that was never live.
+
+    For a READER that mismatch is self-correcting: it fingerprints to something
+    no stored row carries, so semantic search matches nothing and degrades to
+    FTS for one request. For a WRITER it is permanent. The row is stamped with
+    a fingerprint no live configuration will ever equal, so it is invisible for
+    good and looks stamped while being so, which is worse than the unstamped
+    rows this column was added to distinguish.
+
+    So ``verify`` resolves the set twice and requires the two to agree, and
+    writers pair it with ``uncached`` — the same two mechanisms
+    `_snapshot_embedding_config` uses in `backfill.py`, for the same reason,
+    which is what gives the ingest writer the guarantee the backfill already
+    had. One retry, because a settings publish settles: the second attempt
+    reads the new state consistently. Two inconsistent attempts answer None,
+    and the caller declines to write rather than writing a triple nobody chose.
+
+    Readers stay on the cheap path deliberately. Doubling their config reads on
+    the search hot path would buy a fallback they already have.
     """
-    resolved = await _resolve_live_embedding_config(
-        session, model_name=model_name, uncached=uncached
-    )
-    return resolved
+    for _ in range(2):
+        resolved = await _resolve_live_embedding_config(
+            session, model_name=model_name, uncached=uncached
+        )
+        if resolved is None or not verify:
+            return resolved
+        confirmation = await _resolve_live_embedding_config(
+            session, model_name=model_name, uncached=uncached
+        )
+        if confirmation == resolved:
+            return resolved
+        logger.warning(
+            "embedding_config_changed_while_being_read",
+            first=resolved[3],
+            second=None if confirmation is None else confirmation[3],
+        )
+    return None
 
 
 async def resolve_embedding_config_fingerprint(
