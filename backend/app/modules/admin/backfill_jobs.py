@@ -329,7 +329,50 @@ async def _settle(
         state.audited = True
 
 
+# Statuses that mean the question is settled: the row will not change again on
+# its own. Matches the CHECK constraint on ingest_jobs.status minus the two the
+# backfill can occupy while live.
+_TERMINAL_STATUSES = frozenset({"complete", "failed", "cancelled", "fanned_out"})
+
+
+async def _release_caller_transaction(session: AsyncSession, job_id: str) -> None:
+    """Let go of the transaction we are recovering FROM, before taking its locks.
+
+    fix(#1550 review P2): the recovery opened a fresh session while the caller's
+    transaction was still open and still holding the job row's lock — a
+    cancellation during ``session.commit()`` leaves exactly that state. The
+    recovery's UPDATE then blocked on its own caller until the 15s timeout
+    expired, after which nothing had been written and the row stayed ``running``,
+    holding the unique backfill slot until the stale sweep. You cannot take a
+    lock the thing you are recovering from is still holding.
+
+    Bounded separately from the caller's overall timeout so a wedged rollback
+    cannot consume the whole budget, and escalating to ``invalidate()`` — which
+    drops the connection rather than trying to speak to it — because a
+    connection that will not roll back will not do anything else either, and
+    dropping the socket is what actually releases the server-side lock.
+    """
+    try:
+        await asyncio.wait_for(session.rollback(), timeout=5)
+        return
+    except (
+        BaseException
+    ):  # broad: the connection may be mid-statement or gone; the fallback is the point
+        logger.warning(
+            "embedding_backfill_recovery_rollback_failed", job_id=job_id, exc_info=True
+        )
+    try:
+        await session.invalidate()
+    except BaseException:  # broad: last resort before the fresh session tries anyway
+        logger.warning(
+            "embedding_backfill_recovery_invalidate_failed",
+            job_id=job_id,
+            exc_info=True,
+        )
+
+
 async def _recover_unsettled(
+    session: AsyncSession,
     job_uuid: uuid.UUID,
     attempt_uuid: uuid.UUID,
     *,
@@ -339,25 +382,60 @@ async def _recover_unsettled(
     error_code: str,
     message: str,
 ) -> None:
-    """Finish whatever :func:`_settle` did not, on a fresh session.
+    """Finish whatever :func:`_settle` did not — by READING the row, not guessing.
 
-    A fresh session because the caller's may be mid-statement or poisoned by
-    the very failure that brought us here — a cancellation lands wherever it
-    lands, and a connection blip during the terminal UPDATE leaves the session
-    unusable for the retry.
+    fix(#1550 review P2, round 4): the previous revision decided what the
+    recovery owed from ``state.row_attempted``, an in-process flag set after
+    ``_finalize`` returned. That flag cannot describe what the database did. If
+    PostgreSQL committed the terminal ``complete`` but the acknowledgement was
+    lost — a cancellation or a dropped connection during ``commit()`` — the flag
+    stayed False, the recovery retried the fenced update, matched nothing
+    (because the row was already complete, not running), and recorded
+    ``unresolved`` over a committed success.
 
-    When the run never reached a decision (cancelled during the provider work)
-    one is made here. When it did, the decision stands: a run whose row already
-    committed ``complete`` is NOT rewritten to failed because a shutdown arrived
-    a moment later — the work is durably done and the trail must say so.
+    "My fenced update matched nothing" has two causes that demand opposite
+    audit entries: someone else settled the row, or I settled it and never heard
+    back. No flag can tell them apart. The row can, so ask it.
+
+    The rule this settles on: **the audit describes the row.** If the row's
+    terminal status is the one this run decided, the decided outcome is true of
+    it and is what gets recorded — whoever's write landed. If it differs, the
+    row belongs to someone else's decision and the entry says UNRESOLVED. That
+    covers the lost acknowledgement, the late cancellation, and the stale-sweeper
+    race with one read and no special cases.
     """
     from app.core.db import async_session
 
+    await _release_caller_transaction(session, audit_context["job_id"])
+
     if state.status is None:
         state.decide_failed(error_code=error_code, message=message)
-    async with async_session() as session:
+
+    async with async_session() as fresh:
+        observed = await fresh.get(IngestJob, job_uuid)
+        if observed is not None and observed.status in _TERMINAL_STATUSES:
+            # Settled already. Whether by this run's own committed write or by
+            # another actor, the trail must describe what the row says.
+            state.row_attempted = True
+            state.row_applied = observed.status == state.status
+            if not state.row_applied:
+                logger.warning(
+                    "embedding_backfill_recovery_row_settled_elsewhere",
+                    job_id=audit_context["job_id"],
+                    observed_status=observed.status,
+                    intended_status=state.status,
+                )
+        elif observed is None:
+            # The row is gone (retention purge, manual delete). Nothing to write
+            # and nothing to claim.
+            state.row_attempted = True
+            state.row_applied = False
+        else:
+            # Still live: the terminal write genuinely never landed, so this
+            # run still owes one.
+            state.row_attempted = False
         await _settle(
-            session,
+            fresh,
             job_uuid,
             attempt_uuid,
             metadata=metadata,
@@ -523,6 +601,7 @@ async def run_embedding_backfill(
                 await asyncio.shield(
                     asyncio.wait_for(
                         _recover_unsettled(
+                            session,
                             job_uuid,
                             attempt_uuid,
                             metadata=metadata,

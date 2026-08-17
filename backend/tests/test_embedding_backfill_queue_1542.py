@@ -1169,3 +1169,141 @@ async def test_a_late_cancellation_does_not_contradict_a_committed_success(
     )
     assert "intended_outcome" not in details
     assert details.get("error_code") != "worker_cancelled"
+
+
+# ---------------------------------------------------------------------------
+# Recovery observes the row, it does not infer from the fence (#1550 round 4)
+# ---------------------------------------------------------------------------
+#
+# In-process state cannot describe what the database did. "My fenced update
+# matched nothing" has two causes that demand opposite audit entries — someone
+# else settled the row, or I settled it and never heard back — and no flag set
+# after `_finalize` returns can tell them apart.
+
+
+@pytest.mark.anyio
+async def test_a_lost_commit_acknowledgement_is_not_read_as_failure(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The terminal write commits; the caller never hears that it did.
+
+    A cancellation or a dropped connection during `commit()` leaves the row
+    durably `complete` and the worker believing it wrote nothing. Deciding from
+    the in-process flag then retried the fenced update, matched nothing —
+    because the row is complete, not running — and recorded `unresolved` over a
+    committed success.
+    """
+    real_finalize = backfill_jobs._finalize
+    calls = {"n": 0}
+
+    async def _commits_then_loses_the_answer(*args, **kwargs):
+        # Only the first call loses its answer. A recovery that retries the
+        # write must be free to do so — whether it retries at all, and what it
+        # concludes, is the thing under test.
+        calls["n"] += 1
+        result = await real_finalize(*args, **kwargs)  # the row really commits
+        if calls["n"] == 1:
+            raise asyncio.CancelledError()  # ...the caller never learns it
+        return result
+
+    monkeypatch.setattr(backfill_jobs, "_finalize", _commits_then_loses_the_answer)
+
+    async def _worked_fine(session, *, force=False):
+        return {"processed": 6, "created": 6, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    with pytest.raises(asyncio.CancelledError):
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+
+    job = await _load_job(test_db_session, job_id)
+    # Non-vacuity: the commit genuinely landed, so there is a durable success
+    # for the trail to get wrong.
+    assert job.status == "complete", "the terminal write never committed"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
+    details = terminal[0]["details"]
+    assert details["outcome"] == "completed", (
+        f"the trail says {details['outcome']!r} about a row the database "
+        "records as complete"
+    )
+    assert "intended_outcome" not in details
+    # Reading the row also means not re-issuing a write that already landed.
+    assert calls["n"] == 1, "the recovery re-ran a terminal write it did not owe"
+
+
+@pytest.mark.anyio
+async def test_recovery_does_not_block_on_the_transaction_it_is_recovering_from(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+    monkeypatch,
+):
+    """The caller's transaction still holds the row lock when recovery starts.
+
+    A cancellation during `commit()` leaves the fenced UPDATE applied and the
+    transaction open, so the row is locked. Opening a fresh session and issuing
+    another UPDATE against that row deadlocks the recovery against its own
+    caller until the timeout — after which nothing is written and the run keeps
+    the unique slot until the stale sweep. Measured, not asserted: the recovery
+    has a 15s budget, so blocking is visible as elapsed time.
+    """
+    real_update = backfill_jobs.update_ingest_job_for_attempt
+    calls = {"n": 0}
+
+    async def _locks_the_row_then_dies(*args, **kwargs):
+        # The real UPDATE runs and takes the row lock; the transaction is then
+        # abandoned without committing, exactly as a cancelled commit leaves it.
+        # Only the FIRST call: the recovery's own write must be allowed to
+        # proceed, because whether it can is the thing being measured.
+        calls["n"] += 1
+        result = await real_update(*args, **kwargs)
+        if calls["n"] == 1:
+            raise RuntimeError("connection lost while committing")
+        return result
+
+    monkeypatch.setattr(
+        backfill_jobs, "update_ingest_job_for_attempt", _locks_the_row_then_dies
+    )
+
+    async def _worked_fine(session, *, force=False):
+        return {"processed": 3, "created": 3, "skipped": 0, "errors": 0}
+
+    monkeypatch.setattr(backfill_module, "backfill_embeddings", _worked_fine)
+
+    with patch.object(
+        admin_router, "defer_async_with_tenant", AsyncMock()
+    ) as mock_defer:
+        resp = await client.post(_FORCE_URL, headers=admin_auth_header)
+    job_id = resp.json()["job_id"]
+
+    started = time.monotonic()
+    with pytest.raises(RuntimeError):
+        await run_embedding_backfill(**mock_defer.await_args.kwargs)
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 10.0, (
+        f"recovery took {elapsed:.1f}s — it blocked on the row lock its own "
+        "caller was still holding, and only gave up at the timeout"
+    )
+    job = await _load_job(test_db_session, job_id)
+    assert job.status != "running", (
+        "the run is still holding the single active-backfill slot after the "
+        "recovery timed out against its own caller"
+    )
+    # Non-vacuity: the recovery really did have to take the lock for itself,
+    # rather than finding the work already done.
+    assert calls["n"] >= 2, "the recovery never issued its own terminal write"
+
+    terminal = await _terminal_audit_entries(client, admin_auth_header, job_id)
+    assert len(terminal) == 1, terminal
