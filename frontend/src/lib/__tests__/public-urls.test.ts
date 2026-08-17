@@ -279,6 +279,86 @@ describe('the shared PUBLIC_APP_URL shape rule', () => {
 });
 
 /**
+ * fix(#1555): which origins are loopback is part of the contract too.
+ *
+ * Both sides carried an enumerated set of three spellings, so `127.0.0.2` — a
+ * loopback address to every operating system — was classified as a routable
+ * public origin. Here that hands out a share link nobody else can open; on the
+ * backend it lets `assert_domain_lock_is_enforceable` issue a domain lock whose
+ * shell URL every recipient resolves to their own machine. The two must agree
+ * about which deployments are misconfigured, so the table is shared:
+ * `is_loopback_host` in backend/app/core/public_urls.py runs the same entries.
+ */
+describe('the shared loopback classification', () => {
+  const spec = JSON.parse(
+    readFileSync(
+      join(process.cwd(), 'src/lib/__tests__/public-app-url-shape.cases.json'),
+      'utf-8',
+    ),
+  ) as { loopback: string[]; not_loopback: string[] };
+
+  const SERVED_AT = 'https://maps.example.com';
+
+  it('has cases on both sides', () => {
+    expect(spec.loopback.length).toBeGreaterThan(0);
+    expect(spec.not_loopback.length).toBeGreaterThan(0);
+  });
+
+  it.each(spec.loopback)(
+    '%j is not handed out while the browser is on a real hostname',
+    (value) => {
+      expect(resolvePublicAppUrl({ public_app_url: value }, SERVED_AT).kind).toBe(
+        'loopback-default',
+      );
+      expect(getPublicAppBaseUrl({ public_app_url: value }, SERVED_AT)).toBeNull();
+      expect(getShareableBaseUrl({ public_app_url: value }, SERVED_AT)).toBe(SERVED_AT);
+    },
+  );
+
+  // The counterfactual. Without it, calling everything loopback passes the
+  // block above while refusing every correctly configured deployment;
+  // 126.255.255.255 and 128.0.0.1 sit either side of 127.0.0.0/8.
+  it.each(spec.not_loopback)('%j is an ordinary public origin', (value) => {
+    expect(resolvePublicAppUrl({ public_app_url: value }, SERVED_AT).kind).toBe(
+      'trusted',
+    );
+  });
+
+  it('still trusts a loopback value on a genuine localhost install', () => {
+    expect(
+      resolvePublicAppUrl({ public_app_url: 'http://127.0.0.2:8080' }, 'http://localhost:3000'),
+    ).toEqual({ kind: 'trusted', baseUrl: 'http://127.0.0.2:8080' });
+  });
+});
+
+/**
+ * fix(#1555): an app URL that names the API base is not an app URL.
+ *
+ * The persistent-setting validator has always rejected it; the environment path
+ * did not, and `PUBLIC_APP_URL=https://maps.example.com/api` arrived here
+ * through tile-config. Every consumer appends to this value, so the copied card
+ * link became `/api/api/maps/...` and the iframe source `/api/m/...`.
+ */
+describe('an /api base is never handed out as the app URL', () => {
+  const SERVED_AT = 'https://maps.example.com';
+
+  it.each(['https://maps.example.com/api', 'https://example.com/geolens/api/'])(
+    'refuses %j',
+    (value) => {
+      expect(getPublicAppBaseUrl({ public_app_url: value }, SERVED_AT)).toBeNull();
+      // The fallback is what the operator actually gets: a link that opens.
+      expect(getShareableBaseUrl({ public_app_url: value }, SERVED_AT)).toBe(SERVED_AT);
+    },
+  );
+
+  it('leaves a path that merely starts with the same letters alone', () => {
+    expect(
+      getPublicAppBaseUrl({ public_app_url: 'https://maps.example.com/apiary' }, SERVED_AT),
+    ).toBe('https://maps.example.com/apiary');
+  });
+});
+
+/**
  * fix(#1548 review r7): a domain-locked preview must satisfy two browser rules
  * at once, and for a split-horizon deployment nothing satisfies both.
  *

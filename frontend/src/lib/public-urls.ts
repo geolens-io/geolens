@@ -1,9 +1,41 @@
 import type { TileConfig } from '@/api/settings';
 
-// Mirrors _LOCALHOST_HOSTS in backend/app/modules/embed_tokens/service.py.
-// `new URL('http://[::1]:8080').hostname` keeps the brackets that Python's
-// urlparse strips, so both spellings are listed.
-const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+/**
+ * Is a browser served from this hostname talking to its own machine?
+ *
+ * fix(#1555): this was a set of three exact spellings, mirroring a backend set
+ * of three. Loopback is a RANGE — all of `127.0.0.0/8` — so `http://127.0.0.2`
+ * was classified as a real public origin on both sides, and the deployment
+ * offered a domain lock whose shell URL every recipient resolves to their own
+ * machine. `is_loopback_host` in backend/app/core/public_urls.py states the
+ * same rule for Python, and `public-app-url-shape.cases.json` holds the two to
+ * the same answers.
+ *
+ * `*.localhost` counts: RFC 6761 §6.3 puts the whole zone on loopback and
+ * browsers resolve it there, so `http://app.localhost` is the same mistake in
+ * a subdomain.
+ *
+ * `URL.hostname` keeps the brackets on an IPv6 literal that Python's urlparse
+ * strips, so they come off here before parsing.
+ */
+function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.trim().toLowerCase().replace(/^\[|\]$/g, '');
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  // `::1` is compared exactly rather than expanded, because every caller has
+  // already been through `parseUsablePublicUrl`, which requires the host to be
+  // spelled the way this parser serializes it. `[0:0:0:0:0:0:0:1]` never
+  // reaches here — it is refused as non-canonical, on both sides. An
+  // IPv4-mapped literal cannot reach here either: that whole class is refused,
+  // because Python spells `::ffff:7f00:1` as `::ffff:127.0.0.1` and this parser
+  // spells `::ffff:127.0.0.1` as `::ffff:7f00:1`, so neither side can call the
+  // other's form canonical (see `canonical_host_error`).
+  if (host === '::1') return true;
+  const octets = host.split('.');
+  if (octets.length !== 4) return false;
+  if (!octets.every((o) => /^\d{1,3}$/.test(o) && Number(o) <= 255)) return false;
+  return octets[0] === '127';
+}
 
 /**
  * Every state `PUBLIC_APP_URL` can be in, named.
@@ -73,6 +105,18 @@ function parseUsablePublicUrl(url: string): URL | null {
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
   if (!parsed.hostname) return null;
   if (parsed.search || parsed.hash) return null;
+  // fix(#1555): NO `/api` PATH. The persistent-setting validator has always
+  // rejected an app URL that names the API base, and the environment path did
+  // not — so `PUBLIC_APP_URL=https://maps.example.com/api` arrived here through
+  // tile-config and built `/api/api/maps/...` card links and `/api/m/...`
+  // iframe sources. `is_api_base_path` (backend/app/core/public_urls.py) is now
+  // the one statement of it, and both entry points ask it.
+  //
+  // `parsed.pathname` has ALREADY resolved dot segments, so `/api/.` arrives
+  // here as `/api/` and is refused for free. That is precisely why the backend
+  // needed `_remove_dot_segments`: `urlsplit` leaves `/api/.` alone, so it used
+  // to accept a value this side rejects.
+  if (parsed.pathname.replace(/\/+$/, '').endsWith('/api')) return null;
   // fix(#1548 review r9/r10): three refusals, all on the RAW string rather than
   // on `parsed`, because this parser has already decoded and punycoded by the
   // time we could look — the raw string is the only view Python can compare
@@ -128,6 +172,16 @@ function hostIsAlreadyCanonical(url: string, parsed: URL): boolean {
     ? hostAndPort.slice(0, hostAndPort.indexOf(']') + 1)
     : hostAndPort.split(':')[0];
   if (written.endsWith('.')) return false;
+  // fix(#1555): an IPv4-MAPPED literal has no spelling both sides call
+  // canonical. This parser renders `[::ffff:127.0.0.1]` as `[::ffff:7f00:1]`
+  // and Python renders `::ffff:7f00:1` as `::ffff:127.0.0.1`, so each side
+  // calls the other's output wrong: before this, `[::ffff:192.168.1.5]` was
+  // accepted by the backend and refused here. Both refuse the class now — the
+  // plain IPv4 form is unambiguous. Tested against `parsed.hostname`, which is
+  // this parser's canonical spelling, so it catches the class rather than one
+  // spelling of it; the pattern is the mapped block `::ffff:0:0/96`, which
+  // always serializes as `::ffff:` plus exactly two hex groups.
+  if (/^\[::ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}\]$/.test(parsed.hostname)) return false;
   return written.toLowerCase() === parsed.hostname.toLowerCase();
 }
 
@@ -190,10 +244,10 @@ export function resolvePublicAppUrl(
 
   const currentIsLoopback = (() => {
     const current = parseUsablePublicUrl(currentOrigin);
-    return current !== null && LOOPBACK_HOSTS.has(current.hostname.toLowerCase());
+    return current !== null && isLoopbackHostname(current.hostname);
   })();
 
-  if (LOOPBACK_HOSTS.has(parsed.hostname.toLowerCase()) && !currentIsLoopback) {
+  if (isLoopbackHostname(parsed.hostname) && !currentIsLoopback) {
     return { kind: 'loopback-default', value: canonical };
   }
 
