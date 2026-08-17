@@ -3892,8 +3892,9 @@ async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
         # but this worker minted the stamp just now — floor at the stamp.
         (0, -1200, "hit"),
         # store clock AHEAD, on an artifact that really is stale: a future
-        # modified time is not trusted; the stamp says expired.
-        (1200, +600, "miss"),
+        # modified time is capped at the stamp plus the publish ceiling, and
+        # that is past the TTL.
+        (1500, +600, "miss"),
         # store clock AHEAD, on a fresh artifact: falls back to the stamp,
         # which is fresh.
         (0, +600, "hit"),
@@ -3916,6 +3917,10 @@ async def test_freshness_is_bounded_by_the_workers_own_clock(
     at the worker's own key stamp (it cannot precede the upload it names), and
     a modified time beyond `now` plus the jitter allowance is not trusted at
     all — the stamp answers instead.
+
+    fix(#1532 review r23): the bound is a pure function of the object — the
+    stamp as the floor, the stamp plus the publish ceiling as the cap — and
+    reads no clock of its own, so the verdict cannot go expired → fresh later.
 
     Seeded with the key stamp and the file's mtime set INDEPENDENTLY, because
     the skew IS the difference between them; `_seed_aged_artifact` deliberately
@@ -3952,3 +3957,35 @@ async def test_freshness_is_bounded_by_the_workers_own_clock(
             f"stamp {stamp_age}s old, modified {mtime_offset:+}s: a stale artifact "
             f"was served on the strength of a modified time from the future"
         )
+
+
+@pytest.mark.parametrize(
+    "modified_offset",
+    [-100_000, -1, 0, 1, 599, 600, 601, 3600, 100_000],
+)
+def test_publication_is_a_pure_function_of_the_object(modified_offset):
+    """`_published_at` reads no clock, so an artifact can only go fresh → expired.
+
+    fix(#1532 review r23): the r22 rule distrusted a modified time beyond
+    `now` plus the jitter allowance and fell back to the stamp — correct at
+    first, and then wrong: as `now` moved on, the same immutable object crossed
+    back to fresh the moment its future mtime came within reach, and stale
+    bytes were served well past the TTL on a schedule set by the store's skew.
+
+    Pinned two ways: the result sits inside `[built_at, built_at + ceiling]`
+    for any modified time, and the function's signature takes no `now` — a
+    reintroduced clock read would need a parameter this test does not pass.
+    """
+    import inspect
+
+    from app.processing.export import artifact_cache as cache
+
+    built_at = 1_700_000_000.0
+    published = cache._published_at(built_at + modified_offset, built_at)
+
+    assert built_at <= published <= built_at + cache._MAX_PUBLISH_SECONDS
+    assert published == min(max(built_at + modified_offset, built_at), built_at + 600)
+    assert "now" not in inspect.signature(cache._published_at).parameters, (
+        "the publication bound must not depend on the lookup's clock; that is "
+        "what let a future mtime resurrect an expired artifact"
+    )

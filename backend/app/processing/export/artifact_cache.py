@@ -129,6 +129,16 @@ _SWEEP_INTERVAL_SECONDS = 900
 # sibling because the newest wins.
 _CLOCK_SLACK_SECONDS = 5
 
+# fix(#1532 review r23): the longest an upload can take and still have a
+# client waiting for the response it precedes. `frontend/nginx.conf` closes the
+# request at `proxy_read_timeout 600s`, and the publish runs before the first
+# response byte, so a put that outlives this has already lost its request. It
+# is the ceiling on how far past its key stamp an artifact's publication may
+# be placed (see `_published_at`), which is what bounds a store clock running
+# ahead. Not a settings field: it restates an edge fact, and raising it widens
+# the staleness bound.
+_MAX_PUBLISH_SECONDS = 600
+
 # fix(#1532 review, internal): the ceiling on what this cache may hold.
 #
 # On the local backend `_ROOT` sits inside `settings.upload_staging_dir` — the
@@ -418,10 +428,12 @@ async def lookup(
     # must not depend on a value a backend could revise.
     #
     # The honest bound: an artifact can be up to TTL plus its own upload
-    # duration old. That is inherent rather than a compromise — bytes cannot
-    # answer before they exist, and a client pulling a ten-gigabyte export is
-    # spending that long anyway — and `tile_cache_version` in the selection key
-    # still invalidates a known mutation instantly.
+    # duration old, the upload duration capped at `_MAX_PUBLISH_SECONDS` (r23:
+    # `_published_at` bounds the store's clock by the key, both ways). That is
+    # inherent rather than a compromise — bytes cannot answer before they
+    # exist, and a client pulling a ten-gigabyte export is spending that long
+    # anyway — and `tile_cache_version` in the selection key still invalidates
+    # a known mutation instantly.
     try:
         storage = get_storage()
         modified: dict[str, float] = {}
@@ -463,7 +475,7 @@ async def lookup(
             # key's stamp, so a future one would outrank every honest sibling
             # for as long as the skew lasts. Skipping it costs a rebuild.
             continue
-        published_at = _published_at(modified.get(key, built_at), built_at, now)
+        published_at = _published_at(modified.get(key, built_at), built_at)
         if cutoff <= published_at:
             candidates.append((built_at, size, digest, key))
 
@@ -495,32 +507,38 @@ async def lookup(
     return None
 
 
-def _published_at(modified: float, built_at: float, now: float) -> float:
-    """When this artifact became readable, bounded by clocks this worker owns.
+def _published_at(modified: float, built_at: float) -> float:
+    """When this artifact became readable, bounded by the key that names it.
 
     ``modified`` is the object's ``last_modified`` and comes from the STORE's
-    clock; ``built_at`` is the key stamp and ``now`` the cutoff, both from THIS
-    worker's clock. Freshness compares them, so a skew between the two clocks
-    moves the window (fix(#1532 review r22)):
+    clock; ``built_at`` is the key stamp, from the writer's. Freshness compares
+    the result against this worker's cutoff, so a skew between the clocks moves
+    the window, and this is what bounds it (fix(#1532 review r22, then r23)):
 
-    - A store clock BEHIND the worker by more than the TTL made every artifact
+    - A store clock BEHIND the writer by more than the TTL made every artifact
       expired the moment it appeared, and every probe reconverted and uploaded
       it — the cache silently dead. Publication cannot precede the stamp the
-      worker minted before uploading, so ``built_at`` is the floor: the store's
-      answer is used when it is later, and the worker's own when it is not.
-      Worst case is the pre-r9 rule, which is a cache that works.
-    - A store clock AHEAD reports a publication this worker has not reached
-      yet. A value beyond ``now`` plus the ordinary jitter allowance is not a
-      time this worker can reason about, so it falls back to ``built_at``
-      rather than being trusted. Residual, stated: an ahead-running store
-      lengthens the window by up to its skew once this worker's clock has
-      caught up to the reported time, and by no more than the jitter allowance
-      before that. On S3 and Azure that skew is bounded by the request signing
-      window, outside which the worker could not have written at all.
+      writer minted before uploading, so ``built_at`` is the FLOOR. Worst case
+      is the pre-r9 rule, which is a cache that works.
+    - A store clock AHEAD reports a publication later than it was. The CEILING
+      is ``built_at`` plus the longest an upload can take with a client still
+      waiting: ``_MAX_PUBLISH_SECONDS``. Past that, a modified time carries no
+      information about THIS artifact — the request that produced it has
+      already been closed at the edge — so it is not trusted.
+
+    A pure function of the object, deliberately (r23). An earlier revision
+    distrusted a modified time beyond ``now`` plus the jitter allowance and
+    fell back to the stamp, which was right at first and wrong later: as
+    ``now`` moved, the same immutable object crossed from expired back to fresh
+    the moment its future mtime came within reach — stale bytes served well
+    past the TTL, on a schedule set by the skew. Nothing here reads ``now``, so
+    an artifact's verdict can only ever go fresh → expired.
+
+    Honest bound, restated: an artifact can be at most TTL plus
+    ``min(upload duration, _MAX_PUBLISH_SECONDS)`` old under honest clocks, and
+    a store clock ahead can add at most the unused part of that allowance.
     """
-    if modified > now + _CLOCK_SLACK_SECONDS:
-        return built_at
-    return max(modified, built_at)
+    return min(max(modified, built_at), built_at + _MAX_PUBLISH_SECONDS)
 
 
 async def store(
