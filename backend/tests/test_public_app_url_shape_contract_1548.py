@@ -178,13 +178,9 @@ def test_no_origin_the_spec_calls_routable_is_read_as_loopback():
         "mailto:ops@example.com",
         "file:///etc/hosts",
         "not-a-url",
-        # fix(#1555): the three spellings this issue adds. Each is a value the
-        # deployment cannot be reached at — an API base rather than the app, and
-        # two ACE labels no browser will parse — and each used to read as a
-        # configured non-loopback origin.
+        # fix(#1555): an API base is not an app URL, and this door never
+        # applied the clause the persisted one had.
         "https://maps.example.com/api",
-        "https://xn--.example",
-        "https://xn--a.example",
     ],
 )
 async def test_a_non_http_setting_cannot_authorize_a_domain_lock(
@@ -317,7 +313,6 @@ async def test_a_deployment_on_a_routable_host_still_gets_its_domain_lock(
         "https://maps.example.com/api/",
         "https://example.com/geolens/api",
         "https://192.168.1",
-        "https://xn--.example",
         # fix(#1555 review): resolve to the API base in a browser, and were
         # left alone by urlsplit, so both doors used to take them.
         "https://maps.example.com/api/.",
@@ -356,71 +351,22 @@ def test_both_entry_points_of_the_setting_refuse_the_same_values(configured):
 def test_both_entry_points_accept_a_value_a_viewer_could_reach(configured):
     """The counterfactual: neither door may refuse a working configuration.
 
-    ``/geolens`` is a sub-path deployment and ``xn--ls8h`` is an ACE label
-    browsers parse happily — a rule that rejected either would cost an operator
-    a setting that works today.
+    ``/geolens`` is a sub-path deployment and ``xn--ls8h`` is an ACE label all
+    four engines accept identically — a rule that rejected either would cost an
+    operator a setting that works today.
+
+    fix(#1555 review r4): ACE labels are otherwise absent from this file, and
+    that is the finding rather than an omission. Chromium and WebKit accept
+    every ``xn--`` label without decoding it, Firefox applies the full URL
+    Standard and refuses most of them, and Node agrees with neither, so no
+    refusal can be right for all of them. See ``canonical_host_error`` and the
+    fixture's ``_ace_note`` for the measurements.
     """
     from app.core.public_urls import is_usable_public_origin
     from app.modules.settings.schemas import validate_public_app_url
 
     assert is_usable_public_origin(configured)
     assert validate_public_app_url(configured) == configured
-
-
-@pytest.mark.parametrize(
-    ("label", "u_label", "browser_accepts", "why"),
-    [
-        # The finding: mapping leaves it alone, validity does not.
-        ("xn--a-sgn", "a‌", False, "ZWNJ outside any context RFC 5892 allows"),
-        ("xn--a-wbb", "́a", False, "begins with a combining mark"),
-        ("xn--a-ymcl5hc", "مثالa", False, "RTL label carrying an L character"),
-        ("xn--1a-ctdp0kd", "1مثالa", False, "same, behind a leading neutral"),
-        (
-            "xn--abc-55e",
-            "٠abc",
-            False,
-            "AN before the first strong char of an LTR label",
-        ),
-        # CheckJoiners ACCEPTS a joiner in context — the counterfactual that
-        # keeps the rule from being "no U+200C ever".
-        ("xn--11b2ezcw70k", "क्‍ष", True, "ZWJ after a virama"),
-        # Rules browsers switch OFF. Each of these is refused by idna.encode(),
-        # which is exactly why idna.encode() is not what this calls.
-        ("xn--ll-0ea", "l·l", True, "CONTEXTO: IDNA2008 refuses it, browsers do not"),
-        ("xn--ls8h", "💩", True, "emoji: not PVALID, still a label browsers parse"),
-        ("xn--m--mia", "má-", True, "CheckHyphens=false, so a trailing hyphen is fine"),
-        # CheckBidi as browsers actually scope it.
-        ("xn--mgbh0fb", "مثال", True, "an ordinary RTL label"),
-        ("xn--1-zmcl5hc", "1مثال", True, "direction comes from the first STRONG char"),
-        ("xn--1-ymcl5hc", "مثال1", True, "an RTL label may end in a European digit"),
-        # The mapping rule still runs first, so this pins the interaction.
-        ("xn--ss-8ka", "Āss", False, "uppercase: the remap check refuses it"),
-    ],
-)
-def test_a_decoded_label_must_also_pass_the_validity_criteria(
-    label, u_label, browser_accepts, why
-):
-    """fix(#1555 review r3): ``uts46_remap`` maps, and mapping is not validity.
-
-    ``browser_accepts`` is ``new URL('https://<label>.example')`` measured in
-    Node, not reasoned about. The ``u_label`` column is there so a reader can
-    see WHAT the label says without decoding punycode in their head, and it is
-    asserted, so a typo in the table is a failure rather than a lie.
-
-    The rows browsers ACCEPT are the load-bearing half. Reaching for
-    ``idna.encode`` would refuse ``l·l`` and ``💩`` — IDNA2008 is stricter than
-    the browser, and denying a working configuration is the failure this whole
-    function is written to avoid.
-    """
-    import codecs
-
-    from app.core.public_urls import canonical_host_error
-
-    assert codecs.decode(label[4:].encode("ascii"), "punycode") == u_label, (
-        "the table's own decoding is wrong"
-    )
-    accepted = canonical_host_error(f"{label}.example") is None
-    assert accepted is browser_accepts, why
 
 
 @pytest.mark.parametrize(

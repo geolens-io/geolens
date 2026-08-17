@@ -2,25 +2,12 @@
 
 from __future__ import annotations
 
-import codecs
 import ipaddress
 import time
-import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
-import idna
 from fastapi import Request
 
-# fix(#1555 review r3): bound at import so a breaking change in idna fails at
-# BOOT rather than as an AttributeError on some later request. These are the
-# UTS #46 §4.1 validity criteria browsers apply after mapping, and CheckJoiners
-# needs Joining_Type, which Python's unicodedata does not expose — the tables
-# are the reason to depend on the package rather than write the rule out.
-from idna.core import check_bidi as _check_bidi
-from idna.core import check_initial_combiner as _check_initial_combiner
-from idna.core import valid_contextj as _valid_contextj
-from idna.idnadata import codepoint_classes as _CODEPOINT_CLASSES
-from idna.intranges import intranges_contain as _intranges_contain
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -319,178 +306,29 @@ def canonical_host_error(host: str) -> str | None:
         return f"{host!r} has an empty label."
     if not all(c.isalnum() or c == "-" for label in labels for c in label):
         return f"{host!r} contains a character that is not valid in a hostname."
-    for label in labels:
-        if label.lower().startswith(_ACE_PREFIX):
-            problem = _ace_label_error(label)
-            if problem is not None:
-                return problem
-    return None
-
-
-_ACE_PREFIX = "xn--"
-
-# The directionality classes RFC 5893 calls STRONG. A label's direction is the
-# direction of its first strong character; see _uts46_validity_error.
-_STRONG_DIRECTIONS = frozenset({"L", "R", "AL"})
-
-
-def _uts46_validity_error(label: str) -> bool:
-    """True when a browser would reject this U-label outright.
-
-    fix(#1555 review r3): mapping is not validity. ``uts46_remap`` applies the
-    UTS #46 mapping and stops; §4.1 then imposes criteria on the RESULT, and a
-    label can survive the mapping unchanged and still be one no browser accepts.
-    ``xn--a-sgn`` decodes to ``a`` + U+200C: remapped identically, refused by
-    ``new URL()``, and therefore accepted here as a self origin that no embed
-    shell can ever present.
-
-    The criteria implemented, in the configuration the URL Standard specifies
-    (CheckHyphens=false, CheckJoiners=true, CheckBidi=true,
-    UseSTD3ASCIIRules=false, Transitional_Processing=false):
-
-    * NO LEADING COMBINING MARK.
-    * CHECKJOINERS. A CONTEXTJ code point (U+200C, U+200D) is allowed only in
-      the contexts RFC 5892 Appendix A defines. This is the one rule that
-      cannot be written from ``unicodedata``: it needs Joining_Type, which
-      Python does not expose, so it needs ``idna``'s tables.
-    * CHECKBIDI, with the caveat below.
-
-    Deliberately NOT implemented, because browsers do not apply them: hyphen
-    positions (CheckHyphens=false, so ``ma-`` and ``xn--m--mia`` are fine), DNS
-    length (VerifyDnsLength=false), and CONTEXTO. CONTEXTO especially: IDNA2008
-    would refuse the Catalan ``l·l`` (``xn--ll-0ea``) and a browser accepts it,
-    so ``idna.encode``, which applies the whole IDNA2008 protocol including the
-    PVALID table that refuses emoji, is the wrong tool here and stays unused.
-
-    THE BIDI CAVEAT, measured rather than assumed. RFC 5893 rule 1 says a
-    label's first character must be strong, and ``idna.core.check_bidi``
-    enforces that literally. ICU, and therefore every browser, instead reads the
-    direction off the first STRONG character, so ``1مثال`` (``xn--1-zmcl5hc``)
-    is accepted there and refused by the literal rule. Enforcing rule 1 would
-    deny a working configuration, which is the direction this file refuses to
-    fail in, so the check runs from the first strong character onward and rule 1
-    is left to the browser.
-
-    Scoped per label, also measured: the standard says the bidi rules apply to
-    every label of a bidi DOMAIN, but ``ex-.xn--mgbh0fb`` and
-    ``xn--m--mia.xn--mgbh0fb`` are both accepted by ``new URL()`` even though
-    their first label breaks the LTR rule and their second is Arabic. So the
-    browser judges each label on its own characters, which is exactly
-    ``check_bidi(..., check_ltr=False)``, and no cross-label state is needed.
-
-    Skipping to the first strong character leaves the characters before it
-    unjudged by rule 2, which was a real gap rather than a theoretical one: see
-    the AN clause below, added after ``xn--abc-55e`` was measured accepted here
-    and refused by ``new URL()``.
-    """
-    try:
-        _check_initial_combiner(label)
-        for position, char in enumerate(label):
-            if _intranges_contain(ord(char), _CODEPOINT_CLASSES["CONTEXTJ"]):
-                if not _valid_contextj(label, position):
-                    return True
-        strong = next(
-            (
-                index
-                for index, char in enumerate(label)
-                if unicodedata.bidirectional(char) in _STRONG_DIRECTIONS
-            ),
-            None,
-        )
-        if strong is not None:
-            _check_bidi(label[strong:])
-            # The characters skipped to find that strong one still have to obey
-            # rule 2, and only one class is disallowed for an LTR label without
-            # already being disallowed by the mapping: AN. Measured, because it
-            # was the last gap: `٠abc` (xn--abc-55e), an Arabic-Indic digit
-            # leading a Latin label, is refused by new URL() and was accepted
-            # here while this clause was a docstring paragraph instead of code.
-            if unicodedata.bidirectional(label[strong]) == "L" and any(
-                unicodedata.bidirectional(char) == "AN" for char in label[:strong]
-            ):
-                return True
-    except (idna.IDNAError, UnicodeError, ValueError):
-        return True
-    return False
-
-
-def _ace_label_error(label: str) -> str | None:
-    """None if this ``xn--`` label is one a browser will accept.
-
-    fix(#1555): ``https://xn--.example`` is ASCII, alphanumeric-and-hyphens, and
-    therefore passed the registered-name check above — so the backend read it as
-    a usable non-loopback self origin and permitted a domain lock, while
-    ``new URL()`` and every browser reject the URL outright. A token issued
-    against it is unusable from the moment it is minted, which is exactly the
-    class this rule exists for: a spelling no browser will ever present.
-
-    An A-label is what a browser SENDS, which makes it the output of UTS #46
-    mapping. So the check is: decode it, and confirm the U-label is already what
-    that mapping produces.
-
-    * the label decodes as punycode at all (``xn--0``, ``xn--x``);
-    * it decodes to something (``xn--``, whose suffix Python decodes to the
-      empty string rather than raising);
-    * the result contains a non-ASCII character (RFC 5891 §4.2.3.1 — an A-label
-      whose U-label is pure ASCII is invalid; catches ``xn--a-``);
-    * ``idna.uts46_remap`` leaves the result unchanged. This IS the mapping
-      browsers apply (non-transitional, per WHATWG), so it is not an
-      approximation of one: it raises ``InvalidCodepoint`` for a disallowed
-      character (catches ``xn--a``, which decodes to U+0080, and ``xn--a-ecp``,
-      which decodes to ``a⒈`` where U+2488 is disallowed), normalizes to NFC as
-      its second step, and case-maps in the direction the tables say rather than
-      the direction ``str.lower`` assumes;
-    * re-encoding reproduces the label (catches ``xn---``).
-
-    fix(#1555 review): the previous revision asked ``decoded == decoded.lower()``
-    instead of the remap, and that was the failure mode this function's own
-    docstring warns about — stricter than the browser. Cherokee case-maps UPWARD
-    in UTS #46: ``xn--bbe`` decodes to ``Ꮘ`` (U+13B8), which ``str.lower``
-    turns into U+AB98, so a label ``new URL()`` accepts unchanged was refused
-    here. The lowercase form is the one browsers rewrite (``xn--p09a`` remaps
-    back to ``Ꮘ`` and is therefore not what a browser sends), which is exactly
-    backwards from what ``.lower()`` assumes. Asking the real tables also
-    removes the ``.lower()``-not-``.casefold()`` special case that kept
-    ``xn--fa-hia`` working: non-transitional processing leaves ``ß`` alone.
-
-    ``idna`` is a declared backend dependency (``pyproject.toml``, ``>=3.18``
-    for the ``idna.encode`` DoS fix; this calls ``uts46_remap``, not
-    ``encode``). Its tables ARE the UTS #46 ones, which is why this is allowed
-    to be exact where #1548 refused to approximate.
-
-    Measured against ``new URL()`` in Node over 65 labels, not assumed: no false
-    rejections and no false accepts. The labels are in the shared fixture
-    (``public-app-url-shape.cases.json``, see ``_ace_note``), so the frontend —
-    which simply asks the browser — runs the same ones.
-    """
-    suffix = label[len(_ACE_PREFIX) :]
-    invalid = (
-        f"{label!r} is not a valid punycode label; browsers reject the URL "
-        "outright. An internationalized domain must be given in the exact "
-        "xn-- form the browser sends."
-    )
-    if not suffix:
-        return invalid
-    try:
-        decoded = codecs.decode(suffix.encode("ascii"), "punycode")
-    except (UnicodeError, ValueError):
-        return invalid
-    if not decoded or decoded.isascii():
-        return invalid
-    try:
-        remapped = idna.uts46_remap(decoded, std3_rules=False, transitional=False)
-    except (idna.IDNAError, UnicodeError, ValueError):
-        return invalid
-    if remapped != decoded:
-        return invalid
-    if _uts46_validity_error(decoded):
-        return invalid
-    try:
-        reencoded = codecs.encode(decoded, "punycode").decode("ascii")
-    except (UnicodeError, ValueError):
-        return invalid
-    if reencoded.lower() != suffix.lower():
-        return invalid
+    # fix(#1555 review r4): an `xn--` label is accepted here as opaque LDH, and
+    # three rounds of validating it were REMOVED, because "what a browser sends"
+    # has no single answer for these labels. Measured with Playwright, in-page
+    # `new URL('https://<host>/p').hostname`:
+    #
+    #     host                   chromium 151  firefox 153  webkit 26.5  node 26
+    #     xn--.example           ok            THROWS       ok           THROWS
+    #     xn--a-sgn.example      ok            THROWS       ok           THROWS
+    #     xn--a-0hc.example      ok            THROWS       ok           ok
+    #     ex-.xn--mgbh0fb        ok            THROWS       ok           ok
+    #     xn--fa-hia.de          ok            ok           ok           ok
+    #
+    # Chromium and WebKit do not decode or validate an all-ASCII host at all;
+    # Firefox implements the URL Standard including every RFC 5893 bidi rule;
+    # Node's parser matches neither. So any refusal we add is stricter than the
+    # two engines most viewers use, which is the direction this file exists to
+    # avoid — and no rule can satisfy Firefox and Chromium at once. 13 of the 28
+    # hosts measured were read differently by different engines, ALL of them
+    # `xn--` cases; every other rule in this module agreed across all four.
+    #
+    # This also means a Node-based test cannot stand in for a browser here: run
+    # `new URL('https://xn--.example')` in node, find it invalid, and you are
+    # reading one engine's opinion, not the web's.
     return None
 
 

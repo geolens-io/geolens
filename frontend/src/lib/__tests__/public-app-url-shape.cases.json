@@ -1,6 +1,6 @@
 {
   "_rule": "PUBLIC_APP_URL is usable only as an absolute HTTP(S) URL with a host, no query or fragment, no path naming the /api base, none of percent-encoding / backslash / non-ASCII, and a host ALREADY SPELLED THE WAY A BROWSER SERIALIZES IT. The refusals exist because the two URL parsers READ THOSE INPUTS DIFFERENTLY, and a value the two halves disagree about is the bug class itself. This file is the ONE statement of the rule; the Python and TypeScript validators are each tested against it so they cannot drift. Backend: is_usable_public_origin() in backend/app/core/public_urls.py. Frontend: parseUsablePublicUrl() in frontend/src/lib/public-urls.ts.",
-  "_scope": "SHAPE only, plus the loopback classification below. Whether a shape-valid value is TRUSTED in context is a separate question — a loopback origin is shape-valid but untrusted when the browser is elsewhere — so loopback entries appear under valid here on purpose.",
+  "_scope": "SHAPE only, plus the loopback classification below. Whether a shape-valid value is TRUSTED in context is a separate question \u2014 a loopback origin is shape-valid but untrusted when the browser is elsewhere \u2014 so loopback entries appear under valid here on purpose.",
   "valid": [
     "https://maps.example.com",
     "http://maps.example.com",
@@ -17,12 +17,9 @@
     "https://ops:secret@maps.example.com",
     "https://xn--fa-hia.de",
     "https://xn--ls8h.example",
-    "https://xn--80ak6aa92e.com",
     "https://xn--bbe.example",
     "https://xn--mgbh0fb.example",
     "https://xn--ll-0ea.example",
-    "https://xn--11b2ezcw70k.example",
-    "https://xn--1-zmcl5hc.example",
     "https://xn--m--mia.example",
     "http://192.168.0.1",
     "https://MAPS.Example.com",
@@ -47,8 +44,8 @@
     "https://maps.example.com/%2Fpath",
     "http://",
     "https://",
-    "https://máp.example",
-    "https://faß.de",
+    "https://m\u00e1p.example",
+    "https://fa\u00df.de",
     "https://maps.example.com\\@evil.com",
     "https://maps.example.com\\.evil.com",
     "https:\\\\maps.example.com",
@@ -68,25 +65,9 @@
     "https://maps.example.com/api/./",
     "https://maps.example.com/foo/../api/.",
     "https://maps.example.com/api/%2e",
-    "https://maps.example.com/api/%2E/",
-    "https://xn--.example",
-    "https://xn---.example",
-    "https://xn--a.example",
-    "https://xn--a-.example",
-    "https://xn--x.example",
-    "https://xn--0.example",
-    "https://xn--w-uia.example",
-    "https://xn--a-ecp.example",
-    "https://xn--p09a.example",
-    "https://xn--a-sgn.example",
-    "https://xn--a-wbb.example",
-    "https://xn--a-ymcl5hc.example",
-    "https://xn--1a-ctdp0kd.example",
-    "https://xn--abc-55e.example",
-    "https://xn--ss-8ka.example",
-    "https://sub.xn--.example"
+    "https://maps.example.com/api/%2E/"
   ],
-  "_canonical_note": "canonical_origin maps a path-less configured value to the spelling a BROWSER presents, which is the string both sides must compare against: lowercased host, no userinfo, default port dropped. Backend: _normalize_origin(). Frontend: new URL(x).origin. A value and an origin that name the same place but spell it differently never match. Hosts here are already ASCII — see _idn_note for why no IDNA conversion appears.",
+  "_canonical_note": "canonical_origin maps a path-less configured value to the spelling a BROWSER presents, which is the string both sides must compare against: lowercased host, no userinfo, default port dropped. Backend: _normalize_origin(). Frontend: new URL(x).origin. A value and an origin that name the same place but spell it differently never match. Hosts here are already ASCII \u2014 see _idn_note for why no IDNA conversion appears.",
   "canonical_origin": {
     "https://maps.example.com": "https://maps.example.com",
     "https://MAPS.Example.com": "https://maps.example.com",
@@ -102,7 +83,7 @@
     "http://[2001:db8::1]": "http://[2001:db8::1]"
   },
   "_api_path_note": "The /api rule is asked of the path a BROWSER RESOLVES, not the one the parser was handed. https://maps.example.com/api/. and /foo/../api/. are left untouched by Python's urlsplit and normalized to /api/ by every browser, so both backend doors accepted them while the frontend, reading the already-resolved URL.pathname, refused. The backend implements RFC 3986 remove_dot_segments plus the URL Standard's %2e equivalences (_remove_dot_segments); this side gets it free from new URL(). Measured against Node over 34 paths: the resolved paths agree everywhere except a path-less URL, where a browser supplies / and the normalizer leaves the empty string alone, and the /api classification agrees on all 34. The %2e entries are refused by BOTH sides today on the percent-encoding clause several steps earlier, so they pin the answer rather than the normalizer; the normalizer's own %2e handling is pinned by a direct unit test instead. /api/.. and /apiary/. sit under valid as the counterfactual: dot segments that resolve AWAY from an API base must not be refused.",
-  "_loopback_note": "Loopback is a RANGE, not a list of three spellings. A configured origin inside it is one only the machine running the browser can reach, so a deployment offering a domain lock from there issues a token whose shell URL every recipient resolves to their own machine — which is why the classification is part of this contract rather than each side's private opinion. Backend: is_loopback_host() in backend/app/core/public_urls.py, reached through _is_localhost_origin() in the embed service. Frontend: isLoopbackHostname() in frontend/src/lib/public-urls.ts, reached through resolvePublicAppUrl's loopback-default state. Every entry below is SHAPE-VALID, so both sides actually get as far as asking. *.localhost counts (RFC 6761 §6.3); 126/8 and 128/8 do not, and are here as the range's edges.",
+  "_loopback_note": "Loopback is a RANGE, not a list of three spellings. A configured origin inside it is one only the machine running the browser can reach, so a deployment offering a domain lock from there issues a token whose shell URL every recipient resolves to their own machine \u2014 which is why the classification is part of this contract rather than each side's private opinion. Backend: is_loopback_host() in backend/app/core/public_urls.py, reached through _is_localhost_origin() in the embed service. Frontend: isLoopbackHostname() in frontend/src/lib/public-urls.ts, reached through resolvePublicAppUrl's loopback-default state. Every entry below is SHAPE-VALID, so both sides actually get as far as asking. *.localhost counts (RFC 6761 \u00a76.3); 126/8 and 128/8 do not, and are here as the range's edges.",
   "loopback": [
     "http://localhost:8080",
     "http://LOCALHOST:8080",
@@ -121,7 +102,7 @@
     "http://192.168.0.1",
     "http://[2001:db8::1]"
   ],
-  "_ace_note": "The xn-- entries under invalid are labels new URL() rejects outright, so no browser can ever present them and a domain lock issued against one is unusable the moment it is minted. The backend cannot ask a browser, so _ace_label_error asks the same tables the browser uses: the label decodes as punycode, decodes to something, contains a non-ASCII character, survives idna.uts46_remap(std3_rules=False, transitional=False) unchanged, and re-encodes to itself. uts46_remap IS the WHATWG/UTS #46 mapping, not an approximation of it, which is what lets this side be exact where #1548 refused to guess. Mapping is not validity, so the decoded label also has to satisfy UTS #46 §4.1 as the URL Standard configures it: no leading combining mark, CheckJoiners (a CONTEXTJ code point only in the contexts RFC 5892 allows), and CheckBidi. xn--a-sgn is the case that proved this necessary: it decodes to 'a' + U+200C, remaps unchanged, and new URL() refuses it. NOT implemented, because browsers do not apply them: hyphen positions (xn--m--mia is valid), DNS length, and CONTEXTO — IDNA2008 would refuse the Catalan l·l (xn--ll-0ea) that browsers accept, which is why idna.encode() is the wrong tool and stays unused. CheckBidi has two measured deviations from a literal reading of RFC 5893, both in the direction of accepting what browsers accept: the direction of a label is read off its first STRONG character (so xn--1-zmcl5hc, a digit followed by Arabic, is VALID), and the rules are judged per label rather than across a bidi domain (ex-.xn--mgbh0fb and xn--m--mia.xn--mgbh0fb are both accepted by new URL()). Measured against Node's new URL() over 84 labels: no false rejections and no false accepts. THE CHEROKEE PAIR IS WHY THE RULE IS THE TABLES AND NOT str.lower: xn--bbe decodes to Ꮘ (U+13B8) and is VALID, while its lowercase form xn--p09a is INVALID because UTS #46 case-maps Cherokee UPWARD and a browser therefore rewrites it. An earlier revision asked decoded == decoded.lower() and refused xn--bbe, which is the stricter-than-the-browser direction that denies a working configuration. xn--ls8h (emoji), xn--80ak6aa92e and xn--fa-hia are the rest of the counterfactual: browsers accept them, so we must too, and non-transitional processing is what keeps ß intact.",
-  "_idn_note": "An internationalized domain must be configured in its punycode (xn--) form. It is NOT translated for the operator: Python's built-in idna codec is IDNA2003 and maps faß.de to fass.de, while browsers follow WHATWG/UTS #46 and send xn--fa-hia.de. A near match denies every request while looking correct, so the class is removed rather than approximated.",
-  "_host_note": "The two sides reach the same answers by DIFFERENT methods, deliberately: the frontend has a browser URL parser and compares the host as written against the host that parser produced; the backend has none and must assert the rule directly (canonical_host_error). It cannot test stability under its own parser instead — 192.168.1 round-trips through urlsplit unchanged and is still read as 192.168.0.1 by every browser. Measured disagreements: 192.168.1 -> 192.168.0.1, 010.0.0.1 -> 8.0.0.1 (octal), 0x7f.1 -> 127.0.0.1 (hex), 2130706433 -> 127.0.0.1, and uncompressed IPv6 literals get compressed. Uppercase is accepted because both parsers lowercase it, so it is not a disagreement. fix(#1555): IPv4-MAPPED IPv6 literals are refused outright, by both sides, because neither can call the other's output canonical — Python spells ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser spells ::ffff:127.0.0.1 as ::ffff:7f00:1, so [::ffff:192.168.1.5] used to be accepted by the backend and rejected by the frontend. The plain IPv4 form is unambiguous."
+  "_ace_note": "ACE (xn--) LABELS ARE NOT VALIDATED, and this file deliberately contains no case that would require it. Measured with Playwright, in-page new URL('https://<host>/p').hostname:\n    host                   chromium 151  firefox 153  webkit 26.5  node 26\n    xn--.example           ok            THROWS       ok           THROWS\n    xn--a-sgn.example      ok            THROWS       ok           THROWS\n    xn--a-0hc.example      ok            THROWS       ok           ok\n    ex-.xn--mgbh0fb        ok            THROWS       ok           ok\n    xn--fa-hia.de          ok            ok           ok           ok\nChromium and WebKit do not decode or validate an all-ASCII host at all, so every xn-- label is accepted as opaque LDH; Firefox implements the URL Standard including all six RFC 5893 bidi rules; Node's parser matches neither. 13 of the 28 hosts measured were read differently by different engines, every one of them an xn-- case. So 'the spelling a browser sends' is not a single answer for these labels and cannot be a cross-side contract: any refusal would be stricter than the two engines most viewers use, which is the failure direction this whole rule exists to avoid. The xn-- entries that remain under valid are the ones ALL FOUR engines accept identically. Note for whoever reads this next: the TypeScript half of the contract runs on Node's parser, so it cannot stand in for Chromium or WebKit here \u2014 finding xn--.example 'invalid' in node is one engine's opinion, not the web's.",
+  "_idn_note": "An internationalized domain must be configured in its punycode (xn--) form. It is NOT translated for the operator: Python's built-in idna codec is IDNA2003 and maps fa\u00df.de to fass.de, while browsers follow WHATWG/UTS #46 and send xn--fa-hia.de. A near match denies every request while looking correct, so the class is removed rather than approximated.",
+  "_host_note": "The two sides reach the same answers by DIFFERENT methods, deliberately: the frontend has a browser URL parser and compares the host as written against the host that parser produced; the backend has none and must assert the rule directly (canonical_host_error). It cannot test stability under its own parser instead \u2014 192.168.1 round-trips through urlsplit unchanged and is still read as 192.168.0.1 by every browser. Measured disagreements: 192.168.1 -> 192.168.0.1, 010.0.0.1 -> 8.0.0.1 (octal), 0x7f.1 -> 127.0.0.1 (hex), 2130706433 -> 127.0.0.1, and uncompressed IPv6 literals get compressed. Uppercase is accepted because both parsers lowercase it, so it is not a disagreement. fix(#1555): IPv4-MAPPED IPv6 literals are refused outright, by both sides, because neither can call the other's output canonical \u2014 Python spells ::ffff:7f00:1 as ::ffff:127.0.0.1 and a browser spells ::ffff:127.0.0.1 as ::ffff:7f00:1, so [::ffff:192.168.1.5] used to be accepted by the backend and rejected by the frontend. The plain IPv4 form is unambiguous."
 }
