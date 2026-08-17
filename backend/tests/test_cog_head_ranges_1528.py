@@ -27,12 +27,18 @@ or a 206 whose Content-Range does not describe the bytes in the body. Both are
 worse than the 405 they replace, because the 405 did not lie. Every length and
 every range here is checked against the real stored bytes.
 
+The review findings on the PR belong to that same class, which is why they live
+here rather than in a module of their own. The last section is the sharpest case
+of it: two 206 responses that are each individually truthful, taken from either
+side of a raster replacement, assembling into a file that is neither COG.
+
 Requirements:
   - Docker database must be running (docker compose up db)
   - Run with: set -a && source ../.env.test && set +a
               uv run pytest tests/test_cog_head_ranges_1528.py -v
 """
 
+import hashlib
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -59,8 +65,15 @@ async def _raster_dataset(
     storage_backend: str = "local",
     asset_uri: str | None = None,
     visibility: str = "public",
+    sha256: str | None = None,
 ) -> tuple[Dataset, RasterAsset]:
-    """Create a Record + Dataset + RasterAsset for the COG download route."""
+    """Create a Record + Dataset + RasterAsset for the COG download route.
+
+    ``sha256`` is the digest of the COG bytes, which real ingest always stamps
+    (``tasks_raster_common.py`` on create, ``tasks_raster_swap.py`` on replace)
+    and which fix(#1540 review P2) turns into the response ETag. It stays
+    optional because rows predating the column exist and must still download.
+    """
     admin_id = await get_user_id(session, "admin")
     record = Record(
         title=f"COG Head Ranges {uuid.uuid4().hex[:6]}",
@@ -88,6 +101,7 @@ async def _raster_dataset(
         asset_uri=asset_uri
         or f"rasters/{dataset.id}/{uuid.uuid4().hex[:8]}/src.cog.tif",
         storage_backend=storage_backend,
+        sha256=sha256,
     )
     session.add(raster_asset)
     await session.flush()
@@ -105,11 +119,49 @@ async def local_cog(test_db_session):
     rooted in the per-test staging dir, so these are real bytes on a real disk
     read back through the real provider — a range assertion here compares
     against the stored object, not against a mock's idea of it.
+
+    The row carries the digest of those exact bytes, because a real one does:
+    ingest stamps ``sha256`` from ``sha256_file`` over the converted COG. The
+    ETag assertions below would prove nothing against a row whose digest was
+    invented here.
     """
-    dataset, raster_asset = await _raster_dataset(test_db_session)
+    dataset, raster_asset = await _raster_dataset(
+        test_db_session, sha256=hashlib.sha256(_COG_BYTES).hexdigest()
+    )
     # Single-tenant: resolve_storage_key returns the logical uri unchanged.
     await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
     return dataset, raster_asset
+
+
+# A second COG for the replacement cases. Same length as `_COG_BYTES` so a
+# splice is about CONTENT rather than about the file getting shorter, and
+# byte-for-byte different at every offset (i vs 255-i never coincide), so a
+# response that silently continued across the replacement is detectable
+# wherever the client resumed.
+_REPLACEMENT_BYTES = bytes(range(255, -1, -1)) * 800
+
+
+async def _complete_a_replacement(session, raster_asset, new_bytes: bytes) -> str:
+    """Land a raster replacement, the way a finished replace job leaves it.
+
+    ``_write_swapped_fields`` (``app/processing/ingest/tasks_raster_swap.py``)
+    points the SAME asset row at a NEW storage key and restamps ``sha256`` and
+    ``size_bytes``; the dataset id, and therefore the download URL, do not move.
+    That is what makes the URL stable and its bytes not: two range requests to
+    one URL, either side of this, read two different objects.
+
+    Only the three fields the download route reads are set here. Running the
+    real job would need GDAL, a source upload and the queue — this module is
+    about what the download route does once the swap has happened.
+    """
+    new_key = f"rasters/{uuid.uuid4().hex[:8]}/replacement.cog.tif"
+    await get_storage().put(new_key, new_bytes)
+    raster_asset.asset_uri = new_key
+    raster_asset.sha256 = hashlib.sha256(new_bytes).hexdigest()
+    raster_asset.size_bytes = len(new_bytes)
+    session.add(raster_asset)
+    await session.commit()
+    return new_key
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +584,7 @@ async def test_head_cog_on_s3_is_answered_from_object_metadata(
         test_db_session,
         storage_backend="s3",
         asset_uri=f"rasters/{uuid.uuid4().hex[:8]}/src.cog.tif",
+        sha256=hashlib.sha256(_COG_BYTES).hexdigest(),
     )
     await s3_storage.put(raster_asset.asset_uri, _COG_BYTES)
 
@@ -545,6 +598,15 @@ async def test_head_cog_on_s3_is_answered_from_object_metadata(
         f"HEAD on the s3 backend returned {head.status_code} after "
         f"{len(head.history)} redirect(s); a presigned GET URL refuses HEAD, so "
         f"this route has to answer the probe itself."
+    )
+    # fix(#1540 review P2): this HEAD is the only answer an s3 deployment gets
+    # from this process — the GET redirects, and the bucket then applies its own
+    # validator to any range. A client that wants to resume safely picks the
+    # version up here or nowhere.
+    assert head.headers.get("etag") == f'"{raster_asset.sha256}"', (
+        f"the s3 HEAD carried etag={head.headers.get('etag')!r}; a probe that "
+        f"advertises Accept-Ranges without naming a version tells a resumable "
+        f"client nothing it can check its next request against."
     )
     assert head.history == [], (
         f"HEAD was answered with a redirect to "
@@ -1260,6 +1322,266 @@ async def test_range_request_does_not_read_the_whole_object(
         "A range request opened the full-object stream; the range must be read "
         "through storage.get_range()."
     )
+
+
+# ---------------------------------------------------------------------------
+# fix(#1540) review P2: a range must name the version it is a slice of
+# ---------------------------------------------------------------------------
+
+
+async def test_every_stored_bytes_response_carries_a_strong_etag(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """HEAD, the whole-object GET and the 206 all name the same version.
+
+    A response that advertises ``Accept-Ranges`` and no validator is what makes
+    the splice below possible: the client is invited to resume and given nothing
+    to resume against. All three shapes carry it because a resumable client
+    reads the ETag from whichever one it happened to start with.
+
+    Strong, not weak. ``W/`` tags are excluded from the ``If-Range`` comparison
+    by RFC 9110 section 13.1.5, so a weak tag here would be a validator that can
+    never authorize a range — worse than none, because it looks like one.
+    """
+    dataset, raster_asset = local_cog
+    expected = f'"{raster_asset.sha256}"'
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    head = await client.head(url, headers=admin_auth_header)
+    whole = await client.get(url, headers=admin_auth_header)
+    sliced = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+
+    assert sliced.status_code == 206, (
+        f"precondition: the range request should 206, got {sliced.status_code}"
+    )
+    for name, resp in (("HEAD", head), ("GET", whole), ("206", sliced)):
+        assert resp.headers.get("etag") == expected, (
+            f"the {name} response carried etag={resp.headers.get('etag')!r}, "
+            f"expected the COG's own digest {expected!r}"
+        )
+        assert not resp.headers["etag"].startswith("W/"), (
+            f"the {name} ETag is weak; If-Range never matches a weak validator, "
+            f"so a resumable client could not use it."
+        )
+
+
+async def test_the_etag_changes_when_the_cog_is_replaced(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+):
+    """A validator that survived a replacement would authorize the splice.
+
+    The dataset id does not move across a replace, so the download URL does not
+    either. The bytes behind it do. If the ETag tracked the URL rather than the
+    object, a stale ``If-Range`` would match and the range would be served from
+    the new COG at the old offsets — precisely the failure, wearing a validator.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    before = await client.head(url, headers=admin_auth_header)
+    await _complete_a_replacement(test_db_session, raster_asset, _REPLACEMENT_BYTES)
+    after = await client.head(url, headers=admin_auth_header)
+
+    assert _COG_BYTES != _REPLACEMENT_BYTES, "precondition: the two COGs differ"
+    assert before.headers.get("etag") and after.headers.get("etag"), (
+        f"both responses need a validator: {before.headers.get('etag')!r} then "
+        f"{after.headers.get('etag')!r}"
+    )
+    assert before.headers["etag"] != after.headers["etag"], (
+        f"the ETag survived a replacement ({before.headers['etag']}), so it "
+        f"identifies the URL and not the bytes."
+    )
+    assert (
+        after.headers["etag"] == f'"{hashlib.sha256(_REPLACEMENT_BYTES).hexdigest()}"'
+    )
+
+
+async def test_a_resumed_range_across_a_replacement_does_not_splice_two_cogs(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+):
+    """The failure itself: two COGs, one file, no error anywhere.
+
+    A resumable downloader reads a prefix, loses its connection, and comes back
+    for the rest. A replacement lands in between. Without a validator both
+    requests succeed with 206 and the client writes out a file that is the head
+    of the old COG and the tail of the new one — no status code ever says
+    otherwise, and the result is a raster the user treats as authoritative.
+
+    With one, the second request cannot match and RFC 9110 section 13.1.5 says
+    ignore the Range: the client gets the whole current object with 200, throws
+    away its prefix, and starts again. Slower and correct.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    first = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    assert first.status_code == 206, (
+        f"precondition: the first leg should 206, got {first.status_code}"
+    )
+    assert first.content == _COG_BYTES[:100], "precondition: the prefix is the old COG"
+    validator = first.headers["etag"]
+
+    await _complete_a_replacement(test_db_session, raster_asset, _REPLACEMENT_BYTES)
+
+    resumed = await client.get(
+        url,
+        headers={**admin_auth_header, "Range": "bytes=100-199", "If-Range": validator},
+    )
+
+    # Non-vacuous: the two COGs differ at these exact offsets, so a 206 here
+    # would be a genuinely corrupt assembly rather than a harmless one.
+    assert _COG_BYTES[100:200] != _REPLACEMENT_BYTES[100:200]
+    assert resumed.status_code == 200, (
+        f"the resumed range returned {resumed.status_code}. A 206 here hands the "
+        f"client bytes 100-199 of the REPLACEMENT to append to bytes 0-99 of the "
+        f"COG it started with, and nothing in the exchange reports a problem."
+    )
+    assert "content-range" not in resumed.headers, (
+        f"a 200 that still carries {resumed.headers.get('content-range')!r} "
+        f"describes a partial representation with a whole-object status."
+    )
+    assert resumed.content == _REPLACEMENT_BYTES, (
+        f"the client got {len(resumed.content)} bytes; ignoring the Range means "
+        f"serving the complete current representation."
+    )
+
+
+async def test_a_resumed_range_within_one_version_still_serves_206(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """The vacuity guard: If-Range must still ADMIT the ranges it should.
+
+    A fix that answered 200 to every conditional range would pass the splice
+    test above and destroy resumable downloads — the feature this PR exists to
+    add. Nothing has been replaced here, so the validator still matches and the
+    client resumes exactly as intended.
+    """
+    dataset, raster_asset = local_cog
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    resumed = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            "If-Range": f'"{raster_asset.sha256}"',
+        },
+    )
+
+    assert resumed.status_code == 206, (
+        f"a conditional range whose validator still matches returned "
+        f"{resumed.status_code}; resumable downloads are broken."
+    )
+    assert resumed.content == _COG_BYTES[100:200]
+    assert resumed.headers["content-range"] == f"bytes 100-199/{len(_COG_BYTES)}"
+
+
+async def test_a_weak_validator_never_authorizes_a_resumed_range(
+    client: AsyncClient, admin_auth_header: dict, local_cog
+):
+    """``W/"..."`` is not a match, even wrapping the right digest.
+
+    RFC 9110 section 13.1.5 evaluates If-Range with the STRONG comparison
+    function. A weak validator only promises semantic equivalence, which is not
+    enough to promise that byte 100 of one representation is byte 100 of the
+    other — the only property a resumed range depends on.
+    """
+    dataset, raster_asset = local_cog
+
+    resumed = await client.get(
+        f"/datasets/{dataset.id}/download/cog",
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=100-199",
+            "If-Range": f'W/"{raster_asset.sha256}"',
+        },
+    )
+
+    assert resumed.status_code == 200, (
+        f"a weak If-Range returned {resumed.status_code}; strong comparison "
+        f"means W/ never matches, however familiar the digest inside it looks."
+    )
+    assert resumed.content == _COG_BYTES
+
+
+async def test_a_stale_conditional_range_past_the_new_end_is_not_a_416(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, local_cog
+):
+    """Ignoring the Range means ignoring it, including its bounds.
+
+    The replacement here is SHORTER than what the client was reading, so the
+    offsets it wants no longer exist. Both answers are defensible in isolation;
+    416 is the wrong one, because the range it reports as unsatisfiable was
+    never evaluated — the validator already said this client is asking about a
+    version that is gone. Answering 416 would send it back to negotiate offsets
+    against an object it has not been told it is now reading.
+    """
+    dataset, raster_asset = local_cog
+    short = b"\x2a" * 512
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    stale = (await client.head(url, headers=admin_auth_header)).headers["etag"]
+    await _complete_a_replacement(test_db_session, raster_asset, short)
+
+    resumed = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": f"bytes=1024-{len(_COG_BYTES) - 1}",
+            "If-Range": stale,
+        },
+    )
+
+    assert resumed.status_code == 200, (
+        f"expected the whole 512-byte replacement, got {resumed.status_code} "
+        f"(416 answers a range question that the stale validator retired)."
+    )
+    assert resumed.content == short
+
+
+async def test_a_row_with_no_digest_refuses_a_conditional_range(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """Rows predating the sha256 column still download; they just cannot resume.
+
+    No digest means no validator to publish and nothing for an ``If-Range`` to
+    be compared against. The safe direction is the whole object: a server that
+    treated "I cannot check" as "it matches" would serve exactly the spliced
+    range this finding is about, on precisely the rows least likely to be
+    noticed.
+
+    An UNCONDITIONAL range still works. Legacy rows keep byte-range downloads;
+    what they lose is the guarantee across a replacement, which they never had.
+    """
+    dataset, raster_asset = await _raster_dataset(test_db_session, sha256=None)
+    await get_storage().put(raster_asset.asset_uri, _COG_BYTES)
+    url = f"/datasets/{dataset.id}/download/cog"
+
+    head = await client.head(url, headers=admin_auth_header)
+    plain = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    conditional = await client.get(
+        url,
+        headers={
+            **admin_auth_header,
+            "Range": "bytes=0-99",
+            "If-Range": '"whatever-the-client-remembers"',
+        },
+    )
+
+    assert "etag" not in head.headers, (
+        f"a row with no digest published etag={head.headers.get('etag')!r}; an "
+        f"invented validator is worse than none, it authorizes resumes it "
+        f"cannot vouch for."
+    )
+    assert plain.status_code == 206, (
+        f"an unconditional range on a legacy row returned {plain.status_code}; "
+        f"the missing digest must not cost these rows byte ranges."
+    )
+    assert conditional.status_code == 200, (
+        f"a conditional range with nothing to check against returned "
+        f"{conditional.status_code}; unverifiable must not mean honoured."
+    )
+    assert conditional.content == _COG_BYTES
 
 
 # ---------------------------------------------------------------------------

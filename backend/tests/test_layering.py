@@ -3406,7 +3406,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # head_object was worth removing: it doubled the round trips and the request
     # charges on every /vsicurl/ probe, against a design chosen for costing one,
     # and the gap between the two calls turned a deleted object into a 503.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1324,
+    #
+    # +90 for the range validator, which is what finishes the range feature rather
+    # than extending it. _cog_etag publishes the COG's own sha256 as a strong ETag
+    # on every stored-bytes response, and _range_bound_to_this_version evaluates
+    # If-Range so a range resumed across a raster replacement returns the whole
+    # current object instead of a 206 the client appends to a prefix of the COG it
+    # is no longer reading. Ranges without a validator are how two COGs become one
+    # corrupt file with no error anywhere, so the explanation is on the two helpers
+    # and at the branch. If this file grows again, the DCAT feed handlers remain
+    # the natural split.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1414,
 }
 
 

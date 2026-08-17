@@ -1152,7 +1152,7 @@ async def download_cog(
             total_bytes = await _cog_object_size(
                 storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
             )
-            return _cog_head_response(total_bytes, filename)
+            return _cog_head_response(total_bytes, filename, _cog_etag(raster_asset))
         url = storage.generate_presigned_get_url(physical_asset_key, expiration=3600)
         return RedirectResponse(url=url, status_code=302)
 
@@ -1162,7 +1162,63 @@ async def download_cog(
         physical_asset_key=physical_asset_key,
         filename=filename,
         dataset_id=dataset_id,
+        etag=_cog_etag(raster_asset),
     )
+
+
+def _cog_etag(raster_asset) -> str | None:
+    """The stored COG's own SHA-256, quoted as a STRONG entity-tag.
+
+    fix(#1540 review P2): a range response has to say which version of the
+    object it is a slice of, or a resumable client can splice two of them. The
+    stable download URL names a dataset, not a build: a replacement swaps
+    ``asset_uri`` and ``sha256`` on the same row
+    (``tasks_raster_swap.py:_write_swapped_fields``), so consecutive range GETs
+    to one URL can read different objects while every response is a 206. The
+    client assembles a prefix of the old COG and a suffix of the new one, gets
+    no error at any point, and treats the result as a raster.
+
+    ``sha256`` is the digest of the COG bytes themselves (``sha256_file`` over
+    the converted file in ``tasks_raster.py``), so it changes if and only if
+    those bytes change. That is the definition of a strong validator, and it is
+    why nothing weaker is offered: ``Last-Modified`` has one-second granularity,
+    and a replacement that lands inside the same second as its predecessor is
+    exactly the case this exists to catch.
+
+    None on rows ingested before the column was populated. A response then
+    carries no validator, and ``_range_bound_to_this_version`` refuses to honour
+    a conditional range rather than guessing — see its docstring.
+    """
+    sha = raster_asset.sha256
+    return f'"{sha}"' if sha else None
+
+
+def _range_bound_to_this_version(if_range: str | None, etag: str | None) -> bool:
+    """May this Range be served, given the client's ``If-Range`` precondition?
+
+    RFC 9110 section 13.1.5: ``If-Range`` is evaluated with the STRONG
+    comparison function, and on a mismatch the server MUST ignore the Range
+    header field — which means answering 200 with the whole representation, not
+    416 and not a 206 of the new bytes. The client throws away the prefix it
+    was resuming and starts again, which is the outcome that keeps two COGs
+    from being spliced into one file.
+
+    Three ways this returns False, all of them "cannot prove the client is
+    resuming the object it started":
+
+    - the validators differ (the usual case: a replacement landed);
+    - the client sent ``W/"..."``, which strong comparison never matches;
+    - this row has no ``sha256`` at all, so there is nothing to compare against.
+
+    An absent ``If-Range`` returns True: the client asked for a range with no
+    precondition, and RFC 9110 gives the server nothing to check it against.
+    Such a client can still splice across a replacement, and no server-side
+    change can stop it — which is why the validator has to be ON the response,
+    where a client that wants to resume safely can pick it up.
+    """
+    if if_range is None:
+        return True
+    return etag is not None and if_range.strip() == etag
 
 
 async def _cog_object_size(
@@ -1210,7 +1266,7 @@ async def _cog_object_size(
         )
 
 
-def _cog_headers(filename: str) -> dict[str, str]:
+def _cog_headers(filename: str, etag: str | None) -> dict[str, str]:
     """Headers every stored-bytes response from this route carries.
 
     fix(#1528): ``accept-ranges`` goes on all of them, including the 416 — RFC
@@ -1218,18 +1274,26 @@ def _cog_headers(filename: str) -> dict[str, str]:
     carrying it, and a client that just got a 416 is precisely the one that
     needs telling it may retry with a corrected range.
 
+    fix(#1540 review P2): ``ETag`` likewise, on the 200, the 206 and the HEAD.
+    Advertising ``Accept-Ranges`` without a validator invites exactly the
+    resumable client that can splice two COGs, and the 206 in particular is
+    useless for that client unless it can name the version its slice came from.
+
     Content-Disposition does NOT go on the 416, which is why the caller merges
     this dict rather than the 416 reusing it. That response's body is the JSON
     error, not the raster; naming it ``attachment; filename="....cog.tif"``
     would have a browser save an error document under the COG's filename.
     """
-    return {
+    headers = {
         "Accept-Ranges": "bytes",
         "Content-Disposition": get_catalog_port().safe_content_disposition(filename),
     }
+    if etag is not None:
+        headers["ETag"] = etag
+    return headers
 
 
-def _cog_head_response(total_bytes: int, filename: str) -> Response:
+def _cog_head_response(total_bytes: int, filename: str, etag: str | None) -> Response:
     """The HEAD answer: one stat, no read, a real length.
 
     A HEAD that streamed the object to learn its length would make every
@@ -1247,11 +1311,16 @@ def _cog_head_response(total_bytes: int, filename: str) -> Response:
     header for the same reason; here the real value displaces it.
     ``test_head_cog_carries_the_real_content_length`` fails if this is ever
     dropped back to the default.
+
+    The ETag matters most on THIS response: a HEAD is how a resumable client
+    learns both that ranges are available and which version it is about to
+    start reading, and it is the only answer the ``s3`` backend gets from this
+    process at all.
     """
     return Response(
         status_code=status.HTTP_200_OK,
         media_type="image/tiff",
-        headers={**_cog_headers(filename), "Content-Length": str(total_bytes)},
+        headers={**_cog_headers(filename, etag), "Content-Length": str(total_bytes)},
     )
 
 
@@ -1262,6 +1331,7 @@ async def _local_cog_response(
     physical_asset_key: str,
     filename: str,
     dataset_id: uuid.UUID,
+    etag: str | None,
 ) -> Response:
     """Serve stored COG bytes: HEAD, a byte range, or the whole object.
 
@@ -1280,12 +1350,28 @@ async def _local_cog_response(
     total_bytes = await _cog_object_size(
         storage, physical_asset_key=physical_asset_key, dataset_id=dataset_id
     )
-    cog_headers = _cog_headers(filename)
+    cog_headers = _cog_headers(filename, etag)
 
     if request.method == "HEAD":
-        return _cog_head_response(total_bytes, filename)
+        return _cog_head_response(total_bytes, filename, etag)
 
     byte_range = _parse_cog_range(request.headers.get("range"), total_bytes)
+
+    if byte_range is not None and not _range_bound_to_this_version(
+        request.headers.get("if-range"), etag
+    ):
+        # fix(#1540 review P2): the resumed range names a version this object is
+        # no longer at — a replacement landed between the client's requests.
+        # RFC 9110 section 13.1.5 says ignore the Range, so the client gets the
+        # whole current COG and 200. Before the ETag it got a 206 of the NEW
+        # bytes at the OLD offsets, appended those to the prefix it already had,
+        # and wrote out a file that is half of each: no error anywhere, and a
+        # raster it then treats as authoritative.
+        #
+        # Before the 416 check on purpose. "Ignore the Range" means ignore it,
+        # including when the stale offsets no longer fit the new object; a 416
+        # would be answering a question that is no longer being asked.
+        byte_range = None
 
     if byte_range == _RANGE_UNSATISFIABLE:
         raise HTTPException(
@@ -1296,6 +1382,10 @@ async def _local_cog_response(
                 # The size is the whole point of the 416: it is how a client
                 # that guessed at the length learns the real one and retries.
                 "Content-Range": f"bytes */{total_bytes}",
+                # And the version that size belongs to: a client that retries
+                # against a length it learned here should be able to tell if the
+                # object changed again in between.
+                **({"ETag": etag} if etag is not None else {}),
             },
         )
 
