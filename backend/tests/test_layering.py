@@ -2906,7 +2906,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # entirely and let idna.encode() (DNS syntax only, no IPv4 opinion)
     # accept "999.999.999.999." and "192.168.1." as ordinary-looking DNS
     # names. Cap 1289 -> 1307, exact.
-    "backend/app/core/config.py": 1307,
+    # PRIV-1 (Ian's own review): +68 — the numeric-last-label check now
+    # runs on the UTS46-mapped ASCII form (idna.encode's output), not the
+    # raw hostname: an ideographic full stop (U+3002, "。") has no ASCII "."
+    # for rsplit to find until mapped, and str.isdigit() is true for a
+    # fullwidth digit ("１"), so the OLD raw-hostname check both missed
+    # "999。999。999。999" (no split point) and wrongly rejected
+    # "１２７.０.０.１" (handed the un-mapped string to IPv4Address). Also
+    # added one docstring paragraph enumerating every place this check is
+    # deliberately stricter than a browser, so a future "browser accepts,
+    # we reject" report is read against that list first. Cap 1307 -> 1375,
+    # exact.
+    "backend/app/core/config.py": 1375,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

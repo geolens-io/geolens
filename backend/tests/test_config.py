@@ -873,6 +873,8 @@ class TestPrivacyUrlValidator:
             "https://﹇.com/x",
             "https://192.168.1./x",
             "https://999.999.999.999./x",
+            "https://999。999。999。999/x",
+            "https://192.168.1。/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):
@@ -920,12 +922,17 @@ class TestPrivacyUrlValidator:
         [
             "https://10.0.0.1./x",
             "https://example.com./x",
+            "https://１２７.０.０.１/x",
+            "https://例え。テスト/x",
         ],
     )
-    def test_trailing_root_dot_accepted(self, value):
-        """A single trailing DNS root dot is browser-valid and stored
-        exactly as entered, on a canonical IPv4 host (legal but pointless)
-        and on an ordinary DNS name (the common, meaningful case) alike.
+    def test_uts46_mapped_host_accepted(self, value):
+        """Browser-valid hosts that only pass because UTS46 mapping runs
+        before every other check, stored exactly as entered (never
+        rewritten to a canonical or mapped form): a single trailing DNS
+        root dot on a canonical IPv4 host and on an ordinary DNS name, a
+        fullwidth-digit IPv4 host, and an internationalized DNS name
+        written with ideographic full stops instead of ASCII dots.
         """
         s = _make_settings(privacy_url=value)
         assert s.privacy_url == value

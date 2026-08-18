@@ -183,6 +183,8 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://﹇.com/x",
         "https://192.168.1./x",
         "https://999.999.999.999./x",
+        "https://999。999。999。999/x",
+        "https://192.168.1。/x",
     ],
 )
 @pytest.mark.anyio
@@ -224,7 +226,12 @@ async def test_put_privacy_url_rejects_non_url(
     makes `hostname.rsplit(".", 1)[-1]` return an empty string, which is
     neither a digit nor "0x"-prefixed, so the ends-in-a-number check was
     skipped entirely and idna.encode() (DNS label SYNTAX only, no IPv4
-    opinion) accepted "999" and "1" as ordinary-looking labels.
+    opinion) accepted "999" and "1" as ordinary-looking labels. And the same
+    numeric-last-label host spelled with ideographic full stops (U+3002,
+    "。" instead of ".") instead of a root dot: the raw string has no ASCII
+    "." at all, so it looked like one giant label with no numeric tail --
+    only visible as ends-in-a-number AFTER UTS46 maps "。" to ".", which is
+    why that mapping now runs before this check, not after.
     """
     resp = await client.put(
         "/api/settings/",
@@ -343,16 +350,22 @@ async def test_put_privacy_url_accepts_internationalized_hosts(
     [
         "https://10.0.0.1./x",
         "https://example.com./x",
+        "https://１２７.０.０.１/x",
+        "https://例え。テスト/x",
     ],
 )
 @pytest.mark.anyio
-async def test_put_privacy_url_accepts_a_single_trailing_root_dot(
+async def test_put_privacy_url_accepts_uts46_mapped_hosts(
     client: AsyncClient, admin_auth_header: dict, value: str
 ):
-    """A single trailing DNS root dot is browser-valid and stored exactly
-    as entered, on a canonical IPv4 host (legal but pointless) and on an
-    ordinary DNS name (the common, meaningful case) alike -- neither case
-    is special-cased to strip or rewrite it.
+    """Browser-valid hosts that only pass because UTS46 mapping runs before
+    every other check, stored exactly as entered (never rewritten to a
+    canonical or mapped form). A single trailing DNS root dot: on a
+    canonical IPv4 host (legal but pointless) and on an ordinary DNS name
+    (the common, meaningful case) alike. A fullwidth-digit IPv4 host
+    ("１２７.０.０.１", which UTS46 maps to "127.0.0.1"). An internationalized
+    DNS name written with ideographic full stops instead of ASCII dots
+    ("例え。テスト", which a browser reads identically to "例え.テスト").
     """
     resp = await client.put(
         "/api/settings/",
