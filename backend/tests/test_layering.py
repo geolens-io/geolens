@@ -2347,7 +2347,30 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ETag named gzip bytes on the full download and raw bytes on every range,
     # and a client resuming the encoded representation could splice raw bytes at
     # encoded offsets. Cap 1573 -> 1593, exact.
-    "backend/app/api/main.py": 1593,
+    # fix(#1532 review r7): +15 — the periodic staging sweeper also reclaims
+    # atomic-write scratch files now. `LocalStorageProvider.put` writes through
+    # `<name>.<hex>.tmp` and renames, so a process killed mid-write leaves one
+    # under whatever prefix it was writing: COGs, originals, VRTs, map assets.
+    # This sweeper is the right home because it already walks the staging tree
+    # on a schedule and needs no `init_storage`, unlike anything storage-backed.
+    # Cap 1593 -> 1608, exact.
+    # fix(#1532 review r9): +14 — the export route stops being gzipped. #1532
+    # made it sliceable under a strong ETag naming the RAW bytes, so a
+    # compressed 200 beside a raw 206 is the splice fix(#1540) already closed
+    # for COGs.
+    # fix(#1532 review r11): +4 net. That exclusion was by MEDIA TYPE, which
+    # also silenced compression on feature GeoJSON and the admin and audit CSV
+    # streams — endpoints that serve one representation and never a range, so it
+    # bought no safety and cost real bandwidth. It is scoped to the export PATH
+    # now, through a middleware in its own module; `image/tiff` stays a
+    # media-type exclusion because there the type and the route are the same
+    # set. Cap 1622 -> 1626, exact.
+    # fix(#1532 review r14): +2 — the scratch reclaimer now rides this loop's
+    # 300 s cadence but keeps its own, so a replica walks the whole staging root
+    # once per horizon instead of every five minutes. Two lines of docstring say
+    # why the two passes on this line differ; the guard itself lives beside the
+    # function it guards, in staging.py. Cap 1626 -> 1628, exact.
+    "backend/app/api/main.py": 1628,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3625,7 +3648,30 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # licensed here at all (this path serves GET and HEAD, and the section
     # gives `*` a different answer for anything that would create a
     # representation). Cap 1656 -> 1686, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1686,
+    # fix(#1532): -97, the first time this cap has come DOWN. The byte-range
+    # parser moved to app/platform/http/ranges.py because the export download
+    # needs the same one and lives under processing/, which may not import
+    # modules/catalog/. Nothing about the parsing changed; it is the same file's
+    # worth of reasoning, now in a place both callers can reach.
+    # fix(#1532 review r1): -18 more. `_range_bound_to_this_version` followed the
+    # parser into the shared module, because the export route has to evaluate the
+    # same If-Range precondition and a second implementation of strong comparison
+    # is how the two would drift.
+    # fix(#1532 review r9): -81 more, same reason a third time. If-Match,
+    # If-None-Match and the 304 builder went to app/platform/http/ranges.py so
+    # the export download can evaluate the same preconditions against the same
+    # kind of strong ETag. Everything seven review rounds settled travelled with
+    # them; only the home changed. Cap 1686 -> 1490, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1490,
+    # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
+    # export artifact cache: everything is in the key (stamp, size, digest,
+    # nonce), freshness and reclamation read one publication bound that is a
+    # pure function of the object and clamps both clocks by the edge's request
+    # budget, publication hands a lost race its incumbent, and the sweep, the
+    # budget and the contested rule all read the same listing. Most of the
+    # length is the reasoning from twenty-nine review rounds, kept next to the
+    # rules it justifies. Cap 1020, exact.
+    "backend/app/processing/export/artifact_cache.py": 1020,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because

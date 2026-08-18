@@ -30,7 +30,9 @@ from app.processing.export.service import export_descriptor, validate_where_clau
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info
 
-PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
+# Re-exported from `ogr.py`, which owns it so `api/main.py` can read the whole
+# set of export media types without importing pyarrow (fix(#1532 review r9)).
+from app.processing.export.ogr import PARQUET_MEDIA_TYPE  # noqa: F401
 
 # Mirror router._MAX_EXPORT_FEATURES. The router skips its cap when a dataset's
 # feature_count is NULL (legacy/registered rows); the parquet path builds the

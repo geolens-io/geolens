@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import AsyncIterator, BinaryIO
@@ -69,13 +70,55 @@ class LocalStorageProvider:
         """
         dest = self._resolve_contained(key)
 
+        def _write(tmp: Path, payload: BinaryIO | bytes) -> None:
+            if isinstance(payload, bytes):
+                tmp.write_bytes(payload)
+            else:
+                with open(tmp, "wb") as out:
+                    shutil.copyfileobj(payload, out, _STREAM_CHUNK_BYTES)
+
         def _put() -> str:
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if isinstance(data, bytes):
-                dest.write_bytes(data)
-            else:
-                with open(dest, "wb") as out:
-                    shutil.copyfileobj(data, out, _STREAM_CHUNK_BYTES)
+            # fix(#1532 review r5): write beside the destination and rename into
+            # place, so the key never names a partial object. This used to open
+            # the FINAL path with "wb" and stream into it, which means an ENOSPC
+            # or a hard kill mid-copy leaves a truncated file under the name
+            # every reader resolves — and a reader has no way to tell it from a
+            # complete one.
+            #
+            # The export cache is where that surfaced (its keys carry the size,
+            # so it DETECTS the truncation and rebuilds, leaving the partial
+            # occupying the volume), but the exposure is not its own: ingest
+            # writes multi-gigabyte COGs and originals through here too, and a
+            # worker killed mid-upload left the same residue under the real key.
+            # S3 and Azure have nothing to fix — an object appears at its key
+            # only when its put completes.
+            #
+            # Same directory, so os.replace is an atomic rename rather than a
+            # cross-filesystem copy, and the temp file costs no extra space.
+            tmp = dest.with_name(f"{dest.name}.{uuid.uuid4().hex}.tmp")
+            try:
+                try:
+                    _write(tmp, data)
+                except FileNotFoundError:
+                    # fix(#1532 review r7): the directory went between the mkdir
+                    # above and opening the file. A sweeper pruning empty
+                    # directories can do that, and this write is valid — so
+                    # rebuild the path and try once rather than failing a caller
+                    # (map assets, ingest) that has no retry of its own. Once:
+                    # a second disappearance is not a race, it is a broken
+                    # volume.
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    if hasattr(data, "seek"):
+                        data.seek(0)
+                    _write(tmp, data)
+                os.replace(tmp, dest)
+            except BaseException:
+                # BaseException for the reason the caller below drains on
+                # cancellation: a cancelled write must not leave its scratch
+                # file behind either.
+                tmp.unlink(missing_ok=True)
+                raise
             return str(dest)
 
         # fix(#435 codex r2/r3/r4): drain the copy thread on cancellation so the caller
@@ -184,9 +227,55 @@ class LocalStorageProvider:
         return await asyncio.to_thread(_copy)
 
     async def delete(self, key: str) -> None:
-        """Delete a key. No error if missing."""
+        """Delete a key. No error if missing.
+
+        Deliberately does NOT remove the directories it empties (fix(#1532
+        review r7)). It did for one round, to stop caller-controlled prefixes
+        accumulating, and that made an unrelated writer's ``mkdir`` race this
+        ``rmdir`` — a map or ingest write, neither of which retries, could lose
+        its directory between creating it and opening its file. Pruning belongs
+        to whichever subsystem owns a prefix and knows when it is finished; the
+        export cache does its own in ``artifact_cache.sweep`` through
+        ``prune_empty_dirs`` below.
+        """
         path = self._resolve_contained(key)
         await asyncio.to_thread(path.unlink, True)  # missing_ok=True
+
+    async def prune_empty_dirs(self, prefix: str) -> int:
+        """Remove empty directories under ``prefix``. Returns how many went.
+
+        Offered only by this provider, and asked for by ``getattr`` rather than
+        declared on the protocol: an object store has no directories to prune,
+        so the honest answer there is not "zero" but "that question does not
+        apply".
+
+        Bottom-up, so a directory emptied by pruning its children is itself
+        collected in the same pass. Never removes ``base_dir`` or the prefix
+        root. Failures are ignored per directory — a concurrent writer creating
+        one is exactly the case this must not fight.
+        """
+        root = self._resolve_contained(prefix)
+        base = self.base_dir.resolve()
+
+        def _prune() -> int:
+            if not root.is_dir():
+                return 0
+            removed = 0
+            for directory in sorted(
+                (p for p in root.rglob("*") if p.is_dir()),
+                key=lambda p: len(p.parts),
+                reverse=True,
+            ):
+                if directory == base or directory == root:
+                    continue
+                try:
+                    directory.rmdir()
+                    removed += 1
+                except OSError:
+                    continue  # not empty, or a concurrent put just used it
+            return removed
+
+        return await asyncio.to_thread(_prune)
 
     async def exists(self, key: str) -> bool:
         """Check if a key exists."""

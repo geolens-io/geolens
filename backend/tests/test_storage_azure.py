@@ -189,27 +189,6 @@ async def test_health_check_passes(azurite_provider):
 
 
 @pytest.mark.asyncio
-async def test_get_stream_raises_not_implemented(azurite_provider):
-    """get_stream() raises NotImplementedError (SAS redirect path).
-
-    get_stream is an async generator — the NotImplementedError is raised
-    on first iteration, not on call. Mirror the s3.py pattern.
-
-    fix(#1540 review P1) found this is not merely unreached: a managed raster
-    on an Azure deployment carries ``storage_backend="local"``, so the COG
-    download route serves it here rather than redirecting, and its whole-object
-    GET calls this method. That is a pre-existing gap on ``main`` — the call
-    site predates #1528 — and it is filed rather than fixed here, because the
-    Azure SDK's chunked download needs its request behaviour measured the way
-    botocore's was. This test pins the CURRENT behaviour so the gap cannot be
-    mistaken for working; ``get_range_stream`` below is the half that is fixed.
-    """
-    with pytest.raises(NotImplementedError, match="SAS"):
-        async for _ in azurite_provider.get_stream("any_key"):
-            pass
-
-
-@pytest.mark.asyncio
 async def test_get_range_stream_round_trip(azurite_provider):
     """A window streams back byte-exact, from one download call.
 
@@ -227,6 +206,35 @@ async def test_get_range_stream_round_trip(azurite_provider):
     ]
 
     assert b"".join(chunks) == payload[1000:6000]
+
+
+@pytest.mark.asyncio
+async def test_get_stream_round_trip(azurite_provider):
+    """The whole blob streams back byte-exact from one download call.
+
+    fix(#1532 review r1): this method raised ``NotImplementedError`` behind a
+    docstring claiming the router always redirects Azure through a SAS URL. It
+    does not — fix(#1540) established that no ingest path writes
+    ``storage_backend="azure"``, so managed assets take the LOCAL branch, whose
+    whole-object GET calls this — and the cached export download added a second
+    caller. The raise landed while ``StreamingResponse`` was already consuming
+    the iterator, so the client saw a truncated body rather than an error.
+    """
+    payload = bytes(range(256)) * 4096  # 1 MiB exactly
+    key = "test/whole_stream.bin"
+    await azurite_provider.put(key, payload)
+
+    chunks = [chunk async for chunk in azurite_provider.get_stream(key)]
+
+    assert b"".join(chunks) == payload
+
+
+@pytest.mark.asyncio
+async def test_get_stream_missing_key_raises(azurite_provider):
+    """Same FileNotFoundError contract every provider normalizes to (#430 BA-24)."""
+    with pytest.raises(FileNotFoundError):
+        async for _ in azurite_provider.get_stream("nope.bin"):
+            pass
 
 
 @pytest.mark.asyncio

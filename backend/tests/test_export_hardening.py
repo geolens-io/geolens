@@ -148,6 +148,13 @@ class TestExportFileTouchedBeforeStreaming:
         os.utime call would not cover anything this check does not already
         pin more directly, and the behavioral effect (mtime freshness) is
         exercised by test_worker_exports_sweep.py's sweep-algorithm tests.
+
+        fix(#1532 review, internal): the response is a StreamingResponse over
+        the temp file now, not a FileResponse — starlette parses `Range` inside
+        the latter and answered a resuming client with a slice of a fresh
+        conversion. The invariant is unchanged and so is the reason for it: the
+        sweep still reads the temp directory's mtime, and this response still
+        streams that file for as long as the client takes.
         """
         import inspect
 
@@ -159,8 +166,11 @@ class TestExportFileTouchedBeforeStreaming:
             "streaming it, so the sweep's age clock restarts at download time"
         )
         assert src.index("os.utime(file_path, None)") < src.index(
-            "return FileResponse("
-        ), "the mtime touch must run BEFORE FileResponse is constructed, not after"
+            "artifact_response.temp_file_response("
+        ), (
+            "the mtime touch must run BEFORE the streaming response is "
+            "constructed, not after"
+        )
 
 
 # ---------------------------------------------------------------------------

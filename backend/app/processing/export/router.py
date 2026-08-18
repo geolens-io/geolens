@@ -3,8 +3,8 @@
 import os
 import re
 import shutil
+import time
 import uuid
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import FileResponse
@@ -21,11 +21,19 @@ from app.core.dependencies import get_db
 from app.core.db.tenant_schema import tenant_data_schema
 from app.core.db.tenant_session import current_tenant_var
 from app.platform.extensions import get_permission_extension, get_processing_port
+from app.platform.http.ranges import (
+    if_match_passes,
+    if_none_match_matches,
+    not_modified_response,
+)
+from app.platform.storage import get_storage
+from app.processing.export import artifact_cache, artifact_response
 from app.processing.export.ogr import ExportError, bbox_where_sql
 from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import (
     export_dataset,
     export_descriptor,
+    file_response_content_disposition,
     validate_where_clause,
 )
 from app.processing.export.where_validator import canonical_where
@@ -63,6 +71,54 @@ def _cleanup_export(path: str) -> None:
     """Remove the temporary export directory after response is sent."""
     if os.path.isdir(path):
         shutil.rmtree(path, ignore_errors=True)
+
+
+async def _emit_export_audit(
+    db: AsyncSession,
+    request: Request,
+    *,
+    user: Identity | None,
+    dataset_id: uuid.UUID,
+    format: ExportFormat,
+    target_crs: str | None,
+    bbox: str | None,
+    where: str | None,
+) -> None:
+    """Record one export download. user_id may be None for anonymous (EXP-01).
+
+    fix(#1532): one function because there are two paths that transfer bytes
+    now — the conversion path and the cache-hit path — and they must write the
+    same row. A cached read is still a download; only HEAD, which transfers
+    nothing, stays out of the log.
+
+    ``details.range`` distinguishes a tile-sized read from a full download when
+    the log is read back. A range-probing client emits a row per read, which is
+    a deliberate volume cost taken because the alternative is an audit blind
+    spot: a caller could otherwise pull a whole export in ranges and appear
+    once.
+    """
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id if user is not None else None,
+            action="dataset.export",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details={
+                "format": format,
+                "target_crs": target_crs,
+                "bbox": bbox,
+                "where": where,
+                "range": request.headers.get("range"),
+            },
+            ip_address=request.client.host if request.client else None,
+        ),
+    )
+    # The COMMIT is the caller's, on the handler, deliberately: the writing-GET
+    # tripwire in test_api_key_scope_875 reads the handler's source one level
+    # deep and classifies this route as "commits an audit row for the read". A
+    # commit buried in a helper is invisible to it, and the route silently
+    # dropped out of the classification while still writing.
 
 
 async def _count_selected_features(
@@ -141,27 +197,6 @@ async def _count_selected_features(
     return result.scalar_one()
 
 
-def _file_response_content_disposition(filename: str) -> str:
-    """Restate starlette ``FileResponse``'s Content-Disposition rule.
-
-    The GET half of this route hands ``filename=`` to ``FileResponse``, which
-    derives the header itself (``starlette/responses.py``, ``FileResponse
-    .__init__``): a quoted ``filename=`` for names that survive percent-
-    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
-    file to hand it, so the rule is restated here.
-
-    Not ``safe_content_disposition()`` from ``export/service.py``: that one
-    always appends ``filename*``, so HEAD would advertise a different header
-    than the GET delivers. ``test_head_export_content_disposition_matches_get``
-    pins the two byte-for-byte, over both branches, so a starlette change
-    fails a test instead of shipping the mismatch.
-    """
-    quoted = quote(filename)
-    if quoted != filename:
-        return f"attachment; filename*=utf-8''{quoted}"
-    return f'attachment; filename="{filename}"'
-
-
 def _head_export_response(dataset_title: str, format_key: str) -> Response:
     """fix(#1513): the HEAD half of the export route.
 
@@ -187,23 +222,22 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
     Those checks are hoisted now; the parity claim above is the narrower one
     the code actually supports.
 
-    ``Accept-Ranges: bytes`` says the endpoint serves byte ranges. It does NOT
-    say the representation is stable across requests, and here it is not: every
-    range GET re-enters this endpoint and converts the dataset again, so a
-    probing client is reading a sequence of freshly built artifacts rather than
-    slices of one (fix(#1532)). While the data is unchanged that is only
-    wasteful — the export is byte-deterministic, so consecutive conversions are
-    identical. While the data changes mid-read the sequence is incoherent, and
-    it fails LOUDLY: a spliced GeoJSON dies with ``ERROR 4: Failed to read
-    GeoJSON data`` and no output file, rather than yielding a plausible wrong
-    answer. Keeping that loud failure is a constraint on the real fix, which is
-    to serve ranges from a cached artifact.
+    ``Accept-Ranges: bytes`` says the endpoint serves byte ranges, and since
+    fix(#1532) it also says they are slices of ONE stored artifact rather than of
+    a sequence of fresh conversions. This docstring described the old behaviour
+    as current for one revision too long; what follows is what the route does
+    now.
 
-    The header stays. GDAL ranges because a size-less HEAD gives it no length,
-    not because it read this header, and the GET has advertised ``accept-ranges``
-    from starlette's ``FileResponse`` on main all along — dropping it here would
-    change nothing about the exposure and would break the size discovery this
-    HEAD depends on.
+    A range is served from the cached artifact when one exists, and a request
+    that had to build the representation answers 200 with the whole of it
+    instead — so no two responses are ever parts of different files presented as
+    parts of one. The path with no artifact at all (a storage outage, a contested
+    selection, an exhausted budget) streams the conversion whole for the same
+    reason, deliberately NOT through starlette's ``FileResponse``, which parses
+    ``Range`` itself.
+
+    The header stays and is now backed by an actual 206. GDAL ranges because a
+    size-less HEAD gives it no length, not because it read this header.
 
     Content-Length is deliberately absent. An export's length is knowable only
     after the conversion, and RFC 9110 section 9.3.2 lets a HEAD omit header
@@ -219,12 +253,12 @@ def _head_export_response(dataset_title: str, format_key: str) -> Response:
         status_code=status.HTTP_200_OK,
         media_type=media_type,
         headers={
-            "content-disposition": _file_response_content_disposition(filename),
-            # The GET this describes is a FileResponse, which serves 206 byte
-            # ranges, and this is also what lets a size-less HEAD work: vsicurl
-            # learns the length from the first range response. It promises
-            # range SERVICE, not a stable representation — see the docstring
-            # and fix(#1532).
+            "content-disposition": file_response_content_disposition(filename),
+            # The GET this describes serves 206 byte ranges off the cached
+            # artifact, and this is also what lets a size-less HEAD work:
+            # vsicurl learns the length from the first range response. On the
+            # cold path it promises range SERVICE — the first GET builds and
+            # answers whole — see the docstring and fix(#1532).
             "accept-ranges": "bytes",
         },
     )
@@ -388,9 +422,129 @@ async def export_dataset_endpoint(
             detail=f"Cannot export non-spatial dataset as {format}. Use csv format.",
         )
 
+    # 6c. fix(#1532): the cached artifact this selection would be served from,
+    # if there is a usable one.
+    #
+    # fix(#1532 review r4): resolved BEFORE the expensive work below, not after.
+    # `plan_parquet_export` introspects the live table and runs a bounded count
+    # up to a million rows, and it ran on every request including every range
+    # slice of an artifact that already existed — so a range-probing client
+    # repeated that scan per slice and kept most of the load this cache exists
+    # to remove.
+    #
+    # fix(#1532 review, internal): the ogr path's bounded COUNT moved below this
+    # for the same reason. `_count_selected_features` scans to 5,000,001 rows
+    # with the caller's WHERE on an unindexed column, and it ran on every hit
+    # too. The UNFILTERED 413 stays above, because it is a dataset-level fact
+    # that costs nothing to check and HEAD should keep answering it.
+    #
+    # Skipping those gates on a hit is safe by construction rather than by
+    # argument: an artifact only exists because an earlier request with THIS
+    # key passed every one of them and produced bytes. The key carries
+    # table_name, the dataset title and tile_cache_version, so a schema change,
+    # a replace or a feature edit all move it — a stored artifact cannot
+    # outlive the validation that produced it.
+    #
+    # The gates above stay above: access control, the raster and geometry
+    # checks, bbox and CRS parsing. Those decide whether the CALLER may have
+    # this representation, which a previous request cannot answer on their
+    # behalf.
+    selection = artifact_cache.selection_key(
+        dataset_id=dataset_id,
+        table_name=dataset.table_name,
+        dataset_title=dataset.record.title,
+        tile_cache_version=dataset.tile_cache_version,
+        format_key=str(format),
+        target_crs=target_crs,
+        bbox=bbox,
+        where=where,
+    )
+    # fix(#1532 review r3): filename and media_type are derived, not stored.
+    # `export_descriptor` answers both from the title and the format without
+    # touching the database or the filesystem, and the HEAD branch below already
+    # calls it — persisting them alongside the artifact would have been a second
+    # copy of a value cheaper to recompute than to keep consistent.
+    cached_filename, cached_media_type = export_descriptor(
+        dataset.record.title, str(format)
+    )
+    artifact = await artifact_cache.lookup(
+        dataset_id,
+        selection,
+        filename=cached_filename,
+        media_type=cached_media_type,
+    )
+
+    if artifact is not None:
+        # fix(#1532 review r9): preconditions first, in the order RFC 9110
+        # section 13.2.2 fixes — If-Match, then If-None-Match, then Range and
+        # If-Range. The artifact publishes a strong ETag, so a client CAN
+        # revalidate it, and until now one that did was answered with the whole
+        # export it already had. Both verbs, and above the HEAD return because
+        # a probe revalidates too.
+        #
+        # The same evaluation the COG route settled over seven rounds of #1540,
+        # through the shared helpers rather than a second copy.
+        if not if_match_passes(request.headers.get("if-match"), artifact.etag):
+            raise HTTPException(
+                status_code=status.HTTP_412_PRECONDITION_FAILED,
+                detail="Export has changed since the version you hold",
+                headers={"etag": artifact.etag},
+            )
+        if if_none_match_matches(request.headers.get("if-none-match"), artifact.etag):
+            return not_modified_response(artifact.etag)
+        # fix(#1532 review r4): the HEAD answer for a hit lives HERE, above the
+        # planning, not below it. Left below, every cached parquet PROBE ran the
+        # planner — which is the request a range-reading client makes first and
+        # most often.
+        if request.method == "HEAD":
+            return artifact_response.head_response(artifact)
+        # A cache hit still audits: bytes are being transferred, and the audit
+        # row is what makes a range read distinguishable from a full download
+        # when the log is read back.
+        #
+        # fix(#1532 review, internal): built first, emitted only if the response
+        # actually carries bytes. `read_response` may raise a 416 for a range
+        # that names nothing, and a `dataset.export` row for a refused request
+        # records a download that did not happen — the same reason HEAD is out
+        # of the log.
+        response = artifact_response.read_response(
+            get_storage(),
+            artifact,
+            range_header=request.headers.get("range"),
+            if_range=request.headers.get("if-range"),
+            # fix(#1532 review, internal): a contested selection — more than one
+            # distinct set of bytes fresh under this key — answers ranges with
+            # the whole representation. Two overlapping cold builders is the
+            # ordinary case, not a rare one, and a client reading in slices can
+            # otherwise be flipped from one to the other mid-sequence.
+            may_serve_range=not artifact.contested,
+        )
+        await _emit_export_audit(
+            db,
+            request,
+            user=user,
+            dataset_id=dataset_id,
+            format=format,
+            target_crs=target_crs,
+            bbox=bbox,
+            where=where,
+        )
+        await db.commit()
+        return response
+
     # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
     # datasets a filter only passes if it actually narrows the selection under
     # the cap (bounded filtered COUNT), closing the where=1=1 bypass.
+    #
+    # fix(#1532 review, internal): below the cache hit, not above it.
+    # `_count_selected_features` scans to 5,000,001 rows with the caller's WHERE
+    # on an unindexed column, and it ran on every hit — every range slice, every
+    # HEAD — for an artifact that already existed. Same argument review r4 made
+    # about the parquet planner, and the same justification: an artifact exists
+    # only because an earlier request with THIS key passed this gate and produced
+    # bytes, and the key carries table_name, the title and tile_cache_version, so
+    # a replace or a feature edit moves it. The whole block moves, the unfiltered
+    # branch included: it is cheap, but a cache hit is proof it already passed.
     #
     # Parquet is exempt here: export_parquet() runs its own bounded-count cap
     # against the LIVE-introspected columns. Running this guard for parquet too
@@ -411,6 +565,7 @@ async def export_dataset_endpoint(
                     "export with a bbox or attribute filter."
                 ),
             )
+
         selected = await _count_selected_features(
             db,
             table_name=dataset.table_name,
@@ -430,7 +585,7 @@ async def export_dataset_endpoint(
                 ),
             )
 
-    # 6c. fix(#1513, codex P2 on #1522): the remaining checks that decide the
+    # 6d. fix(#1513, codex P2 on #1522): the remaining checks that decide the
     # STATUS, hoisted above the HEAD return. These used to live inside
     # export_dataset()/export_parquet(), i.e. below it, so HEAD answered 200
     # for a filter GET rejects with 400 and for a parquet selection GET rejects
@@ -477,15 +632,68 @@ async def export_dataset_endpoint(
                 detail=str(e),
             )
 
-    # 6d. HEAD stops here — after every gate that decides the status, before
+    # 6e. HEAD stops here — after every gate that decides the status, before
     # the conversion that decides the bytes. No audit event either: nothing was
     # exported, and a `dataset.export` row for a probe would misreport who
     # downloaded what.
+    #
+    # fix(#1532): with an artifact in hand, HEAD answers a real Content-Length
+    # and the artifact's ETag. Without one it answers as before, length omitted
+    # under RFC 9110 section 9.3.2 — deliberately, because BUILDING an export to
+    # learn its length is the denial-of-service foot-gun this branch exists to
+    # avoid, and a size-less HEAD is a case GDAL already handles (it retries
+    # with a limited range GET). So a first open costs one conversion on the
+    # range GET, and every open after that gets its length for free.
+    # fix(#1532 review r21): the preconditions, against NO validator, on the
+    # cold path. Nothing has been built, so there is no entity-tag — but the
+    # resource still has a current representation (a GET is about to produce
+    # one), and whether a conditional request is honoured must not depend on
+    # whether the cache happens to be warm.
+    #
+    # `If-None-Match: *` is therefore a 304 for BOTH verbs, and for GET it is
+    # answered before the conversion: the client has said it holds some
+    # representation and wants bytes only if there is none, so building a
+    # multi-gigabyte export to tell it to keep what it has is work the answer
+    # never needed. A specific If-None-Match tag cannot match no validator and
+    # proceeds — to the build, which then evaluates it exactly.
+    #
+    # fix(#1532 review r22): in the ORDER section 13.2.2 fixes — If-Match is
+    # authoritative before If-None-Match, so a request carrying a stale
+    # specific If-Match beside `If-None-Match: *` is a 412, never a 304. HEAD
+    # holds no validator and will not build one, so a specific If-Match tag,
+    # which nothing here can verify, is refused rather than guessed — the call
+    # the shared helpers already make for a COG row with no stored digest, and
+    # the one the rebuild path makes when the file could not be hashed.
+    # (`If-Match: *` passes: the representation exists.) GET takes the
+    # wildcard shortcut only when If-Match cannot fail without a validator;
+    # otherwise it proceeds to the build, which answers both exactly and in
+    # order.
+    if_match_ok_unbuilt = if_match_passes(request.headers.get("if-match"), None)
+    if request.method == "HEAD" and not if_match_ok_unbuilt:
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="Export has changed since the version you hold",
+        )
+    if if_match_ok_unbuilt and if_none_match_matches(
+        request.headers.get("if-none-match"), None
+    ):
+        return not_modified_response(None)
     if request.method == "HEAD":
+        # Only the cold case reaches here; a hit returned above.
         return _head_export_response(dataset.record.title, format)
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.
+    #
+    # fix(#1532 review r25): the moment the conversion is about to read the
+    # data, carried into publication as the artifact's stamp. A mutation that
+    # misses `tile_cache_version` and lands DURING a long conversion makes an
+    # artifact stale at birth; stamping publication time let it age from after
+    # that, so it served for the rest of the build plus the upload plus the
+    # TTL. Stamped from here, the cache's ceiling on "publication after stamp"
+    # bounds build plus upload, and the data behind a served artifact is never
+    # older than TTL plus that ceiling.
+    snapshot_at = time.time()
     try:
         if format == ExportFormat.parquet:
             from app.processing.export.parquet import export_parquet
@@ -530,51 +738,196 @@ async def export_dataset_endpoint(
             detail="Export temporarily unavailable",
         )
 
-    # 8. Audit log. user_id may be None for anonymous exports (EXP-01).
-    # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
-    # uuid.UUID | None to match.
-    #
     # fix(#435): the export file exists from here on, but nothing owns it until the
     # FileResponse below attaches the background cleanup. An audit or commit failure
     # in between used to strand the directory on the staging volume.
     temp_dir = os.path.dirname(file_path)
+
+    # 8. fix(#1532): publish what was just built, so the next request — which
+    # for a range-probing client is moments away — is a slice of THIS object
+    # rather than a fresh conversion. Storing before the response is what makes
+    # the artifact available to the next probe; storing after would leave the
+    # burst of ranges that follows a HEAD racing the write that serves them.
+    #
+    # A store failure is not a download failure: the file is in hand and the
+    # response below still works, which is why `store` returns None instead of
+    # raising. fix(#1532 review r29): and when this request LOST the publish
+    # race, `store` returns the incumbent artifact instead, and that is what is
+    # served — not this request's own bytes — so a client interrupted here and
+    # resuming with a bare Range lands on the same representation.
+    # fix(#1532 review r3): publication runs under the same cancellation
+    # ownership as the audit step above. `store` catches Exception, and a
+    # CancelledError is a BaseException — a client disconnect or a worker
+    # shutdown during the hash, the upload or the sweep therefore propagates
+    # through an await that sits OUTSIDE any cleanup, stranding a conversion
+    # directory that can be multiple gigabytes until the four-hour orphan sweep.
+    # Repeated cancels fill the staging volume. Same distinction fix(#1550)
+    # turned on: CancelledError is not an Exception.
+    #
+    # fix(#1532 review r18): hashed HERE, before `store`, and handed in. The
+    # digest is the response's validator, and the preconditions below have to
+    # be answered from what was built whether or not it gets published — a full
+    # store, a lost race with another publisher, an outage. Evaluating them only
+    # on the stored branch (r10) left the fallback streaming a byte-identical
+    # export to a client whose `If-None-Match` named it, and ignoring a stale
+    # `If-Match` instead of refusing. A hash that fails is treated the way a
+    # store that fails is: the download still goes out, with no validator, and
+    # a specific tag against no validator is refused rather than guessed — the
+    # same call the shared helpers make for a COG row with no stored digest.
     try:
-        await audit_emit(
+        try:
+            digest, size = await artifact_cache.digest_and_size(file_path)
+        except Exception:  # broad: an unhashable file still downloads
+            digest, size = None, None
+        stored = await artifact_cache.store(
+            dataset_id,
+            selection,
+            file_path=file_path,
+            filename=filename,
+            media_type=media_type,
+            digest=digest,
+            size=size,
+            snapshot_at=snapshot_at,
+        )
+    except BaseException:
+        _cleanup_export(temp_dir)
+        raise
+    # fix(#1532 review r20): the validator comes from the PUBLISHED artifact
+    # when there is one. `store` recomputes the digest if it was handed None, so
+    # a hash that failed here and succeeded there left `etag` None beside a
+    # response advertising `stored.etag` — a matching If-Match was refused and
+    # a matching If-None-Match transferred the export it named.
+    if stored is not None:
+        etag = stored.etag
+    elif digest is not None:
+        etag = artifact_cache.strong_etag(digest)
+    else:
+        etag = None
+
+    # fix(#1532 review r10): the same preconditions the hit path evaluates.
+    # They were only on that branch, so a client whose validator matched what
+    # this request just built — the ordinary case, since the export is
+    # byte-deterministic for unchanged data — was handed the whole export it
+    # already had, and a stale If-Match got the new representation instead of a
+    # refusal. A rebuild is exactly when a client's version claim matters most.
+    # r18: on BOTH branches, from the digest of the built file.
+    if not if_match_passes(request.headers.get("if-match"), etag):
+        _cleanup_export(temp_dir)
+        raise HTTPException(
+            status_code=status.HTTP_412_PRECONDITION_FAILED,
+            detail="Export has changed since the version you hold",
+            headers={"etag": etag} if etag is not None else None,
+        )
+    if if_none_match_matches(request.headers.get("if-none-match"), etag):
+        _cleanup_export(temp_dir)
+        return not_modified_response(etag)
+
+    # 8b. Build the response BEFORE the audit row, on both branches.
+    #
+    # fix(#1532 review r17): `read_response` can still exit without a
+    # response after the preconditions above have passed — a Range that names
+    # no byte, resumed with an `If-Range` that matches what this request just
+    # built (the ordinary case, since the export is byte-deterministic), is a
+    # 416 raised as an HTTPException. Constructing the response first does two
+    # things the old order did not: the conversion directory is released on
+    # that exit (the BackgroundTask that would have taken it was never attached
+    # to anything), and the audit row is written only once a response that
+    # carries bytes exists — the same order the hit path uses, for the same
+    # reason r16 gave for moving the audit below the 412 and 304 exits.
+    #
+    # The cleanup rides the response, exactly as fix(#435) arranged it for the
+    # FileResponse this replaced. Deleting eagerly — the bytes are in storage,
+    # so it looked safe — is what an earlier revision did, and
+    # test_export_antimeridian caught it: a caller whose temp directory is not
+    # per-export loses more than the export.
+    try:
+        if stored is not None:
+            # may_serve_range=False: this request BUILT the artifact — or lost
+            # the publish race and was handed the incumbent (r29), which its
+            # client has never seen either — so it cannot know which
+            # representation the client's offsets were measured against.
+            # Ignoring the Range and answering with the whole thing is the safe
+            # half of RFC 9110 section 14.2 and is what keeps a rebuild from
+            # splicing; only a matching If-Range (r12) overrides it, because
+            # that client has named these exact bytes.
+            response = artifact_response.read_response(
+                get_storage(),
+                stored,
+                range_header=request.headers.get("range"),
+                if_range=request.headers.get("if-range"),
+                may_serve_range=False,
+                background=BackgroundTask(_cleanup_export, temp_dir),
+            )
+        else:
+            # 9. Serve the conversion itself, with background cleanup.
+            # fix(#1435 codex round 2): touch the file's mtime right before
+            # handing it to the response. sweep_orphaned_exports (periodic +
+            # boot) reads it as "most recent activity" — ogr2ogr's writes
+            # already keep it fresh while the file is being generated, but once
+            # ogr2ogr closes it the mtime freezes for the rest of a (possibly
+            # long, possibly slow-client) download. This resets the
+            # age-threshold clock to "streaming is about to begin" instead of
+            # "generation finished sometime earlier."
+            try:
+                os.utime(file_path, None)
+            except OSError:
+                pass  # best-effort freshness signal; must not block the download
+            # fix(#1532 review, internal): NOT a FileResponse. Starlette parses
+            # `Range` inside it — single and multipart, no `If-Range` needed —
+            # so this path answered a resuming client with a 206 of a fresh
+            # conversion at offsets measured against a previous one. That is
+            # #1532's defect alive on the degraded path, and the degraded path
+            # is the one that fires under load: a full store, a contested
+            # selection, an exhausted budget. It also sent an mtime ETag and a
+            # Last-Modified the artifact path never sends, so one URL disagreed
+            # with itself about which validators it has.
+            #
+            # fix(#1532 review r19): the same range inputs the stored branch
+            # gets, under the same rule — a Range is honoured only behind an
+            # If-Range naming this file's ETag, and then it is a slice of the
+            # local file rather than the whole of it on every resume.
+            response = artifact_response.temp_file_response(
+                file_path,
+                filename=filename,
+                media_type=media_type,
+                etag=etag,
+                range_header=request.headers.get("range"),
+                if_range=request.headers.get("if-range"),
+                background=BackgroundTask(_cleanup_export, temp_dir),
+            )
+    except BaseException:
+        _cleanup_export(temp_dir)
+        raise
+
+    # 8c. Audit log. user_id may be None for anonymous exports (EXP-01).
+    # The audit_logs.user_id column is nullable; AuditEvent.user_id is typed
+    # uuid.UUID | None to match.
+    #
+    # fix(#1532 review r16): BELOW the precondition exits above, not above them.
+    # It used to run before the store, so a rebuild that answered 412 or 304
+    # still recorded a `dataset.export` while the hit path deliberately does not.
+    # Whether a download appears in the audit trail then depended on whether a
+    # conditional request happened to land on a rebuild, which is invisible to
+    # the operator reading the report and not a distinction they asked for.
+    #
+    # The earlier argument for the old position was that a conversion really did
+    # run and that is what the row records. That is true and it is the weaker
+    # claim: `dataset.export` is read as "this data left the building", the two
+    # paths have to agree on what it means, and none of the responses that exit
+    # above this line carries a byte of the export.
+    try:
+        await _emit_export_audit(
             db,
-            AuditEvent(
-                user_id=user.id if user is not None else None,
-                action="dataset.export",
-                resource_type="dataset",
-                resource_id=dataset_id,
-                details={
-                    "format": format,
-                    "target_crs": target_crs,
-                    "bbox": bbox,
-                    "where": where,
-                },
-                ip_address=request.client.host if request.client else None,
-            ),
+            request,
+            user=user,
+            dataset_id=dataset_id,
+            format=format,
+            target_crs=target_crs,
+            bbox=bbox,
+            where=where,
         )
         await db.commit()
     except BaseException:
         _cleanup_export(temp_dir)
         raise
-
-    # 9. Return file with background cleanup
-    # fix(#1435 codex round 2): touch the file's mtime right before handing it
-    # to FileResponse. sweep_orphaned_exports (periodic + boot) reads it as
-    # "most recent activity" — ogr2ogr's writes already keep it fresh while
-    # the file is being generated, but once ogr2ogr closes it the mtime
-    # freezes for the rest of a (possibly long, possibly slow-client)
-    # download. This resets the age-threshold clock to "streaming is about to
-    # begin" instead of "generation finished sometime earlier."
-    try:
-        os.utime(file_path, None)
-    except OSError:
-        pass  # best-effort freshness signal; a failure here must not block the download
-    return FileResponse(
-        path=file_path,
-        filename=filename,
-        media_type=media_type,
-        background=BackgroundTask(_cleanup_export, temp_dir),
-    )
+    return response

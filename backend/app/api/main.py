@@ -39,10 +39,12 @@ from app.core.async_io import run_in_thread_draining
 from app.core.db.tenant_session import tenant_job_context
 from app.core.logging_config import setup_logging
 from app.core.tenancy import is_multi_tenant
+from app.api.no_compress_export import NoCompressionForExportMiddleware
 from app.core.runtime.staging import (
     EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
     ensure_staging_ready,
     sweep_orphaned_exports,
+    sweep_orphaned_write_scratch_occasionally,
 )
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
@@ -279,7 +281,23 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
     the periodic threshold, so it can be handed to ``run_in_thread_draining``
     (which forwards ``*args`` only — ``age_threshold_seconds`` is keyword-only
     on the wrapped function).
+
+    fix(#1532 review r7): it also reclaims atomic-write scratch files, over the
+    whole staging root rather than just ``exports/``.
+    ``LocalStorageProvider.put`` writes through ``<name>.<hex>.tmp`` and renames,
+    so a process killed mid-write leaves one behind under whatever prefix it was
+    writing — COGs, originals, VRTs, map assets. This sweeper is the right home
+    because it already walks the staging tree on a schedule and, unlike anything
+    storage-backed, needs no ``init_storage`` to run. It rides this loop's 300 s
+    cadence but keeps its own (fix(#1532 review r14)): the exports pass below
+    scans one directory, the scratch pass walks everything stored.
     """
+    scratch = sweep_orphaned_write_scratch_occasionally(
+        Path(settings.upload_staging_dir),
+        age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+    )
+    if scratch:
+        logger.info("orphaned_write_scratch_swept", removed=scratch)
     return sweep_orphaned_exports(
         exports_dir, age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
     )
@@ -993,6 +1011,23 @@ app.add_middleware(
     compresslevel=4,
     exclude_content_types=DEFAULT_EXCLUDED_CONTENT_TYPES + ("image/tiff",),
 )
+# fix(#1532 review r11): the export route is excluded by PATH, not by media
+# type. Excluding `application/geo+json` and `text/csv` app-wide — which is what
+# r9 did — also stopped compressing feature GeoJSON and the admin and audit CSV
+# streams, endpoints that serve one representation and never a range, so the
+# safety bought nothing there and the bandwidth was a straight regression.
+#
+# `image/tiff` stays a media-type exclusion because it is the right shape for
+# THAT case: the COG download is the only producer of it, so the type and the
+# route are the same set.
+#
+# Implemented by dropping gzip from the request's Accept-Encoding before
+# GZipMiddleware reads it, which is the documented way to opt a request out —
+# the alternative, a `Content-Encoding: identity` on the responses, puts a token
+# on the wire that RFC 9110 defines for Accept-Encoding rather than for
+# Content-Encoding. Added AFTER the middleware above so it wraps it: starlette
+# runs the most recently added outermost.
+app.add_middleware(NoCompressionForExportMiddleware)
 app.add_middleware(DynamicCORSMiddleware)
 
 app.include_router(api_router)

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -34,6 +36,85 @@ EXPORTS_SWEEP_AGE_SECONDS = 3600  # 1 hour
 # guaranteed, not just an unlucky restart coincidence. A wider margin keeps
 # the periodic pass catching only residue from a process that is truly gone.
 EXPORTS_PERIODIC_SWEEP_AGE_SECONDS = 4 * EXPORTS_SWEEP_AGE_SECONDS  # 4 hours
+
+
+# fix(#1532 review r7): the scratch-file pattern `LocalStorageProvider.put`
+# writes through — `<name>.<32 hex>.tmp` beside its destination. An ordinary
+# failure removes it, but a SIGKILL, an OOM or a power loss does not, and the
+# residue sits at full or partial size under whatever prefix was being written:
+# COGs, uploaded originals, VRTs, map assets. Only the export cache knew the
+# pattern and it only scans its own prefix, so everything else leaked forever
+# and repeated crashes ate the shared staging volume.
+_LOCAL_TMP_RE = re.compile(r"\.[0-9a-f]{32}\.tmp$")
+
+
+def sweep_orphaned_write_scratch(
+    root: Path,
+    *,
+    age_threshold_seconds: int = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+) -> int:
+    """Reclaim atomic-write scratch files anywhere under ``root``. Returns how many.
+
+    Aged by MTIME, which is the right signal here and not everywhere: these
+    files never move, so nothing resets it, and unlike the export cache's keys
+    they carry no timestamp of their own to read. The horizon is the periodic
+    one for the reason ``EXPORTS_PERIODIC_SWEEP_AGE_SECONDS`` documents — a
+    write still in progress must not be swept out from under itself, and a
+    multi-gigabyte COG takes as long as it takes.
+
+    Errors per entry are swallowed: a scratch file that will not stat or unlink
+    is the next pass's problem, not this one's.
+    """
+    if not root.is_dir():
+        return 0
+    cutoff = time.time() - age_threshold_seconds
+    removed = 0
+    for entry in root.rglob("*"):
+        if not _LOCAL_TMP_RE.search(entry.name):
+            continue
+        try:
+            if entry.is_file() and entry.stat().st_mtime < cutoff:
+                entry.unlink(missing_ok=True)
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
+# fix(#1532 review r14): when this process last walked the tree. Module-level and
+# per-process, exactly like `artifact_cache._last_sweep_at`; nothing coordinates
+# replicas and nothing needs to, since each is bounding its own work.
+_last_scratch_sweep_at = 0.0
+
+
+def sweep_orphaned_write_scratch_occasionally(
+    root: Path,
+    *,
+    age_threshold_seconds: int = EXPORTS_PERIODIC_SWEEP_AGE_SECONDS,
+) -> int:
+    """``sweep_orphaned_write_scratch``, at most once per horizon per process.
+
+    fix(#1532 review r14): the unguarded call rode the credential sweeper's
+    300 s cadence, so every API replica did a full recursive walk of the staging
+    root every five minutes. That root holds originals, COGs, quicklooks, VRTs
+    and map assets, so the cost is O(everything stored) and grows with the
+    catalog, while what it looks for cannot be reclaimed until it is four hours
+    old. Almost every pass was reading the whole tree to find nothing eligible.
+
+    The interval IS the horizon, taken from the same argument rather than from a
+    constant of its own, so the two cannot drift apart. The cost is retention:
+    a file that turns eligible just after a pass waits for the next one, so the
+    worst case is two horizons rather than one. That is the right trade for
+    residue from a process that has already died.
+    """
+    global _last_scratch_sweep_at
+    now = time.time()
+    if now - _last_scratch_sweep_at < age_threshold_seconds:
+        return 0
+    _last_scratch_sweep_at = now
+    return sweep_orphaned_write_scratch(
+        root, age_threshold_seconds=age_threshold_seconds
+    )
 
 
 def _latest_mtime(entry: Path) -> float:

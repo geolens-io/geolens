@@ -20,6 +20,14 @@ class ExportError(Exception):
     """Raised when an ogr2ogr export subprocess fails."""
 
 
+# fix(#1532 review r9): the parquet media type lives HERE rather than in
+# `parquet.py`, which imports pyarrow at module scope, so the format table can
+# be read without pulling pyarrow into the importer's graph for a string.
+# `parquet.py` re-exports it, so its own callers are unchanged. (r9 also
+# derived the full media-type set here for a GZipMiddleware exclusion; r11
+# scoped that opt-out to the export PATH instead, and the set went with it.)
+PARQUET_MEDIA_TYPE = "application/vnd.apache.parquet"
+
 FORMAT_MAP: dict[str, dict[str, str]] = {
     "gpkg": {
         "driver": "GPKG",

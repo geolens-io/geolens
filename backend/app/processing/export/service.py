@@ -7,22 +7,162 @@ import uuid
 import zipfile
 from urllib.parse import quote
 
+import structlog
+
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
 from app.processing.export.where_validator import validate_where_ast
 from app.core.runtime.staging import ensure_staging_ready
 
+logger = structlog.stdlib.get_logger(__name__)
+
+
+# fix(#1532 review r13): THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
+# conversions of unchanged data must produce identical bytes. #1532 keys its
+# cached artifact on the digest of those bytes, so a writer that stamps the
+# moment of conversion makes every rebuild look like a new representation: the
+# selection is permanently `contested`, and a contested selection refuses every
+# range. A format that loses this property does not fail loudly, it just stops
+# being rangeable. `test_export_artifact_cache_1532.py` pins it per format
+# against the real driver; a new format needs a row there.
+
+# The DOS epoch, the earliest a ZIP directory entry can represent. Chosen for
+# the same reason as the GeoPackage constant below: it reads as "deliberately
+# not a time" rather than as a wrong one.
+_ZIP_FIXED_DATE_TIME = (1980, 1, 1, 0, 0, 0)
+
+# Regular file, 0644. Pinned rather than copied from the member's own stat so
+# the archive cannot move with the worker's umask.
+#
+# The DEFLATE level is deliberately NOT pinned alongside these. zlib's default
+# already resolves to a fixed level, and naming that level would not buy what it
+# appears to: level 6 output can itself change between zlib releases, so the pin
+# would read as a guarantee against an upgrade while providing none. The honest
+# statement is the residual below.
+_ZIP_FIXED_EXTERNAL_ATTR = 0o100644 << 16
+
+# dBASE III header: byte 0 is the version, bytes 1..3 are the date of last
+# update as (year-1900, month, day). ogr2ogr writes TODAY, so two shapefile
+# exports of unchanged data differ across a midnight boundary. Rewritten to
+# 1970-01-01 for the reason above. Nothing reads this field — verified with
+# `ogrinfo` against a normalized file — and it is three bytes at a fixed offset,
+# so it is patched in place rather than by reopening the layer through GDAL.
+_DBF_LAST_UPDATE_OFFSET = 1
+_DBF_FIXED_LAST_UPDATE = bytes((70, 1, 1))
+
+
+def _normalize_dbf_date(path: str) -> None:
+    """Blank the dBASE last-update date so it cannot vary by build day."""
+    with open(path, "r+b") as handle:
+        handle.seek(_DBF_LAST_UPDATE_OFFSET)
+        handle.write(_DBF_FIXED_LAST_UPDATE)
+
 
 def _zip_export_files(temp_dir: str, zip_path: str) -> None:
     """DEFLATE every ``export.*`` sidecar in *temp_dir* into *zip_path*.
 
+    Byte-deterministic for unchanged data, per the rule above. Three inputs had
+    to be pinned: members are added in sorted order rather than ``os.listdir``
+    order, which is the filesystem's and is not stable across filesystems; each
+    entry carries a fixed ``date_time`` instead of the member's mtime, which is
+    the moment of conversion; and the mode and compression level are stated.
+    The ``.dbf`` member's own header date is normalized first, because pinning
+    the archive metadata would not reach a timestamp inside a member.
+
     Blocking; call via ``asyncio.to_thread``.
     """
+    members = sorted(f for f in os.listdir(temp_dir) if f.startswith("export."))
+    for fname in members:
+        if fname.endswith(".dbf"):
+            _normalize_dbf_date(os.path.join(temp_dir, fname))
+
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fname in os.listdir(temp_dir):
-            if fname.startswith("export."):
-                zf.write(os.path.join(temp_dir, fname), fname)
+        for fname in members:
+            member = os.path.join(temp_dir, fname)
+            info = zipfile.ZipInfo(fname, date_time=_ZIP_FIXED_DATE_TIME)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = _ZIP_FIXED_EXTERNAL_ATTR
+            # ZipFile.open() decides ZIP64 from `file_size` alone, which
+            # ZipFile.write() would have filled in from stat. Set here for the
+            # same reason: a multi-GB shapefile is exactly this route's payload
+            # (#435), and without it a >2 GiB member raises instead of writing.
+            info.file_size = os.path.getsize(member)
+            with open(member, "rb") as src, zf.open(info, "w") as dest:
+                # Streamed rather than read whole, for the same size reason.
+                shutil.copyfileobj(src, dest)
+
+
+# fix(#1532 review r12): the timestamp ogr2ogr stamps into every GeoPackage, and
+# the value it is rewritten to. Any constant works; the GeoPackage epoch is
+# chosen because it reads as "deliberately not a time" rather than as a wrong
+# one.
+_GPKG_FIXED_LAST_CHANGE = "1970-01-01T00:00:00.000Z"
+
+# Tables the GeoPackage spec gives a timestamp column. `gpkg_contents` is always
+# present; the metadata one only when the driver wrote metadata, so both are
+# attempted and a missing table is not an error.
+_GPKG_TIMESTAMP_COLUMNS = (
+    ("gpkg_contents", "last_change"),
+    ("gpkg_metadata_reference", "timestamp"),
+)
+
+
+def normalize_gpkg_timestamps(path: str) -> None:
+    """Make a GeoPackage byte-deterministic for unchanged data.
+
+    ogr2ogr stamps ``gpkg_contents.last_change`` with the moment of conversion,
+    so two exports of identical data differ — and #1532 builds its whole safety
+    model on the digest of the bytes. A per-build digest means every rebuild
+    looks like a DIFFERENT representation, which is exactly what
+    ``contested`` is designed to notice: under steady traffic each freshness
+    rollover added a distinct sibling while the previous one was retained for the
+    reclamation horizon, so the selection was permanently contested and every
+    range was answered with a whole 200. Ranges never worked for the default
+    export format.
+
+    Fixing the digest rather than the rule, because the rule is right: distinct
+    bytes under one selection SHOULD refuse ranges, since a slice of each spliced
+    together is a corrupt file. What was wrong was the input — GeoPackage
+    reported a change that had not happened. GeoJSON already has this property
+    (#1532 measured two conversions to one sha256); this gives it to GPKG.
+
+    Residual, stated: a selection whose data genuinely changes faster than the
+    reclamation horizon still serves whole responses under continuous traffic.
+    That is correct — those artifacts really are different — and it is slower
+    rather than wrong.
+
+    Uses stdlib sqlite3 rather than GDAL: a GeoPackage is a SQLite database, the
+    columns are spec-defined, and going through the driver to rewrite two cells
+    would mean another full open and rewrite of the file.
+    """
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        for table, column in _GPKG_TIMESTAMP_COLUMNS:
+            try:
+                conn.execute(
+                    f"UPDATE {table} SET {column} = ?",  # noqa: S608 - spec-fixed names
+                    (_GPKG_FIXED_LAST_CHANGE,),
+                )
+            except sqlite3.OperationalError:
+                # The table is optional in the spec; its absence is not an error.
+                continue
+        conn.commit()
+    except sqlite3.DatabaseError:
+        # Not a SQLite file at all ("file is not a database"). This step exists
+        # for cache determinism, not validation: a GeoPackage SQLite cannot open
+        # is served exactly as ogr2ogr wrote it, the client's failure is loud,
+        # and the cache degrades to whole responses on a contested selection
+        # rather than to a wrong one. Failing the export here would turn a
+        # normalization into a gate.
+        logger.warning("gpkg_timestamp_normalize_skipped", path=path, exc_info=True)
+    finally:
+        # Closed explicitly: sqlite3's context manager commits but does NOT
+        # close, and an open handle can leave the rollback journal beside the
+        # file — which the caller is about to hash.
+        conn.close()
 
 
 def safe_content_disposition(filename: str) -> str:
@@ -30,6 +170,27 @@ def safe_content_disposition(filename: str) -> str:
     ascii_name = filename.encode("ascii", "replace").decode()
     encoded = quote(filename)
     return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{encoded}"
+
+
+def file_response_content_disposition(filename: str) -> str:
+    """Restate starlette ``FileResponse``'s Content-Disposition rule.
+
+    The GET half of this route hands ``filename=`` to ``FileResponse``, which
+    derives the header itself (``starlette/responses.py``, ``FileResponse
+    .__init__``): a quoted ``filename=`` for names that survive percent-
+    encoding unchanged, and an RFC 5987 ``filename*=`` otherwise. HEAD has no
+    file to hand it, so the rule is restated here.
+
+    Not ``safe_content_disposition()`` from ``export/service.py``: that one
+    always appends ``filename*``, so HEAD would advertise a different header
+    than the GET delivers. ``test_head_export_content_disposition_matches_get``
+    pins the two byte-for-byte, over both branches, so a starlette change
+    fails a test instead of shipping the mismatch.
+    """
+    quoted = quote(filename)
+    if quoted != filename:
+        return f"attachment; filename*=utf-8''{quoted}"
+    return f'attachment; filename="{filename}"'
 
 
 # SQL keywords to ignore during where-clause column validation
@@ -239,6 +400,11 @@ async def export_dataset(
             where=where,
             format_key=format_key,
         )
+        if format_key == "gpkg":
+            # fix(#1532 review r12): off the event loop, like every other
+            # blocking step here — it is a SQLite write over a file that can be
+            # gigabytes.
+            await run_in_thread_draining(normalize_gpkg_timestamps, output_path)
 
         return output_path, filename, media_type
     except BaseException:
