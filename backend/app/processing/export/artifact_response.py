@@ -15,16 +15,25 @@ exists to prevent. Answering with the complete new representation cannot splice
 anything: the client discards what it had and reads from zero.
 
 **The exception: a Range that starts at byte 0 is honoured on a fresh build**
-(fix(#1532) follow-up, found by the release smoke). GDAL 3.10's ``/vsicurl/``
-open does not begin with a HEAD; its first request is ``Range: bytes=0-16383``,
-and a 200 to that is read as "Range downloading not supported by this server"
-and the open aborts — so a cold cache could not be opened at all, and only the
-second attempt worked. A range from byte 0 is a probe or a restart, never a
-resume: a client resuming holds a prefix and asks from its length. Nothing
-appended after a slice that starts at 0 can come from a different
-representation, because every later request finds the artifact this one just
-published and slices that. Any other starting offset on a fresh build keeps the
-whole answer.
+(fix(#1532) follow-up, #1585, found by the release smoke). GDAL 3.10's
+``/vsicurl/`` open does not begin with a HEAD; its first request is ``Range:
+bytes=0-16383``, and a 200 to that is read as "Range downloading not supported
+by this server" and the open aborts — so a cold cache could not be opened at
+all, and only the second attempt worked. A range from byte 0 is a probe or a
+restart, never a resume: a client resuming holds a prefix and asks from its
+length. Any other starting offset on a fresh build keeps the whole answer.
+
+**And the bound on both, for bare ranges: for one TTL after a URL's bytes
+change, ranges are answered whole.** A client that read a block of the earlier
+representation and comes back for the next one — to a hit on the new artifact,
+or to a fresh build of it, or re-reading the header — makes that request
+within the change's first TTL, and it gets the whole new file, which cannot
+splice. Once the new bytes have been the URL's answer for a TTL (``settled``),
+ranges resume; a client holding a handle across a longer gap without an
+``If-Range`` is the residual every range-serving origin has, and RFC 9110 gives
+the server nothing to close it with. The check reads the URL's history (every
+version, plus the parent revision's single-segment layout) and is paid only in
+that first TTL, and only by requests carrying a bare Range.
 
 So the sequence a probing client sees is: first request builds and gets either
 the leading slice it asked for or the whole representation; every later request

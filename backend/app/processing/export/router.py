@@ -67,6 +67,22 @@ router = APIRouter(
 _MAX_EXPORT_FEATURES = 5_000_000
 
 
+def _bare_range(request: Request) -> bool:
+    """A Range with no If-Range: the request whose slice the server must judge."""
+    return (
+        bool(request.headers.get("range")) and request.headers.get("if-range") is None
+    )
+
+
+def _leading_bare_range(request: Request) -> bool:
+    """A bare Range whose first byte is 0 — the only one a fresh build can honour."""
+    return _bare_range(request) and bool(
+        re.match(
+            r"^\s*bytes\s*=\s*0+\s*-", request.headers.get("range", ""), re.IGNORECASE
+        )
+    )
+
+
 def _cleanup_export(path: str) -> None:
     """Remove the temporary export directory after response is sent."""
     if os.path.isdir(path):
@@ -507,17 +523,31 @@ async def export_dataset_endpoint(
         # that names nothing, and a `dataset.export` row for a refused request
         # records a download that did not happen — the same reason HEAD is out
         # of the log.
+        # fix(#1532 review, internal): a contested selection — more than one
+        # distinct set of bytes fresh under this key — answers ranges with the
+        # whole representation. Two overlapping cold builders is the ordinary
+        # case, not a rare one, and a client reading in slices can otherwise be
+        # flipped from one to the other mid-sequence.
+        #
+        # fix(#1532) follow-up (#1585 review r3): and so does a hit inside the
+        # first TTL after this URL's bytes CHANGED, when an earlier
+        # representation with different bytes is still live. A client that read
+        # a block of the old artifact and comes back for the next one lands
+        # here, on the new one, and a 206 would splice the two. Once the bytes
+        # have been the answer for a TTL (`settled`) that client has finished
+        # or is holding a handle across a longer gap, which is the residual the
+        # module states — and the history listing is not paid at all.
+        may_serve_range = not artifact.contested
+        if may_serve_range and not artifact.settled and _bare_range(request):
+            may_serve_range = not await artifact_cache.url_has_other_bytes(
+                dataset_id, selection, artifact.digest
+            )
         response = artifact_response.read_response(
             get_storage(),
             artifact,
             range_header=request.headers.get("range"),
             if_range=request.headers.get("if-range"),
-            # fix(#1532 review, internal): a contested selection — more than one
-            # distinct set of bytes fresh under this key — answers ranges with
-            # the whole representation. Two overlapping cold builders is the
-            # ordinary case, not a rare one, and a client reading in slices can
-            # otherwise be flipped from one to the other mid-sequence.
-            may_serve_range=not artifact.contested,
+            may_serve_range=may_serve_range,
         )
         await _emit_export_audit(
             db,
@@ -853,25 +883,27 @@ async def export_dataset_endpoint(
             # starts at byte 0 (fix(#1532) follow-up): that is a probe, never a
             # resume, and it is the first request of a cold GDAL open, which a
             # 200 turned into "Range downloading not supported".
+            # The leading slice of a fresh build is honoured unless an earlier
+            # representation of THIS URL with different bytes is still live and
+            # these bytes only just became the answer: a client that read a
+            # later block from the old one and re-reads the header after the
+            # change would splice (#1585 review r1). `contested` covers a
+            # foreign digest under this version; `url_has_other_bytes` covers
+            # one under a previous version of the same URL, and is consulted
+            # only while the bytes are not `settled` and only for the request
+            # that could use the answer — a bare Range starting at 0 (r3).
+            leading_slice_ok = not stored.contested
+            if leading_slice_ok and not stored.settled and _leading_bare_range(request):
+                leading_slice_ok = not await artifact_cache.url_has_other_bytes(
+                    dataset_id, selection, stored.digest
+                )
             response = artifact_response.read_response(
                 get_storage(),
                 stored,
                 range_header=request.headers.get("range"),
                 if_range=request.headers.get("if-range"),
                 may_serve_range=False,
-                # The leading slice of a fresh build is honoured only when no
-                # earlier representation of THIS URL with different bytes is
-                # still live: a client that read a later block from one and
-                # re-reads the header after a change would splice (#1585 review).
-                # `contested` covers a foreign digest under this version;
-                # `url_has_other_bytes` covers one under a previous version of
-                # the same URL. Same bytes under either cannot splice.
-                leading_slice_ok=(
-                    not stored.contested
-                    and not await artifact_cache.url_has_other_bytes(
-                        dataset_id, selection, stored.digest
-                    )
-                ),
+                leading_slice_ok=leading_slice_ok,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
         else:

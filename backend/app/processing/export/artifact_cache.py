@@ -216,6 +216,15 @@ class ExportArtifact:
     # set. HEAD and the ETag are unaffected: each artifact is still internally
     # consistent, and a whole-object read of either is a correct answer.
     contested: bool = False
+    # fix(#1532) follow-up (#1585): this artifact's bytes have been the
+    # selection's answer for longer than one TTL — a sibling with the SAME
+    # digest, published more than a TTL ago, is live. That is what settles the
+    # question "did this URL's bytes just change": a client mid-read at the
+    # moment of a change makes its next request within the change's first TTL,
+    # and for that TTL the route answers bare ranges whole. Once settled, the
+    # URL's history needs no listing to consult. Free: `lookup` already reads
+    # every sibling's stamp and digest.
+    settled: bool = False
 
     @property
     def etag(self) -> str:
@@ -354,6 +363,13 @@ async def url_has_other_bytes(
     splice, which is what lets a re-open after expiry work. Fails CLOSED on a
     listing error: an unknown history is treated as a contested one, and the
     client gets the whole file, which is safe.
+
+    Consulted only while the artifact is not ``settled`` (#1585 review r3): once
+    these bytes have been the URL's answer for more than a TTL, a client
+    mid-read at the moment they became the answer has long finished, and the
+    one still holding a handle across a longer gap is the stated residual — so
+    the listing is paid, at most, during the first TTL after a change, and only
+    by requests carrying a bare Range.
     """
     prefix = _dataset_prefix(dataset_id)
     url_segment = selection.split("/", 1)[0]
@@ -514,11 +530,16 @@ async def lookup(
 
     candidates: list[tuple[float, int, str, str]] = []
     siblings: set[str] = set()
+    oldest_by_digest: dict[str, float] = {}
     for key in keys:
         parsed = parse_artifact_key(key)
         if parsed is None:
             continue
         built_at, size, digest = parsed
+        _publication = _published_at(modified.get(key, built_at), built_at)
+        oldest_by_digest[digest] = min(
+            oldest_by_digest.get(digest, _publication), _publication
+        )
         # fix(#1532 review r8): `contested` counts EVERY sibling under this
         # selection, not just the fresh ones. Computed over the fresh set it
         # missed the staggered case entirely: two builders a second apart are
@@ -569,8 +590,37 @@ async def lookup(
             filename=filename,
             media_type=media_type,
             contested=contested,
+            settled=oldest_by_digest.get(digest, now) < cutoff,
         )
     return None
+
+
+async def _oldest_publication_of(
+    dataset_id: uuid.UUID, selection: str, digest: str
+) -> float | None:
+    """When these bytes first became this selection's answer, if any copy is live.
+
+    fix(#1532) follow-up (#1585): what a fresh publication needs to know
+    whether it is a CHANGE (no earlier copy of these bytes under this version:
+    the previous answer, if any, was different) or a rebuild of the same answer
+    after expiry. One selection listing; None when no artifact with this digest
+    is live, or when the store cannot be listed (a rebuild then counts as a
+    change, which is the conservative reading).
+    """
+    oldest: float | None = None
+    try:
+        async for page in get_storage().iter_object_pages(
+            _selection_prefix(dataset_id, selection)
+        ):
+            for obj in page:
+                parsed = parse_artifact_key(obj.key)
+                if parsed is None or parsed[2] != digest:
+                    continue
+                published = _published_at(obj.last_modified.timestamp(), parsed[0])
+                oldest = published if oldest is None else min(oldest, published)
+    except Exception:  # broad: cannot list means cannot prove it settled
+        return None
+    return oldest
 
 
 def _published_at(modified: float, built_at: float) -> float:
@@ -734,6 +784,13 @@ async def store(
                 return await lookup(
                     dataset_id, selection, filename=filename, media_type=media_type
                 )
+        # fix(#1532) follow-up (#1585): is this a rebuild of the bytes that were
+        # already this selection's answer more than a TTL ago (settled), or the
+        # first publication of these bytes under this version (a change, as far
+        # as anyone mid-read can tell)? Read before publishing so the fresh
+        # copy cannot answer for itself.
+        oldest_same = await _oldest_publication_of(dataset_id, selection, digest)
+        settled = oldest_same is not None and oldest_same < time.time() - _ttl_seconds()
         built_at, key = await _put_with_reclaim(
             dataset_id,
             selection,
@@ -756,6 +813,7 @@ async def store(
             built_at=built_at,
             filename=filename,
             media_type=media_type,
+            settled=settled,
         )
     except Exception:  # broad: caching is best-effort; the conversion succeeded
         # And let the NEXT attempt sweep whatever the interval says. A store

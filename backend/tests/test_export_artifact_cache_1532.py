@@ -4557,3 +4557,80 @@ async def test_a_legacy_layout_artifact_counts_as_the_urls_history(
         _url(same.id), headers={**admin_auth_header, "Range": "bytes=0-99"}
     )
     assert ok.status_code == 206, ok.text
+
+
+async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_whole(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """#1585 review r3: the hit path honours the URL's history too, for one TTL.
+
+    Client A reads the leading block (a fresh build, 206). The data changes and
+    the version moves. Client B fetches the export, building the new version's
+    artifact. Client A comes back for its next block: that is a HIT on the new
+    artifact, uncontested within the new version — and a 206 there would append
+    new bytes to A's old leading block. Inside the first TTL after the change
+    the answer is whole. Once the new bytes are settled — a same-digest sibling
+    older than a TTL is live under the new version — ranges resume, and the
+    history listing is not consulted at all.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Hit After Change")
+    url = _url(dataset.id)
+
+    leading = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=0-99"}
+    )
+    assert leading.status_code == 206 and conversions.count == 1
+
+    conversions.body = bytes(reversed(conversions.body))
+    dataset.bump_tile_cache_version()
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+
+    other_client = await client.get(url, headers=admin_auth_header)  # builds v2
+    assert other_client.status_code == 200 and conversions.count == 2
+    v2_etag = other_client.headers["etag"]
+
+    resumed = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert conversions.count == 2, (
+        "the resume must be a hit, or the test proves nothing"
+    )
+    assert resumed.status_code == 200, (
+        f"a bare Range hit inside the first TTL after a change answered "
+        f"{resumed.status_code}; the client's leading block came from the "
+        f"previous representation, which is still live under this URL"
+    )
+    assert resumed.headers["etag"] == v2_etag
+    assert "content-range" not in resumed.headers
+
+    # Settle the new bytes: a same-digest sibling older than a TTL under v2.
+    v2_key = [
+        k
+        for k in await get_storage().list(
+            f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+        )
+        if cache.parse_artifact_key(k)
+        and cache.parse_artifact_key(k)[2] == v2_etag.strip('"')
+    ][0]
+    v2_selection = v2_key.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
+    parsed = cache.parse_artifact_key(v2_key)
+    aged = cache._artifact_key(
+        dataset.id, v2_selection, parsed[2], parsed[1], time.time() - 700
+    )
+    await get_storage().put(aged, conversions.body)
+    when = time.time() - 700
+    os.utime(Path(get_storage().base_dir) / aged, (when, when))
+
+    settled = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert conversions.count == 2
+    assert settled.status_code == 206, (
+        f"once the new bytes have been the answer for a TTL, a bare Range hit "
+        f"answered {settled.status_code}; GDAL opens after a settled change must work"
+    )
+    assert settled.headers["etag"] == v2_etag
