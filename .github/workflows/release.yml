@@ -171,3 +171,36 @@ jobs:
           # install.sh and SHA256SUMS are downloaded into the same directory.
           ( cd scripts && sha256sum install.sh ) > SHA256SUMS
           gh release upload "${TAG}" SHA256SUMS --clobber
+
+      # CI-1: the site repo listens for this dispatch to run release-drift
+      # immediately and to open its docs-contract sync PR (see
+      # getgeolens.com's release-sync.yml). GitHub's docs list the contexts
+      # available to `jobs.<job_id>.steps.if` as github, needs, strategy,
+      # matrix, job, runner, env, vars, steps, and inputs; `secrets` is not
+      # among them (see
+      # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts).
+      # So the presence check goes through the `env` context instead: set the
+      # secret as a step env var, then gate on `env.SITE_DISPATCH_TOKEN`.
+      - name: Notify the site of the release
+        # Only GA tags (no `-` suffix) dispatch — same shape as the
+        # IS_PRERELEASE case pattern in "Create release" above. A prerelease
+        # never becomes the "latest" release the site's install one-liner and
+        # archive link follow, so the site has nothing to sync for one.
+        # Skipped, not failed, when the secret isn't configured — this repo's
+        # release must work for anyone who hasn't set up the site's PAT.
+        if: env.SITE_DISPATCH_TOKEN != '' && !contains(env.TAG, '-')
+        env:
+          SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+        # The release is already published by this point in the job. A failed
+        # dispatch must never fail the release on the site repo's account —
+        # worst case, the site's own nightly release-drift check catches the
+        # gap and the manual sync step still exists as a fallback.
+        continue-on-error: true
+        run: |
+          if ! gh api repos/geolens-io/getgeolens.com/dispatches \
+            -f event_type=geolens-release \
+            -f "client_payload[version]=${TAG}"; then
+            echo "::warning title=Site dispatch failed::Could not notify geolens-io/getgeolens.com of release ${TAG}. The GeoLens release itself published fine; the site will pick up the contract sync on its next scheduled release-drift check instead."
+            exit 1
+          fi
