@@ -2900,7 +2900,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # dependency, pinned in pyproject.toml for a CVE), which enforces the
     # same rules plus the ones a hand-rolled check missed (U+FE47, which
     # UTS46 maps to "[" and then rejects). Cap 1346 -> 1289, exact.
-    "backend/app/core/config.py": 1289,
+    # PRIV-1 (codex r9): +18 — a single trailing DNS root dot is now
+    # stripped before the numeric-last-label check: `rsplit(".", 1)[-1]`
+    # on "192.168.1." returns "", which skipped the ends-in-a-number branch
+    # entirely and let idna.encode() (DNS syntax only, no IPv4 opinion)
+    # accept "999.999.999.999." and "192.168.1." as ordinary-looking DNS
+    # names. Cap 1289 -> 1307, exact.
+    "backend/app/core/config.py": 1307,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

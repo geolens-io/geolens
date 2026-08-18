@@ -871,6 +871,8 @@ class TestPrivacyUrlValidator:
             "https://[1.2.3.4]/x",
             "https://xn--lsa.example/x",
             "https://﹇.com/x",
+            "https://192.168.1./x",
+            "https://999.999.999.999./x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):
@@ -912,6 +914,21 @@ class TestPrivacyUrlValidator:
         else:
             with pytest.raises(Exception):
                 _make_settings(privacy_url=a_url)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://10.0.0.1./x",
+            "https://example.com./x",
+        ],
+    )
+    def test_trailing_root_dot_accepted(self, value):
+        """A single trailing DNS root dot is browser-valid and stored
+        exactly as entered, on a canonical IPv4 host (legal but pointless)
+        and on an ordinary DNS name (the common, meaningful case) alike.
+        """
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
 
 
 class TestSecretStrMasking:

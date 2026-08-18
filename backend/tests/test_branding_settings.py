@@ -181,6 +181,8 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://[1.2.3.4]/x",
         "https://xn--lsa.example/x",
         "https://﹇.com/x",
+        "https://192.168.1./x",
+        "https://999.999.999.999./x",
     ],
 )
 @pytest.mark.anyio
@@ -217,7 +219,12 @@ async def test_put_privacy_url_rejects_non_url(
     now the `idna` package's UTS46 ToASCII, which maps this presentation
     variant to "[" per the UTS46 mapping table and then rejects the
     result, the same as a literal "[" would be (STD3 disallows it outside
-    the bracketed-authority syntax `urlsplit` already stripped away).
+    the bracketed-authority syntax `urlsplit` already stripped away). And a
+    numeric-last-label host with a single trailing DNS root dot: the dot
+    makes `hostname.rsplit(".", 1)[-1]` return an empty string, which is
+    neither a digit nor "0x"-prefixed, so the ends-in-a-number check was
+    skipped entirely and idna.encode() (DNS label SYNTAX only, no IPv4
+    opinion) accepted "999" and "1" as ordinary-looking labels.
     """
     resp = await client.put(
         "/api/settings/",
@@ -310,6 +317,42 @@ async def test_put_privacy_url_accepts_internationalized_hosts(
     privacy_url target. Round-trips unchanged: the operator's URL is stored
     and served exactly as entered, not rewritten to a canonical form,
     matching what a browser does with the same input.
+    """
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": value}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] == value
+
+    # Restore default so this test does not leak state to others.
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": ""}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://10.0.0.1./x",
+        "https://example.com./x",
+    ],
+)
+@pytest.mark.anyio
+async def test_put_privacy_url_accepts_a_single_trailing_root_dot(
+    client: AsyncClient, admin_auth_header: dict, value: str
+):
+    """A single trailing DNS root dot is browser-valid and stored exactly
+    as entered, on a canonical IPv4 host (legal but pointless) and on an
+    ordinary DNS name (the common, meaningful case) alike -- neither case
+    is special-cased to strip or rewrite it.
     """
     resp = await client.put(
         "/api/settings/",

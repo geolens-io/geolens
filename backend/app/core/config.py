@@ -152,10 +152,28 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
        parse outright; "192.168.1" succeeds under a browser's legacy
        3-part parser but silently becomes 192.168.0.1, a host that does
        not match what was stored. All three are rejected here, not passed
-       through to case 2.
+       through to case 2. Checked on the hostname with a single trailing
+       DNS root dot already stripped (below) -- otherwise
+       "999.999.999.999." and "192.168.1." would have skipped this case
+       entirely and reached case 2, which has no opinion on IPv4 semantics.
     """
     if bracketed:
         return _is_unscoped_ipv6_literal(hostname)
+    # A single trailing dot is the valid DNS "root" separator
+    # ("https://example.com./x" navigates identically to the same URL
+    # without it), but left in place it breaks the numeric-last-label check
+    # below: hostname.rsplit(".", 1)[-1] on "192.168.1." returns "", which
+    # is neither a digit nor "0x"-prefixed, so a numeric-last-label host
+    # with a root dot skipped straight to idna.encode() -- which validates
+    # DNS label SYNTAX only and has no opinion on IPv4 semantics, so "999"
+    # is a syntactically fine label and "999.999.999.999." sailed through.
+    # Strip at most one trailing dot before every check below, including
+    # idna's; two or more is an empty label, already invalid on its own.
+    if hostname.endswith(".."):
+        return False
+    hostname = hostname.removesuffix(".")
+    if not hostname:
+        return False
     try:
         ipaddress.ip_address(hostname)
         return True
