@@ -239,7 +239,9 @@ class BrandingResponse(BaseModel):
         default=None,
         description=(
             "Operator-configured privacy-policy URL shown on the login and "
-            "register pages, or null when unset (no link is shown)."
+            "register pages, or null when unset (no link is shown). Must be "
+            "an absolute http(s) URL with no embedded credentials; a query "
+            "string or fragment is allowed and preserved as-is."
         ),
     )
 
@@ -472,10 +474,28 @@ def validate_public_api_url(v: Any) -> str:
 
 
 def validate_privacy_url(v: Any) -> str:
-    """PRIV-1: the login/register privacy-policy link. Unset clears it."""
+    """PRIV-1: the login/register privacy-policy link. Unset clears it.
+
+    Deliberately NOT ``_normalize_absolute_url`` (above): that helper rejects
+    a query string or fragment, but a real operator policy page (Google
+    Docs, Notion, SharePoint) routinely carries one, and stripping it would
+    silently point the login/register link at the wrong document. Uses the
+    shared shape check in ``app.core.config.validate_privacy_url_shape``
+    instead, so this admin-write path agrees with the env-value boot
+    validator and the read-path defense in router_public.py on what "safe"
+    means for a value rendered as a raw ``<a href>``.
+    """
     if not v or (isinstance(v, str) and not v.strip()):
         return ""
-    return _normalize_absolute_url(v)
+    if not isinstance(v, str):
+        raise ValueError("Value must be a string")
+
+    from app.core.config import validate_privacy_url_shape
+
+    try:
+        return validate_privacy_url_shape(v)
+    except ValueError as exc:
+        raise ValueError(f"privacy_url {exc}") from exc
 
 
 # Mapping from setting key to validator function

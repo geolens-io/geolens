@@ -4525,12 +4525,6 @@ export interface paths {
          *     keys. PersistentConfig overrides take precedence when set. Community
          *     advertises read-only ``show_badge`` only; badge-removal writes and
          *     additional branding keys are restricted controls.
-         *
-         *     ``privacy_url`` (PRIV-1) rides on this same public, unauthenticated
-         *     surface even though it lives on the "general" tab, not "branding": it is
-         *     the one config bundle already fetched pre-auth (login/register need it
-         *     before a session exists), so reusing it avoids a second endpoint for one
-         *     optional string.
          */
         get: operations["get_branding_settings_branding__get"];
         put?: never;
@@ -6137,7 +6131,7 @@ export interface components {
             show_badge: boolean;
             /**
              * Privacy Url
-             * @description Operator-configured privacy-policy URL shown on the login and register pages, or null when unset (no link is shown).
+             * @description Operator-configured privacy-policy URL shown on the login and register pages, or null when unset (no link is shown). Must be an absolute http(s) URL with no embedded credentials; a query string or fragment is allowed and preserved as-is.
              */
             privacy_url?: string | null;
         };

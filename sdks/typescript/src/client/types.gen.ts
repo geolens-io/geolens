@@ -1256,7 +1256,7 @@ export type BrandingResponse = {
     /**
      * Privacy Url
      *
-     * Operator-configured privacy-policy URL shown on the login and register pages, or null when unset (no link is shown).
+     * Operator-configured privacy-policy URL shown on the login and register pages, or null when unset (no link is shown). Must be an absolute http(s) URL with no embedded credentials; a query string or fragment is allowed and preserved as-is.
      */
     privacy_url?: string | null;
 };

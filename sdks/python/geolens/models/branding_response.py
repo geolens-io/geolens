@@ -22,7 +22,8 @@ class BrandingResponse:
         show_badge (bool): Whether to show the 'Powered by GeoLens' label in public and shared footers. Badge-removal
             writes are restricted controls.
         privacy_url (None | str | Unset): Operator-configured privacy-policy URL shown on the login and register pages,
-            or null when unset (no link is shown).
+            or null when unset (no link is shown). Must be an absolute http(s) URL with no embedded credentials; a query
+            string or fragment is allowed and preserved as-is.
     """
 
     show_badge: bool

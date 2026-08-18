@@ -168,8 +168,8 @@ export async function detectEmbeddingDims(): Promise<DetectEmbeddingDimsResponse
 
 export interface BrandingConfig {
   show_badge: boolean;
-  /** PRIV-1: operator-configured privacy-policy URL, or null when unset. */
-  privacy_url: string | null;
+  /** PRIV-1: operator-configured privacy-policy URL, or null/absent when unset. */
+  privacy_url?: string | null;
 }
 
 export async function getBranding(): Promise<BrandingConfig> {

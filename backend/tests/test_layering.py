@@ -2113,7 +2113,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
     # PRIVACY_URL, so the login/register privacy-policy link is admin
     # configurable instead of a hardcoded getgeolens.com URL.
-    "backend/app/modules/settings/router_public.py": 157,
+    # PRIV-1 (pre-review): +18 — the reader re-checks a stored/env privacy_url
+    # against the shape rule and drops (+ logs) an unsafe one instead of
+    # serving it as a login-page <a href>; a stored value can predate the
+    # check or bypass PersistentConfig.set()'s validation entirely.
+    "backend/app/modules/settings/router_public.py": 175,
 }
 
 
@@ -2832,7 +2836,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # PRIV-1: +5 — a privacy_url Settings field (env-backed default for the
     # login/register privacy-policy link) plus its empty-string normalizer
     # entry. Cap 1107 -> 1112, exact.
-    "backend/app/core/config.py": 1112,
+    # PRIV-1 (pre-review): +49 — a shared validate_privacy_url_shape helper
+    # (reused by the admin-write validator and the read-path defense in
+    # modules/settings) plus the field_validator that fails boot on an unsafe
+    # PRIVACY_URL. Both are large because they document why the check exists
+    # and why it lives in core/config.py instead of core/public_urls.py
+    # (avoiding a circular import). Cap 1112 -> 1161, exact.
+    "backend/app/core/config.py": 1161,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

@@ -18,6 +18,38 @@ def reveal(secret: SecretStr | None) -> str | None:
     return secret.get_secret_value() if secret is not None else None
 
 
+def validate_privacy_url_shape(v: str) -> str:
+    """PRIV-1: shape check for the login/register privacy-policy link.
+
+    The value is rendered directly as an ``<a href>`` on an unauthenticated
+    page, so this is a security control, not a formatting nit: a
+    ``javascript:``/``data:``/scheme-relative value here is an XSS payload.
+    Deliberately does NOT reuse the admin settings' path-stripping
+    ``_normalize_absolute_url`` helper — a real operator policy page (Google
+    Docs, Notion, SharePoint) routinely carries a query string or a fragment,
+    and dropping either would silently point the link at the wrong document.
+
+    Shared by three entry points that all need to agree on what "safe"
+    means: this module's own env-value boot validator below, the admin-write
+    validator in ``app.modules.settings.schemas``, and the read-path defense
+    in ``app.modules.settings.router_public`` (a stored value written before
+    this check existed, or by any other path, must not reach the login page
+    unvalidated). It lives here rather than in ``app.core.public_urls``
+    because that module imports this one's ``settings`` singleton at import
+    time, and calling into it from a ``Settings`` field validator would be a
+    circular import.
+    """
+    from urllib.parse import urlsplit
+
+    stripped = v.strip()
+    parsed = urlsplit(stripped)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("must be an absolute http(s) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("must not include embedded credentials")
+    return stripped
+
+
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
 
 # Known-public credential literals that leaked through the project's git
@@ -593,6 +625,23 @@ class Settings(BaseSettings):
         if len(hosts) != 1 or not hosts[0] or "," in hosts[0]:
             raise ValueError("DATABASE_URL_OVERRIDE must contain exactly one host")
         return value
+
+    @field_validator("privacy_url", mode="after")
+    @classmethod
+    def validate_privacy_url_env(cls, v: str | None) -> str | None:
+        """PRIV-1: fail boot on an unsafe PRIVACY_URL rather than silently
+        rendering it as an <a href> on the login/register page. This is the
+        ONLY validation an ENV_ONLY_CONFIG deployment ever runs for this
+        value — the admin-write validator in modules/settings/schemas.py
+        never sees it in that mode. See validate_privacy_url_shape above for
+        what "unsafe" means.
+        """
+        if v is None:
+            return None
+        try:
+            return validate_privacy_url_shape(v)
+        except ValueError as exc:
+            raise ValueError(f"PRIVACY_URL {exc}") from exc
 
     @field_validator("geolens_runtime_db_role", mode="after")
     @classmethod

@@ -2098,7 +2098,7 @@
                 "type": "null"
               }
             ],
-            "description": "Operator-configured privacy-policy URL shown on the login and register pages, or null when unset (no link is shown).",
+            "description": "Operator-configured privacy-policy URL shown on the login and register pages, or null when unset (no link is shown). Must be an absolute http(s) URL with no embedded credentials; a query string or fragment is allowed and preserved as-is.",
             "title": "Privacy Url"
           }
         },
@@ -53840,7 +53840,7 @@
     },
     "/settings/branding/": {
       "get": {
-        "description": "Return branding configuration (public, no auth required).\n\nThe active ``BrandingExtension`` provides initial defaults for branding\nkeys. PersistentConfig overrides take precedence when set. Community\nadvertises read-only ``show_badge`` only; badge-removal writes and\nadditional branding keys are restricted controls.\n\n``privacy_url`` (PRIV-1) rides on this same public, unauthenticated\nsurface even though it lives on the \"general\" tab, not \"branding\": it is\nthe one config bundle already fetched pre-auth (login/register need it\nbefore a session exists), so reusing it avoids a second endpoint for one\noptional string.",
+        "description": "Return branding configuration (public, no auth required).\n\nThe active ``BrandingExtension`` provides initial defaults for branding\nkeys. PersistentConfig overrides take precedence when set. Community\nadvertises read-only ``show_badge`` only; badge-removal writes and\nadditional branding keys are restricted controls.",
         "operationId": "get_branding_settings_branding__get",
         "responses": {
           "200": {

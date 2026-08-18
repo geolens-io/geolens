@@ -797,6 +797,42 @@ class TestLogLevelValidator:
         assert "LOG_LEVEL" in str(exc_info.value)
 
 
+class TestPrivacyUrlValidator:
+    """PRIV-1: PRIVACY_URL is rendered as a raw <a href> on the login page,
+    so an unsafe value must fail boot rather than reach the browser. This is
+    the ONLY validation an ENV_ONLY_CONFIG deployment ever runs for it — the
+    admin-write validator never sees an env-sourced value in that mode.
+    """
+
+    def test_unset_stays_none(self):
+        s = _make_settings(privacy_url="")
+        assert s.privacy_url is None
+
+    def test_safe_url_accepted(self):
+        s = _make_settings(privacy_url="https://example.com/privacy")
+        assert s.privacy_url == "https://example.com/privacy"
+
+    def test_query_and_fragment_preserved(self):
+        value = "https://docs.google.com/document/d/abc/edit?usp=sharing#h.xyz"
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "not-a-url",
+            "javascript:alert(document.cookie)",
+            "data:text/html,<script>alert(1)</script>",
+            "//evil.example.com/p",
+            "https://user:pass@example.com/privacy",
+        ],
+    )
+    def test_unsafe_value_fails_boot(self, value):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(privacy_url=value)
+        assert "PRIVACY_URL" in str(exc_info.value)
+
+
 class TestSecretStrMasking:
     """Sensitive fields use SecretStr so values are masked in repr/str/dump."""
 

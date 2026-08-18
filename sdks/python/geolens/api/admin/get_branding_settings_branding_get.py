@@ -65,7 +65,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[BrandingResponse | ProblemDetail]:
-    r"""Get Branding
+    """Get Branding
 
      Return branding configuration (public, no auth required).
 
@@ -73,12 +73,6 @@ def sync_detailed(
     keys. PersistentConfig overrides take precedence when set. Community
     advertises read-only ``show_badge`` only; badge-removal writes and
     additional branding keys are restricted controls.
-
-    ``privacy_url`` (PRIV-1) rides on this same public, unauthenticated
-    surface even though it lives on the \"general\" tab, not \"branding\": it is
-    the one config bundle already fetched pre-auth (login/register need it
-    before a session exists), so reusing it avoids a second endpoint for one
-    optional string.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -101,7 +95,7 @@ def sync(
     *,
     client: AuthenticatedClient | Client,
 ) -> BrandingResponse | ProblemDetail | None:
-    r"""Get Branding
+    """Get Branding
 
      Return branding configuration (public, no auth required).
 
@@ -109,12 +103,6 @@ def sync(
     keys. PersistentConfig overrides take precedence when set. Community
     advertises read-only ``show_badge`` only; badge-removal writes and
     additional branding keys are restricted controls.
-
-    ``privacy_url`` (PRIV-1) rides on this same public, unauthenticated
-    surface even though it lives on the \"general\" tab, not \"branding\": it is
-    the one config bundle already fetched pre-auth (login/register need it
-    before a session exists), so reusing it avoids a second endpoint for one
-    optional string.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -133,7 +121,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient | Client,
 ) -> Response[BrandingResponse | ProblemDetail]:
-    r"""Get Branding
+    """Get Branding
 
      Return branding configuration (public, no auth required).
 
@@ -141,12 +129,6 @@ async def asyncio_detailed(
     keys. PersistentConfig overrides take precedence when set. Community
     advertises read-only ``show_badge`` only; badge-removal writes and
     additional branding keys are restricted controls.
-
-    ``privacy_url`` (PRIV-1) rides on this same public, unauthenticated
-    surface even though it lives on the \"general\" tab, not \"branding\": it is
-    the one config bundle already fetched pre-auth (login/register need it
-    before a session exists), so reusing it avoids a second endpoint for one
-    optional string.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -167,7 +149,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient | Client,
 ) -> BrandingResponse | ProblemDetail | None:
-    r"""Get Branding
+    """Get Branding
 
      Return branding configuration (public, no auth required).
 
@@ -175,12 +157,6 @@ async def asyncio(
     keys. PersistentConfig overrides take precedence when set. Community
     advertises read-only ``show_badge`` only; badge-removal writes and
     additional branding keys are restricted controls.
-
-    ``privacy_url`` (PRIV-1) rides on this same public, unauthenticated
-    surface even though it lives on the \"general\" tab, not \"branding\": it is
-    the one config bundle already fetched pre-auth (login/register need it
-    before a session exists), so reusing it avoids a second endpoint for one
-    optional string.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.

@@ -155,14 +155,86 @@ async def test_get_branding_privacy_url_unset_by_default(
     assert resp.json()["privacy_url"] is None
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "not-a-url",
+        "javascript:alert(1)",
+        "data:text/html,x",
+        "//evil.example.com/p",
+    ],
+)
 @pytest.mark.anyio
 async def test_put_privacy_url_rejects_non_url(
-    client: AsyncClient, admin_auth_header: dict
+    client: AsyncClient, admin_auth_header: dict, value: str
 ):
-    """PUT /api/settings/ rejects a privacy_url value that is not an absolute http(s) URL."""
+    """PUT /api/settings/ rejects a privacy_url that is not a safe absolute http(s) URL.
+
+    Covers the XSS-relevant shapes, not just "not a URL": a javascript:/data:
+    URI or a scheme-relative value would otherwise reach the login page as a
+    raw <a href>.
+    """
     resp = await client.put(
         "/api/settings/",
-        json={"settings": {"privacy_url": "not-a-url"}},
+        json={"settings": {"privacy_url": value}},
         headers=admin_auth_header,
     )
     assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_put_privacy_url_accepts_query_and_fragment(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """A real operator policy URL (Google Docs, Notion, SharePoint) often
+    carries a query string or a fragment; the privacy_url validator must not
+    strip or reject either, unlike the public_app_url/public_api_url shape
+    rule it deliberately does not share.
+    """
+    value = "https://docs.google.com/document/d/abc123/edit?usp=sharing#heading=h.xyz"
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": value}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] == value
+
+    # Restore default so this test does not leak state to others.
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": ""}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.anyio
+async def test_get_branding_drops_an_unsafe_stored_privacy_url(client: AsyncClient):
+    """PRIV-1 reader-side defense: an unsafe stored value must never reach
+    the login page as a raw <a href>, even if it bypassed the admin-write
+    validator — a row written before that check existed, or by any other
+    path than PUT /api/settings/. Writes through PersistentConfig.set()
+    directly, which (like a raw DB row) has no shape opinion on a str value;
+    only the read path in router_public.py is under test here.
+    """
+    from app.core.dependencies import get_db
+    from app.api.main import app
+    from app.core.persistent_config import PRIVACY_URL
+
+    get_db_override = app.dependency_overrides.get(get_db)
+    assert get_db_override is not None
+
+    async for db in get_db_override():
+        await PRIVACY_URL.set(db, "javascript:alert(document.cookie)")
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] is None
+
+    # Restore default
+    async for db in get_db_override():
+        await PRIVACY_URL.set(db, "")
