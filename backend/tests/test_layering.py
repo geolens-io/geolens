@@ -2926,7 +2926,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # one edge that narrowing gives up (a title cleared between the snapshot
     # and the fetch defers that record's reclamation to the next force run) is
     # stated where the narrowing is decided. Cap 1475 -> 1480, exact.
-    "backend/app/processing/embeddings/backfill.py": 1480,
+    # fix(#1584 review r4): +47 — an unchanged row is not proof of an unchanged
+    # record. The ingest writer skips its write on an unchanged content hash, so
+    # an editor restoring exactly the content a vector was computed from leaves
+    # the row's version untouched, and version matching alone would reclaim a
+    # vector that is valid again. The reclamation now re-reads each record it is
+    # about to reclaim (`_records_still_empty`, through the port's real loader)
+    # and spares those no longer empty; the content-field extraction the run
+    # and the re-check share moved into `_content_fields`. Cap 1480 -> 1527,
+    # exact.
+    "backend/app/processing/embeddings/backfill.py": 1527,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

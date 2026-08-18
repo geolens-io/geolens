@@ -30,6 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.persistent_config import EMBEDDING_DIMS, EMBEDDING_MODEL
 from app.modules.admin.service import AdminService
 from app.modules.catalog.datasets.domain.models import Record
+from app.platform.extensions.defaults_processing_port import DefaultProcessingPort
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings import service as service_module
 from app.processing.embeddings.models import RecordEmbedding
@@ -122,9 +123,18 @@ async def _blank_title(session, record_id: uuid.UUID) -> None:
     port returns leaves a titled row in the database, so the snapshot would not
     cover it and the reclamation would find nothing to do — passing, for the
     wrong reason, whatever the code did.
+
+    fix(#1584 review r4): the summary and lineage go too. The reclamation now
+    re-reads each record before deleting and spares one that is no longer
+    empty, and `create_dataset` seeds a summary — so a record blanked in title
+    only would be spared, and every reclamation test would fail for a reason
+    that has nothing to do with what it pins.
     """
     await session.execute(
-        text("UPDATE catalog.records SET title = '' WHERE id = :record_id"),
+        text(
+            "UPDATE catalog.records SET title = '', summary = NULL, "
+            "lineage_summary = NULL WHERE id = :record_id"
+        ),
         {"record_id": record_id},
     )
     await session.commit()
@@ -174,9 +184,13 @@ async def _assert_untouched(session, record_id: uuid.UUID, *, marker: str) -> No
 def _pin_run(monkeypatch, records, *, batch_size: int = 1):
     """Point the run at exactly `records`, one per batch."""
     monkeypatch.setattr(backfill_module, "_BATCH_SIZE", batch_size)
+    # fix(#1584 review r4): the reclamation re-reads each record it is about to
+    # reclaim, through the REAL loader — the stubbed record list says what the
+    # run observed, the database says what is true at the end.
     port = SimpleNamespace(
         get_record_orm_class=lambda: Record,
         get_records_without_embeddings=AsyncMock(return_value=records),
+        get_record=DefaultProcessingPort().get_record,
     )
     monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
     monkeypatch.setattr(
@@ -495,6 +509,7 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
     port = SimpleNamespace(
         get_record_orm_class=lambda: Record,
         get_records_without_embeddings=_fetch_then_edit,
+        get_record=DefaultProcessingPort().get_record,
     )
     monkeypatch.setattr(backfill_module, "get_processing_port", lambda: port)
     monkeypatch.setattr(
@@ -889,3 +904,68 @@ def test_a_titled_record_is_never_empty_so_the_snapshot_superset_holds():
     )
     assert not build_content_text(title=None, summary=None, keywords=None, lineage=None)
     assert not build_content_text(title="", summary=None, keywords=None, lineage=None)
+
+
+@pytest.mark.anyio
+async def test_a_record_whose_content_is_restored_mid_run_keeps_its_vector(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1584 review r4): an unchanged row is not proof of an unchanged record.
+
+    A titleless record is observed as empty; during the run an editor restores
+    EXACTLY the content its existing vector was computed from. The ingest writer
+    then skips its write (unchanged hash) and leaves the row and its
+    `updated_at` alone, so the `(record_id, updated_at)` pair still matches the
+    snapshot — and reclamation would delete a vector that is valid again.
+
+    The reclamation now re-reads each record it is about to reclaim and spares
+    the ones that are no longer empty. The restore is done as an editor does
+    it, with a write to the record and no embedding write at all, which is the
+    exact shape the unchanged-hash path leaves behind.
+    """
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    embeddable = await _seed(session, "Restore Keeps Embeddable")
+    restored = await _seed(session, "Restored Content")
+    await _blank_title(session, restored)
+
+    # `restored` is observed empty; its content comes back before the run ends.
+    _pin_run(
+        monkeypatch,
+        [
+            _as_record(embeddable, title="Restore Keeps Embeddable"),
+            _as_record(restored, title=None),
+        ],
+    )
+
+    async def _fake_batch(texts, sess, *, model, dimensions, base_url):
+        if texts != [backfill_module._PREFLIGHT_TEXT]:
+            # The editor puts the title back. Same content, same hash: the
+            # ingest writer would not touch the row, so nothing here does.
+            await sess.execute(
+                text(
+                    "UPDATE catalog.records SET title = 'Restored Content' WHERE id = :rid"
+                ),
+                {"rid": restored},
+            )
+            await sess.commit()
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
+
+    result = await backfill_module.backfill_embeddings(session, force=True)
+
+    assert result["skipped"] == 1
+    await _assert_replaced(session, embeddable, marker="Restore Keeps Embeddable")
+    # The restored record's untouched, valid vector survived the reclamation.
+    assert await _rows_for(session, restored) == [
+        (_MODEL_BEFORE, "Restored Content")
+    ], (
+        "a vector for content that was restored mid-run was reclaimed on the "
+        "strength of an unchanged row; the row is unchanged because the writer "
+        "correctly skipped an unchanged hash"
+    )

@@ -369,6 +369,55 @@ def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-d
     )
 
 
+def _content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """The fields ``build_content_text`` reads, pulled off a record eagerly.
+
+    Eager, because a rollback expires every ORM instance in the session and a
+    later attribute access would lazy-load and raise ``MissingGreenlet``. One
+    function for both readers — the run's fetch and the reclamation's re-check
+    (fix(#1584 review r4)) — so "is this record empty" is asked the same way at
+    both ends of the run.
+    """
+    return {
+        "title": record.title,
+        "summary": record.summary,
+        "keywords": [kw.keyword for kw in record.keywords] if record.keywords else [],
+        "lineage": record.lineage_summary,
+        "localized_texts": [
+            "\n".join(
+                part
+                for part in (
+                    f"{translation.language}: {translation.title}",
+                    translation.summary,
+                )
+                if part
+            )
+            for translation in record.translations
+        ],
+    }
+
+
+async def _records_still_empty(session, port, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
+    """Which of these records have no embeddable content RIGHT NOW.
+
+    fix(#1584 review r4): the reclamation asks this immediately before it
+    deletes, one read per record, through the same loader and the same field
+    extraction the run used at its start. ``expire_all`` first, deliberately:
+    this session does not expire on commit, so its identity map still holds the
+    instances the run loaded at the start, and a re-select would hand back their
+    pre-edit attributes rather than the row's. Nothing else is pending by the
+    time this runs. A record that no longer exists counts as empty; its rows
+    are orphans either way.
+    """
+    session.expire_all()
+    still_empty: set[Any] = set()
+    for record_id in record_ids:
+        current = await port.get_record(session, record_id)
+        if current is None or not build_content_text(**_content_fields(current)):
+            still_empty.add(record_id)
+    return still_empty
+
+
 def _delete_embeddings_for(record_orm, record_ids: list[Any], *, observed=None):  # type: ignore[no-untyped-def]
     """Remove EVERY embedding these records hold, under any model.
 
@@ -1141,27 +1190,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
     # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)
-    record_data = [
-        {
-            "id": r.id,
-            "title": r.title,
-            "summary": r.summary,
-            "keywords": [kw.keyword for kw in r.keywords] if r.keywords else [],
-            "lineage": r.lineage_summary,
-            "localized_texts": [
-                "\n".join(
-                    part
-                    for part in (
-                        f"{translation.language}: {translation.title}",
-                        translation.summary,
-                    )
-                    if part
-                )
-                for translation in r.translations
-            ],
-        }
-        for r in records
-    ]
+    record_data = [{"id": r.id, **_content_fields(r)} for r in records]
 
     total = len(record_data)
 
@@ -1438,6 +1467,24 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # reported back to the caller.
         skipped_set = set(skipped_ids)
         reclaimable = [pair for pair in observed_rows if pair[0] in skipped_set]
+        # fix(#1584 review r4, codex P2): an unchanged ROW is not proof of an
+        # unchanged RECORD. The ingest writer skips its write when the content
+        # hash is unchanged, so an editor who restores exactly the content a
+        # row was computed from leaves the row, and its `updated_at`, untouched:
+        # the pair still matches and the row would be reclaimed although it is
+        # valid again. So every record whose rows are about to go is re-read
+        # here, and only those still empty NOW are reclaimed. One read per
+        # titleless record that holds vectors, which is the bound the snapshot
+        # already has.
+        #
+        # `expire_all` first, deliberately: this session does not expire on
+        # commit, so its identity map still holds the instances the run loaded
+        # at the start, and a re-select would hand back their pre-edit
+        # attributes rather than the row's. Nothing else is pending here.
+        still_empty = await _records_still_empty(
+            session, port, {pair[0] for pair in reclaimable}
+        )
+        reclaimable = [pair for pair in reclaimable if pair[0] in still_empty]
         for offset in range(0, len(reclaimable), _BATCH_SIZE):
             # Chunked for the same reason the run is: asyncpg caps a statement
             # at 32767 bind parameters, and each pair spends two of them.
