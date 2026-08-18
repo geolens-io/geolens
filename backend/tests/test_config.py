@@ -825,6 +825,8 @@ class TestPrivacyUrlValidator:
             "data:text/html,<script>alert(1)</script>",
             "//evil.example.com/p",
             "https://user:pass@example.com/privacy",
+            "https://example.com:not-a-port/x",
+            "https://:443/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):

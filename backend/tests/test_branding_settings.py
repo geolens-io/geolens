@@ -162,6 +162,8 @@ async def test_get_branding_privacy_url_unset_by_default(
         "javascript:alert(1)",
         "data:text/html,x",
         "//evil.example.com/p",
+        "https://example.com:not-a-port/x",
+        "https://:443/x",
     ],
 )
 @pytest.mark.anyio
@@ -172,7 +174,10 @@ async def test_put_privacy_url_rejects_non_url(
 
     Covers the XSS-relevant shapes, not just "not a URL": a javascript:/data:
     URI or a scheme-relative value would otherwise reach the login page as a
-    raw <a href>.
+    raw <a href>. Also covers a malformed authority a browser cannot resolve
+    (a non-numeric port, or a netloc with no real hostname) — urlsplit leaves
+    that junk sitting in netloc rather than rejecting it outright, so the
+    scheme/netloc check alone would let it through.
     """
     resp = await client.put(
         "/api/settings/",

@@ -2846,7 +2846,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and rejected embedded tab/newline/CR characters (a documented WHATWG
     # URL scheme-check bypass) in validate_privacy_url_shape.
     # Cap 1161 -> 1168, exact.
-    "backend/app/core/config.py": 1168,
+    # PRIV-1 (codex r1): +12 — validate_privacy_url_shape now rejects an empty
+    # hostname (a netloc like ":443" passes the earlier netloc-truthy check
+    # but resolves nowhere) and a malformed port (urlsplit leaves the junk
+    # sitting in netloc instead of rejecting it; accessing .port is what
+    # actually validates it, same pattern as validate_database_url_override
+    # above). Cap 1168 -> 1180, exact.
+    "backend/app/core/config.py": 1180,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

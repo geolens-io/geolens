@@ -54,6 +54,18 @@ def validate_privacy_url_shape(v: str) -> str:
         raise ValueError("must be an absolute http(s) URL")
     if parsed.username is not None or parsed.password is not None:
         raise ValueError("must not include embedded credentials")
+    # A netloc can be non-empty and still have no real host, e.g. "https://:443/x"
+    # (netloc ":443", hostname None) -- a link a browser cannot resolve.
+    if not parsed.hostname:
+        raise ValueError("must include a hostname")
+    # Accessing .port validates both syntax and the 1-65535 range; a bad port
+    # such as "https://example.com:not-a-port/x" would otherwise sail through
+    # (urlsplit leaves the junk sitting in netloc) and pass this check while
+    # remaining a link no browser will follow.
+    try:
+        parsed.port
+    except ValueError:
+        raise ValueError("must not include a malformed port") from None
     return stripped
 
 
