@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Metric-buffer questions in chat stop failing at the sandbox.** Asking for a
+  buffer in metres made the assistant reproduce a 3 000-character PostGIS
+  expression character for character, and it got that wrong often enough that
+  roughly every other such question came back as a refused query rather than an
+  answer. The assistant now writes a short call and the server renders the
+  expression itself, so the shape can no longer be wrong (#1589).
+
 ## [1.14.0] - 2026-08-18
 
 ### Added

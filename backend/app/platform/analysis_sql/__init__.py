@@ -154,9 +154,10 @@ def render_geometry_expr(
 #   before; the fix is not "remember not to run --fix".
 # - It is the list a reviewer diffs against the pre-split module. A symbol that
 #   silently stopped being importable would break `service_analysis.py`,
-#   `tasks.py`, `router_analysis.py`, `schemas.py`, the sandbox validator or
-#   the NL->SQL prompt at import time — and #1089 leaves all of them untouched
-#   on purpose, so nothing else in this PR would catch it.
+#   `tasks.py`, `router_analysis.py`, `schemas.py`, the sandbox validator, the
+#   NL->SQL prompt or its buffer-marker expander at import time — and #1089
+#   leaves all of them untouched on purpose, so nothing else in this PR would
+#   catch it.
 #
 # So this is the pre-split API verbatim, 35 names, neither added to nor taken
 # from. The six per-family `render_*_expr` helpers `render_geometry_expr`

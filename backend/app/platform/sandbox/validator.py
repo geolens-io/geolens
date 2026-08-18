@@ -381,11 +381,11 @@ def _validate_function_cost(func: exp.Func, fn_name: str, sql: str) -> None:
 # ---------------------------------------------------------------------------
 # fix(#1001): the canonical geodesic buffer, recognized whole.
 #
-# The NL->SQL prompt mandates render_geodesic_buffer's output verbatim for
-# metric buffers (sql_generator.py renders it at import time), and that
-# expression needs sixteen function names the fail-closed allowlist does not
-# carry — the banding, seam-splitting and dissolve machinery. So every buffer
-# question in the NL->SQL surface was refused.
+# Every metric buffer on the NL->SQL surface is render_geodesic_buffer's
+# output — fix(#1589): expanded from a geolens_buffer() marker by
+# processing/ai/buffer_marker.py before validation, where the prompt used to
+# embed the text — and it needs sixteen function names the fail-closed
+# allowlist does not carry. So every buffer question there was refused.
 #
 # Admitting those names globally is not an option: st_dump, st_dumpsegments,
 # st_segmentize and generate_series are the row/vertex amplification classes

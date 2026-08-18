@@ -1,0 +1,366 @@
+"""Expand the NL->SQL prompt's ``geolens_buffer`` marker (fix(#1589)).
+
+The prompt used to embed ``render_geodesic_buffer``'s rendered output — 3 088
+characters of banding, seam-splitting and dissolve machinery — and ask the
+model to reproduce it exactly (#1001). The nightly evals say the light model
+manages that about half the time: six of the nine runs between 08-12 and 08-18
+failed, every one of them a sandbox refusal of a dropped parenthesis
+(``invalid_query``) or a paraphrase back to the bare
+``ST_Buffer(geom::geography, N)::geometry`` form (``disallowed spatial
+function``). None of them was a wrong answer that ran. Product-side, a
+metric-buffer question in chat failed at the sandbox roughly every other time.
+
+So the model now writes ``geolens_buffer(<geom>, <metres>)`` and this module
+substitutes the canonical render before anything else sees the SQL. The
+expression's shape can no longer be wrong, because the model no longer writes
+it — the class of failure is removed rather than made rarer.
+
+Where this sits in the trust model, stated plainly because it is the question a
+reader will have: expanding a marker is not a new privilege. It produces
+exactly the text a model was previously asked to type, and the sandbox treats
+it exactly as it treated that text. ``_matches_canonical_buffer`` in
+``platform/sandbox/validator.py`` still re-renders the template around the
+extracted input and compares ASTs, still refuses anything that is not a match,
+and still validates the geometry argument as ordinary SQL under the full
+allowlist. This module therefore decides SYNTAX only: it reads two arguments
+and checks that the distance is a plain in-range number. Whether a geometry
+argument is an ACCEPTABLE input stays the sandbox's single decision. #1002 is
+three rounds of evidence for what happens when two layers both try to answer
+that question.
+
+Deliberately NOT applied to the raw ``POST /api/query/`` endpoint
+(``query_router.py``), which takes SQL a person wrote. There the marker is an
+unknown function and stays one. ``tests/test_ai_buffer_marker_1589.py`` pins
+the call site as a closed list.
+"""
+
+from __future__ import annotations
+
+import math
+import re
+
+import sqlglot
+import structlog
+from sqlglot import exp
+
+from app.platform.analysis_sql import MAX_BUFFER_METERS, render_geodesic_buffer
+from app.platform.sandbox import SandboxError
+
+logger = structlog.stdlib.get_logger(__name__)
+
+_MARKER = "geolens_buffer"
+
+# Characters PostgreSQL admits inside an unquoted identifier after the first.
+# ``$`` is one of them, which is why the token boundary cannot be ``\w``.
+_IDENT_CHARS = re.compile(r"[A-Za-z0-9_$]")
+
+# A plain decimal number and nothing else: no sign, no cast, no arithmetic, no
+# ``_`` digit separators (``float("1_000")`` accepts those, so the regex has to
+# be the gate rather than the float call), no ``NaN``/``Infinity`` spelling.
+# The distance is interpolated straight into SQL text by
+# ``render_geodesic_buffer``, so this is that argument's injection boundary and
+# it is an allowlist.
+_DISTANCE = re.compile(r"\A(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\Z")
+
+# A dollar-quote opener: ``$$`` or ``$tag$``. Distinguishes one from a
+# positional parameter (``$1``), which is not a quote at all.
+_DOLLAR_OPEN = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
+
+# How many markers one statement may carry.
+#
+# Not an arbitrary round number: it is the validator's
+# ``_MAX_BUFFER_MATCH_ATTEMPTS``. That constant bounds how many buffer-shaped
+# subtrees the sandbox will re-render and verify, and past it no exemption is
+# granted — so a ninth expansion could only ever produce ~3 KB more SQL that is
+# then refused. Expanding it would cost the parse and buy a worse error.
+# ``test_the_marker_cap_matches_the_validators_verification_budget`` fails if
+# either number moves alone.
+MAX_BUFFER_MARKERS = 8
+
+
+def _fail(message: str) -> SandboxError:
+    """A marker problem, in the sandbox's own vocabulary.
+
+    ``invalid_query`` is the existing category for "this SQL cannot run", and
+    every consumer already maps it: ``chat_actions._execute_chat_tool`` turns
+    it into the ERROR_MESSAGES line, ``query_router`` into a 422. A new
+    category would have to be added to both for no gain.
+    """
+    return SandboxError("invalid_query", message)
+
+
+def _skip_comment(sql: str, i: int) -> int | None:
+    """Index just past the comment starting at ``i``; None when none does."""
+    if sql.startswith("--", i):
+        end = sql.find("\n", i)
+        return len(sql) if end == -1 else end + 1
+    if sql.startswith("/*", i):
+        # PostgreSQL block comments nest, so a naive find("*/") would end this
+        # one early and read the rest of an inner comment as code.
+        depth, j = 1, i + 2
+        while j < len(sql):
+            if sql.startswith("/*", j):
+                depth += 1
+                j += 2
+            elif sql.startswith("*/", j):
+                depth -= 1
+                j += 2
+                if depth == 0:
+                    return j
+            else:
+                j += 1
+        raise _fail("Query has an unterminated comment")
+    return None
+
+
+def _is_ident_at(sql: str, i: int) -> bool:
+    """Whether ``sql[i]`` is an identifier character (out of range: no)."""
+    return 0 <= i < len(sql) and _IDENT_CHARS.match(sql[i]) is not None
+
+
+def _skip_quoted(sql: str, i: int) -> int | None:
+    """Index just past the literal starting at ``i``; None when none does.
+
+    Handles single-quoted strings (``''`` escapes), ``E''`` escape strings
+    (backslash escapes), quoted identifiers and dollar-quoted strings. Not
+    handled: ``U&'...'``, whose ``UESCAPE`` clause can redefine the escape
+    character. Nothing teaches the model that form, and the failure direction
+    is safe — a mis-read produces either a refusal here or SQL the sandbox
+    parses and validates in full.
+    """
+    ch = sql[i]
+    if ch in ("'", '"'):
+        # An E-string prefix changes the escaping rules, so it is read here
+        # rather than passing as an ordinary identifier character.
+        escaped = (
+            ch == "'" and i > 0 and sql[i - 1] in "Ee" and not _is_ident_at(sql, i - 2)
+        )
+        j = i + 1
+        while j < len(sql):
+            if escaped and sql[j] == "\\":
+                j += 2
+                continue
+            if sql[j] == ch:
+                if j + 1 < len(sql) and sql[j + 1] == ch:
+                    j += 2
+                    continue
+                return j + 1
+            j += 1
+        raise _fail("Query has an unterminated string literal")
+    if ch == "$":
+        opener = _DOLLAR_OPEN.match(sql, i)
+        if opener is None:
+            return None
+        end = sql.find(opener.group(0), opener.end())
+        if end == -1:
+            raise _fail("Query has an unterminated string literal")
+        return end + len(opener.group(0))
+    return None
+
+
+def _skip_non_code(sql: str, i: int) -> int | None:
+    """Index just past the literal or comment at ``i``; None when neither.
+
+    The argument split has to see the SQL the way PostgreSQL does, because
+    every character this skips is one that would otherwise read as structure:
+    ``'Elm (North), Ward 2'`` carries both the separator and the terminator the
+    scanner looks for, and a comment can carry an unbalanced parenthesis.
+    """
+    comment = _skip_comment(sql, i)
+    if comment is not None:
+        return comment
+    return _skip_quoted(sql, i)
+
+
+def _marker_starts_at(sql: str, i: int) -> bool:
+    """Whether a bare ``geolens_buffer`` token begins at ``i``.
+
+    Case-insensitive, whole-token, and unqualified: ``geolens_buffer_x`` is a
+    different name, and ``public.geolens_buffer`` names some other schema's
+    function — substituting our expression for that would answer a different
+    question than the one asked.
+    """
+    if sql[i : i + len(_MARKER)].lower() != _MARKER:
+        return False
+    if _is_ident_at(sql, i - 1) or sql[i - 1 : i] == ".":
+        return False
+    return not _is_ident_at(sql, i + len(_MARKER))
+
+
+def _next_code_char(sql: str, i: int) -> int | None:
+    """Index of the next character that is neither whitespace nor a comment."""
+    while i < len(sql):
+        if sql[i].isspace():
+            i += 1
+            continue
+        past = _skip_comment(sql, i)
+        if past is None:
+            return i
+        i = past
+    return None
+
+
+def _split_call_args(sql: str, open_paren: int) -> tuple[list[str], int]:
+    """Arguments of the call whose ``(`` is at ``open_paren``, and its end.
+
+    Balanced-parenthesis scanning over code positions only. Returns the raw
+    argument slices (unstripped) and the index just past the closing ``)``.
+    """
+    depth = 1
+    start = open_paren + 1
+    args: list[str] = []
+    i = start
+    while i < len(sql):
+        past = _skip_non_code(sql, i)
+        if past is not None:
+            i = past
+            continue
+        ch = sql[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                args.append(sql[start:i])
+                return args, i + 1
+        elif ch == "," and depth == 1:
+            args.append(sql[start:i])
+            start = i + 1
+        i += 1
+    raise _fail(f"Query has an unclosed {_MARKER}() call")
+
+
+def _contains_marker(text: str) -> bool:
+    """Whether ``text`` holds a ``geolens_buffer`` token at a code position."""
+    i = 0
+    while i < len(text):
+        past = _skip_non_code(text, i)
+        if past is not None:
+            i = past
+            continue
+        if _marker_starts_at(text, i):
+            return True
+        i += 1
+    return False
+
+
+def _checked_geometry(raw: str) -> str:
+    """The geometry argument, checked for SYNTAX and nothing else.
+
+    One expression, and not a bare statement. That is the whole contract: it
+    keeps a structurally broken argument from becoming a confusing sandbox
+    error two layers later, and it stops there on purpose. Deciding whether the
+    expression is an acceptable buffer INPUT — bounded, allowlisted, resolvable
+    to a stored column — belongs to ``_is_bounded_geometry_source`` and the
+    function allowlist, in one place, for the reasons #1002 recorded.
+    """
+    geom = raw.strip()
+    if not geom:
+        raise _fail(f"{_MARKER}() needs a geometry expression")
+    if _contains_marker(geom):
+        # Innermost-first expansion would render fine and then be refused: the
+        # validator exempts a buffer only when its input resolves to a stored
+        # geometry, and a buffer is not one. The prompt says the same ("a
+        # nested buffer ... is refused"), so refusing here trades a sandbox
+        # error about spatial functions the model never wrote for a sentence
+        # about the thing it actually did.
+        raise _fail(f"{_MARKER}() cannot be nested inside another {_MARKER}()")
+    try:
+        parsed = [stmt for stmt in sqlglot.parse(geom, dialect="postgres") if stmt]
+    except Exception as exc:  # broad: any sqlglot failure is a refusal
+        raise _fail(
+            f"{_MARKER}()'s geometry argument is not a valid expression"
+        ) from exc
+    if len(parsed) != 1 or (
+        isinstance(parsed[0], exp.Query) and not isinstance(parsed[0], exp.Subquery)
+    ):
+        raise _fail(f"{_MARKER}()'s geometry argument is not a single expression")
+    return geom
+
+
+def _checked_distance(raw: str) -> float:
+    """The distance argument as a float, or a refusal.
+
+    A literal only. ``render_geodesic_buffer`` interpolates this value into SQL
+    text and does NOT bound it — ``render_buffer_expr`` is the caller that
+    does, and it is not on this path — so the range check has to happen here.
+    The bounds are that function's: greater than zero, at most
+    ``MAX_BUFFER_METERS``. A zero-metre buffer is refused rather than rendered
+    empty, which is what the analysis surface does with the same number.
+    """
+    text = raw.strip()
+    if not _DISTANCE.match(text):
+        raise _fail(f"{_MARKER}()'s distance must be a plain number of metres")
+    distance = float(text)
+    if not math.isfinite(distance) or not 0 < distance <= MAX_BUFFER_METERS:
+        raise _fail(
+            f"{_MARKER}()'s distance must be between 0 and {MAX_BUFFER_METERS:g} metres"
+        )
+    return distance
+
+
+def expand_buffer_markers(sql: str) -> str:
+    """Replace every ``geolens_buffer(geom, metres)`` with the real expression.
+
+    Returns ``sql`` itself when it carries no marker, so the far more common
+    no-buffer path costs one substring search and changes nothing.
+
+    Raises:
+        SandboxError: category ``invalid_query``, for a malformed marker — bad
+            arity, a distance that is not a plain in-range number, an unclosed
+            call, a nested marker, or more markers than the sandbox will
+            verify.
+    """
+    if _MARKER not in sql.lower():
+        return sql
+
+    pieces: list[str] = []
+    consumed = 0
+    markers = 0
+    i = 0
+    while i < len(sql):
+        past = _skip_non_code(sql, i)
+        if past is not None:
+            i = past
+            continue
+        if not _marker_starts_at(sql, i):
+            i += 1
+            continue
+
+        # A bare ``geolens_buffer`` that is not a call is left alone: it is a
+        # name the sandbox refuses on its own terms, and guessing at what the
+        # model meant is not this module's job.
+        after = _next_code_char(sql, i + len(_MARKER))
+        if after is None or sql[after] != "(":
+            i += len(_MARKER)
+            continue
+
+        markers += 1
+        if markers > MAX_BUFFER_MARKERS:
+            raise _fail(f"Query uses more than {MAX_BUFFER_MARKERS} {_MARKER}() calls")
+
+        args, end = _split_call_args(sql, after)
+        if len(args) != 2:
+            raise _fail(
+                f"{_MARKER}() takes exactly two arguments: a geometry and a "
+                "distance in metres"
+            )
+        geom = _checked_geometry(args[0])
+        distance = _checked_distance(args[1])
+
+        pieces.append(sql[consumed:i])
+        pieces.append(render_geodesic_buffer(geom, distance))
+        consumed = end
+        i = end
+
+    if not pieces:
+        return sql
+    pieces.append(sql[consumed:])
+    expanded = "".join(pieces)
+    # Nightly eval triage is the reason this line exists: when a buffer
+    # question fails, the first thing worth knowing is whether the model asked
+    # for a buffer at all, and after expansion the SQL no longer says.
+    logger.info(
+        "sql.buffer_markers_expanded", markers=markers, sql_length=len(expanded)
+    )
+    return expanded
