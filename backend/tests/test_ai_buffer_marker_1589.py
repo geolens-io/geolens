@@ -288,6 +288,82 @@ def test_a_comment_that_looks_like_one_inside_a_literal_is_kept():
 
 
 # ---------------------------------------------------------------------------
+# Redundant parentheses (fix(#1589) review r2)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "geom",
+    [
+        pytest.param("(s.geom_4326)", id="one-layer"),
+        pytest.param("((s.geom_4326))", id="two-layers"),
+        pytest.param("(  s.geom_4326  )", id="padded"),
+        pytest.param("( (s.geom_4326) )", id="padded-two-layers"),
+        pytest.param("(s.geom_4326 /* the stop */)", id="with-a-comment"),
+    ],
+)
+def test_wrapping_parentheses_are_peeled_off_the_geometry(geom):
+    """The model's formatting must not cost it the exemption.
+
+    ``_is_bounded_geometry_source`` recognises a bare column or a scalar
+    subquery, so a rendered ``(s.geom_4326)`` got no exemption and the buffer
+    came back "disallowed spatial function" — the refusal this whole change
+    exists to remove, brought back by a pair of parentheses.
+    """
+    expanded = expand_buffer_markers(_wrap(f"geolens_buffer({geom}, 500)"))
+    assert expanded == _wrap(render_geodesic_buffer("s.geom_4326", 500.0))
+    assert validate_sql(expanded).tables == {("data", "stations")}
+
+
+def test_a_doubly_wrapped_subquery_peels_to_the_form_the_validator_accepts():
+    """Exactly one layer comes off ``((SELECT …))``.
+
+    Peeling both would leave a bare ``SELECT`` where the renderer fences a
+    scalar, so the stop condition is that the inside must still be an
+    expression. ``(SELECT …)`` is the shape the prompt teaches and the
+    validator admits, and this asserts it lands there rather than merely
+    parsing.
+    """
+    inner = "(SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')"
+    expanded = expand_buffer_markers(
+        "SELECT p.name FROM data.national_parks p "
+        f"WHERE ST_Intersects(p.geom_4326, geolens_buffer(({inner}), 50000)) LIMIT 100"
+    )
+    assert expanded == (
+        "SELECT p.name FROM data.national_parks p "
+        f"WHERE ST_Intersects(p.geom_4326, {render_geodesic_buffer(inner, 50000.0)}) "
+        "LIMIT 100"
+    )
+    assert validate_sql(expanded).tables == {
+        ("data", "national_parks"),
+        ("data", "us_state_capitals"),
+    }
+
+
+@pytest.mark.parametrize(
+    "geom",
+    [
+        pytest.param("(s.geom_4326)::geometry", id="cast-operand"),
+        pytest.param("(s.x) + (s.y)", id="two-groups"),
+        pytest.param("(s.geom_4326) IS NOT NULL", id="trailing-predicate"),
+    ],
+)
+def test_parentheses_that_are_not_a_wrapper_are_left_alone(geom):
+    """The counterfactual for the peel: the first ``(`` here is not closed by
+    the last character, so removing it would change what the expression means.
+    The argument reaches the renderer exactly as written."""
+    expanded = expand_buffer_markers(_wrap(f"geolens_buffer({geom}, 500)"))
+    assert expanded == _wrap(render_geodesic_buffer(geom, 500.0))
+
+
+def test_parentheses_around_a_nested_marker_do_not_unwrap_it():
+    """The nesting check runs before the peel, so a parenthesised inner marker
+    is still refused rather than quietly unwrapped into one."""
+    err = _refusal(_wrap("geolens_buffer((geolens_buffer(s.geom_4326, 10)), 20)"))
+    assert "nested" in str(err).lower()
+
+
+# ---------------------------------------------------------------------------
 # Malformed markers
 # ---------------------------------------------------------------------------
 

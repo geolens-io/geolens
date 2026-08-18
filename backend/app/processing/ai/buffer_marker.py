@@ -328,6 +328,80 @@ def _without_comments(text: str) -> str:
     return "".join(kept)
 
 
+def _single_expression(text: str) -> exp.Expression | None:
+    """The one expression ``text`` parses to, or None when it is not one.
+
+    None covers three cases the caller treats alike: sqlglot cannot parse it,
+    it is more than one statement, or it is a bare statement rather than an
+    expression. A parenthesised ``(SELECT …)`` is an ``exp.Subquery`` and so
+    an expression, which is the shape the prompt teaches for a scalar input.
+    """
+    try:
+        parsed = [stmt for stmt in sqlglot.parse(text, dialect="postgres") if stmt]
+    except Exception:  # broad: any sqlglot failure is a refusal
+        return None
+    if len(parsed) != 1:
+        return None
+    root = parsed[0]
+    if isinstance(root, exp.Query) and not isinstance(root, exp.Subquery):
+        return None
+    return root
+
+
+def _matching_paren(text: str, opening: int) -> int | None:
+    """Index of the ``)`` closing the ``(`` at ``opening``; None if unbalanced.
+
+    Scans code positions only, so a ``)`` inside a string literal does not
+    close anything.
+    """
+    depth = 0
+    i = opening
+    while i < len(text):
+        past = _skip_non_code(text, i)
+        if past is not None:
+            i = past
+            continue
+        if text[i] == "(":
+            depth += 1
+        elif text[i] == ")":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return None
+
+
+def _without_redundant_parens(text: str) -> str:
+    """``text`` with wrapping parentheses removed, one layer at a time.
+
+    fix(#1589 review r2): ``geolens_buffer((s.geom_4326), 500)`` is a correct
+    call, and the parentheses are the model's formatting rather than anything
+    it was asked for. But ``_is_bounded_geometry_source`` in the validator
+    recognises a bare column or a scalar subquery and nothing else, so the
+    rendered ``(s.geom_4326)`` was not granted the exemption and the buffer
+    came back "disallowed spatial function". Harmless formatting, recreating
+    exactly the refusal this change exists to remove.
+
+    Two conditions stop the peel, and both matter:
+
+    - the opening parenthesis must be closed by the LAST character, or
+      ``(a) + (b)`` would lose the parentheses that group it, and
+      ``(s.geom_4326)::geometry`` would lose a cast's operand;
+    - the inside must still be an expression afterwards, or ``((SELECT …))``
+      would peel twice and leave a bare ``SELECT`` where the renderer needs a
+      scalar. It peels once, to the ``(SELECT …)`` the validator accepts.
+    """
+    while text.startswith("("):
+        close = _matching_paren(text, 0)
+        if close is None or text[close + 1 :].strip():
+            break
+        inner = text[1:close].strip()
+        if not inner or _single_expression(inner) is None:
+            break
+        text = inner
+    return text
+
+
 def _checked_geometry(raw: str) -> str:
     """The geometry argument, checked for SYNTAX and nothing else.
 
@@ -338,8 +412,10 @@ def _checked_geometry(raw: str) -> str:
     to a stored column — belongs to ``_is_bounded_geometry_source`` and the
     function allowlist, in one place, for the reasons #1002 recorded.
 
-    Comments are dropped rather than passed through; ``_without_comments`` has
-    the why.
+    Comments are dropped and redundant wrapping parentheses peeled rather than
+    passed through; ``_without_comments`` and ``_without_redundant_parens``
+    have the why. Both are formatting the model chose, both are
+    semantics-preserving to remove, and both otherwise cost it the exemption.
     """
     geom = _without_comments(raw).strip()
     if not geom:
@@ -350,17 +426,11 @@ def _checked_geometry(raw: str) -> str:
         # geometry, and a buffer is not one. The prompt says the same ("a
         # nested buffer ... is refused"). Refusing here rather than rendering
         # ~6 KB that cannot pass is the whole benefit; the specific reason
-        # reaches the server log, not the model (see _fail).
+        # reaches the server log, not the model (see _fail). Checked BEFORE the
+        # peel so a parenthesised nested marker is refused, not unwrapped.
         raise _fail(f"{_MARKER}() cannot be nested inside another {_MARKER}()")
-    try:
-        parsed = [stmt for stmt in sqlglot.parse(geom, dialect="postgres") if stmt]
-    except Exception as exc:  # broad: any sqlglot failure is a refusal
-        raise _fail(
-            f"{_MARKER}()'s geometry argument is not a valid expression"
-        ) from exc
-    if len(parsed) != 1 or (
-        isinstance(parsed[0], exp.Query) and not isinstance(parsed[0], exp.Subquery)
-    ):
+    geom = _without_redundant_parens(geom)
+    if _single_expression(geom) is None:
         raise _fail(f"{_MARKER}()'s geometry argument is not a single expression")
     return geom
 
