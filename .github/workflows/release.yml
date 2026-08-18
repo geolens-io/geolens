@@ -172,35 +172,64 @@ jobs:
           ( cd scripts && sha256sum install.sh ) > SHA256SUMS
           gh release upload "${TAG}" SHA256SUMS --clobber
 
-      # CI-1: the site repo listens for this dispatch to run release-drift
-      # immediately and to open its docs-contract sync PR (see
-      # getgeolens.com's release-sync.yml). GitHub's docs list the contexts
-      # available to `jobs.<job_id>.steps.if` as github, needs, strategy,
-      # matrix, job, runner, env, vars, steps, and inputs; `secrets` is not
-      # among them (see
-      # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts).
-      # So the presence check goes through the `env` context instead: set the
-      # secret as a step env var, then gate on `env.SITE_DISPATCH_TOKEN`.
+      # CI-1 (see geolens-io/getgeolens.com#108): the site repo listens for
+      # this dispatch to run release-drift immediately and to open its
+      # docs-contract sync PR (getgeolens.com#108, release-sync.yml).
       - name: Notify the site of the release
         # Only GA tags (no `-` suffix) dispatch — same shape as the
         # IS_PRERELEASE case pattern in "Create release" above. A prerelease
         # never becomes the "latest" release the site's install one-liner and
         # archive link follow, so the site has nothing to sync for one.
-        # Skipped, not failed, when the secret isn't configured — this repo's
-        # release must work for anyone who hasn't set up the site's PAT.
-        if: env.SITE_DISPATCH_TOKEN != '' && !contains(env.TAG, '-')
+        #
+        # Everything else (the missing-secret case, the stale-tag case) stays
+        # INSIDE the run script rather than in this `if:`, on purpose: a step
+        # this `if:` skips shows as a bare grey "skipped" in the run, which is
+        # how a missing SITE_DISPATCH_TOKEN would go unnoticed indefinitely
+        # (this file already learned that lesson once, see the release-notes
+        # fallback around line 90 for #1530 and its history). Running the
+        # step and having it log a ::notice::/::warning:: and a step-summary
+        # line keeps the same "never fail the release over this" behavior
+        # visible instead of silent.
+        if: ${{ !contains(env.TAG, '-') }}
         env:
+          # Two different tokens for two different targets: reading THIS
+          # repo's latest release needs only the default token; dispatching
+          # to getgeolens.com needs a PAT scoped there (SITE_DISPATCH_TOKEN
+          # has no read access here, and the default token has no access
+          # there). Fine-grained PAT, Contents: read/write on
+          # geolens-io/getgeolens.com; absent = skipped with a ::notice::.
+          RELEASE_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
-          GH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
         # The release is already published by this point in the job. A failed
         # dispatch must never fail the release on the site repo's account —
         # worst case, the site's own nightly release-drift check catches the
         # gap and the manual sync step still exists as a fallback.
         continue-on-error: true
         run: |
-          if ! gh api repos/geolens-io/getgeolens.com/dispatches \
+          # prod-smoke.yml runs tag smokes in parallel and this workflow has
+          # no concurrency group, so an older tag's smoke can finish after a
+          # newer one's (or a re-run replays an old tag's smoke) and reach
+          # this step after a newer release already published. Dispatching
+          # then would tell the site to sync backwards. Only the actual
+          # latest release may dispatch.
+          LATEST="$(GH_TOKEN="$RELEASE_READ_TOKEN" gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          if [ "$LATEST" != "$TAG" ]; then
+            echo "::notice title=Not the latest release::Skipping the site dispatch for ${TAG} — the latest published release is ${LATEST}. A newer tag's smoke likely finished first, or this is a re-run of an older tag."
+            echo "- Site dispatch: skipped, ${TAG} is not the latest release (${LATEST} is)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if [ -z "$SITE_DISPATCH_TOKEN" ]; then
+            echo "::notice title=Site not notified::SITE_DISPATCH_TOKEN is not configured, so ${TAG} was not dispatched to getgeolens.com. Add it as a fine-grained PAT with Contents: read/write on geolens-io/getgeolens.com to enable this."
+            echo "- Site dispatch: skipped (no SITE_DISPATCH_TOKEN)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if ! GH_TOKEN="$SITE_DISPATCH_TOKEN" gh api repos/geolens-io/getgeolens.com/dispatches \
             -f event_type=geolens-release \
             -f "client_payload[version]=${TAG}"; then
             echo "::warning title=Site dispatch failed::Could not notify geolens-io/getgeolens.com of release ${TAG}. The GeoLens release itself published fine; the site will pick up the contract sync on its next scheduled release-drift check instead."
+            echo "- Site dispatch: FAILED for ${TAG} (see the warning above)" >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
+          echo "- Site dispatch: notified getgeolens.com of ${TAG}" >> "$GITHUB_STEP_SUMMARY"
