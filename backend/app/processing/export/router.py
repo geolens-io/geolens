@@ -859,11 +859,19 @@ async def export_dataset_endpoint(
                 range_header=request.headers.get("range"),
                 if_range=request.headers.get("if-range"),
                 may_serve_range=False,
-                # A fresh build's leading slice cannot splice (nothing precedes
-                # byte 0, and every later request finds this artifact); a lost
-                # race hands back an incumbent, and for that the hit path's own
-                # contested rule applies, so its flag decides.
-                leading_slice_ok=not stored.contested,
+                # The leading slice of a fresh build is honoured only when no
+                # earlier representation of THIS URL with different bytes is
+                # still live: a client that read a later block from one and
+                # re-reads the header after a change would splice (#1585 review).
+                # `contested` covers a foreign digest under this version;
+                # `url_has_other_bytes` covers one under a previous version of
+                # the same URL. Same bytes under either cannot splice.
+                leading_slice_ok=(
+                    not stored.contested
+                    and not await artifact_cache.url_has_other_bytes(
+                        dataset_id, selection, stored.digest
+                    )
+                ),
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
         else:

@@ -298,20 +298,62 @@ def selection_key(
     reason ``embedding_config_fingerprint`` gives in #1546: a delimiter join
     collapses them, and ``where=""`` is not ``where`` absent.
     """
-    payload = json.dumps(
-        [
-            str(dataset_id),
-            table_name,
-            dataset_title,
-            tile_cache_version,
-            str(format_key),
-            target_crs,
-            bbox,
-            where,
-        ],
+    # Two path segments, deliberately (fix(#1532) follow-up, #1585): the URL's
+    # identity first, then the version's. `format`, `target_crs`, `bbox` and
+    # `where` are what a client can see in the URL it is reading; `table_name`,
+    # `dataset_title` and `tile_cache_version` are the server-side facts that
+    # move the bytes under that same URL. Every artifact of one URL, at every
+    # version, therefore lives under one prefix, and `url_has_other_bytes` can
+    # ask "has this URL ever answered with different bytes that a client could
+    # still be holding" with one listing. `lookup`, `store` and the sweep are
+    # indifferent to the shape: they take the whole thing as an opaque prefix.
+    url_payload = json.dumps(
+        [str(dataset_id), str(format_key), target_crs, bbox, where],
         separators=(",", ":"),
     )
-    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+    version_payload = json.dumps(
+        [table_name, dataset_title, tile_cache_version],
+        separators=(",", ":"),
+    )
+    url_part = hashlib.sha256(url_payload.encode()).hexdigest()[:20]
+    version_part = hashlib.sha256(version_payload.encode()).hexdigest()[:20]
+    return f"{url_part}/{version_part}"
+
+
+def _url_prefix(dataset_id: uuid.UUID, selection: str) -> str:
+    """The prefix under which every version of one export URL is stored."""
+    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/{selection.split('/', 1)[0]}/"
+
+
+async def url_has_other_bytes(
+    dataset_id: uuid.UUID, selection: str, digest: str
+) -> bool:
+    """Is any artifact with a DIFFERENT digest live under this URL, at any version?
+
+    fix(#1532) follow-up (#1585): a fresh build honours a bare Range that starts
+    at byte 0 — GDAL's first request, and the only way a cold ``/vsicurl/`` open
+    can proceed — unless the client could be holding blocks of an earlier
+    representation of the SAME URL. It could if that URL answered with different
+    bytes since the last sweep: a mutation that moved ``tile_cache_version``
+    puts the earlier artifact under another version segment of this prefix, and
+    a client that read a later block from it, then re-reads the header after the
+    change, would splice. This lists the URL prefix (every version) and answers
+    True on the first foreign digest. An earlier artifact with the SAME digest is
+    the same bytes and cannot splice, which is what lets a re-open after expiry
+    work. Failing CLOSED on a listing error: an unknown history is treated as a
+    contested one, and the client gets the whole file, which is safe.
+    """
+    try:
+        async for page in get_storage().iter_object_pages(
+            _url_prefix(dataset_id, selection)
+        ):
+            for obj in page:
+                parsed = parse_artifact_key(obj.key)
+                if parsed is not None and parsed[2] != digest:
+                    return True
+    except Exception:  # broad: unknown history reads as contested; whole is safe
+        return True
+    return False
 
 
 def _selection_prefix(dataset_id: uuid.UUID, selection: str) -> str:

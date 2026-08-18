@@ -1484,7 +1484,7 @@ async def test_a_contested_selection_answers_ranges_with_the_whole_thing(
     # A second builder's output, landing inside the same window with different
     # bytes — what an overlapping GPKG build produces.
     selection = [
-        k.rsplit("/", 2)[1]
+        k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
         for k in await get_storage().list(
             f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
         )
@@ -2090,7 +2090,7 @@ async def test_a_staggered_sibling_still_refuses_ranges_after_it_expires(
     first = await client.get(url, headers=admin_auth_header)
     assert first.status_code == 200
     selection = [
-        k.rsplit("/", 2)[1]
+        k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
         for k in await get_storage().list(
             f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
         )
@@ -2830,7 +2830,7 @@ async def test_a_matching_if_range_resumes_even_on_a_contested_selection(
     first = await client.get(url, headers=admin_auth_header)
     etag = first.headers["etag"]
     selection = [
-        k.rsplit("/", 2)[1]
+        k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
         for k in await get_storage().list(
             f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
         )
@@ -4430,3 +4430,68 @@ async def test_a_bare_range_not_from_zero_on_a_fresh_build_stays_whole(
     assert resp.status_code == 200, resp.text
     assert resp.content == conversions.body
     assert "content-range" not in resp.headers
+
+
+async def test_a_leading_range_after_a_change_is_whole_when_old_bytes_are_still_live(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The counter-case from #1585 review: re-reading byte 0 after a change.
+
+    A random-access client reads a later block, the data changes (and moves
+    `tile_cache_version`, so the artifact is cold under a NEW version segment of
+    the same URL), and the client re-reads the header with `bytes=0-...` while
+    still holding the old block. Byte 0 alone does not prove a fresh read, so
+    the leading-slice exception must not fire: the earlier artifact of this URL
+    is still live with different bytes, and the answer is the whole new file.
+
+    And the case that must keep working: the same URL rebuilt to IDENTICAL bytes
+    (a re-open after expiry) still gets its leading 206, because equal bytes
+    cannot splice whatever the client holds.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Reread Zero")
+    url = _url(dataset.id)
+
+    later_block = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert later_block.status_code == 200  # cold, not from zero: whole (and built)
+    assert conversions.count == 1
+
+    # The data changes and the version moves: the next request is cold under a
+    # new version segment, while the old artifact stays live under this URL.
+    conversions.body = bytes(reversed(conversions.body))
+    dataset.bump_tile_cache_version()
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+
+    reread = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    assert conversions.count == 2
+    assert reread.status_code == 200, (
+        f"a leading Range after a change answered {reread.status_code}; the old "
+        f"artifact of this URL is still live with different bytes, so a client "
+        f"holding a block of it would splice"
+    )
+    assert reread.content == conversions.body
+    assert "content-range" not in reread.headers
+
+    # Identical rebuild after expiry: still a leading 206.
+    same = await _dataset(test_db_session, "Reopen After Expiry")
+    same_url = _url(same.id)
+    first = await client.get(
+        same_url, headers={**admin_auth_header, "Range": "bytes=0-99"}
+    )
+    assert first.status_code == 206
+    cache._ttl_seconds = lambda: 0
+    try:
+        again = await client.get(
+            same_url, headers={**admin_auth_header, "Range": "bytes=0-99"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+    assert again.status_code == 206, (
+        f"a re-open after expiry with unchanged bytes answered {again.status_code}; "
+        f"GDAL re-opens more than a TTL apart are the common case"
+    )
+    assert again.headers["etag"] == first.headers["etag"]
