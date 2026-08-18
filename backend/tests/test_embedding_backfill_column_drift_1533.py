@@ -410,13 +410,13 @@ async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
     await test_db_session.commit()
 
     _pin_model(monkeypatch)
-    calls: list[int] = []
+    seen: list[list[str]] = []
 
     async def _embed(texts, _session, **_kwargs):
         # Keyed on content, not call order: the force path's pre-flight is its
         # own single-text call and must come back at the column's width, or the
         # run aborts before the batch this test is about.
-        calls.append(len(texts))
+        seen.append(list(texts))
         return [
             [0.1] * (odd_width if odd_marker in text else start_width) for text in texts
         ]
@@ -424,6 +424,7 @@ async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
     monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _embed)
 
     result = await backfill_module.backfill_embeddings(test_db_session, force=True)
+    calls = [len(texts) for texts in seen]
 
     assert result["errors"] == 1, result
     assert result["created"] >= _SEEDED, result
@@ -432,10 +433,30 @@ async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
     # Non-vacuity: the batch really did fail and retry per record, so the
     # per-record judgement is what produced that single error rather than the
     # batch check having quietly let everything through.
-    assert len(calls) > 2, calls
+    #
+    # Anchored on the anomalous record's TEXT rather than on a call position or
+    # a batch size: on a busy xdist worker the database already holds records
+    # earlier tests committed, so the odd record lands in whichever batch the
+    # accumulated count puts it (seen at batch_start=256 in CI), and at 127 mod
+    # `_BATCH_SIZE` prior records it is a batch of one all by itself. Whatever
+    # the batch, the odd record is embedded exactly twice: once in that batch,
+    # once alone in the retry, and every record of the failed batch is
+    # re-embedded alone right after it.
     assert calls[0] == 1, "the pre-flight"
-    assert calls[1] > 1, "the batch"
-    assert set(calls[2:]) == {1}, "then one call per record, individually"
+    marker_calls = [
+        i for i, texts in enumerate(seen) if any(odd_marker in t for t in texts)
+    ]
+    assert len(marker_calls) == 2, (
+        "expected the anomalous record to be embedded in its batch and once more "
+        f"alone in the retry; it appeared in calls {marker_calls} of sizes {calls}"
+    )
+    failed_batch, retry = marker_calls
+    size = calls[failed_batch]
+    assert calls[failed_batch + 1 : failed_batch + 1 + size] == [1] * size, (
+        f"expected the failed batch of {size} to be retried record by record; "
+        f"call sizes were {calls}"
+    )
+    assert calls[retry] == 1, calls
 
     # And the column never moved, which is what made it isolated.
     assert await _column_dims() == start_width
