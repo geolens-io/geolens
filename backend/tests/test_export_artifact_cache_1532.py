@@ -3896,9 +3896,14 @@ async def test_a_stale_if_match_beats_a_wildcard_if_none_match_on_a_cold_cache(
 @pytest.mark.parametrize(
     "stamp_age,mtime_offset,expected",
     [
-        # store clock BEHIND by 2 TTL: the object looks published long ago,
-        # but this worker minted the stamp just now — floor at the stamp.
-        (0, -1200, "hit"),
+        # store clock BEHIND by most of the publish allowance: the object looks
+        # published long ago, but this worker minted the stamp just now — floor
+        # at the stamp.
+        (0, -500, "hit"),
+        # store clock BEHIND by more than the allowance plus the TTL: the stamp
+        # is clamped to the mtime plus the allowance (r28) and that is expired.
+        # A store this far behind the fleet is a cache that does not serve.
+        (0, -1300, "miss"),
         # store clock AHEAD, on an artifact that really is stale: a future
         # modified time is capped at the stamp plus the publish ceiling, and
         # that is past the TTL.
@@ -3991,8 +3996,15 @@ def test_publication_is_a_pure_function_of_the_object(modified_offset):
     built_at = 1_700_000_000.0
     published = cache._published_at(built_at + modified_offset, built_at)
 
-    assert built_at <= published <= built_at + cache._MAX_PUBLISH_SECONDS
-    assert published == min(max(built_at + modified_offset, built_at), built_at + 600)
+    modified = built_at + modified_offset
+    stamp = min(built_at, modified + cache._MAX_PUBLISH_SECONDS)
+    assert stamp <= published <= stamp + cache._MAX_PUBLISH_SECONDS
+    assert modified <= published <= modified + cache._MAX_PUBLISH_SECONDS or (
+        # a store clock ahead: publication is capped at the stamp's allowance
+        modified_offset > cache._MAX_PUBLISH_SECONDS
+        and published == built_at + cache._MAX_PUBLISH_SECONDS
+    )
+    assert published == min(max(modified, stamp), stamp + 600)
     assert "now" not in inspect.signature(cache._published_at).parameters, (
         "the publication bound must not depend on the lookup's clock; that is "
         "what let a future mtime resurrect an expired artifact"
@@ -4173,3 +4185,68 @@ async def test_an_artifact_whose_snapshot_is_older_than_the_ceiling_is_not_serve
             "an artifact whose snapshot is older than the ceiling plus the TTL was "
             "served; the data behind it can be arbitrarily stale"
         )
+
+
+# ---------------------------------------------------------------------------
+# Review r28
+# ---------------------------------------------------------------------------
+
+
+async def test_a_far_future_stamp_cannot_pin_an_artifact_past_reclamation(
+    test_db_session,
+):
+    """A writer clock a month ahead does not keep its object for a month.
+
+    fix(#1532 review r28): `lookup` refused a future-stamped key, but the sweep
+    floored publication at that future stamp, so the object could not be
+    reclaimed until then plus the horizon — its size counting against the
+    budget and its digest keeping the selection contested the whole time.
+    `_published_at` now clamps the stamp to the store's modified time plus the
+    publish allowance, symmetrically with the ceiling it already applied the
+    other way, so a stamp far ahead of the bytes ages from when the bytes
+    actually appeared plus that allowance.
+
+    The counterfactual keeps the r22 store-behind property: a stamp inside the
+    allowance ahead of a recent mtime is not reclaimed.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Future Stamp Sweep")
+    storage = get_storage()
+    now = time.time()
+    horizon = cache._SWEEP_AGE_SECONDS
+
+    async def _seed(selection: str, stamp_offset: float, mtime_offset: float) -> str:
+        payload = selection.encode()
+        key = cache._artifact_key(
+            dataset.id,
+            selection,
+            hashlib.sha256(payload).hexdigest(),
+            len(payload),
+            now + stamp_offset,
+        )
+        await storage.put(key, payload)
+        when = now + mtime_offset
+        os.utime(Path(storage.base_dir) / key, (when, when))
+        return key
+
+    # Stamped a month in the future; the bytes appeared past the horizon by
+    # more than the publish allowance, which is where the clamped stamp lands.
+    pinned = await _seed(
+        "future-stamp", stamp_offset=+30 * 86400, mtime_offset=-(horizon + 700)
+    )
+    # Stamped inside the allowance ahead of bytes that appeared just now: kept.
+    recent = await _seed("store-behind", stamp_offset=+120, mtime_offset=-30)
+
+    await cache.sweep()
+
+    assert not await storage.exists(pinned), (
+        "an object stamped a month ahead survived the sweep although its bytes "
+        "appeared past the horizon; a writer clock must not be able to pin an "
+        "artifact, its budget share and its selection's contested state"
+    )
+    assert await storage.exists(recent), (
+        "the store-behind property regressed: a stamp within the allowance of a "
+        "recent mtime was reclaimed"
+    )

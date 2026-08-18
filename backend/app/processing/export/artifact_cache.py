@@ -543,11 +543,28 @@ def _published_at(modified: float, built_at: float) -> float:
     past the TTL, on a schedule set by the skew. Nothing here reads ``now``, so
     an artifact's verdict can only ever go fresh → expired.
 
+    Symmetric, since fix(#1532 review r28): the STAMP is clamped to the store's
+    modified time plus the same allowance before the floor and ceiling apply. A
+    stamp more than the allowance after the store saw the bytes is a writer
+    clock running ahead — a build cannot start after its own upload finished by
+    more than one request budget — and left unclamped it pinned the object:
+    ``lookup`` refused the future key, but the sweep floored publication at
+    that future stamp and could not reclaim it until then plus the horizon,
+    while its size counted against the budget and its digest kept the
+    selection contested for as long as it lived. So neither clock may place
+    publication more than ``_MAX_PUBLISH_SECONDS`` from the other, in either
+    direction, and every input remains immutable per object.
+
     Honest bound, restated: the data behind a served artifact is at most TTL
-    plus ``min(build + upload, _MAX_PUBLISH_SECONDS)`` old under honest clocks,
-    and a store clock ahead can add at most the unused part of that allowance.
+    plus ``min(build + upload, _MAX_PUBLISH_SECONDS)`` old under honest clocks;
+    a store clock ahead, or a writer clock ahead, can add at most the unused
+    part of that allowance. A store behind the fleet by more than the allowance
+    plus the TTL makes every artifact expired at publication — a cache that
+    does not serve rather than one that serves stale — and that store is
+    within a few minutes of refusing the fleet's requests altogether.
     """
-    return min(max(modified, built_at), built_at + _MAX_PUBLISH_SECONDS)
+    stamp = min(built_at, modified + _MAX_PUBLISH_SECONDS)
+    return min(max(modified, stamp), stamp + _MAX_PUBLISH_SECONDS)
 
 
 async def store(
