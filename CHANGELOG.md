@@ -7,6 +7,54 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-08-18
+
+### Added
+
+- **Rendered map images carry attribution.** Exported PNGs, map thumbnails
+  and social preview cards drew no credits at all, not the basemap's and not
+  the datasets'. Every rendered image now carries the full credit set,
+  wrapping to as many lines as it needs rather than truncating a provider
+  name; credits that cannot be turned into text are counted in an explicit
+  "+N more" marker rather than dropped, and nothing is ever painted outside
+  the frame (#1486, #1541).
+- **`HEAD`, byte ranges and conditional requests on the COG download.**
+  `HEAD` returned 405, which left GDAL `/vsicurl/` unable to open a dataset
+  without fetching it whole. The route now answers `HEAD` from object
+  metadata on every backend, serves ranges bound to one representation
+  through a strong ETag, honours `If-Match`, `If-None-Match` (including `*`
+  on a row with no stored digest) and `If-Range`, and issues one object-store
+  read per range instead of one per megabyte (#1528, #1540, #1554, #1574).
+- **Dataset exports are served from a cached artifact.** Every request to
+  `/datasets/{id}/export`, including every byte-range probe, used to run a
+  fresh conversion, so one GDAL open cost roughly ten conversions and could
+  splice two different artifacts under one URL while the data changed. The
+  artifact is now built once per dataset, format, filter set and data
+  version, and every range is a slice of that stored object under a strong
+  ETag; a range against a stale artifact, or against a selection where two
+  different artifacts are still live, gets a fresh full response, never a
+  splice. A bare range that starts at byte 0 is honoured on the very first
+  build too, because GDAL's first request is `Range: bytes=0-16383` and it
+  gives up on a whole-body 200; that leading slice is refused only while a
+  different artifact for the same selection was served within the last two
+  freshness windows. `If-Match`, `If-None-Match` and `If-Range` are honoured
+  on both the cached and the rebuilt path. Freshness is a fixed 60 s window plus the
+  upload time, so a write that misses the cache-version bump costs at most
+  that much staleness, never a wrong download; the cache holds at most
+  8 GiB and reclaims after four hours. GeoPackage and zipped Shapefile
+  exports are byte-deterministic for unchanged data (the per-conversion
+  timestamps ogr2ogr stamped are normalized), so unchanged data hashes the
+  same twice. The export and COG download routes are excluded from gzip in
+  the app and in the bundled nginx, because a compressed 200 and a raw 206
+  cannot share one validator (#1532, #1582, #1585).
+- **A map thumbnail can be produced without a browser.** `scripts/` gains a
+  backfill for maps a browser never opened, which on a seeded instance was
+  every private map (#1501).
+- **Cookie-mode auth headers are declared in the OpenAPI document.**
+  `X-GeoLens-Auth-Mode` and `X-CSRF-Token` are now operation parameters on
+  the login, refresh and logout routes rather than prose, so generated
+  clients see them (#1498, #1496).
+
 ### Changed
 
 - **An API key or token that cannot be resolved now returns 401 on every
@@ -27,7 +75,130 @@ and releases use semantic versioning.
   signed tile template (`sig`, `exp`, `scope`). An invalid or missing one puts
   the request back under the rule. And a shared-map link that is unknown or
   revoked still answers 404 or 410 for every caller, because no credential
-  could have made that link work (#1518, #401).
+  could have made that link work (#1518, #1524, #401).
+- **The admin embedding regenerate runs on the job queue.** A full
+  regenerate used to run inside the HTTP request and outgrow the 600 s edge
+  timeout at roughly 59,000 records, after which the operator saw a 504 while
+  the server kept working, and a retry started a second concurrent
+  regenerate. The endpoint now returns a job id immediately, the run happens
+  on the queue, PostgreSQL enforces one active regenerate at a time, and the
+  audit trail records exactly one terminal outcome per run whichever actor
+  closes it (#1542, #1550, #1556, #1575).
+- **Stored embeddings record the configuration that produced them.** Rows
+  used to carry only the model name, so one model behind two endpoints, or
+  at two widths, was two vector spaces under one label and semantic search
+  could compare across them and return well-formed nonsense. Each stored
+  vector now carries a fingerprint of the model, dimensions and endpoint
+  that produced it; semantic search, related items, the non-force backfill
+  and the admin coverage panel all filter on the live configuration's
+  fingerprint, so rows from another configuration are invisible rather than
+  wrong. Rows written before this release keep matching on model name alone
+  until they are regenerated; upgrading changes nothing an operator sees and
+  triggers no re-embed. Search's candidate scan uses pgvector's iterative
+  scan so a catalog holding foreign rows cannot starve the live ones. Related
+  items compare against the anchor record's own model and fingerprint, so a
+  record embedded under an older configuration still finds its neighbours
+  among rows of that same configuration, and a record with several stored
+  vectors anchors on the one search would use (#1546, #1578, #1580, #1583).
+
+  Overlay authors: `EXTENSION_API_VERSION` is now 9, bumped twice in this
+  release. `CatalogPort` gained a required
+  `resolve_embedding_config_fingerprint`, `generate_embedding` takes the
+  resolved configuration as a pin, `get_record_embedding` returns the row's
+  model and fingerprint alongside the vector, `get_embedding_distances` takes
+  that pair, and `get_nearest_record_ids` takes the anchor's pair.
+- **A force embedding regenerate no longer deletes before it can finish.**
+  It used to commit `DELETE` of every embedding before generating anything,
+  so any abort after that point left the catalog with no vectors. Old rows
+  are now replaced per batch inside the same transaction that writes the
+  new ones, and vectors for records the run could not embed are reclaimed
+  once at the end, against a database-clock cutoff taken before the run
+  read its records, so a vector the ingest path wrote during the run
+  survives it. The run's `created` count is the number of rows written
+  (#1549, #1581, #1584).
+
+### Fixed
+
+- **The embed snippet boots and renders a map.** It could not start, and
+  retried at roughly 60 requests a second while failing (#1515, #1520).
+- **A domain-locked embed token delivers its layers.** Setting
+  `allowed_origins` produced a token that returned zero layers and 403 on
+  every tile, because the API compared against an origin browsers never send
+  from a framed document. The lock is enforced by `frame-ancestors` at the
+  document layer, as it always was; the API now accepts the deployment's own
+  configured origin. Setting a lock while `PUBLIC_APP_URL` is unset or points
+  at loopback is refused up front instead of failing on every later request,
+  and every URL handed to someone else is built from the configured public
+  origin rather than the admin's current hostname (#1531, #1548).
+- **`PUBLIC_APP_URL` is validated the same way on both doors and both
+  sides.** The environment path never ran the validator, so a value ending in
+  `/api`, an IPv4-mapped IPv6 literal, or a loopback address other than
+  `127.0.0.1` could reach the share panel and build links that could not
+  open. Both the environment and the admin setting now apply one rule, the
+  frontend applies the same rule, and dot segments in the path are resolved
+  the way browsers resolve them before the `/api` check (#1555, #1576).
+- **A missing raster dataset answers 404 instead of 204.** An absent dataset
+  was indistinguishable from an empty tile (#1516, #1523).
+- **`HEAD` on the dataset export route no longer returns 405**, which had
+  hung GDAL (#1513, #1522).
+- **A force embedding backfill can no longer delete vectors it cannot
+  regenerate.** The model, its dimensions and its endpoint are resolved once
+  and pinned for the run, verified past the settings cache before anything is
+  deleted, and re-checked around every provider call so a change landing
+  mid-run stops the run rather than writing vectors into a space the live
+  search will not match (#1511, #1519, #1525, #1539).
+- **A backfill stops when the embedding column moves by any route.** An
+  admin width change was already caught through settings; a column altered
+  by hand, restored from a dump, or left half-rebuilt now stops the run at
+  the first batch and names the width, instead of retrying every record
+  against a column that can never accept it. An already-wrong column is
+  caught before the first batch is written, and one bad vector still costs
+  one record rather than the run (#1533, #1579).
+- **Changing the embedding model publishes its dimensions atomically.** A
+  reader between the two writes saw a model paired with the previous model's
+  width (#1529, #1538).
+- **Settings cache keys for one save are evicted together**, closing a window
+  where paired values could be read mismatched (#1543, #1547).
+- **A failing backfill no longer costs more than a succeeding one.** Every
+  failed record rendered a full traceback with the SQL parameters inline,
+  which under the development log renderer cost close to a second per
+  record; a per-record failure now logs one compact, credential-redacted
+  line and the traceback once per exception type per run (#1544, #1577).
+- **Browsing the catalog works in storage-denied browser contexts.** An
+  unguarded `sessionStorage` read threw and left the landing page's browse
+  action dead (#1527, #1535).
+- **A rejected audit row can no longer destroy the caller's mutation.** Each
+  audit sink runs in its own savepoint, so a row the database rejects rolls
+  back alone (#1491, #1497).
+- **The builder never persists a blank auto-captured thumbnail.** A capture
+  taken before the first frame painted stored a solid fill; the crop is now
+  measured before upload and a blank one is skipped (#1502, #1504).
+- **Embedding coverage stats and Generate Missing agree with search.** Both
+  are scoped to the active model, so a model swap no longer reports full
+  coverage from rows search cannot use, and Generate Missing selects the
+  records that actually lack a usable vector (#1503, #1505, #1506, #1510).
+- **`seed-showcase.py --force` repairs the Matterhorn showcase** instead of
+  dying on the manifest re-push (#1508, #1509).
+- **The interactive latency alert no longer fires on bulk traffic** (#1517, #1521).
+- **Release notes announce when they fall back to the commit log** instead of
+  doing it silently (#1530, #1534).
+- **Basemap attribution help text no longer calls the field optional** for
+  XYZ tile providers that require credit (#1499).
+
+### Internal
+
+- A structural gate now fails the build on any unguarded
+  `sessionStorage`/`localStorage` access under `frontend/src` (#1536, #1545).
+- Removed a salted-hash seed that made a raster replace test flaky under
+  `pytest-xdist` (#1526, #1537).
+- An embedding backfill test asserted on the batch the anomalous record
+  landed in, which on a shared worker database depends on how many records
+  earlier tests left behind; it now asserts on the shape of the retry
+  (#1587).
+- Playwright refuses to run from a linked worktree without
+  `E2E_ALLOW_WORKTREE=1`, because the dev stack always serves the main
+  checkout (#1492).
+- CI gates the committed README screenshot dimensions (#1500).
 
 ## [1.13.1] - 2026-08-14
 
@@ -2187,7 +2358,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.13.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/geolens-io/geolens/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/geolens-io/geolens/compare/v1.13.0...v1.13.1
 [1.13.0]: https://github.com/geolens-io/geolens/compare/v1.12.0...v1.13.0
 [1.12.0]: https://github.com/geolens-io/geolens/compare/v1.11.1...v1.12.0
