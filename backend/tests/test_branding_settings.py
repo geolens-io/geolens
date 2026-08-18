@@ -164,6 +164,9 @@ async def test_get_branding_privacy_url_unset_by_default(
         "//evil.example.com/p",
         "https://example.com:not-a-port/x",
         "https://:443/x",
+        "https://exa mple.com/x",
+        "https://exam_ple.com/x",
+        "https://-bad.com/x",
     ],
 )
 @pytest.mark.anyio
@@ -175,9 +178,10 @@ async def test_put_privacy_url_rejects_non_url(
     Covers the XSS-relevant shapes, not just "not a URL": a javascript:/data:
     URI or a scheme-relative value would otherwise reach the login page as a
     raw <a href>. Also covers a malformed authority a browser cannot resolve
-    (a non-numeric port, or a netloc with no real hostname) — urlsplit leaves
-    that junk sitting in netloc rather than rejecting it outright, so the
-    scheme/netloc check alone would let it through.
+    (a non-numeric port, a netloc with no real hostname, an embedded space, an
+    underscore, or a leading hyphen) -- urlsplit leaves that junk sitting in
+    netloc/hostname rather than rejecting it outright, so the scheme/netloc
+    check alone would let it through.
     """
     resp = await client.put(
         "/api/settings/",
@@ -197,6 +201,42 @@ async def test_put_privacy_url_accepts_query_and_fragment(
     rule it deliberately does not share.
     """
     value = "https://docs.google.com/document/d/abc123/edit?usp=sharing#heading=h.xyz"
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": value}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] == value
+
+    # Restore default so this test does not leak state to others.
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": ""}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://[::1]/x",
+        "https://10.0.0.1:8443/x",
+    ],
+)
+@pytest.mark.anyio
+async def test_put_privacy_url_accepts_ip_literal_hosts(
+    client: AsyncClient, admin_auth_header: dict, value: str
+):
+    """An IP-literal host (IPv6 or IPv4, with or without an explicit port) is
+    a legitimate privacy_url target, not just a DNS name -- the hostname
+    allowlist accepts both forms via ipaddress.ip_address(), same as the
+    rejection cases above prove it rejects a malformed one.
+    """
     resp = await client.put(
         "/api/settings/",
         json={"settings": {"privacy_url": value}},

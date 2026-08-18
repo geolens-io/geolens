@@ -1,3 +1,4 @@
+import ipaddress
 import sys
 import re
 from pathlib import Path
@@ -38,17 +39,21 @@ def validate_privacy_url_shape(v: str) -> str:
     unvalidated). It lives here rather than in ``app.core.public_urls``
     because that module imports this one's ``settings`` singleton at import
     time, and calling into it from a ``Settings`` field validator would be a
-    circular import.
+    circular import -- which is also why the hostname check below is a
+    self-contained allowlist rather than a call to that module's
+    ``canonical_host_error``: it answers a near-identical question (is this
+    hostname spelled the way a browser would show it) and would otherwise be
+    the obvious thing to reuse.
     """
     stripped = v.strip()
-    # A tab, newline, or carriage return ANYWHERE in the string (not just the
-    # ends `.strip()` already removed) is a known scheme-check bypass: the
-    # WHATWG URL parser strips those characters from any position before
-    # tokenizing, so "java\tscript:alert(1)" becomes "javascript:alert(1)" in
-    # a real browser while `urlsplit` below would parse a scheme of
-    # "java\tscript" and let it through the http(s)-only check.
-    if any(c in stripped for c in "\t\r\n"):
-        raise ValueError("must not contain a tab, newline, or carriage return")
+    # Whitespace ANYWHERE in the string (not just the ends `.strip()` already
+    # removed) is a known scheme-check bypass: the WHATWG URL parser strips
+    # tabs and newlines from any position before tokenizing, and silently
+    # drops a plain space from inside a host, so "java\tscript:alert(1)" and
+    # "https://exa mple.com/x" both resolve differently in a browser than
+    # `urlsplit` reads them here.
+    if any(c.isspace() for c in stripped):
+        raise ValueError("must not contain whitespace")
     parsed = urlsplit(stripped)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("must be an absolute http(s) URL")
@@ -58,6 +63,8 @@ def validate_privacy_url_shape(v: str) -> str:
     # (netloc ":443", hostname None) -- a link a browser cannot resolve.
     if not parsed.hostname:
         raise ValueError("must include a hostname")
+    if not _is_valid_privacy_url_host(parsed.hostname):
+        raise ValueError("must have a valid DNS hostname or IP literal")
     # Accessing .port validates both syntax and the 1-65535 range; a bad port
     # such as "https://example.com:not-a-port/x" would otherwise sail through
     # (urlsplit leaves the junk sitting in netloc) and pass this check while
@@ -67,6 +74,27 @@ def validate_privacy_url_shape(v: str) -> str:
     except ValueError:
         raise ValueError("must not include a malformed port") from None
     return stripped
+
+
+def _is_valid_privacy_url_host(hostname: str) -> bool:
+    """Allowlist, not a blocklist: an IPv4/IPv6 literal, or a dotted DNS name
+    whose labels are each 1-63 characters of letters, digits, and internal
+    hyphens (no leading or trailing hyphen), totaling at most 253 characters.
+    Mirrors the DNS-label rule ``validate_tenant_base_domain`` already applies
+    a few fields down, minus that field's IP-literal refusal (a hostname
+    here, unlike a tenant DNS suffix, can legitimately be an IP).
+    ``urlsplit(...).hostname`` already lowercases and strips IPv6 brackets, so
+    ``ipaddress.ip_address`` sees the bare literal either way.
+    """
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+    if len(hostname) > 253:
+        return False
+    host_label = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+    return all(host_label.fullmatch(label) for label in hostname.split("."))
 
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"

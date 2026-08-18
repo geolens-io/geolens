@@ -2852,7 +2852,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # sitting in netloc instead of rejecting it; accessing .port is what
     # actually validates it, same pattern as validate_database_url_override
     # above). Cap 1168 -> 1180, exact.
-    "backend/app/core/config.py": 1180,
+    # PRIV-1 (codex r2): +28 — the whitespace check widened from tab/CR/LF
+    # only to any whitespace character (a plain space inside a host is a
+    # WHATWG-vs-urlsplit disagreement too), and a new _is_valid_privacy_url_host
+    # allowlist (DNS labels or an IP literal) replaces trusting whatever
+    # urlsplit left in .hostname. Deliberately not a call to
+    # app.core.public_urls.canonical_host_error, which answers a
+    # near-identical question, because that would be the same circular
+    # import validate_privacy_url_shape's own docstring already rules out.
+    # Cap 1180 -> 1208, exact.
+    "backend/app/core/config.py": 1208,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

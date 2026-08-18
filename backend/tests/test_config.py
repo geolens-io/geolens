@@ -820,6 +820,17 @@ class TestPrivacyUrlValidator:
     @pytest.mark.parametrize(
         "value",
         [
+            "https://[::1]/x",
+            "https://10.0.0.1:8443/x",
+        ],
+    )
+    def test_ip_literal_host_accepted(self, value):
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
             "not-a-url",
             "javascript:alert(document.cookie)",
             "data:text/html,<script>alert(1)</script>",
@@ -827,6 +838,9 @@ class TestPrivacyUrlValidator:
             "https://user:pass@example.com/privacy",
             "https://example.com:not-a-port/x",
             "https://:443/x",
+            "https://exa mple.com/x",
+            "https://exam_ple.com/x",
+            "https://-bad.com/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):
