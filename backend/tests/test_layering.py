@@ -2881,7 +2881,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # round-trip check alone does not catch it; also rejects a decoded
     # control/format/surrogate/private-use/unassigned character explicitly.
     # Cap 1249 -> 1279, exact.
-    "backend/app/core/config.py": 1279,
+    # PRIV-1 (codex r6): +44 — a bracketed authority ("[...]") is now
+    # restricted to a plain, unscoped IPv6 literal rather than falling
+    # through to the DNS-name or numeric-last-label branches once
+    # `.hostname` strips the brackets, which otherwise accepted an
+    # IPvFuture literal ([v1.foo]), an IPv4-in-brackets ([1.2.3.4]), and a
+    # scoped IPv6 zone ID ([fe80::1%eth0]). Split into a small
+    # _is_unscoped_ipv6_literal helper to stay under ruff's cyclomatic
+    # complexity limit. Cap 1279 -> 1323, exact.
+    "backend/app/core/config.py": 1323,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

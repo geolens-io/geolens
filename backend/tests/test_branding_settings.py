@@ -175,6 +175,10 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://́.example.com/x",
         "https://xn--a.com/x",
         "https://xn--.com/x",
+        "https://[v1.foo]/x",
+        "https://[fe80::1%25eth0]/x",
+        "https://[fe80::1%eth0]/x",
+        "https://[1.2.3.4]/x",
     ],
 )
 @pytest.mark.anyio
@@ -198,7 +202,13 @@ async def test_put_privacy_url_rejects_non_url(
     empty label (a..b), a label that is only a Unicode combining mark, and a
     label already spelled as "xn--" A-label punycode that does not decode to
     a real IDN label -- fail-closed even though Chromium/WebKit accept any
-    ASCII "xn--" label unvalidated, since Firefox does not.
+    ASCII "xn--" label unvalidated, since Firefox does not. And a bracketed
+    authority that is not a plain, unscoped IPv6 literal: an IPvFuture
+    literal no browser implements ([v1.foo]), an IPv4 literal (invalid in
+    brackets, [1.2.3.4]), and a scoped IPv6 zone ID whether or not its "%"
+    is percent-escaped ([fe80::1%eth0], [fe80::1%25eth0]) -- each would
+    otherwise fall through to the DNS-name or numeric-last-label case once
+    `.hostname` strips the brackets.
     """
     resp = await client.put(
         "/api/settings/",
@@ -243,6 +253,7 @@ async def test_put_privacy_url_accepts_query_and_fragment(
     [
         "https://[::1]/x",
         "https://10.0.0.1:8443/x",
+        "https://[2001:db8::1]:8443/x",
     ],
 )
 @pytest.mark.anyio

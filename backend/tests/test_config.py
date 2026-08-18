@@ -822,6 +822,7 @@ class TestPrivacyUrlValidator:
         [
             "https://[::1]/x",
             "https://10.0.0.1:8443/x",
+            "https://[2001:db8::1]:8443/x",
         ],
     )
     def test_ip_literal_host_accepted(self, value):
@@ -864,6 +865,10 @@ class TestPrivacyUrlValidator:
             "https://́.example.com/x",
             "https://xn--a.com/x",
             "https://xn--.com/x",
+            "https://[v1.foo]/x",
+            "https://[fe80::1%25eth0]/x",
+            "https://[fe80::1%eth0]/x",
+            "https://[1.2.3.4]/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):

@@ -55,7 +55,16 @@ def validate_privacy_url_shape(v: str) -> str:
     # `urlsplit` reads them here.
     if any(c.isspace() for c in stripped):
         raise ValueError("must not contain whitespace")
-    parsed = urlsplit(stripped)
+    try:
+        parsed = urlsplit(stripped)
+    except ValueError as exc:
+        # Newer CPython (3.13+) already raises here for some malformed
+        # bracketed authorities, e.g. "https://[1.2.3.4]/x" ("An IPv4
+        # address cannot be in brackets") -- but not for every shape
+        # `_is_valid_privacy_url_host` below rejects, so this is a
+        # convenience early-exit on some interpreters, not a substitute for
+        # that check.
+        raise ValueError(f"is not a valid URL ({exc})") from exc
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("must be an absolute http(s) URL")
     if parsed.username is not None or parsed.password is not None:
@@ -64,7 +73,9 @@ def validate_privacy_url_shape(v: str) -> str:
     # (netloc ":443", hostname None) -- a link a browser cannot resolve.
     if not parsed.hostname:
         raise ValueError("must include a hostname")
-    if not _is_valid_privacy_url_host(parsed.hostname):
+    if not _is_valid_privacy_url_host(
+        parsed.hostname, bracketed=parsed.netloc.startswith("[")
+    ):
         raise ValueError("must have a valid DNS hostname or IP literal")
     # Accessing .port validates both syntax and the 1-65535 range; a bad port
     # such as "https://example.com:not-a-port/x" would otherwise sail through
@@ -77,12 +88,43 @@ def validate_privacy_url_shape(v: str) -> str:
     return stripped
 
 
-def _is_valid_privacy_url_host(hostname: str) -> bool:
-    """Allowlist, not a blocklist. Exactly three cases are accepted:
+def _is_unscoped_ipv6_literal(hostname: str) -> bool:
+    """A plain IPv6 literal with no ``%`` zone ID. Split out of
+    ``_is_valid_privacy_url_host`` purely to keep that function's
+    cyclomatic complexity under the repo's ruff limit; see its docstring
+    for why a bracketed authority is restricted to this and nothing else.
+    """
+    if "%" in hostname:
+        return False
+    try:
+        ipaddress.IPv6Address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
+    """Allowlist, not a blocklist.
+
+    ``bracketed`` is True when the URL wrote this host inside ``[...]``.
+    ``urlsplit(...).hostname`` strips the brackets unconditionally, so this
+    flag is the caller's only remaining signal that they were there --
+    ``parsed.netloc.startswith("[")``, checked before ``.hostname`` throws
+    the brackets away. Per RFC 3986, bracketed authority syntax means "this
+    is an IP literal", never a DNS name, whatever the contents look like,
+    so a bracketed host skips every case below: it is accepted ONLY as a
+    plain, unscoped ``ipaddress.IPv6Address``, with no ``%`` zone ID.
+    Without this, ``"[v1.foo]"`` (an IPvFuture literal no browser
+    implements) would fall through to case 2 and look like the ordinary
+    DNS name "v1.foo", ``"[1.2.3.4]"`` (an IPv4 literal, invalid in
+    brackets) would fall through to case 3 and look like a bracket-stripped
+    numeric-last-label host, and ``"[fe80::1%eth0]"`` (a scoped IPv6 zone
+    ID) parses fine under plain ``ipaddress.ip_address`` even though no
+    browser resolves a zone ID from a stored config value.
+
+    Otherwise, exactly three cases are accepted:
 
     1. An IP literal (IPv4 or IPv6) that parses with ``ipaddress.ip_address``.
-       ``urlsplit(...).hostname`` already lowercases and strips IPv6 brackets,
-       so the bare literal is what this function sees either way.
     2. An ordinary DNS name, applied AFTER IDNA normalization: dot-separated
        labels, each 1-63 characters of letters, digits, and internal
        hyphens (no leading or trailing hyphen), totaling at most 253
@@ -114,6 +156,8 @@ def _is_valid_privacy_url_host(hostname: str) -> bool:
     to. Rejecting malformed punycode is fail-closed and cheap, so this
     function does it regardless of which engine would have let it through.
     """
+    if bracketed:
+        return _is_unscoped_ipv6_literal(hostname)
     try:
         ipaddress.ip_address(hostname)
         return True
