@@ -2836,8 +2836,17 @@ async def test_a_matching_if_range_resumes_even_on_a_contested_selection(
         )
     ][0]
     rival = b"a second builder's output, same window"
+    # Stamped a second BEFORE the artifact the client names, deliberately: the
+    # key stamp is whole seconds, and a rival minted in the same second ties
+    # with it, so which one `lookup` calls newest was a tie-break. If the rival
+    # won, the client's If-Range named a representation that was no longer the
+    # current one and the (correct) answer was 200 — a flake that pinned the
+    # wrong thing. Older by a second, the selection is contested and the named
+    # artifact stays current, which is what this test is about.
     await get_storage().put(
-        cache._artifact_key(dataset.id, selection, "c" * 64, len(rival), time.time()),
+        cache._artifact_key(
+            dataset.id, selection, "c" * 64, len(rival), time.time() - 1
+        ),
         rival,
     )
 
@@ -4545,9 +4554,12 @@ async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_who
     assert resumed.headers["etag"] == v2_etag
     assert "content-range" not in resumed.headers
 
-    # Let the change age past a TTL: the URL's last answer with the OLD bytes
-    # is a publication under v1; move it back a TTL and more (re-keyed, since
-    # the stamp in the name floors publication) and the same hit is a 206.
+    # Let the change age out. The URL's last possible answer with the OLD
+    # bytes is a v1 publication plus a TTL, and the client that took it gets a
+    # TTL to come back — so a v1 publication 700 s old (TTL 600: served until
+    # 100 s ago) still holds bare ranges whole, and one 1300 s old releases
+    # them (#1585 review r5). Re-keyed each time, since the stamp in the name
+    # floors publication.
     storage = get_storage()
     prefix = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
     v1_keys = [
@@ -4557,24 +4569,44 @@ async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_who
         and cache.parse_artifact_key(k)[2] != v2_etag.strip('"')
     ]
     assert v1_keys, "the previous representation must still be live for this test"
-    for k in v1_keys:
-        parsed = cache.parse_artifact_key(k)
-        selection_v1 = k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
-        payload = await storage.get(k)
-        aged = cache._artifact_key(
-            dataset.id, selection_v1, parsed[2], parsed[1], time.time() - 700
-        )
-        await storage.put(aged, payload)
-        when = time.time() - 700
-        os.utime(Path(storage.base_dir) / aged, (when, when))
-        await storage.delete(k)
 
+    async def _age_v1_to(seconds_ago: float) -> None:
+        nonlocal v1_keys
+        moved = []
+        for k in v1_keys:
+            parsed = cache.parse_artifact_key(k)
+            selection_v1 = k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
+            payload = await storage.get(k)
+            aged = cache._artifact_key(
+                dataset.id,
+                selection_v1,
+                parsed[2],
+                parsed[1],
+                time.time() - seconds_ago,
+            )
+            await storage.put(aged, payload)
+            when = time.time() - seconds_ago
+            os.utime(Path(storage.base_dir) / aged, (when, when))
+            await storage.delete(k)
+            moved.append(aged)
+        v1_keys = moved
+
+    await _age_v1_to(700)
+    still = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert still.status_code == 200, (
+        f"the previous bytes were servable until 100 s ago and a client that took "
+        f"them may not be back yet; a bare Range hit answered {still.status_code}"
+    )
+
+    await _age_v1_to(1300)
     settled = await client.get(
         url, headers={**admin_auth_header, "Range": "bytes=100-199"}
     )
     assert conversions.count == 2
     assert settled.status_code == 206, (
-        f"a TTL after the URL last answered with other bytes, a bare Range hit "
+        f"two TTLs after the URL last published other bytes, a bare Range hit "
         f"answered {settled.status_code}; GDAL opens after a settled change must work"
     )
     assert settled.headers["etag"] == v2_etag

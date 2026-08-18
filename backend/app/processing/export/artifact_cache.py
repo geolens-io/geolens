@@ -336,8 +336,10 @@ async def url_answered_other_bytes_recently(
     re-reading the header — makes that request within the change's first TTL,
     and for that TTL the route answers it whole. Answering requires a fresh
     artifact, and a fresh artifact is one published within the TTL, so "the
-    URL answered other bytes recently" is exactly "an artifact with another
-    digest was published under this URL within the last TTL" — at any version,
+    URL answered other bytes within the last TTL" is exactly "an artifact with
+    another digest was published under this URL within the last TWO TTLs" (a
+    TTL of serving, then a TTL of grace for the client that took the last
+    answer) — at any version,
     which is why every version of a URL shares a prefix (``selection_key``).
     A→B→A within retention is caught by the same test: while B is still being
     answered, B artifacts keep being published, and the moment they stop the
@@ -356,7 +358,12 @@ async def url_answered_other_bytes_recently(
     ages it out; the exposure is a client spanning both the upgrade and a data
     change, and it is stated rather than paid for on every range.
     """
-    cutoff = time.time() - _ttl_seconds()
+    # fix(#1532) follow-up (#1585 review r5): TWO TTLs, not one. An artifact
+    # answers for a TTL after publication, so its last possible answer is a
+    # TTL after that, and the client that took it needs a TTL of its own to
+    # come back. Publication one TTL old means "could have been served a
+    # moment ago"; two TTLs old means "nobody has held it for less than a TTL".
+    cutoff = time.time() - 2 * _ttl_seconds()
     try:
         async for page in get_storage().iter_object_pages(
             _url_prefix(dataset_id, selection)
