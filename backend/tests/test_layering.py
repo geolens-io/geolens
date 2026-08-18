@@ -2889,7 +2889,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # scoped IPv6 zone ID ([fe80::1%eth0]). Split into a small
     # _is_unscoped_ipv6_literal helper to stay under ruff's cyclomatic
     # complexity limit. Cap 1279 -> 1323, exact.
-    "backend/app/core/config.py": 1323,
+    # PRIV-1 (codex r7): +23 — unified the U-label combining-mark check and
+    # the decoded-A-label control-character check into one _check_ulabel
+    # function, called from both sites, so "xn--lsa" (the punycode spelling
+    # of a bare combining mark, which only the A-label check saw) gets the
+    # same verdict as its literal U-label form. Cap 1323 -> 1346, exact.
+    "backend/app/core/config.py": 1346,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

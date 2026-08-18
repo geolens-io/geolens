@@ -869,12 +869,48 @@ class TestPrivacyUrlValidator:
             "https://[fe80::1%25eth0]/x",
             "https://[fe80::1%eth0]/x",
             "https://[1.2.3.4]/x",
+            "https://xn--lsa.example/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):
         with pytest.raises(Exception) as exc_info:
             _make_settings(privacy_url=value)
         assert "PRIVACY_URL" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "host, accepted",
+        [
+            ("例え.テスト", True),
+            ("́.example.com", False),  # a bare combining mark as a label
+        ],
+    )
+    def test_ulabel_and_alabel_forms_get_the_same_verdict(self, host, accepted):
+        """PRIV-1 (codex r7): a host's native Unicode (U-label) spelling and
+        its IDNA-encoded ("xn--...", A-label) spelling must always agree --
+        which one the operator happened to type is never why one is
+        accepted and the other rejected. Skips the A-form comparison for a
+        host IDNA itself cannot encode (there is no A-form to compare).
+        """
+        u_url = f"https://{host}/x"
+        if accepted:
+            s = _make_settings(privacy_url=u_url)
+            assert s.privacy_url == u_url
+        else:
+            with pytest.raises(Exception):
+                _make_settings(privacy_url=u_url)
+
+        try:
+            a_host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            return
+
+        a_url = f"https://{a_host}/x"
+        if accepted:
+            s = _make_settings(privacy_url=a_url)
+            assert s.privacy_url == a_url
+        else:
+            with pytest.raises(Exception):
+                _make_settings(privacy_url=a_url)
 
 
 class TestSecretStrMasking:

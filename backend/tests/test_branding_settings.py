@@ -179,6 +179,7 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://[fe80::1%25eth0]/x",
         "https://[fe80::1%eth0]/x",
         "https://[1.2.3.4]/x",
+        "https://xn--lsa.example/x",
     ],
 )
 @pytest.mark.anyio
@@ -208,7 +209,10 @@ async def test_put_privacy_url_rejects_non_url(
     brackets, [1.2.3.4]), and a scoped IPv6 zone ID whether or not its "%"
     is percent-escaped ([fe80::1%eth0], [fe80::1%25eth0]) -- each would
     otherwise fall through to the DNS-name or numeric-last-label case once
-    `.hostname` strips the brackets.
+    `.hostname` strips the brackets. And "xn--lsa" (the punycode spelling
+    of a bare combining mark): U-labels and decoded A-labels share one
+    rule set, so the encoded form of an already-rejected host cannot slip
+    through in its "xn--..." spelling.
     """
     resp = await client.put(
         "/api/settings/",

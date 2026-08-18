@@ -88,6 +88,30 @@ def validate_privacy_url_shape(v: str) -> str:
     return stripped
 
 
+def _check_ulabel(label: str) -> bool:
+    """Unicode-label validity rules, applied identically to a raw U-label
+    (before IDNA encoding) and to a decoded A-label (after decoding an
+    operator-typed "xn--..." label) -- the same function for both, so a
+    host's U-form and its punycode A-form always get the same verdict.
+    Without this, "xn--lsa" decodes to U+0301 (a bare combining acute
+    accent) and round-trips cleanly, so an already-rejected U-label
+    (a literal combining mark) slipped through in its encoded spelling.
+
+    Rejects: empty; a leading combining mark, category Mn/Mc/Me (there is
+    nothing for it to combine with -- UTS46's rule, which Python's
+    IDNA2003 codec does not enforce); or any control, format, surrogate,
+    private-use, or unassigned code point (category C*) anywhere in the
+    label -- "xn--a" decodes to U+0080, a bare C1 control byte, without
+    raising and also round-trips cleanly, so the round-trip check alone
+    does not catch that one either.
+    """
+    if not label:
+        return False
+    if unicodedata.category(label[0]) in {"Mn", "Mc", "Me"}:
+        return False
+    return not any(unicodedata.category(ch).startswith("C") for ch in label)
+
+
 def _is_unscoped_ipv6_literal(hostname: str) -> bool:
     """A plain IPv6 literal with no ``%`` zone ID. Split out of
     ``_is_valid_privacy_url_host`` purely to keep that function's
@@ -155,6 +179,11 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
     rules), so there is no single "what a browser accepts" answer to defer
     to. Rejecting malformed punycode is fail-closed and cheap, so this
     function does it regardless of which engine would have let it through.
+    U-labels and decoded A-labels share one rule set (``_check_ulabel``):
+    the operator who types a bare combining mark and the one who types its
+    already-encoded "xn--lsa" spelling hit the identical check, so which
+    spelling they used is never the reason one is rejected and the other
+    is not.
     """
     if bracketed:
         return _is_unscoped_ipv6_literal(hostname)
@@ -170,15 +199,12 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
         except ValueError:
             return False
         return str(parsed_ip) == hostname
-    # UTS46 forbids a label that starts with a combining mark -- there is
-    # nothing for it to combine with. Python's built-in "idna" codec is
-    # IDNA2003 (RFC 3490) and does not enforce this: it happily encodes a
-    # bare combining mark to a syntactically valid-looking "xn--..." label,
-    # so the encode step below would not catch it on its own.
-    if any(
-        label and unicodedata.category(label[0]).startswith("M")
-        for label in hostname.split(".")
-    ):
+    # U-labels and decoded A-labels share one rule set (_check_ulabel):
+    # Python's built-in "idna" codec is IDNA2003 (RFC 3490) and enforces
+    # neither the UTS46 leading-combining-mark rule nor a general character
+    # validity rule, so the encode step below would not catch a bare
+    # combining mark on its own.
+    if not all(_check_ulabel(label) for label in hostname.split(".")):
         return False
     try:
         ascii_host = hostname.encode("idna").decode("ascii")
@@ -198,14 +224,11 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
             decoded = a_label.encode("ascii").decode("punycode")
         except UnicodeError:
             return False
-        if not decoded:
-            return False
-        # A genuine IDN label decodes to at least one character that is not
-        # control/format/surrogate/private-use/unassigned. "xn--a" decodes
-        # to U+0080 (a bare C1 control byte) without raising and round-trips
-        # straight back to "a", so the round-trip check below does not, on
-        # its own, catch it -- this does.
-        if any(unicodedata.category(ch).startswith("C") for ch in decoded):
+        # Same rule set as a raw U-label (_check_ulabel), applied to what
+        # this A-label decodes to -- an operator who spells a combining
+        # mark directly and one who spells its punycode equivalent
+        # ("xn--lsa") hit the identical check.
+        if not _check_ulabel(decoded):
             return False
         if decoded.encode("punycode").decode("ascii") != a_label:
             return False
