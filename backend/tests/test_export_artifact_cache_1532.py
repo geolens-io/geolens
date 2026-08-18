@@ -781,8 +781,15 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
     nothing deletes on the publish path at all.
 
     The overlap is FORCED, not hoped for. A barrier holds both builders after
-    hashing and before publishing, and the test asserts both arrived; a sequence
-    of two ``store`` calls proves nothing about concurrency.
+    their pre-publish re-check and before publishing, and the test asserts both
+    arrived; a sequence of two ``store`` calls proves nothing about concurrency.
+
+    fix(#1532 review r29) made the barrier's placement matter: a builder whose
+    re-check finds a fresh incumbent is handed that incumbent instead of
+    publishing, so a barrier at the hash let the second builder's re-check land
+    after the first's put and the two came back with ONE key — the lost-race
+    path, which has its own test, not the two-publisher case this one pins.
+    Holding both at the re-check makes both miss and both publish.
     """
     import asyncio
     import tempfile
@@ -796,11 +803,11 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
 
     arrived = asyncio.Event()
     waiting = 0
-    real_digest = cache.digest_and_size
+    real_lookup = cache.lookup
 
-    async def _barriered(file_path):
+    async def _barriered(*args, **kwargs):
         nonlocal waiting
-        result = await real_digest(file_path)
+        result = await real_lookup(*args, **kwargs)
         if waiting < 2:
             waiting += 1
             if waiting == 2:
@@ -808,7 +815,7 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
             await asyncio.wait_for(arrived.wait(), timeout=5)
         return result
 
-    monkeypatch.setattr(cache, "digest_and_size", _barriered)
+    monkeypatch.setattr(cache, "lookup", _barriered)
 
     async def _publish(payload: bytes):
         with tempfile.NamedTemporaryFile(delete=False) as handle:
