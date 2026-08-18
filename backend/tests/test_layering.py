@@ -2867,7 +2867,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # IPv4 address, per the WHATWG "ends in a number" rule. That branch now
     # requires the exact canonical dotted-quad spelling instead of falling
     # through to the DNS-label check. Cap 1208 -> 1229, exact.
-    "backend/app/core/config.py": 1229,
+    # PRIV-1 (codex r4): +20 — the DNS-name branch (case 2) now IDNA-encodes
+    # the hostname before applying the label regex, so a browser-valid
+    # internationalized host like 例え.テスト is accepted rather than rejected
+    # by an ASCII-only regex. Also rejects a label that starts with a
+    # Unicode combining mark, which Python's stdlib "idna" codec (IDNA2003)
+    # encodes without error even though no browser accepts it.
+    # Cap 1229 -> 1249, exact.
+    "backend/app/core/config.py": 1249,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

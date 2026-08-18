@@ -831,6 +831,21 @@ class TestPrivacyUrlValidator:
     @pytest.mark.parametrize(
         "value",
         [
+            "https://例え.テスト/privacy",
+            "https://xn--r8jz45g.xn--zckzah/privacy",
+        ],
+    )
+    def test_internationalized_host_accepted_unchanged(self, value):
+        """Stored and served exactly as entered, in either its native
+        Unicode spelling or its already-punycode form -- not rewritten to a
+        canonical form, matching what a browser does with the same input.
+        """
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
             "not-a-url",
             "javascript:alert(document.cookie)",
             "data:text/html,<script>alert(1)</script>",
@@ -845,6 +860,8 @@ class TestPrivacyUrlValidator:
             "https://1.2.3.4.5/x",
             "https://192.168.1/x",
             "https://0x7f.1/x",
+            "https://a..b/x",
+            "https://́.example.com/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):

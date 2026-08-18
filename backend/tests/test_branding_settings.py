@@ -171,6 +171,8 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://1.2.3.4.5/x",
         "https://192.168.1/x",
         "https://0x7f.1/x",
+        "https://a..b/x",
+        "https://́.example.com/x",
     ],
 )
 @pytest.mark.anyio
@@ -245,6 +247,43 @@ async def test_put_privacy_url_accepts_ip_literal_hosts(
     a legitimate privacy_url target, not just a DNS name -- the hostname
     allowlist accepts both forms via ipaddress.ip_address(), same as the
     rejection cases above prove it rejects a malformed one.
+    """
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": value}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] == value
+
+    # Restore default so this test does not leak state to others.
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": ""}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://例え.テスト/privacy",
+        "https://xn--r8jz45g.xn--zckzah/privacy",
+    ],
+)
+@pytest.mark.anyio
+async def test_put_privacy_url_accepts_internationalized_hosts(
+    client: AsyncClient, admin_auth_header: dict, value: str
+):
+    """A browser-valid internationalized host, in either its native Unicode
+    spelling or its already-punycode "xn--" form, is a legitimate
+    privacy_url target. Round-trips unchanged: the operator's URL is stored
+    and served exactly as entered, not rewritten to a canonical form,
+    matching what a browser does with the same input.
     """
     resp = await client.put(
         "/api/settings/",

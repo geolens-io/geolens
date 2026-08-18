@@ -1,6 +1,7 @@
 import ipaddress
 import sys
 import re
+import unicodedata
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
@@ -82,12 +83,16 @@ def _is_valid_privacy_url_host(hostname: str) -> bool:
     1. An IP literal (IPv4 or IPv6) that parses with ``ipaddress.ip_address``.
        ``urlsplit(...).hostname`` already lowercases and strips IPv6 brackets,
        so the bare literal is what this function sees either way.
-    2. An ordinary DNS name: dot-separated labels, each 1-63 characters of
-       letters, digits, and internal hyphens (no leading or trailing
-       hyphen), totaling at most 253 characters. Mirrors the DNS-label rule
-       ``validate_tenant_base_domain`` already applies a few fields down,
-       minus that field's IP-literal refusal (a hostname here, unlike a
-       tenant DNS suffix, can legitimately be an IP).
+    2. An ordinary DNS name, applied AFTER IDNA normalization: dot-separated
+       labels, each 1-63 characters of letters, digits, and internal
+       hyphens (no leading or trailing hyphen), totaling at most 253
+       characters. An internationalized label such as "例え" is IDNA-encoded
+       to its ASCII "xn--..." form first (same as a browser does before
+       navigating), and that form is what the label rule below actually
+       checks -- an already-ASCII operator input is unaffected. Mirrors the
+       DNS-label rule ``validate_tenant_base_domain`` already applies a few
+       fields down, minus that field's IP-literal refusal (a hostname here,
+       unlike a tenant DNS suffix, can legitimately be an IP).
     3. A hostname whose LAST label is numeric (all digits) or 0x-prefixed
        hex: per the WHATWG URL "ends in a number" rule, a browser reads a
        host in this shape as an attempted IPv4 address, not a DNS name --
@@ -112,10 +117,25 @@ def _is_valid_privacy_url_host(hostname: str) -> bool:
         except ValueError:
             return False
         return str(parsed_ip) == hostname
-    if len(hostname) > 253:
+    # UTS46 forbids a label that starts with a combining mark -- there is
+    # nothing for it to combine with. Python's built-in "idna" codec is
+    # IDNA2003 (RFC 3490) and does not enforce this: it happily encodes a
+    # bare combining mark to a syntactically valid-looking "xn--..." label,
+    # so the encode step below would not catch it on its own.
+    if any(
+        label and unicodedata.category(label[0]).startswith("M")
+        for label in hostname.split(".")
+    ):
+        return False
+    try:
+        ascii_host = hostname.encode("idna").decode("ascii")
+    except UnicodeError:
+        # Covers, among other malformed shapes, an empty label ("a..b").
+        return False
+    if len(ascii_host) > 253:
         return False
     host_label = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-    return all(host_label.fullmatch(label) for label in hostname.split("."))
+    return all(host_label.fullmatch(label) for label in ascii_host.split("."))
 
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
