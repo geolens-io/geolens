@@ -2894,7 +2894,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # function, called from both sites, so "xn--lsa" (the punycode spelling
     # of a bare combining mark, which only the A-label check saw) gets the
     # same verdict as its literal U-label form. Cap 1323 -> 1346, exact.
-    "backend/app/core/config.py": 1346,
+    # PRIV-1 (codex r8): -57 (SHRANK) — replaced the hand-rolled DNS-label
+    # regex + _check_ulabel + manual punycode decode/round-trip with one
+    # call to the `idna` package's UTS46 ToASCII (already a direct backend
+    # dependency, pinned in pyproject.toml for a CVE), which enforces the
+    # same rules plus the ones a hand-rolled check missed (U+FE47, which
+    # UTS46 maps to "[" and then rejects). Cap 1346 -> 1289, exact.
+    "backend/app/core/config.py": 1289,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

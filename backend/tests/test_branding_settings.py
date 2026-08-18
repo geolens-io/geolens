@@ -180,6 +180,7 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://[fe80::1%eth0]/x",
         "https://[1.2.3.4]/x",
         "https://xn--lsa.example/x",
+        "https://﹇.com/x",
     ],
 )
 @pytest.mark.anyio
@@ -212,7 +213,11 @@ async def test_put_privacy_url_rejects_non_url(
     `.hostname` strips the brackets. And "xn--lsa" (the punycode spelling
     of a bare combining mark): U-labels and decoded A-labels share one
     rule set, so the encoded form of an already-rejected host cannot slip
-    through in its "xn--..." spelling.
+    through in its "xn--..." spelling. And U+FE47 -- hostname validity is
+    now the `idna` package's UTS46 ToASCII, which maps this presentation
+    variant to "[" per the UTS46 mapping table and then rejects the
+    result, the same as a literal "[" would be (STD3 disallows it outside
+    the bracketed-authority syntax `urlsplit` already stripped away).
     """
     resp = await client.put(
         "/api/settings/",

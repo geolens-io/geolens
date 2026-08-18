@@ -1,11 +1,11 @@
 import ipaddress
 import sys
 import re
-import unicodedata
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlsplit
 
+import idna
 from pydantic import (
     Field,
     SecretStr,
@@ -88,30 +88,6 @@ def validate_privacy_url_shape(v: str) -> str:
     return stripped
 
 
-def _check_ulabel(label: str) -> bool:
-    """Unicode-label validity rules, applied identically to a raw U-label
-    (before IDNA encoding) and to a decoded A-label (after decoding an
-    operator-typed "xn--..." label) -- the same function for both, so a
-    host's U-form and its punycode A-form always get the same verdict.
-    Without this, "xn--lsa" decodes to U+0301 (a bare combining acute
-    accent) and round-trips cleanly, so an already-rejected U-label
-    (a literal combining mark) slipped through in its encoded spelling.
-
-    Rejects: empty; a leading combining mark, category Mn/Mc/Me (there is
-    nothing for it to combine with -- UTS46's rule, which Python's
-    IDNA2003 codec does not enforce); or any control, format, surrogate,
-    private-use, or unassigned code point (category C*) anywhere in the
-    label -- "xn--a" decodes to U+0080, a bare C1 control byte, without
-    raising and also round-trips cleanly, so the round-trip check alone
-    does not catch that one either.
-    """
-    if not label:
-        return False
-    if unicodedata.category(label[0]) in {"Mn", "Mc", "Me"}:
-        return False
-    return not any(unicodedata.category(ch).startswith("C") for ch in label)
-
-
 def _is_unscoped_ipv6_literal(hostname: str) -> bool:
     """A plain IPv6 literal with no ``%`` zone ID. Split out of
     ``_is_valid_privacy_url_host`` purely to keep that function's
@@ -128,7 +104,7 @@ def _is_unscoped_ipv6_literal(hostname: str) -> bool:
 
 
 def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
-    """Allowlist, not a blocklist.
+    """Hostname validity = idna (UTS46) + our IP/numeric rules.
 
     ``bracketed`` is True when the URL wrote this host inside ``[...]``.
     ``urlsplit(...).hostname`` strips the brackets unconditionally, so this
@@ -149,16 +125,23 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
     Otherwise, exactly three cases are accepted:
 
     1. An IP literal (IPv4 or IPv6) that parses with ``ipaddress.ip_address``.
-    2. An ordinary DNS name, applied AFTER IDNA normalization: dot-separated
-       labels, each 1-63 characters of letters, digits, and internal
-       hyphens (no leading or trailing hyphen), totaling at most 253
-       characters. An internationalized label such as "例え" is IDNA-encoded
-       to its ASCII "xn--..." form first (same as a browser does before
-       navigating), and that form is what the label rule below actually
-       checks -- an already-ASCII operator input is unaffected. Mirrors the
-       DNS-label rule ``validate_tenant_base_domain`` already applies a few
-       fields down, minus that field's IP-literal refusal (a hostname here,
-       unlike a tenant DNS suffix, can legitimately be an IP).
+    2. An ordinary DNS name, validated by handing it to the ``idna`` package
+       (already a direct backend dependency, pinned in pyproject.toml for a
+       CVE) with ``idna.encode(hostname, uts46=True, std3_rules=True)`` --
+       the same UTS46 ToASCII processing a browser applies before
+       navigating. One call replaces what used to be three hand-rolled
+       pieces: a DNS-label regex, a bespoke Unicode-label validity check,
+       and a manual punycode decode-and-round-trip for an operator-typed
+       "xn--" label. UTS46 already covers everything those existed for --
+       STD3 character restrictions (rejects "_", "[", and similar),
+       hyphen placement, the 63-char label and 253-char total length
+       limits (verified: idna accepts exactly 253, rejects 254, matching
+       the length check kept below as a second line of defense), empty
+       labels, and the full disallowed/combining-mark code-point set for
+       BOTH a raw Unicode label and an operator-typed "xn--" A-label --
+       the package decodes and validates that content the same way, so a
+       host's native and punycode spellings can no longer disagree with
+       each other, unlike the hand-rolled version this replaced.
     3. A hostname whose LAST label is numeric (all digits) or 0x-prefixed
        hex: per the WHATWG URL "ends in a number" rule, a browser reads a
        host in this shape as an attempted IPv4 address, not a DNS name --
@@ -170,20 +153,6 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
        3-part parser but silently becomes 192.168.0.1, a host that does
        not match what was stored. All three are rejected here, not passed
        through to case 2.
-
-    A label already spelled as an ACE / "xn--" A-label (typed directly by
-    the operator, not produced by our own IDNA encoding above) must decode
-    to a real, valid IDN label, or it is rejected -- browser engines
-    actually disagree here (Chromium and WebKit accept any ASCII "xn--"
-    label unvalidated; Firefox implements the full IDNA2008 label-validity
-    rules), so there is no single "what a browser accepts" answer to defer
-    to. Rejecting malformed punycode is fail-closed and cheap, so this
-    function does it regardless of which engine would have let it through.
-    U-labels and decoded A-labels share one rule set (``_check_ulabel``):
-    the operator who types a bare combining mark and the one who types its
-    already-encoded "xn--lsa" spelling hit the identical check, so which
-    spelling they used is never the reason one is rejected and the other
-    is not.
     """
     if bracketed:
         return _is_unscoped_ipv6_literal(hostname)
@@ -199,40 +168,14 @@ def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
         except ValueError:
             return False
         return str(parsed_ip) == hostname
-    # U-labels and decoded A-labels share one rule set (_check_ulabel):
-    # Python's built-in "idna" codec is IDNA2003 (RFC 3490) and enforces
-    # neither the UTS46 leading-combining-mark rule nor a general character
-    # validity rule, so the encode step below would not catch a bare
-    # combining mark on its own.
-    if not all(_check_ulabel(label) for label in hostname.split(".")):
-        return False
     try:
-        ascii_host = hostname.encode("idna").decode("ascii")
-    except UnicodeError:
-        # Covers, among other malformed shapes, an empty label ("a..b").
+        ascii_host = idna.encode(hostname, uts46=True, std3_rules=True).decode("ascii")
+    except idna.IDNAError:
         return False
-    if len(ascii_host) > 253:
-        return False
-    host_label = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-    for label in ascii_host.split("."):
-        if not host_label.fullmatch(label):
-            return False
-        if not label.startswith("xn--"):
-            continue
-        a_label = label[4:]
-        try:
-            decoded = a_label.encode("ascii").decode("punycode")
-        except UnicodeError:
-            return False
-        # Same rule set as a raw U-label (_check_ulabel), applied to what
-        # this A-label decodes to -- an operator who spells a combining
-        # mark directly and one who spells its punycode equivalent
-        # ("xn--lsa") hit the identical check.
-        if not _check_ulabel(decoded):
-            return False
-        if decoded.encode("punycode").decode("ascii") != a_label:
-            return False
-    return True
+    # Belt and braces: idna.encode already enforces this length limit
+    # itself (verified by hand: 253 accepted, 254 "Domain too long"), but a
+    # future idna release relaxing that should not silently loosen ours.
+    return len(ascii_host) <= 253
 
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"

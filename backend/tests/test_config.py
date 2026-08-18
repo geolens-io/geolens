@@ -870,6 +870,7 @@ class TestPrivacyUrlValidator:
             "https://[fe80::1%eth0]/x",
             "https://[1.2.3.4]/x",
             "https://xn--lsa.example/x",
+            "https://﹇.com/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):
