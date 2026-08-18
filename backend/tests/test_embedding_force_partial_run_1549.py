@@ -113,6 +113,23 @@ async def _rows_for(
     return sorted((row[0], row[1]) for row in result.all())
 
 
+async def _blank_title(session, record_id: uuid.UUID) -> None:
+    """Make a record's emptiness REAL in the database, not just at the stub.
+
+    fix(#1584 review r3): the reclamation's row snapshot is narrowed to records
+    with no title, because a record with one can never be skipped and its rows
+    can never be reclaimed. A test that fakes the emptiness only in what the
+    port returns leaves a titled row in the database, so the snapshot would not
+    cover it and the reclamation would find nothing to do — passing, for the
+    wrong reason, whatever the code did.
+    """
+    await session.execute(
+        text("UPDATE catalog.records SET title = '' WHERE id = :record_id"),
+        {"record_id": record_id},
+    )
+    await session.commit()
+
+
 async def _ingest_write(session, record_id: uuid.UUID, title: str) -> None:
     """Write a vector the way the INGEST PATH does, mid-run.
 
@@ -396,6 +413,7 @@ async def test_a_completed_force_run_drops_a_vector_it_cannot_regenerate(
 
     embeddable = await _seed(session, "Still Embeddable")
     emptied = await _seed(session, "Content Emptied")
+    await _blank_title(session, emptied)
     _pin_run(
         monkeypatch,
         [
@@ -459,6 +477,8 @@ async def test_reclamation_spares_a_vector_written_during_the_run(
     embeddable = await _seed(session, "Reclaim Keeps Embeddable")
     edited_during_fetch = await _seed(session, "Reclaim Edited During Fetch")
     edited_during_batch = await _seed(session, "Reclaim Edited Mid Run")
+    await _blank_title(session, edited_during_fetch)
+    await _blank_title(session, edited_during_batch)
 
     async def _fetch_then_edit(_session, *, force=False):
         # The fetch IS the observation: it is where these records are seen as
@@ -573,6 +593,67 @@ async def test_a_written_row_is_stamped_when_it_was_written_not_when_the_run_beg
     # The row is stamped for when it was written, so it sorts after anything
     # that committed while this transaction was open.
     assert stamped > seen["transaction_start"]
+
+
+@pytest.mark.anyio
+async def test_a_stale_row_stamped_in_the_future_is_still_reclaimed(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1584 review r3): the reclamation cannot be decided by a clock.
+
+    Rows written before this release were stamped by the ingest writer from the
+    APPLICATION clock. A worker running ahead of PostgreSQL — or an older worker
+    still doing so during a rolling deploy — leaves rows whose `updated_at` is
+    in the database's future. A cutoff comparison spares exactly those: they
+    look like writes that happened after the run started, so the obsolete vector
+    survives, the skipped record gets no replacement, and it stays exposed to
+    search until the clock catches up and somebody re-runs.
+
+    Moving the writers to `clock_timestamp()` does not normalise what is already
+    stored, so the criterion has to hold for those rows too. Matching the row
+    VERSIONS the run observed does: this row was there when the run looked, and
+    nothing has touched it since, whatever its stamp claims.
+
+    The other direction is `test_reclamation_spares_a_vector_written_during_the_run`,
+    which drives the real writer and must keep passing. Together they pin both
+    ends: reclaim what I saw and nothing has touched, spare everything else.
+    """
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    stale = await _seed(session, "Future Stamped Stale")
+    await _blank_title(session, stale)
+    # The legacy shape: a pre-run row carrying a stamp the database has not
+    # reached yet. Nothing writes this today; a worker whose clock ran fast did.
+    await session.execute(
+        text(
+            "UPDATE catalog.record_embeddings "
+            "SET updated_at = clock_timestamp() + interval '5 minutes' "
+            "WHERE record_id = :record_id"
+        ),
+        {"record_id": stale},
+    )
+    await session.commit()
+
+    # No embeddable content, so the run skips it and the reclamation is what
+    # decides its fate.
+    _pin_run(monkeypatch, [_as_record(stale, title=None)])
+
+    async def _fake_batch(texts, sess, *, model, dimensions, base_url):
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _fake_batch)
+
+    result = await backfill_module.backfill_embeddings(session, force=True)
+
+    # Non-vacuity: the record really was treated as having nothing to embed.
+    assert result["skipped"] == 1
+    assert result["created"] == 0
+    # And its obsolete vector is gone, despite a stamp from the future.
+    assert await _rows_for(session, stale) == []
 
 
 @pytest.mark.anyio
@@ -783,3 +864,28 @@ async def test_a_run_over_no_records_deletes_nothing(
 
     assert result == {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
     await _assert_untouched(session, untouched, marker="Untouched By Empty Run")
+
+
+def test_a_titled_record_is_never_empty_so_the_snapshot_superset_holds():
+    """Pins the assumption the reclamation snapshot's narrowing rests on.
+
+    fix(#1584 review r3): the end-of-run reclamation snapshots `(record_id,
+    updated_at)` pairs for TITLELESS records only, on the argument that a record
+    is skipped only when `build_content_text` returns "" and a title alone makes
+    it non-empty — so title-empty is a strict superset of what reclamation can
+    reach. Nothing else pins that. If `build_content_text` ever stops counting
+    the title, the snapshot silently under-covers and stale rows survive; this
+    is the test that turns that into a failure instead.
+    """
+    from app.processing.embeddings.service import build_content_text
+
+    assert build_content_text(
+        title="only a title",
+        summary=None,
+        keywords=None,
+        lineage=None,
+    ), (
+        "a record with a title must never read as empty; the reclamation snapshot's titleless narrowing depends on it"
+    )
+    assert not build_content_text(title=None, summary=None, keywords=None, lineage=None)
+    assert not build_content_text(title="", summary=None, keywords=None, lineage=None)

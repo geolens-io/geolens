@@ -15,7 +15,7 @@ Can be run as a module: python -m app.embeddings.backfill
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -369,7 +369,7 @@ def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-d
     )
 
 
-def _delete_embeddings_for(record_orm, record_ids: list[Any], *, written_before=None):  # type: ignore[no-untyped-def]
+def _delete_embeddings_for(record_orm, record_ids: list[Any], *, observed=None):  # type: ignore[no-untyped-def]
     """Remove EVERY embedding these records hold, under any model.
 
     The `Record` subquery is the tenant boundary: `RecordEmbedding` carries no
@@ -379,21 +379,29 @@ def _delete_embeddings_for(record_orm, record_ids: list[Any], *, written_before=
     rather than the only one, and it is bounded to the batch rather than the
     whole table.
 
-    fix(#1549 review): ``written_before`` restricts the delete to rows that
-    predate a moment the caller names. Only the end-of-run reclamation passes
-    it, and it needs it: that pass runs at the END, so a record can have been
-    edited mid-run and had a fresh vector written for it by the ingest path
-    since the run decided it had no embeddable content. Deleting that row would
-    throw away a current vector on the strength of a stale observation. The
-    per-batch delete does NOT pass it, because there the observation and the
-    delete are the same transaction.
+    fix(#1584 review r3): ``observed`` narrows the delete to the exact row
+    VERSIONS the run saw, as `(record_id, updated_at)` pairs. Only the
+    end-of-run reclamation passes it, and it needs it, because that pass acts on
+    an observation made much earlier and must not delete anything written since.
+
+    This replaced a `updated_at < cutoff` comparison, which was the same idea
+    expressed as a clock and got the answer wrong in both directions. It spared
+    rows it should have reclaimed whenever a stored stamp was AHEAD of the
+    cutoff — rows written before this release by an application clock running
+    ahead of PostgreSQL, or by an older worker mid-rolling-deploy — and moving
+    the writers to `clock_timestamp()` does nothing for stamps already on disk.
+    Matching versions asks a question no clock can answer wrongly: has this row
+    changed since I looked at it? Any write by any writer on any clock moves
+    `updated_at`, so a fresh vector survives and a stale one is reclaimed,
+    whatever wrote either of them and whatever clock it read.
     """
     predicate = RecordEmbedding.record_id.in_(
         select(record_orm.id).where(record_orm.id.in_(record_ids))
     )
-    if written_before is not None:
+    if observed is not None:
         return delete(RecordEmbedding).where(
-            predicate, RecordEmbedding.updated_at < written_before
+            predicate,
+            tuple_(RecordEmbedding.record_id, RecordEmbedding.updated_at).in_(observed),
         )
     return delete(RecordEmbedding).where(predicate)
 
@@ -1077,27 +1085,57 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # emptied the table, so both flags select the same rows". It cannot any
     # more — nothing has been deleted at this point — which makes the explicit
     # force=True the only thing separating the two questions.
-    # fix(#1549 review): the moment the run's view of the catalog was taken,
-    # from the DATABASE rather than the application clock so it is comparable
-    # with the `updated_at` rows carry. Only the end-of-run reclamation uses it;
-    # see the comment there for why an observation made at the start cannot be
-    # acted on at the end without one.
+    # fix(#1549 review): the end-of-run reclamation acts on an observation made
+    # here, at the start, and must not delete anything written since. What it
+    # needs is not a clock but the IDENTITY of the rows it saw: `(record_id,
+    # updated_at)` pairs, which any write by any writer changes.
     #
-    # fix(#1584 review r1, codex P2): BEFORE the fetch below, not after it. The
-    # emptiness this cutoff protects against is decided BY that fetch — it is
-    # the read that sees a record's title and summary — and materialising every
-    # record takes as long as it takes. A cutoff taken afterwards leaves that
+    # fix(#1584 review r1, codex P2): taken BEFORE the fetch below, not after.
+    # The emptiness this protects against is decided BY that fetch — it is the
+    # read that sees a record's title and summary — and materialising every
+    # record takes as long as it takes. A snapshot taken afterwards leaves that
     # whole interval unguarded: a record read as empty, then edited and
-    # re-embedded before the cutoff was even read, carries an `updated_at`
-    # older than it and the reclamation deletes a vector written seconds ago.
-    # The cutoff has to precede the observation it is protecting, not follow it.
+    # re-embedded before the snapshot was taken, would be captured in its NEW
+    # version and reclaimed. The snapshot has to precede the observation it
+    # protects, not follow it.
     #
-    # `clock_timestamp()` for the same reason the writes use it: this is
-    # compared against stamps in wall-clock time, so it has to be one too.
-    # `now()` would answer with the start of whatever transaction happened to be
-    # open, which on a session that has been busy is earlier than the run and
-    # would spare rows the run should reclaim.
-    started_at = (await session.execute(select(func.clock_timestamp()))).scalar_one()
+    # fix(#1584 review r3, codex P2): versions rather than a timestamp cutoff.
+    # See `_delete_embeddings_for` for why a clock got this wrong in both
+    # directions. Force-only: a non-force run reclaims nothing, so it does not
+    # pay for this read.
+    #
+    # Narrowed to records with no TITLE, which is a superset of what the
+    # reclamation can ever touch and is what keeps this from being a copy of the
+    # whole table in worker memory. `build_content_text` returns "" only when
+    # the title, summary, keywords, lineage and translations are ALL empty, so a
+    # record carrying a title is never skipped and its rows are never
+    # reclaimable. Titleless records are a rounding error on a real catalog,
+    # where the unnarrowed form would be one (uuid, timestamp) pair per
+    # embedding row. The one thing the narrowing gives up: a record whose title
+    # is cleared between this snapshot and the fetch is skipped but was not
+    # snapshotted, so its rows wait for the next force run, which sees it
+    # titleless. The ingest writer already leaves such rows in place (it skips
+    # empty content rather than deleting), so this defers a reclamation rather
+    # than inventing a stale row.
+    observed_rows: list[tuple[Any, Any]] = []
+    if record_orm is not None:
+        observed_rows = [
+            (record_id, updated_at)
+            for record_id, updated_at in (
+                await session.execute(
+                    select(RecordEmbedding.record_id, RecordEmbedding.updated_at).where(
+                        RecordEmbedding.record_id.in_(
+                            select(record_orm.id).where(
+                                or_(
+                                    record_orm.title.is_(None),
+                                    record_orm.title == "",
+                                )
+                            )
+                        )
+                    )
+                )
+            ).all()
+        ]
 
     records = await port.get_records_without_embeddings(session, force=force)
 
@@ -1392,26 +1430,29 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # pass runs an editor may have given one of them a title, in which case the
     # ingest path has already written it a fresh, correctly stamped vector. The
     # bulk delete could not hit that case because it ran before any such write.
-    # `started_at` bounds this to rows that predate the run, so a vector written
-    # DURING it survives. Read through the session rather than taken from the
-    # application clock, so it is the database's own notion of now, comparable
-    # with the `updated_at` these rows carry.
+    # `observed_rows` bounds this to the exact row versions the run saw before
+    # it looked at the catalog, so a vector written DURING the run — by any
+    # writer, on any clock — no longer matches and survives.
     if record_orm is not None and skipped_ids:
-        for offset in range(0, len(skipped_ids), _BATCH_SIZE):
+        # NOT `skipped`: that name holds the run's skipped COUNT and is
+        # reported back to the caller.
+        skipped_set = set(skipped_ids)
+        reclaimable = [pair for pair in observed_rows if pair[0] in skipped_set]
+        for offset in range(0, len(reclaimable), _BATCH_SIZE):
             # Chunked for the same reason the run is: asyncpg caps a statement
-            # at 32767 bind parameters, and a catalog can hold more empty
-            # records than that.
+            # at 32767 bind parameters, and each pair spends two of them.
+            chunk = reclaimable[offset : offset + _BATCH_SIZE]
             await session.execute(
                 _delete_embeddings_for(
                     record_orm,
-                    skipped_ids[offset : offset + _BATCH_SIZE],
-                    written_before=started_at,
+                    [record_id for record_id, _ in chunk],
+                    observed=chunk,
                 )
             )
         await session.commit()
         logger.info(
             "Backfill: dropped vectors for records with no embeddable content",
-            count=len(skipped_ids),
+            count=len(reclaimable),
         )
 
     processed = created + errors

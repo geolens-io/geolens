@@ -2914,8 +2914,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the wrong row. fix(#1584 review r1): +9 more — the reclamation cutoff moves
     # ABOVE the record fetch, because the fetch is the observation it protects
     # and a cutoff taken after it leaves the whole materialisation window
-    # unguarded. Cap 1225 -> 1439, exact.
-    "backend/app/processing/embeddings/backfill.py": 1439,
+    # unguarded. fix(#1584 review r3): +20 more — the reclamation stops asking a
+    # CLOCK whether a row predates the run and asks whether the row is still the
+    # version the run observed, as (record_id, updated_at) pairs. A cutoff got
+    # this wrong in both directions: it deleted fresh vectors whose writer read
+    # a different clock, and spared stale ones stamped ahead of the database by
+    # a pre-release writer, which moving the writers to clock_timestamp() cannot
+    # retroactively fix. The snapshot is narrowed to TITLELESS records, a
+    # superset of what the reclamation can reach, so it is not a copy of the
+    # embeddings table in worker memory. Cap 1225 -> 1475, exact. Then +5: the
+    # one edge that narrowing gives up (a title cleared between the snapshot
+    # and the fetch defers that record's reclamation to the next force run) is
+    # stated where the narrowing is decided. Cap 1475 -> 1480, exact.
+    "backend/app/processing/embeddings/backfill.py": 1480,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
