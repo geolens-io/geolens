@@ -5,6 +5,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.config import validate_privacy_url_shape
 from app.core.public_urls import (
     canonical_host_error,
     is_api_base_path,
@@ -489,13 +490,11 @@ def validate_privacy_url(v: Any) -> str:
         return ""
     if not isinstance(v, str):
         raise ValueError("Value must be a string")
-
-    from app.core.config import validate_privacy_url_shape
-
-    try:
-        return validate_privacy_url_shape(v)
-    except ValueError as exc:
-        raise ValueError(f"privacy_url {exc}") from exc
+    # No local re-wrap of the ValueError: the caller (router.py's
+    # _canonicalize_setting_value) already prefixes it with "Validation
+    # error for 'privacy_url': ...", so an added prefix here just duplicated
+    # the key name in the response detail.
+    return validate_privacy_url_shape(v)
 
 
 # Mapping from setting key to validator function

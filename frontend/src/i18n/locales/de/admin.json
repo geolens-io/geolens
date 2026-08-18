@@ -476,7 +476,7 @@
       "publicApiUrlDescription": "Die extern erreichbare API-Basis. Bei pfadbasierten Deployments sollte sie der App-URL + /api entsprechen.",
       "publicBaseUrl": "Öffentliche Basis-URL",
       "privacyUrl": "URL der Datenschutzerklärung",
-      "privacyUrlDescription": "Wird als Link auf den Anmelde- und Registrierungsseiten angezeigt. Leer lassen, um den Link auszublenden.",
+      "privacyUrlDescription": "Wird als Link auf den Anmelde- und Registrierungsseiten angezeigt. Leer lassen, um den Link auszublenden. Muss eine vollständige http(s)-URL sein.",
       "logLevel": "Protokollierungsstufe",
       "logJsonLabel": "Protokollformat (JSON)",
       "logJsonDescription": "Protokolle im strukturierten JSON-Format ausgeben."

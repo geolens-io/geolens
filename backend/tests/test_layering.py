@@ -2842,7 +2842,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # PRIVACY_URL. Both are large because they document why the check exists
     # and why it lives in core/config.py instead of core/public_urls.py
     # (avoiding a circular import). Cap 1112 -> 1161, exact.
-    "backend/app/core/config.py": 1161,
+    # PRIV-1 (r2 pre-review): +7 — hoisted the urlsplit import to module scope
+    # and rejected embedded tab/newline/CR characters (a documented WHATWG
+    # URL scheme-check bypass) in validate_privacy_url_shape.
+    # Cap 1161 -> 1168, exact.
+    "backend/app/core/config.py": 1168,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

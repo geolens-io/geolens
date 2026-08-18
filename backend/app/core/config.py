@@ -2,6 +2,7 @@ import sys
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from pydantic import (
     Field,
@@ -39,9 +40,15 @@ def validate_privacy_url_shape(v: str) -> str:
     time, and calling into it from a ``Settings`` field validator would be a
     circular import.
     """
-    from urllib.parse import urlsplit
-
     stripped = v.strip()
+    # A tab, newline, or carriage return ANYWHERE in the string (not just the
+    # ends `.strip()` already removed) is a known scheme-check bypass: the
+    # WHATWG URL parser strips those characters from any position before
+    # tokenizing, so "java\tscript:alert(1)" becomes "javascript:alert(1)" in
+    # a real browser while `urlsplit` below would parse a scheme of
+    # "java\tscript" and let it through the http(s)-only check.
+    if any(c in stripped for c in "\t\r\n"):
+        raise ValueError("must not contain a tab, newline, or carriage return")
     parsed = urlsplit(stripped)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("must be an absolute http(s) URL")

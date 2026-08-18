@@ -14,6 +14,7 @@ import { OAuthButtons } from '@/components/auth/OAuthButtons';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useBranding } from '@/hooks/use-settings';
+import { isSafeHttpUrl } from '@/lib/safe-http-url';
 import { writeSessionStorage } from '@/lib/storage';
 
 function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<string, string>) => string): string {
@@ -214,6 +215,7 @@ export function LoginPage() {
   const { t } = useTranslation('auth');
   useDocumentTitle(t('common:pageTitle.login'));
   const { data: branding } = useBranding();
+  const privacyUrl = branding?.privacy_url;
   const token = useAuthStore((s) => s.token);
   const location = useLocation();
   const navigate = useNavigate();
@@ -403,11 +405,11 @@ export function LoginPage() {
           </div>
 
           {/* Legal */}
-          {branding?.privacy_url && (
+          {isSafeHttpUrl(privacyUrl) && (
             <p className="mt-5 text-center text-mini leading-relaxed text-muted-foreground">
               {t('consentNote')}{' '}
               <a
-                href={branding.privacy_url}
+                href={privacyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline decoration-border underline-offset-2 hover:text-foreground"

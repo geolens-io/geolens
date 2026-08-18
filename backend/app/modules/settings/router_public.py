@@ -103,7 +103,7 @@ async def get_branding(
     privacy_url = await PRIVACY_URL.get(db)
     if privacy_url:
         try:
-            validate_privacy_url_shape(privacy_url)
+            privacy_url = validate_privacy_url_shape(privacy_url)
         except ValueError:
             logger.warning(
                 "settings.privacy_url.invalid_stored_value_dropped",

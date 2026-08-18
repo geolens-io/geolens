@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { useBranding } from '@/hooks/use-settings';
+import { isSafeHttpUrl } from '@/lib/safe-http-url';
 
 interface RegisterFormProps {
   onSuccess: (
@@ -31,6 +32,7 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation('auth');
   const { data: branding } = useBranding();
+  const privacyUrl = branding?.privacy_url;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -118,11 +120,11 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               {t('signIn')}
             </Link>
           </p>
-          {branding?.privacy_url && (
+          {isSafeHttpUrl(privacyUrl) && (
             <p className="text-center text-xs text-muted-foreground">
               {t('consentNote')}{' '}
               <a
-                href={branding.privacy_url}
+                href={privacyUrl}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="underline hover:text-foreground"

@@ -77,6 +77,25 @@ describe('RegisterForm', () => {
     } as ReturnType<typeof useBranding>);
     render(<RegisterForm onSuccess={vi.fn()} />);
 
+    // The link alone is not enough: an <a> with no href has role "generic",
+    // not "link", so a gate that only hid the anchor (leaving the "By
+    // signing in you agree to our ." copy behind, sentence and all) would
+    // still pass a role-only query. Assert the whole paragraph is gone.
     expect(screen.queryByRole('link', { name: /privacy policy/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/agree to our/i)).not.toBeInTheDocument();
+  });
+
+  it('does not render the link for an unsafe stored value (client-side scheme guard)', () => {
+    // The backend validates privacy_url three times over (admin write, boot,
+    // read), but a rolling upgrade can have a stale API pod still serving a
+    // pre-check value. This is the client-side belt-and-braces guard for
+    // that window, not a re-test of the backend's own validation.
+    mockedUseBranding.mockReturnValue({
+      data: { show_badge: true, privacy_url: 'javascript:alert(document.cookie)' },
+    } as ReturnType<typeof useBranding>);
+    render(<RegisterForm onSuccess={vi.fn()} />);
+
+    expect(screen.queryByRole('link', { name: /privacy policy/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/agree to our/i)).not.toBeInTheDocument();
   });
 });
