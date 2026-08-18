@@ -518,10 +518,14 @@ class DefaultProcessingPort:
 
         return RecordDistribution
 
-    def compute_schema_diff(self, old_columns, new_columns, old_count, new_count):  # type: ignore[no-untyped-def]
+    def compute_schema_diff(
+        self, old_columns, new_columns, old_feature_count, new_feature_count
+    ):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.service import compute_schema_diff
 
-        return compute_schema_diff(old_columns, new_columns, old_count, new_count)
+        return compute_schema_diff(
+            old_columns, new_columns, old_feature_count, new_feature_count
+        )
 
     def get_attribute_metadata_orm_class(self):  # type: ignore[no-untyped-def]
         from app.modules.catalog.datasets.domain.models import AttributeMetadata

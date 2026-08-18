@@ -88,6 +88,17 @@ class CatalogPort(Protocol):
         self, storage_method: Any, created_at: Any, *args: Any
     ) -> str: ...
 
+    # fix(#1590): DefaultCatalogPort.finalize_presigned_object also accepts
+    # `replacing_dataset_id: uuid.UUID | None = None`, which the reupload
+    # door (router_reupload.py, #1290 admission parity) already passes
+    # through this port. It is not declared here because version.py's
+    # 2 -> 3 precedent holds: an overlay that implements a method must
+    # accept a keyword the Protocol adds, so adding it is a signature change
+    # and therefore an EXTENSION_API_VERSION bump, not a no-op optional
+    # addition — and a signature-drift cleanup does not get to force that
+    # bump on its own. A full-replacement `catalog_port` overlay would
+    # TypeError on `replacing_dataset_id` today; add the keyword here at the
+    # next bump and drop this comment.
     async def finalize_presigned_object(
         self,
         *,
