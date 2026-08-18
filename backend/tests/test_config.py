@@ -841,6 +841,10 @@ class TestPrivacyUrlValidator:
             "https://exa mple.com/x",
             "https://exam_ple.com/x",
             "https://-bad.com/x",
+            "https://999.999.999.999/x",
+            "https://1.2.3.4.5/x",
+            "https://192.168.1/x",
+            "https://0x7f.1/x",
         ],
     )
     def test_unsafe_value_fails_boot(self, value):

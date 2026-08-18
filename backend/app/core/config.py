@@ -77,20 +77,41 @@ def validate_privacy_url_shape(v: str) -> str:
 
 
 def _is_valid_privacy_url_host(hostname: str) -> bool:
-    """Allowlist, not a blocklist: an IPv4/IPv6 literal, or a dotted DNS name
-    whose labels are each 1-63 characters of letters, digits, and internal
-    hyphens (no leading or trailing hyphen), totaling at most 253 characters.
-    Mirrors the DNS-label rule ``validate_tenant_base_domain`` already applies
-    a few fields down, minus that field's IP-literal refusal (a hostname
-    here, unlike a tenant DNS suffix, can legitimately be an IP).
-    ``urlsplit(...).hostname`` already lowercases and strips IPv6 brackets, so
-    ``ipaddress.ip_address`` sees the bare literal either way.
+    """Allowlist, not a blocklist. Exactly three cases are accepted:
+
+    1. An IP literal (IPv4 or IPv6) that parses with ``ipaddress.ip_address``.
+       ``urlsplit(...).hostname`` already lowercases and strips IPv6 brackets,
+       so the bare literal is what this function sees either way.
+    2. An ordinary DNS name: dot-separated labels, each 1-63 characters of
+       letters, digits, and internal hyphens (no leading or trailing
+       hyphen), totaling at most 253 characters. Mirrors the DNS-label rule
+       ``validate_tenant_base_domain`` already applies a few fields down,
+       minus that field's IP-literal refusal (a hostname here, unlike a
+       tenant DNS suffix, can legitimately be an IP).
+    3. A hostname whose LAST label is numeric (all digits) or 0x-prefixed
+       hex: per the WHATWG URL "ends in a number" rule, a browser reads a
+       host in this shape as an attempted IPv4 address, not a DNS name --
+       whether or not its labels would otherwise pass case 2. It is
+       accepted here ONLY if it is the exact, canonical dotted-quad
+       spelling. "999.999.999.999" and "1.2.3.4.5" have per-label
+       characters case 2 alone would accept but fail a browser's IPv4
+       parse outright; "192.168.1" succeeds under a browser's legacy
+       3-part parser but silently becomes 192.168.0.1, a host that does
+       not match what was stored. All three are rejected here, not passed
+       through to case 2.
     """
     try:
         ipaddress.ip_address(hostname)
         return True
     except ValueError:
         pass
+    last_label = hostname.rsplit(".", 1)[-1]
+    if last_label.isdigit() or last_label.startswith("0x"):
+        try:
+            parsed_ip = ipaddress.IPv4Address(hostname)
+        except ValueError:
+            return False
+        return str(parsed_ip) == hostname
     if len(hostname) > 253:
         return False
     host_label = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")

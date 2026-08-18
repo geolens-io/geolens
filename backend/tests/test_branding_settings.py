@@ -167,6 +167,10 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://exa mple.com/x",
         "https://exam_ple.com/x",
         "https://-bad.com/x",
+        "https://999.999.999.999/x",
+        "https://1.2.3.4.5/x",
+        "https://192.168.1/x",
+        "https://0x7f.1/x",
     ],
 )
 @pytest.mark.anyio
@@ -181,7 +185,12 @@ async def test_put_privacy_url_rejects_non_url(
     (a non-numeric port, a netloc with no real hostname, an embedded space, an
     underscore, or a leading hyphen) -- urlsplit leaves that junk sitting in
     netloc/hostname rather than rejecting it outright, so the scheme/netloc
-    check alone would let it through.
+    check alone would let it through. And a numeric-last-label host a
+    browser reads as an attempted IPv4 address: out of range
+    (999.999.999.999), too many parts (1.2.3.4.5), or a legacy short form a
+    browser silently expands to a different address (192.168.1, 0x7f.1) --
+    the per-label characters alone look like a valid DNS name, so a check
+    that stopped at character class would accept all four.
     """
     resp = await client.put(
         "/api/settings/",

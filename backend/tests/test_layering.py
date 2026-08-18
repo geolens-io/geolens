@@ -2861,7 +2861,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # near-identical question, because that would be the same circular
     # import validate_privacy_url_shape's own docstring already rules out.
     # Cap 1180 -> 1208, exact.
-    "backend/app/core/config.py": 1208,
+    # PRIV-1 (codex r3): +21 — the DNS-label branch alone accepted a
+    # numeric-last-label host ("999.999.999.999", "1.2.3.4.5", "192.168.1")
+    # that a browser reads as an attempted (and often different-resolving)
+    # IPv4 address, per the WHATWG "ends in a number" rule. That branch now
+    # requires the exact canonical dotted-quad spelling instead of falling
+    # through to the DNS-label check. Cap 1208 -> 1229, exact.
+    "backend/app/core/config.py": 1229,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
