@@ -432,10 +432,23 @@ async def test_one_anomalous_vector_width_costs_one_record_not_the_run(
     # Non-vacuity: the batch really did fail and retry per record, so the
     # per-record judgement is what produced that single error rather than the
     # batch check having quietly let everything through.
-    assert len(calls) > 2, calls
+    #
+    # Asserted as a SHAPE rather than by position: the anomalous record lands
+    # in whichever batch the run's ordering puts it, and on a busy xdist worker
+    # the database already holds records earlier tests committed, so full-size
+    # batches that succeed can precede it (seen at batch_start=256 in CI). What
+    # is invariant is that exactly one batch of more than one record is followed
+    # by that many single-record calls — the retry of the batch that failed.
     assert calls[0] == 1, "the pre-flight"
-    assert calls[1] > 1, "the batch"
-    assert set(calls[2:]) == {1}, "then one call per record, individually"
+    retried = [
+        i
+        for i, size in enumerate(calls[1:], start=1)
+        if size > 1 and calls[i + 1 : i + 1 + size] == [1] * size
+    ]
+    assert len(retried) == 1, (
+        f"expected exactly one batch to fail and be retried record by record; "
+        f"call sizes were {calls}"
+    )
 
     # And the column never moved, which is what made it isolated.
     assert await _column_dims() == start_width
