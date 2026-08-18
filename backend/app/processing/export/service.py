@@ -7,11 +7,15 @@ import uuid
 import zipfile
 from urllib.parse import quote
 
+import structlog
+
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.processing.export.ogr import FORMAT_MAP, run_ogr2ogr_export
 from app.processing.export.where_validator import validate_where_ast
 from app.core.runtime.staging import ensure_staging_ready
+
+logger = structlog.stdlib.get_logger(__name__)
 
 
 # fix(#1532 review r13): THE PROPERTY EVERY EXPORT FORMAT MUST KEEP — two
@@ -146,6 +150,14 @@ def normalize_gpkg_timestamps(path: str) -> None:
                 # The table is optional in the spec; its absence is not an error.
                 continue
         conn.commit()
+    except sqlite3.DatabaseError:
+        # Not a SQLite file at all ("file is not a database"). This step exists
+        # for cache determinism, not validation: a GeoPackage SQLite cannot open
+        # is served exactly as ogr2ogr wrote it, the client's failure is loud,
+        # and the cache degrades to whole responses on a contested selection
+        # rather than to a wrong one. Failing the export here would turn a
+        # normalization into a gate.
+        logger.warning("gpkg_timestamp_normalize_skipped", path=path, exc_info=True)
     finally:
         # Closed explicitly: sqlite3's context manager commits but does NOT
         # close, and an open handle can leave the rollback journal beside the

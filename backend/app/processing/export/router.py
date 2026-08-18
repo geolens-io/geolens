@@ -114,7 +114,11 @@ async def _emit_export_audit(
             ip_address=request.client.host if request.client else None,
         ),
     )
-    await db.commit()
+    # The COMMIT is the caller's, on the handler, deliberately: the writing-GET
+    # tripwire in test_api_key_scope_875 reads the handler's source one level
+    # deep and classifies this route as "commits an audit row for the read". A
+    # commit buried in a helper is invisible to it, and the route silently
+    # dropped out of the classification while still writing.
 
 
 async def _count_selected_features(
@@ -525,6 +529,7 @@ async def export_dataset_endpoint(
             bbox=bbox,
             where=where,
         )
+        await db.commit()
         return response
 
     # 6b. fix(#430 BA-08): bound full-table exports. Codex r8: for oversized
@@ -916,6 +921,7 @@ async def export_dataset_endpoint(
             bbox=bbox,
             where=where,
         )
+        await db.commit()
     except BaseException:
         _cleanup_export(temp_dir)
         raise
