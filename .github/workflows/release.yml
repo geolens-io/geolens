@@ -205,6 +205,7 @@ jobs:
         # worst case, the site's own nightly release-drift check catches the
         # gap and the manual sync step still exists as a fallback.
         continue-on-error: true
+        timeout-minutes: 5
         run: |
           # A small heading so these lines read as their own section in the
           # job summary rather than trailing off the "Generate release
@@ -220,8 +221,8 @@ jobs:
           # then would tell the site to sync backwards. Only the actual
           # latest release may dispatch.
           if ! LATEST="$(GH_TOKEN="$DEFAULT_TOKEN" gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"; then
-            echo "::warning title=Site not notified::Could not read the latest release for ${TAG}, so the site dispatch was skipped."
-            summary "skipped (could not read the latest release)"
+            echo "::warning title=Site dispatch failed::Could not read the latest release for ${TAG}, so the site dispatch did not run."
+            summary "FAILED for ${TAG} (could not read the latest release)"
             exit 1
           fi
           if [ "$LATEST" != "$TAG" ]; then
