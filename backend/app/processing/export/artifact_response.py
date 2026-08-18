@@ -3,22 +3,35 @@
 Split from the router so the range decision is readable on its own: it is one
 rule, it is the reason this fix is safe, and it is not obvious.
 
-**A Range is honoured only when the artifact already existed.** If this request
-had to build one, the Range is ignored and the whole representation goes back
-with 200. RFC 9110 section 14.2 permits exactly that, and it is what preserves
-the loud-failure property #1532 insists on. A ``/vsicurl/`` client sends a bare
-``Range`` with no ``If-Range``, so the server has nothing to compare and cannot
-be told which artifact the client was reading. Answering a rebuild with a 206 at
-the offsets the client asked for would hand it a slice of a DIFFERENT file at the
-old positions, which is the splice the issue exists to prevent. Answering with
-the complete new representation cannot splice anything: the client discards what
-it had and reads from zero.
+**A Range is honoured only when the artifact already existed** — with one
+exception, below. If this request had to build one, the Range is ignored and the
+whole representation goes back with 200. RFC 9110 section 14.2 permits exactly
+that, and it is what preserves the loud-failure property #1532 insists on. A
+``/vsicurl/`` client sends a bare ``Range`` with no ``If-Range``, so the server
+has nothing to compare and cannot be told which artifact the client was reading.
+Answering a rebuild with a 206 at the offsets the client asked for would hand it
+a slice of a DIFFERENT file at the old positions, which is the splice the issue
+exists to prevent. Answering with the complete new representation cannot splice
+anything: the client discards what it had and reads from zero.
 
-So the sequence a probing client sees is: first request builds and gets a whole
-representation; every later request inside the freshness window is a slice of
-that one stored object; and the first request after the data changes builds again
-and gets a whole representation again. No two responses in that sequence are ever
-parts of different files presented as parts of one.
+**The exception: a Range that starts at byte 0 is honoured on a fresh build**
+(fix(#1532) follow-up, found by the release smoke). GDAL 3.10's ``/vsicurl/``
+open does not begin with a HEAD; its first request is ``Range: bytes=0-16383``,
+and a 200 to that is read as "Range downloading not supported by this server"
+and the open aborts — so a cold cache could not be opened at all, and only the
+second attempt worked. A range from byte 0 is a probe or a restart, never a
+resume: a client resuming holds a prefix and asks from its length. Nothing
+appended after a slice that starts at 0 can come from a different
+representation, because every later request finds the artifact this one just
+published and slices that. Any other starting offset on a fresh build keeps the
+whole answer.
+
+So the sequence a probing client sees is: first request builds and gets either
+the leading slice it asked for or the whole representation; every later request
+inside the freshness window is a slice of that one stored object; and the first
+request after the data changes builds again and answers the same way. No two
+responses in that sequence are ever parts of different files presented as parts
+of one.
 
 **A client that CAN name what it is resuming is held to it.** The artifact
 publishes a strong validator, so `If-Range` is evaluated here too (fix(#1532)
@@ -97,15 +110,21 @@ def read_response(
     range_header: str | None,
     if_range: str | None = None,
     may_serve_range: bool,
+    leading_slice_ok: bool = False,
     background: BackgroundTask | None = None,
 ) -> Response:
     """The GET: a 206 slice, a 416, or the whole artifact.
 
     ``may_serve_range`` is the caller's answer to "did this artifact exist before
-    this request", and it is the only thing standing between this endpoint and
-    the splice described in the module docstring. It is a parameter rather than
-    something inferred here because only the caller knows whether it just built
-    the thing.
+    this request", and it is what stands between this endpoint and the splice
+    described in the module docstring. It is a parameter rather than something
+    inferred here because only the caller knows whether it just built the thing.
+    ``leading_slice_ok`` is the one exception the module docstring states: the
+    caller BUILT this artifact into a selection with no other representation
+    live, and a bare Range that starts at byte 0 is a probe, not a resume, so
+    it is honoured. It is separate from ``may_serve_range`` because a contested
+    selection also sets that False, and there the whole answer stays: two
+    representations are live and the client's next slice may land on the other.
 
     ``background`` carries the caller's temp-directory cleanup, and it is a
     parameter for a reason worth stating. An earlier revision deleted the
@@ -141,14 +160,19 @@ def read_response(
     proven = if_range is not None and range_bound_to_this_version(
         if_range, artifact.etag
     )
+    byte_range = parse_byte_range(range_header, artifact.size)
     if not proven:
-        if not may_serve_range:
-            return _whole(storage, artifact, headers, background)
         if if_range is not None:
             # Present and not matching: section 13.1.5 says ignore the Range.
             return _whole(storage, artifact, headers, background)
+        if not may_serve_range and not (
+            leading_slice_ok and _starts_at_zero(byte_range)
+        ):
+            # A bare Range on a representation this request built (or on a
+            # contested selection), other than the leading slice of a fresh
+            # build: whole (module docstring).
+            return _whole(storage, artifact, headers, background)
 
-    byte_range = parse_byte_range(range_header, artifact.size)
     if byte_range is None:
         return _whole(storage, artifact, headers, background)
 
@@ -167,6 +191,16 @@ def read_response(
         },
         background=background,
     )
+
+
+def _starts_at_zero(byte_range) -> bool:
+    """A resolved Range whose first byte is 0: a probe or a restart, never a resume.
+
+    The one bare Range a fresh build honours (module docstring, and only with
+    ``leading_slice_ok``). A satisfiable pair only — an unsatisfiable or absent
+    Range is not "from zero".
+    """
+    return isinstance(byte_range, tuple) and byte_range[0] == 0
 
 
 def temp_file_response(

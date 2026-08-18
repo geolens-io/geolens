@@ -4365,3 +4365,68 @@ async def test_a_builder_that_loses_the_race_serves_the_incumbent(
     assert resumed.status_code == 206, resumed.text
     assert resumed.content == served[100:200]
     assert resumed.headers["etag"] == one.headers["etag"]
+
+
+# ---------------------------------------------------------------------------
+# Release smoke follow-up: the cold GDAL open
+# ---------------------------------------------------------------------------
+
+
+async def test_a_cold_open_gets_its_leading_slice_from_the_fresh_build(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A bare Range from byte 0 on a cold cache is a 206, and the open proceeds.
+
+    fix(#1532) follow-up, found by the release smoke: GDAL 3.10's ``/vsicurl/``
+    open does not begin with a HEAD. Its first request is ``Range:
+    bytes=0-16383``, and the fresh-build path answered it with 200 and the whole
+    file — which GDAL reports as "Range downloading not supported by this
+    server!" and aborts. A cold cache could not be opened; only the second
+    attempt worked, because by then the artifact existed.
+
+    A Range that starts at byte 0 is a probe or a restart, never a resume — a
+    resumer holds a prefix and asks from its length — so nothing appended after
+    it can come from a different representation: every later request finds the
+    artifact this one published. The build still costs one conversion, and the
+    follow-up ranges are slices of that same artifact under the same ETag.
+    """
+    dataset = await _dataset(test_db_session, "Cold GDAL Open")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    assert conversions.count == 1
+    assert first.status_code == 206, (
+        f"the leading range of a cold open answered {first.status_code}; GDAL "
+        f"reads a 200 to a ranged GET as 'Range downloading not supported' and "
+        f"aborts the open"
+    )
+    assert first.content == conversions.body[:100]
+    assert first.headers["content-range"] == f"bytes 0-99/{len(conversions.body)}"
+    etag = first.headers["etag"]
+
+    later = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert later.status_code == 206
+    assert later.headers["etag"] == etag
+    assert later.content == conversions.body[100:200]
+    assert conversions.count == 1, "the follow-up range converted again"
+
+
+async def test_a_bare_range_not_from_zero_on_a_fresh_build_stays_whole(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The counterfactual to the leading-slice exception: an offset a resumer
+    would ask for, on a representation this request built, is still answered
+    whole. This is what `test_a_mutation_between_two_ranges_is_answered_with_the_whole_new_file`
+    rests on; stated here on its own so the exception cannot quietly widen.
+    """
+    dataset = await _dataset(test_db_session, "Cold Resume Offset")
+
+    resp = await client.get(
+        _url(dataset.id), headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert conversions.count == 1
+    assert resp.status_code == 200, resp.text
+    assert resp.content == conversions.body
+    assert "content-range" not in resp.headers

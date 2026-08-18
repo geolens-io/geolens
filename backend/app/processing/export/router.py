@@ -848,14 +848,22 @@ async def export_dataset_endpoint(
             # representation the client's offsets were measured against.
             # Ignoring the Range and answering with the whole thing is the safe
             # half of RFC 9110 section 14.2 and is what keeps a rebuild from
-            # splicing; only a matching If-Range (r12) overrides it, because
-            # that client has named these exact bytes.
+            # splicing; a matching If-Range (r12) overrides it, because that
+            # client has named these exact bytes, and so does a Range that
+            # starts at byte 0 (fix(#1532) follow-up): that is a probe, never a
+            # resume, and it is the first request of a cold GDAL open, which a
+            # 200 turned into "Range downloading not supported".
             response = artifact_response.read_response(
                 get_storage(),
                 stored,
                 range_header=request.headers.get("range"),
                 if_range=request.headers.get("if-range"),
                 may_serve_range=False,
+                # A fresh build's leading slice cannot splice (nothing precedes
+                # byte 0, and every later request finds this artifact); a lost
+                # race hands back an incumbent, and for that the hit path's own
+                # contested rule applies, so its flag decides.
+                leading_slice_ok=not stored.contested,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
         else:
