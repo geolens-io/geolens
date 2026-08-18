@@ -521,6 +521,17 @@ PUBLIC_API_URL = PersistentConfig[str](
     label="Public API URL",
 )
 
+# PRIV-1: per-instance privacy-policy link for the login/register pages.
+# tab="general" (not "branding") deliberately: ENTERPRISE_ONLY_TABS gates the
+# branding tab, and self-hosted community operators need this the most.
+PRIVACY_URL = PersistentConfig[str](
+    key="privacy_url",
+    type_=str,
+    env_default_factory=lambda: settings.privacy_url or "",
+    tab="general",
+    label="Privacy Policy URL",
+)
+
 LOG_LEVEL = _LogLevelConfig(
     key="log_level",
     env_default_factory=lambda: settings.log_level,

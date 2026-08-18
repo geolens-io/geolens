@@ -13,6 +13,7 @@ from app.core.persistent_config import (
     ENABLE_DATASET_EDITING,
     ENABLED_PLUGINS,
     MAP_DEFAULTS,
+    PRIVACY_URL,
     REQUIRE_METADATA_FOR_PUBLISH,
     get_cached_basemap_proxy_rate_limit,
 )
@@ -79,6 +80,12 @@ async def get_branding(
     keys. PersistentConfig overrides take precedence when set. Community
     advertises read-only ``show_badge`` only; badge-removal writes and
     additional branding keys are restricted controls.
+
+    ``privacy_url`` (PRIV-1) rides on this same public, unauthenticated
+    surface even though it lives on the "general" tab, not "branding": it is
+    the one config bundle already fetched pre-auth (login/register need it
+    before a session exists), so reusing it avoids a second endpoint for one
+    optional string.
     """
     from app.platform.extensions import get_branding_extension
 
@@ -87,7 +94,8 @@ async def get_branding(
     show_badge = (
         persisted if persisted is not None else bool(defaults.get("show_badge", True))
     )
-    return BrandingResponse(show_badge=show_badge)
+    privacy_url = await PRIVACY_URL.get(db)
+    return BrandingResponse(show_badge=show_badge, privacy_url=privacy_url or None)
 
 
 @router.get(

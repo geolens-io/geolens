@@ -475,6 +475,8 @@
       "publicApiUrl": "URL pública de la API",
       "publicApiUrlDescription": "La base externa de la API. Déjala alineada con la URL de la aplicación + /api en despliegues con rutas.",
       "publicBaseUrl": "URL base pública",
+      "privacyUrl": "URL de la política de privacidad",
+      "privacyUrlDescription": "Se muestra como enlace en las páginas de inicio de sesión y registro. Déjalo vacío para ocultar el enlace.",
       "logLevel": "Nivel de registro",
       "logJsonLabel": "Formato de registro (JSON)",
       "logJsonDescription": "Registros de salida en formato JSON estructurado."

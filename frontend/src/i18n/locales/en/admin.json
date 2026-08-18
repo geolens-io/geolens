@@ -523,6 +523,8 @@
       "publicApiUrl": "Public API URL",
       "publicApiUrlDescription": "The externally reachable API base. Leave it aligned with your app URL + /api for path-based deployments.",
       "publicBaseUrl": "Public Base URL",
+      "privacyUrl": "Privacy Policy URL",
+      "privacyUrlDescription": "Shown as a link on the login and register pages. Leave empty to hide the link.",
       "logLevel": "Log Level",
       "logJsonLabel": "Log Format (JSON)",
       "logJsonDescription": "Output logs in structured JSON format.",

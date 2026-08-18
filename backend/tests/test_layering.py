@@ -2110,7 +2110,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # closed enums, with the descriptions that say which columns are absent
     # (link status) and why.
     "backend/app/modules/admin/router_operations.py": 316,
-    "backend/app/modules/settings/router_public.py": 150,
+    # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
+    # PRIVACY_URL, so the login/register privacy-policy link is admin
+    # configurable instead of a hardcoded getgeolens.com URL.
+    "backend/app/modules/settings/router_public.py": 157,
 }
 
 
@@ -2826,7 +2829,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # enumerate what the setting controls say so. This setting exists because
     # security posture was once keyed off a flag documented as log-format only;
     # an under-documented coupling is the same mistake. Cap 1104 -> 1107, exact.
-    "backend/app/core/config.py": 1107,
+    # PRIV-1: +5 — a privacy_url Settings field (env-backed default for the
+    # login/register privacy-policy link) plus its empty-string normalizer
+    # entry. Cap 1107 -> 1112, exact.
+    "backend/app/core/config.py": 1112,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -2845,7 +2851,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # problem at all and needs EmbeddingProviderExtension widened. Without the
     # note the next reader assumes an atomic eviction covered both.
     # Cap 1007 -> 1018, exact.
-    "backend/app/core/persistent_config.py": 1018,
+    # PRIV-1: +11 — a PRIVACY_URL PersistentConfig on the "general" tab (not
+    # "branding", which ENTERPRISE_ONLY_TABS gates) for the login/register
+    # privacy-policy link. Cap 1018 -> 1029, exact.
+    "backend/app/core/persistent_config.py": 1029,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with

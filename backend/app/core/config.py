@@ -159,6 +159,10 @@ class Settings(BaseSettings):
     public_app_url: str | None = None
     public_api_url: str | None = None
     public_base_url: str | None = None
+    # PRIV-1: privacy-policy link shown on the login/register pages. Unset by
+    # default so a self-hosted instance never links to another operator's
+    # privacy page; set this to the operator's own policy URL to show the link.
+    privacy_url: str | None = None
     # Multi-tenant Host routing is accepted only below this explicit DNS
     # suffix (for example ``geolens.example``). Exact non-tenant service hosts
     # are separately allowlisted for health checks, Compose, and test clients.
@@ -441,6 +445,7 @@ class Settings(BaseSettings):
         "public_app_url",
         "public_api_url",
         "public_base_url",
+        "privacy_url",
         "tenant_base_domain",
         "dcat_contact_email",
         "database_url_override",

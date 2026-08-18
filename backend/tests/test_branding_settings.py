@@ -10,11 +10,11 @@ from httpx import AsyncClient
 
 @pytest.mark.anyio
 async def test_get_branding_default(client: AsyncClient):
-    """GET /api/settings/branding/ returns show_badge=true by default (no auth)."""
+    """GET /api/settings/branding/ returns show_badge=true and no privacy_url by default (no auth)."""
     resp = await client.get("/api/settings/branding/")
     assert resp.status_code == 200
     data = resp.json()
-    assert data == {"show_badge": True}
+    assert data == {"show_badge": True, "privacy_url": None}
 
 
 @pytest.mark.anyio
@@ -110,8 +110,59 @@ async def test_get_branding_after_config_override(client: AsyncClient):
     resp = await client.get("/api/settings/branding/")
     assert resp.status_code == 200
     data = resp.json()
-    assert data == {"show_badge": False}
+    assert data == {"show_badge": False, "privacy_url": None}
 
     # Restore default
     async for db in get_db_override():
         await BRANDING_SHOW_BADGE.set(db, True)
+
+
+@pytest.mark.anyio
+async def test_get_branding_privacy_url_unset_by_default(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PRIV-1: no privacy_url is configured until an admin sets one.
+
+    GET /api/settings/branding/ returns null (community and self-hosted
+    instances never link to another operator's privacy page by default), and
+    PUT /api/settings/ with a configured URL makes it appear.
+    """
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] is None
+
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": "https://operator.example.com/privacy"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] == "https://operator.example.com/privacy"
+
+    # Clearing it back to empty restores the "no link shown" default.
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": ""}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] is None
+
+
+@pytest.mark.anyio
+async def test_put_privacy_url_rejects_non_url(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """PUT /api/settings/ rejects a privacy_url value that is not an absolute http(s) URL."""
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": "not-a-url"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422

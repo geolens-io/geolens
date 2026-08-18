@@ -235,6 +235,13 @@ class BrandingResponse(BaseModel):
             "footers. Badge-removal writes are restricted controls."
         )
     )
+    privacy_url: str | None = Field(
+        default=None,
+        description=(
+            "Operator-configured privacy-policy URL shown on the login and "
+            "register pages, or null when unset (no link is shown)."
+        ),
+    )
 
 
 class ConfigModeResponse(BaseModel):
@@ -464,6 +471,13 @@ def validate_public_api_url(v: Any) -> str:
     return _normalize_absolute_url(v)
 
 
+def validate_privacy_url(v: Any) -> str:
+    """PRIV-1: the login/register privacy-policy link. Unset clears it."""
+    if not v or (isinstance(v, str) and not v.strip()):
+        return ""
+    return _normalize_absolute_url(v)
+
+
 # Mapping from setting key to validator function
 def validate_enabled_plugins(v: Any) -> list[str] | None:
     if v is None:
@@ -619,6 +633,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "public_app_url": validate_public_app_url,
     "public_api_url": validate_public_api_url,
     "public_base_url": validate_public_api_url,
+    "privacy_url": validate_privacy_url,
     "enabled_plugins": validate_enabled_plugins,
     "access_token_expire_minutes": validate_access_token_expire,
     "refresh_token_expire_days": validate_refresh_token_expire,
