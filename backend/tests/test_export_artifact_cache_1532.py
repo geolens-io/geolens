@@ -4497,68 +4497,6 @@ async def test_a_leading_range_after_a_change_is_whole_when_old_bytes_are_still_
     assert again.headers["etag"] == first.headers["etag"]
 
 
-async def test_a_legacy_layout_artifact_counts_as_the_urls_history(
-    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
-):
-    """An artifact under the single-segment layout blocks the leading slice.
-
-    #1585 review r2: the parent revision of #1582 wrote `<selection>/<name>`;
-    this revision writes `<url>/<version>/<name>`. For the rest of their
-    retention, legacy objects cannot be attributed to a URL, so any of them
-    with different bytes counts as this URL's history and the fresh build
-    answers a leading Range whole. Same bytes under the legacy layout do not
-    count: identical bytes cannot splice.
-    """
-    import hashlib as _hashlib
-
-    from app.platform.storage import get_storage
-    from app.processing.export import artifact_cache as cache
-
-    dataset = await _dataset(test_db_session, "Legacy Layout")
-    url = _url(dataset.id)
-    storage = get_storage()
-
-    # A legacy-shaped artifact for this dataset with DIFFERENT bytes.
-    legacy_selection = "0123456789abcdef0123456789abcdef"  # one 32-hex segment
-    foreign = b"bytes a pre-#1585 revision published"
-    await storage.put(
-        cache._artifact_key(
-            dataset.id,
-            legacy_selection,
-            _hashlib.sha256(foreign).hexdigest(),
-            len(foreign),
-            time.time() - 120,
-        ),
-        foreign,
-    )
-
-    resp = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
-    assert conversions.count == 1
-    assert resp.status_code == 200, (
-        f"a leading Range answered {resp.status_code} while a legacy-layout "
-        f"artifact with different bytes was still live under this dataset"
-    )
-    assert "content-range" not in resp.headers
-
-    # And with the legacy object carrying the SAME bytes as the fresh build,
-    # the leading slice is honoured: equal bytes cannot splice.
-    same = await _dataset(test_db_session, "Legacy Same Bytes")
-    await storage.put(
-        cache._artifact_key(
-            same.id,
-            legacy_selection,
-            _hashlib.sha256(conversions.body).hexdigest(),
-            len(conversions.body),
-            time.time() - 120,
-        ),
-        conversions.body,
-    )
-    ok = await client.get(
-        _url(same.id), headers={**admin_auth_header, "Range": "bytes=0-99"}
-    )
-    assert ok.status_code == 206, ok.text
-
-
 async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_whole(
     client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
 ):
@@ -4607,30 +4545,36 @@ async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_who
     assert resumed.headers["etag"] == v2_etag
     assert "content-range" not in resumed.headers
 
-    # Settle the new bytes: a same-digest sibling older than a TTL under v2.
-    v2_key = [
+    # Let the change age past a TTL: the URL's last answer with the OLD bytes
+    # is a publication under v1; move it back a TTL and more (re-keyed, since
+    # the stamp in the name floors publication) and the same hit is a 206.
+    storage = get_storage()
+    prefix = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+    v1_keys = [
         k
-        for k in await get_storage().list(
-            f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
-        )
+        for k in await storage.list(prefix)
         if cache.parse_artifact_key(k)
-        and cache.parse_artifact_key(k)[2] == v2_etag.strip('"')
-    ][0]
-    v2_selection = v2_key.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
-    parsed = cache.parse_artifact_key(v2_key)
-    aged = cache._artifact_key(
-        dataset.id, v2_selection, parsed[2], parsed[1], time.time() - 700
-    )
-    await get_storage().put(aged, conversions.body)
-    when = time.time() - 700
-    os.utime(Path(get_storage().base_dir) / aged, (when, when))
+        and cache.parse_artifact_key(k)[2] != v2_etag.strip('"')
+    ]
+    assert v1_keys, "the previous representation must still be live for this test"
+    for k in v1_keys:
+        parsed = cache.parse_artifact_key(k)
+        selection_v1 = k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
+        payload = await storage.get(k)
+        aged = cache._artifact_key(
+            dataset.id, selection_v1, parsed[2], parsed[1], time.time() - 700
+        )
+        await storage.put(aged, payload)
+        when = time.time() - 700
+        os.utime(Path(storage.base_dir) / aged, (when, when))
+        await storage.delete(k)
 
     settled = await client.get(
         url, headers={**admin_auth_header, "Range": "bytes=100-199"}
     )
     assert conversions.count == 2
     assert settled.status_code == 206, (
-        f"once the new bytes have been the answer for a TTL, a bare Range hit "
+        f"a TTL after the URL last answered with other bytes, a bare Range hit "
         f"answered {settled.status_code}; GDAL opens after a settled change must work"
     )
     assert settled.headers["etag"] == v2_etag

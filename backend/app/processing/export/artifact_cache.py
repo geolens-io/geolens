@@ -216,15 +216,6 @@ class ExportArtifact:
     # set. HEAD and the ETag are unaffected: each artifact is still internally
     # consistent, and a whole-object read of either is a correct answer.
     contested: bool = False
-    # fix(#1532) follow-up (#1585): this artifact's bytes have been the
-    # selection's answer for longer than one TTL — a sibling with the SAME
-    # digest, published more than a TTL ago, is live. That is what settles the
-    # question "did this URL's bytes just change": a client mid-read at the
-    # moment of a change makes its next request within the change's first TTL,
-    # and for that TTL the route answers bare ranges whole. Once settled, the
-    # URL's history needs no listing to consult. Free: `lookup` already reads
-    # every sibling's stamp and digest.
-    settled: bool = False
 
     @property
     def etag(self) -> str:
@@ -312,9 +303,9 @@ def selection_key(
     # `where` are what a client can see in the URL it is reading; `table_name`,
     # `dataset_title` and `tile_cache_version` are the server-side facts that
     # move the bytes under that same URL. Every artifact of one URL, at every
-    # version, therefore lives under one prefix, and `url_has_other_bytes` can
-    # ask "has this URL ever answered with different bytes that a client could
-    # still be holding" with one listing. `lookup`, `store` and the sweep are
+    # version, therefore lives under one prefix, and
+    # `url_answered_other_bytes_recently` can ask "has this URL answered with
+    # different bytes inside the last TTL" with one listing. `lookup`, `store` and the sweep are
     # indifferent to the shape: they take the whole thing as an opaque prefix.
     url_payload = json.dumps(
         [str(dataset_id), str(format_key), target_crs, bbox, where],
@@ -329,62 +320,54 @@ def selection_key(
     return f"{url_part}/{version_part}"
 
 
-def _dataset_prefix(dataset_id: uuid.UUID) -> str:
-    """The prefix under which every artifact of one dataset is stored."""
-    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/"
+def _url_prefix(dataset_id: uuid.UUID, selection: str) -> str:
+    """The prefix under which every version of one export URL is stored."""
+    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/{selection.split('/', 1)[0]}/"
 
 
-async def url_has_other_bytes(
+async def url_answered_other_bytes_recently(
     dataset_id: uuid.UUID, selection: str, digest: str
 ) -> bool:
-    """Could a client be holding blocks of an earlier representation of this URL?
+    """Has this URL answered with DIFFERENT bytes inside the last TTL?
 
-    fix(#1532) follow-up (#1585): a fresh build honours a bare Range that starts
-    at byte 0 — GDAL's first request, and the only way a cold ``/vsicurl/`` open
-    can proceed — unless the client could be holding blocks of an earlier
-    representation of the SAME URL with different bytes. It could if that URL
-    answered with different bytes since the last sweep: a mutation that moved
-    ``tile_cache_version`` puts the earlier artifact under another version
-    segment of this URL, and a client that read a later block from it, then
-    re-reads the header after the change, would splice.
+    fix(#1532) follow-up (#1585): the bound on bare ranges. A client that read
+    a block of an earlier representation of this URL and comes back for the
+    next one — to a hit on the new artifact, to a fresh build of it, or
+    re-reading the header — makes that request within the change's first TTL,
+    and for that TTL the route answers it whole. Answering requires a fresh
+    artifact, and a fresh artifact is one published within the TTL, so "the
+    URL answered other bytes recently" is exactly "an artifact with another
+    digest was published under this URL within the last TTL" — at any version,
+    which is why every version of a URL shares a prefix (``selection_key``).
+    A→B→A within retention is caught by the same test: while B is still being
+    answered, B artifacts keep being published, and the moment they stop the
+    clock starts. Same bytes cannot splice and do not count. After the TTL a
+    client holding a handle across a longer gap without ``If-Range`` is the
+    residual every range-serving origin has.
 
-    One listing of the dataset's prefix, read two ways (#1585 review r2):
+    Bounded: the URL's own versions, not the dataset's selections, and called
+    only for a request that could receive a 206 (a bare, satisfiable Range).
+    Fails CLOSED on a listing error: an unknown history reads as a recent
+    change, and the client gets the whole file, which is safe.
 
-    - ``<url>/<version>/<name>``, the layout ``selection_key`` writes: counts
-      only when ``<url>`` is this URL's segment and the digest differs.
-    - ``<selection>/<name>``, the single-segment layout the parent revision of
-      #1582 wrote: its URL cannot be told from the key, so ANY such artifact
-      with a different digest counts. Conservative by design — an object this
-      cannot attribute is treated as this URL's history — and self-limiting: no
-      release ever wrote that layout (it lived on ``main`` for an hour), and
-      whatever a development stack still holds ages out at the sweep horizon.
-
-    An earlier artifact with the SAME digest is the same bytes and cannot
-    splice, which is what lets a re-open after expiry work. Fails CLOSED on a
-    listing error: an unknown history is treated as a contested one, and the
-    client gets the whole file, which is safe.
-
-    Consulted only while the artifact is not ``settled`` (#1585 review r3): once
-    these bytes have been the URL's answer for more than a TTL, a client
-    mid-read at the moment they became the answer has long finished, and the
-    one still holding a handle across a longer gap is the stated residual — so
-    the listing is paid, at most, during the first TTL after a change, and only
-    by requests carrying a bare Range.
+    The parent revision of #1582 wrote a single-segment layout that lives
+    outside every URL prefix. Nothing can be served from it after this
+    revision (``lookup`` never lists it), no release wrote it, and retention
+    ages it out; the exposure is a client spanning both the upgrade and a data
+    change, and it is stated rather than paid for on every range.
     """
-    prefix = _dataset_prefix(dataset_id)
-    url_segment = selection.split("/", 1)[0]
+    cutoff = time.time() - _ttl_seconds()
     try:
-        async for page in get_storage().iter_object_pages(prefix):
+        async for page in get_storage().iter_object_pages(
+            _url_prefix(dataset_id, selection)
+        ):
             for obj in page:
                 parsed = parse_artifact_key(obj.key)
                 if parsed is None or parsed[2] == digest:
                     continue
-                segments = obj.key[len(prefix) :].split("/")
-                if len(segments) == 3 and segments[0] == url_segment:
-                    return True  # this URL, another version, different bytes
-                if len(segments) == 2:
-                    return True  # legacy layout: URL unknown, so it counts
-    except Exception:  # broad: unknown history reads as contested; whole is safe
+                if _published_at(obj.last_modified.timestamp(), parsed[0]) >= cutoff:
+                    return True
+    except Exception:  # broad: unknown history reads as a recent change; whole is safe
         return True
     return False
 
@@ -590,37 +573,8 @@ async def lookup(
             filename=filename,
             media_type=media_type,
             contested=contested,
-            settled=oldest_by_digest.get(digest, now) < cutoff,
         )
     return None
-
-
-async def _oldest_publication_of(
-    dataset_id: uuid.UUID, selection: str, digest: str
-) -> float | None:
-    """When these bytes first became this selection's answer, if any copy is live.
-
-    fix(#1532) follow-up (#1585): what a fresh publication needs to know
-    whether it is a CHANGE (no earlier copy of these bytes under this version:
-    the previous answer, if any, was different) or a rebuild of the same answer
-    after expiry. One selection listing; None when no artifact with this digest
-    is live, or when the store cannot be listed (a rebuild then counts as a
-    change, which is the conservative reading).
-    """
-    oldest: float | None = None
-    try:
-        async for page in get_storage().iter_object_pages(
-            _selection_prefix(dataset_id, selection)
-        ):
-            for obj in page:
-                parsed = parse_artifact_key(obj.key)
-                if parsed is None or parsed[2] != digest:
-                    continue
-                published = _published_at(obj.last_modified.timestamp(), parsed[0])
-                oldest = published if oldest is None else min(oldest, published)
-    except Exception:  # broad: cannot list means cannot prove it settled
-        return None
-    return oldest
 
 
 def _published_at(modified: float, built_at: float) -> float:
@@ -784,13 +738,6 @@ async def store(
                 return await lookup(
                     dataset_id, selection, filename=filename, media_type=media_type
                 )
-        # fix(#1532) follow-up (#1585): is this a rebuild of the bytes that were
-        # already this selection's answer more than a TTL ago (settled), or the
-        # first publication of these bytes under this version (a change, as far
-        # as anyone mid-read can tell)? Read before publishing so the fresh
-        # copy cannot answer for itself.
-        oldest_same = await _oldest_publication_of(dataset_id, selection, digest)
-        settled = oldest_same is not None and oldest_same < time.time() - _ttl_seconds()
         built_at, key = await _put_with_reclaim(
             dataset_id,
             selection,
@@ -813,7 +760,6 @@ async def store(
             built_at=built_at,
             filename=filename,
             media_type=media_type,
-            settled=settled,
         )
     except Exception:  # broad: caching is best-effort; the conversion succeeded
         # And let the NEXT attempt sweep whatever the interval says. A store

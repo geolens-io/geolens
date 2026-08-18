@@ -28,12 +28,12 @@ change, ranges are answered whole.** A client that read a block of the earlier
 representation and comes back for the next one — to a hit on the new artifact,
 or to a fresh build of it, or re-reading the header — makes that request
 within the change's first TTL, and it gets the whole new file, which cannot
-splice. Once the new bytes have been the URL's answer for a TTL (``settled``),
-ranges resume; a client holding a handle across a longer gap without an
-``If-Range`` is the residual every range-serving origin has, and RFC 9110 gives
-the server nothing to close it with. The check reads the URL's history (every
-version, plus the parent revision's single-segment layout) and is paid only in
-that first TTL, and only by requests carrying a bare Range.
+splice. Once the URL has answered nothing but the new bytes for a TTL, ranges
+resume; a client holding a handle across a longer gap without an ``If-Range``
+is the residual every range-serving origin has, and RFC 9110 gives the server
+nothing to close it with. The check reads the URL's own prefix (every version
+of that URL) and is paid only by a request that could receive a 206: a bare,
+satisfiable Range.
 
 So the sequence a probing client sees is: first request builds and gets either
 the leading slice it asked for or the whole representation; every later request

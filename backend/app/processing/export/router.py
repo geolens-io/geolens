@@ -25,6 +25,7 @@ from app.platform.http.ranges import (
     if_match_passes,
     if_none_match_matches,
     not_modified_response,
+    parse_byte_range,
 )
 from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
@@ -67,20 +68,23 @@ router = APIRouter(
 _MAX_EXPORT_FEATURES = 5_000_000
 
 
-def _bare_range(request: Request) -> bool:
-    """A Range with no If-Range: the request whose slice the server must judge."""
-    return (
-        bool(request.headers.get("range")) and request.headers.get("if-range") is None
-    )
+def _bare_satisfiable_range(request: Request, size: int) -> tuple[int, int] | None:
+    """The resolved slice a bare Range (no If-Range) asks for, if it could be a 206.
+
+    Parsed with the same function ``read_response`` uses, so a malformed,
+    multi-range or unsatisfiable header — which the response ignores or
+    rejects — never costs the URL-history listing (#1585 review r4).
+    """
+    if request.headers.get("if-range") is not None:
+        return None
+    resolved = parse_byte_range(request.headers.get("range"), size)
+    return resolved if isinstance(resolved, tuple) else None
 
 
-def _leading_bare_range(request: Request) -> bool:
-    """A bare Range whose first byte is 0 — the only one a fresh build can honour."""
-    return _bare_range(request) and bool(
-        re.match(
-            r"^\s*bytes\s*=\s*0+\s*-", request.headers.get("range", ""), re.IGNORECASE
-        )
-    )
+def _leading_bare_range(request: Request, size: int) -> bool:
+    """A bare, satisfiable Range whose first byte is 0 — the only one a fresh build honours."""
+    resolved = _bare_satisfiable_range(request, size)
+    return resolved is not None and resolved[0] == 0
 
 
 def _cleanup_export(path: str) -> None:
@@ -529,18 +533,19 @@ async def export_dataset_endpoint(
         # case, not a rare one, and a client reading in slices can otherwise be
         # flipped from one to the other mid-sequence.
         #
-        # fix(#1532) follow-up (#1585 review r3): and so does a hit inside the
-        # first TTL after this URL's bytes CHANGED, when an earlier
-        # representation with different bytes is still live. A client that read
-        # a block of the old artifact and comes back for the next one lands
-        # here, on the new one, and a 206 would splice the two. Once the bytes
-        # have been the answer for a TTL (`settled`) that client has finished
-        # or is holding a handle across a longer gap, which is the residual the
-        # module states — and the history listing is not paid at all.
+        # fix(#1532) follow-up (#1585 review r3/r4): and so does a hit inside
+        # the first TTL after this URL's bytes CHANGED. A client that read a
+        # block of the earlier representation and comes back for the next one
+        # lands here, on the new artifact, and a 206 would splice the two. The
+        # URL's own prefix says whether other bytes were answered within the
+        # last TTL; consulted only for a bare, satisfiable Range — the request
+        # that could receive a 206.
         may_serve_range = not artifact.contested
-        if may_serve_range and not artifact.settled and _bare_range(request):
-            may_serve_range = not await artifact_cache.url_has_other_bytes(
-                dataset_id, selection, artifact.digest
+        if may_serve_range and _bare_satisfiable_range(request, artifact.size):
+            may_serve_range = (
+                not await artifact_cache.url_answered_other_bytes_recently(
+                    dataset_id, selection, artifact.digest
+                )
             )
         response = artifact_response.read_response(
             get_storage(),
@@ -883,19 +888,18 @@ async def export_dataset_endpoint(
             # starts at byte 0 (fix(#1532) follow-up): that is a probe, never a
             # resume, and it is the first request of a cold GDAL open, which a
             # 200 turned into "Range downloading not supported".
-            # The leading slice of a fresh build is honoured unless an earlier
-            # representation of THIS URL with different bytes is still live and
-            # these bytes only just became the answer: a client that read a
-            # later block from the old one and re-reads the header after the
-            # change would splice (#1585 review r1). `contested` covers a
-            # foreign digest under this version; `url_has_other_bytes` covers
-            # one under a previous version of the same URL, and is consulted
-            # only while the bytes are not `settled` and only for the request
-            # that could use the answer — a bare Range starting at 0 (r3).
+            # The leading slice of a fresh build is honoured unless this URL
+            # answered with different bytes inside the last TTL: a client that
+            # read a later block from that representation and re-reads the
+            # header after the change would splice (#1585 review r1). The
+            # listing is consulted only for the request that could use the
+            # answer — a bare, satisfiable Range starting at 0 (r3/r4).
             leading_slice_ok = not stored.contested
-            if leading_slice_ok and not stored.settled and _leading_bare_range(request):
-                leading_slice_ok = not await artifact_cache.url_has_other_bytes(
-                    dataset_id, selection, stored.digest
+            if leading_slice_ok and _leading_bare_range(request, stored.size):
+                leading_slice_ok = (
+                    not await artifact_cache.url_answered_other_bytes_recently(
+                        dataset_id, selection, stored.digest
+                    )
                 )
             response = artifact_response.read_response(
                 get_storage(),
