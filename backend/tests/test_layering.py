@@ -2915,7 +2915,56 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of a vector. `_upsert_embeddings` and its rationale are most of the
     # count; the rest is why the stamp comes from the pin, which is the whole
     # point of the column. Cap 1145 -> 1225, exact.
-    "backend/app/processing/embeddings/backfill.py": 1225,
+    # fix(#1549): +140. The bulk DELETE is gone; `_replace_embeddings` and
+    # `_delete_embeddings_for` remove a batch's old rows inside the transaction
+    # that writes their replacements, so an aborted force run leaves the records
+    # it reached rewritten and the rest exactly as they were rather than leaving
+    # an empty table. The comments carry the two things a reader cannot see from
+    # the statements: why the delete must precede the write and share its
+    # transaction, and why the COMMIT belongs to the caller rather than to that
+    # function (#1579's drift check has to run while the write still holds its
+    # lock). fix(#1581): the batch counts the rows it wrote rather than the
+    # texts it was handed, and hands the unanswered tail to the per-record
+    # retry. fix(#1549 review): +36 more — a strict zip, so a provider that
+    # skips a middle input fails the batch into the alignment-safe per-record
+    # retry instead of pairing a record with someone else's vector; and the
+    # end-of-run reclamation bounded to rows that predate the run, so a vector
+    # the ingest path wrote mid-run survives it. fix(#1583 review): +23 more —
+    # writes stamp `updated_at` with `clock_timestamp()` on BOTH the insert and
+    # the conflict branch, because `now()` is transaction-start time and a batch
+    # that spends a provider call in its transaction would otherwise record a
+    # time from before it asked, which #1583's `updated_at DESC` anchor reads as
+    # the wrong row. fix(#1584 review r1): +9 more — the reclamation cutoff moves
+    # ABOVE the record fetch, because the fetch is the observation it protects
+    # and a cutoff taken after it leaves the whole materialisation window
+    # unguarded. fix(#1584 review r3): +20 more — the reclamation stops asking a
+    # CLOCK whether a row predates the run and asks whether the row is still the
+    # version the run observed, as (record_id, updated_at) pairs. A cutoff got
+    # this wrong in both directions: it deleted fresh vectors whose writer read
+    # a different clock, and spared stale ones stamped ahead of the database by
+    # a pre-release writer, which moving the writers to clock_timestamp() cannot
+    # retroactively fix. The snapshot is narrowed to TITLELESS records, a
+    # superset of what the reclamation can reach, so it is not a copy of the
+    # embeddings table in worker memory. Cap 1225 -> 1475, exact. Then +5: the
+    # one edge that narrowing gives up (a title cleared between the snapshot
+    # and the fetch defers that record's reclamation to the next force run) is
+    # stated where the narrowing is decided. Cap 1475 -> 1480, exact.
+    # fix(#1584 review r4): +47 — an unchanged row is not proof of an unchanged
+    # record. The ingest writer skips its write on an unchanged content hash, so
+    # an editor restoring exactly the content a vector was computed from leaves
+    # the row's version untouched, and version matching alone would reclaim a
+    # vector that is valid again. The reclamation now re-reads each record it is
+    # about to reclaim (`_records_still_empty`, through the port's real loader)
+    # and spares those no longer empty; the content-field extraction the run
+    # and the re-check share moved into `_content_fields`. Cap 1480 -> 1527,
+    # exact.
+    # fix(#1584 review r5): the re-read and the delete hold the record. They
+    # were two statements with a gap, and an editor restoring content in it had
+    # the writer skip on an unchanged hash before the delete took the row.
+    # `_records_still_empty` now locks the chunk's records FOR UPDATE and
+    # `_reclaim_observed_rows` runs re-check, delete and commit per chunk in
+    # one transaction. Cap 1527 -> 1555, exact.
+    "backend/app/processing/embeddings/backfill.py": 1555,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

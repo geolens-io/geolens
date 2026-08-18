@@ -139,8 +139,10 @@ async def _finalize(
         # fix(#1550 review): surfaced through JobStatusResponse.rows_failed so
         # a partly-failed run is visible to whoever is watching. A run that
         # created most of the catalog and had some records rejected is
-        # `complete` and is not a clean success — after a force run those
-        # rejections are records whose old vectors are already gone.
+        # `complete` and is not a clean success. fix(#1549): after a force run
+        # those rejections are records that KEPT their old vectors, since a
+        # record whose replacement never committed never had its existing row
+        # deleted — so the gap is stale coverage rather than none.
         extra_metadata["rows_failed"] = result["errors"]
         # Only a run that actually succeeded gets the completion stamps. A run
         # whose every embedding failed still records its counts — that is the
@@ -619,9 +621,13 @@ async def run_embedding_backfill(
 ) -> None:
     """Run one embedding backfill against its ``IngestJob`` row.
 
-    ``retry=0``: a force run deletes before it regenerates, so an automatic
-    replay would delete a second time on behalf of an operator who never asked
-    for it. Failures are terminal and the operator restarts the run.
+    ``retry=0``: a replay starts from scratch. fix(#1549) removed the reason
+    this used to give — a force run no longer deletes ahead of regenerating, so
+    an automatic replay would not delete a second time — but the flag stays,
+    because a replay would re-embed every record the first attempt had already
+    written, at provider rates, on behalf of an operator who never asked for it.
+    Failures are terminal and the operator restarts the run, which picks up
+    where it makes sense to rather than where the worker died.
     """
     from app.core.db import async_session
     from app.processing.embeddings.backfill import backfill_embeddings
@@ -784,9 +790,9 @@ async def run_embedding_backfill(
                             ),
                             message=(
                                 "Embedding backfill was cancelled by a worker "
-                                "shutdown. If this was a regenerate, existing "
-                                "vectors may already have been deleted — re-run "
-                                "to restore coverage."
+                                "shutdown. Records it had already reached carry "
+                                "their new vectors and the rest are unchanged; "
+                                "re-run to finish the remainder."
                                 if cancelled
                                 else "Embedding backfill could not record its "
                                 "outcome. See server logs for details."

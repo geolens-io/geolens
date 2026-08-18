@@ -248,14 +248,25 @@ async def test_a_mid_run_model_switch_cannot_mislabel_a_vector(
     assert {call["model"] for call in provider.calls} == {_MODEL_A}
     assert {call["dimensions"] for call in provider.calls} == {_DIMS_A}
 
-    # And nothing was stored. On the force path that means an EMPTY table: the
-    # delete committed before the run could know it would finish, which is the
-    # #1549 trade taken deliberately — empty and loud beats populated with
-    # vectors the active search will silently fail to match.
+    # And nothing was stored — on EITHER path, which is what changed.
+    #
+    # This assertion used to read `0 if force else before`, because the force
+    # path committed its DELETE before the run could know it would finish, and
+    # an empty table was the deliberate #1549 trade: loud beats populated with
+    # vectors the active search will silently fail to match. fix(#1549): the
+    # delete now happens per batch, inside the transaction that writes the
+    # replacements, and this run stops at the first batch boundary — so it
+    # writes nothing AND destroys nothing, and the trade is gone rather than
+    # taken.
+    #
+    # Worth noting how the old form hid this: with an empty table `before` is
+    # 0, so `0 if force else before` and `before` agree, and the test passes
+    # either way when run on its own. It only tells the two apart once
+    # something else in the suite has left rows behind.
     remaining = (
         await test_db_session.execute(select(func.count()).select_from(RecordEmbedding))
     ).scalar_one()
-    assert remaining == (0 if force else before)
+    assert remaining == before
     assert stopped
 
 

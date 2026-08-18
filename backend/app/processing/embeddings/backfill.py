@@ -15,7 +15,7 @@ Can be run as a module: python -m app.embeddings.backfill
 from typing import Any
 
 import structlog
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, or_, select, text, tuple_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -198,7 +198,8 @@ def _structural_width_mismatch(
     otherwise blind to. Drift is a width that MOVES; this is a width that was
     already wrong when the run started, which every comparison guard is
     correctly silent about because nothing changed. The force path catches it in
-    `_preflight_embedding`, ahead of the DELETE. The non-force path has no
+    `_preflight_embedding`, before it has spent a single provider call on the
+    catalog. The non-force path has no
     pre-flight, so the first batch insert failed the typmod, the batch was
     retried per record, and each retry spent a provider call before dying on the
     same error.
@@ -339,16 +340,202 @@ def _upsert_embeddings(rows: list[dict[str, Any]]):  # type: ignore[no-untyped-d
     `updated_at` is set explicitly because `onupdate=` is an ORM-level default
     and this is a Core statement.
     """
-    stmt = pg_insert(RecordEmbedding).values(rows)
+    # fix(#1583 review): stamp the INSERT branch too. `set_` below only governs
+    # the ON CONFLICT path; a row that does not collide takes the column's
+    # `server_default`, which is `now()` — so half the writes kept the
+    # transaction-start stamp and the fix would have covered replacements but
+    # not first-time inserts. The server_default stays as it is for writers
+    # that have no opinion; this states one.
+    stmt = pg_insert(RecordEmbedding).values(
+        [row | {"updated_at": func.clock_timestamp()} for row in rows]
+    )
     return stmt.on_conflict_do_update(
         index_elements=["record_id", "model_name"],
         set_={
             "embedding": stmt.excluded.embedding,
             "content_hash": stmt.excluded.content_hash,
             "config_fingerprint": stmt.excluded.config_fingerprint,
-            "updated_at": func.now(),
+            # fix(#1583 review): `clock_timestamp()`, not `now()`. `now()` is
+            # TRANSACTION-START time, and a backfill transaction opens, spends
+            # the length of a provider call in it, and only then writes — so a
+            # row written at the end of that gets a stamp EARLIER than a job
+            # which started and committed while the provider was still
+            # thinking. #1583 orders the related-items anchor by `updated_at
+            # DESC`, which makes that inversion visible as the wrong anchor.
+            # The column's server_default stays as it is; this is about the
+            # value a write of ours records.
+            "updated_at": func.clock_timestamp(),
         },
     )
+
+
+def _content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
+    """The fields ``build_content_text`` reads, pulled off a record eagerly.
+
+    Eager, because a rollback expires every ORM instance in the session and a
+    later attribute access would lazy-load and raise ``MissingGreenlet``. One
+    function for both readers — the run's fetch and the reclamation's re-check
+    (fix(#1584 review r4)) — so "is this record empty" is asked the same way at
+    both ends of the run.
+    """
+    return {
+        "title": record.title,
+        "summary": record.summary,
+        "keywords": [kw.keyword for kw in record.keywords] if record.keywords else [],
+        "lineage": record.lineage_summary,
+        "localized_texts": [
+            "\n".join(
+                part
+                for part in (
+                    f"{translation.language}: {translation.title}",
+                    translation.summary,
+                )
+                if part
+            )
+            for translation in record.translations
+        ],
+    }
+
+
+async def _records_still_empty(session, port, record_orm, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
+    """Which of these records have no embeddable content RIGHT NOW — and hold them.
+
+    fix(#1584 review r4): the reclamation asks this immediately before it
+    deletes, one read per record, through the same loader and the same field
+    extraction the run used at its start. ``expire_all`` first, deliberately:
+    this session does not expire on commit, so its identity map still holds the
+    instances the run loaded at the start, and a re-select would hand back their
+    pre-edit attributes rather than the row's. A record that no longer exists
+    counts as empty; its rows are orphans either way.
+
+    fix(#1584 review r5): the records are locked ``FOR UPDATE`` first, and the
+    caller keeps this transaction open through its DELETE. Without the lock the
+    re-read and the delete were two statements with a gap, and an editor who
+    restored the content in that gap had the ingest writer skip on an unchanged
+    hash while the row still existed — then the delete took it, and nothing
+    would ever regenerate it. Held, the editor's write lands on one side or the
+    other: before the read, and the record is spared; after the delete, and
+    the writer finds no row and regenerates. The lock is on the records the
+    caller is about to reclaim, one chunk at a time, released by its commit.
+    """
+    session.expire_all()
+    await session.execute(
+        select(record_orm.id)
+        .where(record_orm.id.in_(list(record_ids)))
+        .with_for_update()
+    )
+    still_empty: set[Any] = set()
+    for record_id in record_ids:
+        current = await port.get_record(session, record_id)
+        if current is None or not build_content_text(**_content_fields(current)):
+            still_empty.add(record_id)
+    return still_empty
+
+
+async def _reclaim_observed_rows(session, port, record_orm, reclaimable) -> int:  # type: ignore[no-untyped-def]
+    """Delete the observed rows of records that are still empty; return how many.
+
+    One chunk per transaction: lock the chunk's records, re-check them, delete
+    the rows of those still empty, commit. See ``_records_still_empty`` for why
+    the lock, and the caller for why the chunking.
+    """
+    removed = 0
+    for offset in range(0, len(reclaimable), _BATCH_SIZE):
+        chunk = reclaimable[offset : offset + _BATCH_SIZE]
+        still_empty = await _records_still_empty(
+            session, port, record_orm, {record_id for record_id, _ in chunk}
+        )
+        chunk = [pair for pair in chunk if pair[0] in still_empty]
+        if chunk:
+            await session.execute(
+                _delete_embeddings_for(
+                    record_orm,
+                    [record_id for record_id, _ in chunk],
+                    observed=chunk,
+                )
+            )
+            removed += len(chunk)
+        await session.commit()
+    return removed
+
+
+def _delete_embeddings_for(record_orm, record_ids: list[Any], *, observed=None):  # type: ignore[no-untyped-def]
+    """Remove EVERY embedding these records hold, under any model.
+
+    The `Record` subquery is the tenant boundary: `RecordEmbedding` carries no
+    RLS policy of its own, so scoping through the records table is what keeps a
+    force run inside the calling tenant (#1511). The ids already come from a
+    tenant-scoped select, so this is the second half of a belt-and-braces pair
+    rather than the only one, and it is bounded to the batch rather than the
+    whole table.
+
+    fix(#1584 review r3): ``observed`` narrows the delete to the exact row
+    VERSIONS the run saw, as `(record_id, updated_at)` pairs. Only the
+    end-of-run reclamation passes it, and it needs it, because that pass acts on
+    an observation made much earlier and must not delete anything written since.
+
+    This replaced a `updated_at < cutoff` comparison, which was the same idea
+    expressed as a clock and got the answer wrong in both directions. It spared
+    rows it should have reclaimed whenever a stored stamp was AHEAD of the
+    cutoff — rows written before this release by an application clock running
+    ahead of PostgreSQL, or by an older worker mid-rolling-deploy — and moving
+    the writers to `clock_timestamp()` does nothing for stamps already on disk.
+    Matching versions asks a question no clock can answer wrongly: has this row
+    changed since I looked at it? Any write by any writer on any clock moves
+    `updated_at`, so a fresh vector survives and a stale one is reclaimed,
+    whatever wrote either of them and whatever clock it read.
+    """
+    predicate = RecordEmbedding.record_id.in_(
+        select(record_orm.id).where(record_orm.id.in_(record_ids))
+    )
+    if observed is not None:
+        return delete(RecordEmbedding).where(
+            predicate,
+            tuple_(RecordEmbedding.record_id, RecordEmbedding.updated_at).in_(observed),
+        )
+    return delete(RecordEmbedding).where(predicate)
+
+
+async def _replace_embeddings(
+    session: AsyncSession,
+    rows: list[dict[str, Any]],
+    *,
+    record_orm=None,  # type: ignore[no-untyped-def]
+) -> None:
+    """Remove what `rows` replace, then write them. Does NOT commit.
+
+    fix(#1549): this ordering IS the fix, which is why both write sites go
+    through one function rather than repeating it. A force run used to commit
+    `DELETE FROM catalog.record_embeddings` before it had generated anything,
+    so every abort after that point left the catalog with no vectors at all.
+    Deleting inside the transaction that writes the replacements closes the
+    window: either both land or neither does, and a run that dies between
+    batches has replaced some records and left the rest untouched.
+
+    The DELETE must precede the INSERT and must be in the same transaction.
+    Reversed, it would remove the rows just written, since it clears every row
+    the record holds under any model. That breadth is deliberate and is what
+    the bulk delete used to provide: force means "replace what is there",
+    including vectors left behind by a superseded model, which the upsert alone
+    cannot reach because it is keyed on (record_id, model_name).
+
+    The COMMIT belongs to the caller, deliberately, and it is the reason this
+    function does not own one. fix(#1579 review r3): both callers run a drift
+    check between writing and committing, and that check is only sound while it
+    holds the RowExclusiveLock these statements take. Committing here would
+    release the lock before the check ran and reopen the window that reorder
+    closed, so the two fixes have to share one transaction rather than each
+    owning theirs.
+
+    ``record_orm`` is the `Record` class on a force run and None otherwise. A
+    non-force run has nothing to replace: it only fills gaps, so it must not
+    delete, and passing None is what says so.
+    """
+    if record_orm is not None:
+        await session.execute(
+            _delete_embeddings_for(record_orm, [row["record_id"] for row in rows])
+        )
+    await session.execute(_upsert_embeddings(rows))
 
 
 async def _snapshot_embedding_config(
@@ -389,8 +576,9 @@ async def _snapshot_embedding_config(
       or fails loudly, and can never silently pin a different destination.
     - With no API key, `DefaultOpenAIEmbeddingProvider.embed` raises
       `EmbeddingUnavailableError` before producing a vector, and on the force
-      path `_preflight_embedding` runs BEFORE the DELETE, so the run aborts
-      with every existing vector still in place.
+      path `_preflight_embedding` runs before the batch loop, so the run aborts
+      having written nothing and, since fix(#1549), having removed nothing
+      either.
 
     So the residue is confined to an extension provider that resolves its
     endpoint from the database and applies no such binding. Closing it needs an
@@ -528,6 +716,7 @@ async def _retry_batch_per_record(
     base_url: str | None,
     pinned_column_dims: int | None,
     traced_errors: set[str],
+    record_orm=None,  # type: ignore[no-untyped-def]
 ) -> tuple[int, int]:
     """Re-embed a failed batch one record at a time; return (created, errors).
 
@@ -548,6 +737,13 @@ async def _retry_batch_per_record(
 
     `traced_errors` is the run's traceback budget, shared with the batch handler
     that calls this. See `_error_fields`.
+
+    fix(#1549): `record_orm` carries the force flag here, as `Record` or None,
+    because the retry replaces per record for the same reason the batch path
+    replaces per batch. It matters more on this path than on that one: the
+    batch failed, which is exactly when a record can fail again, and a record
+    that fails again must keep the vector it already had rather than lose it to
+    a delete that was committed on the promise of a replacement never written.
     """
     made = 0
     failed = 0
@@ -585,32 +781,32 @@ async def _retry_batch_per_record(
             # moved. One record's vector against a column that has not moved is
             # a bad record, and the handler below counts it (#1579 review).
             #
-            # Ahead of the insert, deliberately: it decides NOT to write, so it
+            # Ahead of the write, deliberately: it decides NOT to write, so it
             # needs no lock, and putting it after the write would let the write
             # raise the typmod error first and turn a named abort into a counted
             # one. It carries the post-call drift bracket for the same reason.
             await _raise_on_retry_vector_width(
                 session, pinned, vector, pinned_column_dims, created + made
             )
-            await session.execute(
-                _upsert_embeddings(
-                    [
-                        {
-                            "record_id": record_id,
-                            "embedding": vector,
-                            "model_name": model_name,
-                            # fix(#1546): from `pinned`, which IS the
-                            # configuration this call was made under — the
-                            # retry passes the same three values to the
-                            # provider. Re-resolving here would stamp what the
-                            # config says now rather than what produced the
-                            # vector, which is the fabrication the whole column
-                            # exists to avoid.
-                            "config_fingerprint": embedding_config_fingerprint(*pinned),
-                            "content_hash": compute_content_hash(content),
-                        }
-                    ]
-                )
+            await _replace_embeddings(
+                session,
+                [
+                    {
+                        "record_id": record_id,
+                        "embedding": vector,
+                        "model_name": model_name,
+                        # fix(#1546): from `pinned`, which IS the
+                        # configuration this call was made under — the
+                        # retry passes the same three values to the
+                        # provider. Re-resolving here would stamp what the
+                        # config says now rather than what produced the
+                        # vector, which is the fabrication the whole column
+                        # exists to avoid.
+                        "config_fingerprint": embedding_config_fingerprint(*pinned),
+                        "content_hash": compute_content_hash(content),
+                    }
+                ],
+                record_orm=record_orm,
             )
             # fix(#1579 review r3, codex P2): the row is SENT before the
             # post-call check, so the check runs holding the lock its answer
@@ -621,6 +817,12 @@ async def _retry_batch_per_record(
             # unchanged and so is the reason for it: the INSERT takes the same
             # RowExclusiveLock the flush did, so an ALTER TABLE still either
             # lands before the check and is seen, or waits for our commit.
+            #
+            # fix(#1549): and the delete that clears what this row replaces is
+            # inside `_replace_embeddings`, in this same transaction, ahead of
+            # the write. So the abort below rolls back the delete along with the
+            # row, and a record whose replacement never commits keeps the vector
+            # it already had.
             await _raise_on_pin_drift(
                 session,
                 pinned,
@@ -846,8 +1048,12 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
     Args:
         session: Database session.
-        force: If True, delete all existing embeddings first and regenerate
-               for every record. Useful when the model or dimensions change.
+        force: If True, regenerate every record and replace whatever vectors it
+               already holds. Useful when the model, dimensions or endpoint
+               change. fix(#1549): "replace" is per batch, inside the
+               transaction that writes the batch's new rows, so an aborted run
+               leaves the records it reached rewritten and the rest exactly as
+               they were. It no longer empties the table up front.
 
     Returns:
         Dict with counts: processed, created, skipped, errors.
@@ -866,9 +1072,15 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     # `pg_attribute` rather than `PersistentConfig`, and the two disagree often
     # enough that this whole check exists.
     pinned_column_dims: int | None = None
+    # fix(#1549): non-None only on a force run, where it is both the tenant
+    # boundary for the per-batch delete and the flag that says a batch replaces
+    # rather than fills a gap. A non-force run must delete nothing, so it stays
+    # None all the way down to `_replace_embeddings`.
+    record_orm = None
 
     if force:
         Record = port.get_record_orm_class()
+        record_orm = Record
 
         # fix(#1511 review r5, codex P2): every guard below exists to protect
         # rows from the DELETE. That DELETE is bounded by the record foreign
@@ -900,8 +1112,9 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
 
         # Fail-closed on an unresolvable model, as documented in
         # DefaultProcessingPort.get_records_without_embeddings (#1506), which
-        # could not cover this branch: by the time that query runs on the force
-        # path the vectors are already gone.
+        # could not cover this branch: force asks that query for every record
+        # rather than for the ones a configuration cannot use, so it never
+        # consults the model at all.
         pinned = await _snapshot_embedding_config(session)
         pinned_column_dims = await _live_column_dims(session)
 
@@ -919,69 +1132,106 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # key, exhausted quota, dimensions the model rejects.
         await _preflight_embedding(session, pinned, pinned_column_dims)
 
-        # DESTRUCTIVE-FIRST, STILL (#1549). This commits before the run knows it
-        # can finish, so a drift abort in the batch loop below leaves the table
-        # empty and the operator has to re-run.
+        # fix(#1549): there is no bulk DELETE here any more. It used to commit
+        # before the run knew it could finish, so any failure after it — a
+        # provider outage, drift detected mid-run, a worker restart — ended the
+        # run with the old vectors gone and few or none written. Every guard
+        # above sits correctly before that commit for the conditions it can see
+        # at the start; none of them can see a change that lands after it.
         #
-        # That was the chosen side of a trade whose other side has now moved:
-        # while rows recorded only `model_name`, a run that carried on under a
-        # stale pin left a FULL table whose vectors lived in a space the active
-        # search silently failed to match, and empty-and-loud beat
-        # populated-and-wrong. fix(#1546): rows carry the configuration that
-        # produced them, so a partial run leaves a MIX that search can tell
-        # apart — old rows go invisible instead of the table going empty. That
-        # removes the objection to per-batch delete-and-replace in one
-        # transaction, which is #1549's direction 1 and does not belong in a PR
-        # about stamping rows. The other routes remain a shadow table and swap,
-        # or the run lifecycle #1542 landed.
+        # The delete now happens per batch, inside the transaction that writes
+        # that batch's replacement rows (`_replace_embeddings`), so there is no
+        # window in which the old rows are gone and the new ones are not
+        # written. What an aborted run leaves is a MIX: replaced records hold
+        # rows from this run's pinned configuration, untouched records hold
+        # exactly what they held before it started.
         #
-        # The HNSW index lives in Alembic migration 0012 (and is recreated
-        # by service.rebuild_embedding_column on dimension change). On
-        # force=True we just clear the active tenant's rows; no need to drop
-        # the index. RecordEmbedding is not RLS-scoped itself, so the Record
-        # subquery is the required tenant boundary in hosted mode. `Record` is
-        # resolved at the top of this branch, for the emptiness check.
-        await session.execute(
-            delete(RecordEmbedding).where(
-                RecordEmbedding.record_id.in_(select(Record.id))
-            )
-        )
-        await session.commit()
-        logger.info("Backfill: cleared visible embeddings (force=True)")
+        # #1546 is what makes that mix readable rather than ambiguous for every
+        # row it stamped: a row from a superseded configuration is invisible to
+        # search instead of being silently compared across vector spaces. The
+        # residue is the one #1546 documents — a row written before that column
+        # existed carries no stamp and is still matched on model name alone, so
+        # after an endpoint change it may be compared cross-space. That is not
+        # something this change introduces. It is true of an unstamped catalog
+        # from the moment the endpoint moves, whether or not anyone runs a
+        # regenerate, and an aborted run now leaves those records no worse than
+        # it found them rather than leaving them with nothing.
+        #
+        # The HNSW index lives in Alembic migration 0012 (and is recreated by
+        # service.rebuild_embedding_column on dimension change); a per-batch
+        # delete does not need it dropped either. RecordEmbedding is not
+        # RLS-scoped itself, so the Record subquery inside `_replace_embeddings`
+        # remains the required tenant boundary in hosted mode.
 
     # Find the records still needing a vector, eager-loading keywords.
-    # fix(#1506): pass `force` through instead of hardcoding False. On the
-    # force path the delete above already emptied the table, so both flags
-    # select the same rows today — but the port's non-force branch now has to
-    # resolve the active model, and routing a post-delete regenerate through
-    # it would make a run that already destroyed its input depend on that
-    # resolution succeeding. force=True asks for "every record" directly,
-    # which is what this branch has always meant.
+    # fix(#1506): pass `force` through instead of hardcoding False. force=True
+    # asks for "every record" directly, which is what this branch has always
+    # meant, and the port's non-force branch would answer a different question:
+    # it selects only records with no vector the live configuration can use, so
+    # routing a regenerate through it would skip precisely the records that are
+    # already covered and that force exists to rewrite.
+    #
+    # fix(#1549): this used to be able to lean on "the delete above already
+    # emptied the table, so both flags select the same rows". It cannot any
+    # more — nothing has been deleted at this point — which makes the explicit
+    # force=True the only thing separating the two questions.
+    # fix(#1549 review): the end-of-run reclamation acts on an observation made
+    # here, at the start, and must not delete anything written since. What it
+    # needs is not a clock but the IDENTITY of the rows it saw: `(record_id,
+    # updated_at)` pairs, which any write by any writer changes.
+    #
+    # fix(#1584 review r1, codex P2): taken BEFORE the fetch below, not after.
+    # The emptiness this protects against is decided BY that fetch — it is the
+    # read that sees a record's title and summary — and materialising every
+    # record takes as long as it takes. A snapshot taken afterwards leaves that
+    # whole interval unguarded: a record read as empty, then edited and
+    # re-embedded before the snapshot was taken, would be captured in its NEW
+    # version and reclaimed. The snapshot has to precede the observation it
+    # protects, not follow it.
+    #
+    # fix(#1584 review r3, codex P2): versions rather than a timestamp cutoff.
+    # See `_delete_embeddings_for` for why a clock got this wrong in both
+    # directions. Force-only: a non-force run reclaims nothing, so it does not
+    # pay for this read.
+    #
+    # Narrowed to records with no TITLE, which is a superset of what the
+    # reclamation can ever touch and is what keeps this from being a copy of the
+    # whole table in worker memory. `build_content_text` returns "" only when
+    # the title, summary, keywords, lineage and translations are ALL empty, so a
+    # record carrying a title is never skipped and its rows are never
+    # reclaimable. Titleless records are a rounding error on a real catalog,
+    # where the unnarrowed form would be one (uuid, timestamp) pair per
+    # embedding row. The one thing the narrowing gives up: a record whose title
+    # is cleared between this snapshot and the fetch is skipped but was not
+    # snapshotted, so its rows wait for the next force run, which sees it
+    # titleless. The ingest writer already leaves such rows in place (it skips
+    # empty content rather than deleting), so this defers a reclamation rather
+    # than inventing a stale row.
+    observed_rows: list[tuple[Any, Any]] = []
+    if record_orm is not None:
+        observed_rows = [
+            (record_id, updated_at)
+            for record_id, updated_at in (
+                await session.execute(
+                    select(RecordEmbedding.record_id, RecordEmbedding.updated_at).where(
+                        RecordEmbedding.record_id.in_(
+                            select(record_orm.id).where(
+                                or_(
+                                    record_orm.title.is_(None),
+                                    record_orm.title == "",
+                                )
+                            )
+                        )
+                    )
+                )
+            ).all()
+        ]
+
     records = await port.get_records_without_embeddings(session, force=force)
 
     # Extract all data upfront so rollback/commit won't trigger lazy loads
     # (rollback expires all ORM instances → accessing attrs causes MissingGreenlet)
-    record_data = [
-        {
-            "id": r.id,
-            "title": r.title,
-            "summary": r.summary,
-            "keywords": [kw.keyword for kw in r.keywords] if r.keywords else [],
-            "lineage": r.lineage_summary,
-            "localized_texts": [
-                "\n".join(
-                    part
-                    for part in (
-                        f"{translation.language}: {translation.title}",
-                        translation.summary,
-                    )
-                    if part
-                )
-                for translation in r.translations
-            ],
-        }
-        for r in records
-    ]
+    record_data = [{"id": r.id, **_content_fields(r)} for r in records]
 
     total = len(record_data)
 
@@ -990,9 +1240,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
     # Gate once for the whole run (the per-record path checked this per call).
-    # fix(#1511): force already gated above, ahead of its delete. Re-reading
-    # here could only produce the one outcome that path must never have —
-    # everything deleted, then skipped — so force does not ask twice.
+    # fix(#1511): force already gated above, before the pre-flight spends a
+    # provider call. Re-reading here could only turn a run that has already
+    # proved it can embed into one that skips everything, so force does not ask
+    # twice. fix(#1549): the original reason was blunter — the gate sat ahead of
+    # a delete, and a second read could have left the catalog emptied and then
+    # skipped. That delete is gone; the gate stays because paying for a
+    # pre-flight and then declining to use it is still the wrong shape.
     if not force and not await AI_ENABLED.get(session):
         logger.info("Backfill: AI disabled, skipping", total_records=total)
         return {"processed": 0, "created": 0, "skipped": total, "errors": 0}
@@ -1025,7 +1279,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     config_fingerprint = embedding_config_fingerprint(*pinned)
 
     # Build embeddable (record_id, content_text) pairs; empty content skips.
-    skipped = 0
+    skipped_ids: list[Any] = []
     items: list[tuple[object, str]] = []
     for rd in record_data:
         content_text = build_content_text(
@@ -1036,9 +1290,10 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             localized_texts=rd["localized_texts"],
         )
         if not content_text:
-            skipped += 1
+            skipped_ids.append(rd["id"])
             continue
         items.append((rd["id"], content_text))
+    skipped = len(skipped_ids)
 
     logger.info("Backfill: starting", total_records=total, batch_size=_BATCH_SIZE)
 
@@ -1095,26 +1350,42 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # Ahead of the inserts because it decides not to write at all, so
             # unlike the drift check below it needs no lock to be sound.
             _raise_on_structural_width(vectors, pinned_column_dims, created)
-            await session.execute(
-                _upsert_embeddings(
-                    [
-                        {
-                            "record_id": record_id,
-                            "embedding": vector,
-                            "model_name": model_name,
-                            # fix(#1546): stamped from the PIN. `pinned` is the
-                            # triple that was handed to the provider call above,
-                            # so the stamp names the configuration that actually
-                            # produced this vector rather than whatever the live
-                            # configuration happens to be by the time the row is
-                            # written.
-                            "config_fingerprint": config_fingerprint,
-                            "content_hash": compute_content_hash(content),
-                        }
-                        for (record_id, content), vector in zip(batch, vectors)
-                    ]
-                )
-            )
+            # fix(#1549): the batch's own old rows are removed HERE, in the
+            # transaction that writes their replacements, rather than by a bulk
+            # DELETE committed before the run generated anything.
+            rows = [
+                {
+                    "record_id": record_id,
+                    "embedding": vector,
+                    "model_name": model_name,
+                    # fix(#1546): stamped from the PIN. `pinned` is the triple
+                    # that was handed to the provider call above, so the stamp
+                    # names the configuration that actually produced this vector
+                    # rather than whatever the live configuration happens to be
+                    # by the time the row is written.
+                    "config_fingerprint": config_fingerprint,
+                    "content_hash": compute_content_hash(content),
+                }
+                # fix(#1581 review): `strict=True`, because `zip` silently
+                # truncating is only the visible half of the problem. A provider
+                # that skips a MIDDLE input answers `[v1, v3]` for
+                # `[t1, t2, t3]` — the shipped `embed()` returns
+                # `[item.embedding for item in response.data]` with no index
+                # sort and no count check — and a truncating zip then pairs the
+                # second record with the THIRD vector, writing a permanently
+                # wrong vector under a valid-looking content hash and stamp. No
+                # guard downstream can see that: the row is well formed, in the
+                # right space, and simply not this record's.
+                #
+                # Raising instead sends the whole batch to the per-record retry,
+                # where `[vector] = await generate_embeddings_batch(...)` is
+                # alignment-safe by construction: a single-element unpack cannot
+                # pair a text with another text's vector. Paying k provider
+                # calls for that is the right trade in a failure mode where the
+                # provider has already broken its contract.
+                for (record_id, content), vector in zip(batch, vectors, strict=True)
+            ]
+            await _replace_embeddings(session, rows, record_orm=record_orm)
             # fix(#1579 review r3, codex P2): WRITE, then check, then commit.
             # The check reads `pg_attribute`, which locks nothing, so checking
             # before the rows were sent left a window in which an `ALTER TABLE`
@@ -1135,6 +1406,13 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             # an ORM add plus `session.flush()`. It takes the same lock at the
             # same point, so everything above still holds; what changed is only
             # that the statement is emitted by `session.execute` directly.
+            #
+            # fix(#1549): the delete that clears what these rows replace is
+            # inside `_replace_embeddings`, in this same transaction and ahead
+            # of the write, so it takes the lock at the same moment and the
+            # abort below rolls back both halves together. A batch whose
+            # replacements never commit leaves its records holding the vectors
+            # they already had.
             #
             # A write that RAISES because the column moved to a different fixed
             # width is not lost: the batch handler retries per record, and the
@@ -1157,7 +1435,14 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 error=_PinDrift,
             )
             await session.commit()
-            created += len(batch)
+            # fix(#1581): count what was WRITTEN, not what was asked for. With
+            # the strict zip above these are the same number on the success
+            # path, which is the point: a batch either wrote a row for every
+            # text or raised and wrote none. `created += len(batch)` was wrong
+            # because it stayed true after a truncating zip had dropped the
+            # tail, and #1550's "errors and nothing created" guard cannot fire
+            # on a run claiming it created everything.
+            created += len(rows)
         except _PinDrift:
             # fix(#1525 review r5, codex P2): not a batch failure. Retrying it
             # per record would generate the same vectors against the same stale
@@ -1188,6 +1473,7 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                 base_url=base_url,
                 pinned_column_dims=pinned_column_dims,
                 traced_errors=traced_errors,
+                record_orm=record_orm,
             )
             created += made
             errors += failed
@@ -1198,6 +1484,50 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
             total=len(items),
             created=created,
             errors=errors,
+        )
+
+    # fix(#1549): a record whose metadata no longer builds any embeddable text
+    # has a stale vector and no replacement to pair a delete with. The bulk
+    # DELETE used to reclaim those; per-batch replacement cannot, because these
+    # records never reach a batch. Cleaning them up LAST rather than first is
+    # what keeps the rest of this function's promise: an aborted run has not
+    # touched them, and a completed one honours what force means. Nothing is
+    # lost by the delay — regenerating them is impossible either way, so a
+    # re-run would not bring these rows back at any point in the run.
+    #
+    # fix(#1549 review): but "last" is what makes the observation stale. The
+    # emptiness was decided when the run read its records, and by the time this
+    # pass runs an editor may have given one of them a title, in which case the
+    # ingest path has already written it a fresh, correctly stamped vector. The
+    # bulk delete could not hit that case because it ran before any such write.
+    # `observed_rows` bounds this to the exact row versions the run saw before
+    # it looked at the catalog, so a vector written DURING the run — by any
+    # writer, on any clock — no longer matches and survives.
+    if record_orm is not None and skipped_ids:
+        # NOT `skipped`: that name holds the run's skipped COUNT and is
+        # reported back to the caller.
+        skipped_set = set(skipped_ids)
+        reclaimable = [pair for pair in observed_rows if pair[0] in skipped_set]
+        # fix(#1584 review r4, codex P2): an unchanged ROW is not proof of an
+        # unchanged RECORD. The ingest writer skips its write when the content
+        # hash is unchanged, so an editor who restores exactly the content a
+        # row was computed from leaves the row, and its `updated_at`, untouched:
+        # the pair still matches and the row would be reclaimed although it is
+        # valid again. So every record whose rows are about to go is re-read
+        # first, and only those still empty NOW are reclaimed. One read per
+        # titleless record that holds vectors, which is the bound the snapshot
+        # already has.
+        #
+        # fix(#1584 review r5): re-read and delete under one row lock, one
+        # chunk per transaction. `_records_still_empty` locks the chunk's
+        # records FOR UPDATE; the delete follows in the same transaction; the
+        # commit releases them. Chunked for the same reason the run is: asyncpg
+        # caps a statement at 32767 bind parameters, and each pair spends two
+        # of them — and a chunk is also how long any one editor can be held.
+        removed = await _reclaim_observed_rows(session, port, record_orm, reclaimable)
+        logger.info(
+            "Backfill: dropped vectors for records with no embeddable content",
+            count=removed,
         )
 
     processed = created + errors
