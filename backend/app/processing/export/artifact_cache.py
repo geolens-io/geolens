@@ -320,37 +320,54 @@ def selection_key(
     return f"{url_part}/{version_part}"
 
 
-def _url_prefix(dataset_id: uuid.UUID, selection: str) -> str:
-    """The prefix under which every version of one export URL is stored."""
-    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/{selection.split('/', 1)[0]}/"
+def _dataset_prefix(dataset_id: uuid.UUID) -> str:
+    """The prefix under which every artifact of one dataset is stored."""
+    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/"
 
 
 async def url_has_other_bytes(
     dataset_id: uuid.UUID, selection: str, digest: str
 ) -> bool:
-    """Is any artifact with a DIFFERENT digest live under this URL, at any version?
+    """Could a client be holding blocks of an earlier representation of this URL?
 
     fix(#1532) follow-up (#1585): a fresh build honours a bare Range that starts
     at byte 0 — GDAL's first request, and the only way a cold ``/vsicurl/`` open
     can proceed — unless the client could be holding blocks of an earlier
-    representation of the SAME URL. It could if that URL answered with different
-    bytes since the last sweep: a mutation that moved ``tile_cache_version``
-    puts the earlier artifact under another version segment of this prefix, and
-    a client that read a later block from it, then re-reads the header after the
-    change, would splice. This lists the URL prefix (every version) and answers
-    True on the first foreign digest. An earlier artifact with the SAME digest is
-    the same bytes and cannot splice, which is what lets a re-open after expiry
-    work. Failing CLOSED on a listing error: an unknown history is treated as a
-    contested one, and the client gets the whole file, which is safe.
+    representation of the SAME URL with different bytes. It could if that URL
+    answered with different bytes since the last sweep: a mutation that moved
+    ``tile_cache_version`` puts the earlier artifact under another version
+    segment of this URL, and a client that read a later block from it, then
+    re-reads the header after the change, would splice.
+
+    One listing of the dataset's prefix, read two ways (#1585 review r2):
+
+    - ``<url>/<version>/<name>``, the layout ``selection_key`` writes: counts
+      only when ``<url>`` is this URL's segment and the digest differs.
+    - ``<selection>/<name>``, the single-segment layout the parent revision of
+      #1582 wrote: its URL cannot be told from the key, so ANY such artifact
+      with a different digest counts. Conservative by design — an object this
+      cannot attribute is treated as this URL's history — and self-limiting: no
+      release ever wrote that layout (it lived on ``main`` for an hour), and
+      whatever a development stack still holds ages out at the sweep horizon.
+
+    An earlier artifact with the SAME digest is the same bytes and cannot
+    splice, which is what lets a re-open after expiry work. Fails CLOSED on a
+    listing error: an unknown history is treated as a contested one, and the
+    client gets the whole file, which is safe.
     """
+    prefix = _dataset_prefix(dataset_id)
+    url_segment = selection.split("/", 1)[0]
     try:
-        async for page in get_storage().iter_object_pages(
-            _url_prefix(dataset_id, selection)
-        ):
+        async for page in get_storage().iter_object_pages(prefix):
             for obj in page:
                 parsed = parse_artifact_key(obj.key)
-                if parsed is not None and parsed[2] != digest:
-                    return True
+                if parsed is None or parsed[2] == digest:
+                    continue
+                segments = obj.key[len(prefix) :].split("/")
+                if len(segments) == 3 and segments[0] == url_segment:
+                    return True  # this URL, another version, different bytes
+                if len(segments) == 2:
+                    return True  # legacy layout: URL unknown, so it counts
     except Exception:  # broad: unknown history reads as contested; whole is safe
         return True
     return False

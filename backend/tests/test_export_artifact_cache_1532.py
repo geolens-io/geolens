@@ -4495,3 +4495,65 @@ async def test_a_leading_range_after_a_change_is_whole_when_old_bytes_are_still_
         f"GDAL re-opens more than a TTL apart are the common case"
     )
     assert again.headers["etag"] == first.headers["etag"]
+
+
+async def test_a_legacy_layout_artifact_counts_as_the_urls_history(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """An artifact under the single-segment layout blocks the leading slice.
+
+    #1585 review r2: the parent revision of #1582 wrote `<selection>/<name>`;
+    this revision writes `<url>/<version>/<name>`. For the rest of their
+    retention, legacy objects cannot be attributed to a URL, so any of them
+    with different bytes counts as this URL's history and the fresh build
+    answers a leading Range whole. Same bytes under the legacy layout do not
+    count: identical bytes cannot splice.
+    """
+    import hashlib as _hashlib
+
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Legacy Layout")
+    url = _url(dataset.id)
+    storage = get_storage()
+
+    # A legacy-shaped artifact for this dataset with DIFFERENT bytes.
+    legacy_selection = "0123456789abcdef0123456789abcdef"  # one 32-hex segment
+    foreign = b"bytes a pre-#1585 revision published"
+    await storage.put(
+        cache._artifact_key(
+            dataset.id,
+            legacy_selection,
+            _hashlib.sha256(foreign).hexdigest(),
+            len(foreign),
+            time.time() - 120,
+        ),
+        foreign,
+    )
+
+    resp = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    assert conversions.count == 1
+    assert resp.status_code == 200, (
+        f"a leading Range answered {resp.status_code} while a legacy-layout "
+        f"artifact with different bytes was still live under this dataset"
+    )
+    assert "content-range" not in resp.headers
+
+    # And with the legacy object carrying the SAME bytes as the fresh build,
+    # the leading slice is honoured: equal bytes cannot splice.
+    same = await _dataset(test_db_session, "Legacy Same Bytes")
+    await storage.put(
+        cache._artifact_key(
+            same.id,
+            legacy_selection,
+            _hashlib.sha256(conversions.body).hexdigest(),
+            len(conversions.body),
+            time.time() - 120,
+        ),
+        conversions.body,
+    )
+    ok = await client.get(
+        _url(same.id), headers={**admin_auth_header, "Range": "bytes=0-99"}
+    )
+    assert ok.status_code == 206, ok.text

@@ -3675,8 +3675,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # segment / version segment, and `url_has_other_bytes` asks one listing
     # whether an earlier representation of the same URL with different bytes is
     # still live, which is what lets a fresh build honour the leading Range of
-    # a cold GDAL open without reopening the splice. Cap 1020 -> 1062, exact.
-    "backend/app/processing/export/artifact_cache.py": 1062,
+    # a cold GDAL open without reopening the splice. Cap 1020 -> 1079, exact.
+    "backend/app/processing/export/artifact_cache.py": 1079,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
