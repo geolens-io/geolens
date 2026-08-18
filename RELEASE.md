@@ -63,9 +63,25 @@ commit:
    CI (`make version-check` is part of it).
 2. Tag the merge commit `vX.Y.Z`. The tag auto-builds the GitHub Release and the
    GHCR images, and triggers the PyPI/npm publishes.
-3. SDK and CLI publishes pause for one-click approval before they ship; image
+3. Once the Release job publishes a GA tag as the latest release, it dispatches
+   a `geolens-release` event to `geolens-io/getgeolens.com` (see
+   `.github/workflows/release.yml`'s "Notify the site of the release" step),
+   which runs that repo's `release-drift` check immediately and opens a PR
+   syncing the vendored docs contract, OpenAPI snapshot, and installer. This
+   needs the `SITE_DISPATCH_TOKEN` secret on this repo: a fine-grained PAT with
+   Contents: read/write on `geolens-io/getgeolens.com`. Absent, the step is a
+   no-op logged as a `::notice::` rather than a failure — the release still
+   publishes normally, and the site's own scheduled `release-drift` check
+   catches the gap on its own cadence. Getting an actual sync PR (not just the
+   dispatch) also needs a `RELEASE_SYNC_TOKEN` secret on the site repo itself,
+   same scope plus Pull requests: read/write — one fine-grained PAT with both
+   scopes can be stored under both names. Until that sync PR merges, the
+   site's `release-drift` job (which also runs on this dispatch) is expected
+   to go red and file or comment on its `nightly-red` issue (site #95) — that
+   is the intended signal that a sync is pending, not a regression.
+4. SDK and CLI publishes pause for one-click approval before they ship; image
    and release builds do not.
-4. `verify-published.yml` runs after the publishes complete and confirms every
+5. `verify-published.yml` runs after the publishes complete and confirms every
    surface matches.
 
 The maintainer owns the tag cut and the publish approval. This document does not
