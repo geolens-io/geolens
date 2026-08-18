@@ -1512,8 +1512,12 @@ async def test_a_second_publisher_does_not_add_to_a_fresh_selection(
 
     The other half of the contested fix, and the one that keeps the condition
     rare rather than merely handled: a builder that started before a sibling
-    finished re-checks on the way out and serves its own bytes instead of adding
-    a second artifact nobody asked for.
+    finished re-checks on the way out and adds no second artifact.
+
+    fix(#1532 review r29): and it is handed the INCUMBENT to serve, not None. It
+    used to serve its own bytes, which put its client on a representation no
+    later Range would resolve; see
+    `test_a_builder_that_loses_the_race_serves_the_incumbent`.
     """
     import tempfile
 
@@ -1537,7 +1541,10 @@ async def test_a_second_publisher_does_not_add_to_a_fresh_selection(
         media_type="application/geo+json",
     )
 
-    assert stored is None, "a late builder must not publish over a fresh sibling"
+    assert stored is not None and stored.key == incumbent, (
+        "a late builder must be handed the fresh sibling to serve, not None (r29) "
+        "and not its own publication"
+    )
     keys = await storage.list(f"export-cache/{cache._tenant_segment()}/{dataset.id}/")
     assert keys == [incumbent], f"the selection grew to {keys}"
 
@@ -4250,3 +4257,111 @@ async def test_a_far_future_stamp_cannot_pin_an_artifact_past_reclamation(
         "the store-behind property regressed: a stamp within the allowance of a "
         "recent mtime was reclaimed"
     )
+
+
+# ---------------------------------------------------------------------------
+# Review r29
+# ---------------------------------------------------------------------------
+
+
+async def test_a_builder_that_loses_the_race_serves_the_incumbent(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    conversions,
+    monkeypatch,
+):
+    """Two overlapping builders with DIFFERENT bytes: both clients get the same ones.
+
+    fix(#1532 review r29, P1): when a builder found a fresh incumbent at
+    publish time, `store` returned None and the route streamed the builder's
+    OWN conversion whole. If the two conversions had taken different snapshots
+    (a mutation that missed `tile_cache_version` landing between them), that
+    client held bytes no later request would resolve — an interrupted download
+    resumed with a bare Range against the sole, uncontested incumbent and was
+    handed a 206 of the other conversion at its offsets. `store` now returns
+    the incumbent and the route serves it.
+
+    The lost race is FORCED, not hoped for: both requests are held after
+    hashing until both have converted (so both really missed), and `store` is
+    then serialized behind a lock, so exactly one publishes and the other finds
+    it as the incumbent at its re-check. Without the lock the two re-checks can
+    both miss and both publish — the two-publisher case, which is contested and
+    already safe — and this test would prove nothing about the lost race. The
+    double's body is changed between the two conversions, so the two builds
+    really differ. Both responses must then carry the SAME bytes and the same
+    ETag, and a bare Range afterwards must be a slice of those same bytes.
+    """
+    import asyncio
+
+    from app.processing.export import artifact_cache as cache
+    from app.processing.export import router as export_router
+
+    dataset = await _dataset(test_db_session, "Lost Race")
+    url = _url(dataset.id)
+
+    first_body = conversions.body
+    second_body = bytes(reversed(first_body))
+    assert first_body != second_body
+
+    real_conversion = export_router.export_dataset
+    builds = {"n": 0}
+
+    async def _mutating(*args, **kwargs):
+        builds["n"] += 1
+        if builds["n"] == 2:
+            conversions.body = second_body  # the data moved between the two reads
+        return await real_conversion(*args, **kwargs)
+
+    monkeypatch.setattr(export_router, "export_dataset", _mutating)
+
+    arrived = asyncio.Event()
+    waiting = {"n": 0}
+    real_digest = cache.digest_and_size
+
+    async def _barriered(file_path):
+        result = await real_digest(file_path)
+        waiting["n"] += 1
+        if waiting["n"] == 2:
+            arrived.set()
+        await asyncio.wait_for(arrived.wait(), timeout=5)
+        return result
+
+    monkeypatch.setattr(cache, "digest_and_size", _barriered)
+
+    real_store = cache.store
+    publish_lock = asyncio.Lock()
+
+    async def _serialized_store(*args, **kwargs):
+        async with publish_lock:
+            return await real_store(*args, **kwargs)
+
+    monkeypatch.setattr(cache, "store", _serialized_store)
+
+    one, two = await asyncio.gather(
+        client.get(url, headers=admin_auth_header),
+        client.get(url, headers=admin_auth_header),
+    )
+    assert waiting["n"] == 2, "the two builders did not overlap"
+    assert conversions.count == 2
+    assert one.status_code == 200 and two.status_code == 200
+    assert one.headers["etag"] == two.headers["etag"], (
+        "the two overlapping builders answered with different validators; the "
+        "loser served its own bytes and its client is now off the incumbent"
+    )
+    assert one.content == two.content, (
+        "the two overlapping builders answered with different bytes; a client "
+        "resuming the loser's download with a bare Range will splice"
+    )
+    served = one.content
+    assert served in (first_body, second_body)
+
+    # And the resume a real client would make: a bare Range against the
+    # incumbent is a slice of exactly what both clients were given.
+    monkeypatch.setattr(cache, "digest_and_size", real_digest)
+    resumed = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert resumed.status_code == 206, resumed.text
+    assert resumed.content == served[100:200]
+    assert resumed.headers["etag"] == one.headers["etag"]

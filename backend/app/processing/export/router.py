@@ -750,8 +750,11 @@ async def export_dataset_endpoint(
     # burst of ranges that follows a HEAD racing the write that serves them.
     #
     # A store failure is not a download failure: the file is in hand and the
-    # FileResponse below still works, which is why `store` returns None instead
-    # of raising.
+    # response below still works, which is why `store` returns None instead of
+    # raising. fix(#1532 review r29): and when this request LOST the publish
+    # race, `store` returns the incumbent artifact instead, and that is what is
+    # served — not this request's own bytes — so a client interrupted here and
+    # resuming with a bare Range lands on the same representation.
     # fix(#1532 review r3): publication runs under the same cancellation
     # ownership as the audit step above. `store` catches Exception, and a
     # CancelledError is a BaseException — a client disconnect or a worker
@@ -839,12 +842,14 @@ async def export_dataset_endpoint(
     # per-export loses more than the export.
     try:
         if stored is not None:
-            # may_serve_range=False: this request BUILT the artifact, so it
-            # cannot know which representation the client's offsets were
-            # measured against. Ignoring the Range and answering with the whole
-            # thing is the safe half of RFC 9110 section 14.2 and is what keeps
-            # a rebuild from splicing; only a matching If-Range (r12) overrides
-            # it, because that client has named these exact bytes.
+            # may_serve_range=False: this request BUILT the artifact — or lost
+            # the publish race and was handed the incumbent (r29), which its
+            # client has never seen either — so it cannot know which
+            # representation the client's offsets were measured against.
+            # Ignoring the Range and answering with the whole thing is the safe
+            # half of RFC 9110 section 14.2 and is what keeps a rebuild from
+            # splicing; only a matching If-Range (r12) overrides it, because
+            # that client has named these exact bytes.
             response = artifact_response.read_response(
                 get_storage(),
                 stored,

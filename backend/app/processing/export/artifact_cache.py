@@ -599,9 +599,13 @@ async def store(
     newer. There is no pointer to flip, so there is no window in which a
     half-published state exists.
 
-    Returns None if anything goes wrong. The caller has the converted file in
-    hand and can serve it directly, so a cache that cannot store must not be able
-    to fail a download.
+    Returns the published artifact; or, when publication does not happen, the
+    INCUMBENT artifact under this selection if there is one (fix(#1532 review
+    r29) — the caller must serve that, not its own bytes, so a client's later
+    bare Range resolves the same representation); or None when there is nothing
+    to serve but the caller's own file. The caller has the converted file in
+    hand and can serve it directly, so a cache that cannot store must not be
+    able to fail a download.
 
     Only ``Exception`` is caught, deliberately. A ``CancelledError`` is a
     ``BaseException`` and must keep propagating so the caller's cleanup runs —
@@ -617,13 +621,23 @@ async def store(
         # appeared while this request was converting. Every client arriving
         # during a slow build misses and builds its own, so the overlap is the
         # normal case rather than a rare one, and each extra publication is
-        # another set of bytes a range-reading client can be flipped onto. The
-        # caller serves its own conversion whole instead, which costs one
-        # response body and adds nothing to the selection.
-        if await lookup(
+        # another set of bytes a range-reading client can be flipped onto.
+        #
+        # fix(#1532 review r29, P1): and hand that INCUMBENT back, so the caller
+        # serves it rather than its own conversion. Returning None here had the
+        # caller stream its own bytes whole — which, when the two builders had
+        # taken different snapshots (a mutation that missed `tile_cache_version`
+        # landing between them), put a client on bytes no later request would
+        # resolve: an interrupted download resumed with a bare Range against the
+        # sole, uncontested incumbent and was handed a 206 of the OTHER
+        # conversion at its offsets. Serving the incumbent keeps every response
+        # under this selection on the artifact the next Range will find. The
+        # losing conversion is discarded; it published nothing and adds nothing.
+        incumbent = await lookup(
             dataset_id, selection, filename=filename, media_type=media_type
-        ):
-            return None
+        )
+        if incumbent is not None:
+            return incumbent
         # And do not publish past the byte budget. The local root IS the shared
         # staging volume that `export_dataset` and every ingest writes to, and
         # before this cache those export bytes were transient; retaining them for
@@ -656,7 +670,11 @@ async def store(
             _last_sweep_at = time.time()
             if not await _fits_in_budget(size):
                 logger.warning("export_cache_budget_exhausted", size=size)
-                return None
+                # r29: a publisher may have landed between the re-check above
+                # and here — the same lost race, one step later. Same answer.
+                return await lookup(
+                    dataset_id, selection, filename=filename, media_type=media_type
+                )
         built_at, key = await _put_with_reclaim(
             dataset_id,
             selection,
@@ -691,7 +709,12 @@ async def store(
             dataset_id=str(dataset_id),
             exc_info=True,
         )
-        return None
+        # r29: same reasoning as the budget exit. `lookup` never raises — a
+        # store that cannot even list answers None, and the caller falls back to
+        # its own bytes, which no incumbent can then contradict.
+        return await lookup(
+            dataset_id, selection, filename=filename, media_type=media_type
+        )
 
 
 async def _put_with_reclaim(

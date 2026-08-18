@@ -3663,6 +3663,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # kind of strong ETag. Everything seven review rounds settled travelled with
     # them; only the home changed. Cap 1686 -> 1490, exact.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1490,
+    # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
+    # export artifact cache: everything is in the key (stamp, size, digest,
+    # nonce), freshness and reclamation read one publication bound that is a
+    # pure function of the object and clamps both clocks by the edge's request
+    # budget, publication hands a lost race its incumbent, and the sweep, the
+    # budget and the contested rule all read the same listing. Most of the
+    # length is the reasoning from twenty-nine review rounds, kept next to the
+    # rules it justifies. Cap 1020, exact.
+    "backend/app/processing/export/artifact_cache.py": 1020,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
