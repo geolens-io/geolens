@@ -1454,7 +1454,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
     }
     assert not rejected, f"the guard rejected legitimate façade usage: {rejected}"
 
-    # The seven real consumers, checked as themselves rather than as snippets:
+    # The eight real consumers, checked as themselves rather than as snippets:
     # each must still reference the façade (so this is not vacuous) and none
     # may trip the guard.
     for rel in _ANALYSIS_SQL_CALLERS:

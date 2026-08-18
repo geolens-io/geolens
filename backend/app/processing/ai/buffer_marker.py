@@ -1,10 +1,12 @@
 """Expand the NL->SQL prompt's ``geolens_buffer`` marker (fix(#1589)).
 
-The prompt used to embed ``render_geodesic_buffer``'s rendered output — 3 088
-characters of banding, seam-splitting and dissolve machinery — and ask the
-model to reproduce it exactly (#1001). The nightly evals say the light model
-manages that about half the time: six of the nine runs between 08-12 and 08-18
-failed, every one of them a sandbox refusal of a dropped parenthesis
+The prompt used to embed ``render_geodesic_buffer``'s rendered output twice —
+a 3 017-character ``<GEOM>``/``<METERS>`` template and a 3 073-character worked
+example, 6 090 characters of banding, seam-splitting and dissolve machinery in
+a 16 786-character prompt — and ask the model to reproduce it exactly (#1001).
+The nightly evals say the light model manages that about half the time: six of
+the nine runs between 08-12 and 08-18 failed, every one a sandbox refusal of a
+dropped parenthesis
 (``invalid_query``) or a paraphrase back to the bare
 ``ST_Buffer(geom::geography, N)::geometry`` form (``disallowed spatial
 function``). None of them was a wrong answer that ran. Product-side, a
@@ -82,10 +84,23 @@ def _fail(message: str) -> SandboxError:
     """A marker problem, in the sandbox's own vocabulary.
 
     ``invalid_query`` is the existing category for "this SQL cannot run", and
-    every consumer already maps it: ``chat_actions._execute_chat_tool`` turns
-    it into the ERROR_MESSAGES line, ``query_router`` into a 422. A new
-    category would have to be added to both for no gain.
+    ``chat_actions._execute_chat_tool`` already maps it. A new category would
+    have to be added there for no gain.
+
+    fix(#1589 review r1): be clear about who reads ``message``. Nobody outside
+    the server does. ``_execute_chat_tool`` replaces it with the generic
+    ``ERROR_MESSAGES["invalid_query"]`` line ("I couldn't generate a valid
+    query for that."), so neither the user nor the model ever sees the
+    specific text — which is why it is logged here rather than only raised.
+    The audiences are this log line, and pytest when an eval trips one.
+
+    Surfacing it to the MODEL, so it could correct its own call, is a real
+    option and deliberately not taken here: it means widening which sandbox
+    messages are considered safe to echo into a chat turn, which is a change
+    to a shared error path and belongs with the repair-pass work in #1589
+    rather than smuggled in beside it.
     """
+    logger.info("sql.buffer_marker_rejected", reason=message)
     return SandboxError("invalid_query", message)
 
 
@@ -244,6 +259,52 @@ def _contains_marker(text: str) -> bool:
     return False
 
 
+def _without_comments(text: str) -> str:
+    """``text`` with its comments replaced by a space, literals untouched.
+
+    fix(#1589 review r1): the scanner SKIPS comments when it splits the
+    arguments, which is right, but the slice it hands back still contains them
+    and ``render_geodesic_buffer`` interpolates that slice into a much larger
+    expression. Both comment forms then break the query in a way the model
+    cannot see:
+
+    - a block comment (``geolens_buffer(s.geom_4326 /* the stop */, 500)``)
+      rides into the scaffold and perturbs the text
+      ``_matches_canonical_buffer`` re-renders and compares, so the exemption
+      is not granted and the buffer's own functions are refused as
+      "disallowed spatial function";
+    - a line comment (``geolens_buffer(s.geom_4326 -- the stop\\n, 500)``)
+      lands mid-expression and comments out everything the renderer emits
+      after it, up to the next newline — which in a single-line render is the
+      entire tail. "Invalid SQL syntax".
+
+    Both fail closed, and both are exactly the class of failure this change
+    exists to remove: the model wrote a correct call and got a sandbox
+    refusal. PostgreSQL treats a comment as whitespace, so dropping one is
+    semantics-preserving; the replacement is a SPACE rather than nothing so
+    ``a/*x*/b`` cannot fuse into one identifier.
+    """
+    if "--" not in text and "/*" not in text:
+        return text
+    kept: list[str] = []
+    i = 0
+    while i < len(text):
+        past = _skip_comment(text, i)
+        if past is not None:
+            kept.append(" ")
+            i = past
+            continue
+        # A literal is opaque: a `--` inside 'a--b' is data, not a comment.
+        past = _skip_quoted(text, i)
+        if past is not None:
+            kept.append(text[i:past])
+            i = past
+            continue
+        kept.append(text[i])
+        i += 1
+    return "".join(kept)
+
+
 def _checked_geometry(raw: str) -> str:
     """The geometry argument, checked for SYNTAX and nothing else.
 
@@ -253,17 +314,20 @@ def _checked_geometry(raw: str) -> str:
     expression is an acceptable buffer INPUT — bounded, allowlisted, resolvable
     to a stored column — belongs to ``_is_bounded_geometry_source`` and the
     function allowlist, in one place, for the reasons #1002 recorded.
+
+    Comments are dropped rather than passed through; ``_without_comments`` has
+    the why.
     """
-    geom = raw.strip()
+    geom = _without_comments(raw).strip()
     if not geom:
         raise _fail(f"{_MARKER}() needs a geometry expression")
     if _contains_marker(geom):
         # Innermost-first expansion would render fine and then be refused: the
         # validator exempts a buffer only when its input resolves to a stored
         # geometry, and a buffer is not one. The prompt says the same ("a
-        # nested buffer ... is refused"), so refusing here trades a sandbox
-        # error about spatial functions the model never wrote for a sentence
-        # about the thing it actually did.
+        # nested buffer ... is refused"). Refusing here rather than rendering
+        # ~6 KB that cannot pass is the whole benefit; the specific reason
+        # reaches the server log, not the model (see _fail).
         raise _fail(f"{_MARKER}() cannot be nested inside another {_MARKER}()")
     try:
         parsed = [stmt for stmt in sqlglot.parse(geom, dialect="postgres") if stmt]

@@ -195,11 +195,13 @@ Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be g
 # in four places and inherited neither fix.
 #
 # fix(#935) embedded ``render_geodesic_buffer``'s rendered output here at
-# import time and told the model to copy it. fix(#1589) took that back out:
-# the expression is 3 088 characters, and the light model reproduced it
-# correctly about half the time — six of nine nightly eval runs failed on a
-# dropped parenthesis or a paraphrase back to the bare form. The prompt now
-# teaches a marker, ``geolens_buffer(<geom>, <metres>)``, and
+# import time, twice, and told the model to copy it: a 3 017-character
+# ``<GEOM>``/``<METERS>`` template plus a 3 073-character worked example, so
+# 6 090 of the prompt's 16 786 characters were rendered buffer. fix(#1589)
+# took both back out — the light model reproduced them correctly about half
+# the time, and six of nine nightly eval runs failed on a dropped parenthesis
+# or a paraphrase back to the bare form. The prompt is 11 595 characters now.
+# It teaches a marker, ``geolens_buffer(<geom>, <metres>)``, and
 # ``buffer_marker.expand_buffer_markers`` renders the real expression at the
 # tail of ``generate_sql`` before anything else sees the SQL.
 #

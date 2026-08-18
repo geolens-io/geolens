@@ -6,8 +6,9 @@ per-projection pass (#891/#902) applied to the real analysis path — twice. The
 fix embedded ``render_geodesic_buffer``'s own output at import time, which
 removed the drift class by construction.
 
-#1589: it also asked the model to reproduce 3 088 characters exactly, and the
-light model could not. Six of nine nightly eval runs failed on a dropped
+#1589: it also asked the model to reproduce 6 090 characters of rendered buffer
+exactly (a 3 017-character template plus a 3 073-character worked example), and
+the light model could not. Six of nine nightly eval runs failed on a dropped
 parenthesis or a paraphrase back to the bare geography-cast form. The prompt
 now teaches a short marker, ``geolens_buffer(<geom>, <metres>)``, and
 ``app.processing.ai.buffer_marker`` renders the real expression server-side.

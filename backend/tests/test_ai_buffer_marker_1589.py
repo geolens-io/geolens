@@ -1,8 +1,10 @@
 """fix(#1589): the NL->SQL prompt asks for a marker; the server expands it.
 
 Before this, the prompt embedded ``render_geodesic_buffer``'s rendered output
-(3 088 characters) and told the model to reproduce it character for character.
-The light model managed that about half the time — the nightly buffer evals
+twice — a 3 017-character template and a 3 073-character worked example, 6 090
+of the prompt's 16 786 characters — and told the model to reproduce it
+character for character. The light model managed that about half the time. The
+nightly buffer evals
 failed on six of nine runs between 08-12 and 08-18, every failure a sandbox
 refusal of a dropped parenthesis or a paraphrase back to the bare
 ``ST_Buffer(::geography)`` form, never a wrong answer that ran.
@@ -37,6 +39,7 @@ from app.processing.ai.buffer_marker import (
     MAX_BUFFER_MARKERS,
     expand_buffer_markers,
 )
+from app.processing.ai.schemas import ChatMapLayer
 
 
 def _wrap(expr: str, table: str = "data.stations s") -> str:
@@ -170,6 +173,48 @@ def test_a_comment_between_the_name_and_its_parenthesis_still_reads_as_a_call():
 
 
 # ---------------------------------------------------------------------------
+# Comments inside the call (fix(#1589) review r1)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "geom",
+    [
+        pytest.param("s.geom_4326 /* the stop */", id="block-comment-after"),
+        pytest.param("/* the stop */ s.geom_4326", id="block-comment-before"),
+        pytest.param("s.geom_4326 -- the stop\n", id="line-comment"),
+        pytest.param(
+            "(SELECT geom_4326 /* managed */ FROM data.parks WHERE gid = 1)",
+            id="comment-inside-a-subquery",
+        ),
+    ],
+)
+def test_a_comment_inside_the_call_does_not_ride_into_the_expression(geom):
+    """The scanner skips comments to SPLIT the arguments; it must also drop
+    them from the slice it hands to the renderer.
+
+    Passing one through breaks the query in a way the model cannot see. A
+    block comment perturbs the text ``_matches_canonical_buffer`` re-renders,
+    so the exemption is refused and the scaffold's own functions are rejected.
+    A line comment comments out the rest of the rendered expression. Both are
+    the failure class this change exists to remove, so both have to survive
+    validation now, not merely fail closed.
+    """
+    expanded = expand_buffer_markers(_wrap(f"geolens_buffer({geom}, 500)"))
+    assert "/*" not in expanded and "--" not in expanded
+    result = validate_sql(expanded)
+    assert result.tables
+
+
+def test_a_comment_that_looks_like_one_inside_a_literal_is_kept():
+    """The counterfactual for the stripper: ``--`` and ``/*`` inside a string
+    are data. Removing them would change which rows the query matches."""
+    geom = "(SELECT geom_4326 FROM data.parks WHERE code = 'A--B/*C*/')"
+    expanded = expand_buffer_markers(_wrap(f"geolens_buffer({geom}, 500)"))
+    assert expanded == _wrap(render_geodesic_buffer(geom, 500.0))
+
+
+# ---------------------------------------------------------------------------
 # Malformed markers
 # ---------------------------------------------------------------------------
 
@@ -187,11 +232,25 @@ def _refusal(sql: str) -> SandboxError:
         pytest.param("geolens_buffer(s.geom_4326)", id="one-argument"),
         pytest.param("geolens_buffer(s.geom_4326, 100, 8)", id="three-arguments"),
         pytest.param("geolens_buffer()", id="no-arguments"),
-        pytest.param("geolens_buffer(, 100)", id="empty-geometry"),
     ],
 )
 def test_wrong_arity_is_refused(call):
     _refusal(_wrap(call))
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        pytest.param("geolens_buffer(, 100)", id="nothing"),
+        pytest.param("geolens_buffer(   , 100)", id="whitespace"),
+        pytest.param("geolens_buffer(/* gone */, 100)", id="only-a-comment"),
+    ],
+)
+def test_an_empty_geometry_argument_is_refused(call):
+    """Two arguments, so this is not an arity failure; the geometry slot is
+    the one that is empty, and the message has to say so."""
+    err = _refusal(_wrap(call))
+    assert "needs a geometry expression" in str(err)
 
 
 def test_an_unterminated_marker_is_refused():
@@ -260,9 +319,14 @@ def test_a_nested_marker_is_refused_rather_than_expanded_inside_out():
 
     An inner buffer is not a stored geometry, so ``_is_bounded_geometry_source``
     in the validator refuses the outer one no matter what we render — the
-    prompt says as much ("a nested buffer ... is refused"). Expanding it
-    anyway would trade a sentence the model can act on for a sandbox error
-    about a spatial function it never wrote.
+    prompt says as much ("a nested buffer ... is refused"). Refusing here
+    rather than rendering ~6 KB that cannot pass is the benefit.
+
+    The message asserted below is DEVELOPER-facing, and that is the whole of
+    its audience: ``_execute_chat_tool`` replaces every ``invalid_query``
+    message with the generic ERROR_MESSAGES line, so the model and the user
+    see that instead. What this pins is the reason reaching the log line in
+    ``_fail`` and pytest, which is where a malformed marker gets diagnosed.
     """
     err = _refusal(_wrap("geolens_buffer(geolens_buffer(s.geom_4326, 10), 20)"))
     assert "nested" in str(err).lower()
@@ -330,14 +394,17 @@ def test_expansion_grants_the_geometry_argument_nothing(geom):
 def test_a_comment_cannot_smuggle_sql_through_the_argument_split():
     """A comment that carries the separator, the terminator and a payload.
 
-    Two things have to hold. Nothing inside the comment may become SQL — the
-    scanner reads it as a comment, so ``pg_sleep`` stays text and ``data.t``
-    never becomes a table. And the statement is refused anyway: the comment
-    rides into the rendered scaffold, where it perturbs the re-render
-    ``_matches_canonical_buffer`` compares against, so no exemption is granted
-    and the buffer's own functions fall back under the allowlist. That is the
-    fail-closed direction, and it is the same outcome a model would have got
-    writing the expression by hand with a comment in it.
+    The scanner reads it as a comment when it splits the arguments, so neither
+    the ``,`` nor the ``)`` inside it moves the split, and ``_without_comments``
+    then drops it before anything is rendered. So ``pg_sleep`` never becomes a
+    call and ``data.t`` never becomes a table.
+
+    What is left is ``s.geom_4326``, and the statement VALIDATES. That is the
+    right outcome rather than a lucky one: the attempt failed as an attempt,
+    and the query that remains is the ordinary buffer the model asked for.
+    Before fix(#1589 review r1) this was refused instead, which looked like
+    security and was really the comment breaking the canonical re-render — the
+    same collateral damage a plain ``/* the stop */`` took.
     """
     smuggle = "s.geom_4326 /*, 1) AS g, pg_sleep(9) FROM data.t --*/"
     expanded = expand_buffer_markers(_wrap(f"geolens_buffer({smuggle}, 100)"))
@@ -347,9 +414,8 @@ def test_a_comment_cannot_smuggle_sql_through_the_argument_split():
     assert "pg_sleep" not in called
     assert not [tbl for tbl in stmt.find_all(sqlglot.exp.Table) if tbl.name == "t"]
 
-    with pytest.raises(SandboxError) as excinfo:
-        validate_sql(expanded)
-    assert excinfo.value.category == "invalid_query"
+    assert expanded == _wrap(render_geodesic_buffer("s.geom_4326", 100.0))
+    assert validate_sql(expanded).tables == {("data", "stations")}
 
 
 def test_a_benign_marker_in_the_same_shape_validates():
@@ -492,6 +558,49 @@ async def test_the_raw_query_endpoint_does_not_expand_a_marker(
         headers=admin_auth_header,
     )
     assert ok.status_code == 200, ok.text
+
+
+def test_the_chat_path_rewrites_that_follow_expansion_keep_the_buffer_valid():
+    """fix(#1589 review r1): the two rewrites ``query_data`` applies AFTER
+    ``generate_sql`` returns, run over the expanded 3 KB scaffold.
+
+    ``ensure_geometry_selected`` parses the statement with sqlglot and prints
+    it back, and the truncation-recovery COUNT wraps it in another SELECT.
+    Both are full round-trips of the rendered buffer, and
+    ``_matches_canonical_buffer`` compares by re-render, so a sqlglot upgrade
+    that changed how any scaffold node prints would break metric buffers in
+    production while every eval stayed green — the evals call
+    ``validate_and_execute`` on ``generate_sql``'s output directly and never
+    see either rewrite. No DB needed to pin it.
+    """
+    from app.processing.ai.chat_geojson import ensure_geometry_selected
+
+    layers = [
+        ChatMapLayer(
+            id="layer-1",
+            name="Stations",
+            dataset_id="11111111-1111-1111-1111-111111111111",
+            dataset_table_name="stations",
+            geometry_type="Point",
+        )
+    ]
+    # Attribute-only projection, which is the shape that makes
+    # ensure_geometry_selected actually append a column.
+    expanded = expand_buffer_markers(
+        "SELECT s.name FROM data.stations s "
+        "WHERE ST_Intersects(s.geom_4326, geolens_buffer(s.geom_4326, 500)) "
+        "LIMIT 100"
+    )
+    with_geometry = ensure_geometry_selected(expanded, layers)
+    assert with_geometry != expanded, (
+        "the fixture no longer exercises the append, so this test proves "
+        "nothing about the rewrite"
+    )
+    assert validate_sql(with_geometry).tables == {("data", "stations")}
+
+    # chat_actions builds this one when the row cap truncated the result.
+    counted = f"SELECT COUNT(*) AS n FROM ({with_geometry}) AS _geolens_total"
+    assert validate_sql(counted).tables == {("data", "stations")}
 
 
 def test_expansion_has_exactly_one_call_site():
