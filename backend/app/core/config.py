@@ -104,6 +104,15 @@ def _is_valid_privacy_url_host(hostname: str) -> bool:
        3-part parser but silently becomes 192.168.0.1, a host that does
        not match what was stored. All three are rejected here, not passed
        through to case 2.
+
+    A label already spelled as an ACE / "xn--" A-label (typed directly by
+    the operator, not produced by our own IDNA encoding above) must decode
+    to a real, valid IDN label, or it is rejected -- browser engines
+    actually disagree here (Chromium and WebKit accept any ASCII "xn--"
+    label unvalidated; Firefox implements the full IDNA2008 label-validity
+    rules), so there is no single "what a browser accepts" answer to defer
+    to. Rejecting malformed punycode is fail-closed and cheap, so this
+    function does it regardless of which engine would have let it through.
     """
     try:
         ipaddress.ip_address(hostname)
@@ -135,7 +144,28 @@ def _is_valid_privacy_url_host(hostname: str) -> bool:
     if len(ascii_host) > 253:
         return False
     host_label = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
-    return all(host_label.fullmatch(label) for label in ascii_host.split("."))
+    for label in ascii_host.split("."):
+        if not host_label.fullmatch(label):
+            return False
+        if not label.startswith("xn--"):
+            continue
+        a_label = label[4:]
+        try:
+            decoded = a_label.encode("ascii").decode("punycode")
+        except UnicodeError:
+            return False
+        if not decoded:
+            return False
+        # A genuine IDN label decodes to at least one character that is not
+        # control/format/surrogate/private-use/unassigned. "xn--a" decodes
+        # to U+0080 (a bare C1 control byte) without raising and round-trips
+        # straight back to "a", so the round-trip check below does not, on
+        # its own, catch it -- this does.
+        if any(unicodedata.category(ch).startswith("C") for ch in decoded):
+            return False
+        if decoded.encode("punycode").decode("ascii") != a_label:
+            return False
+    return True
 
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"

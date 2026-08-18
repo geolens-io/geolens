@@ -2874,7 +2874,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Unicode combining mark, which Python's stdlib "idna" codec (IDNA2003)
     # encodes without error even though no browser accepts it.
     # Cap 1229 -> 1249, exact.
-    "backend/app/core/config.py": 1249,
+    # PRIV-1 (codex r5): +30 — a label the operator spelled directly as
+    # ACE/"xn--" punycode (not one this function IDNA-encoded itself) must
+    # decode to a real IDN label. "xn--a" decodes to a bare C1 control byte
+    # (U+0080) without raising and round-trips cleanly back to "a", so the
+    # round-trip check alone does not catch it; also rejects a decoded
+    # control/format/surrogate/private-use/unassigned character explicitly.
+    # Cap 1249 -> 1279, exact.
+    "backend/app/core/config.py": 1279,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

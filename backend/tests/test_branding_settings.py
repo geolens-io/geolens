@@ -173,6 +173,8 @@ async def test_get_branding_privacy_url_unset_by_default(
         "https://0x7f.1/x",
         "https://a..b/x",
         "https://́.example.com/x",
+        "https://xn--a.com/x",
+        "https://xn--.com/x",
     ],
 )
 @pytest.mark.anyio
@@ -192,7 +194,11 @@ async def test_put_privacy_url_rejects_non_url(
     (999.999.999.999), too many parts (1.2.3.4.5), or a legacy short form a
     browser silently expands to a different address (192.168.1, 0x7f.1) --
     the per-label characters alone look like a valid DNS name, so a check
-    that stopped at character class would accept all four.
+    that stopped at character class would accept all four. Also covers an
+    empty label (a..b), a label that is only a Unicode combining mark, and a
+    label already spelled as "xn--" A-label punycode that does not decode to
+    a real IDN label -- fail-closed even though Chromium/WebKit accept any
+    ASCII "xn--" label unvalidated, since Firefox does not.
     """
     resp = await client.put(
         "/api/settings/",
