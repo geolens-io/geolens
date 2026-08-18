@@ -781,8 +781,15 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
     nothing deletes on the publish path at all.
 
     The overlap is FORCED, not hoped for. A barrier holds both builders after
-    hashing and before publishing, and the test asserts both arrived; a sequence
-    of two ``store`` calls proves nothing about concurrency.
+    their pre-publish re-check and before publishing, and the test asserts both
+    arrived; a sequence of two ``store`` calls proves nothing about concurrency.
+
+    fix(#1532 review r29) made the barrier's placement matter: a builder whose
+    re-check finds a fresh incumbent is handed that incumbent instead of
+    publishing, so a barrier at the hash let the second builder's re-check land
+    after the first's put and the two came back with ONE key — the lost-race
+    path, which has its own test, not the two-publisher case this one pins.
+    Holding both at the re-check makes both miss and both publish.
     """
     import asyncio
     import tempfile
@@ -796,11 +803,11 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
 
     arrived = asyncio.Event()
     waiting = 0
-    real_digest = cache.digest_and_size
+    real_lookup = cache.lookup
 
-    async def _barriered(file_path):
+    async def _barriered(*args, **kwargs):
         nonlocal waiting
-        result = await real_digest(file_path)
+        result = await real_lookup(*args, **kwargs)
         if waiting < 2:
             waiting += 1
             if waiting == 2:
@@ -808,7 +815,7 @@ async def test_two_concurrent_publishers_both_survive(test_db_session, monkeypat
             await asyncio.wait_for(arrived.wait(), timeout=5)
         return result
 
-    monkeypatch.setattr(cache, "digest_and_size", _barriered)
+    monkeypatch.setattr(cache, "lookup", _barriered)
 
     async def _publish(payload: bytes):
         with tempfile.NamedTemporaryFile(delete=False) as handle:
@@ -1484,7 +1491,7 @@ async def test_a_contested_selection_answers_ranges_with_the_whole_thing(
     # A second builder's output, landing inside the same window with different
     # bytes — what an overlapping GPKG build produces.
     selection = [
-        k.rsplit("/", 2)[1]
+        k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
         for k in await get_storage().list(
             f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
         )
@@ -2090,7 +2097,7 @@ async def test_a_staggered_sibling_still_refuses_ranges_after_it_expires(
     first = await client.get(url, headers=admin_auth_header)
     assert first.status_code == 200
     selection = [
-        k.rsplit("/", 2)[1]
+        k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
         for k in await get_storage().list(
             f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
         )
@@ -2830,14 +2837,23 @@ async def test_a_matching_if_range_resumes_even_on_a_contested_selection(
     first = await client.get(url, headers=admin_auth_header)
     etag = first.headers["etag"]
     selection = [
-        k.rsplit("/", 2)[1]
+        k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
         for k in await get_storage().list(
             f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
         )
     ][0]
     rival = b"a second builder's output, same window"
+    # Stamped a second BEFORE the artifact the client names, deliberately: the
+    # key stamp is whole seconds, and a rival minted in the same second ties
+    # with it, so which one `lookup` calls newest was a tie-break. If the rival
+    # won, the client's If-Range named a representation that was no longer the
+    # current one and the (correct) answer was 200 — a flake that pinned the
+    # wrong thing. Older by a second, the selection is contested and the named
+    # artifact stays current, which is what this test is about.
     await get_storage().put(
-        cache._artifact_key(dataset.id, selection, "c" * 64, len(rival), time.time()),
+        cache._artifact_key(
+            dataset.id, selection, "c" * 64, len(rival), time.time() - 1
+        ),
         rival,
     )
 
@@ -4365,3 +4381,239 @@ async def test_a_builder_that_loses_the_race_serves_the_incumbent(
     assert resumed.status_code == 206, resumed.text
     assert resumed.content == served[100:200]
     assert resumed.headers["etag"] == one.headers["etag"]
+
+
+# ---------------------------------------------------------------------------
+# Release smoke follow-up: the cold GDAL open
+# ---------------------------------------------------------------------------
+
+
+async def test_a_cold_open_gets_its_leading_slice_from_the_fresh_build(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """A bare Range from byte 0 on a cold cache is a 206, and the open proceeds.
+
+    fix(#1532) follow-up, found by the release smoke: GDAL 3.10's ``/vsicurl/``
+    open does not begin with a HEAD. Its first request is ``Range:
+    bytes=0-16383``, and the fresh-build path answered it with 200 and the whole
+    file — which GDAL reports as "Range downloading not supported by this
+    server!" and aborts. A cold cache could not be opened; only the second
+    attempt worked, because by then the artifact existed.
+
+    A Range that starts at byte 0 is a probe or a restart, never a resume — a
+    resumer holds a prefix and asks from its length — so nothing appended after
+    it can come from a different representation: every later request finds the
+    artifact this one published. The build still costs one conversion, and the
+    follow-up ranges are slices of that same artifact under the same ETag.
+    """
+    dataset = await _dataset(test_db_session, "Cold GDAL Open")
+    url = _url(dataset.id)
+
+    first = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    assert conversions.count == 1
+    assert first.status_code == 206, (
+        f"the leading range of a cold open answered {first.status_code}; GDAL "
+        f"reads a 200 to a ranged GET as 'Range downloading not supported' and "
+        f"aborts the open"
+    )
+    assert first.content == conversions.body[:100]
+    assert first.headers["content-range"] == f"bytes 0-99/{len(conversions.body)}"
+    etag = first.headers["etag"]
+
+    later = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert later.status_code == 206
+    assert later.headers["etag"] == etag
+    assert later.content == conversions.body[100:200]
+    assert conversions.count == 1, "the follow-up range converted again"
+
+
+async def test_a_bare_range_not_from_zero_on_a_fresh_build_stays_whole(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The counterfactual to the leading-slice exception: an offset a resumer
+    would ask for, on a representation this request built, is still answered
+    whole. This is what `test_a_mutation_between_two_ranges_is_answered_with_the_whole_new_file`
+    rests on; stated here on its own so the exception cannot quietly widen.
+    """
+    dataset = await _dataset(test_db_session, "Cold Resume Offset")
+
+    resp = await client.get(
+        _url(dataset.id), headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert conversions.count == 1
+    assert resp.status_code == 200, resp.text
+    assert resp.content == conversions.body
+    assert "content-range" not in resp.headers
+
+
+async def test_a_leading_range_after_a_change_is_whole_when_old_bytes_are_still_live(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """The counter-case from #1585 review: re-reading byte 0 after a change.
+
+    A random-access client reads a later block, the data changes (and moves
+    `tile_cache_version`, so the artifact is cold under a NEW version segment of
+    the same URL), and the client re-reads the header with `bytes=0-...` while
+    still holding the old block. Byte 0 alone does not prove a fresh read, so
+    the leading-slice exception must not fire: the earlier artifact of this URL
+    is still live with different bytes, and the answer is the whole new file.
+
+    And the case that must keep working: the same URL rebuilt to IDENTICAL bytes
+    (a re-open after expiry) still gets its leading 206, because equal bytes
+    cannot splice whatever the client holds.
+    """
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Reread Zero")
+    url = _url(dataset.id)
+
+    later_block = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert later_block.status_code == 200  # cold, not from zero: whole (and built)
+    assert conversions.count == 1
+
+    # The data changes and the version moves: the next request is cold under a
+    # new version segment, while the old artifact stays live under this URL.
+    conversions.body = bytes(reversed(conversions.body))
+    dataset.bump_tile_cache_version()
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+
+    reread = await client.get(url, headers={**admin_auth_header, "Range": "bytes=0-99"})
+    assert conversions.count == 2
+    assert reread.status_code == 200, (
+        f"a leading Range after a change answered {reread.status_code}; the old "
+        f"artifact of this URL is still live with different bytes, so a client "
+        f"holding a block of it would splice"
+    )
+    assert reread.content == conversions.body
+    assert "content-range" not in reread.headers
+
+    # Identical rebuild after expiry: still a leading 206.
+    same = await _dataset(test_db_session, "Reopen After Expiry")
+    same_url = _url(same.id)
+    first = await client.get(
+        same_url, headers={**admin_auth_header, "Range": "bytes=0-99"}
+    )
+    assert first.status_code == 206
+    cache._ttl_seconds = lambda: 0
+    try:
+        again = await client.get(
+            same_url, headers={**admin_auth_header, "Range": "bytes=0-99"}
+        )
+    finally:
+        cache._ttl_seconds = lambda: 600
+    assert again.status_code == 206, (
+        f"a re-open after expiry with unchanged bytes answered {again.status_code}; "
+        f"GDAL re-opens more than a TTL apart are the common case"
+    )
+    assert again.headers["etag"] == first.headers["etag"]
+
+
+async def test_a_hit_inside_the_first_ttl_after_a_change_answers_bare_ranges_whole(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, conversions
+):
+    """#1585 review r3: the hit path honours the URL's history too, for one TTL.
+
+    Client A reads the leading block (a fresh build, 206). The data changes and
+    the version moves. Client B fetches the export, building the new version's
+    artifact. Client A comes back for its next block: that is a HIT on the new
+    artifact, uncontested within the new version — and a 206 there would append
+    new bytes to A's old leading block. Inside the first TTL after the change
+    the answer is whole. Once the new bytes are settled — a same-digest sibling
+    older than a TTL is live under the new version — ranges resume, and the
+    history listing is not consulted at all.
+    """
+    from app.platform.storage import get_storage
+    from app.processing.export import artifact_cache as cache
+
+    dataset = await _dataset(test_db_session, "Hit After Change")
+    url = _url(dataset.id)
+
+    leading = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=0-99"}
+    )
+    assert leading.status_code == 206 and conversions.count == 1
+
+    conversions.body = bytes(reversed(conversions.body))
+    dataset.bump_tile_cache_version()
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+
+    other_client = await client.get(url, headers=admin_auth_header)  # builds v2
+    assert other_client.status_code == 200 and conversions.count == 2
+    v2_etag = other_client.headers["etag"]
+
+    resumed = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert conversions.count == 2, (
+        "the resume must be a hit, or the test proves nothing"
+    )
+    assert resumed.status_code == 200, (
+        f"a bare Range hit inside the first TTL after a change answered "
+        f"{resumed.status_code}; the client's leading block came from the "
+        f"previous representation, which is still live under this URL"
+    )
+    assert resumed.headers["etag"] == v2_etag
+    assert "content-range" not in resumed.headers
+
+    # Let the change age out. The URL's last possible answer with the OLD
+    # bytes is a v1 publication plus a TTL, and the client that took it gets a
+    # TTL to come back — so a v1 publication 700 s old (TTL 600: served until
+    # 100 s ago) still holds bare ranges whole, and one 1300 s old releases
+    # them (#1585 review r5). Re-keyed each time, since the stamp in the name
+    # floors publication.
+    storage = get_storage()
+    prefix = f"export-cache/{cache._tenant_segment()}/{dataset.id}/"
+    v1_keys = [
+        k
+        for k in await storage.list(prefix)
+        if cache.parse_artifact_key(k)
+        and cache.parse_artifact_key(k)[2] != v2_etag.strip('"')
+    ]
+    assert v1_keys, "the previous representation must still be live for this test"
+
+    async def _age_v1_to(seconds_ago: float) -> None:
+        nonlocal v1_keys
+        moved = []
+        for k in v1_keys:
+            parsed = cache.parse_artifact_key(k)
+            selection_v1 = k.split(f"/{dataset.id}/", 1)[1].rsplit("/", 1)[0]
+            payload = await storage.get(k)
+            aged = cache._artifact_key(
+                dataset.id,
+                selection_v1,
+                parsed[2],
+                parsed[1],
+                time.time() - seconds_ago,
+            )
+            await storage.put(aged, payload)
+            when = time.time() - seconds_ago
+            os.utime(Path(storage.base_dir) / aged, (when, when))
+            await storage.delete(k)
+            moved.append(aged)
+        v1_keys = moved
+
+    await _age_v1_to(700)
+    still = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert still.status_code == 200, (
+        f"the previous bytes were servable until 100 s ago and a client that took "
+        f"them may not be back yet; a bare Range hit answered {still.status_code}"
+    )
+
+    await _age_v1_to(1300)
+    settled = await client.get(
+        url, headers={**admin_auth_header, "Range": "bytes=100-199"}
+    )
+    assert conversions.count == 2
+    assert settled.status_code == 206, (
+        f"two TTLs after the URL last published other bytes, a bare Range hit "
+        f"answered {settled.status_code}; GDAL opens after a settled change must work"
+    )
+    assert settled.headers["etag"] == v2_etag

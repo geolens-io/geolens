@@ -298,20 +298,85 @@ def selection_key(
     reason ``embedding_config_fingerprint`` gives in #1546: a delimiter join
     collapses them, and ``where=""`` is not ``where`` absent.
     """
-    payload = json.dumps(
-        [
-            str(dataset_id),
-            table_name,
-            dataset_title,
-            tile_cache_version,
-            str(format_key),
-            target_crs,
-            bbox,
-            where,
-        ],
+    # Two path segments, deliberately (fix(#1532) follow-up, #1585): the URL's
+    # identity first, then the version's. `format`, `target_crs`, `bbox` and
+    # `where` are what a client can see in the URL it is reading; `table_name`,
+    # `dataset_title` and `tile_cache_version` are the server-side facts that
+    # move the bytes under that same URL. Every artifact of one URL, at every
+    # version, therefore lives under one prefix, and
+    # `url_answered_other_bytes_recently` can ask "has this URL answered with
+    # different bytes inside the last TTL" with one listing. `lookup`, `store` and the sweep are
+    # indifferent to the shape: they take the whole thing as an opaque prefix.
+    url_payload = json.dumps(
+        [str(dataset_id), str(format_key), target_crs, bbox, where],
         separators=(",", ":"),
     )
-    return hashlib.sha256(payload.encode()).hexdigest()[:32]
+    version_payload = json.dumps(
+        [table_name, dataset_title, tile_cache_version],
+        separators=(",", ":"),
+    )
+    url_part = hashlib.sha256(url_payload.encode()).hexdigest()[:20]
+    version_part = hashlib.sha256(version_payload.encode()).hexdigest()[:20]
+    return f"{url_part}/{version_part}"
+
+
+def _url_prefix(dataset_id: uuid.UUID, selection: str) -> str:
+    """The prefix under which every version of one export URL is stored."""
+    return f"{_ROOT}/{_tenant_segment()}/{dataset_id}/{selection.split('/', 1)[0]}/"
+
+
+async def url_answered_other_bytes_recently(
+    dataset_id: uuid.UUID, selection: str, digest: str
+) -> bool:
+    """Has this URL answered with DIFFERENT bytes inside the last TTL?
+
+    fix(#1532) follow-up (#1585): the bound on bare ranges. A client that read
+    a block of an earlier representation of this URL and comes back for the
+    next one — to a hit on the new artifact, to a fresh build of it, or
+    re-reading the header — makes that request within the change's first TTL,
+    and for that TTL the route answers it whole. Answering requires a fresh
+    artifact, and a fresh artifact is one published within the TTL, so "the
+    URL answered other bytes within the last TTL" is exactly "an artifact with
+    another digest was published under this URL within the last TWO TTLs" (a
+    TTL of serving, then a TTL of grace for the client that took the last
+    answer) — at any version,
+    which is why every version of a URL shares a prefix (``selection_key``).
+    A→B→A within retention is caught by the same test: while B is still being
+    answered, B artifacts keep being published, and the moment they stop the
+    clock starts. Same bytes cannot splice and do not count. After the TTL a
+    client holding a handle across a longer gap without ``If-Range`` is the
+    residual every range-serving origin has.
+
+    Bounded: the URL's own versions, not the dataset's selections, and called
+    only for a request that could receive a 206 (a bare, satisfiable Range).
+    Fails CLOSED on a listing error: an unknown history reads as a recent
+    change, and the client gets the whole file, which is safe.
+
+    The parent revision of #1582 wrote a single-segment layout that lives
+    outside every URL prefix. Nothing can be served from it after this
+    revision (``lookup`` never lists it), no release wrote it, and retention
+    ages it out; the exposure is a client spanning both the upgrade and a data
+    change, and it is stated rather than paid for on every range.
+    """
+    # fix(#1532) follow-up (#1585 review r5): TWO TTLs, not one. An artifact
+    # answers for a TTL after publication, so its last possible answer is a
+    # TTL after that, and the client that took it needs a TTL of its own to
+    # come back. Publication one TTL old means "could have been served a
+    # moment ago"; two TTLs old means "nobody has held it for less than a TTL".
+    cutoff = time.time() - 2 * _ttl_seconds()
+    try:
+        async for page in get_storage().iter_object_pages(
+            _url_prefix(dataset_id, selection)
+        ):
+            for obj in page:
+                parsed = parse_artifact_key(obj.key)
+                if parsed is None or parsed[2] == digest:
+                    continue
+                if _published_at(obj.last_modified.timestamp(), parsed[0]) >= cutoff:
+                    return True
+    except Exception:  # broad: unknown history reads as a recent change; whole is safe
+        return True
+    return False
 
 
 def _selection_prefix(dataset_id: uuid.UUID, selection: str) -> str:
@@ -455,11 +520,16 @@ async def lookup(
 
     candidates: list[tuple[float, int, str, str]] = []
     siblings: set[str] = set()
+    oldest_by_digest: dict[str, float] = {}
     for key in keys:
         parsed = parse_artifact_key(key)
         if parsed is None:
             continue
         built_at, size, digest = parsed
+        _publication = _published_at(modified.get(key, built_at), built_at)
+        oldest_by_digest[digest] = min(
+            oldest_by_digest.get(digest, _publication), _publication
+        )
         # fix(#1532 review r8): `contested` counts EVERY sibling under this
         # selection, not just the fresh ones. Computed over the fresh set it
         # missed the staggered case entirely: two builders a second apart are

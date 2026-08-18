@@ -25,6 +25,7 @@ from app.platform.http.ranges import (
     if_match_passes,
     if_none_match_matches,
     not_modified_response,
+    parse_byte_range,
 )
 from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
@@ -65,6 +66,25 @@ router = APIRouter(
 # the caller's filters applied. BA-06's subprocess timeout bounds runtime
 # regardless.
 _MAX_EXPORT_FEATURES = 5_000_000
+
+
+def _bare_satisfiable_range(request: Request, size: int) -> tuple[int, int] | None:
+    """The resolved slice a bare Range (no If-Range) asks for, if it could be a 206.
+
+    Parsed with the same function ``read_response`` uses, so a malformed,
+    multi-range or unsatisfiable header — which the response ignores or
+    rejects — never costs the URL-history listing (#1585 review r4).
+    """
+    if request.headers.get("if-range") is not None:
+        return None
+    resolved = parse_byte_range(request.headers.get("range"), size)
+    return resolved if isinstance(resolved, tuple) else None
+
+
+def _leading_bare_range(request: Request, size: int) -> bool:
+    """A bare, satisfiable Range whose first byte is 0 — the only one a fresh build honours."""
+    resolved = _bare_satisfiable_range(request, size)
+    return resolved is not None and resolved[0] == 0
 
 
 def _cleanup_export(path: str) -> None:
@@ -507,17 +527,32 @@ async def export_dataset_endpoint(
         # that names nothing, and a `dataset.export` row for a refused request
         # records a download that did not happen — the same reason HEAD is out
         # of the log.
+        # fix(#1532 review, internal): a contested selection — more than one
+        # distinct set of bytes fresh under this key — answers ranges with the
+        # whole representation. Two overlapping cold builders is the ordinary
+        # case, not a rare one, and a client reading in slices can otherwise be
+        # flipped from one to the other mid-sequence.
+        #
+        # fix(#1532) follow-up (#1585 review r3/r4): and so does a hit inside
+        # the first TTL after this URL's bytes CHANGED. A client that read a
+        # block of the earlier representation and comes back for the next one
+        # lands here, on the new artifact, and a 206 would splice the two. The
+        # URL's own prefix says whether other bytes were answered within the
+        # last TTL; consulted only for a bare, satisfiable Range — the request
+        # that could receive a 206.
+        may_serve_range = not artifact.contested
+        if may_serve_range and _bare_satisfiable_range(request, artifact.size):
+            may_serve_range = (
+                not await artifact_cache.url_answered_other_bytes_recently(
+                    dataset_id, selection, artifact.digest
+                )
+            )
         response = artifact_response.read_response(
             get_storage(),
             artifact,
             range_header=request.headers.get("range"),
             if_range=request.headers.get("if-range"),
-            # fix(#1532 review, internal): a contested selection — more than one
-            # distinct set of bytes fresh under this key — answers ranges with
-            # the whole representation. Two overlapping cold builders is the
-            # ordinary case, not a rare one, and a client reading in slices can
-            # otherwise be flipped from one to the other mid-sequence.
-            may_serve_range=not artifact.contested,
+            may_serve_range=may_serve_range,
         )
         await _emit_export_audit(
             db,
@@ -848,14 +883,31 @@ async def export_dataset_endpoint(
             # representation the client's offsets were measured against.
             # Ignoring the Range and answering with the whole thing is the safe
             # half of RFC 9110 section 14.2 and is what keeps a rebuild from
-            # splicing; only a matching If-Range (r12) overrides it, because
-            # that client has named these exact bytes.
+            # splicing; a matching If-Range (r12) overrides it, because that
+            # client has named these exact bytes, and so does a Range that
+            # starts at byte 0 (fix(#1532) follow-up): that is a probe, never a
+            # resume, and it is the first request of a cold GDAL open, which a
+            # 200 turned into "Range downloading not supported".
+            # The leading slice of a fresh build is honoured unless this URL
+            # answered with different bytes inside the last TTL: a client that
+            # read a later block from that representation and re-reads the
+            # header after the change would splice (#1585 review r1). The
+            # listing is consulted only for the request that could use the
+            # answer — a bare, satisfiable Range starting at 0 (r3/r4).
+            leading_slice_ok = not stored.contested
+            if leading_slice_ok and _leading_bare_range(request, stored.size):
+                leading_slice_ok = (
+                    not await artifact_cache.url_answered_other_bytes_recently(
+                        dataset_id, selection, stored.digest
+                    )
+                )
             response = artifact_response.read_response(
                 get_storage(),
                 stored,
                 range_header=request.headers.get("range"),
                 if_range=request.headers.get("if-range"),
                 may_serve_range=False,
+                leading_slice_ok=leading_slice_ok,
                 background=BackgroundTask(_cleanup_export, temp_dir),
             )
         else:

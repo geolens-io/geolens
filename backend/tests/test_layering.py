@@ -3720,7 +3720,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # budget and the contested rule all read the same listing. Most of the
     # length is the reasoning from twenty-nine review rounds, kept next to the
     # rules it justifies. Cap 1020, exact.
-    "backend/app/processing/export/artifact_cache.py": 1020,
+    # fix(#1532) follow-up (#1585): +70 — the selection key becomes URL
+    # segment / version segment, so every version of one URL shares a prefix,
+    # and `url_answered_other_bytes_recently` asks that prefix whether the URL
+    # answered with different bytes inside the last TTL: for that TTL bare
+    # ranges are whole, which is what lets a fresh build honour the leading
+    # Range of a cold GDAL open without reopening the splice, on the hit path
+    # too. Cap 1020 -> 1090, exact.
+    "backend/app/processing/export/artifact_cache.py": 1090,
     # fix(#1548 review P2): crossed the inclusion threshold. The growth is
     # assert_domain_lock_is_enforceable — the write-side precondition that
     # refuses a domain lock this deployment could never enforce, because
