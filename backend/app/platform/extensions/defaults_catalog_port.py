@@ -76,15 +76,46 @@ class DefaultCatalogPort:
 
         return UploadResponse
 
-    async def abort_presigned_multipart_upload(self, storage, **kwargs):  # type: ignore[no-untyped-def]
+    async def abort_presigned_multipart_upload(  # type: ignore[no-untyped-def]
+        self, storage, *, key, upload_id, job_id
+    ):
         from app.processing.ingest.presigned import abort_presigned_multipart_upload
 
-        return await abort_presigned_multipart_upload(storage, **kwargs)
+        return await abort_presigned_multipart_upload(
+            storage, key=key, upload_id=upload_id, job_id=job_id
+        )
 
-    async def verify_completed_presigned_upload(self, **kwargs):  # type: ignore[no-untyped-def]
+    # fix(#1590): explicit keyword-only signature instead of a bare
+    # **kwargs shim, so a missing or misspelled keyword surfaces here
+    # instead of deep inside the service call. `replacing_dataset_id` is a
+    # structural superset over CatalogPort's declared params — see the
+    # comment on CatalogPort.verify_completed_presigned_upload for why it
+    # is not on the Protocol yet, and test_port_signature_parity_1590.py's
+    # EXPECTED_SUPERSET_PARAMS for how the structural test tracks it.
+    async def verify_completed_presigned_upload(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        db,
+        storage,
+        key,
+        expected_size,
+        user_id,
+        request,
+        job_id,
+        replacing_dataset_id=None,
+    ):
         from app.processing.ingest.presigned import verify_completed_presigned_upload
 
-        return await verify_completed_presigned_upload(**kwargs)
+        return await verify_completed_presigned_upload(
+            db=db,
+            storage=storage,
+            key=key,
+            expected_size=expected_size,
+            user_id=user_id,
+            request=request,
+            job_id=job_id,
+            replacing_dataset_id=replacing_dataset_id,
+        )
 
     async def lock_presigned_job(self, db, job_id):  # type: ignore[no-untyped-def]
         from app.processing.ingest.presigned import lock_presigned_job
@@ -113,10 +144,39 @@ class DefaultCatalogPort:
 
         return sign_url_with_deadline(storage_method, created_at, *args)
 
-    async def finalize_presigned_object(self, **kwargs):  # type: ignore[no-untyped-def]
+    # fix(#1590): explicit keyword-only signature instead of a bare
+    # **kwargs shim, so a missing or misspelled keyword surfaces here
+    # instead of deep inside the service call. `replacing_dataset_id` is a
+    # structural superset over CatalogPort's declared params — see the
+    # comment on CatalogPort.finalize_presigned_object for why it is not on
+    # the Protocol yet, and test_port_signature_parity_1590.py's
+    # EXPECTED_SUPERSET_PARAMS for how the structural test tracks it.
+    async def finalize_presigned_object(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        db,
+        storage,
+        job_id,
+        logical_key,
+        expected_size,
+        filename,
+        user_id,
+        request,
+        replacing_dataset_id=None,
+    ):
         from app.processing.ingest.presigned import finalize_presigned_object
 
-        return await finalize_presigned_object(**kwargs)
+        return await finalize_presigned_object(
+            db=db,
+            storage=storage,
+            job_id=job_id,
+            logical_key=logical_key,
+            expected_size=expected_size,
+            filename=filename,
+            user_id=user_id,
+            request=request,
+            replacing_dataset_id=replacing_dataset_id,
+        )
 
     def visibility_default(self) -> str:
         return "private"

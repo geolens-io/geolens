@@ -198,20 +198,70 @@ class DefaultAnthropicProvider:
 
         raise ToolLoopExhaustedError("Max tool rounds exceeded without final response")
 
-    async def stream(self, **kwargs):  # type: ignore[no-untyped-def]
+    # fix(#1590): explicit keyword-only signature instead of a bare
+    # **kwargs shim, matching AIProviderExtension.stream exactly.
+    async def stream(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        model,
+        system_prompt,
+        user_message,
+        tools,
+        tool_executor,
+        action_collector=None,
+        history=None,
+        max_rounds=None,
+        max_tokens=4096,
+        base_url=None,
+        temperature=0.5,
+    ):
         raise NotImplementedError(
             "DefaultAnthropicProvider.stream() not implemented in community "
             "edition; use complete() (Phase 226 D-03 — true LLM-token "
             "streaming is deferred to a follow-up phase)."
         )
 
-    async def stream_chat_events(self, **kwargs):  # type: ignore[no-untyped-def]
-        kwargs.pop("base_url", None)
+    # fix(#1590): explicit keyword-only signature instead of a bare
+    # **kwargs shim, matching AIProviderExtension.stream_chat_events
+    # exactly. `base_url` is accepted (the Protocol declares it) but unused
+    # here — Anthropic's streaming client resolves its own endpoint, same as
+    # `del temperature` in `complete()` above for a different unused keyword.
+    async def stream_chat_events(  # type: ignore[no-untyped-def]
+        self,
+        *,
+        message,
+        system_prompt,
+        session,
+        user,
+        user_roles,
+        layers,
+        model,
+        base_url=None,
+        history=None,
+        port,
+        map_id=None,
+        tools=None,
+        restrict_tables=None,
+    ):
+        del base_url
         from app.processing.ai.llm_loop import get_anthropic_client
         from app.processing.ai.streaming import _stream_anthropic_chat
 
-        kwargs["client"] = get_anthropic_client()
-        async for event in _stream_anthropic_chat(**kwargs):
+        async for event in _stream_anthropic_chat(
+            message=message,
+            system_prompt=system_prompt,
+            session=session,
+            user=user,
+            user_roles=user_roles,
+            layers=layers,
+            model=model,
+            history=history,
+            client=get_anthropic_client(),
+            port=port,
+            map_id=map_id,
+            tools=tools,
+            restrict_tables=restrict_tables,
+        ):
             yield event
 
     async def structured_complete(  # type: ignore[no-untyped-def]

@@ -1864,7 +1864,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god
         # module should get its own review.
-        "backend/app/platform/extensions/defaults_ai_openai.py": 444,
+        # fix(#1590): +48 — stream and stream_chat_events pinned to explicit
+        # keyword-only signatures matching AIProviderExtension instead of a
+        # bare **kwargs shim, so a missing keyword surfaces at the port
+        # boundary rather than inside _stream_openai_chat. Cap 444 -> 492,
+        # exact.
+        "backend/app/platform/extensions/defaults_ai_openai.py": 492,
         # fix(#1207): +15 — three delegations for the shared presigned-completion
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
@@ -1916,7 +1921,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # search's does: on the catalog that distinction matters for, a partial
         # re-embed, the rows still carrying NULL are the old space.
         # Cap 491 -> 509, exact.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 509,
+        # fix(#1590): +60 — pin abort_presigned_multipart_upload,
+        # verify_completed_presigned_upload, and finalize_presigned_object to
+        # CatalogPort's explicit keyword-only signatures instead of a bare
+        # **kwargs shim, so a missing keyword surfaces at the port boundary
+        # rather than deep in the service call.
+        # verify_completed_presigned_upload and finalize_presigned_object
+        # also keep accepting replacing_dataset_id: uuid.UUID | None = None,
+        # a structural superset the Protocol does not declare yet (see the
+        # comments on both methods in core/catalog_port.py — adding it there
+        # is a version bump, not a cleanup). Cap 509 -> 569, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 569,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on
@@ -1956,7 +1971,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # UNSTAMPED row still counts as covering the record, which is the only
         # thing keeping an upgrade from turning the next Generate Missing into
         # a catalog-wide re-embed. Cap 537 -> 564, exact.
-        "backend/app/platform/extensions/defaults_processing_port.py": 564,
+        # fix(#1590): +4 — compute_schema_diff's parameters renamed to match
+        # ProcessingPort's old_feature_count/new_feature_count so a keyword
+        # caller fails against the Protocol, not just the default. Cap
+        # 564 -> 568, exact.
+        "backend/app/platform/extensions/defaults_processing_port.py": 568,
         # fix(#929): +2 over the 350 default — the creator exemption on the
         # restricted branch of filter_visible/can_access_dataset plus its
         # rationale comments. fix(#930): +20 — the internal branch on the same

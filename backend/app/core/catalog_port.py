@@ -57,6 +57,12 @@ class CatalogPort(Protocol):
     # when the flow is a replacement and the uploader when it is a creation, so
     # it is nullable: an ownerless dataset has no owner to name (#1293 — the
     # policy is stated in app.modules.quota.service).
+    #
+    # fix(#1590): DefaultCatalogPort.verify_completed_presigned_upload also
+    # accepts `replacing_dataset_id: uuid.UUID | None = None` — the same
+    # deferred addition as `finalize_presigned_object` later in this file,
+    # which forwards it here internally. See that method's comment for why
+    # it is not declared on the Protocol yet.
     async def verify_completed_presigned_upload(
         self,
         *,
@@ -88,6 +94,17 @@ class CatalogPort(Protocol):
         self, storage_method: Any, created_at: Any, *args: Any
     ) -> str: ...
 
+    # fix(#1590): DefaultCatalogPort.finalize_presigned_object also accepts
+    # `replacing_dataset_id: uuid.UUID | None = None`, which the reupload
+    # door (router_reupload.py, #1290 admission parity) already passes
+    # through this port. It is not declared here because version.py's
+    # 2 -> 3 precedent holds: an overlay that implements a method must
+    # accept a keyword the Protocol adds, so adding it is a signature change
+    # and therefore an EXTENSION_API_VERSION bump, not a no-op optional
+    # addition — and a signature-drift cleanup does not get to force that
+    # bump on its own. A full-replacement `catalog_port` overlay would
+    # TypeError on `replacing_dataset_id` today; add the keyword here at the
+    # next bump and drop this comment.
     async def finalize_presigned_object(
         self,
         *,
