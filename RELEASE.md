@@ -72,7 +72,13 @@ commit:
    Contents: read/write on `geolens-io/getgeolens.com`. Absent, the step is a
    no-op logged as a `::notice::` rather than a failure — the release still
    publishes normally, and the site's own scheduled `release-drift` check
-   catches the gap on its own cadence.
+   catches the gap on its own cadence. Getting an actual sync PR (not just the
+   dispatch) also needs a `RELEASE_SYNC_TOKEN` secret on the site repo itself,
+   same scope plus Pull requests: read/write — one fine-grained PAT with both
+   scopes can be stored under both names. Until that sync PR merges, the
+   site's `release-drift` job (which also runs on this dispatch) is expected
+   to go red and file or comment on its `nightly-red` issue (site #95) — that
+   is the intended signal that a sync is pending, not a regression.
 4. SDK and CLI publishes pause for one-click approval before they ship; image
    and release builds do not.
 5. `verify-published.yml` runs after the publishes complete and confirms every
