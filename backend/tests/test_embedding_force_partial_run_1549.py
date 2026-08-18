@@ -969,3 +969,125 @@ async def test_a_record_whose_content_is_restored_mid_run_keeps_its_vector(
         "strength of an unchanged row; the row is unchanged because the writer "
         "correctly skipped an unchanged hash"
     )
+
+
+@pytest.mark.anyio
+async def test_a_restore_that_lands_between_the_recheck_and_the_delete_is_not_lost(
+    test_db_session,
+    restore_embedding_config,
+    monkeypatch,
+):
+    """fix(#1584 review r5): the re-read and the delete hold the record.
+
+    Round 4 re-read each record before reclaiming it. That left a gap: an
+    editor restoring the exact original content AFTER the re-read and BEFORE
+    the delete had the ingest writer skip on an unchanged hash while the row
+    still existed, and then the delete took it — a valid vector gone, and no
+    writer left to regenerate it.
+
+    The records are now locked FOR UPDATE from the re-read through the delete,
+    one chunk per transaction. The editor's write therefore lands on one side
+    or the other: before the read (spared) or after the delete (the writer
+    finds no row and regenerates). Either way the record ends the run holding
+    a vector for its restored content, which is what this asserts.
+
+    The editor is a SECOND connection, started from inside the re-read and not
+    awaited there, because with the lock held it must block until the chunk
+    commits; awaiting it inline would deadlock the test on its own lock. Its
+    row is seeded under the LIVE model with the REAL content hash, so the
+    writer's unchanged-hash path is genuinely reachable: without the lock the
+    editor's write goes through at once, the writer skips, the delete removes
+    the row, and the record ends with nothing.
+    """
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from app.core.config import settings
+    from app.processing.embeddings.service import build_content_text
+
+    session = test_db_session
+    await EMBEDDING_MODEL.set(session, _MODEL)
+    await EMBEDDING_DIMS.set(session, _DIMS)
+
+    title = "Locked Restore"
+    real_hash = compute_content_hash(
+        build_content_text(title=title, summary=None, keywords=None, lineage=None)
+    )
+    embeddable = await _seed(session, "Locked Restore Embeddable")
+    restored = await _seed(session, title, model_name=_MODEL)
+    # The seeded row must be exactly what the writer would produce for the
+    # restored content, or the unchanged-hash skip cannot happen.
+    await session.execute(
+        text(
+            "UPDATE catalog.record_embeddings SET content_hash = :h WHERE record_id = :rid"
+        ),
+        {"h": real_hash, "rid": restored},
+    )
+    await session.commit()
+    await _blank_title(session, restored)
+
+    port = _pin_run(
+        monkeypatch,
+        [
+            _as_record(embeddable, title="Locked Restore Embeddable"),
+            _as_record(restored, title=None),
+        ],
+    )
+
+    async def _provider(texts, _sess, *, model, dimensions, base_url):
+        return [[1.0] + [0.0] * (_DIMS - 1) for _ in texts]
+
+    monkeypatch.setattr(service_module, "generate_embeddings_batch", _provider)
+    monkeypatch.setattr(backfill_module, "generate_embeddings_batch", _provider)
+
+    other_engine = create_async_engine(settings.test_database_url)
+    other_sessions = async_sessionmaker(other_engine, expire_on_commit=False)
+    editor_task: dict[str, asyncio.Task] = {}
+
+    async def _editor() -> None:
+        # A different connection: this UPDATE blocks on the reclamation's row
+        # lock until the chunk commits — that is the whole point.
+        async with other_sessions() as other:
+            await other.execute(
+                text("UPDATE catalog.records SET title = :t WHERE id = :rid"),
+                {"t": title, "rid": restored},
+            )
+            await other.commit()
+            await service_module.generate_and_store_embedding(
+                session=other,
+                record_id=restored,
+                title=title,
+                summary=None,
+                keywords=None,
+                lineage=None,
+            )
+            await other.commit()
+
+    real_get_record = port.get_record
+
+    async def _get_record_then_edit(sess, record_id):
+        current = await real_get_record(sess, record_id)
+        if record_id == restored and "task" not in editor_task:
+            editor_task["task"] = asyncio.create_task(_editor())
+            await asyncio.sleep(
+                0.5
+            )  # let the editor reach the lock (or, unfixed, finish)
+        return current
+
+    port.get_record = _get_record_then_edit
+
+    try:
+        result = await backfill_module.backfill_embeddings(session, force=True)
+        assert "task" in editor_task, "the re-read never ran for the restored record"
+        await asyncio.wait_for(editor_task["task"], timeout=10)
+    finally:
+        await other_engine.dispose()
+
+    assert result["skipped"] == 1
+    await _assert_replaced(session, embeddable, marker="Locked Restore Embeddable")
+    assert await _rows_for(session, restored) == [(_MODEL, real_hash)], (
+        "the record ended the run with no vector for its restored content: the "
+        "editor's write slipped between the re-read and the delete, the writer "
+        "skipped on an unchanged hash, and the delete took the row"
+    )

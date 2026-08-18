@@ -2935,7 +2935,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and spares those no longer empty; the content-field extraction the run
     # and the re-check share moved into `_content_fields`. Cap 1480 -> 1527,
     # exact.
-    "backend/app/processing/embeddings/backfill.py": 1527,
+    # fix(#1584 review r5): the re-read and the delete hold the record. They
+    # were two statements with a gap, and an editor restoring content in it had
+    # the writer skip on an unchanged hash before the delete took the row.
+    # `_records_still_empty` now locks the chunk's records FOR UPDATE and
+    # `_reclaim_observed_rows` runs re-check, delete and commit per chunk in
+    # one transaction. Cap 1527 -> 1555, exact.
+    "backend/app/processing/embeddings/backfill.py": 1555,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

@@ -397,25 +397,66 @@ def _content_fields(record) -> dict[str, Any]:  # type: ignore[no-untyped-def]
     }
 
 
-async def _records_still_empty(session, port, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
-    """Which of these records have no embeddable content RIGHT NOW.
+async def _records_still_empty(session, port, record_orm, record_ids) -> set[Any]:  # type: ignore[no-untyped-def]
+    """Which of these records have no embeddable content RIGHT NOW — and hold them.
 
     fix(#1584 review r4): the reclamation asks this immediately before it
     deletes, one read per record, through the same loader and the same field
     extraction the run used at its start. ``expire_all`` first, deliberately:
     this session does not expire on commit, so its identity map still holds the
     instances the run loaded at the start, and a re-select would hand back their
-    pre-edit attributes rather than the row's. Nothing else is pending by the
-    time this runs. A record that no longer exists counts as empty; its rows
-    are orphans either way.
+    pre-edit attributes rather than the row's. A record that no longer exists
+    counts as empty; its rows are orphans either way.
+
+    fix(#1584 review r5): the records are locked ``FOR UPDATE`` first, and the
+    caller keeps this transaction open through its DELETE. Without the lock the
+    re-read and the delete were two statements with a gap, and an editor who
+    restored the content in that gap had the ingest writer skip on an unchanged
+    hash while the row still existed — then the delete took it, and nothing
+    would ever regenerate it. Held, the editor's write lands on one side or the
+    other: before the read, and the record is spared; after the delete, and
+    the writer finds no row and regenerates. The lock is on the records the
+    caller is about to reclaim, one chunk at a time, released by its commit.
     """
     session.expire_all()
+    await session.execute(
+        select(record_orm.id)
+        .where(record_orm.id.in_(list(record_ids)))
+        .with_for_update()
+    )
     still_empty: set[Any] = set()
     for record_id in record_ids:
         current = await port.get_record(session, record_id)
         if current is None or not build_content_text(**_content_fields(current)):
             still_empty.add(record_id)
     return still_empty
+
+
+async def _reclaim_observed_rows(session, port, record_orm, reclaimable) -> int:  # type: ignore[no-untyped-def]
+    """Delete the observed rows of records that are still empty; return how many.
+
+    One chunk per transaction: lock the chunk's records, re-check them, delete
+    the rows of those still empty, commit. See ``_records_still_empty`` for why
+    the lock, and the caller for why the chunking.
+    """
+    removed = 0
+    for offset in range(0, len(reclaimable), _BATCH_SIZE):
+        chunk = reclaimable[offset : offset + _BATCH_SIZE]
+        still_empty = await _records_still_empty(
+            session, port, record_orm, {record_id for record_id, _ in chunk}
+        )
+        chunk = [pair for pair in chunk if pair[0] in still_empty]
+        if chunk:
+            await session.execute(
+                _delete_embeddings_for(
+                    record_orm,
+                    [record_id for record_id, _ in chunk],
+                    observed=chunk,
+                )
+            )
+            removed += len(chunk)
+        await session.commit()
+    return removed
 
 
 def _delete_embeddings_for(record_orm, record_ids: list[Any], *, observed=None):  # type: ignore[no-untyped-def]
@@ -1473,33 +1514,20 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
         # row was computed from leaves the row, and its `updated_at`, untouched:
         # the pair still matches and the row would be reclaimed although it is
         # valid again. So every record whose rows are about to go is re-read
-        # here, and only those still empty NOW are reclaimed. One read per
+        # first, and only those still empty NOW are reclaimed. One read per
         # titleless record that holds vectors, which is the bound the snapshot
         # already has.
         #
-        # `expire_all` first, deliberately: this session does not expire on
-        # commit, so its identity map still holds the instances the run loaded
-        # at the start, and a re-select would hand back their pre-edit
-        # attributes rather than the row's. Nothing else is pending here.
-        still_empty = await _records_still_empty(
-            session, port, {pair[0] for pair in reclaimable}
-        )
-        reclaimable = [pair for pair in reclaimable if pair[0] in still_empty]
-        for offset in range(0, len(reclaimable), _BATCH_SIZE):
-            # Chunked for the same reason the run is: asyncpg caps a statement
-            # at 32767 bind parameters, and each pair spends two of them.
-            chunk = reclaimable[offset : offset + _BATCH_SIZE]
-            await session.execute(
-                _delete_embeddings_for(
-                    record_orm,
-                    [record_id for record_id, _ in chunk],
-                    observed=chunk,
-                )
-            )
-        await session.commit()
+        # fix(#1584 review r5): re-read and delete under one row lock, one
+        # chunk per transaction. `_records_still_empty` locks the chunk's
+        # records FOR UPDATE; the delete follows in the same transaction; the
+        # commit releases them. Chunked for the same reason the run is: asyncpg
+        # caps a statement at 32767 bind parameters, and each pair spends two
+        # of them — and a chunk is also how long any one editor can be held.
+        removed = await _reclaim_observed_rows(session, port, record_orm, reclaimable)
         logger.info(
             "Backfill: dropped vectors for records with no embeddable content",
-            count=len(reclaimable),
+            count=removed,
         )
 
     processed = created + errors
