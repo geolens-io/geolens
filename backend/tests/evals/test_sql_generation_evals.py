@@ -556,8 +556,8 @@ async def test_seam_crossing_buffer_uses_the_geodesic_expression(
     client, test_db_session, pacific_dataset
 ):
     """fix(#935): a metric-buffer question over stations ~5.5 km from ±180
-    must reproduce the prompt's geodesic buffer expression, and the executed
-    output must stay coherent at the seam.
+    must produce the geodesic buffer expression, and the executed output must
+    stay coherent at the seam.
 
     SQL predicate: the distinctive machinery of render_geodesic_buffer
     (span-gated CASE + dissolve) is present. Result assertion: every output
@@ -565,6 +565,12 @@ async def test_seam_crossing_buffer_uses_the_geodesic_expression(
     bare ``ST_Buffer(::geography)`` is a single component ~359.9 degrees
     wide, which is exactly what drew a band across the map and fit-bounds'd
     the chat overlay to the whole world (#935's user-visible symptom).
+
+    fix(#1589): the model no longer types that expression — it writes
+    ``geolens_buffer(...)`` and ``generate_sql`` expands the marker before
+    returning. The predicates are unchanged and now read the expansion, which
+    is what actually runs; the marker itself must be gone by then, or
+    something downstream is looking at SQL nobody expanded.
     """
     sql, result = await _ask(
         test_db_session,
@@ -572,6 +578,7 @@ async def test_seam_crossing_buffer_uses_the_geodesic_expression(
         "Return each station's name and a 10 kilometer buffer around it "
         "as GeoJSON geometry.",
     )
+    assert "geolens_buffer" not in sql.lower(), f"marker left unexpanded:\n{sql}"
     assert "ST_UnaryUnion" in sql, f"geodesic buffer expression not used:\n{sql}"
     assert re.search(r"ST_XMax\(\w+\.g\)\s*-\s*ST_XMin\(\w+\.g\)", sql), (
         f"span-gated buffer CASE missing:\n{sql}"
@@ -593,13 +600,16 @@ async def test_wide_multipart_buffer_stays_component_narrow(
     across the seam, so its buffer trips the >= 6° span gate — the branch the
     per-point question cannot reach. Every output component must stay narrow
     and inside ±180; the unfixed whole-input projection produced either a
-    world-spanning component or geometry escaping the range."""
+    world-spanning component or geometry escaping the range.
+
+    fix(#1589): asserted on the expanded SQL, as above."""
     sql, result = await _ask(
         test_db_session,
         pacific_dataset,
         "Buffer the Fiji Basin Network region by 10 kilometers and return "
         "its name and the buffer as GeoJSON geometry.",
     )
+    assert "geolens_buffer" not in sql.lower(), f"marker left unexpanded:\n{sql}"
     assert "ST_UnaryUnion" in sql, f"geodesic buffer expression not used:\n{sql}"
     widths, lons = _geojson_component_stats(result)
     assert widths, f"no GeoJSON geometry in result columns {result.columns}\nSQL: {sql}"

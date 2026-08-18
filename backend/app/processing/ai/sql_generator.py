@@ -14,9 +14,10 @@ import uuid as _uuid
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.platform.analysis_sql import render_geodesic_buffer
+from app.platform.analysis_sql import MAX_BUFFER_METERS
 from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
+from app.processing.ai.buffer_marker import expand_buffer_markers
 from app.processing.ai.llm_loop import noop_tool_executor
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.token_usage import record_token_usage
@@ -191,21 +192,27 @@ Respond with ONLY the SQL query (or an -- ERROR comment if the query cannot be g
 # error 1/cos(latitude)) and produces corrupt geometry for buffers crossing
 # the antimeridian. The real analysis path fixed both (#883, #900, #902) in
 # ``render_geodesic_buffer``; the prompt previously restated the SQL as prose
-# in four places and inherited neither fix. Rendering the expression from the
-# same generator at import time removes the drift class by construction —
-# ``tests/test_ai_sql_prompt_935.py`` pins the wiring.
+# in four places and inherited neither fix.
 #
-# ``99999`` is a placeholder distance chosen because it cannot collide with
-# any other literal in the rendered expression; ``render_geometry_expr`` (not
-# ``render_geodesic_buffer``) owns distance validation, so the placeholder
-# render is safe.
-_GEODESIC_BUFFER_TEMPLATE = render_geodesic_buffer("<GEOM>", 99999).replace(
-    "99999", "<METERS>"
-)
-_GEODESIC_BUFFER_DENVER_EXAMPLE = render_geodesic_buffer(
-    "(SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver')",
-    50000,
-)
+# fix(#935) embedded ``render_geodesic_buffer``'s rendered output here at
+# import time, twice, and told the model to copy it: a 3 017-character
+# ``<GEOM>``/``<METERS>`` template plus a 3 073-character worked example, so
+# 6 090 of the prompt's 16 786 characters were rendered buffer. fix(#1589)
+# took both back out — the light model reproduced them correctly about half
+# the time, and six of nine nightly eval runs failed on a dropped parenthesis
+# or a paraphrase back to the bare form. The prompt is 11 595 characters now.
+# It teaches a marker, ``geolens_buffer(<geom>, <metres>)``, and
+# ``buffer_marker.expand_buffer_markers`` renders the real expression at the
+# tail of ``generate_sql`` before anything else sees the SQL.
+#
+# The anti-drift property #935 bought survives the change and is in fact
+# stronger: the prompt no longer states the expression at all, so there is
+# nothing left to drift. ``tests/test_ai_sql_prompt_935.py`` pins that the
+# expression is gone, that the marker is taught, and that the prompt's worked
+# example still expands into something the sandbox admits. The one import from
+# ``analysis_sql`` that remains is ``MAX_BUFFER_METERS``, so the distance
+# ceiling the prompt quotes is the one the expander enforces.
+_MAX_BUFFER_METERS_TEXT = f"{MAX_BUFFER_METERS:.0f}"
 
 SQL_SYSTEM_PROMPT = f"""\
 You are a PostgreSQL/PostGIS SQL expert. Generate a single SELECT query to answer the user's question using the database schema provided in the user message.
@@ -228,6 +235,7 @@ ST_AsGeoJSON(geom) -> text               -- Convert geometry to GeoJSON string
 ST_Transform(geom, srid) -> geometry     -- Reproject geometry to target SRID
 ST_X(point) -> float                     -- X coordinate (longitude) of a point
 ST_Y(point) -> float                     -- Y coordinate (latitude) of a point
+geolens_buffer(geom, meters) -> geometry -- Buffer in METERS; see Metric Buffers below
 
 ## Text Search Functions (requires pg_trgm extension)
 
@@ -258,7 +266,7 @@ Vector columns are queried with these operators, NOT with similarity() or ILIKE
 
 For distance in meters:  ST_Distance(a.geom_4326::geography, b.geom_4326::geography)
 For area in sq meters:   ST_Area(a.geom_4326::geography)
-For buffer in meters:    use the Metric Buffers expression below — NEVER a bare geography-cast buffer
+For buffer in meters:    geolens_buffer(s.geom_4326, meters) — NEVER a bare geography-cast buffer
 
 Without ::geography, distance/area use DEGREES (not meters)!
 
@@ -266,13 +274,15 @@ Without ::geography, distance/area use DEGREES (not meters)!
 
 For "within X meters of" questions, prefer ST_DWithin(a.geom_4326::geography, b.geom_4326::geography, meters) — it needs no buffer geometry and uses the spatial index.
 
-When the buffer GEOMETRY itself is needed, a bare ST_Buffer(geom::geography, meters)::geometry silently degrades: PostGIS projects the whole input into one planar SRID, which falls back to world Mercator for inputs spanning 45 degrees of longitude or more (radius error 1/cos(latitude)), and a buffer crossing the antimeridian comes back as corrupt geometry. Use this expression instead, copied VERBATIM with <GEOM> replaced by the geometry expression and <METERS> replaced by the distance in meters:
+When the buffer GEOMETRY itself is needed, a bare ST_Buffer(geom::geography, meters)::geometry silently degrades: PostGIS projects the whole input into one planar SRID, which falls back to world Mercator for inputs spanning 45 degrees of longitude or more (radius error 1/cos(latitude)), and a buffer crossing the antimeridian comes back as corrupt geometry. Write this instead:
 
-{_GEODESIC_BUFFER_TEMPLATE}
+geolens_buffer(<GEOM>, <METERS>)
 
-It is long but mechanical: it slices wide inputs into per-projection bands, splits antimeridian-crossing output at +/-180, and dissolves the parts. Do not abbreviate it, do not re-derive it, and do not substitute the bare ST_Buffer form.
+GeoLens replaces every geolens_buffer(...) call with the correct PostGIS expression before the query runs — one that slices wide inputs into per-projection bands, splits antimeridian-crossing output at +/-180, and dissolves the parts. Write the short call and nothing else: do not expand it yourself, and do not fall back to a bare ST_Buffer for a distance in meters.
 
-<GEOM> must be the managed geom_4326 column, and it must be QUALIFIED: a reference like s.geom_4326, or a subquery selecting one like (SELECT geom_4326 FROM data.t WHERE name = 'X'). A bare geom_4326 passed straight to the expression is refused. A reprojection, a nested buffer, a constructed geometry, or a dataset's original geom column in another CRS is refused, because the expression's cost scales with its input's extent and only geom_4326 is bounded. Buffer geom_4326, then transform the result if you need another CRS.
+<GEOM> must be the managed geom_4326 column, and it must be QUALIFIED: a reference like s.geom_4326, or a subquery selecting one like (SELECT geom_4326 FROM data.t WHERE name = 'X'). A bare geom_4326 passed straight to the call is refused, even when the query reads one table. So give that table an alias and use it: write FROM data.stations s ... geolens_buffer(s.geom_4326, 10000), never FROM data.stations ... geolens_buffer(geom_4326, 10000). A reprojection, a nested buffer, a constructed geometry, or a dataset's original geom column in another CRS is refused, because the expression's cost scales with its input's extent and only geom_4326 is bounded. Buffer geom_4326, then transform the result if you need another CRS.
+
+<METERS> must be a plain number greater than 0 and at most {_MAX_BUFFER_METERS_TEXT} — not an expression, not a column, not a cast. Convert other units yourself (5 miles is 8046.72). geolens_buffer is a GeoLens call, so it takes no other arguments and cannot be nested inside itself.
 
 ## Unit Conversions (apply in SQL, not after)
 
@@ -334,12 +344,17 @@ SELECT SUM(ST_Area(p.geom_4326::geography) / 4046.8564224) AS total_acres
 FROM data.parcels p
 WHERE p.zone_type = 'agricultural';
 
--- Buffer + intersect (metric buffer geometry, using the Metric Buffers expression):
+-- Metric buffer geometry per row (the alias is what makes s.geom_4326 qualified):
+SELECT s.name, ST_AsGeoJSON(geolens_buffer(s.geom_4326, 10000)) AS geometry
+FROM data.stations s
+LIMIT 1000;
+
+-- Buffer + intersect (metric buffer geometry, using geolens_buffer):
 SELECT p.name AS park_name
 FROM data.national_parks p
 WHERE ST_Intersects(
   p.geom_4326,
-  {_GEODESIC_BUFFER_DENVER_EXAMPLE}
+  geolens_buffer((SELECT geom_4326 FROM data.us_state_capitals WHERE name = 'Denver'), 50000)
 );
 
 -- Proximity by coordinates (within 5 miles of a point):
@@ -385,7 +400,7 @@ ORDER BY distance
 LIMIT 10;
 
 -- Common Mistakes to Avoid:
--- WRONG: ST_Buffer(geom_4326::geography, 1000)::geometry → wrong radius for wide inputs, corrupt across the antimeridian; use the Metric Buffers expression
+-- WRONG: ST_Buffer(p.geom_4326::geography, 1000)::geometry → wrong radius for wide inputs, corrupt across the antimeridian; use geolens_buffer(p.geom_4326, 1000)
 -- WRONG: ST_Distance(a.geom_4326, b.geom_4326) → returns DEGREES, not meters
 -- CORRECT: ST_Distance(a.geom_4326::geography, b.geom_4326::geography) → meters
 -- WRONG: WHERE column = NULL → always false; use WHERE column IS NULL
@@ -399,7 +414,7 @@ LIMIT 10;
 - Always use the `data.` schema prefix for table names (e.g., `data.cities`, not just `cities`).
 - The geometry column is always `geom_4326` (SRID 4326).
 - When querying multiple tables, always qualify column names with table alias to avoid ambiguity.
-- Use ::geography casts for distance, buffer, and area operations to get results in meters.
+- Use ::geography casts for distance and area operations to get results in meters; for a buffer in meters use geolens_buffer.
 - Always convert area/distance to human-friendly units (acres, miles, etc.) in the SQL using the conversion factors above.
 - For proximity filters ("within X miles/km of Y"), prefer ST_DWithin over ST_Distance < threshold — ST_DWithin uses the spatial index.
 - For ad-hoc coordinate queries, create points with: ST_SetSRID(ST_MakePoint(longitude, latitude), 4326)::geography
@@ -504,6 +519,14 @@ async def generate_sql(
 
     # Strip leaked special tokens from local LLMs (e.g., <|im_start|>, <|im_end|>)
     sql = re.sub(r"<\|[^|]+\|>", "", sql).strip()
+
+    # fix(#1589): the prompt asks for geolens_buffer(<geom>, <metres>); the
+    # canonical expression is rendered here, once, for every NL consumer. This
+    # is the last point at which the text is still the model's, which is what
+    # makes the marker a private protocol between the prompt and the server
+    # rather than a SQL dialect — the raw /api/query/ endpoint takes SQL a
+    # person wrote and never reaches this function.
+    sql = expand_buffer_markers(sql)
 
     logger.info(
         "SQL generated",

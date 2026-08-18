@@ -902,15 +902,21 @@ _ANALYSIS_SQL_FAMILIES = frozenset(
 # when nothing new binds, so this is a ceiling rather than a cost.
 _BINDING_REBIND_ROUNDS = 3
 
-# The seven modules that legitimately consume the façade. Named so the
+# The eight modules that legitimately consume the façade. Named so the
 # both-directions test can prove the guard still LETS THEM THROUGH — a refusal
 # assertion cannot notice that a correct import started being rejected.
+#
+# fix(#1589): buffer_marker.py joins them. It renders the geodesic buffer the
+# NL->SQL prompt used to embed, which is why sql_generator.py is still on the
+# list too — it keeps MAX_BUFFER_METERS, so the distance ceiling the prompt
+# quotes is the one the expander enforces.
 _ANALYSIS_SQL_CALLERS = (
     "app/modules/catalog/datasets/api/router_analysis.py",
     "app/modules/catalog/datasets/domain/schemas.py",
     "app/modules/catalog/datasets/domain/service_analysis.py",
     "app/platform/extensions/defaults_processing_port.py",
     "app/platform/sandbox/validator.py",
+    "app/processing/ai/buffer_marker.py",
     "app/processing/ai/sql_generator.py",
     "app/processing/analysis/tasks.py",
 )
@@ -1448,7 +1454,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
     }
     assert not rejected, f"the guard rejected legitimate façade usage: {rejected}"
 
-    # The seven real consumers, checked as themselves rather than as snippets:
+    # The eight real consumers, checked as themselves rather than as snippets:
     # each must still reference the façade (so this is not vacuous) and none
     # may trip the guard.
     for rel in _ANALYSIS_SQL_CALLERS:

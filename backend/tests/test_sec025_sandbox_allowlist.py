@@ -770,10 +770,15 @@ def _unlisted_names_in_canonical_buffer() -> set[str]:
 
 
 class TestCanonicalGeodesicBufferAdmitted:
-    """fix(#1001): the NL->SQL prompt mandates render_geodesic_buffer's output
-    verbatim, and the fail-closed allowlist refused it — every buffer question
-    in the surface was dead. The functions it needs are admitted only inside a
-    subtree that re-renders to exactly the same AST, never per call."""
+    """fix(#1001): every metric buffer on the NL->SQL surface is
+    render_geodesic_buffer's output, and the fail-closed allowlist refused it —
+    every buffer question in the surface was dead. The functions it needs are
+    admitted only inside a subtree that re-renders to exactly the same AST,
+    never per call.
+
+    fix(#1589): the model no longer types that output. It writes a
+    geolens_buffer() marker and processing/ai/buffer_marker.py expands it
+    before validation, so what arrives here is unchanged and so is this."""
 
     def test_admits_the_rendered_buffer(self):
         _assert_allows(

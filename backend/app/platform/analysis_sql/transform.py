@@ -31,11 +31,15 @@ from .shared import (
 
 
 # fix(#1001): this function has a SECOND consumer that most edits here will
-# not have in mind. The NL->SQL prompt embeds its output verbatim
-# (``processing/ai/sql_generator.py`` renders it at import time), and the SQL
-# sandbox admits the sixteen amplification-prone functions below ONLY inside a
-# subtree that is exactly what this renderer emits — ``_matches_canonical_buffer``
-# in ``platform/sandbox/validator.py`` re-renders the template and compares.
+# not have in mind. The NL->SQL surface renders its output for every metric
+# buffer a chat question asks for — fix(#1589): the model writes a short
+# ``geolens_buffer(<geom>, <metres>)`` marker and
+# ``processing/ai/buffer_marker.py`` calls this function to expand it, where
+# the prompt used to embed the rendered text and ask the model to copy it —
+# and the SQL sandbox admits the sixteen amplification-prone functions below
+# ONLY inside a subtree that is exactly what this renderer emits —
+# ``_matches_canonical_buffer`` in ``platform/sandbox/validator.py``
+# re-renders the template and compares.
 # The match follows a shape change automatically, because both sides call this
 # function; what it cannot follow is a NEW function name that is itself unsafe
 # outside the template, since the exemption would then cover it. Weigh that
