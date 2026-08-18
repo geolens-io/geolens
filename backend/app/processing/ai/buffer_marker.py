@@ -187,17 +187,27 @@ def _skip_non_code(sql: str, i: int) -> int | None:
     return _skip_quoted(sql, i)
 
 
-def _marker_starts_at(sql: str, i: int) -> bool:
+def _marker_starts_at(sql: str, i: int, previous: str) -> bool:
     """Whether a bare ``geolens_buffer`` token begins at ``i``.
 
     Case-insensitive, whole-token, and unqualified: ``geolens_buffer_x`` is a
     different name, and ``public.geolens_buffer`` names some other schema's
     function — substituting our expression for that would answer a different
     question than the one asked.
+
+    ``previous`` is the last character before ``i`` that was neither whitespace
+    nor part of a comment, which the callers track as they scan. fix(#1589
+    review r2): reading ``sql[i - 1]`` for the qualifier instead made the rule
+    untrue for ``public./**/geolens_buffer(…)`` and ``public. geolens_buffer(…)``
+    — the first because the scan had skipped the comment and saw ``/``, the
+    second because it saw a space. Both are qualified names in PostgreSQL. The
+    ADJACENCY half stays positional on purpose: ``xgeolens_buffer`` is one
+    identifier, while ``x geolens_buffer`` is two, so a space matters there and
+    not here.
     """
     if sql[i : i + len(_MARKER)].lower() != _MARKER:
         return False
-    if _is_ident_at(sql, i - 1) or sql[i - 1 : i] == ".":
+    if _is_ident_at(sql, i - 1) or previous == ".":
         return False
     return not _is_ident_at(sql, i + len(_MARKER))
 
@@ -246,15 +256,28 @@ def _split_call_args(sql: str, open_paren: int) -> tuple[list[str], int]:
 
 
 def _contains_marker(text: str) -> bool:
-    """Whether ``text`` holds a ``geolens_buffer`` token at a code position."""
+    """Whether ``text`` holds a ``geolens_buffer`` token at a code position.
+
+    Tracks ``previous`` exactly as ``expand_buffer_markers`` does, so the two
+    agree on what counts as a marker. They disagreeing is how a string could be
+    expanded at the top level and rejected as nesting inside an argument.
+    """
     i = 0
+    previous = ""
     while i < len(text):
-        past = _skip_non_code(text, i)
+        past = _skip_comment(text, i)
         if past is not None:
+            i = past  # a comment is transparent; `previous` carries across it
+            continue
+        past = _skip_quoted(text, i)
+        if past is not None:
+            previous = text[past - 1]
             i = past
             continue
-        if _marker_starts_at(text, i):
+        if _marker_starts_at(text, i, previous):
             return True
+        if not text[i].isspace():
+            previous = text[i]
         i += 1
     return False
 
@@ -351,8 +374,13 @@ def _checked_distance(raw: str) -> float:
     The bounds are that function's: greater than zero, at most
     ``MAX_BUFFER_METERS``. A zero-metre buffer is refused rather than rendered
     empty, which is what the analysis surface does with the same number.
+
+    Comments are dropped first, for the reason ``_without_comments`` gives:
+    ``geolens_buffer(s.geom_4326, 500 /* metres */)`` is a correct call, and
+    refusing it would leave half of the failure class this change removes
+    (fix(#1589 review r2)).
     """
-    text = raw.strip()
+    text = _without_comments(raw).strip()
     if not _DISTANCE.match(text):
         raise _fail(f"{_MARKER}()'s distance must be a plain number of metres")
     distance = float(text)
@@ -382,12 +410,22 @@ def expand_buffer_markers(sql: str) -> str:
     consumed = 0
     markers = 0
     i = 0
+    # The last character that was neither whitespace nor part of a comment.
+    # Only the qualifier rule reads it; see _marker_starts_at.
+    previous = ""
     while i < len(sql):
-        past = _skip_non_code(sql, i)
+        past = _skip_comment(sql, i)
         if past is not None:
+            i = past  # a comment is transparent; `previous` carries across it
+            continue
+        past = _skip_quoted(sql, i)
+        if past is not None:
+            previous = sql[past - 1]
             i = past
             continue
-        if not _marker_starts_at(sql, i):
+        if not _marker_starts_at(sql, i, previous):
+            if not sql[i].isspace():
+                previous = sql[i]
             i += 1
             continue
 
@@ -396,6 +434,7 @@ def expand_buffer_markers(sql: str) -> str:
         # model meant is not this module's job.
         after = _next_code_char(sql, i + len(_MARKER))
         if after is None or sql[after] != "(":
+            previous = _MARKER[-1]
             i += len(_MARKER)
             continue
 
@@ -415,6 +454,7 @@ def expand_buffer_markers(sql: str) -> str:
         pieces.append(sql[consumed:i])
         pieces.append(render_geodesic_buffer(geom, distance))
         consumed = end
+        previous = ")"
         i = end
 
     if not pieces:

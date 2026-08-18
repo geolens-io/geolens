@@ -158,11 +158,68 @@ def test_a_longer_identifier_that_merely_starts_with_the_marker_is_not_a_call():
     assert expand_buffer_markers(sql) is sql
 
 
-def test_a_qualified_name_ending_in_the_marker_is_not_a_call():
+@pytest.mark.parametrize(
+    "qualified",
+    [
+        pytest.param("public.geolens_buffer", id="adjacent"),
+        pytest.param("public. geolens_buffer", id="space-after-the-dot"),
+        pytest.param("public./**/geolens_buffer", id="comment-after-the-dot"),
+        pytest.param("public. /* schema */ geolens_buffer", id="comment-and-spaces"),
+        pytest.param("public.\n  geolens_buffer", id="newline-after-the-dot"),
+    ],
+)
+def test_a_qualified_name_ending_in_the_marker_is_not_a_call(qualified):
     """``public.geolens_buffer(...)`` names some other schema's function, and
-    substituting our expression for it would answer a different question."""
-    sql = "SELECT public.geolens_buffer(s.geom_4326, 500) FROM data.stations s"
+    substituting our expression for it would answer a different question.
+
+    fix(#1589 review r2): the rule used to read the character immediately
+    before the name, so anything between the dot and the name defeated it —
+    a comment (the scan had already skipped it and saw ``/``) or even a plain
+    space. All of these are one qualified name to PostgreSQL.
+    """
+    sql = f"SELECT {qualified}(s.geom_4326, 500) FROM data.stations s"
     assert expand_buffer_markers(sql) is sql
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        pytest.param("/* metric */ ", id="comment"),
+        pytest.param("-- metric\n", id="line-comment"),
+    ],
+)
+def test_a_comment_before_an_unqualified_marker_still_reads_as_a_call(prefix):
+    """The counterfactual for the qualifier rule: a comment before the name is
+    not a qualifier, and must not switch expansion off."""
+    expanded = expand_buffer_markers(
+        f"SELECT ST_AsGeoJSON({prefix}geolens_buffer(s.geom_4326, 500)) AS geometry "
+        "FROM data.stations s LIMIT 100"
+    )
+    assert render_geodesic_buffer("s.geom_4326", 500.0) in expanded
+    assert "geolens_buffer" not in expanded
+
+
+def test_the_nested_check_agrees_with_the_top_level_scan_on_qualified_names():
+    """A qualified name is not our marker in either place.
+
+    Before fix(#1589 review r2) the two disagreed for
+    ``public./**/geolens_buffer``: the top-level scan expanded it, while the
+    same string inside a geometry argument was rejected as nesting. Whichever
+    answer is right, one of those was wrong.
+    """
+    inner = "public./**/geolens_buffer(s.geom_4326, 10)"
+
+    # Top level: not our marker, so the SQL comes back untouched.
+    top = f"SELECT {inner} FROM data.stations s"
+    assert expand_buffer_markers(top) is top
+
+    # Same string in the geometry slot: also not our marker, so it is NOT
+    # rejected as nesting. It is an ordinary expression the sandbox will refuse
+    # on its own terms, and the buffer around it renders normally.
+    expanded = expand_buffer_markers(_wrap(f"geolens_buffer({inner}, 500)"))
+    assert expanded == _wrap(
+        render_geodesic_buffer("public. geolens_buffer(s.geom_4326, 10)", 500.0)
+    )
 
 
 def test_a_comment_between_the_name_and_its_parenthesis_still_reads_as_a_call():
@@ -204,6 +261,22 @@ def test_a_comment_inside_the_call_does_not_ride_into_the_expression(geom):
     assert "/*" not in expanded and "--" not in expanded
     result = validate_sql(expanded)
     assert result.tables
+
+
+@pytest.mark.parametrize(
+    "distance",
+    [
+        pytest.param("500 /* metres */", id="block-comment-after"),
+        pytest.param("/* metres */ 500", id="block-comment-before"),
+        pytest.param("500 -- metres\n", id="line-comment"),
+    ],
+)
+def test_a_comment_around_the_distance_does_not_refuse_the_call(distance):
+    """fix(#1589 review r2): the distance argument gets the same treatment as
+    the geometry one. Leaving it out would have kept half the failure class:
+    a correct call, refused with a message nobody sees."""
+    expanded = expand_buffer_markers(_wrap(f"geolens_buffer(s.geom_4326, {distance})"))
+    assert expanded == _wrap(render_geodesic_buffer("s.geom_4326", 500.0))
 
 
 def test_a_comment_that_looks_like_one_inside_a_literal_is_kept():
