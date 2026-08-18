@@ -57,6 +57,12 @@ class CatalogPort(Protocol):
     # when the flow is a replacement and the uploader when it is a creation, so
     # it is nullable: an ownerless dataset has no owner to name (#1293 — the
     # policy is stated in app.modules.quota.service).
+    #
+    # fix(#1590): DefaultCatalogPort.verify_completed_presigned_upload also
+    # accepts `replacing_dataset_id: uuid.UUID | None = None` — the same
+    # deferred addition as `finalize_presigned_object` later in this file,
+    # which forwards it here internally. See that method's comment for why
+    # it is not declared on the Protocol yet.
     async def verify_completed_presigned_upload(
         self,
         *,

@@ -5,19 +5,31 @@ be drop-in replacements: an overlay swaps one in under the same registry key,
 and any keyword-forwarding caller (the port's own in-tree callers, or a
 future overlay that wraps a default and forwards by name) should see exactly
 the call surface the Protocol promises. A default that renames a parameter,
-or widens it to a bare ``**kwargs``, breaks that promise silently —
-``runtime_checkable`` only verifies attribute PRESENCE (PEP 544), not
-signatures, so nothing catches the drift until a keyword caller hits a
-TypeError deep in a forwarding chain.
+reorders a positional one, or widens the signature to a bare ``**kwargs``,
+breaks that promise silently — ``runtime_checkable`` only verifies attribute
+PRESENCE (PEP 544), not signatures, so nothing catches the drift until a
+positional or keyword caller hits a TypeError, or worse, a silently swapped
+argument, deep in a forwarding chain.
 
 This walks every Protocol the registry actually ships a default for — the
 same 16-class set ``app.platform.extensions.defaults.__all__`` carries (see
-``test_extensions.py::test_pre_pr_wildcard_surface_is_intact``) — paired with
-each one's Protocol, and asserts every Protocol method's parameter matches
-the default implementation's: same name, same kind, at minimum. A bare
-``**kwargs`` shim changes the KIND (VAR_KEYWORD vs KEYWORD_ONLY) for every
-Protocol parameter, so this is exactly the shape of drift #1590 found: it
-would have caught it before a keyword caller did.
+``test_extensions.py::test_pre_pr_wildcard_surface_is_intact``, and
+``test_pair_map_covers_every_default_the_facade_exports`` below, which pins
+the pair map against that same ``__all__`` so a newly added default cannot
+go unswept by omission) — paired with each one's Protocol, and asserts:
+
+- every Protocol parameter exists on the default with the same NAME and KIND;
+- the ORDERED sequence of POSITIONAL_ONLY/POSITIONAL_OR_KEYWORD parameter
+  names matches, because name+kind alone would not catch two positional
+  parameters swapping places (same names, same kinds, wrong order: every
+  positional caller's arguments land in the other slot);
+- when a Protocol parameter has a default, the implementation's corresponding
+  parameter has one too (a caller relying on the Protocol's declared
+  optionality shouldn't have to learn the default made it required).
+
+A bare ``**kwargs`` shim fails the first check immediately (VAR_KEYWORD is a
+different parameter KIND than the KEYWORD_ONLY parameters it stands in for),
+which is exactly the shape of drift #1590 found.
 
 A default MAY carry additional parameters the Protocol does not declare, but
 only in the narrow shape that keeps them non-breaking: KEYWORD_ONLY, with a
@@ -25,12 +37,13 @@ default value (never a bare ``**kwargs``/``*args`` catch-all, never a
 required extra). Adding a REQUIRED Protocol parameter is a signature change
 that needs an EXTENSION_API_VERSION bump (version.py's 2 -> 3 precedent); an
 optional superset on the DEFAULT alone does not, because an overlay that
-never heard of the extra keyword is unaffected. Today's one instance —
-``DefaultCatalogPort.finalize_presigned_object``'s ``replacing_dataset_id``
-— is deliberate (see the comment on ``CatalogPort.finalize_presigned_object``
-in ``core/catalog_port.py``) and pinned below via
-``EXPECTED_SUPERSET_PARAMS`` so a *new* undocumented superset still fails
-loud instead of passing silently.
+never heard of the extra keyword is unaffected. Today's two instances,
+``DefaultCatalogPort.finalize_presigned_object`` and
+``.verify_completed_presigned_upload``'s ``replacing_dataset_id``, are
+deliberate (see the comments on ``CatalogPort.finalize_presigned_object`` and
+``.verify_completed_presigned_upload`` in ``core/catalog_port.py``) and
+pinned below via ``EXPECTED_SUPERSET_PARAMS`` so a *new* undocumented
+superset still fails loud instead of passing silently.
 """
 
 from __future__ import annotations
@@ -44,7 +57,13 @@ import inspect
 #: addition is deliberate) rather than widening the sweep's tolerance.
 EXPECTED_SUPERSET_PARAMS = [
     "DefaultCatalogPort.finalize_presigned_object: +replacing_dataset_id",
+    "DefaultCatalogPort.verify_completed_presigned_upload: +replacing_dataset_id",
 ]
+
+_POSITIONAL_KINDS = (
+    inspect.Parameter.POSITIONAL_ONLY,
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+)
 
 
 def _protocol_member_names(protocol_cls: type) -> list[str]:
@@ -159,6 +178,36 @@ def _protocol_default_pairs() -> list[tuple[type, type, str]]:
     ]
 
 
+def test_pair_map_covers_every_default_the_facade_exports() -> None:
+    """The pair map must fail toward REPORTING an unpaired default, not toward silence.
+
+    fix(#1590 review): a hand-written list of (Protocol, default) pairs only
+    catches drift in whatever it already knows to check. A new Default*
+    class added to the registry facade without a matching entry in
+    ``_protocol_default_pairs()`` would sweep clean by omission, not by
+    conformance — the signature test below would simply never look at it.
+    This pins the pair map's label set against
+    ``app.platform.extensions.defaults.__all__`` (the same facade surface
+    ``test_pre_pr_wildcard_surface_is_intact`` treats as canonical), so an
+    unpaired default fails loud here instead of silently going unchecked.
+    """
+    from app.platform.extensions import defaults as defaults_facade
+
+    facade_default_names = {
+        name for name in defaults_facade.__all__ if name.startswith("Default")
+    }
+    paired_labels = {label for _, _, label in _protocol_default_pairs()}
+
+    missing = facade_default_names - paired_labels
+    assert not missing, (
+        "These Default* classes are exported by the registry facade "
+        "(app.platform.extensions.defaults.__all__) but have no "
+        "(Protocol, default) pairing in _protocol_default_pairs() — add one "
+        "so the signature sweep actually covers them instead of skipping "
+        f"them by omission: {sorted(missing)}"
+    )
+
+
 def test_default_implementations_match_their_protocol_signatures() -> None:
     """Every default's methods must accept exactly what its Protocol promises.
 
@@ -174,7 +223,8 @@ def test_default_implementations_match_their_protocol_signatures() -> None:
     drift anywhere in the registry, not just the sites found by hand. A
     future ``**kwargs`` shim fails it immediately (VAR_KEYWORD is a
     different parameter KIND than the KEYWORD_ONLY parameters it stands in
-    for), and so does a rename or a dropped parameter.
+    for), and so does a rename, a dropped parameter, a positional reorder
+    that keeps the same names, or a default silently becoming required.
     """
     mismatches: list[str] = []
     superset_params: list[str] = []
@@ -198,6 +248,37 @@ def test_default_implementations_match_their_protocol_signatures() -> None:
                         f"kind on the default (default params: "
                         f"{[(d.name, d.kind.name) for d in default_params]})"
                     )
+                    continue
+                if (
+                    pp.default is not inspect.Parameter.empty
+                    and dp.default is inspect.Parameter.empty
+                ):
+                    mismatches.append(
+                        f"{label}.{name}: Protocol parameter {pp.name!r} has "
+                        f"a default ({pp.default!r}) but the default "
+                        "implementation's does not — a caller relying on "
+                        "the Protocol's optionality would have to start "
+                        "passing it explicitly"
+                    )
+
+            # Name+kind matching alone would miss two positional parameters
+            # swapping places (e.g. old_feature_count/new_feature_count
+            # trading positions): both still resolve by name, but every
+            # positional caller's arguments would land in the other slot.
+            protocol_positional = [
+                pp.name for pp in protocol_params if pp.kind in _POSITIONAL_KINDS
+            ]
+            default_positional = [
+                dp.name for dp in default_params if dp.kind in _POSITIONAL_KINDS
+            ]
+            if protocol_positional != default_positional:
+                mismatches.append(
+                    f"{label}.{name}: positional parameter ORDER differs "
+                    f"(protocol={protocol_positional}, "
+                    f"default={default_positional}) — a positional caller "
+                    "binds by position, so even a same-name-set swap "
+                    "changes which value lands where"
+                )
 
             protocol_names = {pp.name for pp in protocol_params}
             for dp in default_params:
@@ -230,9 +311,10 @@ def test_default_implementations_match_their_protocol_signatures() -> None:
 
     assert not mismatches, (
         "Default implementation(s) drifted from their Protocol's parameters "
-        "(names/kinds must match; annotations and defaults are excluded). A "
-        "default MAY carry extra KEYWORD_ONLY parameters that have "
-        "defaults — nothing else:\n\n" + "\n".join(mismatches)
+        "(names, kinds, positional order, and optionality must match; "
+        "annotations and default VALUES are excluded). A default MAY carry "
+        "extra KEYWORD_ONLY parameters that have defaults — nothing else:\n\n"
+        + "\n".join(mismatches)
     )
 
     assert sorted(superset_params) == sorted(EXPECTED_SUPERSET_PARAMS), (

@@ -275,7 +275,9 @@ class FakeProcessingPort:
     def get_attribute_metadata_orm_class(self):
         return MagicMock
 
-    def compute_schema_diff(self, old_columns, new_columns, old_count, new_count):
+    def compute_schema_diff(
+        self, old_columns, new_columns, old_feature_count, new_feature_count
+    ):
         return {}
 
     async def resolve_stac_binding(

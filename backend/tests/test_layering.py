@@ -1921,18 +1921,17 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # search's does: on the catalog that distinction matters for, a partial
         # re-embed, the rows still carrying NULL are the old space.
         # Cap 491 -> 509, exact.
-        # fix(#1590): +43 — pin abort_presigned_multipart_upload,
+        # fix(#1590): +60 — pin abort_presigned_multipart_upload,
         # verify_completed_presigned_upload, and finalize_presigned_object to
         # CatalogPort's explicit keyword-only signatures instead of a bare
         # **kwargs shim, so a missing keyword surfaces at the port boundary
         # rather than deep in the service call.
-        # finalize_presigned_object also keeps accepting
-        # replacing_dataset_id: uuid.UUID | None = None, a structural
-        # superset the Protocol does not declare yet (see the comment on
-        # CatalogPort.finalize_presigned_object in core/catalog_port.py —
-        # adding it there is a version bump, not a cleanup). Cap
-        # 509 -> 552, exact.
-        "backend/app/platform/extensions/defaults_catalog_port.py": 552,
+        # verify_completed_presigned_upload and finalize_presigned_object
+        # also keep accepting replacing_dataset_id: uuid.UUID | None = None,
+        # a structural superset the Protocol does not declare yet (see the
+        # comments on both methods in core/catalog_port.py — adding it there
+        # is a version bump, not a cleanup). Cap 509 -> 569, exact.
+        "backend/app/platform/extensions/defaults_catalog_port.py": 569,
         # feat(#683): +58 — run_analysis_preview carries a clip mask DATASET
         # now, which costs a widened signature (one param per line once ruff
         # wraps it) plus the mask's shape and size gates. Those live here on

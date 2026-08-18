@@ -225,8 +225,7 @@ class DefaultAnthropicProvider:
     # **kwargs shim, matching AIProviderExtension.stream_chat_events
     # exactly. `base_url` is accepted (the Protocol declares it) but unused
     # here — Anthropic's streaming client resolves its own endpoint, same as
-    # `complete()`'s `del temperature` a few lines up for a different unused
-    # keyword.
+    # `del temperature` in `complete()` above for a different unused keyword.
     async def stream_chat_events(  # type: ignore[no-untyped-def]
         self,
         *,
