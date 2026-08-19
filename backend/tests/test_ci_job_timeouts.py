@@ -110,7 +110,12 @@ _CLEANUP_POLL_LOOP = re.compile(
 _SLEEP_SECONDS = re.compile(r"\bsleep\s+(\d+)\b")
 _PKILL_APT_GET = re.compile(r"\bpkill\b[^\n]*-x\s+apt-get\b")
 _PKILL_DPKG = re.compile(r"\bpkill\b[^\n]*-x\s+dpkg\b")
-_PGREP_APT_GET_OR_DPKG = re.compile(r"\bpgrep\b[^\n]*-x\s+(?:apt-get|dpkg)\b")
+# Separate patterns, not one apt-get|dpkg alternation: the real poll line
+# checks BOTH process names independently (`pgrep -x apt-get >/dev/null ||
+# pgrep -x dpkg >/dev/null || break`), and an alternation would still
+# match with either branch deleted.
+_PGREP_APT_GET = re.compile(r"\bpgrep\b[^\n]*-x\s+apt-get\b")
+_PGREP_DPKG = re.compile(r"\bpgrep\b[^\n]*-x\s+dpkg\b")
 _DPKG_CONFIGURE_TIMEOUT_WRAPPED = re.compile(
     r"\btimeout\s+(?:-k\s+(\d+)\s+)?(\d+)\s+dpkg\s+--configure\s+-a\b"
 )
@@ -186,6 +191,13 @@ def test_every_playwright_install_step_bounds_its_inner_apt_get():
                 if not write_match:
                     offenders.append(f"{label}: no apt.conf.d file write found")
                     continue
+                write_target = write_match.group(2)
+                if not write_target.startswith("/etc/apt/apt.conf.d/"):
+                    offenders.append(
+                        f"{label}: write target `{write_target}` is not under "
+                        "/etc/apt/apt.conf.d/"
+                    )
+                    continue
                 directives = write_match.group(1)
                 missing = [
                     d for d in _REQUIRED_APT_CONF_DIRECTIVES if d not in directives
@@ -234,8 +246,10 @@ def _cleanup_budget_seconds(run: str) -> tuple[int | None, str | None]:
     poll_match = _CLEANUP_POLL_LOOP.search(run)
     if not poll_match:
         return None, "no bounded cleanup poll loop (`for _ in ...; do ... done`)"
-    if not _PGREP_APT_GET_OR_DPKG.search(poll_match.group(2)):
-        return None, "cleanup poll loop doesn't check apt-get/dpkg via `pgrep`"
+    if not _PGREP_APT_GET.search(poll_match.group(2)):
+        return None, "cleanup poll loop doesn't check apt-get via `pgrep`"
+    if not _PGREP_DPKG.search(poll_match.group(2)):
+        return None, "cleanup poll loop doesn't check dpkg via `pgrep`"
     poll_iterations = len(poll_match.group(1).split())
     poll_sleep_match = _SLEEP_SECONDS.search(poll_match.group(2))
     if not poll_sleep_match:
