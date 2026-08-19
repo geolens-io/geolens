@@ -27,6 +27,7 @@ const FIELDS = [
   { key: 'banner_color', defaultValue: 'warning' },
   { key: 'public_app_url', defaultValue: '' },
   { key: 'public_api_url', defaultValue: '' },
+  { key: 'privacy_url', defaultValue: '' },
   { key: 'log_level', defaultValue: 'INFO' },
   { key: 'log_json', defaultValue: false },
 ] as const;
@@ -147,6 +148,22 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSavin
           type="text"
           value={values.public_api_url as string}
           onChange={(e) => setters.public_api_url(e.target.value)}
+          disabled={envOnly}
+          className="max-w-md"
+        />
+      </div>
+
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label htmlFor="privacy-url">{t('settings.general.privacyUrl')}</Label>
+          <SettingSourceBadge source={findSetting(settings, 'privacy_url')?.source ?? 'default'} settingKey="privacy_url" onReset={onReset} />
+        </div>
+        <p className="text-sm text-muted-foreground">{t('settings.general.privacyUrlDescription')}</p>
+        <Input
+          id="privacy-url"
+          type="text"
+          value={values.privacy_url as string}
+          onChange={(e) => setters.privacy_url(e.target.value)}
           disabled={envOnly}
           className="max-w-md"
         />

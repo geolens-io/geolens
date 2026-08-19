@@ -475,6 +475,8 @@
       "publicApiUrl": "URL publique de l'API",
       "publicApiUrlDescription": "La base API accessible publiquement. Gardez-la alignée sur l'URL de l'application + /api pour les déploiements par chemin.",
       "publicBaseUrl": "URL de base publique",
+      "privacyUrl": "URL de la politique de confidentialité",
+      "privacyUrlDescription": "Affichée comme lien sur les pages de connexion et d'inscription. Laissez vide pour masquer le lien. Doit être une URL http(s) complète.",
       "logLevel": "Niveau de journalisation",
       "logJsonLabel": "Format de journal (JSON)",
       "logJsonDescription": "Journaux de sortie au format JSON structuré."

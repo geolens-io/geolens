@@ -1,8 +1,11 @@
+import ipaddress
 import sys
 import re
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
+import idna
 from pydantic import (
     Field,
     SecretStr,
@@ -16,6 +19,249 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 def reveal(secret: SecretStr | None) -> str | None:
     """Unwrap an optional SecretStr to its raw value, or return None."""
     return secret.get_secret_value() if secret is not None else None
+
+
+def validate_privacy_url_shape(v: str) -> str:
+    r"""PRIV-1: shape check for the login/register privacy-policy link.
+
+    The value is rendered directly as an ``<a href>`` on an unauthenticated
+    page, so this is a security control, not a formatting nit: a
+    ``javascript:``/``data:``/scheme-relative value here is an XSS payload.
+    Deliberately does NOT reuse the admin settings' path-stripping
+    ``_normalize_absolute_url`` helper — a real operator policy page (Google
+    Docs, Notion, SharePoint) routinely carries a query string or a fragment,
+    and dropping either would silently point the link at the wrong document.
+
+    Shared by three entry points that all need to agree on what "safe"
+    means: this module's own env-value boot validator below, the admin-write
+    validator in ``app.modules.settings.schemas``, and the read-path defense
+    in ``app.modules.settings.router_public`` (a stored value written before
+    this check existed, or by any other path, must not reach the login page
+    unvalidated). It lives here rather than in ``app.core.public_urls``
+    because that module imports this one's ``settings`` singleton at import
+    time, and calling into it from a ``Settings`` field validator would be a
+    circular import -- which is also why the hostname check below is a
+    self-contained allowlist rather than a call to that module's
+    ``canonical_host_error``: it answers a near-identical question (is this
+    hostname spelled the way a browser would show it) and would otherwise be
+    the obvious thing to reuse.
+
+    Deliberately stricter than a browser, all fail-closed -- read a report
+    that one of these refuses a value a browser would accept as a "browser
+    disagreement" finding against this list first, not as a new gap:
+
+    * STD3 rules (``std3_rules=True`` below): rejects ``_`` and a leading
+      or trailing hyphen. A browser's own UTS46 call sets
+      ``CheckHyphens=false`` and ``UseSTD3ASCIIRules=false``, so it accepts
+      both; an operator who needs one has a malformed host, not a policy
+      page.
+    * A percent-encoded byte in the host (``exa%6dple.com``): refused
+      outright rather than decoded. A browser percent-decodes the host
+      before applying UTS46; decoding here first would need to also decide
+      what a decoded ``%2e`` or ``%00`` means to a DNS label, which is
+      exactly the ambiguity ``is_usable_public_origin`` (app.core.public_urls)
+      already refuses for the same reason on a different field.
+    * A backslash in the authority: a browser's WHATWG parser treats
+      ``\`` as ``/`` for an http(s) URL, so ``https://example.com\@evil.com/x``
+      reads as host ``example.com`` with path ``/@evil.com/x`` to a
+      browser, while Python's ``urlsplit`` does not special-case the
+      backslash and finds a userinfo component instead -- rejected here via
+      the userinfo check below, for a different reason than a browser would
+      have accepted it, but rejected either way.
+    * Userinfo (``user:pass@``) anywhere in the authority: refused outright,
+      never stripped and retried.
+    * Whitespace anywhere in the raw string: refused outright. A browser
+      strips a tab/LF/CR from anywhere and percent-encodes a literal space
+      in the path or query instead of refusing the URL.
+    * An IPvFuture literal (``[v1.foo]``) or a scoped/zoned IPv6 literal
+      (``[fe80::1%eth0]``): refused. Neither is a browser rejection --
+      IPvFuture has no browser implementation to compare against, and a
+      zoned address is a real, resolvable thing on the machine that set the
+      zone, just never the machine rendering this login page.
+    * A non-canonical IPv4 spelling (``0x7f.1``, ``192.168.1``, a
+      fullwidth-digit form that maps to one of these): only the exact
+      canonical dotted-quad is accepted, even where a browser's legacy
+      parser would expand a short or hex/octal form to a real address --
+      the point is that what gets stored must be what a browser resolves,
+      and a form that gets silently rewritten on navigation fails that by
+      definition.
+
+    The fragment and query string are the one place this list runs the
+    other way: passed through completely untouched, because a real
+    operator policy page routinely needs one (see the top of this
+    docstring) and a browser does too.
+    """
+    stripped = v.strip()
+    # Whitespace ANYWHERE in the string (not just the ends `.strip()` already
+    # removed) is a known scheme-check bypass: the WHATWG URL parser strips
+    # tabs and newlines from any position before tokenizing, and silently
+    # drops a plain space from inside a host, so "java\tscript:alert(1)" and
+    # "https://exa mple.com/x" both resolve differently in a browser than
+    # `urlsplit` reads them here.
+    if any(c.isspace() for c in stripped):
+        raise ValueError("must not contain whitespace")
+    try:
+        parsed = urlsplit(stripped)
+    except ValueError as exc:
+        # Newer CPython (3.13+) already raises here for some malformed
+        # bracketed authorities, e.g. "https://[1.2.3.4]/x" ("An IPv4
+        # address cannot be in brackets") -- but not for every shape
+        # `_is_valid_privacy_url_host` below rejects, so this is a
+        # convenience early-exit on some interpreters, not a substitute for
+        # that check.
+        raise ValueError(f"is not a valid URL ({exc})") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("must be an absolute http(s) URL")
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("must not include embedded credentials")
+    # A netloc can be non-empty and still have no real host, e.g. "https://:443/x"
+    # (netloc ":443", hostname None) -- a link a browser cannot resolve.
+    if not parsed.hostname:
+        raise ValueError("must include a hostname")
+    if not _is_valid_privacy_url_host(
+        parsed.hostname, bracketed=parsed.netloc.startswith("[")
+    ):
+        raise ValueError("must have a valid DNS hostname or IP literal")
+    # Accessing .port validates both syntax and the 1-65535 range; a bad port
+    # such as "https://example.com:not-a-port/x" would otherwise sail through
+    # (urlsplit leaves the junk sitting in netloc) and pass this check while
+    # remaining a link no browser will follow.
+    try:
+        parsed.port
+    except ValueError:
+        raise ValueError("must not include a malformed port") from None
+    return stripped
+
+
+def _is_unscoped_ipv6_literal(hostname: str) -> bool:
+    """A plain IPv6 literal with no ``%`` zone ID. Split out of
+    ``_is_valid_privacy_url_host`` purely to keep that function's
+    cyclomatic complexity under the repo's ruff limit; see its docstring
+    for why a bracketed authority is restricted to this and nothing else.
+    """
+    if "%" in hostname:
+        return False
+    try:
+        ipaddress.IPv6Address(hostname)
+        return True
+    except ValueError:
+        return False
+
+
+def _is_valid_privacy_url_host(hostname: str, *, bracketed: bool) -> bool:
+    """Hostname validity = idna (UTS46) + our IP/numeric rules.
+
+    ``bracketed`` is True when the URL wrote this host inside ``[...]``.
+    ``urlsplit(...).hostname`` strips the brackets unconditionally, so this
+    flag is the caller's only remaining signal that they were there --
+    ``parsed.netloc.startswith("[")``, checked before ``.hostname`` throws
+    the brackets away. Per RFC 3986, bracketed authority syntax means "this
+    is an IP literal", never a DNS name, whatever the contents look like,
+    so a bracketed host skips every case below: it is accepted ONLY as a
+    plain, unscoped ``ipaddress.IPv6Address``, with no ``%`` zone ID.
+    Without this, ``"[v1.foo]"`` (an IPvFuture literal no browser
+    implements) would fall through to case 2 and look like the ordinary
+    DNS name "v1.foo", ``"[1.2.3.4]"`` (an IPv4 literal, invalid in
+    brackets) would fall through to case 3 and look like a bracket-stripped
+    numeric-last-label host, and ``"[fe80::1%eth0]"`` (a scoped IPv6 zone
+    ID) parses fine under plain ``ipaddress.ip_address`` even though no
+    browser resolves a zone ID from a stored config value.
+
+    Otherwise, a plain, unbracketed IP literal that parses with
+    ``ipaddress.ip_address`` is accepted outright (case 1). Everything else
+    is UTS46-mapped to ASCII FIRST, the same order a browser's own host
+    parser uses, via the ``idna`` package (already a direct backend
+    dependency, pinned in pyproject.toml for a CVE):
+    ``idna.encode(hostname, uts46=True, std3_rules=True)``. This one call
+    replaces what used to be three hand-rolled pieces -- a DNS-label
+    regex, a bespoke Unicode-label validity check, and a manual punycode
+    decode-and-round-trip for an operator-typed "xn--" label -- and covers
+    everything those existed for: STD3 character restrictions (rejects
+    "_", "[", and similar), hyphen placement, the 63-char label and
+    253-char total length limits (verified: idna accepts exactly 253,
+    rejects 254, matching the length check kept below as a second line of
+    defense), empty labels, and the full disallowed/combining-mark
+    code-point set for both a raw Unicode label and an operator-typed
+    "xn--" A-label, since the package decodes and validates that content
+    the same way -- a host's native and punycode spellings can no longer
+    disagree with each other. It also performs the Unicode-to-ASCII
+    mapping a browser applies before deciding whether a host "ends in a
+    number": an ideographic full stop (U+3002, "。") maps to ".", and a
+    fullwidth digit ("１") maps to "1".
+
+    THEN, on that mapped ASCII result (never on the raw hostname -- a
+    fullwidth digit satisfies Python's ``str.isdigit()`` too, so checking
+    the raw string looks right and hands ``ipaddress.IPv4Address`` a string
+    it cannot parse, rejecting a host a browser accepts as plain
+    ``127.0.0.1``), one case is carved out:
+
+    3. A hostname whose LAST label is numeric (all digits) or 0x-prefixed
+       hex: per the WHATWG URL "ends in a number" rule, a browser reads a
+       host in this shape as an attempted IPv4 address, not a DNS name --
+       whether or not it would otherwise look like an ordinary DNS name
+       (case 2). It is accepted ONLY if it is the exact, canonical
+       dotted-quad spelling. "999.999.999.999" and "1.2.3.4.5" have
+       per-label characters that look like an ordinary DNS name but fail a
+       browser's IPv4 parse outright; "192.168.1" succeeds under a
+       browser's legacy 3-part parser but silently becomes 192.168.0.1, a
+       host that does not match what was stored. All three are rejected
+       here, not treated as case 2. Checked with a single trailing DNS
+       root dot already stripped from the mapped form -- otherwise
+       "999.999.999.999." and "192.168.1." would have skipped this case
+       entirely and been accepted as an ordinary (if nonsensical) DNS name,
+       since case 2 has no opinion on IPv4 semantics.
+
+    Everything idna accepted that is not case 3 is case 2, an ordinary DNS
+    name.
+    """
+    if bracketed:
+        return _is_unscoped_ipv6_literal(hostname)
+    try:
+        ipaddress.ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+    # UTS46-map FIRST, THEN look for "ends in a number" -- a browser's own
+    # order. Doing it on the raw hostname instead (the previous version of
+    # this check) has two failure directions: a raw label already ASCII
+    # digits, but reached only after an ideographic full stop (U+3002) maps
+    # to ".", was still invisible to the check ("999。999。999。999" has no
+    # ASCII "." at all, so rsplit(".", 1) never splits it, and the browser
+    # sees "ends in a number" only after mapping); and str.isdigit() is
+    # true for a fullwidth digit ("１２７.０.０.１"), so the OLD check
+    # thought it recognized "ends in a number" and then handed the raw,
+    # un-mapped string to ipaddress.IPv4Address, which does not understand
+    # fullwidth digits and rejected a host a browser accepts as 127.0.0.1.
+    try:
+        ascii_host = idna.encode(hostname, uts46=True, std3_rules=True).decode("ascii")
+    except idna.IDNAError:
+        return False
+    # A single trailing dot is the valid DNS "root" separator
+    # ("https://example.com./x" navigates identically to the same URL
+    # without it); idna.encode leaves it in ascii_host rather than raising,
+    # so it is stripped here -- after mapping, same as WHATWG -- before the
+    # ends-in-a-number check. Two or more is an empty label, which
+    # idna.encode already refused above ("a.." -> "Empty Label").
+    h = ascii_host.removesuffix(".")
+    if not h:
+        return False
+    last = h.rsplit(".", 1)[-1]
+    # ascii_host is already lowercase (idna's ToASCII normalizes case), and
+    # is guaranteed pure ASCII by the .decode("ascii") above, so a plain
+    # ASCII character class replaces the old str.isdigit()/str.startswith()
+    # pair -- str.isdigit() is true for non-ASCII digit code points too,
+    # which is exactly the fullwidth-digit failure this rewrite fixes.
+    # "0x" with no hex digits after it still reads as "a number" to a
+    # browser's host parser.
+    if re.fullmatch(r"[0-9]+|0x[0-9a-f]*", last):
+        try:
+            return str(ipaddress.IPv4Address(h)) == h
+        except ValueError:
+            return False
+    # Belt and braces: idna.encode already enforces this length limit
+    # itself (verified by hand: 253 accepted, 254 "Domain too long"), but a
+    # future idna release relaxing that should not silently loosen ours.
+    return len(ascii_host) <= 253
 
 
 _PROJECT_ROOT_ENV = Path(__file__).resolve().parents[3] / ".env"
@@ -159,6 +405,10 @@ class Settings(BaseSettings):
     public_app_url: str | None = None
     public_api_url: str | None = None
     public_base_url: str | None = None
+    # PRIV-1: privacy-policy link shown on the login/register pages. Unset by
+    # default so a self-hosted instance never links to another operator's
+    # privacy page; set this to the operator's own policy URL to show the link.
+    privacy_url: str | None = None
     # Multi-tenant Host routing is accepted only below this explicit DNS
     # suffix (for example ``geolens.example``). Exact non-tenant service hosts
     # are separately allowlisted for health checks, Compose, and test clients.
@@ -441,6 +691,7 @@ class Settings(BaseSettings):
         "public_app_url",
         "public_api_url",
         "public_base_url",
+        "privacy_url",
         "tenant_base_domain",
         "dcat_contact_email",
         "database_url_override",
@@ -588,6 +839,23 @@ class Settings(BaseSettings):
         if len(hosts) != 1 or not hosts[0] or "," in hosts[0]:
             raise ValueError("DATABASE_URL_OVERRIDE must contain exactly one host")
         return value
+
+    @field_validator("privacy_url", mode="after")
+    @classmethod
+    def validate_privacy_url_env(cls, v: str | None) -> str | None:
+        """PRIV-1: fail boot on an unsafe PRIVACY_URL rather than silently
+        rendering it as an <a href> on the login/register page. This is the
+        ONLY validation an ENV_ONLY_CONFIG deployment ever runs for this
+        value — the admin-write validator in modules/settings/schemas.py
+        never sees it in that mode. See validate_privacy_url_shape above for
+        what "unsafe" means.
+        """
+        if v is None:
+            return None
+        try:
+            return validate_privacy_url_shape(v)
+        except ValueError as exc:
+            raise ValueError(f"PRIVACY_URL {exc}") from exc
 
     @field_validator("geolens_runtime_db_role", mode="after")
     @classmethod

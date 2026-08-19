@@ -13,7 +13,8 @@ import { LoginForm } from '@/components/auth/LoginForm';
 import { OAuthButtons } from '@/components/auth/OAuthButtons';
 import { Button } from '@/components/ui/button';
 import { useDocumentTitle } from '@/hooks/use-document-title';
-import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
+import { useBranding } from '@/hooks/use-settings';
+import { isSafeHttpUrl } from '@/lib/safe-http-url';
 import { writeSessionStorage } from '@/lib/storage';
 
 function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<string, string>) => string): string {
@@ -213,6 +214,8 @@ function BrandMapBackdrop() {
 export function LoginPage() {
   const { t } = useTranslation('auth');
   useDocumentTitle(t('common:pageTitle.login'));
+  const { data: branding } = useBranding();
+  const privacyUrl = branding?.privacy_url;
   const token = useAuthStore((s) => s.token);
   const location = useLocation();
   const navigate = useNavigate();
@@ -402,18 +405,20 @@ export function LoginPage() {
           </div>
 
           {/* Legal */}
-          <p className="mt-5 text-center text-mini leading-relaxed text-muted-foreground">
-            {t('consentNote')}{' '}
-            <a
-              href={GEOLENS_PRIVACY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline decoration-border underline-offset-2 hover:text-foreground"
-            >
-              {t('privacyPolicy')}
-            </a>
-            {t('consentNoteSuffix')}
-          </p>
+          {isSafeHttpUrl(privacyUrl) && (
+            <p className="mt-5 text-center text-mini leading-relaxed text-muted-foreground">
+              {t('consentNote')}{' '}
+              <a
+                href={privacyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-border underline-offset-2 hover:text-foreground"
+              >
+                {t('privacyPolicy')}
+              </a>
+              {t('consentNoteSuffix')}
+            </p>
+          )}
 
           {/* Signup gate (#266): show when allow_signup is true;
               fall back to registration_enabled for older servers. */}

@@ -69,7 +69,7 @@ describe('AppLayout', () => {
       isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: true },
+      data: { show_badge: true, privacy_url: null },
     } as ReturnType<typeof useBranding>);
   });
 
@@ -256,7 +256,7 @@ describe('AppLayout', () => {
       isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: false },
+      data: { show_badge: false, privacy_url: null },
     } as ReturnType<typeof useBranding>);
     renderAppLayout();
     const footer = screen.getByRole('contentinfo');
@@ -275,7 +275,7 @@ describe('AppLayout', () => {
       isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: true },
+      data: { show_badge: true, privacy_url: null },
     } as ReturnType<typeof useBranding>);
     renderAppLayout();
     expect(screen.getByRole('contentinfo')).toHaveTextContent('Powered by GeoLens');
@@ -283,7 +283,7 @@ describe('AppLayout', () => {
 
   it('always shows Powered by GeoLens branding in community mode regardless of branding setting', () => {
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: false },
+      data: { show_badge: false, privacy_url: null },
     } as ReturnType<typeof useBranding>);
     renderAppLayout();
     expect(screen.getByRole('contentinfo')).toHaveTextContent('Powered by GeoLens');

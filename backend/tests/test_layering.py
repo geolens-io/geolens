@@ -2135,7 +2135,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # closed enums, with the descriptions that say which columns are absent
     # (link status) and why.
     "backend/app/modules/admin/router_operations.py": 316,
-    "backend/app/modules/settings/router_public.py": 150,
+    # PRIV-1: +7 lines — GET /settings/branding/ also resolves and returns
+    # PRIVACY_URL, so the login/register privacy-policy link is admin
+    # configurable instead of a hardcoded getgeolens.com URL.
+    # PRIV-1 (pre-review): +18 — the reader re-checks a stored/env privacy_url
+    # against the shape rule and drops (+ logs) an unsafe one instead of
+    # serving it as a login-page <a href>; a stored value can predate the
+    # check or bypass PersistentConfig.set()'s validation entirely.
+    "backend/app/modules/settings/router_public.py": 175,
 }
 
 
@@ -2851,7 +2858,91 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # enumerate what the setting controls say so. This setting exists because
     # security posture was once keyed off a flag documented as log-format only;
     # an under-documented coupling is the same mistake. Cap 1104 -> 1107, exact.
-    "backend/app/core/config.py": 1107,
+    # PRIV-1: +5 — a privacy_url Settings field (env-backed default for the
+    # login/register privacy-policy link) plus its empty-string normalizer
+    # entry. Cap 1107 -> 1112, exact.
+    # PRIV-1 (pre-review): +49 — a shared validate_privacy_url_shape helper
+    # (reused by the admin-write validator and the read-path defense in
+    # modules/settings) plus the field_validator that fails boot on an unsafe
+    # PRIVACY_URL. Both are large because they document why the check exists
+    # and why it lives in core/config.py instead of core/public_urls.py
+    # (avoiding a circular import). Cap 1112 -> 1161, exact.
+    # PRIV-1 (r2 pre-review): +7 — hoisted the urlsplit import to module scope
+    # and rejected embedded tab/newline/CR characters (a documented WHATWG
+    # URL scheme-check bypass) in validate_privacy_url_shape.
+    # Cap 1161 -> 1168, exact.
+    # PRIV-1 (codex r1): +12 — validate_privacy_url_shape now rejects an empty
+    # hostname (a netloc like ":443" passes the earlier netloc-truthy check
+    # but resolves nowhere) and a malformed port (urlsplit leaves the junk
+    # sitting in netloc instead of rejecting it; accessing .port is what
+    # actually validates it, same pattern as validate_database_url_override
+    # above). Cap 1168 -> 1180, exact.
+    # PRIV-1 (codex r2): +28 — the whitespace check widened from tab/CR/LF
+    # only to any whitespace character (a plain space inside a host is a
+    # WHATWG-vs-urlsplit disagreement too), and a new _is_valid_privacy_url_host
+    # allowlist (DNS labels or an IP literal) replaces trusting whatever
+    # urlsplit left in .hostname. Deliberately not a call to
+    # app.core.public_urls.canonical_host_error, which answers a
+    # near-identical question, because that would be the same circular
+    # import validate_privacy_url_shape's own docstring already rules out.
+    # Cap 1180 -> 1208, exact.
+    # PRIV-1 (codex r3): +21 — the DNS-label branch alone accepted a
+    # numeric-last-label host ("999.999.999.999", "1.2.3.4.5", "192.168.1")
+    # that a browser reads as an attempted (and often different-resolving)
+    # IPv4 address, per the WHATWG "ends in a number" rule. That branch now
+    # requires the exact canonical dotted-quad spelling instead of falling
+    # through to the DNS-label check. Cap 1208 -> 1229, exact.
+    # PRIV-1 (codex r4): +20 — the DNS-name branch (case 2) now IDNA-encodes
+    # the hostname before applying the label regex, so a browser-valid
+    # internationalized host like 例え.テスト is accepted rather than rejected
+    # by an ASCII-only regex. Also rejects a label that starts with a
+    # Unicode combining mark, which Python's stdlib "idna" codec (IDNA2003)
+    # encodes without error even though no browser accepts it.
+    # Cap 1229 -> 1249, exact.
+    # PRIV-1 (codex r5): +30 — a label the operator spelled directly as
+    # ACE/"xn--" punycode (not one this function IDNA-encoded itself) must
+    # decode to a real IDN label. "xn--a" decodes to a bare C1 control byte
+    # (U+0080) without raising and round-trips cleanly back to "a", so the
+    # round-trip check alone does not catch it; also rejects a decoded
+    # control/format/surrogate/private-use/unassigned character explicitly.
+    # Cap 1249 -> 1279, exact.
+    # PRIV-1 (codex r6): +44 — a bracketed authority ("[...]") is now
+    # restricted to a plain, unscoped IPv6 literal rather than falling
+    # through to the DNS-name or numeric-last-label branches once
+    # `.hostname` strips the brackets, which otherwise accepted an
+    # IPvFuture literal ([v1.foo]), an IPv4-in-brackets ([1.2.3.4]), and a
+    # scoped IPv6 zone ID ([fe80::1%eth0]). Split into a small
+    # _is_unscoped_ipv6_literal helper to stay under ruff's cyclomatic
+    # complexity limit. Cap 1279 -> 1323, exact.
+    # PRIV-1 (codex r7): +23 — unified the U-label combining-mark check and
+    # the decoded-A-label control-character check into one _check_ulabel
+    # function, called from both sites, so "xn--lsa" (the punycode spelling
+    # of a bare combining mark, which only the A-label check saw) gets the
+    # same verdict as its literal U-label form. Cap 1323 -> 1346, exact.
+    # PRIV-1 (codex r8): -57 (SHRANK) — replaced the hand-rolled DNS-label
+    # regex + _check_ulabel + manual punycode decode/round-trip with one
+    # call to the `idna` package's UTS46 ToASCII (already a direct backend
+    # dependency, pinned in pyproject.toml for a CVE), which enforces the
+    # same rules plus the ones a hand-rolled check missed (U+FE47, which
+    # UTS46 maps to "[" and then rejects). Cap 1346 -> 1289, exact.
+    # PRIV-1 (codex r9): +18 — a single trailing DNS root dot is now
+    # stripped before the numeric-last-label check: `rsplit(".", 1)[-1]`
+    # on "192.168.1." returns "", which skipped the ends-in-a-number branch
+    # entirely and let idna.encode() (DNS syntax only, no IPv4 opinion)
+    # accept "999.999.999.999." and "192.168.1." as ordinary-looking DNS
+    # names. Cap 1289 -> 1307, exact.
+    # PRIV-1 (Ian's own review): +68 — the numeric-last-label check now
+    # runs on the UTS46-mapped ASCII form (idna.encode's output), not the
+    # raw hostname: an ideographic full stop (U+3002, "。") has no ASCII "."
+    # for rsplit to find until mapped, and str.isdigit() is true for a
+    # fullwidth digit ("１"), so the OLD raw-hostname check both missed
+    # "999。999。999。999" (no split point) and wrongly rejected
+    # "１２７.０.０.１" (handed the un-mapped string to IPv4Address). Also
+    # added one docstring paragraph enumerating every place this check is
+    # deliberately stricter than a browser, so a future "browser accepts,
+    # we reject" report is read against that list first. Cap 1307 -> 1375,
+    # exact.
+    "backend/app/core/config.py": 1375,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
@@ -2870,7 +2961,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # problem at all and needs EmbeddingProviderExtension widened. Without the
     # note the next reader assumes an atomic eviction covered both.
     # Cap 1007 -> 1018, exact.
-    "backend/app/core/persistent_config.py": 1018,
+    # PRIV-1: +11 — a PRIVACY_URL PersistentConfig on the "general" tab (not
+    # "branding", which ENTERPRISE_ONLY_TABS gates) for the login/register
+    # privacy-policy link. Cap 1018 -> 1029, exact.
+    "backend/app/core/persistent_config.py": 1029,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with

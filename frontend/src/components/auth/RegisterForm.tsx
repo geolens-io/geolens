@@ -14,7 +14,8 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { GEOLENS_PRIVACY_URL } from '@/lib/external-links';
+import { useBranding } from '@/hooks/use-settings';
+import { isSafeHttpUrl } from '@/lib/safe-http-url';
 
 interface RegisterFormProps {
   onSuccess: (
@@ -30,6 +31,8 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const { t } = useTranslation('auth');
+  const { data: branding } = useBranding();
+  const privacyUrl = branding?.privacy_url;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -117,18 +120,20 @@ export function RegisterForm({ onSuccess }: RegisterFormProps) {
               {t('signIn')}
             </Link>
           </p>
-          <p className="text-center text-xs text-muted-foreground">
-            {t('consentNote')}{' '}
-            <a
-              href={GEOLENS_PRIVACY_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-foreground"
-            >
-              {t('privacyPolicy')}
-            </a>
-            {t('consentNoteSuffix')}
-          </p>
+          {isSafeHttpUrl(privacyUrl) && (
+            <p className="text-center text-xs text-muted-foreground">
+              {t('consentNote')}{' '}
+              <a
+                href={privacyUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-foreground"
+              >
+                {t('privacyPolicy')}
+              </a>
+              {t('consentNoteSuffix')}
+            </p>
+          )}
         </form>
       </CardContent>
     </Card>

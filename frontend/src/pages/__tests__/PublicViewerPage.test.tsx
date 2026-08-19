@@ -149,7 +149,7 @@ describe('PublicViewerPage', () => {
     });
 
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: false },
+      data: { show_badge: false, privacy_url: null },
     } as ReturnType<typeof useBranding>);
   });
 

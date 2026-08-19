@@ -5,6 +5,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.config import validate_privacy_url_shape
 from app.core.public_urls import (
     canonical_host_error,
     is_api_base_path,
@@ -235,6 +236,15 @@ class BrandingResponse(BaseModel):
             "footers. Badge-removal writes are restricted controls."
         )
     )
+    privacy_url: str | None = Field(
+        default=None,
+        description=(
+            "Operator-configured privacy-policy URL shown on the login and "
+            "register pages, or null when unset (no link is shown). Must be "
+            "an absolute http(s) URL with no embedded credentials; a query "
+            "string or fragment is allowed and preserved as-is."
+        ),
+    )
 
 
 class ConfigModeResponse(BaseModel):
@@ -464,6 +474,33 @@ def validate_public_api_url(v: Any) -> str:
     return _normalize_absolute_url(v)
 
 
+def validate_privacy_url(v: Any) -> str:
+    """PRIV-1: the login/register privacy-policy link. Unset clears it.
+
+    Deliberately NOT ``_normalize_absolute_url`` (above): that helper rejects
+    a query string or fragment, but a real operator policy page (Google
+    Docs, Notion, SharePoint) routinely carries one, and stripping it would
+    silently point the login/register link at the wrong document. Uses the
+    shared shape check in ``app.core.config.validate_privacy_url_shape``
+    instead, so this admin-write path agrees with the env-value boot
+    validator and the read-path defense in router_public.py on what "safe"
+    means for a value rendered as a raw ``<a href>``.
+    """
+    # `v is None`, not `not v`: JSON null is a legitimate clear (matching
+    # validate_enabled_plugins), but a falsy non-string -- False, 0, [], {}
+    # -- is a type error, not a clear. `not v` caught those too and
+    # returned "" before the isinstance check below ever ran.
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return ""
+    if not isinstance(v, str):
+        raise ValueError("Value must be a string")
+    # No local re-wrap of the ValueError: the caller (router.py's
+    # _canonicalize_setting_value) already prefixes it with "Validation
+    # error for 'privacy_url': ...", so an added prefix here just duplicated
+    # the key name in the response detail.
+    return validate_privacy_url_shape(v)
+
+
 # Mapping from setting key to validator function
 def validate_enabled_plugins(v: Any) -> list[str] | None:
     if v is None:
@@ -619,6 +656,7 @@ SETTING_VALIDATORS: dict[str, Any] = {
     "public_app_url": validate_public_app_url,
     "public_api_url": validate_public_api_url,
     "public_base_url": validate_public_api_url,
+    "privacy_url": validate_privacy_url,
     "enabled_plugins": validate_enabled_plugins,
     "access_token_expire_minutes": validate_access_token_expire,
     "refresh_token_expire_days": validate_refresh_token_expire,

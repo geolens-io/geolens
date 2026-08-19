@@ -797,6 +797,147 @@ class TestLogLevelValidator:
         assert "LOG_LEVEL" in str(exc_info.value)
 
 
+class TestPrivacyUrlValidator:
+    """PRIV-1: PRIVACY_URL is rendered as a raw <a href> on the login page,
+    so an unsafe value must fail boot rather than reach the browser. This is
+    the ONLY validation an ENV_ONLY_CONFIG deployment ever runs for it — the
+    admin-write validator never sees an env-sourced value in that mode.
+    """
+
+    def test_unset_stays_none(self):
+        s = _make_settings(privacy_url="")
+        assert s.privacy_url is None
+
+    def test_safe_url_accepted(self):
+        s = _make_settings(privacy_url="https://example.com/privacy")
+        assert s.privacy_url == "https://example.com/privacy"
+
+    def test_query_and_fragment_preserved(self):
+        value = "https://docs.google.com/document/d/abc/edit?usp=sharing#h.xyz"
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://[::1]/x",
+            "https://10.0.0.1:8443/x",
+            "https://[2001:db8::1]:8443/x",
+        ],
+    )
+    def test_ip_literal_host_accepted(self, value):
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://例え.テスト/privacy",
+            "https://xn--r8jz45g.xn--zckzah/privacy",
+        ],
+    )
+    def test_internationalized_host_accepted_unchanged(self, value):
+        """Stored and served exactly as entered, in either its native
+        Unicode spelling or its already-punycode form -- not rewritten to a
+        canonical form, matching what a browser does with the same input.
+        """
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "not-a-url",
+            "javascript:alert(document.cookie)",
+            "data:text/html,<script>alert(1)</script>",
+            "//evil.example.com/p",
+            "https://user:pass@example.com/privacy",
+            "https://example.com:not-a-port/x",
+            "https://:443/x",
+            "https://exa mple.com/x",
+            "https://exam_ple.com/x",
+            "https://-bad.com/x",
+            "https://999.999.999.999/x",
+            "https://1.2.3.4.5/x",
+            "https://192.168.1/x",
+            "https://0x7f.1/x",
+            "https://a..b/x",
+            "https://́.example.com/x",
+            "https://xn--a.com/x",
+            "https://xn--.com/x",
+            "https://[v1.foo]/x",
+            "https://[fe80::1%25eth0]/x",
+            "https://[fe80::1%eth0]/x",
+            "https://[1.2.3.4]/x",
+            "https://xn--lsa.example/x",
+            "https://﹇.com/x",
+            "https://192.168.1./x",
+            "https://999.999.999.999./x",
+            "https://999。999。999。999/x",
+            "https://192.168.1。/x",
+        ],
+    )
+    def test_unsafe_value_fails_boot(self, value):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(privacy_url=value)
+        assert "PRIVACY_URL" in str(exc_info.value)
+
+    @pytest.mark.parametrize(
+        "host, accepted",
+        [
+            ("例え.テスト", True),
+            ("́.example.com", False),  # a bare combining mark as a label
+        ],
+    )
+    def test_ulabel_and_alabel_forms_get_the_same_verdict(self, host, accepted):
+        """PRIV-1 (codex r7): a host's native Unicode (U-label) spelling and
+        its IDNA-encoded ("xn--...", A-label) spelling must always agree --
+        which one the operator happened to type is never why one is
+        accepted and the other rejected. Skips the A-form comparison for a
+        host IDNA itself cannot encode (there is no A-form to compare).
+        """
+        u_url = f"https://{host}/x"
+        if accepted:
+            s = _make_settings(privacy_url=u_url)
+            assert s.privacy_url == u_url
+        else:
+            with pytest.raises(Exception):
+                _make_settings(privacy_url=u_url)
+
+        try:
+            a_host = host.encode("idna").decode("ascii")
+        except UnicodeError:
+            return
+
+        a_url = f"https://{a_host}/x"
+        if accepted:
+            s = _make_settings(privacy_url=a_url)
+            assert s.privacy_url == a_url
+        else:
+            with pytest.raises(Exception):
+                _make_settings(privacy_url=a_url)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "https://10.0.0.1./x",
+            "https://example.com./x",
+            "https://１２７.０.０.１/x",
+            "https://例え。テスト/x",
+        ],
+    )
+    def test_uts46_mapped_host_accepted(self, value):
+        """Browser-valid hosts that only pass because UTS46 mapping runs
+        before every other check, stored exactly as entered (never
+        rewritten to a canonical or mapped form): a single trailing DNS
+        root dot on a canonical IPv4 host and on an ordinary DNS name, a
+        fullwidth-digit IPv4 host, and an internationalized DNS name
+        written with ideographic full stops instead of ASCII dots.
+        """
+        s = _make_settings(privacy_url=value)
+        assert s.privacy_url == value
+
+
 class TestSecretStrMasking:
     """Sensitive fields use SecretStr so values are masked in repr/str/dump."""
 

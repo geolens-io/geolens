@@ -101,7 +101,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: true },
+      data: { show_badge: true, privacy_url: null },
     } as ReturnType<typeof useBranding>);
 
     render(<ViewerMap {...MINIMAL_PROPS} showInlineBranding={true} />);
@@ -120,7 +120,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: false },
+      data: { show_badge: false, privacy_url: null },
     } as ReturnType<typeof useBranding>);
 
     render(<ViewerMap {...MINIMAL_PROPS} showInlineBranding={true} />);
@@ -138,7 +138,7 @@ describe('ViewerMap — SHARE-07 branding overlay', () => {
       isResolved: true,
     });
     mockedUseBranding.mockReturnValue({
-      data: { show_badge: true },
+      data: { show_badge: true, privacy_url: null },
     } as ReturnType<typeof useBranding>);
 
     render(<ViewerMap {...MINIMAL_PROPS} showInlineBranding={true} />);

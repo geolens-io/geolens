@@ -115,6 +115,12 @@ const MIRRORS: MirrorShape[] = [
     optional: [],
   },
   {
+    schema: 'BrandingResponse',
+    source: 'settings.ts BrandingConfig',
+    required: ['show_badge'],
+    optional: ['privacy_url'],
+  },
+  {
     schema: 'RelatedDatasetItem',
     source: 'datasets.ts RelatedDatasetItem',
     // geometry_type/record_type/feature_count/band_count are `T | null` (present

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import validate_privacy_url_shape
 from app.core.dependencies import get_db
 from app.core.edition import get_edition
 from app.core.persistent_config import (
@@ -13,6 +15,7 @@ from app.core.persistent_config import (
     ENABLE_DATASET_EDITING,
     ENABLED_PLUGINS,
     MAP_DEFAULTS,
+    PRIVACY_URL,
     REQUIRE_METADATA_FOR_PUBLISH,
     get_cached_basemap_proxy_rate_limit,
 )
@@ -24,6 +27,8 @@ from app.modules.settings.schemas import (
     FeatureFlagsResponse,
     MapDefaultsResponse,
 )
+
+logger = structlog.stdlib.get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["Admin"])
 
@@ -69,6 +74,14 @@ async def get_feature_flags(
 
 
 @router.get("/branding", response_model=BrandingResponse, include_in_schema=False)
+# PRIV-1: privacy_url rides this endpoint even though its PersistentConfig
+# lives on the "general" tab, not "branding". GET /settings/branding/ is
+# already the one public, unauthenticated config bundle fetched pre-auth
+# (login/register need it before a session exists), so reusing it avoids a
+# second endpoint for one optional string. Read the shape check again here
+# (not just trust the admin-write validator or the boot validator on the env
+# value): a row written before either check existed, or by any other path,
+# must not reach the login page as an unvalidated <a href>.
 @router.get("/branding/", response_model=BrandingResponse)
 async def get_branding(
     db: AsyncSession = Depends(get_db),
@@ -87,7 +100,20 @@ async def get_branding(
     show_badge = (
         persisted if persisted is not None else bool(defaults.get("show_badge", True))
     )
-    return BrandingResponse(show_badge=show_badge)
+    privacy_url = await PRIVACY_URL.get(db)
+    if privacy_url:
+        try:
+            privacy_url = validate_privacy_url_shape(privacy_url)
+        except ValueError:
+            logger.warning(
+                "settings.privacy_url.invalid_stored_value_dropped",
+                message=(
+                    "Stored privacy_url failed the shape check at read time; "
+                    "dropping it instead of serving it as a login-page link."
+                ),
+            )
+            privacy_url = ""
+    return BrandingResponse(show_badge=show_badge, privacy_url=privacy_url or None)
 
 
 @router.get(

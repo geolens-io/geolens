@@ -372,6 +372,7 @@ services:
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
       PUBLIC_API_URL: ${PUBLIC_API_URL:-http://localhost:8080/api}
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-}
+      PRIVACY_URL: ${PRIVACY_URL:-}
       DCAT_CONTACT_EMAIL: ${DCAT_CONTACT_EMAIL:-}
       REDIS_URL: "${REDIS_URL:-}"
       CDN_BASE_URL: "${CDN_BASE_URL:-}"
