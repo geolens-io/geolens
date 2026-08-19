@@ -1072,15 +1072,19 @@ async def test_put_public_url_null_and_empty_still_clear(
 ):
     """JSON null and an empty/whitespace string remain legitimate clears,
     distinct from the falsy non-strings rejected above."""
-    resp = await client.put(
-        "/settings/",
-        json={"settings": {key: explicit_value}},
-        headers=admin_auth_header,
-    )
-    assert resp.status_code == 200
-    assert _general_tab_values(resp.json())[key] == explicit_value
-
     for clearing_value in (None, "", "   "):
+        # Re-set the explicit value before every clear, so each clearing
+        # value is tested against a value that is actually set; otherwise
+        # the second and third iterations would pass against an
+        # already-cleared key no matter what they did.
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {key: explicit_value}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert _general_tab_values(resp.json())[key] == explicit_value
+
         resp = await client.put(
             "/settings/",
             json={"settings": {key: clearing_value}},
