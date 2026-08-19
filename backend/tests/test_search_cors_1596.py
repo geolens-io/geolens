@@ -163,6 +163,72 @@ async def test_search_exposes_the_headers_it_sets(client, deny_all_origins):
     assert "content-language" in exposed
 
 
+@pytest.fixture
+def one_search_per_minute(monkeypatch):
+    """Arm the limiter and drop the semantic-search limit to 1/minute.
+
+    ``_semantic_search_rate_limit`` reads ``get_cached_semantic_search_rate_limit``
+    at request time, so patching the router's reference is enough. The limiter
+    is off under test by default; switch it on and reset its storage so the
+    count starts at zero for this test and leaves nothing behind.
+    """
+    from app.platform.ratelimit import limiter
+
+    monkeypatch.setattr(
+        "app.modules.catalog.search.router.get_cached_semantic_search_rate_limit",
+        lambda: 1,
+    )
+    original_enabled = limiter.enabled
+    limiter.enabled = True
+    limiter._storage.reset()
+    try:
+        yield
+    finally:
+        limiter.enabled = original_enabled
+        limiter._storage.reset()
+
+
+@pytest.mark.parametrize(
+    "policy_fixture, origin, expected_allow_origin",
+    [
+        ("deny_all_origins", _FOREIGN_ORIGIN, "*"),
+        ("allow_one_origin", _ALLOWED_ORIGIN, _ALLOWED_ORIGIN),
+    ],
+    ids=["wildcard", "credentialed"],
+)
+async def test_a_429_exposes_its_retry_window(
+    client,
+    request,
+    one_search_per_minute,
+    policy_fixture,
+    origin,
+    expected_allow_origin,
+):
+    """A rate-limited search is still a CORS response, and its ``Retry-After``
+    has to be readable.
+
+    ``_rate_limit_handler`` (api/main.py) sets ``Retry-After`` on every 429.
+    The header is not CORS-safelisted, so unless it is named in
+    ``Access-Control-Expose-Headers`` a cross-origin caller sees the 429 and
+    cannot read how long to back off (codex on #1601). Both policies are
+    checked: the anonymous wildcard this fix added, and the credentialed one
+    that already served an allowed origin.
+    """
+    request.getfixturevalue(policy_fixture)
+    headers = {"Origin": origin}
+    first = await client.get("/search/datasets/?q=subway", headers=headers)
+    assert first.status_code == 200, first.text
+    limited = await client.get("/search/datasets/?q=subway", headers=headers)
+    assert limited.status_code == 429, limited.text
+    assert limited.headers["access-control-allow-origin"] == expected_allow_origin
+    assert "retry-after" in limited.headers, dict(limited.headers)
+    exposed = {
+        header.strip().lower()
+        for header in limited.headers["access-control-expose-headers"].split(",")
+    }
+    assert "retry-after" in exposed, sorted(exposed)
+
+
 @pytest.mark.parametrize(
     "credential",
     [

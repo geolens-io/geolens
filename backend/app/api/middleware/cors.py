@@ -164,6 +164,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Expose-Headers"] = (
             "X-Total-Count, Link, Content-Crs, Content-Language, "
             "ETag, Content-Range, Accept-Ranges, Content-Disposition, "
+            "Retry-After, "
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
@@ -260,12 +261,16 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         """Answer an anonymous public request with the credential-free policy.
 
         The Expose-Headers list is shared across both public surfaces. It
-        already covers everything the search routes set that a browser would
-        otherwise hide: ``standard_response_headers`` sets ``Vary``,
-        ``Content-Language`` and ``Link``, and ``Link`` — which carries the
-        next/prev pagination hrefs — is the only one of those that is not
-        CORS-safelisted. Search sets no count or rate-limit response header, so
-        nothing new is exposed anonymously by fix(#1596).
+        covers everything the search routes set that a browser would otherwise
+        hide: ``standard_response_headers`` sets ``Vary``, ``Content-Language``
+        and ``Link``, and ``Link`` — which carries the next/prev pagination
+        hrefs — is the only one of those that is not CORS-safelisted. Search
+        sets no count header. It does rate-limit (the per-IP semantic-search
+        limit on ``/search/datasets`` and the global limiter), and
+        ``_rate_limit_handler`` in ``api/main.py`` puts ``Retry-After`` on that
+        429; ``Retry-After`` is not safelisted, so it is listed here and on the
+        credentialed policy too, or a cross-origin caller sees the 429 and
+        cannot read the retry window (codex on #1601).
 
         No ``Vary: Origin`` here, and none on the credentialed policy either:
         the shipped ``frontend/nginx.conf`` serves ``location /api/`` with
@@ -280,7 +285,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         if requested_headers:
             response.headers["Access-Control-Allow-Headers"] = requested_headers
         response.headers["Access-Control-Expose-Headers"] = (
-            "Link, Content-Crs, Content-Language, "
+            "Link, Content-Crs, Content-Language, Retry-After, "
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
