@@ -493,6 +493,92 @@ def test_replace_map_layers_handles_a_map_whose_layers_already_cascaded():
     assert api.added == [{"dataset_id": "d1"}]
 
 
+# --- every retained duplicate is rebound (#1607 review r4) --------------------
+
+
+class _MultiRowApi:
+    """A fake holding several same-named rows, each with its own layer stack."""
+
+    def __init__(self, rows):
+        self._rows = {rid: list(layers) for rid, layers in rows.items()}
+        self.added = {rid: [] for rid in rows}
+        self.deleted_layers = {rid: [] for rid in rows}
+        self.views = {}
+        self.deleted_maps = []
+
+    def get_map(self, map_id):
+        return {"id": map_id, "layers": self._rows[map_id]}
+
+    def delete_layer(self, map_id, layer_id):
+        self.deleted_layers[map_id].append(layer_id)
+
+    def add_layer(self, map_id, body):
+        self.added[map_id].append(body)
+
+    def set_view(self, map_id, **fields):
+        self.views[map_id] = fields
+
+    def visibility_check(self, map_id):
+        return {"has_non_public": False}
+
+    def delete_map(self, map_id):  # pragma: no cover - must never be called
+        self.deleted_maps.append(map_id)
+
+
+@pytest.mark.parametrize(
+    ("newest", "retained", "expected"),
+    [
+        # The ordinary case: one row, resolved and retained, rebound once.
+        ("m-new", ["m-new"], ["m-new"]),
+        # Duplicates an older --force stacked up: all of them, primary first.
+        ("m-new", ["m-new", "m-old"], ["m-new", "m-old"]),
+        ("m-new", ["m-old", "m-new"], ["m-new", "m-old"]),
+        # The row vanished during the STAC window: nothing to rebind, and the
+        # builder falls through to create_map.
+        (None, [], []),
+        # --force-pinned deleted them all; the fresh row is not retained.
+        (None, [], []),
+        # Retained but no longer resolvable by name (renamed underneath us):
+        # still rebound, because it still holds the uuid.
+        (None, ["m-old"], ["m-old"]),
+    ],
+)
+def test_rows_to_rebind(newest, retained, expected):
+    assert seeder._rows_to_rebind(newest, retained) == expected
+
+
+def test_every_retained_duplicate_is_rebound_and_none_is_deleted():
+    """The r4 hole: the scene delete cascades EVERY retained row's layers away.
+
+    Rebinding only the primary would leave the other rows holding their uuids
+    with no layers at all - an empty map behind a link the examples may use,
+    which is worse than the stale map the pin exists to avoid.
+    """
+    api = _MultiRowApi({"m-new": [{"id": "l-new-1"}], "m-old": [{"id": "l-old-1"}]})
+    layers = [{"dataset_id": "d1", "sort_order": 0}, {"dataset_id": "d2"}]
+
+    primary = seeder._rebind_pinned_rows(
+        api, ["m-new", "m-old"], "New York From Orbit", layers, {"visibility": "public"}
+    )
+
+    assert primary == "m-new"
+    for row in ("m-new", "m-old"):
+        assert api.added[row] == layers, f"{row} did not get the fresh stack"
+        assert api.deleted_layers[row], f"{row} kept its old layers"
+        assert api.views[row] == {"visibility": "public"}, f"{row} missed set_view"
+    assert api.deleted_maps == []
+
+
+def test_rebinding_reports_each_duplicate(capsys):
+    api = _MultiRowApi({"m-new": [], "m-old": []})
+    seeder._rebind_pinned_rows(api, ["m-new", "m-old"], "n", [], {})
+    out = capsys.readouterr().out
+    # The primary's line is the builder's "-> map"; only the extras announce
+    # themselves here, or a single-row repair would print a confusing echo.
+    assert "also rebound duplicate row m-old" in out
+    assert "m-new" not in out
+
+
 def test_sentinel2_does_not_return_on_a_pinned_keep():
     """The pinned keep must not short-circuit the repair.
 
@@ -528,30 +614,39 @@ def test_sentinel2_does_not_return_on_a_pinned_keep():
     ]
     assert bindings, "build_sentinel2 must keep the pin decision, not return on it"
 
-    # And it must reuse the row: a create_map call guarded by that decision,
-    # plus the in-place rebind.
+    # And it must reuse the rows: the retained-row list feeds the rebind.
     called = {
         n.func.id
         for n in ast.walk(body)
         if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
     }
-    assert "_replace_map_layers" in called
+    assert "_rows_to_rebind" in called
+    assert "_rebind_pinned_rows" in called
 
 
-def test_only_sentinel2_replaces_layers_in_place():
-    """No other builder rebinds a stack; they create their maps outright."""
-    users = {
+def _callers_of(fname: str) -> set[str]:
+    return {
         node.name
         for node in ast.walk(ast.parse(SOURCE))
         if isinstance(node, ast.FunctionDef)
         and any(
             isinstance(c, ast.Call)
             and isinstance(c.func, ast.Name)
-            and c.func.id == "_replace_map_layers"
+            and c.func.id == fname
             for c in ast.walk(node)
         )
     }
-    assert users == {"build_sentinel2"}
+
+
+def test_only_sentinel2_replaces_layers_in_place():
+    """No other builder rebinds a stack; they create their maps outright.
+
+    The rebind goes through _rebind_pinned_rows so that EVERY retained row is
+    rebound, not just the primary - a builder reaching _replace_map_layers
+    directly would be back to rebinding one row (fix(#1607 review r4)).
+    """
+    assert _callers_of("_replace_map_layers") == {"_rebind_pinned_rows"}
+    assert _callers_of("_rebind_pinned_rows") == {"build_sentinel2"}
 
 
 # --- the outcome main() reports (#1607 review r2) -----------------------------

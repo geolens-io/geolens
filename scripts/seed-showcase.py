@@ -1966,6 +1966,49 @@ def _replace_map_layers(api: Api, map_id: str, layers: list[dict]) -> int:
     return len(layers)
 
 
+def _rows_to_rebind(newest: str | None, retained: list[str]) -> list[str]:
+    """Every map row a pinned repair has to rebind, primary first, deduped.
+
+    fix(#1607 review r4). `retained` is every same-named row the force path
+    kept instead of deleting; `newest` is the one list_maps() resolves, which
+    is what the seeder's other passes target and therefore the primary. They
+    overlap in the ordinary case and must not be rebound twice.
+
+    Older duplicates exist because --force used to stack a second map beside
+    the first rather than replacing it. They are not cosmetic here: the scene
+    deletion cascades EVERY retained row's layers away at once, so a row left
+    unrebound keeps its uuid and becomes an EMPTY map. Guessing which
+    duplicate the examples link is not possible from inside this repo, and it
+    does not have to be - the loop that kept them already knows all their ids,
+    so all of them get the fresh stack.
+    """
+    rows: list[str] = []
+    for row_id in ([newest] if newest else []) + retained:
+        if row_id not in rows:
+            rows.append(row_id)
+    return rows
+
+
+def _rebind_pinned_rows(
+    api: Api, rows: list[str], name: str, layers: list[dict], view: dict
+) -> str:
+    """Give every row in `rows` the same fresh layer stack and view.
+
+    fix(#1607 review r4). Returns the primary (rows[0]) - the id the builder
+    reports and the rest of the seeder resolves. Rebinding is deliberately not
+    conditional on a row being a duplicate: an empty map and a stale map fail
+    the same way for whoever follows the link, and the work is one small
+    request per row.
+    """
+    for index, row_id in enumerate(rows):
+        _replace_map_layers(api, row_id, layers)
+        api.set_view(row_id, **view)
+        warn_if_hidden_layers(api, row_id, name)
+        if index:
+            print(f"  [pinned] also rebound duplicate row {row_id}")
+    return rows[0]
+
+
 def _find_under_either_title(
     by_title: dict, title: str, legacy: str | None
 ) -> tuple[str | None, bool]:
@@ -4743,6 +4786,10 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     # titles are NOT unique (see datasets_by_title) and the newest same-titled
     # row is not necessarily the row holding the asset (round 8).
     resolved_by_href: dict[str, str] = {}
+    # Same-named rows the loop below kept instead of deleting. Every one of
+    # them loses its layers to the scene cascade, so every one is rebound
+    # (fix(#1607 review r4)).
+    retained_rows: list[str] = []
     if force:
         # fix(#1493 review round 8): the shared-scene and conflict scans
         # below must see EVERY map and dataset. --username can select a
@@ -4913,6 +4960,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             # pinned maps the override leaves the old row standing, and here it
             # does not (fix(#1607 review r3)).
             if _keep_existing_map(name, True, force, force_pinned):
+                retained_rows.append(map_id)
                 print(f"  [pinned] keeping map {map_id} - rebound in place below")
                 continue
             api.delete_map(map_id)
@@ -4990,31 +5038,41 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     # deleted and authorizes nothing. Re-mint the token if one is in use. Under
     # --force-pinned the token would not survive at all, so this is the better
     # end of a trade, not a clean one.
-    map_id = api.list_maps().get(name) if keep_pinned_row else None
-    if map_id:
-        print(f"  [pinned] reusing map {map_id} (its id and share links survive)")
-    else:
-        map_id = api.create_map(
-            name,
-            "Recent low-cloud Sentinel-2 true-color scenes over New York, "
-            "streamed BY REFERENCE from the AWS Earth Search open-data archive - "
-            "no file was downloaded to build this map; Titiler reads the "
-            "cloud-optimized GeoTIFFs straight from S3, newest scene on top. "
-            "ESA Copernicus / Element84 Earth Search.",
-        )
-    _replace_map_layers(api, map_id, layers)
-    api.set_view(
-        map_id,
-        visibility="public",
-        center_lng=-73.97,
-        center_lat=40.72,
-        zoom=10.2,
-        pitch=0,
-        bearing=0,
-        basemap_style="openfreemap-positron",
-        show_basemap_labels=True,
+    rows = _rows_to_rebind(
+        api.list_maps().get(name) if keep_pinned_row else None, retained_rows
     )
-    warn_if_hidden_layers(api, map_id, name)
+    if rows:
+        print(
+            f"  [pinned] reusing {len(rows)} existing row(s) "
+            f"(ids and share links survive): {', '.join(rows)}"
+        )
+    else:
+        rows = [
+            api.create_map(
+                name,
+                "Recent low-cloud Sentinel-2 true-color scenes over New York, "
+                "streamed BY REFERENCE from the AWS Earth Search open-data "
+                "archive - no file was downloaded to build this map; Titiler "
+                "reads the cloud-optimized GeoTIFFs straight from S3, newest "
+                "scene on top. ESA Copernicus / Element84 Earth Search.",
+            )
+        ]
+    map_id = _rebind_pinned_rows(
+        api,
+        rows,
+        name,
+        layers,
+        {
+            "visibility": "public",
+            "center_lng": -73.97,
+            "center_lat": 40.72,
+            "zoom": 10.2,
+            "pitch": 0,
+            "bearing": 0,
+            "basemap_style": "openfreemap-positron",
+            "show_basemap_labels": True,
+        },
+    )
     print(f"  -> map {map_id}  ({len(scenes)} scenes)")
     return map_id
 
