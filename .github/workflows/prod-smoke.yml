@@ -196,6 +196,13 @@ jobs:
       - name: Install Playwright Browsers
         timeout-minutes: 10
         run: |
+          # playwright install-deps shells out to its own `apt-get update &&
+          # apt-get install` for font/library packages, with no timeout of
+          # its own — see ci.yml for the full incident writeup. Bound its
+          # inner apt-get the same way: apt-get always reads
+          # /etc/apt/apt.conf.d/ on startup.
+          echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
             npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
