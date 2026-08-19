@@ -175,7 +175,12 @@ jobs:
       # CI-1 (see geolens-io/getgeolens.com#108): the site repo listens for
       # this dispatch to run release-drift immediately and to open its
       # docs-contract sync PR (getgeolens.com#108, release-sync.yml).
-      - name: Notify the site of the release
+      # #1609: geolens-examples listens for the same event. It pins every
+      # published client (geolens, @geolens/sdk, geolens-mcp, geolens-cli)
+      # to one version across a dozen files, and otherwise hears about a
+      # release only from a weekly ci/check-pins.py line that warns and
+      # passes. On this event it opens a "bump the pins and re-sweep" issue.
+      - name: Notify the site and the examples repo of the release
         # Only GA tags (no `-` suffix) dispatch — same shape as the
         # IS_PRERELEASE case pattern in "Create release" above. A prerelease
         # never becomes the "latest" release the site's install one-liner and
@@ -191,57 +196,92 @@ jobs:
         # this" behavior visible instead of silent.
         if: ${{ !contains(env.TAG, '-') }}
         env:
-          # Two different tokens for two different targets: reading THIS
-          # repo's latest release needs only the default GITHUB_TOKEN;
-          # dispatching to getgeolens.com needs a PAT scoped there
-          # (SITE_DISPATCH_TOKEN has no read access here, and the default
-          # token has no access there). Fine-grained PAT, Contents:
-          # read/write on geolens-io/getgeolens.com; absent = skipped with
-          # a ::notice::.
+          # Three tokens for three jobs: reading THIS repo's latest release
+          # needs only the default GITHUB_TOKEN, and each dispatch target
+          # needs a PAT scoped to that target (neither dispatch token has
+          # read access here, and the default token has access to neither
+          # target). Fine-grained PATs, Contents: read/write on
+          # geolens-io/getgeolens.com and on geolens-io/geolens-examples
+          # respectively; absent = skipped with a ::notice::.
+          #
+          # EXAMPLES_DISPATCH_TOKEN falls back to SITE_DISPATCH_TOKEN, so one
+          # PAT scoped to both targets is enough and two separate ones also
+          # work. Only the fallback direction exists: a token scoped to the
+          # examples repo must never be tried against the site, because a
+          # dispatch that 404s is indistinguishable here from a site outage.
           DEFAULT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
+          EXAMPLES_DISPATCH_TOKEN: ${{ secrets.EXAMPLES_DISPATCH_TOKEN }}
         # The release is already published by this point in the job. A failed
-        # dispatch must never fail the release on the site repo's account —
+        # dispatch must never fail the release on a downstream repo's account —
         # worst case, the site's own nightly release-drift check catches the
-        # gap and the manual sync step still exists as a fallback.
+        # gap, the examples repo's weekly pin check warns, and the manual sync
+        # step still exists as a fallback for both.
         continue-on-error: true
         timeout-minutes: 5
         run: |
           # A small heading so these lines read as their own section in the
           # job summary rather than trailing off the "Generate release
-          # notes" step's own ### warning block above them.
+          # notes" step's own ### warning block above them. Written once
+          # however many targets report, so two dispatches produce one
+          # section with two rows rather than two one-row sections.
+          heading_written=
           summary() {
-            { echo "### Site dispatch"; echo "- $1"; } >> "$GITHUB_STEP_SUMMARY"
+            if [ -z "$heading_written" ]; then
+              echo "### Release dispatches" >> "$GITHUB_STEP_SUMMARY"
+              heading_written=1
+            fi
+            echo "- $1" >> "$GITHUB_STEP_SUMMARY"
           }
 
           # prod-smoke.yml runs tag smokes in parallel and this workflow has
           # no concurrency group, so an older tag's smoke can finish after a
           # newer one's (or a re-run replays an old tag's smoke) and reach
           # this step after a newer release already published. Dispatching
-          # then would tell the site to sync backwards. Only the actual
-          # latest release may dispatch.
+          # then would tell the downstream repos to sync backwards. Only the
+          # actual latest release may dispatch.
           if ! LATEST="$(GH_TOKEN="$DEFAULT_TOKEN" gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"; then
-            echo "::warning title=Site dispatch failed::Could not read the latest release for ${TAG}, so the site dispatch did not run."
+            echo "::warning title=Release dispatch failed::Could not read the latest release for ${TAG}, so no release dispatch ran."
             summary "FAILED for ${TAG} (could not read the latest release)"
             exit 1
           fi
           if [ "$LATEST" != "$TAG" ]; then
-            echo "::notice title=Not the latest release::Skipping the site dispatch for ${TAG} — the latest published release is ${LATEST}. A newer tag's smoke likely finished first, or this is a re-run of an older tag."
+            echo "::notice title=Not the latest release::Skipping the release dispatches for ${TAG} — the latest published release is ${LATEST}. A newer tag's smoke likely finished first, or this is a re-run of an older tag."
             summary "skipped, ${TAG} is not the latest release (${LATEST} is)"
             exit 0
           fi
 
+          # Each target is reported on its own and NEITHER short-circuits the
+          # other: a site outage must not cost the examples repo its release
+          # notification, and vice versa. So the failures below set a flag and
+          # the step exits on it once, at the end, after both have been tried.
+          failed=0
+
           if [ -z "$SITE_DISPATCH_TOKEN" ]; then
             echo "::notice title=Site not notified::SITE_DISPATCH_TOKEN is not configured, so ${TAG} was not dispatched to getgeolens.com. Add it as a fine-grained PAT with Contents: read/write on geolens-io/getgeolens.com to enable this."
-            summary "skipped (no SITE_DISPATCH_TOKEN)"
-            exit 0
-          fi
-
-          if ! GH_TOKEN="$SITE_DISPATCH_TOKEN" gh api repos/geolens-io/getgeolens.com/dispatches \
+            summary "site: skipped (no SITE_DISPATCH_TOKEN)"
+          elif GH_TOKEN="$SITE_DISPATCH_TOKEN" gh api repos/geolens-io/getgeolens.com/dispatches \
             -f event_type=geolens-release \
             -f "client_payload[version]=${TAG}"; then
+            summary "site: notified getgeolens.com of ${TAG}"
+          else
             echo "::warning title=Site dispatch failed::Could not notify geolens-io/getgeolens.com of release ${TAG}. The GeoLens release itself published fine; the site will pick up the contract sync on its next scheduled release-drift check instead."
-            summary "FAILED for ${TAG} (see the warning above)"
-            exit 1
+            summary "site: FAILED for ${TAG} (see the warning above)"
+            failed=1
           fi
-          summary "notified getgeolens.com of ${TAG}"
+
+          EXAMPLES_TOKEN="${EXAMPLES_DISPATCH_TOKEN:-$SITE_DISPATCH_TOKEN}"
+          if [ -z "$EXAMPLES_TOKEN" ]; then
+            echo "::notice title=Examples repo not notified::Neither EXAMPLES_DISPATCH_TOKEN nor SITE_DISPATCH_TOKEN is configured, so ${TAG} was not dispatched to geolens-examples. Add either as a fine-grained PAT with Contents: read/write on geolens-io/geolens-examples to enable this."
+            summary "examples: skipped (no EXAMPLES_DISPATCH_TOKEN or SITE_DISPATCH_TOKEN)"
+          elif GH_TOKEN="$EXAMPLES_TOKEN" gh api repos/geolens-io/geolens-examples/dispatches \
+            -f event_type=geolens-release \
+            -f "client_payload[version]=${TAG}"; then
+            summary "examples: notified geolens-examples of ${TAG}"
+          else
+            echo "::warning title=Examples dispatch failed::Could not notify geolens-io/geolens-examples of release ${TAG}. The GeoLens release itself published fine; the examples repo's weekly ci/check-pins.py run will still warn that the demo has moved past its pins."
+            summary "examples: FAILED for ${TAG} (see the warning above)"
+            failed=1
+          fi
+
+          exit "$failed"
