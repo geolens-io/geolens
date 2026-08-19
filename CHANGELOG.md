@@ -7,6 +7,18 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-08-20
+
+### Added
+
+- **The login privacy-policy link is now a per-instance setting.** Every
+  self-hosted login and register page linked to getgeolens.com's privacy
+  policy, which describes our data practices rather than the operator's. The
+  link now comes from a `privacy_url` setting on the General tab (or the
+  `PRIVACY_URL` environment variable) and stays hidden until one is set, so an
+  instance never shows another operator's policy to its users by default
+  (#1592).
+
 ### Fixed
 
 - **Metric-buffer questions in chat stop failing at the sandbox.** Asking for a
@@ -15,6 +27,38 @@ and releases use semantic versioning.
   roughly every other such question came back as a refused query rather than an
   answer. The assistant now writes a short call and the server renders the
   expression itself, so the shape can no longer be wrong (#1589).
+- **A bare `/api` no longer redirects to `http://<host>:8080/api/`.** The
+  shipped nginx answered the slash redirect with an absolute `Location` built
+  from the container port and plain http, which behind a TLS edge sent clients
+  to an unreachable address. It now emits a relative `Location: /api/` (#1597).
+- **Anonymous catalog search answers cross-origin browser requests.** The
+  read-only `/search/datasets` and `/search/facets` routes sent no
+  `Access-Control-Allow-Origin` to an origin outside the allow-list while the
+  OGC Records and STAC routes did, so a static page could query the standards
+  surface but not native search. They now get the same credential-free
+  wildcard, with a preflight that advertises only the `GET` they answer; the
+  authenticated saved-search routes are unchanged. Both CORS policies also
+  expose `Retry-After` on a 429 and send `Vary: Origin`, so a cross-origin
+  caller can read the retry window and a caching proxy in front of the API
+  keys its entries by origin. The shipped nginx ignores that header on its
+  raster-tile cache, whose CORS value is a static wildcard for every caller,
+  so tiles stay one cache entry per tile instead of one per embedding site
+  (#1596, #1602, #1605).
+- **A force reseed no longer breaks the demo links the examples gallery
+  depends on.** `scripts/seed-showcase.py` now pins the four externally
+  linked showcase maps and the meteorites dataset: `--force` repairs the
+  Sentinel map in place and keeps every pinned row's UUID and share links,
+  `--prune`/`--prune-userdata` hard-keep them, and a new `--force-pinned`
+  says exactly what it destroys before an operator uses it (#1607).
+- **Default extension ports match their Protocol signatures.** Four default
+  port methods and two default AI-provider stream methods had drifted from the
+  parameter names their Protocols declare, so a keyword caller or an overlay
+  forwarding by name hit a `TypeError` against the default. The signatures are
+  now pinned by a structural test (#1590).
+- **A falsy non-string sent for `public_app_url` or `public_api_url` is
+  rejected instead of clearing the value.** JSON `false`, `0`, `[]` or `{}`
+  silently cleared the configured URL; only `null` and an empty string clear it
+  now, and anything else is a 422.
 
 ## [1.14.0] - 2026-08-18
 
@@ -2367,7 +2411,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.14.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.14.1...HEAD
+[1.14.1]: https://github.com/geolens-io/geolens/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/geolens-io/geolens/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/geolens-io/geolens/compare/v1.13.0...v1.13.1
 [1.13.0]: https://github.com/geolens-io/geolens/compare/v1.12.0...v1.13.0
