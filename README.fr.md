@@ -354,7 +354,7 @@ L’API et le worker exportent nativement des métriques Prometheus (taux/latenc
 | [CLI et manifestes](https://docs.getgeolens.com/guides/cli/) | Publication de fichiers et gestion des catalogues avec la CLI `geolens` |
 | [Référence API](https://docs.getgeolens.com/guides/api/) | Référence générée sur docs.getgeolens.com ; Swagger UI interactive sur `/api/docs` à l’exécution |
 | [Exemples de manifestes](examples/manifests/) | Modèles `geolens.yaml` : public-cog (COG distant), url-source, s3-source, publication-states |
-| [Exemples clients](https://github.com/geolens-io/geolens-examples) | Exemples exécutables navigateur, QGIS, DuckDB, SDK, CLI, intégration, Python et MCP, vérifiés par la CI sur la démo publique ([galerie](https://geolens-io.github.io/geolens-examples/)) |
+| [Exemples clients](https://github.com/geolens-io/geolens-examples) | Exemples exécutables navigateur, QGIS, DuckDB, SDK, CLI, intégration, Python et MCP ; ceux en lecture seule sont vérifiés par la CI sur la démo publique ([galerie](https://geolens-io.github.io/geolens-examples/)) |
 
 ## Communauté
 

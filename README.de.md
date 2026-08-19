@@ -354,7 +354,7 @@ API und Worker exportieren sofort Prometheus-Metriken (HTTP-Rate/Latenz/Fehler, 
 | [CLI & Manifeste](https://docs.getgeolens.com/guides/cli/) | Dateien veröffentlichen und Kataloge mit `geolens` verwalten |
 | [API-Referenz](https://docs.getgeolens.com/guides/api/) | Automatisch erzeugte Referenz; interaktive Swagger UI unter `/api/docs` zur Laufzeit |
 | [Manifestbeispiele](examples/manifests/) | Anpassbare `geolens.yaml`-Vorlagen: public-cog (entferntes COG), url-source, s3-source, publication-states |
-| [Client-Beispiele](https://github.com/geolens-io/geolens-examples) | Lauffähige Browser-, QGIS-, DuckDB-, SDK-, CLI-, Embed-, Python- und MCP-Beispiele, in der CI gegen die öffentliche Demo geprüft ([Galerie](https://geolens-io.github.io/geolens-examples/)) |
+| [Client-Beispiele](https://github.com/geolens-io/geolens-examples) | Lauffähige Browser-, QGIS-, DuckDB-, SDK-, CLI-, Embed-, Python- und MCP-Beispiele; die rein lesenden werden in der CI gegen die öffentliche Demo geprüft ([Galerie](https://geolens-io.github.io/geolens-examples/)) |
 
 ## Community
 

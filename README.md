@@ -417,7 +417,7 @@ see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
 | [CLI & Manifests](https://docs.getgeolens.com/guides/cli/) | Publish files and manage catalogs with the `geolens` CLI |
 | [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
 | [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt: public-cog (remote COG), url-source, s3-source, publication-states |
-| [Client examples](https://github.com/geolens-io/geolens-examples) | Runnable browser, QGIS, DuckDB, SDK, CLI, embed, Python, and MCP examples, verified against the live demo in CI ([gallery](https://geolens-io.github.io/geolens-examples/)) |
+| [Client examples](https://github.com/geolens-io/geolens-examples) | Runnable browser, QGIS, DuckDB, SDK, CLI, embed, Python, and MCP examples; the read-only ones are verified against the live demo in CI ([gallery](https://geolens-io.github.io/geolens-examples/)) |
 
 ## Community
 
