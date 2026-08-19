@@ -156,6 +156,12 @@ jobs:
               # script would otherwise skip Backend Tests and never run the
               # assertion that says whether it still works.
               - 'scripts/fix_sdk_optional_body.py'
+              # fix(#1607): test_seed_showcase_pins_1607.py imports this seeder
+              # and walks its AST to prove every builder routes its map-exists
+              # check through _keep_existing_map, so the maps geolens-examples
+              # links by UUID survive --force. A seeder-only PR that skipped
+              # Backend Tests would drop the pin with the gate showing green.
+              - 'scripts/seed-showcase.py'
               - '.gitignore'
               # Frontend files that backend parity/drift tests read by literal
               # path (fe-sdk type drift, basemap/capability/paint-key drift,
@@ -196,6 +202,12 @@ jobs:
               # must run on PRs that touch it — otherwise CI-config changes ship
               # unvalidated by the very tests they configure.
               - '.github/workflows/ci.yml'
+              # fix(#1609): test_release_dispatch_targets_1609.py reads
+              # release.yml by literal path and asserts both downstream
+              # dispatches (the site and geolens-examples) stay wired and
+              # independent. Without this, a release.yml-only PR skips the
+              # only suite that would notice one of them going away.
+              - '.github/workflows/release.yml'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
@@ -570,8 +582,26 @@ jobs:
       - name: Install postgresql-client + tooling
         # A step-level cap plus a bounded retry loop: an apt mirror that goes
         # unreachable mid-fetch now fails this step in well under the job
-        # timeout instead of hanging for hours (2026-08-19).
-        timeout-minutes: 10
+        # timeout instead of hanging for hours (2026-08-19). Each apt-get
+        # invocation is wrapped in its OWN `sudo timeout -k 10 <N>` (update
+        # and install separately, not chained under one timeout) so apt-get
+        # is timeout's DIRECT child — no sudo/shell grandchild between them
+        # to block the signal, unlike the Playwright-install steps. Both
+        # Acquire::http::Timeout AND Acquire::https::Timeout are set: job
+        # 96122006694 (a sibling "Install system dependencies" step) stalled
+        # the full 10-minute cap with ZERO output after apt fell back from a
+        # failing http mirror to an https one, which our http-only timeout
+        # never bounded. The cleanup between attempts matches the
+        # Playwright-install steps for the same reason: apt-get can still
+        # orphan a dpkg child if timeout kills it mid-unpack. The final
+        # `dpkg --configure -a` is itself timeout-wrapped: an unbounded
+        # maintainer script there could eat the rest of the step cap the
+        # same way an unbounded apt-get did.
+        #
+        # Worst case: 3 attempts * (90+10 + 150+10)s + 2 cleanups *
+        # (5 + 5*2 + 30+10 + 10)s = 780 + 130 = 910s, under the 960s
+        # (16-minute) step cap.
+        timeout-minutes: 16
         run: |
           # The postgres service for this job is postgis/postgis:18-3.6 (PG18).
           # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
@@ -589,11 +619,21 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
-              && sudo apt-get -o Acquire::http::Timeout=30 install -y --no-install-recommends postgresql-client-18 curl \
+            sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+              && sudo timeout -k 10 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends postgresql-client-18 curl \
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -1274,14 +1314,28 @@ jobs:
           python-version: "3.14"
 
       - name: Install system dependencies
-        timeout-minutes: 10
+        # See backup-roundtrip's "Install postgresql-client + tooling" for
+        # the full incident writeup (job 96122006694 stalled here for the
+        # full 10-minute cap on a silent https fallback our http-only
+        # timeout never bounded).
+        timeout-minutes: 16
         run: |
           for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
-              && sudo apt-get -o Acquire::http::Timeout=30 install -y gdal-bin xmlsec1 \
+            sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+              && sudo timeout -k 10 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y gdal-bin xmlsec1 \
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -1818,12 +1872,57 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
+          # playwright install-deps shells out to its own `apt-get update &&
+          # apt-get install` for font/library packages, with no timeout of
+          # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
+          # the full step cap inside it). Three independent bounds, because
+          # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
+          # not a minimum-transfer-rate one:
+          #   - a genuinely dead connection is caught by the apt.conf.d
+          #     write below.
+          #   - a connection that stays open but trickles a few KB/s never
+          #     goes inactive, so apt's timeout never fires (job
+          #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
+          #     degraded azure.archive.ubuntu.com mirror). `timeout -k 10
+          #     180` bounds each attempt regardless of why it's slow.
+          #   - `timeout` only signals its DIRECT child; the real apt-get is
+          #     a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that
+          #     sudo places outside its reach, so a cut attempt leaves
+          #     apt-get running and holding the dpkg lock (job 96120667995:
+          #     attempts 2 and 3 both died instantly with "Could not get
+          #     lock /var/lib/dpkg/lock-frontend. It is held by process
+          #     12362 (apt-get)"). Kill it and wait for it to actually exit
+          #     before retrying. psmisc (fuser) is not confirmed installed
+          #     on this runner image (no hit searching actions/runner-images'
+          #     build scripts), so poll with pgrep/pkill (procps — confirmed
+          #     present on the base Ubuntu 24.04 image, and already relied
+          #     on below) instead of fuser.
+          #
+          # The cleanup's own `dpkg --configure -a` is timeout-wrapped too,
+          # for the same reason: an unbounded maintainer script there could
+          # eat the rest of the step cap.
+          #
+          # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
+          # (5 + 5*2 + 30+10 + 10)s = 570 + 130 = 700s, under the 780s
+          # (13-minute) step cap.
+          echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -1944,12 +2043,57 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
+          # playwright install-deps shells out to its own `apt-get update &&
+          # apt-get install` for font/library packages, with no timeout of
+          # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
+          # the full step cap inside it). Three independent bounds, because
+          # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
+          # not a minimum-transfer-rate one:
+          #   - a genuinely dead connection is caught by the apt.conf.d
+          #     write below.
+          #   - a connection that stays open but trickles a few KB/s never
+          #     goes inactive, so apt's timeout never fires (job
+          #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
+          #     degraded azure.archive.ubuntu.com mirror). `timeout -k 10
+          #     180` bounds each attempt regardless of why it's slow.
+          #   - `timeout` only signals its DIRECT child; the real apt-get is
+          #     a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that
+          #     sudo places outside its reach, so a cut attempt leaves
+          #     apt-get running and holding the dpkg lock (job 96120667995:
+          #     attempts 2 and 3 both died instantly with "Could not get
+          #     lock /var/lib/dpkg/lock-frontend. It is held by process
+          #     12362 (apt-get)"). Kill it and wait for it to actually exit
+          #     before retrying. psmisc (fuser) is not confirmed installed
+          #     on this runner image (no hit searching actions/runner-images'
+          #     build scripts), so poll with pgrep/pkill (procps — confirmed
+          #     present on the base Ubuntu 24.04 image, and already relied
+          #     on below) instead of fuser.
+          #
+          # The cleanup's own `dpkg --configure -a` is timeout-wrapped too,
+          # for the same reason: an unbounded maintainer script there could
+          # eat the rest of the step cap.
+          #
+          # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
+          # (5 + 5*2 + 30+10 + 10)s = 570 + 130 = 700s, under the 780s
+          # (13-minute) step cap.
+          echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -2055,14 +2199,28 @@ jobs:
           python-version: "3.14"
 
       - name: Install system dependencies
-        timeout-minutes: 10
+        # See backup-roundtrip's "Install postgresql-client + tooling" for
+        # the full incident writeup (job 96122006694 stalled here for the
+        # full 10-minute cap on a silent https fallback our http-only
+        # timeout never bounded).
+        timeout-minutes: 16
         run: |
           for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
-              && sudo apt-get -o Acquire::http::Timeout=30 install -y gdal-bin xmlsec1 \
+            sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+              && sudo timeout -k 10 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y gdal-bin xmlsec1 \
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -2155,12 +2313,57 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
+          # playwright install-deps shells out to its own `apt-get update &&
+          # apt-get install` for font/library packages, with no timeout of
+          # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
+          # the full step cap inside it). Three independent bounds, because
+          # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
+          # not a minimum-transfer-rate one:
+          #   - a genuinely dead connection is caught by the apt.conf.d
+          #     write below.
+          #   - a connection that stays open but trickles a few KB/s never
+          #     goes inactive, so apt's timeout never fires (job
+          #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
+          #     degraded azure.archive.ubuntu.com mirror). `timeout -k 10
+          #     180` bounds each attempt regardless of why it's slow.
+          #   - `timeout` only signals its DIRECT child; the real apt-get is
+          #     a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that
+          #     sudo places outside its reach, so a cut attempt leaves
+          #     apt-get running and holding the dpkg lock (job 96120667995:
+          #     attempts 2 and 3 both died instantly with "Could not get
+          #     lock /var/lib/dpkg/lock-frontend. It is held by process
+          #     12362 (apt-get)"). Kill it and wait for it to actually exit
+          #     before retrying. psmisc (fuser) is not confirmed installed
+          #     on this runner image (no hit searching actions/runner-images'
+          #     build scripts), so poll with pgrep/pkill (procps — confirmed
+          #     present on the base Ubuntu 24.04 image, and already relied
+          #     on below) instead of fuser.
+          #
+          # The cleanup's own `dpkg --configure -a` is timeout-wrapped too,
+          # for the same reason: an unbounded maintainer script there could
+          # eat the rest of the step cap.
+          #
+          # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
+          # (5 + 5*2 + 30+10 + 10)s = 570 + 130 = 700s, under the 780s
+          # (13-minute) step cap.
+          echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 

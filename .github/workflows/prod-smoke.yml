@@ -194,12 +194,40 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 13
         run: |
+          # playwright install-deps shells out to its own `apt-get update &&
+          # apt-get install` for font/library packages, with no timeout of
+          # its own — see ci.yml for the full incident writeup. Three
+          # independent bounds: apt.conf.d for a dead connection, a
+          # per-attempt `timeout -k 10 180` for one that stays open but
+          # trickles (apt's own Acquire::http::Timeout is inactivity-based
+          # and never fires on a slow-but-live socket), and a cleanup that
+          # kills the orphaned inner apt-get and waits for it to actually
+          # exit before retrying (`timeout` only signals its direct child;
+          # the real apt-get is a grandchild sudo places outside its reach,
+          # so a cut attempt leaves it holding the dpkg lock and every
+          # further attempt dies instantly with "Could not get lock"; psmisc
+          # isn't confirmed installed here, so poll with pgrep/pkill
+          # instead of fuser), plus its own timeout-wrapped
+          # `dpkg --configure -a`. Worst case: 3*(180+10)s +
+          # 2*(5+5*2+30+10+10)s = 700s, under the 780s (13-minute) step cap.
+          echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 

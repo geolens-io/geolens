@@ -79,6 +79,13 @@ Maintenance:
 
 Upgrading an existing instance: run with --prune to delete the retired
 first-generation showcase maps/datasets (see RETIRED_* below), then seed.
+--force rebuilds a showcase map that already exists - except the four in
+PINNED_MAP_NAMES, whose ids and share token the geolens-examples repo links.
+--force-pinned lifts that pin. What it then costs differs by map: New York From
+Orbit (Sentinel-2) has its existing row and share links DELETED before the
+rebuild, so that uuid is gone; the other three get a fresh row beside the old
+one, which keeps its id and share links until someone removes it. Either way the
+examples' references have to be moved onto the new ids.
 
 Requires: pip install httpx
 
@@ -504,15 +511,33 @@ QUAKE_HEATMAP_WEIGHT = [
 ]
 
 # --- externally pinned content -------------------------------------------------
-# These three are referenced from OUTSIDE this repo by UUID or by the table name
-# their title derives (the subway lines dataset backs `data.nyc_subway_lines_mta`).
+# These four are referenced from OUTSIDE this repo by UUID or by the table name
+# their title derives (the subway lines dataset backs `data.nyc_subway_lines_mta`,
+# the meteorites dataset backs `data.meteorite_landings_meteoritical_society`).
 # A metadata PATCH is safe; a retitle, delete or re-ingest is NOT - it breaks the
 # external reference silently. --prune-userdata hard-keeps them regardless of
 # owner, and nothing here may be added to RETIRED_DATASETS.
+#
+# What the DATASET pin does not cover: --force still ingests a fresh copy under
+# a NEW id (_get_or_ingest), because re-ingest is what --force means everywhere
+# in this file. Only the map pin below overrides --force. So a forced re-seed of
+# one of these titles needs the examples' fixtures.json updated with the new
+# collection id afterwards - the pin keeps a prune from taking it, not you.
+#
+# fix(#1607): before editing any list in this section, or re-ingesting a showcase
+# dataset, diff it against geolens-examples `ci/fixtures.json` and the map UUIDs
+# in that repo's `index.html`. Those are the list of what the examples actually
+# load; this section only mirrors it, and the examples' own preflight
+# (`ci/check-fixtures.mjs`) going red is the only signal today that it drifted.
 PINNED_DATASET_TITLES = (
     "NYC Subway Lines (MTA)",  # title derives data.nyc_subway_lines_mta - NEVER rename
     "NYC Subway Stations (MTA)",
     "swissALTI3D Matterhorn DEM (2m mosaic)",
+    # fix(#1607): maplibre/features-viewport.html opens on this one and pages it
+    # by viewport, the vector-tile handoff reads its MVT by table name, and
+    # search/catalog.html's fixture expects "space rocks that fell to earth" to
+    # find it - a re-ingest under a new id breaks all three at once.
+    "Meteorite Landings (Meteoritical Society)",
 )
 
 # Pinned titles the seeder did NOT create and expects a VISITOR to own.
@@ -528,6 +553,39 @@ PINNED_DATASET_TITLES = (
 # over-keeping a squatter is the accepted cost (deleting the real one breaks
 # the walkthrough; keeping a fake one frees nothing).
 PINNED_FOREIGN_DATASET_TITLES = ("MNMAP_PLUTO",)
+
+# fix(#1607): maps the examples address by an id THIS seeder minted, so the row
+# itself has to survive - a map of the same name built beside it is not the same
+# map. geolens-examples deep-links three from its gallery and embeds the fourth
+# by share token:
+#
+#   Restless Earth                    /m/NDuwpSJc3yx4Exic5Na48xO-8bpjWiaIofJefpjqfbU
+#   Manhattan - A Century of Skyline  /maps/dcae16bd-40bd-494e-bf2f-cfb378735257
+#   The Matterhorn in 3D              /maps/1c5e021a-8ede-4ebe-a06c-92322208de45
+#   New York From Orbit               /maps/1c4207ab-b1c0-4309-9924-c1ea355003a3
+#
+# Building one of these again mints a fresh uuid and leaves the share tokens on
+# the row they were minted against, so every link above keeps resolving to the
+# OLD map while the seeder's later passes work on the new one - and nothing
+# inside this repo can see that. So: --force KEEPS a pinned map that already
+# exists (_keep_existing_map), --prune and --prune-userdata hard-keep it, and no
+# path that keeps a map re-mints or revokes its share/embed tokens.
+#
+# --force-pinned lifts the pin, and only that. It does not replace the pinned
+# row: the builder then behaves exactly as --force does for any other map, which
+# for every builder except build_sentinel2 means create_map() beside the row that
+# is already there (build_sentinel2 deletes the stale rows under the same name
+# first, so there the old row and its links do go). The surviving row keeps the
+# uuid and the share token the links above use until someone prunes or deletes
+# it by hand. An operator who uses the flag therefore has to move the references
+# in geolens-examples (ci/fixtures.json, index.html) onto the new ids, or keep
+# the old row and let the new one sit beside it.
+PINNED_MAP_NAMES = (
+    "Restless Earth",
+    "Manhattan - A Century of Skyline",
+    "The Matterhorn in 3D",
+    "New York From Orbit - Sentinel-2, by Reference",
+)
 
 # --- globe projection ---------------------------------------------------------
 # The showcase maps whose story is GLOBAL, where Mercator actively misleads:
@@ -1787,6 +1845,87 @@ def _map_exists(api: Api, name: str) -> bool:
     return name in api.list_maps()
 
 
+def _keep_existing_map(
+    name: str, exists: bool, force: bool, force_pinned: bool
+) -> bool:
+    """Whether a builder must leave the map row that is already there alone.
+
+    fix(#1607). Pure - no API call, no printing - so the whole truth table is
+    testable, and ONE function rather than a condition spelled out in each
+    builder, so a builder added later cannot quietly grow its own rule and drop
+    a pinned map's uuid on the floor:
+
+        not exists                      -> False  build it
+        exists, no force                -> True   the long-standing skip
+        exists, force, not pinned       -> False  --force means recreate
+        exists, force, pinned           -> True   its id/share token are
+                                                  addressed from outside this
+                                                  repo (PINNED_MAP_NAMES)
+        exists, force, pinned, override -> False  --force-pinned
+
+    False on that last line means only that this function stops holding the
+    builder back, and what the builder does with that freedom is not uniform.
+    For every builder but build_sentinel2 it is create_map() beside the
+    existing row, so after --force --force-pinned the old map is still there,
+    still holding the uuid and the share token geolens-examples links, while
+    the name resolves to the fresh row; moving those references onto the new
+    ids, or deleting the old row, is the operator's job. build_sentinel2 is the
+    exception in BOTH directions: this same False sends it through the
+    stale-map loop, which deletes every row under the name - and their share
+    links - before rebuilding, so there --force-pinned really does destroy the
+    externally referenced uuid.
+
+    True is likewise not the whole story for one caller. Six of the seven
+    builders that own a pinned-eligible map treat True as "return, do nothing",
+    which is right for them: their layers point at datasets this seeder can
+    refresh in place, so there is no repair a rebuild would perform that a
+    plain re-run does not. build_sentinel2 is different - its layers point at
+    scenes imported BY REFERENCE, and `--only sentinel2 --force` is the
+    documented repair for an instance seeded before item_href was sent. So it
+    reads this True as "keep the ROW", not "do nothing": it runs the whole
+    force path and rebinds the existing map's layers in place
+    (_replace_map_layers), which is the only shape that repairs the scenes
+    without minting the new uuid --force-pinned would (fix(#1607 review r2)).
+    """
+    if not exists:
+        return False
+    if not force:
+        return True
+    return name in PINNED_MAP_NAMES and not force_pinned
+
+
+def _announce_kept_map(name: str, force: bool, note: str = "") -> str:
+    """The one line a builder prints when _keep_existing_map said keep.
+
+    Returns the marker the builder returns, so the sentence printed here and
+    the outcome main() reports cannot drift apart: a pinned keep is "(pinned)"
+    and an ordinary skip is "(skipped)". They read the same to a builder and
+    differently to the operator, which is the point - "use --force to recreate"
+    is the opposite of what --force does to a pinned map
+    (fix(#1607 review r2)).
+
+    Separate from the decision so that stays pure. The force case has to name
+    the flag that lifts the pin: an operator who typed --force and watched
+    nothing happen will otherwise go delete the map by hand, which is the exact
+    outcome the pin exists to prevent. It also has to say what the flag really
+    does, because "recreate" would be a promise this seeder does not keep - the
+    builder builds a fresh row and leaves this one standing. That is true of
+    every builder that reaches this line: build_sentinel2, whose --force-pinned
+    path does delete the row, never prints it under force (it repairs instead
+    of returning), so the sentence cannot be read against the wrong map.
+    """
+    if force:
+        print(
+            f"  [pinned] {name} kept as-is: geolens-examples addresses this map "
+            "by id (see PINNED_MAP_NAMES). --force-pinned lifts the pin, which "
+            "builds a FRESH map beside this one; this row keeps its id and "
+            "share links until you move those references or delete it"
+        )
+        return "(pinned)"
+    print(f"  [skip] {name} already exists{note}")
+    return "(skipped)"
+
+
 def _rename_map_if_needed(api: Api, name: str, legacy: str) -> None:
     """Migrate a map that was created under an older name.
 
@@ -1800,6 +1939,74 @@ def _rename_map_if_needed(api: Api, name: str, legacy: str) -> None:
     if legacy in maps and name not in maps:
         api.set_view(maps[legacy], name=name)
         print(f"  renamed map {legacy!r} -> {name!r}")
+
+
+def _replace_map_layers(api: Api, map_id: str, layers: list[dict]) -> int:
+    """Swap a map's whole layer stack, leaving the map ROW alone.
+
+    fix(#1607 review r2). This is what lets build_sentinel2 repair a pinned map
+    under plain --force: a layer points at a dataset id, the scene re-import
+    mints new ids, and the map's uuid and share tokens have to survive because
+    geolens-examples addresses them. Delete-then-add is the only shape that
+    rebinds the stack without a new map row.
+
+    Deleting the scene datasets already cascades their layers away
+    (MapLayer.dataset_id is ON DELETE CASCADE), so the delete pass here is not
+    usually the one doing the work - it is what catches the layers that did NOT
+    cascade, i.e. the ones whose scene was deliberately kept because another
+    map shares it. Skipping the pass would leave those beside the fresh stack
+    as duplicates.
+
+    Returns the number of layers added.
+    """
+    for layer in api.get_map(map_id).get("layers", []):
+        api.delete_layer(map_id, layer["id"])
+    for body in layers:
+        api.add_layer(map_id, body)
+    return len(layers)
+
+
+def _rows_to_rebind(newest: str | None, retained: list[str]) -> list[str]:
+    """Every map row a pinned repair has to rebind, primary first, deduped.
+
+    fix(#1607 review r4). `retained` is every same-named row the force path
+    kept instead of deleting; `newest` is the one list_maps() resolves, which
+    is what the seeder's other passes target and therefore the primary. They
+    overlap in the ordinary case and must not be rebound twice.
+
+    Older duplicates exist because --force used to stack a second map beside
+    the first rather than replacing it. They are not cosmetic here: the scene
+    deletion cascades EVERY retained row's layers away at once, so a row left
+    unrebound keeps its uuid and becomes an EMPTY map. Guessing which
+    duplicate the examples link is not possible from inside this repo, and it
+    does not have to be - the loop that kept them already knows all their ids,
+    so all of them get the fresh stack.
+    """
+    rows: list[str] = []
+    for row_id in ([newest] if newest else []) + retained:
+        if row_id not in rows:
+            rows.append(row_id)
+    return rows
+
+
+def _rebind_pinned_rows(
+    api: Api, rows: list[str], name: str, layers: list[dict], view: dict
+) -> str:
+    """Give every row in `rows` the same fresh layer stack and view.
+
+    fix(#1607 review r4). Returns the primary (rows[0]) - the id the builder
+    reports and the rest of the seeder resolves. Rebinding is deliberately not
+    conditional on a row being a duplicate: an empty map and a stale map fail
+    the same way for whoever follows the link, and the work is one small
+    request per row.
+    """
+    for index, row_id in enumerate(rows):
+        _replace_map_layers(api, row_id, layers)
+        api.set_view(row_id, **view)
+        warn_if_hidden_layers(api, row_id, name)
+        if index:
+            print(f"  [pinned] also rebound duplicate row {row_id}")
+    return rows[0]
 
 
 def _find_under_either_title(
@@ -1855,7 +2062,9 @@ def ensure_quake_datasets(api: Api, by_title: dict) -> tuple[str, str]:
     "re-ingest instead of reusing", but there is nothing to re-download from a
     service binding, and creating a second pair would orphan the datasets the
     Restless Earth map's layers point at. A stale binding is fixed by
-    converting, which this already does on every run.
+    converting, which this already does on every run. fix(#1607): the map row
+    is pinned for the same shape of reason - the examples embed it by share
+    token, and a token belongs to a map id.
 
     Returns (circles_dataset_id, heatmap_dataset_id).
     """
@@ -1946,11 +2155,22 @@ def prune(api: Api) -> None:
     print("\n[prune] removing retired first-generation showcase content")
     maps = api.list_maps()
     for name in RETIRED_MAPS:
-        if name in maps:
-            api.delete_map(maps[name])
-            print(f"  - map: {name}")
+        if name not in maps:
+            continue
+        # fix(#1607): the retired and pinned lists are meant to be disjoint -
+        # both pin tuples say so in words - but this is a delete keyed on a
+        # name, so it checks instead of trusting the comment. Same below for
+        # the titles.
+        if name in PINNED_MAP_NAMES:
+            print(f"  = kept, externally pinned (map): {name}")
+            continue
+        api.delete_map(maps[name])
+        print(f"  - map: {name}")
     for d in api.list_own_datasets():
         if d["title"] in RETIRED_DATASETS:
+            if d["title"] in PINNED_DATASET_TITLES + PINNED_FOREIGN_DATASET_TITLES:
+                print(f"  = kept, externally pinned (dataset): {d['title']}")
+                continue
             try:
                 api.delete_dataset(d["id"], d["title"])
                 print(f"  - dataset: {d['title']}")
@@ -2197,7 +2417,7 @@ _SHOWCASE_TITLE_PREFIXES = ("swissALTI3D 2m ", "Sentinel-2 TCI ")
 
 def _showcase_map_names() -> set[str]:
     """Every map name this seeder creates or has created."""
-    return {
+    names = {
         "Restless Earth",
         "Manhattan - A Century of Skyline",
         HURRICANE_MAP,
@@ -2208,6 +2428,10 @@ def _showcase_map_names() -> set[str]:
         "New York From Orbit - Sentinel-2, by Reference",
         "Private Embed Demo",
     } | set(RETIRED_MAPS)
+    # fix(#1607): the pinned names are folded in separately, so one of them can
+    # never read as a stray if the literals above are ever edited apart from
+    # PINNED_MAP_NAMES.
+    return names | set(PINNED_MAP_NAMES)
 
 
 def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
@@ -2218,12 +2442,24 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
     between two of these buckets is the difference between deleting a
     visitor's upload and deleting the operator's.
 
-    Ownership decides, with one override: the externally pinned datasets are
-    pulled out FIRST and land in their own bucket whoever owns them, so no
-    later branch can reach them.
+    Ownership decides, with one override: the externally pinned maps and
+    datasets are pulled out FIRST and land in their own buckets whoever owns
+    them, so no later branch can reach them.
     """
     foreign_maps, stray_maps, ownerless_maps = [], [], []
+    pinned_maps, pinned_map_impostors = [], []
     for m in api.list_all_maps():
+        if m.get("name") in PINNED_MAP_NAMES:
+            # fix(#1607): first, whoever owns it, for the same reason as the
+            # pinned datasets below - the examples address these by the uuid
+            # this seeder minted, and one of them by share token, so the ROW
+            # has to survive. A name is no more proof of identity than a title
+            # is, so a copy under another account is kept as well and reported
+            # apart, rather than hiding among the real four.
+            if m.get("created_by_username") == api.username:
+                pinned_maps.append(m)
+            else:
+                pinned_map_impostors.append(m)
         # A NULL owner is not evidence of anything. Both Map.created_by and
         # Record.created_by are ON DELETE SET NULL, so deleting a user strips
         # ownership from everything they made and leaves it looking exactly
@@ -2231,7 +2467,7 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
         # signal would destroy an operator's own work the moment their account
         # was removed, which is the one outcome this command must never
         # produce. Reported and kept, for a person to decide.
-        if m.get("created_by_username") is None:
+        elif m.get("created_by_username") is None:
             ownerless_maps.append(m)
         elif m.get("created_by_username") != api.username:
             foreign_maps.append(m)
@@ -2277,12 +2513,36 @@ def _classify_userdata(api: Api, known_maps: set, recognised) -> dict:
         "foreign_maps": foreign_maps,
         "stray_maps": stray_maps,
         "ownerless_maps": ownerless_maps,
+        "pinned_maps": pinned_maps,
+        "pinned_map_impostors": pinned_map_impostors,
         "foreign_datasets": foreign_datasets,
         "stray_datasets": stray_datasets,
         "ownerless_datasets": ownerless_datasets,
         "pinned": pinned,
         "pinned_impostors": pinned_impostors,
     }
+
+
+def _report_pinned_maps(pinned_maps: list, impostors: list) -> None:
+    """The pinned-map half of the prune report (fix(#1607)).
+
+    Its own function so prune_userdata does not grow two more loops for a rule
+    _classify_userdata has already applied. Owner is printed for the impostors
+    only: for the real four it is always the seeder, and saying so on every
+    line would bury the one row that needs a person.
+    """
+    print(f"\n  externally pinned maps, hard-kept: {len(pinned_maps)}")
+    for m in pinned_maps:
+        print(f"    = {m.get('name')!r}")
+    if impostors:
+        print(
+            f"\n  !! kept, but NOT the seeder's: {len(impostors)} map(s) carry a "
+            "pinned name while belonging to another account. The examples link "
+            "the seeder's ids, so keeping these frees nothing - review by hand:"
+        )
+        for m in impostors:
+            owner = m.get("created_by_username") or "?"
+            print(f"    ? {m.get('name')!r}  (owner: {owner})")
 
 
 def prune_userdata(api: Api, execute: bool = False) -> int:
@@ -2301,6 +2561,9 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
       and KEPT. The live demo carries hand-uploaded datasets that predate this
       script, and deleting one because this file has never heard of it is
       exactly the accident this split prevents.
+    * Pinned MAPS are hard-kept whoever owns them: PINNED_MAP_NAMES, which the
+      examples repo deep-links by uuid and embeds by share token. Deleting one
+      breaks a published page in a way nothing in this repo can see.
     * Pinned datasets are hard-kept whoever owns them: PINNED_DATASET_TITLES
       (referenced from outside this repo by id or by the table name their title
       derives) and PINNED_FOREIGN_DATASET_TITLES (visitor-uploaded content that
@@ -2329,6 +2592,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
     stray_datasets = buckets["stray_datasets"]
     pinned_hits = buckets["pinned"]
     pinned_impostors = buckets["pinned_impostors"]
+    pinned_maps = buckets["pinned_maps"]
+    pinned_map_impostors = buckets["pinned_map_impostors"]
     ownerless_maps = buckets["ownerless_maps"]
     ownerless_datasets = buckets["ownerless_datasets"]
 
@@ -2370,6 +2635,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         "title",
         "created_by",
     )
+
+    _report_pinned_maps(pinned_maps, pinned_map_impostors)
 
     # Ownership is still worth SHOWING for the expected-foreign pins: they are
     # trusted, but a cleanup audit that never mentions a kept dataset belongs
@@ -2413,7 +2680,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         print(
             f"\n  SUMMARY (dry run): would delete {len(foreign_maps)} maps and "
             f"{len(foreign_datasets)} datasets; would keep {len(stray_maps)} "
-            f"admin-owned maps, {len(stray_datasets)} admin-owned strays and "
+            f"admin-owned maps, {len(stray_datasets)} admin-owned strays, "
+            f"{len(pinned_maps) + len(pinned_map_impostors)} pinned maps and "
             f"{len(pinned_hits) + len(pinned_impostors)} pinned-title datasets "
             f"({len(pinned_foreign)} expected visitor-owned, "
             f"{len(pinned_ownerless)} ownerless, "
@@ -2446,7 +2714,8 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
         f"\n  SUMMARY: deleted {deleted_maps}/{len(foreign_maps)} maps and "
         f"{deleted_datasets}/{len(foreign_datasets)} datasets; kept "
         f"{len(stray_maps)} admin-owned maps, {len(stray_datasets)} admin-owned "
-        f"strays, {len(pinned_hits) + len(pinned_impostors)} pinned-title "
+        f"strays, {len(pinned_maps) + len(pinned_map_impostors)} pinned maps, "
+        f"{len(pinned_hits) + len(pinned_impostors)} pinned-title "
         f"datasets ({len(pinned_foreign)} expected visitor-owned, "
         f"{len(pinned_ownerless)} ownerless, "
         f"{len(pinned_impostors)} impostors) and "
@@ -2459,7 +2728,7 @@ def prune_userdata(api: Api, execute: bool = False) -> int:
 # --- showcase builders -----------------------------------------------------------
 
 
-def build_catalog(api: Api, force: bool = False) -> str:
+def build_catalog(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """Catalog-only datasets - no maps. These exist to fuel the AI demos:
 
     * World Countries: rich numeric/categorical columns for AI add_layer /
@@ -2553,7 +2822,7 @@ def build_catalog(api: Api, force: bool = False) -> str:
 
 
 def build_restless_earth(
-    api: Api, force: bool = False, with_oceans: bool = True
+    api: Api, force: bool = False, with_oceans: bool = True, force_pinned: bool = False
 ) -> str:
     """The world hero: quakes + eruptions + plate boundaries + exposed cities,
     on the actual relief of the planet.
@@ -2589,9 +2858,8 @@ def build_restless_earth(
     # to run a normal seed, and that seed would take the early return.
     quakes_ds, heat_ds = ensure_quake_datasets(api, by_title)
 
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} map already exists (quake bindings brought current)")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force, " (quake bindings brought current)")
 
     # --- plate boundaries ------------------------------------------------------
     plates_title = "Tectonic Plate Boundaries (PB2002)"
@@ -3168,7 +3436,7 @@ def build_restless_earth(
     return map_id
 
 
-def build_manhattan(api: Api, force: bool = False) -> str:
+def build_manhattan(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The city hero: 3D extrusion at TRUE surveyed height, colored by
     construction ERA (height carries the form, color carries the story), over
     the subway in official MTA route colors with ADA-coded stations.
@@ -3181,9 +3449,8 @@ def build_manhattan(api: Api, force: bool = False) -> str:
       numeric breaks (1900 -> "1.9K"), so year breaks are unreadable there.
     """
     name = "Manhattan - A Century of Skyline"
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force)
     print("\n[manhattan] Manhattan (3D by height, colored by era, + subway)")
     by_title = api.datasets_by_title()
 
@@ -3526,7 +3793,7 @@ def build_manhattan(api: Api, force: bool = False) -> str:
     return map_id
 
 
-def build_hurricanes(api: Api, force: bool = False) -> str:
+def build_hurricanes(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The line-story hero: every major Atlantic hurricane since 1950 from
     NOAA HURDAT2, drawn as per-6-hour segments so each track changes color and
     width as the storm intensifies and decays.
@@ -3539,9 +3806,8 @@ def build_hurricanes(api: Api, force: bool = False) -> str:
     # Migrate before the exists-check, or the check misses the renamed map and
     # builds a duplicate next to it.
     _rename_map_if_needed(api, name, HURRICANE_MAP_LEGACY)
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force)
     print("\n[hurricanes] Hurricane Alley (HURDAT2 majors since 1950)")
     by_title = api.datasets_by_title()
 
@@ -3925,7 +4191,9 @@ def _exposure_layer_body(exposure_ds: str) -> dict:
     }
 
 
-def build_hurricane_exposure(api: Api, force: bool = False) -> str:
+def build_hurricane_exposure(
+    api: Api, force: bool = False, force_pinned: bool = False
+) -> str:
     """The analysis hero: the only showcase map that is a computed RESULT.
 
     Three real operations, each one a provenance-tracked derived dataset:
@@ -3945,9 +4213,8 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     the layer it came from. That is the thing on display.
     """
     name = EXPOSURE_MAP
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force)
     print("\n[hurricane-exposure] buffer -> intersect -> dissolve (HURDAT2 majors)")
     by_title = api.datasets_by_title()
     chain = _build_exposure_chain(api, by_title, force=force)
@@ -4004,7 +4271,7 @@ def build_hurricane_exposure(api: Api, force: bool = False) -> str:
     return map_id
 
 
-def build_meteorites(api: Api, force: bool = False) -> str:
+def build_meteorites(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The cluster hero: all ~32k located meteorite landings.
 
     Above 5,000 points the viewer switches from client GeoJSON clustering to
@@ -4039,9 +4306,8 @@ def build_meteorites(api: Api, force: bool = False) -> str:
                 by_title[met_title], "meteorite_landings.geojson", meteorites_bytes()
             )
 
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force)
 
     met_ds = _get_or_ingest(
         api,
@@ -4153,14 +4419,13 @@ def build_meteorites(api: Api, force: bool = False) -> str:
     return map_id
 
 
-def build_matterhorn(api: Api, force: bool = False) -> str:
+def build_matterhorn(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The terrain hero: 3D mesh + hillshade + hypsometric tint from a VRT
     mosaic of swissALTI3D 2m lidar COGs, with dashed alpine climbing routes
     (white-cased, the classic Swiss-map convention) and labeled peaks."""
     name = "The Matterhorn in 3D"
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force)
     print("\n[matterhorn] The Matterhorn (3D terrain via regional VRT mosaic)")
     by_title = api.datasets_by_title()
     vrt_title = "swissALTI3D Matterhorn DEM (2m mosaic)"
@@ -4404,14 +4669,35 @@ def build_matterhorn(api: Api, force: bool = False) -> str:
     return map_id
 
 
-def build_sentinel2(api: Api, force: bool = False) -> str:
+def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The by-reference hero: recent low-cloud Sentinel-2 true color over NYC,
     streamed straight from the AWS open-data COGs - zero download at seed
-    time; Titiler needs S3 egress at VIEW time."""
+    time; Titiler needs S3 egress at VIEW time.
+
+    Alone among the builders this one does NOT return early on a pinned keep.
+    `--only sentinel2 --force` is the documented repair for an instance seeded
+    before item_href was sent, and this map is pinned, so an early return would
+    leave that repair reachable only through --force-pinned - the one flag that
+    mints the new uuid the examples must not get. Instead the pin is honoured
+    by REUSING the row: the force preflight, the scene deletion and the STAC
+    import all run exactly as they do without a pin, and only create_map is
+    skipped, in favour of rebinding the existing map's layers in place
+    (fix(#1607 review r2))."""
     name = "New York From Orbit - Sentinel-2, by Reference"
-    if not force and _map_exists(api, name):
-        print(f"  [skip] {name} already exists")
-        return "(skipped)"
+    keep_pinned_row = _keep_existing_map(
+        name, _map_exists(api, name), force, force_pinned
+    )
+    if keep_pinned_row and not force:
+        # The ordinary already-built skip; nothing to repair.
+        return _announce_kept_map(name, force)
+    if keep_pinned_row:
+        print(
+            f"  [pinned] {name} will be REPAIRED in place: its scenes are "
+            "re-imported and its layers rebound, and the map keeps its id and "
+            "share links (--force-pinned would DELETE this row and its share "
+            "links first, then rebuild - this map is the one pinned map where "
+            "the override destroys the id rather than leaving it behind)"
+        )
     print("\n[sentinel2] New York From Orbit (COGs by reference)")
     # Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s
     # on the SSRF IP-pin against Element84's CloudFront edge). Collection-1
@@ -4500,6 +4786,10 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
     # titles are NOT unique (see datasets_by_title) and the newest same-titled
     # row is not necessarily the row holding the asset (round 8).
     resolved_by_href: dict[str, str] = {}
+    # Same-named rows the loop below kept instead of deleting. Every one of
+    # them loses its layers to the scene cascade, so every one is rebound
+    # (fix(#1607 review r4)).
+    retained_rows: list[str] = []
     if force:
         # fix(#1493 review round 8): the shared-scene and conflict scans
         # below must see EVERY map and dataset. --username can select a
@@ -4513,12 +4803,24 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
                 "listing cannot see other users' private maps, so the "
                 "shared-scene protection would be blind"
             )
-        # fix(#1493 review): --force must RECREATE, not duplicate - the import
+        # fix(#1493 review): --force must REBUILD, not duplicate - the import
         # endpoint dedupes on source_url and returns status="skipped" WITHOUT
         # updating origin_ref, so a rerun over existing scenes could never
-        # record fresh bindings. Deleting first is what makes
+        # record fresh bindings. Deleting the SCENES first is what makes
         # `--only sentinel2 --force` the supported repair for instances seeded
-        # before item_href was sent. Three deliberate shapes here:
+        # before item_href was sent.
+        #
+        # fix(#1607 review r2): the map ROW is a separate question from the
+        # scenes, and since the name is pinned the two now part company. The
+        # scene deletion and re-import below are what the repair actually is,
+        # and they run unchanged; the map row is kept and rebound in place
+        # (see _replace_map_layers at the end of this function), so the uuid
+        # and share token geolens-examples links survive the repair. Only
+        # --force-pinned goes back to deleting the row. Deleting a scene
+        # cascades its layers away (MapLayer.dataset_id is ON DELETE CASCADE),
+        # so the kept row is left layer-less in between rather than dangling.
+        #
+        # Three deliberate shapes here:
         #
         # * Runs AFTER the catalog search succeeded (round 3): a flaky
         #   Element84 must fail this builder BEFORE it destroys a working
@@ -4649,6 +4951,18 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
         if doomed:
             print(f"  [force] deleted {len(doomed)} attached scene datasets")
         for map_id in stale_maps:
+            # fix(#1607): this loop is the line that actually destroys the uuid
+            # the examples gallery links, so the decision is asked here rather
+            # than inherited from a caller 250 lines up. Under a pinned repair
+            # the row is kept and rebound below; --force-pinned is what turns
+            # this back into a delete-and-recreate, and this delete is why the
+            # --force-pinned help singles this map out: for the other three
+            # pinned maps the override leaves the old row standing, and here it
+            # does not (fix(#1607 review r3)).
+            if _keep_existing_map(name, True, force, force_pinned):
+                retained_rows.append(map_id)
+                print(f"  [pinned] keeping map {map_id} - rebound in place below")
+                continue
             api.delete_map(map_id)
             print(f"  [force] deleted existing map {map_id}")
     print(f"  importing {len(items)} TCI COGs by reference (no download)...")
@@ -4689,39 +5003,76 @@ def build_sentinel2(api: Api, force: bool = False) -> str:
             "STAC import resolved no dataset_ids (skipped items not found by "
             "title); remove the existing Sentinel-2 datasets and retry"
         )
-    map_id = api.create_map(
-        name,
-        "Recent low-cloud Sentinel-2 true-color scenes over New York, "
-        "streamed BY REFERENCE from the AWS Earth Search open-data archive - "
-        "no file was downloaded to build this map; Titiler reads the "
-        "cloud-optimized GeoTIFFs straight from S3, newest scene on top. "
-        "ESA Copernicus / Element84 Earth Search.",
+    layers = [
+        {
+            "dataset_id": ds_id,
+            "sort_order": i,  # newest first = on top (results are date-desc)
+            "opacity": 1.0,
+            "display_name": f"Sentinel-2 - {day}",
+            "layer_type": "raster_geolens",
+            # true color = NO render_mode, no paint (default RGB path).
+            "style_config": {"builder": {}},
+        }
+        for i, (ds_id, day) in enumerate(scenes)
+    ]
+    # fix(#1607 review r2): under a pinned repair the row the examples link is
+    # reused instead of created. Resolved through list_maps(), which is what
+    # every other pass in this seeder already targets (the globe projection,
+    # the styling pass and the prune classifier all read it) - repairing a
+    # different row would leave the seeder disagreeing with itself. Where an
+    # older --force left duplicates under this name, list_maps() picks the
+    # newest-created one; if the gallery links an older duplicate, that is a
+    # by-hand reconciliation this seeder cannot make for you.
+    #
+    # Re-resolved HERE rather than carried down from the check at the top: the
+    # STAC search and import sit in between, and a row that disappeared in that
+    # window has no id left to preserve, so falling through to create_map is
+    # the honest outcome rather than a KeyError.
+    #
+    # "Share links survive" is exact, and worth being exact about: the map row,
+    # its uuid, its public /maps/{id} URL and any embed-token ROW are all still
+    # there afterwards (verified on a dev instance: same id, same created_at,
+    # same token id and hint). What a re-import cannot preserve is an embed
+    # token's SCOPE - scoped_dataset_ids is a snapshot of the map's layers at
+    # mint time (see build_embed_demo), so it still names the scenes this run
+    # deleted and authorizes nothing. Re-mint the token if one is in use. Under
+    # --force-pinned the token would not survive at all, so this is the better
+    # end of a trade, not a clean one.
+    rows = _rows_to_rebind(
+        api.list_maps().get(name) if keep_pinned_row else None, retained_rows
     )
-    for i, (ds_id, day) in enumerate(scenes):
-        api.add_layer(
-            map_id,
-            {
-                "dataset_id": ds_id,
-                "sort_order": i,  # newest first = on top (results are date-desc)
-                "opacity": 1.0,
-                "display_name": f"Sentinel-2 - {day}",
-                "layer_type": "raster_geolens",
-                # true color = NO render_mode, no paint (default RGB path).
-                "style_config": {"builder": {}},
-            },
+    if rows:
+        print(
+            f"  [pinned] reusing {len(rows)} existing row(s) "
+            f"(ids and share links survive): {', '.join(rows)}"
         )
-    api.set_view(
-        map_id,
-        visibility="public",
-        center_lng=-73.97,
-        center_lat=40.72,
-        zoom=10.2,
-        pitch=0,
-        bearing=0,
-        basemap_style="openfreemap-positron",
-        show_basemap_labels=True,
+    else:
+        rows = [
+            api.create_map(
+                name,
+                "Recent low-cloud Sentinel-2 true-color scenes over New York, "
+                "streamed BY REFERENCE from the AWS Earth Search open-data "
+                "archive - no file was downloaded to build this map; Titiler "
+                "reads the cloud-optimized GeoTIFFs straight from S3, newest "
+                "scene on top. ESA Copernicus / Element84 Earth Search.",
+            )
+        ]
+    map_id = _rebind_pinned_rows(
+        api,
+        rows,
+        name,
+        layers,
+        {
+            "visibility": "public",
+            "center_lng": -73.97,
+            "center_lat": 40.72,
+            "zoom": 10.2,
+            "pitch": 0,
+            "bearing": 0,
+            "basemap_style": "openfreemap-positron",
+            "show_basemap_labels": True,
+        },
     )
-    warn_if_hidden_layers(api, map_id, name)
     print(f"  -> map {map_id}  ({len(scenes)} scenes)")
     return map_id
 
@@ -4745,14 +5096,13 @@ PRIVATE_VIP_FC = {
 }
 
 
-def build_embed_demo(api: Api, force: bool = False) -> str:
+def build_embed_demo(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """Private-dataset embed-token capability demo. A PUBLIC share URL is
     impossible with a private dataset (publishing the map 400s), so the map
     stays PRIVATE and the X-Embed-Token header grants scoped tile access."""
     name = "Private Embed Demo"
-    if not force and _map_exists(api, name):
-        print("  [skip] Private Embed Demo already exists")
-        return "(skipped)"
+    if _keep_existing_map(name, _map_exists(api, name), force, force_pinned):
+        return _announce_kept_map(name, force)
     print("\n[embed] private-dataset embed-token demo")
     priv_ds = api.ingest_geojson(
         "vip_sites_private.geojson",
@@ -4850,7 +5200,7 @@ COLLECTIONS = {
 }
 
 
-def build_collections(api: Api, force: bool = False) -> str:
+def build_collections(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """Two themed collections. Collection.name is UNIQUE -> reuse on re-runs;
     membership top-up is idempotent.
 
@@ -5857,6 +6207,29 @@ def run_maintenance_mode(api: Api, args) -> int | None:
     return None
 
 
+def _builder_outcome_line(bname: str, result: str | None) -> str | None:
+    """What main() prints for a builder that produced no NEW map, or None.
+
+    None means "this result is a map id, record it as built". Split out of
+    main() so the wording is testable and so the pinned case cannot drift back
+    to the generic line, which tells the operator to do the one thing that
+    would break the examples: "use --force to recreate" is exactly what --force
+    declines to do to a pinned map (fix(#1607 review r2)).
+
+    A falsy result keeps the generic line it has always had - a builder that
+    returned nothing built nothing.
+    """
+    if result == "(pinned)":
+        return (
+            f"  {bname}: kept as-is - externally pinned (PINNED_MAP_NAMES), so "
+            "--force left its id and share links alone; --force-pinned builds "
+            "a fresh row beside it"
+        )
+    if not result or result == "(skipped)":
+        return f"  {bname}: already exists, skipped (use --force to recreate)"
+    return None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Seed GeoLens showcase maps.")
     ap.add_argument(
@@ -5905,7 +6278,21 @@ def main() -> int:
     ap.add_argument(
         "--force",
         action="store_true",
-        help="re-create showcase maps/datasets even if they already exist",
+        help="re-create showcase maps/datasets even if they already exist "
+        "(the externally pinned maps are kept - see --force-pinned)",
+    )
+    ap.add_argument(
+        "--force-pinned",
+        action="store_true",
+        help="with --force, stop keeping the externally pinned maps "
+        "(PINNED_MAP_NAMES). What that costs is NOT the same for all four. For "
+        "'New York From Orbit' (Sentinel-2) it deletes the existing row(s) and "
+        "their share links first and then recreates, so the externally "
+        "referenced UUID is destroyed. For the other three the builder creates "
+        "a fresh row beside the existing one, which keeps its UUID and share "
+        "links until you delete it by hand. Either way, move the "
+        "geolens-examples references (ci/fixtures.json, index.html) onto the "
+        "new ids",
     )
     ap.add_argument(
         "--prune",
@@ -5943,6 +6330,10 @@ def main() -> int:
         # would be fine today and a trap the moment anything else grows a
         # dry-run pair.
         ap.error("--execute is only meaningful with --prune-userdata")
+    if args.force_pinned and not args.force:
+        # Same shape as --execute: a modifier, not a mode. On its own it reads
+        # like "force the pinned maps" and would do nothing whatsoever.
+        ap.error("--force-pinned is only meaningful with --force")
 
     print(f"Logging in to {args.base_url} as {args.username}...")
     api = Api.login(args.base_url, args.username, args.password)
@@ -5956,8 +6347,8 @@ def main() -> int:
 
     fns = {
         "catalog": build_catalog,
-        "restless": lambda a, force=False: build_restless_earth(
-            a, force=force, with_oceans=not args.no_oceans
+        "restless": lambda a, force=False, force_pinned=False: build_restless_earth(
+            a, force=force, with_oceans=not args.no_oceans, force_pinned=force_pinned
         ),
         "manhattan": build_manhattan,
         "hurricanes": build_hurricanes,
@@ -5994,7 +6385,10 @@ def main() -> int:
         # buildings table mid-replace): isolate each builder, report at end.
         # httpx.TimeoutException is NOT builtins.TimeoutError - catch both.
         try:
-            result = fn(api, force=args.force)
+            # Every builder takes the same (api, force, force_pinned) so the
+            # pinned-map rule cannot be forgotten by a builder added later; the
+            # two with no map of their own ignore force_pinned (fix(#1607)).
+            result = fn(api, force=args.force, force_pinned=args.force_pinned)
         except (
             httpx.HTTPStatusError,
             httpx.TimeoutException,
@@ -6006,10 +6400,11 @@ def main() -> int:
                 print(e.response.text[:500], file=sys.stderr)
             failed[bname] = str(e)
             continue
-        if result and result != "(skipped)":
+        outcome = _builder_outcome_line(bname, result)
+        if outcome is None:
             built[bname] = result
         else:
-            print(f"  {bname}: already exists, skipped (use --force to recreate)")
+            print(outcome)
 
     # Backfill license + keywords on whatever showcase datasets now exist (the
     # ingest flow leaves them "proprietary" with no keywords). Best-effort and
