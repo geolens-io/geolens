@@ -350,3 +350,67 @@ def test_force_pinned_without_force_is_refused():
     result = _run("--force-pinned", "--password", "unused")
     assert result.returncode == 2
     assert "--force-pinned is only meaningful with --force" in result.stderr
+
+
+# --- --prune ------------------------------------------------------------------
+
+
+class _PruneApi:
+    """Records what prune() would delete instead of deleting it."""
+
+    def __init__(self, maps, datasets):
+        self._maps = maps
+        self._datasets = datasets
+        self.deleted_maps = []
+        self.deleted_datasets = []
+
+    def list_maps(self):
+        return self._maps
+
+    def list_own_datasets(self):
+        return self._datasets
+
+    def collections_by_name(self):
+        return {}
+
+    def delete_map(self, map_id):
+        self.deleted_maps.append(map_id)
+
+    def delete_dataset(self, dataset_id, title):
+        self.deleted_datasets.append(title)
+
+
+def test_prune_keeps_a_pinned_name_that_also_appears_in_a_retired_list(monkeypatch):
+    """The two lists are meant to be disjoint; prune must not rely on that.
+
+    RETIRED_* is a plain list of names a future edit could collide with, and
+    prune deletes by name. So the collision is forced here rather than waiting
+    for someone to make it for real.
+    """
+    retired_map = "World Airports"
+    retired_dataset = "World Rivers - Casing"
+    assert retired_map in seeder.RETIRED_MAPS
+    assert retired_dataset in seeder.RETIRED_DATASETS
+
+    monkeypatch.setattr(seeder, "RETIRED_MAPS", [retired_map, PINNED])
+    monkeypatch.setattr(
+        seeder,
+        "RETIRED_DATASETS",
+        [retired_dataset, "Meteorite Landings (Meteoritical Society)"],
+    )
+    monkeypatch.setattr(seeder, "RETIRED_COLLECTIONS", [])
+
+    api = _PruneApi(
+        {retired_map: "m-retired", PINNED: "m-pinned"},
+        [
+            {"id": "d-retired", "title": retired_dataset},
+            {
+                "id": "d-pinned",
+                "title": "Meteorite Landings (Meteoritical Society)",
+            },
+        ],
+    )
+    seeder.prune(api)
+
+    assert api.deleted_maps == ["m-retired"]
+    assert api.deleted_datasets == [retired_dataset]
