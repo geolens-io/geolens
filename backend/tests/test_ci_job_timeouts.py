@@ -26,6 +26,16 @@ because the step-level timeout killed it first. apt-get always reads
 dependencies.js: it spawns a plain `apt-get update && apt-get install`
 with no custom config path), so every Playwright-install step must write
 per-request timeouts there before invoking `playwright install`.
+
+The apt.conf.d write alone is still not sufficient: `Acquire::http::Timeout`
+is a socket INACTIVITY timeout, not a minimum-transfer-rate one. Job
+96108423519's stall was a mirror trickling a few KB/s, not a dead
+connection — fonts-freefont-ttf (5.6 MB) took 5m26s to arrive, continuously,
+which never trips an inactivity timeout. So every Playwright-install
+invocation must ALSO be wrapped in coreutils `timeout <N>`, with the retry
+loop's total worst case (attempts * N + (attempts - 1) * sleep) kept under
+the step's own `timeout-minutes`, or a slow-but-alive mirror burns the
+whole step on attempt 1 and the loop never gets a second try either.
 """
 
 import pathlib
@@ -43,6 +53,11 @@ PROD_SMOKE = (
 
 _PLAYWRIGHT_INSTALL = re.compile(r"playwright\s+install", re.IGNORECASE)
 _APT_CONF_D_WRITE = re.compile(r"/etc/apt/apt\.conf\.d/\S+")
+_TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL = re.compile(
+    r"\btimeout\s+(\d+)\s+\S.*playwright\s+install", re.IGNORECASE
+)
+_FOR_LOOP_ATTEMPTS = re.compile(r"for\s+\w+\s+in\s+((?:\d+\s*)+);\s*do")
+_SLEEP_SECONDS = re.compile(r"\bsleep\s+(\d+)\b")
 
 
 def _workflow(path: pathlib.Path = CI) -> dict:
@@ -89,4 +104,44 @@ def test_every_playwright_install_step_bounds_its_inner_apt_get():
     assert not offenders, (
         "Playwright-install steps not bounding their inner apt-get via "
         f"/etc/apt/apt.conf.d/: {offenders}"
+    )
+
+
+def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
+    offenders = []
+    for path in (CI, PROD_SMOKE):
+        jobs = _workflow(path)["jobs"]
+        for job_name, job in jobs.items():
+            for step in job.get("steps", []):
+                run = step.get("run")
+                if not run or not _PLAYWRIGHT_INSTALL.search(run):
+                    continue
+                label = f"{path.name}/{job_name}: {step.get('name', '<unnamed>')}"
+
+                timeout_match = _TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL.search(run)
+                if not timeout_match:
+                    offenders.append(
+                        f"{label}: no `timeout <N>` wraps the playwright install"
+                    )
+                    continue
+                per_attempt_seconds = int(timeout_match.group(1))
+
+                attempts_match = _FOR_LOOP_ATTEMPTS.search(run)
+                attempts = len(attempts_match.group(1).split()) if attempts_match else 1
+                sleep_match = _SLEEP_SECONDS.search(run)
+                sleep_seconds = int(sleep_match.group(1)) if sleep_match else 0
+
+                worst_case_seconds = (
+                    attempts * per_attempt_seconds
+                    + max(attempts - 1, 0) * sleep_seconds
+                )
+                step_cap_seconds = step.get("timeout-minutes", 0) * 60
+                if worst_case_seconds >= step_cap_seconds:
+                    offenders.append(
+                        f"{label}: {attempts} attempts * {per_attempt_seconds}s + "
+                        f"{max(attempts - 1, 0)} sleeps * {sleep_seconds}s = "
+                        f"{worst_case_seconds}s >= step cap {step_cap_seconds}s"
+                    )
+    assert not offenders, (
+        f"Playwright-install retry budget does not fit its step cap: {offenders}"
     )

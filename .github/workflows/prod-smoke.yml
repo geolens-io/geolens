@@ -194,17 +194,20 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
-          # its own — see ci.yml for the full incident writeup. Bound its
-          # inner apt-get the same way: apt-get always reads
-          # /etc/apt/apt.conf.d/ on startup.
+          # its own — see ci.yml for the full incident writeup. Two
+          # independent bounds: apt.conf.d for a dead connection, and a
+          # per-attempt `timeout` for one that stays open but trickles
+          # (apt's own Acquire::http::Timeout is inactivity-based and never
+          # fires on a slow-but-live socket). 3*180s + 2*10s sleep = 560s
+          # < the 720s step cap, so the loop is guaranteed all 3 attempts.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
             sleep 10

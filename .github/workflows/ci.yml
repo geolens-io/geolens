@@ -1818,22 +1818,27 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
-          # its own. Our retry loop below wraps the whole step, but a
-          # degraded mirror stalls that inner apt-get for the full 10-minute
-          # step cap before the loop ever gets a second attempt (2026-08-19:
-          # jobs 96101445154, 96108423519 both timed out on azure.archive.
-          # ubuntu.com fetching fonts-freefont-ttf/fonts-wqy-zenhei at a few
-          # KB/s). apt-get always reads /etc/apt/apt.conf.d/ on startup, so
-          # writing per-request timeouts there before install-deps runs
-          # bounds its inner apt-get too.
+          # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
+          # the full step cap inside it). Two independent bounds, because
+          # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
+          # not a minimum-transfer-rate one:
+          #   - a genuinely dead connection is caught by the apt.conf.d
+          #     write below.
+          #   - a connection that stays open but trickles a few KB/s never
+          #     goes inactive, so apt's timeout never fires (job
+          #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
+          #     degraded azure.archive.ubuntu.com mirror). Wrapping each
+          #     attempt in coreutils `timeout` bounds it regardless of why
+          #     it's slow, so the loop is guaranteed all 3 attempts inside
+          #     this step's cap (3*180s + 2*10s sleep = 560s < 720s).
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
             sleep 10
@@ -1956,22 +1961,27 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
-          # its own. Our retry loop below wraps the whole step, but a
-          # degraded mirror stalls that inner apt-get for the full 10-minute
-          # step cap before the loop ever gets a second attempt (2026-08-19:
-          # jobs 96101445154, 96108423519 both timed out on azure.archive.
-          # ubuntu.com fetching fonts-freefont-ttf/fonts-wqy-zenhei at a few
-          # KB/s). apt-get always reads /etc/apt/apt.conf.d/ on startup, so
-          # writing per-request timeouts there before install-deps runs
-          # bounds its inner apt-get too.
+          # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
+          # the full step cap inside it). Two independent bounds, because
+          # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
+          # not a minimum-transfer-rate one:
+          #   - a genuinely dead connection is caught by the apt.conf.d
+          #     write below.
+          #   - a connection that stays open but trickles a few KB/s never
+          #     goes inactive, so apt's timeout never fires (job
+          #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
+          #     degraded azure.archive.ubuntu.com mirror). Wrapping each
+          #     attempt in coreutils `timeout` bounds it regardless of why
+          #     it's slow, so the loop is guaranteed all 3 attempts inside
+          #     this step's cap (3*180s + 2*10s sleep = 560s < 720s).
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
             sleep 10
@@ -2179,22 +2189,27 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 10
+        timeout-minutes: 12
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
-          # its own. Our retry loop below wraps the whole step, but a
-          # degraded mirror stalls that inner apt-get for the full 10-minute
-          # step cap before the loop ever gets a second attempt (2026-08-19:
-          # jobs 96101445154, 96108423519 both timed out on azure.archive.
-          # ubuntu.com fetching fonts-freefont-ttf/fonts-wqy-zenhei at a few
-          # KB/s). apt-get always reads /etc/apt/apt.conf.d/ on startup, so
-          # writing per-request timeouts there before install-deps runs
-          # bounds its inner apt-get too.
+          # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
+          # the full step cap inside it). Two independent bounds, because
+          # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
+          # not a minimum-transfer-rate one:
+          #   - a genuinely dead connection is caught by the apt.conf.d
+          #     write below.
+          #   - a connection that stays open but trickles a few KB/s never
+          #     goes inactive, so apt's timeout never fires (job
+          #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
+          #     degraded azure.archive.ubuntu.com mirror). Wrapping each
+          #     attempt in coreutils `timeout` bounds it regardless of why
+          #     it's slow, so the loop is guaranteed all 3 attempts inside
+          #     this step's cap (3*180s + 2*10s sleep = 560s < 720s).
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            npx playwright install --with-deps chromium && break
+            timeout 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
             sleep 10
