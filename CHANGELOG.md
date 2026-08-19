@@ -7,7 +7,7 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-## [1.14.1] - 2026-08-19
+## [1.14.1] - 2026-08-20
 
 ### Added
 
@@ -40,7 +40,16 @@ and releases use semantic versioning.
   authenticated saved-search routes are unchanged. Both CORS policies also
   expose `Retry-After` on a 429 and send `Vary: Origin`, so a cross-origin
   caller can read the retry window and a caching proxy in front of the API
-  keys its entries by origin (#1596, #1602).
+  keys its entries by origin. The shipped nginx ignores that header on its
+  raster-tile cache, whose CORS value is a static wildcard for every caller,
+  so tiles stay one cache entry per tile instead of one per embedding site
+  (#1596, #1602, #1605).
+- **A force reseed no longer breaks the demo links the examples gallery
+  depends on.** `scripts/seed-showcase.py` now pins the four externally
+  linked showcase maps and the meteorites dataset: `--force` repairs the
+  Sentinel map in place and keeps every pinned row's UUID and share links,
+  `--prune`/`--prune-userdata` hard-keep them, and a new `--force-pinned`
+  says exactly what it destroys before an operator uses it (#1607).
 - **Default extension ports match their Protocol signatures.** Four default
   port methods and two default AI-provider stream methods had drifted from the
   parameter names their Protocols declare, so a keyword caller or an overlay
