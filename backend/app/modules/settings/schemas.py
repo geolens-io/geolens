@@ -453,8 +453,14 @@ def validate_public_app_url(v: Any) -> str:
     does nothing. The ``/api`` clause is checked explicitly first only to keep
     its specific message; ``canonical_host_error`` supplies one for a host.
     """
-    if not v or (isinstance(v, str) and not v.strip()):
+    # `v is None`, not `not v`: JSON null is a legitimate clear (matching
+    # validate_privacy_url below), but a falsy non-string -- False, 0, [], {}
+    # -- is a type error, not a clear. `not v` caught those too and
+    # returned "" before the isinstance check below ever ran.
+    if v is None or (isinstance(v, str) and not v.strip()):
         return ""
+    if not isinstance(v, str):
+        raise ValueError("Value must be a string")
     normalized = _normalize_absolute_url(v)
     if is_api_base_path(urlsplit(normalized).path):
         raise ValueError("public_app_url must point to the app, not the /api base")
@@ -469,8 +475,11 @@ def validate_public_app_url(v: Any) -> str:
 
 
 def validate_public_api_url(v: Any) -> str:
-    if not v or (isinstance(v, str) and not v.strip()):
+    # `v is None`, not `not v`: see validate_public_app_url above.
+    if v is None or (isinstance(v, str) and not v.strip()):
         return ""
+    if not isinstance(v, str):
+        raise ValueError("Value must be a string")
     return _normalize_absolute_url(v)
 
 

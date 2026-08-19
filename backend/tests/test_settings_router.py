@@ -1028,3 +1028,70 @@ async def test_a_url_free_request_still_resolves_the_committed_endpoint(
         {"model": _NEW_MODEL, "dimensions": None, "base_url": _APPROVED_URL}
     ]
     assert await EMBEDDING_DIMS.get_uncached(test_db_session) == _APPROVED_WIDTH
+
+
+# ---------------------------------------------------------------------------
+# public_app_url / public_api_url falsy-clear validation (#1592 follow-up)
+# ---------------------------------------------------------------------------
+
+
+def _general_tab_values(payload: dict) -> dict[str, object]:
+    return {item["key"]: item["value"] for item in payload["tabs"]["general"]}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("key", ["public_app_url", "public_api_url"])
+@pytest.mark.parametrize("value", [False, 0, [], {}])
+async def test_put_public_url_rejects_falsy_non_strings(
+    client: AsyncClient, admin_auth_header: dict, key: str, value
+):
+    """A falsy non-string value (False, 0, [], {}) is a type error, not a
+    clear -- only JSON null and an empty/whitespace string clear a public
+    URL. `if not v` caught these too and cleared silently instead of
+    422ing, since every one of them is falsy in Python (the same bug as
+    privacy_url, fixed for that key in #1592).
+    """
+    resp = await client.put(
+        "/settings/",
+        json={"settings": {key: value}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "key,explicit_value",
+    [
+        ("public_app_url", "https://maps.example.com"),
+        ("public_api_url", "https://maps.example.com/api"),
+    ],
+)
+async def test_put_public_url_null_and_empty_still_clear(
+    client: AsyncClient, admin_auth_header: dict, key: str, explicit_value: str
+):
+    """JSON null and an empty/whitespace string remain legitimate clears,
+    distinct from the falsy non-strings rejected above."""
+    for clearing_value in (None, "", "   "):
+        # Re-set the explicit value before every clear, so each clearing
+        # value is tested against a value that is actually set; otherwise
+        # the second and third iterations would pass against an
+        # already-cleared key no matter what they did.
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {key: explicit_value}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert _general_tab_values(resp.json())[key] == explicit_value
+
+        resp = await client.put(
+            "/settings/",
+            json={"settings": {key: clearing_value}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        # Once cleared, the resolved value falls back to a request/env-derived
+        # default -- it must simply stop being the explicit value we set,
+        # which proves the clear took effect rather than silently no-oping.
+        assert _general_tab_values(resp.json())[key] != explicit_value
