@@ -202,12 +202,13 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         credential exclusion and the safelisted-header check are what make a
         wildcard safe, and a new surface must not be able to opt out of them.
         """
-        standards_path = cls._standards_path(request)
+        request_path = cls._request_path(request)
+        standards_path = standards_api_path(request_path)
         if standards_path is not None:
             allow_methods = _STANDARDS_PUBLIC_METHODS
             permitted = {"GET", "HEAD"}
             stac_search = standards_path.rstrip("/") == "/stac/search"
-        elif cls._request_path(request) in _PUBLIC_SEARCH_PATHS:
+        elif request_path in _PUBLIC_SEARCH_PATHS:
             allow_methods = _SEARCH_PUBLIC_METHODS
             permitted = {"GET"}
             stac_search = False

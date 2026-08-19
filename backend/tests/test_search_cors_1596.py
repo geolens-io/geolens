@@ -15,8 +15,9 @@ side effect. The middleware carries its own explicit list instead.
 Two properties these tests exist to hold:
 
 - the widening is narrow. ``/search/saved/`` sits under the same router prefix
-  and requires an authenticated user; a native route like ``/datasets/`` is not
-  public at all. Neither may pick up the wildcard.
+  and requires an authenticated user, and ``/maps/`` answers a stranger with a
+  200 and still stays outside the wildcard. The list is an allow-list, not
+  "whatever an anonymous caller happens to be able to read".
 - the preflight tells the truth. #1470 was a preflight advertising ``HEAD`` on
   routes that answered ``405``. Search answers ``GET`` and nothing else, so its
   ``Access-Control-Allow-Methods`` says ``GET, OPTIONS`` and a preflight asking
