@@ -7,7 +7,7 @@ of dismissing the alerts by hand a second time. It fired again on
 2026-08-11: 12 open alerts, all in the two ingest metadata modules below,
 every one at a ``text()`` call whose SQL interpolates a table or schema
 identifier that ``_qtable`` in ``app/processing/ingest/metadata_sql.py``
-validates against a safe-identifier pattern first (T-1209-05).
+validates against a safe-identifier pattern before it is interpolated.
 
 **THE INVARIANT: no dynamic ``text()`` site in these two modules is
 unmarked.** The set of sites is computed from the source, not listed here.
@@ -77,7 +77,7 @@ SUPPRESSION_QUERY = SUPPRESSION_PACK_DIR / "AlertSuppression.ql"
 # Matches the marker the CodeQL CLI's alert-suppression query looks for. The
 # upstream regex is `(?i)\bcodeql\s*\[[^\]]*\]` found anywhere in the comment
 # text, so trailing prose after the bracket is allowed and is what carries the
-# T-1209-05 justification.
+# per-site justification naming _qtable.
 MARKER_RE = re.compile(r"\bcodeql\s*\[\s*py/sql-injection\s*\]", re.IGNORECASE)
 
 

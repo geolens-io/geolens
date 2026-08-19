@@ -30,8 +30,8 @@ jobs:
         # ingest-adjacent PR, adopt the alert-suppression query pack instead of
         # dismissing the alerts by hand again. It fired again on 2026-08-11:
         # 12 alerts, all at text() sites in backend/app/processing/ingest/
-        # whose identifiers _qtable validates first (T-1209-05), so the pack
-        # is adopted here.
+        # whose identifiers _qtable (metadata_sql.py) validates first, so the
+        # pack is adopted here.
         #
         # Only python runs a suppression query. javascript-typescript passes an
         # empty string, which the action reads as unset (getOptionalInput

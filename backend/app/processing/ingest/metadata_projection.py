@@ -45,7 +45,7 @@ async def add_4326_column(
 
     await session.execute(
         text(
-            # codeql[py/sql-injection]: identifiers validated by _qtable (T-1209-05)
+            # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
             f"ALTER TABLE {tref} "
             f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
         )
@@ -61,7 +61,7 @@ async def add_4326_column(
         rewrite_expr = "ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))"
     else:
         rewrite_expr = "ST_Force2D(ST_Transform(ST_CurveToLine(geom), 4326))"
-    # codeql[py/sql-injection]: table via _qtable (T-1209-05); rewrite_expr is one of the two literals above
+    # codeql[py/sql-injection] fix(#1615): table via _qtable (metadata_sql.py); rewrite_expr is one of the two literals above
     await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
@@ -132,7 +132,7 @@ async def linearize_existing_4326(
         curved = (
             await session.execute(
                 text(
-                    # codeql[py/sql-injection]: identifiers validated by _qtable (T-1209-05)
+                    # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                     f"SELECT 1 FROM {tref} "  # noqa: S608
                     f"WHERE ST_AsBinary(ST_CurveToLine(geom_4326)) "
                     f"      <> ST_AsBinary(geom_4326) "
@@ -169,7 +169,7 @@ async def linearize_existing_4326(
             generic = "Geometry"
         await session.execute(
             text(
-                # codeql[py/sql-injection]: table via _qtable (T-1209-05); generic is a fixed literal, srid an int()
+                # codeql[py/sql-injection] fix(#1615): table via _qtable (metadata_sql.py); generic is a fixed literal, srid an int()
                 f"ALTER TABLE {tref} ALTER COLUMN geom_4326 "
                 f"TYPE geometry({generic}, {int(typmod.srid)})"
             )
@@ -178,7 +178,7 @@ async def linearize_existing_4326(
     # bare list would skip an arc-free M container.
     await session.execute(
         text(
-            # codeql[py/sql-injection]: identifiers validated by _qtable (T-1209-05)
+            # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
             f"UPDATE {tref} SET geom_4326 = ST_CurveToLine(geom_4326) "
             f"WHERE ST_HasArc(geom_4326) "
             f"   OR rtrim(GeometryType(geom_4326), 'M') IN "
@@ -228,7 +228,7 @@ async def ensure_geom_4326_gist_index(
     if has_gist.first() is None:
         await session.execute(
             text(
-                # codeql[py/sql-injection]: identifiers validated by _qtable (T-1209-05)
+                # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                 f"CREATE INDEX ON {_qtable(table_name, schema)} USING GIST (geom_4326)"
             )
         )
@@ -265,7 +265,7 @@ async def grant_reader_access(
         Reader role to grant to. Defaults to 'geolens_reader' (single_tenant).
     """
     await session.execute(
-        # codeql[py/sql-injection]: table via _qtable (T-1209-05); role is server-derived (tenant_reader_role)
+        # codeql[py/sql-injection] fix(#1615): table via _qtable (metadata_sql.py); role is server-derived (tenant_reader_role)
         text(f"GRANT SELECT ON {_qtable(table_name, schema)} TO {role}")
     )
     # ING-02 / P2-02 (Phase 1076): no internal commit. The caller
