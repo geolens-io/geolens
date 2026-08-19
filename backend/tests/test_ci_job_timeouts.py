@@ -56,7 +56,10 @@ _APT_CONF_D_WRITE = re.compile(r"/etc/apt/apt\.conf\.d/\S+")
 _TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL = re.compile(
     r"\btimeout\s+(\d+)\s+\S.*playwright\s+install", re.IGNORECASE
 )
-_FOR_LOOP_ATTEMPTS = re.compile(r"for\s+\w+\s+in\s+((?:\d+\s*)+);\s*do")
+# Flat character class, not `(?:\d+\s*)+` — a nested quantifier over an
+# optional-whitespace group backtracks exponentially on adversarial input
+# (CodeQL py/redos, alert 80). `[\d\s]+` is linear: a single top-level `+`.
+_FOR_LOOP_ATTEMPTS = re.compile(r"for\s+\w+\s+in\s+([\d\s]+);\s*do")
 _SLEEP_SECONDS = re.compile(r"\bsleep\s+(\d+)\b")
 
 
