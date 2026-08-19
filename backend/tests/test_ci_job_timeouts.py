@@ -79,7 +79,16 @@ PROD_SMOKE = (
 )
 
 _PLAYWRIGHT_INSTALL = re.compile(r"playwright\s+install", re.IGNORECASE)
-_APT_CONF_D_WRITE = re.compile(r"/etc/apt/apt\.conf\.d/\S+")
+# Captures the echoed apt.conf directives (group 1) and the target path
+# (group 2), not just a bare mention of the directory — a step could
+# reference /etc/apt/apt.conf.d/ in passing without actually writing a
+# useful file there.
+_APT_CONF_D_WRITE = re.compile(r"echo\s+'([^']*)'\s*\\?\s*\|\s*sudo\s+tee\s+(\S+)")
+_REQUIRED_APT_CONF_DIRECTIVES = (
+    "Acquire::http::Timeout",
+    "Acquire::https::Timeout",
+    "Acquire::Retries",
+)
 # Optional `-k <K>` grace period ahead of the required `<N>` duration.
 _TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL = re.compile(
     r"\btimeout\s+(?:-k\s+(\d+)\s+)?(\d+)\s+\S.*playwright\s+install", re.IGNORECASE
@@ -99,6 +108,12 @@ _CLEANUP_POLL_LOOP = re.compile(
     r"for\s+_\s+in\s+([\d\s]+);\s*do(.*?)\bdone\b", re.IGNORECASE | re.DOTALL
 )
 _SLEEP_SECONDS = re.compile(r"\bsleep\s+(\d+)\b")
+_PKILL_APT_GET = re.compile(r"\bpkill\b[^\n]*-x\s+apt-get\b")
+_PKILL_DPKG = re.compile(r"\bpkill\b[^\n]*-x\s+dpkg\b")
+_PGREP_APT_GET_OR_DPKG = re.compile(r"\bpgrep\b[^\n]*-x\s+(?:apt-get|dpkg)\b")
+_DPKG_CONFIGURE_TIMEOUT_WRAPPED = re.compile(
+    r"\btimeout\s+(?:-k\s+(\d+)\s+)?(\d+)\s+dpkg\s+--configure\s+-a\b"
+)
 
 # A REAL apt-get invocation — "update"/"install" as the immediate
 # subcommand, only preceded by `-o <opt>` flags — as opposed to a bare
@@ -162,17 +177,32 @@ def test_every_playwright_install_step_bounds_its_inner_apt_get():
         for job_name, job in jobs.items():
             for step in job.get("steps", []):
                 run = step.get("run")
-                if (
-                    run
-                    and _PLAYWRIGHT_INSTALL.search(run)
-                    and not _APT_CONF_D_WRITE.search(run)
-                ):
+                if not run or not _PLAYWRIGHT_INSTALL.search(run):
+                    continue
+                label = f"{path.name}/{job_name}: {step.get('name', '<unnamed>')}"
+                code = _without_comment_lines(run)
+
+                write_match = _APT_CONF_D_WRITE.search(code)
+                if not write_match:
+                    offenders.append(f"{label}: no apt.conf.d file write found")
+                    continue
+                directives = write_match.group(1)
+                missing = [
+                    d for d in _REQUIRED_APT_CONF_DIRECTIVES if d not in directives
+                ]
+                if missing:
                     offenders.append(
-                        f"{path.name}/{job_name}: {step.get('name', '<unnamed>')}"
+                        f"{label}: apt.conf.d write is missing directive(s) {missing}"
+                    )
+                    continue
+
+                playwright_match = _PLAYWRIGHT_INSTALL.search(code)
+                if playwright_match and write_match.start() >= playwright_match.start():
+                    offenders.append(
+                        f"{label}: apt.conf.d write does not precede `playwright install`"
                     )
     assert not offenders, (
-        "Playwright-install steps not bounding their inner apt-get via "
-        f"/etc/apt/apt.conf.d/: {offenders}"
+        f"Playwright-install steps not correctly bounding their inner apt-get: {offenders}"
     )
 
 
@@ -180,26 +210,52 @@ def _cleanup_budget_seconds(run: str) -> tuple[int | None, str | None]:
     """Worst-case seconds a single cleanup-between-attempts block can take.
 
     Returns (seconds, None) on success, or (None, reason) if the run text
-    doesn't have the expected shape. The two FIXED sleeps (post-TERM,
-    post-configure) are whatever's left of `run` once the bounded poll
-    loop's own span is cut out, so a stray unrelated `sleep` elsewhere in
-    the step would corrupt this — none of the four steps this covers has
-    one, but a future edit that adds one should widen this rather than
-    trust the subtraction blindly.
+    doesn't have the expected shape. Requires actual evidence of the
+    orphan-kill sequence, not just any bounded loop with a sleep: a
+    `pkill` targeting apt-get, one targeting dpkg, a bounded poll loop
+    that itself checks apt-get/dpkg via `pgrep`, and a timeout-wrapped
+    `dpkg --configure -a` (whose own -k grace counts toward the budget
+    the same way a Playwright-install attempt's does). A cleanup block
+    that dropped the kill commands but kept an unrelated bounded loop
+    would otherwise still look bounded to a looser check.
+
+    The two FIXED sleeps (post-TERM, before the final retry) are whatever
+    text is left in `run` once the poll loop's own span AND the
+    dpkg-configure invocation are cut out, so a stray unrelated `sleep`
+    elsewhere in the step would corrupt this — none of the seven steps
+    this covers has one, but a future edit that adds one should widen
+    this rather than trust the subtraction blindly.
     """
+    if not _PKILL_APT_GET.search(run):
+        return None, "cleanup has no `pkill ... -x apt-get`"
+    if not _PKILL_DPKG.search(run):
+        return None, "cleanup has no `pkill ... -x dpkg`"
+
     poll_match = _CLEANUP_POLL_LOOP.search(run)
     if not poll_match:
         return None, "no bounded cleanup poll loop (`for _ in ...; do ... done`)"
+    if not _PGREP_APT_GET_OR_DPKG.search(poll_match.group(2)):
+        return None, "cleanup poll loop doesn't check apt-get/dpkg via `pgrep`"
     poll_iterations = len(poll_match.group(1).split())
     poll_sleep_match = _SLEEP_SECONDS.search(poll_match.group(2))
     if not poll_sleep_match:
         return None, "cleanup poll loop has no `sleep <N>`"
     poll_sleep_seconds = int(poll_sleep_match.group(1))
 
+    configure_match = _DPKG_CONFIGURE_TIMEOUT_WRAPPED.search(run)
+    if not configure_match:
+        return None, "cleanup has no timeout-wrapped `dpkg --configure -a`"
+    configure_seconds = int(configure_match.group(2)) + int(
+        configure_match.group(1) or 0
+    )
+
     outside_text = run[: poll_match.start()] + run[poll_match.end() :]
     fixed_sleep_seconds = sum(int(m) for m in _SLEEP_SECONDS.findall(outside_text))
 
-    return fixed_sleep_seconds + poll_iterations * poll_sleep_seconds, None
+    return (
+        fixed_sleep_seconds + poll_iterations * poll_sleep_seconds + configure_seconds,
+        None,
+    )
 
 
 def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
@@ -212,8 +268,9 @@ def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
                 if not run or not _PLAYWRIGHT_INSTALL.search(run):
                     continue
                 label = f"{path.name}/{job_name}: {step.get('name', '<unnamed>')}"
+                code = _without_comment_lines(run)
 
-                timeout_match = _TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL.search(run)
+                timeout_match = _TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL.search(code)
                 if not timeout_match:
                     offenders.append(
                         f"{label}: no `timeout <N>` wraps the playwright install"
@@ -223,10 +280,10 @@ def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
                 base_timeout_seconds = int(timeout_match.group(2))
                 per_attempt_seconds = base_timeout_seconds + kill_grace_seconds
 
-                attempts_match = _FOR_LOOP_ATTEMPTS.search(run)
+                attempts_match = _FOR_LOOP_ATTEMPTS.search(code)
                 attempts = len(attempts_match.group(1).split()) if attempts_match else 1
 
-                cleanup_seconds, cleanup_error = _cleanup_budget_seconds(run)
+                cleanup_seconds, cleanup_error = _cleanup_budget_seconds(code)
                 if cleanup_error:
                     offenders.append(f"{label}: {cleanup_error}")
                     continue

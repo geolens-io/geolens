@@ -581,8 +581,15 @@ jobs:
         # failing http mirror to an https one, which our http-only timeout
         # never bounded. The cleanup between attempts matches the
         # Playwright-install steps for the same reason: apt-get can still
-        # orphan a dpkg child if timeout kills it mid-unpack.
-        timeout-minutes: 15
+        # orphan a dpkg child if timeout kills it mid-unpack. The final
+        # `dpkg --configure -a` is itself timeout-wrapped: an unbounded
+        # maintainer script there could eat the rest of the step cap the
+        # same way an unbounded apt-get did.
+        #
+        # Worst case: 3 attempts * (90+10 + 150+10)s + 2 cleanups *
+        # (5 + 5*2 + 30+10 + 10)s = 780 + 130 = 910s, under the 960s
+        # (16-minute) step cap.
+        timeout-minutes: 16
         run: |
           # The postgres service for this job is postgis/postgis:18-3.6 (PG18).
           # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
@@ -614,7 +621,7 @@ jobs:
               pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
               sleep 2
             done
-            sudo dpkg --configure -a || true
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -1299,7 +1306,7 @@ jobs:
         # the full incident writeup (job 96122006694 stalled here for the
         # full 10-minute cap on a silent https fallback our http-only
         # timeout never bounded).
-        timeout-minutes: 15
+        timeout-minutes: 16
         run: |
           for i in 1 2 3; do
             sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
@@ -1316,7 +1323,7 @@ jobs:
               pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
               sleep 2
             done
-            sudo dpkg --configure -a || true
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -1853,7 +1860,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 12
+        timeout-minutes: 13
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
@@ -1881,8 +1888,13 @@ jobs:
           #     present on the base Ubuntu 24.04 image, and already relied
           #     on below) instead of fuser.
           #
+          # The cleanup's own `dpkg --configure -a` is timeout-wrapped too,
+          # for the same reason: an unbounded maintainer script there could
+          # eat the rest of the step cap.
+          #
           # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
-          # (5 + 5*2 + 10)s = 570 + 50 = 620s, under the 720s step cap.
+          # (5 + 5*2 + 30+10 + 10)s = 570 + 130 = 700s, under the 780s
+          # (13-minute) step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
@@ -1898,7 +1910,7 @@ jobs:
               pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
               sleep 2
             done
-            sudo dpkg --configure -a || true
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -2019,7 +2031,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 12
+        timeout-minutes: 13
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
@@ -2047,8 +2059,13 @@ jobs:
           #     present on the base Ubuntu 24.04 image, and already relied
           #     on below) instead of fuser.
           #
+          # The cleanup's own `dpkg --configure -a` is timeout-wrapped too,
+          # for the same reason: an unbounded maintainer script there could
+          # eat the rest of the step cap.
+          #
           # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
-          # (5 + 5*2 + 10)s = 570 + 50 = 620s, under the 720s step cap.
+          # (5 + 5*2 + 30+10 + 10)s = 570 + 130 = 700s, under the 780s
+          # (13-minute) step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
@@ -2064,7 +2081,7 @@ jobs:
               pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
               sleep 2
             done
-            sudo dpkg --configure -a || true
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -2174,7 +2191,7 @@ jobs:
         # the full incident writeup (job 96122006694 stalled here for the
         # full 10-minute cap on a silent https fallback our http-only
         # timeout never bounded).
-        timeout-minutes: 15
+        timeout-minutes: 16
         run: |
           for i in 1 2 3; do
             sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
@@ -2191,7 +2208,7 @@ jobs:
               pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
               sleep 2
             done
-            sudo dpkg --configure -a || true
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
@@ -2284,7 +2301,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        timeout-minutes: 12
+        timeout-minutes: 13
         run: |
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
@@ -2312,8 +2329,13 @@ jobs:
           #     present on the base Ubuntu 24.04 image, and already relied
           #     on below) instead of fuser.
           #
+          # The cleanup's own `dpkg --configure -a` is timeout-wrapped too,
+          # for the same reason: an unbounded maintainer script there could
+          # eat the rest of the step cap.
+          #
           # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
-          # (5 + 5*2 + 10)s = 570 + 50 = 620s, under the 720s step cap.
+          # (5 + 5*2 + 30+10 + 10)s = 570 + 130 = 700s, under the 780s
+          # (13-minute) step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
@@ -2329,7 +2351,7 @@ jobs:
               pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
               sleep 2
             done
-            sudo dpkg --configure -a || true
+            sudo timeout -k 10 30 dpkg --configure -a || true
             sleep 10
           done
 
