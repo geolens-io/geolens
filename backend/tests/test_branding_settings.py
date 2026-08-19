@@ -155,6 +155,53 @@ async def test_get_branding_privacy_url_unset_by_default(
     assert resp.json()["privacy_url"] is None
 
 
+@pytest.mark.anyio
+async def test_put_privacy_url_null_clears_it(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """JSON null is a legitimate clear, same as "" -- distinct from a falsy
+    non-string (False, 0, [], {}), which must 422 instead.
+    """
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": "https://operator.example.com/privacy"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": None}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200
+
+    resp = await client.get("/api/settings/branding/")
+    assert resp.status_code == 200
+    assert resp.json()["privacy_url"] is None
+
+
+@pytest.mark.parametrize(
+    "value",
+    [False, 0, [], {}],
+)
+@pytest.mark.anyio
+async def test_put_privacy_url_rejects_falsy_non_strings(
+    client: AsyncClient, admin_auth_header: dict, value
+):
+    """A falsy non-string value (False, 0, [], {}) is a type error, not a
+    clear -- only JSON null and an empty/whitespace string clear the link.
+    `if not v` would have caught these too and cleared silently instead of
+    422ing, since every one of them is falsy in Python.
+    """
+    resp = await client.put(
+        "/api/settings/",
+        json={"settings": {"privacy_url": value}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 422
+
+
 @pytest.mark.parametrize(
     "value",
     [

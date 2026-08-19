@@ -486,7 +486,11 @@ def validate_privacy_url(v: Any) -> str:
     validator and the read-path defense in router_public.py on what "safe"
     means for a value rendered as a raw ``<a href>``.
     """
-    if not v or (isinstance(v, str) and not v.strip()):
+    # `v is None`, not `not v`: JSON null is a legitimate clear (matching
+    # validate_enabled_plugins), but a falsy non-string -- False, 0, [], {}
+    # -- is a type error, not a clear. `not v` caught those too and
+    # returned "" before the isinstance check below ever ran.
+    if v is None or (isinstance(v, str) and not v.strip()):
         return ""
     if not isinstance(v, str):
         raise ValueError("Value must be a string")
