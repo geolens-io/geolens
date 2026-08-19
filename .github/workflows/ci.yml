@@ -156,6 +156,12 @@ jobs:
               # script would otherwise skip Backend Tests and never run the
               # assertion that says whether it still works.
               - 'scripts/fix_sdk_optional_body.py'
+              # fix(#1607): test_seed_showcase_pins_1607.py imports this seeder
+              # and walks its AST to prove every builder routes its map-exists
+              # check through _keep_existing_map, so the maps geolens-examples
+              # links by UUID survive --force. A seeder-only PR that skipped
+              # Backend Tests would drop the pin with the gate showing green.
+              - 'scripts/seed-showcase.py'
               - '.gitignore'
               # Frontend files that backend parity/drift tests read by literal
               # path (fe-sdk type drift, basemap/capability/paint-key drift,
