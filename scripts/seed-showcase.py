@@ -4969,6 +4969,16 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
     # STAC search and import sit in between, and a row that disappeared in that
     # window has no id left to preserve, so falling through to create_map is
     # the honest outcome rather than a KeyError.
+    #
+    # "Share links survive" is exact, and worth being exact about: the map row,
+    # its uuid, its public /maps/{id} URL and any embed-token ROW are all still
+    # there afterwards (verified on a dev instance: same id, same created_at,
+    # same token id and hint). What a re-import cannot preserve is an embed
+    # token's SCOPE - scoped_dataset_ids is a snapshot of the map's layers at
+    # mint time (see build_embed_demo), so it still names the scenes this run
+    # deleted and authorizes nothing. Re-mint the token if one is in use. Under
+    # --force-pinned the token would not survive at all, so this is the better
+    # end of a trade, not a clean one.
     map_id = api.list_maps().get(name) if keep_pinned_row else None
     if map_id:
         print(f"  [pinned] reusing map {map_id} (its id and share links survive)")
