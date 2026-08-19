@@ -106,7 +106,7 @@ PostGIS et pgvector partagent une base de données. Lorsque la recherche sémant
 
 Connectez-vous directement depuis QGIS : **Couche > Ajouter une couche WFS / OGC API Features** et indiquez `http://localhost:8080/api/`.
 
-Les mêmes points de terminaison depuis une bibliothèque cartographique : [geolens-examples](https://github.com/geolens-io/geolens-examples) rassemble des pages d’un seul fichier pour MapLibre, Leaflet, OpenLayers et le SDK ArcGIS, ainsi que les deux SDK GeoLens, une carte enregistrée intégrée, une analyse Python/GeoPandas et une configuration MCP. Chaque exemple s’exécute sur la démo publique, et la CI les rejoue tous chaque semaine : ce que vous copiez est donc du code qui fonctionnait cette semaine. [Parcourir la galerie](https://geolens-io.github.io/geolens-examples/).
+Les mêmes points de terminaison depuis les outils que vous utilisez déjà : [geolens-examples](https://github.com/geolens-io/geolens-examples) rassemble des pages d’un seul fichier pour MapLibre, Leaflet, OpenLayers et le SDK JavaScript ArcGIS, des guides QGIS et DuckDB, les deux SDK GeoLens, une recherche sémantique dans le catalogue, un navigateur STAC, une carte enregistrée intégrée, une analyse Python/GeoPandas, un manifeste de catalogue pour la CLI et une configuration MCP. Les exemples en lecture seule s’exécutent directement sur la démo publique, et la CI les y rejoue à chaque push et une fois par semaine : ce que vous copiez est donc du code qui fonctionnait cette semaine. [Parcourir la galerie](https://geolens-io.github.io/geolens-examples/).
 
 ## Fonctionnalités
 
@@ -354,7 +354,7 @@ L’API et le worker exportent nativement des métriques Prometheus (taux/latenc
 | [CLI et manifestes](https://docs.getgeolens.com/guides/cli/) | Publication de fichiers et gestion des catalogues avec la CLI `geolens` |
 | [Référence API](https://docs.getgeolens.com/guides/api/) | Référence générée sur docs.getgeolens.com ; Swagger UI interactive sur `/api/docs` à l’exécution |
 | [Exemples de manifestes](examples/manifests/) | Modèles `geolens.yaml` : public-cog (COG distant), url-source, s3-source, publication-states |
-| [Exemples clients](https://github.com/geolens-io/geolens-examples) | Exemples exécutables navigateur, SDK, intégration, Python et MCP, vérifiés par la CI sur la démo publique ([galerie](https://geolens-io.github.io/geolens-examples/)) |
+| [Exemples clients](https://github.com/geolens-io/geolens-examples) | Exemples exécutables navigateur, QGIS, DuckDB, SDK, CLI, intégration, Python et MCP, vérifiés par la CI sur la démo publique ([galerie](https://geolens-io.github.io/geolens-examples/)) |
 
 ## Communauté
 
