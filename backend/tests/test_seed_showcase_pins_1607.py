@@ -13,7 +13,9 @@ So the seeder pins them, and these tests hold the pin in place:
 * EVERY builder's exists-check goes through that one function, so a builder
   added later cannot re-invent the bare `not force and _map_exists(...)` shape
   and quietly drop a pinned map's uuid on the floor;
-* `--prune-userdata`'s classifier hard-keeps a pinned map whoever owns it.
+* `--prune-userdata`'s classifier hard-keeps a pinned map whoever owns it;
+* `--prune` refuses to delete a pinned name even if one is added to a RETIRED_*
+  list, which the tests force rather than wait for.
 
 Pure static analysis plus one fake-API unit - no database, no HTTP, no docker.
 """

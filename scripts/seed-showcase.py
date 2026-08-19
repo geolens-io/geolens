@@ -81,7 +81,11 @@ Upgrading an existing instance: run with --prune to delete the retired
 first-generation showcase maps/datasets (see RETIRED_* below), then seed.
 --force rebuilds a showcase map that already exists - except the four in
 PINNED_MAP_NAMES, whose ids and share token the geolens-examples repo links.
---force-pinned rebuilds those too, and then those links have to be updated.
+--force-pinned lifts that pin, and only that: the builder then does what --force
+does for any other map, which is to create a FRESH row beside the existing one.
+The old row keeps its id and share links until someone removes it, so an
+operator who uses the flag has to move the examples' references onto the new ids
+or keep the old row.
 
 Requires: pip install httpx
 
@@ -560,13 +564,22 @@ PINNED_FOREIGN_DATASET_TITLES = ("MNMAP_PLUTO",)
 #   The Matterhorn in 3D              /maps/1c5e021a-8ede-4ebe-a06c-92322208de45
 #   New York From Orbit               /maps/1c4207ab-b1c0-4309-9924-c1ea355003a3
 #
-# Recreating one mints a fresh uuid and leaves its share tokens behind, so every
-# link above 404s while a working map sits next to them under the same name -
-# and nothing inside this repo can see that. So: --force KEEPS a pinned map that
-# already exists (_keep_existing_map), --prune and --prune-userdata hard-keep it,
-# and no path that keeps a map re-mints or revokes its share/embed tokens.
-# --force-pinned lifts the pin for an operator who means it and will re-publish
-# the links afterwards.
+# Building one of these again mints a fresh uuid and leaves the share tokens on
+# the row they were minted against, so every link above keeps resolving to the
+# OLD map while the seeder's later passes work on the new one - and nothing
+# inside this repo can see that. So: --force KEEPS a pinned map that already
+# exists (_keep_existing_map), --prune and --prune-userdata hard-keep it, and no
+# path that keeps a map re-mints or revokes its share/embed tokens.
+#
+# --force-pinned lifts the pin, and only that. It does not replace the pinned
+# row: the builder then behaves exactly as --force does for any other map, which
+# for every builder except build_sentinel2 means create_map() beside the row that
+# is already there (build_sentinel2 deletes the stale rows under the same name
+# first, so there the old row and its links do go). The surviving row keeps the
+# uuid and the share token the links above use until someone prunes or deletes
+# it by hand. An operator who uses the flag therefore has to move the references
+# in geolens-examples (ci/fixtures.json, index.html) onto the new ids, or keep
+# the old row and let the new one sit beside it.
 PINNED_MAP_NAMES = (
     "Restless Earth",
     "Manhattan - A Century of Skyline",
@@ -1849,6 +1862,15 @@ def _keep_existing_map(
                                                   addressed from outside this
                                                   repo (PINNED_MAP_NAMES)
         exists, force, pinned, override -> False  --force-pinned
+
+    False on that last line means only that this function stops holding the
+    builder back. It is NOT "replace the pinned row": the builder goes on to do
+    what --force does for any other map, which for every builder but
+    build_sentinel2 is create_map() beside the existing row. After
+    --force --force-pinned the old map is therefore still there, still holding
+    the uuid and the share token geolens-examples links, while the name now
+    resolves to the fresh row. Moving those references onto the new ids, or
+    deleting the old row, is the operator's job - nothing here does it.
     """
     if not exists:
         return False
@@ -1863,12 +1885,16 @@ def _announce_kept_map(name: str, force: bool, note: str = "") -> None:
     Separate from the decision so that stays pure. The force case has to name
     the flag that lifts the pin: an operator who typed --force and watched
     nothing happen will otherwise go delete the map by hand, which is the exact
-    outcome the pin exists to prevent.
+    outcome the pin exists to prevent. It also has to say what the flag really
+    does, because "recreate" would be a promise this seeder does not keep - the
+    builder builds a fresh row and leaves this one standing.
     """
     if force:
         print(
-            f"  [pinned] {name} kept as-is: the examples address this map by id "
-            "(see PINNED_MAP_NAMES) - pass --force-pinned to recreate it anyway"
+            f"  [pinned] {name} kept as-is: geolens-examples addresses this map "
+            "by id (see PINNED_MAP_NAMES). --force-pinned lifts the pin, which "
+            "builds a FRESH map beside this one; this row keeps its id and "
+            "share links until you move those references or delete it"
         )
     else:
         print(f"  [skip] {name} already exists{note}")
@@ -6073,9 +6099,12 @@ def main() -> int:
     ap.add_argument(
         "--force-pinned",
         action="store_true",
-        help="with --force, re-create the externally pinned maps too "
-        "(PINNED_MAP_NAMES). They get new UUIDs and lose their share tokens, so "
-        "the geolens-examples links must be updated after this",
+        help="with --force, stop keeping the externally pinned maps "
+        "(PINNED_MAP_NAMES). This lifts the pin and nothing more: the builder "
+        "then does what --force does for any other map and creates a FRESH row "
+        "beside the existing one, which keeps its UUID and share links until "
+        "you delete it. Move the geolens-examples references "
+        "(ci/fixtures.json, index.html) onto the new ids, or keep the old row",
     )
     ap.add_argument(
         "--prune",
