@@ -1823,7 +1823,7 @@ jobs:
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
           # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
-          # the full step cap inside it). Two independent bounds, because
+          # the full step cap inside it). Three independent bounds, because
           # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
           # not a minimum-transfer-rate one:
           #   - a genuinely dead connection is caught by the apt.conf.d
@@ -1831,16 +1831,39 @@ jobs:
           #   - a connection that stays open but trickles a few KB/s never
           #     goes inactive, so apt's timeout never fires (job
           #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
-          #     degraded azure.archive.ubuntu.com mirror). Wrapping each
-          #     attempt in coreutils `timeout` bounds it regardless of why
-          #     it's slow, so the loop is guaranteed all 3 attempts inside
-          #     this step's cap (3*180s + 2*10s sleep = 560s < 720s).
+          #     degraded azure.archive.ubuntu.com mirror). `timeout -k 10
+          #     180` bounds each attempt regardless of why it's slow.
+          #   - `timeout` only signals its DIRECT child; the real apt-get is
+          #     a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that
+          #     sudo places outside its reach, so a cut attempt leaves
+          #     apt-get running and holding the dpkg lock (job 96120667995:
+          #     attempts 2 and 3 both died instantly with "Could not get
+          #     lock /var/lib/dpkg/lock-frontend. It is held by process
+          #     12362 (apt-get)"). Kill it and wait for it to actually exit
+          #     before retrying. psmisc (fuser) is not confirmed installed
+          #     on this runner image (no hit searching actions/runner-images'
+          #     build scripts), so poll with pgrep/pkill (procps — confirmed
+          #     present on the base Ubuntu 24.04 image, and already relied
+          #     on below) instead of fuser.
+          #
+          # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
+          # (5 + 5*2 + 10)s = 570 + 50 = 620s, under the 720s step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            timeout 180 npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo dpkg --configure -a || true
             sleep 10
           done
 
@@ -1966,7 +1989,7 @@ jobs:
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
           # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
-          # the full step cap inside it). Two independent bounds, because
+          # the full step cap inside it). Three independent bounds, because
           # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
           # not a minimum-transfer-rate one:
           #   - a genuinely dead connection is caught by the apt.conf.d
@@ -1974,16 +1997,39 @@ jobs:
           #   - a connection that stays open but trickles a few KB/s never
           #     goes inactive, so apt's timeout never fires (job
           #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
-          #     degraded azure.archive.ubuntu.com mirror). Wrapping each
-          #     attempt in coreutils `timeout` bounds it regardless of why
-          #     it's slow, so the loop is guaranteed all 3 attempts inside
-          #     this step's cap (3*180s + 2*10s sleep = 560s < 720s).
+          #     degraded azure.archive.ubuntu.com mirror). `timeout -k 10
+          #     180` bounds each attempt regardless of why it's slow.
+          #   - `timeout` only signals its DIRECT child; the real apt-get is
+          #     a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that
+          #     sudo places outside its reach, so a cut attempt leaves
+          #     apt-get running and holding the dpkg lock (job 96120667995:
+          #     attempts 2 and 3 both died instantly with "Could not get
+          #     lock /var/lib/dpkg/lock-frontend. It is held by process
+          #     12362 (apt-get)"). Kill it and wait for it to actually exit
+          #     before retrying. psmisc (fuser) is not confirmed installed
+          #     on this runner image (no hit searching actions/runner-images'
+          #     build scripts), so poll with pgrep/pkill (procps — confirmed
+          #     present on the base Ubuntu 24.04 image, and already relied
+          #     on below) instead of fuser.
+          #
+          # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
+          # (5 + 5*2 + 10)s = 570 + 50 = 620s, under the 720s step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            timeout 180 npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo dpkg --configure -a || true
             sleep 10
           done
 
@@ -2194,7 +2240,7 @@ jobs:
           # playwright install-deps shells out to its own `apt-get update &&
           # apt-get install` for font/library packages, with no timeout of
           # its own (2026-08-19: jobs 96101445154, 96108423519 both burned
-          # the full step cap inside it). Two independent bounds, because
+          # the full step cap inside it). Three independent bounds, because
           # apt's own Acquire::http::Timeout is a socket INACTIVITY timeout,
           # not a minimum-transfer-rate one:
           #   - a genuinely dead connection is caught by the apt.conf.d
@@ -2202,16 +2248,39 @@ jobs:
           #   - a connection that stays open but trickles a few KB/s never
           #     goes inactive, so apt's timeout never fires (job
           #     96108423519 took 5m26s to fetch a 5.6 MB font package from a
-          #     degraded azure.archive.ubuntu.com mirror). Wrapping each
-          #     attempt in coreutils `timeout` bounds it regardless of why
-          #     it's slow, so the loop is guaranteed all 3 attempts inside
-          #     this step's cap (3*180s + 2*10s sleep = 560s < 720s).
+          #     degraded azure.archive.ubuntu.com mirror). `timeout -k 10
+          #     180` bounds each attempt regardless of why it's slow.
+          #   - `timeout` only signals its DIRECT child; the real apt-get is
+          #     a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that
+          #     sudo places outside its reach, so a cut attempt leaves
+          #     apt-get running and holding the dpkg lock (job 96120667995:
+          #     attempts 2 and 3 both died instantly with "Could not get
+          #     lock /var/lib/dpkg/lock-frontend. It is held by process
+          #     12362 (apt-get)"). Kill it and wait for it to actually exit
+          #     before retrying. psmisc (fuser) is not confirmed installed
+          #     on this runner image (no hit searching actions/runner-images'
+          #     build scripts), so poll with pgrep/pkill (procps — confirmed
+          #     present on the base Ubuntu 24.04 image, and already relied
+          #     on below) instead of fuser.
+          #
+          # Worst case: 3 attempts * (180 + 10 kill-grace)s + 2 cleanups *
+          # (5 + 5*2 + 10)s = 570 + 50 = 620s, under the 720s step cap.
           echo 'Acquire::http::Timeout "30"; Acquire::https::Timeout "30"; Acquire::Retries "3";' \
             | sudo tee /etc/apt/apt.conf.d/99-ci-fetch-timeouts >/dev/null
           for i in 1 2 3; do
-            timeout 180 npx playwright install --with-deps chromium && break
+            timeout -k 10 180 npx playwright install --with-deps chromium && break
             echo "playwright install attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo dpkg --configure -a || true
             sleep 10
           done
 

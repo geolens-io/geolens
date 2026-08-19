@@ -32,10 +32,24 @@ is a socket INACTIVITY timeout, not a minimum-transfer-rate one. Job
 96108423519's stall was a mirror trickling a few KB/s, not a dead
 connection — fonts-freefont-ttf (5.6 MB) took 5m26s to arrive, continuously,
 which never trips an inactivity timeout. So every Playwright-install
-invocation must ALSO be wrapped in coreutils `timeout <N>`, with the retry
-loop's total worst case (attempts * N + (attempts - 1) * sleep) kept under
-the step's own `timeout-minutes`, or a slow-but-alive mirror burns the
-whole step on attempt 1 and the loop never gets a second try either.
+invocation must ALSO be wrapped in coreutils `timeout <N>` (optionally
+`timeout -k <K> <N>` for a SIGKILL grace period), with the retry loop's
+total worst case kept under the step's own `timeout-minutes`, or a
+slow-but-alive mirror burns the whole step on attempt 1 and the loop never
+gets a second try either.
+
+A third incident (2026-08-19, job 96120667995) showed `timeout` alone is
+still not enough: it only signals its DIRECT child, and playwright's real
+apt-get is a grandchild (npx -> node -> sudo -> sh -c -> apt-get) that sudo
+places outside its reach. A cut attempt leaves that apt-get running and
+holding the dpkg lock, so every subsequent attempt in the SAME retry loop
+dies instantly with "Could not get lock /var/lib/dpkg/lock-frontend" —
+observed for real: attempts 2 and 3 both failed within about a second of
+starting. Every Playwright-install step must therefore clean up an orphaned
+apt-get/dpkg before retrying (kill it, then wait for it to actually exit —
+psmisc/fuser isn't confirmed installed on this runner image, so the wait
+polls with pgrep/pkill from procps instead), and the retry budget must
+account for the worst-case cost of that cleanup too.
 """
 
 import pathlib
@@ -53,13 +67,24 @@ PROD_SMOKE = (
 
 _PLAYWRIGHT_INSTALL = re.compile(r"playwright\s+install", re.IGNORECASE)
 _APT_CONF_D_WRITE = re.compile(r"/etc/apt/apt\.conf\.d/\S+")
+# Optional `-k <K>` grace period ahead of the required `<N>` duration.
 _TIMEOUT_WRAPPED_PLAYWRIGHT_INSTALL = re.compile(
-    r"\btimeout\s+(\d+)\s+\S.*playwright\s+install", re.IGNORECASE
+    r"\btimeout\s+(?:-k\s+(\d+)\s+)?(\d+)\s+\S.*playwright\s+install", re.IGNORECASE
 )
 # Flat character class, not `(?:\d+\s*)+` — a nested quantifier over an
 # optional-whitespace group backtracks exponentially on adversarial input
 # (CodeQL py/redos, alert 80). `[\d\s]+` is linear: a single top-level `+`.
+# `.search()` returns the FIRST match, i.e. the outer retry loop
+# (`for i in ...`) — the cleanup poll loop uses a distinct variable name
+# and is matched separately by _CLEANUP_POLL_LOOP below.
 _FOR_LOOP_ATTEMPTS = re.compile(r"for\s+\w+\s+in\s+([\d\s]+);\s*do")
+# The bounded lock-wait loop inside the cleanup block: `for _ in ...; do
+# ... done`. DOTALL so `.` spans the loop body's newlines; captures both
+# the iteration count and the body text (to find its own `sleep <N>`,
+# distinct from the cleanup block's two FIXED sleeps outside the loop).
+_CLEANUP_POLL_LOOP = re.compile(
+    r"for\s+_\s+in\s+([\d\s]+);\s*do(.*?)\bdone\b", re.IGNORECASE | re.DOTALL
+)
 _SLEEP_SECONDS = re.compile(r"\bsleep\s+(\d+)\b")
 
 
@@ -110,6 +135,32 @@ def test_every_playwright_install_step_bounds_its_inner_apt_get():
     )
 
 
+def _cleanup_budget_seconds(run: str) -> tuple[int | None, str | None]:
+    """Worst-case seconds a single cleanup-between-attempts block can take.
+
+    Returns (seconds, None) on success, or (None, reason) if the run text
+    doesn't have the expected shape. The two FIXED sleeps (post-TERM,
+    post-configure) are whatever's left of `run` once the bounded poll
+    loop's own span is cut out, so a stray unrelated `sleep` elsewhere in
+    the step would corrupt this — none of the four steps this covers has
+    one, but a future edit that adds one should widen this rather than
+    trust the subtraction blindly.
+    """
+    poll_match = _CLEANUP_POLL_LOOP.search(run)
+    if not poll_match:
+        return None, "no bounded cleanup poll loop (`for _ in ...; do ... done`)"
+    poll_iterations = len(poll_match.group(1).split())
+    poll_sleep_match = _SLEEP_SECONDS.search(poll_match.group(2))
+    if not poll_sleep_match:
+        return None, "cleanup poll loop has no `sleep <N>`"
+    poll_sleep_seconds = int(poll_sleep_match.group(1))
+
+    outside_text = run[: poll_match.start()] + run[poll_match.end() :]
+    fixed_sleep_seconds = sum(int(m) for m in _SLEEP_SECONDS.findall(outside_text))
+
+    return fixed_sleep_seconds + poll_iterations * poll_sleep_seconds, None
+
+
 def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
     offenders = []
     for path in (CI, PROD_SMOKE):
@@ -127,22 +178,27 @@ def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
                         f"{label}: no `timeout <N>` wraps the playwright install"
                     )
                     continue
-                per_attempt_seconds = int(timeout_match.group(1))
+                kill_grace_seconds = int(timeout_match.group(1) or 0)
+                base_timeout_seconds = int(timeout_match.group(2))
+                per_attempt_seconds = base_timeout_seconds + kill_grace_seconds
 
                 attempts_match = _FOR_LOOP_ATTEMPTS.search(run)
                 attempts = len(attempts_match.group(1).split()) if attempts_match else 1
-                sleep_match = _SLEEP_SECONDS.search(run)
-                sleep_seconds = int(sleep_match.group(1)) if sleep_match else 0
+
+                cleanup_seconds, cleanup_error = _cleanup_budget_seconds(run)
+                if cleanup_error:
+                    offenders.append(f"{label}: {cleanup_error}")
+                    continue
 
                 worst_case_seconds = (
                     attempts * per_attempt_seconds
-                    + max(attempts - 1, 0) * sleep_seconds
+                    + max(attempts - 1, 0) * cleanup_seconds
                 )
                 step_cap_seconds = step.get("timeout-minutes", 0) * 60
                 if worst_case_seconds >= step_cap_seconds:
                     offenders.append(
                         f"{label}: {attempts} attempts * {per_attempt_seconds}s + "
-                        f"{max(attempts - 1, 0)} sleeps * {sleep_seconds}s = "
+                        f"{max(attempts - 1, 0)} cleanups * {cleanup_seconds}s = "
                         f"{worst_case_seconds}s >= step cap {step_cap_seconds}s"
                     )
     assert not offenders, (
