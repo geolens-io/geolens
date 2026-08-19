@@ -194,7 +194,14 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            npx playwright install --with-deps chromium && break
+            echo "playwright install attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Run E2E audit suite through prod proxy
         env:

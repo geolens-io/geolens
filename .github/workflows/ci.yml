@@ -55,6 +55,14 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    # Every job below now carries an explicit cap. Runner apt-get/npm-mirror
+    # installs have blackholed nine times across geolens-io repos in the two
+    # days before 2026-08-19 (e.g. runs 32158035509, 32172191527,
+    # 32175407198, 32229174137), sitting 40min-6h until someone cancelled
+    # them by hand. A cap turns a stuck runner into a bounded, self-reported
+    # failure; the apt/Playwright install steps below also get their own
+    # step-level timeout plus a bounded retry loop.
+    timeout-minutes: 10
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
@@ -346,6 +354,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -387,6 +396,7 @@ jobs:
   pre-commit:
     name: Pre-commit
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -438,6 +448,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.installer == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -497,6 +508,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backup == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       PGHOST: localhost
       PGPORT: "5432"
@@ -556,6 +568,10 @@ jobs:
             .
 
       - name: Install postgresql-client + tooling
+        # A step-level cap plus a bounded retry loop: an apt mirror that goes
+        # unreachable mid-fetch now fails this step in well under the job
+        # timeout instead of hanging for hours (2026-08-19).
+        timeout-minutes: 10
         run: |
           # The postgres service for this job is postgis/postgis:18-3.6 (PG18).
           # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
@@ -572,8 +588,14 @@ jobs:
             -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client-18 curl
+          for i in 1 2 3; do
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+              && sudo apt-get -o Acquire::http::Timeout=30 install -y --no-install-recommends postgresql-client-18 curl \
+              && break
+            echo "apt attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Local round-trip (bundled + managed modes, no S3)
         env:
@@ -776,6 +798,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -812,6 +835,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.sdks == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # Match the OpenAPI snapshot job's env so dump_openapi.py runs
       JWT_SECRET_KEY: sdks-check-padding-key-32characters-here
@@ -858,6 +882,7 @@ jobs:
   version-coherence:
     name: Version Coherence
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -886,6 +911,7 @@ jobs:
   docs-contract:
     name: Docs Contract
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -919,6 +945,7 @@ jobs:
   readme-assets:
     name: README Assets
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
@@ -942,6 +969,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.monitoring == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # Same image RUNBOOK.md §4 tells operators to run Prometheus from, pinned
       # by digest so the gate cannot change under us on a tag re-push.
@@ -988,6 +1016,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.cli == 'true' || needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     env:
       # CLI round-trip tests import the FastAPI app and exercise DB-backed
       # routes; point the test lifecycle at the local CI PostgreSQL container.
@@ -1005,6 +1034,10 @@ jobs:
 
       - name: Start PostgreSQL with PostGIS + pgvector
         working-directory: .
+        # The image build below runs apt-get inside its Dockerfile; an
+        # unreachable mirror there is the same hang class as the runner-level
+        # apt steps, so this also gets a bound.
+        timeout-minutes: 10
         run: |
           docker build -t geolens-cli-test-db -f - . <<'DOCKERFILE'
           FROM postgis/postgis:18-3.6
@@ -1181,6 +1214,7 @@ jobs:
     # deleted pytest-parallel-isolation job's trigger when that job folded in.
     if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.alembic == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: backend
@@ -1203,6 +1237,10 @@ jobs:
 
       - name: Start PostgreSQL with PostGIS + pgvector
         working-directory: .
+        # The image build below runs apt-get inside its Dockerfile; an
+        # unreachable mirror there is the same hang class as the runner-level
+        # apt steps, so this also gets a bound.
+        timeout-minutes: 10
         run: |
           docker build -t geolens-test-db -f - . <<'DOCKERFILE'
           FROM postgis/postgis:18-3.6
@@ -1236,7 +1274,16 @@ jobs:
           python-version: "3.14"
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+              && sudo apt-get -o Acquire::http::Timeout=30 install -y gdal-bin xmlsec1 \
+              && break
+            echo "apt attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Install Python dependencies
         run: uv sync --locked --dev
@@ -1391,6 +1438,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: frontend
@@ -1452,6 +1500,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.frontend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend
@@ -1533,6 +1582,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.backend == 'true' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -1628,6 +1678,7 @@ jobs:
     # The step below does the real gating on needs.*.result.
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Fail if any needed job failed or was cancelled
         env:
@@ -1767,7 +1818,14 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            npx playwright install --with-deps chromium && break
+            echo "playwright install attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Run E2E tests
         run: npx playwright test
@@ -1886,7 +1944,14 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            npx playwright install --with-deps chromium && break
+            echo "playwright install attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Run core E2E smoke suite
         run: npm run e2e:smoke:core
@@ -1953,6 +2018,10 @@ jobs:
 
       - name: Start PostgreSQL with PostGIS + pgvector
         working-directory: .
+        # The image build below runs apt-get inside its Dockerfile; an
+        # unreachable mirror there is the same hang class as the runner-level
+        # apt steps, so this also gets a bound.
+        timeout-minutes: 10
         run: |
           docker build -t geolens-test-db -f - . <<'DOCKERFILE'
           FROM postgis/postgis:18-3.6
@@ -1986,7 +2055,16 @@ jobs:
           python-version: "3.14"
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y gdal-bin xmlsec1
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
+              && sudo apt-get -o Acquire::http::Timeout=30 install -y gdal-bin xmlsec1 \
+              && break
+            echo "apt attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Install Python dependencies
         run: uv sync --locked --dev
@@ -2077,7 +2155,14 @@ jobs:
         run: npm ci
 
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        timeout-minutes: 10
+        run: |
+          for i in 1 2 3; do
+            npx playwright install --with-deps chromium && break
+            echo "playwright install attempt $i failed"
+            [ "$i" = 3 ] && exit 1
+            sleep 10
+          done
 
       - name: Run accessibility tests
         run: npx playwright test e2e/accessibility.spec.ts e2e/keyboard-nav.spec.ts --project=chromium
