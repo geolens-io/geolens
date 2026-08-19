@@ -25,9 +25,23 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        language:
-          - python
-          - javascript-typescript
+        # AGENTS.md > Standing CodeQL policy (decided 2026-08-03): when the
+        # validated-identifier py/sql-injection class fires again on an
+        # ingest-adjacent PR, adopt the alert-suppression query pack instead of
+        # dismissing the alerts by hand again. It fired again on 2026-08-11:
+        # 12 alerts, all at text() sites in backend/app/processing/ingest/
+        # whose identifiers _qtable validates first (T-1209-05), so the pack
+        # is adopted here.
+        #
+        # Only python runs a suppression query. javascript-typescript passes an
+        # empty string, which the action reads as unset (getOptionalInput
+        # returns undefined for a zero-length input), so that analysis is
+        # unchanged and no comment can dismiss a JS alert.
+        include:
+          - language: python
+            suppression-queries: ./.github/codeql/python-suppression
+          - language: javascript-typescript
+            suppression-queries: ""
 
     steps:
       - name: Checkout
@@ -37,11 +51,39 @@ jobs:
         uses: github/codeql-action/init@f3712979fa5f215279b101dd0a2e3bdfb4353324  # v3
         with:
           languages: ${{ matrix.language }}
+          # Runs IN ADDITION to the default code-scanning suite. `queries:`
+          # only overrides a config file's own queries, and nothing here sets
+          # disable-default-queries. The pack is a single @kind
+          # alert-suppression query, which the CLI consumes to populate SARIF
+          # `suppressions[]` rather than reporting as alerts of its own.
+          queries: ${{ matrix.suppression-queries }}
 
       - name: Autobuild
         uses: github/codeql-action/autobuild@f3712979fa5f215279b101dd0a2e3bdfb4353324  # v3
 
       - name: Perform CodeQL Analysis
+        id: analyze
         uses: github/codeql-action/analyze@f3712979fa5f215279b101dd0a2e3bdfb4353324  # v3
         with:
           category: "/language:${{ matrix.language }}"
+
+      # Writing `suppressions[]` into the SARIF is NOT enough on its own, and
+      # this is the step whose absence looks exactly like success. GitHub code
+      # scanning ignores the property: it is absent from the supported-result-
+      # properties list in GitHub's SARIF reference, github/codeql-action
+      # contains no suppression handling, and GitHub staff confirmed the gap on
+      # community discussion #156737 (2025-05-12). Without this step the
+      # markers would sit in the source, the SARIF would carry the
+      # suppressions, and all 12 alerts would stay open.
+      #
+      # Skipped on pull_request: a PR analysis reports against the PR, so there
+      # is nothing on the default branch for it to dismiss, and the repo-wide
+      # alerts it would otherwise reach do not belong to the PR's code.
+      - name: Dismiss alerts suppressed in source
+        if: matrix.language == 'python' && github.event_name != 'pull_request'
+        uses: advanced-security/dismiss-alerts@a18f986bdb40edba0dd7a74382c15d4a3d50a1c8  # v2.0.3
+        with:
+          sarif-id: ${{ steps.analyze.outputs.sarif-id }}
+          sarif-file: ${{ steps.analyze.outputs.sarif-output }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}

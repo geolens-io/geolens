@@ -208,6 +208,15 @@ jobs:
               # independent. Without this, a release.yml-only PR skips the
               # only suite that would notice one of them going away.
               - '.github/workflows/release.yml'
+              # test_codeql_qtable_suppressions.py reads both of these by
+              # literal path: it asserts the init step still runs the local
+              # alert-suppression query, that a step still acts on the SARIF,
+              # and that the query still refuses to honour ruff's noqa
+              # comments. Without these entries a codeql.yml-only PR skips the
+              # only test that checks any of it. See AGENTS.md > Standing
+              # CodeQL policy.
+              - '.github/workflows/codeql.yml'
+              - '.github/codeql/**'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
