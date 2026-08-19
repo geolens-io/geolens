@@ -213,7 +213,7 @@ async def test_anonymous_standards_cors_default_is_read_only(client, monkeypatch
 async def test_head_is_served_wherever_the_preflight_advertises_it(client, monkeypatch):
     """fix(#1470): the preflight said HEAD was allowed; the route said 405.
 
-    ``_set_public_standards_cors_headers`` answers a standards preflight with
+    ``_set_public_cors_headers`` answers a standards preflight with
     ``GET, HEAD, POST, OPTIONS``, so a browser client that trusts it sent HEAD
     and got ``405 allow: GET``. Both surfaces are now derived from
     ``standards_api_path``.
