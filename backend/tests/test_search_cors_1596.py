@@ -188,11 +188,24 @@ async def test_a_query_string_credential_gets_no_wildcard(client, deny_all_origi
     assert "access-control-allow-origin" not in response.headers
 
 
-@pytest.mark.parametrize("path", ["/datasets/", "/search/saved/", "/maps/"])
-async def test_the_widening_stops_at_the_listed_paths(client, deny_all_origins, path):
-    """The counterfactual. ``/search/saved/`` shares the router prefix and is
-    authenticated, so a prefix match over ``/search`` would have taken it."""
+@pytest.mark.parametrize(
+    "path,expected_status",
+    [
+        # Shares the router prefix with the listed paths and is authenticated,
+        # so a prefix match over ``/search`` would have swept it in.
+        ("/search/saved/", 401),
+        ("/datasets/", 401),
+        # The sharp one: anonymous-readable, 200 to a stranger, and still no
+        # wildcard. The list is an allow-list, not "whatever anonymous can read".
+        ("/maps/", 200),
+    ],
+)
+async def test_the_widening_stops_at_the_listed_paths(
+    client, deny_all_origins, path, expected_status
+):
     response = await client.get(path, headers={"Origin": _FOREIGN_ORIGIN})
+    # Pinned so a rename cannot turn this into a 404 that passes for free.
+    assert response.status_code == expected_status, path
     assert "access-control-allow-origin" not in response.headers, path
 
 
