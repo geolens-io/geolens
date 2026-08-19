@@ -122,8 +122,9 @@ async def seed_roles() -> None:
 
 def _warn_if_cors_unset(settings_obj, log) -> None:
     """SEC-08 / M-72: warn loudly when CORS_ALLOWED_ORIGINS is unset in
-    production. Anonymous standards reads remain browser-accessible, while
-    credentialed application routes require an explicit origin allowlist.
+    production. Anonymous standards and catalog search reads remain
+    browser-accessible, while credentialed application routes require an
+    explicit origin allowlist.
 
     Gated on is_production so dev/test runs don't get the warning. SEC-005:
     previously gated on log_json (the de-facto production indicator); now uses
@@ -134,7 +135,8 @@ def _warn_if_cors_unset(settings_obj, log) -> None:
             "cors_allowed_origins_unset",
             message=(
                 "CORS_ALLOWED_ORIGINS is empty in production. "
-                "Anonymous standards reads allow any browser origin, but "
+                "Anonymous standards and catalog search reads allow any "
+                "browser origin, but "
                 "credentialed application CORS is disabled. Set "
                 "CORS_ALLOWED_ORIGINS=<comma-separated origins> to enable it."
             ),
@@ -1176,11 +1178,11 @@ def _add_trailing_slash_aliases(target_app: FastAPI) -> None:
 def _register_standards_head_routes(target_app: FastAPI) -> None:
     """fix(#1470): serve HEAD wherever the CORS preflight says we do.
 
-    ``DynamicCORSMiddleware._set_public_standards_cors_headers`` answers a
-    preflight on the anonymous standards surface with
+    ``DynamicCORSMiddleware._set_public_cors_headers`` answers a preflight on
+    the anonymous standards surface with
     ``Access-Control-Allow-Methods: GET, HEAD, POST, OPTIONS``, and
-    ``_is_anonymous_standards_request`` accepts ``HEAD`` as a requested
-    method — but FastAPI's ``APIRoute`` does not add HEAD alongside GET the
+    ``_anonymous_public_methods`` accepts ``HEAD`` as a requested method for
+    that surface — but FastAPI's ``APIRoute`` does not add HEAD alongside GET the
     way starlette's plain ``Route`` does, so every one of these routes
     answered ``405 allow: GET``. A browser client that trusts the preflight
     was told HEAD was fine and then refused. HEAD-probing a landing page or a
@@ -1190,6 +1192,11 @@ def _register_standards_head_routes(target_app: FastAPI) -> None:
     Both surfaces read the same ``standards_api_path`` classifier, so the set
     that answers HEAD and the set advertised as answering it cannot drift —
     which is the actual bug, not the missing routes.
+
+    fix(#1596) gave the anonymous wildcard a second surface, the catalog search
+    routes, which this pass does not cover. That does not reopen the drift: the
+    middleware advertises ``GET, OPTIONS`` there, matching the GET-only routes,
+    rather than being extended to promise a HEAD nothing registers.
 
     Runs after ``_add_trailing_slash_aliases`` so the no-slash aliases are
     covered too. Registering a route rather than adding to

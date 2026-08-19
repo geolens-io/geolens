@@ -13,6 +13,38 @@ from app.standards.ogc.utils import standards_api_path
 _origins_cache: tuple[float, set[str]] = (0.0, set())
 _ORIGINS_CACHE_TTL = 30  # seconds — matches PersistentConfig cache TTL
 
+# fix(#1596): native catalog routes that carry the same anonymous, read-only
+# contract as the standards surface and so earn the same wildcard answer.
+#
+# Enumerated here rather than by widening ``standards_api_path``: that
+# classifier is shared with the error and OpenAPI contracts, and adding
+# ``/search`` to it would move these routes onto the OGC error shape as a side
+# effect of a CORS fix. Enumerated rather than matched by prefix because
+# ``/search/saved`` sits under the same router and requires an authenticated
+# user — a prefix over ``/search`` would hand it the wildcard too.
+#
+# Both handlers run ``apply_visibility_filter`` and treat an anonymous caller
+# as having no roles, so a wildcard response returns exactly the public
+# catalog. ``tests/test_search_cors_1596.py`` holds each listed path to a
+# GET-only route with no authenticated-user dependency.
+#
+# A tuple rather than a set because tests parametrize over it: string hashing
+# is salted per process, so a set's iteration order differs between xdist
+# workers and collection no longer matches across them.
+_PUBLIC_SEARCH_PATHS: tuple[str, ...] = (
+    "/search/datasets",
+    "/search/datasets/",
+    "/search/facets",
+    "/search/facets/",
+)
+
+# What each public surface actually answers. Search is registered GET-only, and
+# the derived-HEAD pass in ``api/main.py`` is keyed on ``standards_api_path``,
+# so HEAD and POST 405 here — fix(#1470) is the record of what happens when a
+# preflight promises a method the route refuses.
+_STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
+_SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
+
 
 class DynamicCORSMiddleware(BaseHTTPMiddleware):
     """CORS middleware that dynamically resolves allowed origins from PersistentConfig.
@@ -32,18 +64,20 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         allowed = await self._is_origin_allowed(origin)
 
         if not allowed:
-            # Standards discovery and read/search routes are intentionally
-            # usable by anonymous browser clients on a default deployment.  A
-            # wildcard response is safe here because credential-bearing
-            # requests are excluded and Access-Control-Allow-Credentials is not
-            # emitted. Native application routes retain the explicit-origin,
+            # Standards discovery and the anonymous catalog search routes are
+            # intentionally usable by anonymous browser clients on a default
+            # deployment.  A wildcard response is safe here because
+            # credential-bearing requests are excluded and
+            # Access-Control-Allow-Credentials is not emitted. Every other
+            # native application route retains the explicit-origin,
             # credentialed policy below.
-            if self._is_anonymous_standards_request(request):
+            allow_methods = self._anonymous_public_methods(request)
+            if allow_methods is not None:
                 if request.method == "OPTIONS":
                     response = Response(status_code=status.HTTP_200_OK)
                 else:
                     response = await call_next(request)
-                self._set_public_standards_cors_headers(response, request)
+                self._set_public_cors_headers(response, request, allow_methods)
                 return response
 
             # Origin not permitted -- pass through without CORS headers.
@@ -130,6 +164,7 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Expose-Headers"] = (
             "X-Total-Count, Link, Content-Crs, Content-Language, "
             "ETag, Content-Range, Accept-Ranges, Content-Disposition, "
+            "Retry-After, "
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "
@@ -138,25 +173,56 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         response.headers["Access-Control-Max-Age"] = "3600"
 
     @staticmethod
-    def _standards_path(request: Request) -> str | None:
-        return standards_api_path(
-            request.scope.get("path", request.url.path),
-            root_path=request.scope.get("root_path", ""),
-        )
+    def _request_path(request: Request) -> str:
+        """The request path with any ASGI ``root_path`` prefix removed."""
+        path = request.scope.get("path", request.url.path)
+        root_path = request.scope.get("root_path", "").rstrip("/")
+        if root_path and path.startswith(root_path):
+            path = path[len(root_path) :] or "/"
+        return path
 
     @classmethod
-    def _is_anonymous_standards_request(cls, request: Request) -> bool:
-        path = cls._standards_path(request)
-        if path is None:
-            return False
+    def _standards_path(cls, request: Request) -> str | None:
+        return standards_api_path(cls._request_path(request))
+
+    @classmethod
+    def _anonymous_public_methods(cls, request: Request) -> str | None:
+        """Return the ``Allow-Methods`` value for an anonymous wildcard answer.
+
+        ``None`` means the request does not qualify and falls through to the
+        explicit-origin policy (or to no CORS headers at all).
+
+        The two public surfaces answer different method sets, so the value is
+        resolved per surface rather than fixed: standards routes serve GET,
+        HEAD and a POST on ``/stac/search``; the search routes in
+        ``_PUBLIC_SEARCH_PATHS`` serve GET only. Advertising more than the
+        route answers is fix(#1470) — a browser was told HEAD was allowed and
+        then got a 405.
+
+        Everything after the surface check is shared, and deliberately so: the
+        credential exclusion and the safelisted-header check are what make a
+        wildcard safe, and a new surface must not be able to opt out of them.
+        """
+        request_path = cls._request_path(request)
+        standards_path = standards_api_path(request_path)
+        if standards_path is not None:
+            allow_methods = _STANDARDS_PUBLIC_METHODS
+            permitted = {"GET", "HEAD"}
+            stac_search = standards_path.rstrip("/") == "/stac/search"
+        elif request_path in _PUBLIC_SEARCH_PATHS:
+            allow_methods = _SEARCH_PUBLIC_METHODS
+            permitted = {"GET"}
+            stac_search = False
+        else:
+            return None
 
         requested_method = request.headers.get(
             "access-control-request-method", request.method
         ).upper()
-        if requested_method not in {"GET", "HEAD"} and not (
-            requested_method == "POST" and path.rstrip("/") == "/stac/search"
+        if requested_method not in permitted and not (
+            requested_method == "POST" and stac_search
         ):
-            return False
+            return None
 
         # Never grant wildcard browser access to a request that can carry an
         # application identity.  This covers actual requests and preflights.
@@ -167,9 +233,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "x-embed-token",
         }
         if any(request.headers.get(header) for header in credential_headers):
-            return False
+            return None
         if "api_key" in request.query_params or "embed_token" in request.query_params:
-            return False
+            return None
 
         requested_headers = {
             value.strip().lower()
@@ -184,19 +250,42 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "content-language",
             "content-type",
         }
-        return requested_headers <= allowed_headers
+        if not requested_headers <= allowed_headers:
+            return None
+        return allow_methods
 
     @staticmethod
-    def _set_public_standards_cors_headers(
-        response: Response, request: Request
+    def _set_public_cors_headers(
+        response: Response, request: Request, allow_methods: str
     ) -> None:
+        """Answer an anonymous public request with the credential-free policy.
+
+        The Expose-Headers list is shared across both public surfaces. It
+        covers everything the search routes set that a browser would otherwise
+        hide: ``standard_response_headers`` sets ``Vary``, ``Content-Language``
+        and ``Link``, and ``Link`` — which carries the next/prev pagination
+        hrefs — is the only one of those that is not CORS-safelisted. Search
+        sets no count header. It does rate-limit (the per-IP semantic-search
+        limit on ``/search/datasets`` and the global limiter), and
+        ``_rate_limit_handler`` in ``api/main.py`` puts ``Retry-After`` on that
+        429; ``Retry-After`` is not safelisted, so it is listed here and on the
+        credentialed policy too, or a cross-origin caller sees the 429 and
+        cannot read the retry window (codex on #1601).
+
+        No ``Vary: Origin`` here, and none on the credentialed policy either:
+        the shipped ``frontend/nginx.conf`` serves ``location /api/`` with
+        ``proxy_cache off``, and a browser fails closed on a cached policy that
+        does not match its own origin. An operator fronting the API with their
+        own caching CDN would want it; that is a property of both policies and
+        not something fix(#1596) changed.
+        """
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Methods"] = allow_methods
         requested_headers = request.headers.get("access-control-request-headers")
         if requested_headers:
             response.headers["Access-Control-Allow-Headers"] = requested_headers
         response.headers["Access-Control-Expose-Headers"] = (
-            "Link, Content-Crs, Content-Language, "
+            "Link, Content-Crs, Content-Language, Retry-After, "
             "X-GeoLens-Source-Dataset-Count, X-GeoLens-Serialized-Dataset-Count, "
             "X-GeoLens-Excluded-Dataset-Count, "
             "X-GeoLens-Metadata-Fallback-Dataset-Count, "

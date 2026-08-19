@@ -2402,7 +2402,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # once per horizon instead of every five minutes. Two lines of docstring say
     # why the two passes on this line differ; the guard itself lives beside the
     # function it guards, in staging.py. Cap 1626 -> 1628, exact.
-    "backend/app/api/main.py": 1628,
+    # fix(#1596): +7 of comment, no code. The anonymous CORS wildcard now has a
+    # second surface (catalog search), which the derived-HEAD pass keyed on
+    # standards_api_path does not cover. Five lines in that function's docstring
+    # say the omission is deliberate and why it does not reopen #1470 — the
+    # middleware advertises GET, OPTIONS there, so nothing promises a HEAD no
+    # route registers. The other two widen the production CORS warning, which
+    # told an operator only standards reads were open to any browser origin.
+    # Cap 1628 -> 1635, exact.
+    "backend/app/api/main.py": 1635,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
