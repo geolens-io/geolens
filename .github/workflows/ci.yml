@@ -196,6 +196,12 @@ jobs:
               # must run on PRs that touch it — otherwise CI-config changes ship
               # unvalidated by the very tests they configure.
               - '.github/workflows/ci.yml'
+              # fix(#1609): test_release_dispatch_targets_1609.py reads
+              # release.yml by literal path and asserts both downstream
+              # dispatches (the site and geolens-examples) stay wired and
+              # independent. Without this, a release.yml-only PR skips the
+              # only suite that would notice one of them going away.
+              - '.github/workflows/release.yml'
             frontend:
               - 'frontend/**'
               - 'backend/openapi.json'
