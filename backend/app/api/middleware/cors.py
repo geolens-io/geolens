@@ -49,9 +49,9 @@ _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 def _merge_vary_origin(response: Response) -> None:
     """Declare that this response was derived from the request's ``Origin``.
 
-    fix(#1602). Both policies below answer differently depending on the origin
-    that asked, so a cache that stores one answer under a key that omits
-    ``Origin`` can replay it to a different origin. The shipped
+    fix(#1602). What this middleware answers depends on the origin that asked,
+    so a cache that stores one answer under a key omitting ``Origin`` can
+    replay it to a different origin. The shipped
     ``frontend/nginx.conf`` serves ``location /api/`` with ``proxy_cache off``,
     so this is not a leak on a default deployment; it is what an operator
     fronting the API with their own CDN needs in order not to hand
@@ -65,13 +65,15 @@ def _merge_vary_origin(response: Response) -> None:
     because field names are, and an already-present ``Origin`` is left exactly
     as the route spelled it.
 
-    Only the two policy writers call this. A response the middleware passes
-    through untouched — no ``Origin`` header, or an origin outside the
-    allow-list on a route that is not public — keeps whatever ``Vary`` its
-    route set. That response does still depend on the origin, but only in the
-    direction that fails closed: a cache replaying the header-less answer to an
-    allowed origin makes a browser block a request it would have permitted,
-    where the reverse would hand out a policy the origin never earned.
+    Applied to every response the middleware returns, not only the two that
+    carry a policy. fix(#1602 codex r1): a response produced for a rejected
+    origin, or for a request with no ``Origin`` header at all, is the same URL
+    that answers a permitted origin with ``Access-Control-Allow-Origin``. A CDN
+    that stores the header-less variant under an origin-less key then replays
+    it to a browser origin the operator allowed, and the browser blocks a
+    request the configured policy permits. That direction fails closed rather
+    than leaking, but a blocked request is still a broken deployment, and it is
+    the deployment this header exists for.
     """
     tokens: list[str] = []
     for line in response.headers.getlist("Vary"):
@@ -99,6 +101,16 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        response = await self._dispatch(request, call_next)
+        # fix(#1602 codex r1): one call, at the one exit. Every representation
+        # this middleware can return is origin-dependent, including the ones it
+        # writes no policy onto, so the declaration belongs here rather than in
+        # the policy writers — where a branch that returns without calling one
+        # (and two of the four do) would silently skip it.
+        _merge_vary_origin(response)
+        return response
+
+    async def _dispatch(self, request: Request, call_next) -> Response:
         origin = request.headers.get("origin")
 
         # No origin header -- not a CORS request, pass through
@@ -198,8 +210,9 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         this list is what breaks — before a browser console does.
 
         fix(#1602): this policy echoes the caller's origin, so the response it
-        is written onto is not reusable for a different one. See
-        ``_merge_vary_origin`` for why the header is merged and not assigned.
+        is written onto is not reusable for a different one. The declaration
+        itself is not made here — ``dispatch`` merges ``Vary: Origin`` onto
+        every response, including the ones no policy is written onto.
         """
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -220,7 +233,6 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Metadata-Fallback-Fields"
         )
         response.headers["Access-Control-Max-Age"] = "3600"
-        _merge_vary_origin(response)
 
     @staticmethod
     def _request_path(request: Request) -> str:
@@ -322,13 +334,12 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         credentialed policy too, or a cross-origin caller sees the 429 and
         cannot read the retry window (codex on #1601).
 
-        fix(#1602): ``Vary: Origin`` goes on this policy as well as on the
-        credentialed one, through ``_merge_vary_origin``. A ``*`` answer does
-        not strictly need it, since every origin gets the same value — but the
-        two policies share a path and therefore a cache entry, and a stored
+        fix(#1602): a ``*`` answer does not strictly need ``Vary: Origin``,
+        since every origin gets the same value, but this path shares a URL with
+        the credentialed policy and therefore a cache entry, and a stored
         wildcard is indistinguishable from a stored echoed origin once it is in
-        the cache. Consistency across both writers is what makes the header
-        mean anything.
+        the cache. ``dispatch`` puts the header on every response it returns,
+        so no writer here has to remember to.
         """
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = allow_methods
@@ -343,4 +354,3 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
             "X-GeoLens-Metadata-Fallback-Fields"
         )
         response.headers["Access-Control-Max-Age"] = "3600"
-        _merge_vary_origin(response)

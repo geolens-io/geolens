@@ -26,17 +26,18 @@ What these tests pin, beyond "the header is present":
   would cost content negotiation its cache key, which is a bug traded for a
   bug, so ``Origin`` is appended to what the route set and each token appears
   once.
-- the silence. A response the middleware writes no policy onto must not gain
-  ``Vary: Origin``: a request with no ``Origin`` header, and a native route
-  answering an origin outside the allow-list. Each of those is paired with the
-  positive case on the same route, so a rename that makes the header vanish
-  everywhere cannot pass the absence assertion for free.
+- the reach. ``dispatch`` returns from four places, and only two of them
+  write a CORS policy. All four declare the variance, because all four produce
+  a cacheable representation of a URL that answers some other origin
+  differently (fix(#1602 codex r1)). The two that carry no policy assert that
+  absence in the same test, so "it varies" cannot quietly become "it has
+  headers".
 """
 
 import pytest
 from starlette.responses import Response
 
-from app.api.middleware.cors import DynamicCORSMiddleware, _merge_vary_origin
+from app.api.middleware.cors import _merge_vary_origin
 
 _FOREIGN_ORIGIN = "https://cors-1602.example.org"
 _ALLOWED_ORIGIN = "https://allowed-1602.example.com"
@@ -199,56 +200,79 @@ async def test_the_route_sets_a_vary_this_test_is_not_inventing(
     """The vacuity guard for the merge test above.
 
     If ``/search/datasets/`` ever stops setting ``Vary: Accept-Language``, the
-    merge assertions still pass while proving nothing about merging. Read the
-    route's own answer without an ``Origin`` header, where the middleware never
-    runs, and confirm there is something to merge into.
+    merge assertions still pass while proving nothing about merging.
 
-    ``Accept-Encoding`` is in here too — ``GZipMiddleware`` adds its own token
-    through the same header — which is the second reason not to assert an
-    exact value anywhere in this file: the ``Vary`` on a response is written by
-    more than one component, and only ``Origin`` belongs to this fix.
+    Written as a contrast rather than an absence: ``/health`` sets no ``Vary``
+    of its own, ``/search/datasets/`` does, and both go through the same
+    middleware. ``Accept-Language`` appearing on one and not the other is what
+    shows the token comes from the route.
+
+    ``Accept-Encoding`` is on both, because ``GZipMiddleware`` writes through
+    the same header. That is the second reason nothing in this file asserts an
+    exact ``Vary`` value: three components contribute to it, and only
+    ``Origin`` belongs to this fix.
     """
     response = await client.get("/search/datasets/?q=subway")
-
     assert response.status_code == 200, response.text
-    tokens = _vary_tokens(response)
-    assert "accept-language" in tokens, dict(response.headers)
-    assert "origin" not in tokens, dict(response.headers)
+    assert "accept-language" in _vary_tokens(response), dict(response.headers)
+
+    plain = await client.get("/health")
+    assert plain.status_code == 200
+    assert "accept-language" not in _vary_tokens(plain), dict(plain.headers)
 
 
 # ---------------------------------------------------------------------------
-# (d) the counterfactual: no policy written, no Vary: Origin
+# (d) the responses that get no CORS policy at all
+#
+# fix(#1602 codex r1): these two used to assert the opposite. A response
+# produced for a rejected origin, or for a request carrying no Origin header,
+# is still origin-dependent: it is the SAME URL that answers an allowed origin
+# with Access-Control-Allow-Origin. A CDN that stores the header-less variant
+# under an origin-less key replays it to a permitted browser origin, which then
+# blocks a request the configured policy allows. Failing closed is still
+# failing, so every representation the middleware can return declares the
+# variance, whether or not it carries a policy.
 # ---------------------------------------------------------------------------
 
 
-async def test_a_disallowed_origin_on_a_native_route_gains_nothing(
+async def test_a_disallowed_origin_on_a_native_route_still_varies(
     client, allow_one_origin
 ):
-    """No CORS headers, so nothing that varies by origin, so no ``Vary``.
+    """No CORS headers, and still ``Vary: Origin``.
 
     ``/maps/`` answers a stranger with a 200 and stays outside the anonymous
     wildcard allow-list, which makes it the route where "no policy" is a real
-    state rather than an error page. The allowed origin is asserted on the
-    same path in the same test so the absence below cannot pass because the
-    header vanished everywhere.
+    state rather than an error page. Both origins are exercised here because
+    the pair is the point: same URL, same status, and a policy on exactly one
+    of them. That difference is what a cache key has to capture.
     """
     denied = await client.get("/maps/", headers={"Origin": _FOREIGN_ORIGIN})
     assert denied.status_code == 200
+    # The vacuity guard: no policy was written on this one...
     assert "access-control-allow-origin" not in denied.headers
-    assert "origin" not in _vary_tokens(denied), dict(denied.headers)
+    assert "access-control-allow-credentials" not in denied.headers
+    # ...and it declares the variance anyway.
+    assert "origin" in _vary_tokens(denied), dict(denied.headers)
 
     allowed = await client.get("/maps/", headers={"Origin": _ALLOWED_ORIGIN})
+    assert allowed.status_code == 200
     assert allowed.headers["access-control-allow-origin"] == _ALLOWED_ORIGIN
     assert "origin" in _vary_tokens(allowed), dict(allowed.headers)
 
 
-async def test_a_request_with_no_origin_header_gains_nothing(client, allow_one_origin):
-    """Not a CORS request at all: the middleware returns before either writer."""
+async def test_a_request_with_no_origin_header_still_varies(client, allow_one_origin):
+    """Not a CORS request, but the response it produces is still cacheable.
+
+    This is the variant a shared cache is most likely to hold, because a
+    crawler or a server-side fetch does not send ``Origin`` at all. Stored
+    without the header it becomes the entry served to a browser whose origin
+    the operator allowed.
+    """
     response = await client.get("/health")
 
     assert response.status_code == 200
     assert "access-control-allow-origin" not in response.headers
-    assert "origin" not in _vary_tokens(response), dict(response.headers)
+    assert "origin" in _vary_tokens(response), dict(response.headers)
 
 
 # ---------------------------------------------------------------------------
@@ -317,33 +341,47 @@ def test_merge_vary_origin_collapses_duplicate_field_lines():
     ]
 
 
-def test_both_policy_writers_merge_the_vary():
-    """Neither writer may be the one that forgot.
+@pytest.mark.parametrize(
+    "policy_fixture, path, headers, expected_allow_origin",
+    [
+        # every branch dispatch can take, in source order
+        ("allow_one_origin", "/health", {}, None),
+        ("allow_one_origin", "/maps/", {"Origin": _FOREIGN_ORIGIN}, None),
+        ("deny_all_origins", "/conformance", {"Origin": _FOREIGN_ORIGIN}, "*"),
+        ("allow_one_origin", "/health", {"Origin": _ALLOWED_ORIGIN}, _ALLOWED_ORIGIN),
+    ],
+    ids=["no-origin", "rejected-origin", "wildcard", "credentialed"],
+)
+async def test_every_dispatch_outcome_declares_the_variance(
+    client, request, policy_fixture, path, headers, expected_allow_origin
+):
+    """The invariant, enumerated over the branches rather than the writers.
 
-    Called directly rather than through a route because the two writers share
-    no call site: ``_set_cors_headers`` answers the credentialed path and
-    ``_set_public_cors_headers`` the anonymous one, and a fix applied to one of
-    them passes every request-level test that happens to exercise the other.
+    ``dispatch`` returns from four places and they do not agree about CORS
+    headers: two write a policy, one deliberately writes none, and one returns
+    before looking. They must agree about ``Vary``, because all four produce a
+    cacheable representation of a URL whose policy depends on ``Origin``.
+
+    Driven through the app rather than by calling the writers directly. After
+    fix(#1602 codex r1) the merge no longer lives in the writers at all, so a
+    writer-level test would assert against the wrong layer and would pass while
+    the pass-through branch, the one the finding was about, stayed broken.
+
+    ``expected_allow_origin`` is carried so the four cases are pinned as
+    genuinely different answers. Without it this reads as one assertion run
+    four times.
     """
-    from starlette.datastructures import Headers
-    from starlette.requests import Request
+    request.getfixturevalue(policy_fixture)
+    response = await client.get(path, headers=headers)
 
-    scope = {
-        "type": "http",
-        "method": "GET",
-        "path": "/conformance",
-        "query_string": b"",
-        "headers": Headers({}).raw,
-    }
+    assert response.status_code == 200, response.text
+    if expected_allow_origin is None:
+        assert "access-control-allow-origin" not in response.headers
+    else:
+        assert response.headers["access-control-allow-origin"] == expected_allow_origin
 
-    credentialed = Response()
-    credentialed.headers["Vary"] = "Accept-Language"
-    DynamicCORSMiddleware._set_cors_headers(credentialed, _ALLOWED_ORIGIN)
-    assert credentialed.headers.getlist("Vary") == ["Accept-Language, Origin"]
-
-    public = Response()
-    public.headers["Vary"] = "Accept-Language"
-    DynamicCORSMiddleware._set_public_cors_headers(
-        public, Request(scope), "GET, OPTIONS"
+    tokens = _vary_tokens(response)
+    assert tokens.count("origin") == 1, tokens
+    assert len(response.headers.get_list("vary")) == 1, response.headers.get_list(
+        "vary"
     )
-    assert public.headers.getlist("Vary") == ["Accept-Language, Origin"]
