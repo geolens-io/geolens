@@ -347,6 +347,26 @@ def test_help_lists_the_override_flag():
     assert "--force-pinned" in result.stdout
 
 
+def test_help_names_the_sentinel_exception_under_force_pinned():
+    """--force-pinned does not cost the same on all four pinned maps.
+
+    For Restless Earth, Manhattan and the Matterhorn the builder creates a
+    fresh row and the old one survives with its id. build_sentinel2 runs its
+    stale-map loop first, which deletes every row under the name AND their
+    share links, so there the override really does destroy the uuid the
+    examples link. An operator reads the help, not the source, so the help has
+    to carry the exception (fix(#1607 review r3)).
+    """
+    result = _run("--help")
+    assert result.returncode == 0
+    # argparse hard-wraps to the terminal width; compare on normalised text.
+    text = " ".join(result.stdout.split())
+    assert "--force-pinned" in text
+    assert "New York From Orbit" in text
+    assert "deletes the existing row(s) and their share links" in text
+    assert "For the other three" in text
+
+
 def test_force_pinned_without_force_is_refused():
     """Refused before login, so this never touches a server."""
     result = _run("--force-pinned", "--password", "unused")

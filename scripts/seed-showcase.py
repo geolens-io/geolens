@@ -81,11 +81,11 @@ Upgrading an existing instance: run with --prune to delete the retired
 first-generation showcase maps/datasets (see RETIRED_* below), then seed.
 --force rebuilds a showcase map that already exists - except the four in
 PINNED_MAP_NAMES, whose ids and share token the geolens-examples repo links.
---force-pinned lifts that pin, and only that: the builder then does what --force
-does for any other map, which is to create a FRESH row beside the existing one.
-The old row keeps its id and share links until someone removes it, so an
-operator who uses the flag has to move the examples' references onto the new ids
-or keep the old row.
+--force-pinned lifts that pin. What it then costs differs by map: New York From
+Orbit (Sentinel-2) has its existing row and share links DELETED before the
+rebuild, so that uuid is gone; the other three get a fresh row beside the old
+one, which keeps its id and share links until someone removes it. Either way the
+examples' references have to be moved onto the new ids.
 
 Requires: pip install httpx
 
@@ -1864,13 +1864,16 @@ def _keep_existing_map(
         exists, force, pinned, override -> False  --force-pinned
 
     False on that last line means only that this function stops holding the
-    builder back. It is NOT "replace the pinned row": the builder goes on to do
-    what --force does for any other map, which for every builder but
-    build_sentinel2 is create_map() beside the existing row. After
-    --force --force-pinned the old map is therefore still there, still holding
-    the uuid and the share token geolens-examples links, while the name now
-    resolves to the fresh row. Moving those references onto the new ids, or
-    deleting the old row, is the operator's job - nothing here does it.
+    builder back, and what the builder does with that freedom is not uniform.
+    For every builder but build_sentinel2 it is create_map() beside the
+    existing row, so after --force --force-pinned the old map is still there,
+    still holding the uuid and the share token geolens-examples links, while
+    the name resolves to the fresh row; moving those references onto the new
+    ids, or deleting the old row, is the operator's job. build_sentinel2 is the
+    exception in BOTH directions: this same False sends it through the
+    stale-map loop, which deletes every row under the name - and their share
+    links - before rebuilding, so there --force-pinned really does destroy the
+    externally referenced uuid.
 
     True is likewise not the whole story for one caller. Six of the seven
     builders that own a pinned-eligible map treat True as "return, do nothing",
@@ -1906,7 +1909,10 @@ def _announce_kept_map(name: str, force: bool, note: str = "") -> str:
     nothing happen will otherwise go delete the map by hand, which is the exact
     outcome the pin exists to prevent. It also has to say what the flag really
     does, because "recreate" would be a promise this seeder does not keep - the
-    builder builds a fresh row and leaves this one standing.
+    builder builds a fresh row and leaves this one standing. That is true of
+    every builder that reaches this line: build_sentinel2, whose --force-pinned
+    path does delete the row, never prints it under force (it repairs instead
+    of returning), so the sentence cannot be read against the wrong map.
     """
     if force:
         print(
@@ -4645,7 +4651,9 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         print(
             f"  [pinned] {name} will be REPAIRED in place: its scenes are "
             "re-imported and its layers rebound, and the map keeps its id and "
-            "share links (--force-pinned builds a fresh row instead)"
+            "share links (--force-pinned would DELETE this row and its share "
+            "links first, then rebuild - this map is the one pinned map where "
+            "the override destroys the id rather than leaving it behind)"
         )
     print("\n[sentinel2] New York From Orbit (COGs by reference)")
     # Query the STAC API DIRECTLY (the backend /services/stac/search proxy 502s
@@ -4900,7 +4908,10 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             # the examples gallery links, so the decision is asked here rather
             # than inherited from a caller 250 lines up. Under a pinned repair
             # the row is kept and rebound below; --force-pinned is what turns
-            # this back into a delete-and-recreate.
+            # this back into a delete-and-recreate, and this delete is why the
+            # --force-pinned help singles this map out: for the other three
+            # pinned maps the override leaves the old row standing, and here it
+            # does not (fix(#1607 review r3)).
             if _keep_existing_map(name, True, force, force_pinned):
                 print(f"  [pinned] keeping map {map_id} - rebound in place below")
                 continue
@@ -6216,11 +6227,14 @@ def main() -> int:
         "--force-pinned",
         action="store_true",
         help="with --force, stop keeping the externally pinned maps "
-        "(PINNED_MAP_NAMES). This lifts the pin and nothing more: the builder "
-        "then does what --force does for any other map and creates a FRESH row "
-        "beside the existing one, which keeps its UUID and share links until "
-        "you delete it. Move the geolens-examples references "
-        "(ci/fixtures.json, index.html) onto the new ids, or keep the old row",
+        "(PINNED_MAP_NAMES). What that costs is NOT the same for all four. For "
+        "'New York From Orbit' (Sentinel-2) it deletes the existing row(s) and "
+        "their share links first and then recreates, so the externally "
+        "referenced UUID is destroyed. For the other three the builder creates "
+        "a fresh row beside the existing one, which keeps its UUID and share "
+        "links until you delete it by hand. Either way, move the "
+        "geolens-examples references (ci/fixtures.json, index.html) onto the "
+        "new ids",
     )
     ap.add_argument(
         "--prune",
