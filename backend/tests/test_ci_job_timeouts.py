@@ -50,6 +50,19 @@ apt-get/dpkg before retrying (kill it, then wait for it to actually exit —
 psmisc/fuser isn't confirmed installed on this runner image, so the wait
 polls with pgrep/pkill from procps instead), and the retry budget must
 account for the worst-case cost of that cleanup too.
+
+The same mirror degradation hit the runner's OWN direct `sudo apt-get`
+steps too (2026-08-19, job 96122006694, "Install system dependencies"):
+apt fell back from a failing http mirror to an https one, then produced
+ZERO further output for the rest of the 10-minute step cap. Our existing
+`-o Acquire::http::Timeout=30` only covers the http method; the https
+fallback was unbounded. Every direct apt-get invocation (update and
+install, each wrapped separately) now also sets
+`Acquire::https::Timeout`, and is wrapped in its own `sudo timeout -k <K>
+<N>` — apt-get is timeout's DIRECT child here (no sudo/shell layer between
+them), but the same orphan risk still exists one level down if timeout
+kills apt-get mid-unpack of a dpkg child, so these steps get the same
+cleanup-between-attempts block as the Playwright-install steps.
 """
 
 import pathlib
@@ -87,9 +100,37 @@ _CLEANUP_POLL_LOOP = re.compile(
 )
 _SLEEP_SECONDS = re.compile(r"\bsleep\s+(\d+)\b")
 
+# A REAL apt-get invocation — "update"/"install" as the immediate
+# subcommand, only preceded by `-o <opt>` flags — as opposed to a bare
+# mention of the string "apt-get" as a `pkill -x apt-get` / `pgrep -x
+# apt-get` process-name argument (which the Playwright-install steps'
+# cleanup block also contains, but never actually runs apt-get itself).
+_APT_GET_INVOCATION = re.compile(r"\bapt-get(?:\s+-o\s+\S+)*\s+(?:update|install)\b")
+# Same, but requires a `timeout [-k <K>] <N>` immediately in front, and
+# captures the whole invocation (including its -o flags) in group(3) so
+# the caller can check which Acquire options it carries.
+_APT_GET_TIMEOUT_WRAPPED = re.compile(
+    r"\btimeout\s+(?:-k\s+(\d+)\s+)?(\d+)\s+(apt-get(?:\s+-o\s+\S+)*\s+(?:update|install))\b"
+)
+
 
 def _workflow(path: pathlib.Path = CI) -> dict:
     return yaml.safe_load(path.read_text())
+
+
+def _without_comment_lines(run: str) -> str:
+    """Drop full-line `#` comments before counting real invocations.
+
+    The incident write-ups in these steps' own comments say things like
+    "apt-get update" and "apt-get install" in prose, which would otherwise
+    look like actual invocations to a naive substring/regex scan. Every
+    comment in these steps is its own line (no trailing `# ...` after real
+    code), so a strip-by-line is exact for this file, not a general bash
+    parser.
+    """
+    return "\n".join(
+        line for line in run.splitlines() if not line.strip().startswith("#")
+    )
 
 
 def test_every_job_has_a_timeout():
@@ -204,3 +245,68 @@ def test_every_playwright_install_attempt_fits_the_step_timeout_budget():
     assert not offenders, (
         f"Playwright-install retry budget does not fit its step cap: {offenders}"
     )
+
+
+def test_every_direct_apt_get_invocation_is_bounded_and_fits_its_step_cap():
+    """Runner-level `sudo apt-get` steps: excludes the Dockerfile-heredoc
+    ones (`docker build ... <<'DOCKERFILE'`), which have no retry loop of
+    their own and aren't in scope here — they stay on the step-level-only
+    guarantee from test_every_apt_or_playwright_install_step_has_a_step_timeout.
+    """
+    offenders = []
+    jobs = _workflow(CI)["jobs"]
+    for job_name, job in jobs.items():
+        for step in job.get("steps", []):
+            run = step.get("run")
+            if not run or "<<'DOCKERFILE'" in run:
+                continue
+            code = _without_comment_lines(run)
+            invocations = _APT_GET_INVOCATION.findall(code)
+            if not invocations:
+                continue
+            label = f"{job_name}: {step.get('name', '<unnamed>')}"
+
+            wrapped = _APT_GET_TIMEOUT_WRAPPED.findall(code)
+            if len(wrapped) != len(invocations):
+                offenders.append(
+                    f"{label}: {len(invocations)} apt-get invocation(s), only "
+                    f"{len(wrapped)} wrapped in `timeout <N>`"
+                )
+                continue
+
+            per_attempt_seconds = 0
+            missing_acquire_flag = False
+            for kill_grace, base_timeout, invocation_text in wrapped:
+                if "Acquire::http::Timeout" not in invocation_text:
+                    offenders.append(
+                        f"{label}: `{invocation_text}` has no Acquire::http::Timeout"
+                    )
+                    missing_acquire_flag = True
+                if "Acquire::https::Timeout" not in invocation_text:
+                    offenders.append(
+                        f"{label}: `{invocation_text}` has no Acquire::https::Timeout"
+                    )
+                    missing_acquire_flag = True
+                per_attempt_seconds += int(base_timeout) + int(kill_grace or 0)
+            if missing_acquire_flag:
+                continue
+
+            attempts_match = _FOR_LOOP_ATTEMPTS.search(code)
+            attempts = len(attempts_match.group(1).split()) if attempts_match else 1
+
+            cleanup_seconds, cleanup_error = _cleanup_budget_seconds(code)
+            if cleanup_error:
+                offenders.append(f"{label}: {cleanup_error}")
+                continue
+
+            worst_case_seconds = (
+                attempts * per_attempt_seconds + max(attempts - 1, 0) * cleanup_seconds
+            )
+            step_cap_seconds = step.get("timeout-minutes", 0) * 60
+            if worst_case_seconds >= step_cap_seconds:
+                offenders.append(
+                    f"{label}: {attempts} attempts * {per_attempt_seconds}s + "
+                    f"{max(attempts - 1, 0)} cleanups * {cleanup_seconds}s = "
+                    f"{worst_case_seconds}s >= step cap {step_cap_seconds}s"
+                )
+    assert not offenders, f"direct apt-get retry budget/coverage problem: {offenders}"

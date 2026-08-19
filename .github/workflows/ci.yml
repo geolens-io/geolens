@@ -570,8 +570,19 @@ jobs:
       - name: Install postgresql-client + tooling
         # A step-level cap plus a bounded retry loop: an apt mirror that goes
         # unreachable mid-fetch now fails this step in well under the job
-        # timeout instead of hanging for hours (2026-08-19).
-        timeout-minutes: 10
+        # timeout instead of hanging for hours (2026-08-19). Each apt-get
+        # invocation is wrapped in its OWN `sudo timeout -k 10 <N>` (update
+        # and install separately, not chained under one timeout) so apt-get
+        # is timeout's DIRECT child — no sudo/shell grandchild between them
+        # to block the signal, unlike the Playwright-install steps. Both
+        # Acquire::http::Timeout AND Acquire::https::Timeout are set: job
+        # 96122006694 (a sibling "Install system dependencies" step) stalled
+        # the full 10-minute cap with ZERO output after apt fell back from a
+        # failing http mirror to an https one, which our http-only timeout
+        # never bounded. The cleanup between attempts matches the
+        # Playwright-install steps for the same reason: apt-get can still
+        # orphan a dpkg child if timeout kills it mid-unpack.
+        timeout-minutes: 15
         run: |
           # The postgres service for this job is postgis/postgis:18-3.6 (PG18).
           # Ubuntu 24.04 (noble) ships postgresql-client 16 by default, and pg_dump
@@ -589,11 +600,21 @@ jobs:
           echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
             | sudo tee /etc/apt/sources.list.d/pgdg.list >/dev/null
           for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
-              && sudo apt-get -o Acquire::http::Timeout=30 install -y --no-install-recommends postgresql-client-18 curl \
+            sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+              && sudo timeout -k 10 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y --no-install-recommends postgresql-client-18 curl \
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo dpkg --configure -a || true
             sleep 10
           done
 
@@ -1274,14 +1295,28 @@ jobs:
           python-version: "3.14"
 
       - name: Install system dependencies
-        timeout-minutes: 10
+        # See backup-roundtrip's "Install postgresql-client + tooling" for
+        # the full incident writeup (job 96122006694 stalled here for the
+        # full 10-minute cap on a silent https fallback our http-only
+        # timeout never bounded).
+        timeout-minutes: 15
         run: |
           for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
-              && sudo apt-get -o Acquire::http::Timeout=30 install -y gdal-bin xmlsec1 \
+            sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+              && sudo timeout -k 10 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y gdal-bin xmlsec1 \
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo dpkg --configure -a || true
             sleep 10
           done
 
@@ -2135,14 +2170,28 @@ jobs:
           python-version: "3.14"
 
       - name: Install system dependencies
-        timeout-minutes: 10
+        # See backup-roundtrip's "Install postgresql-client + tooling" for
+        # the full incident writeup (job 96122006694 stalled here for the
+        # full 10-minute cap on a silent https fallback our http-only
+        # timeout never bounded).
+        timeout-minutes: 15
         run: |
           for i in 1 2 3; do
-            sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update \
-              && sudo apt-get -o Acquire::http::Timeout=30 install -y gdal-bin xmlsec1 \
+            sudo timeout -k 10 90 apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update \
+              && sudo timeout -k 10 150 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y gdal-bin xmlsec1 \
               && break
             echo "apt attempt $i failed"
             [ "$i" = 3 ] && exit 1
+            sudo pkill -TERM -x apt-get || true
+            sudo pkill -TERM -x dpkg || true
+            sleep 5
+            sudo pkill -KILL -x apt-get || true
+            sudo pkill -KILL -x dpkg || true
+            for _ in 1 2 3 4 5; do
+              pgrep -x apt-get >/dev/null || pgrep -x dpkg >/dev/null || break
+              sleep 2
+            done
+            sudo dpkg --configure -a || true
             sleep 10
           done
 
