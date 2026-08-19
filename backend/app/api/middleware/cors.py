@@ -46,6 +46,53 @@ _STANDARDS_PUBLIC_METHODS = "GET, HEAD, POST, OPTIONS"
 _SEARCH_PUBLIC_METHODS = "GET, OPTIONS"
 
 
+def _merge_vary_origin(response: Response) -> None:
+    """Declare that this response was derived from the request's ``Origin``.
+
+    fix(#1602). What this middleware answers depends on the origin that asked,
+    so a cache that stores one answer under a key omitting ``Origin`` can
+    replay it to a different origin. The shipped
+    ``frontend/nginx.conf`` serves ``location /api/`` with ``proxy_cache off``,
+    so this is not a leak on a default deployment; it is what an operator
+    fronting the API with their own CDN needs in order not to hand
+    ``Access-Control-Allow-Origin: https://a.example`` to ``b.example``.
+
+    Merged rather than assigned. ``standard_response_headers`` already sets
+    ``Vary: Accept-Language`` on the search and standards responses, and
+    ``GZipMiddleware`` adds ``Accept-Encoding``; overwriting either would buy
+    the CORS variance by losing the content-negotiation one, which is the same
+    defect pointed at a different header. Tokens are compared case-insensitively
+    because field names are, and an already-present ``Origin`` is left exactly
+    as the route spelled it.
+
+    Applied to every response the middleware returns, not only the two that
+    carry a policy. fix(#1602 codex r1): a response produced for a rejected
+    origin, or for a request with no ``Origin`` header at all, is the same URL
+    that answers a permitted origin with ``Access-Control-Allow-Origin``. A CDN
+    that stores the header-less variant under an origin-less key then replays
+    it to a browser origin the operator allowed, and the browser blocks a
+    request the configured policy permits. That direction fails closed rather
+    than leaking, but a blocked request is still a broken deployment, and it is
+    the deployment this header exists for.
+    """
+    tokens: list[str] = []
+    for line in response.headers.getlist("Vary"):
+        tokens.extend(token.strip() for token in line.split(",") if token.strip())
+
+    # ``Vary: *`` is an alternative to the token list, not a member of it
+    # (RFC 9110: ``Vary = #( field-name ) / "*"``), and it already tells every
+    # cache not to reuse the response. Appending to it would only be a syntax
+    # error.
+    if any(token == "*" for token in tokens):
+        return
+
+    if not any(token.lower() == "origin" for token in tokens):
+        tokens.append("Origin")
+
+    # Assignment (not ``append``) so duplicate field-lines collapse into one.
+    response.headers["Vary"] = ", ".join(tokens)
+
+
 class DynamicCORSMiddleware(BaseHTTPMiddleware):
     """CORS middleware that dynamically resolves allowed origins from PersistentConfig.
 
@@ -54,6 +101,16 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        response = await self._dispatch(request, call_next)
+        # fix(#1602 codex r1): one call, at the one exit. Every representation
+        # this middleware can return is origin-dependent, including the ones it
+        # writes no policy onto, so the declaration belongs here rather than in
+        # the policy writers — where a branch that returns without calling one
+        # (and two of the four do) would silently skip it.
+        _merge_vary_origin(response)
+        return response
+
+    async def _dispatch(self, request: Request, call_next) -> Response:
         origin = request.headers.get("origin")
 
         # No origin header -- not a CORS request, pass through
@@ -151,6 +208,11 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         source for the conditional headers it evaluates and the response headers
         it sets, and fails if either is missing here. Add a header there and
         this list is what breaks — before a browser console does.
+
+        fix(#1602): this policy echoes the caller's origin, so the response it
+        is written onto is not reusable for a different one. The declaration
+        itself is not made here — ``dispatch`` merges ``Vary: Origin`` onto
+        every response, including the ones no policy is written onto.
         """
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -272,12 +334,12 @@ class DynamicCORSMiddleware(BaseHTTPMiddleware):
         credentialed policy too, or a cross-origin caller sees the 429 and
         cannot read the retry window (codex on #1601).
 
-        No ``Vary: Origin`` here, and none on the credentialed policy either:
-        the shipped ``frontend/nginx.conf`` serves ``location /api/`` with
-        ``proxy_cache off``, and a browser fails closed on a cached policy that
-        does not match its own origin. An operator fronting the API with their
-        own caching CDN would want it; that is a property of both policies and
-        not something fix(#1596) changed.
+        fix(#1602): a ``*`` answer does not strictly need ``Vary: Origin``,
+        since every origin gets the same value, but this path shares a URL with
+        the credentialed policy and therefore a cache entry, and a stored
+        wildcard is indistinguishable from a stored echoed origin once it is in
+        the cache. ``dispatch`` puts the header on every response it returns,
+        so no writer here has to remember to.
         """
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = allow_methods
