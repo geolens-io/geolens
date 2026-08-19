@@ -416,3 +416,153 @@ def test_prune_keeps_a_pinned_name_that_also_appears_in_a_retired_list(monkeypat
 
     assert api.deleted_maps == ["m-retired"]
     assert api.deleted_datasets == [retired_dataset]
+
+
+# --- the Sentinel in-place repair (#1607 review r2) ---------------------------
+
+
+class _LayerApi:
+    """Just the surface _replace_map_layers touches, with a call log."""
+
+    def __init__(self, layers):
+        self._layers = list(layers)
+        self.deleted = []
+        self.added = []
+        self.deleted_maps = []
+
+    def get_map(self, map_id):
+        return {"id": map_id, "layers": self._layers}
+
+    def delete_layer(self, map_id, layer_id):
+        self.deleted.append(layer_id)
+
+    def add_layer(self, map_id, body):
+        self.added.append(body)
+
+    def delete_map(self, map_id):  # pragma: no cover - must never be called
+        self.deleted_maps.append(map_id)
+
+
+def test_replace_map_layers_swaps_the_stack_and_keeps_the_row():
+    api = _LayerApi([{"id": "l-old-1"}, {"id": "l-old-2"}])
+    fresh = [
+        {"dataset_id": "d1", "sort_order": 0},
+        {"dataset_id": "d2", "sort_order": 1},
+    ]
+
+    added = seeder._replace_map_layers(api, "m-pinned", fresh)
+
+    assert added == 2
+    assert api.deleted == ["l-old-1", "l-old-2"]
+    assert api.added == fresh
+    # The whole point: the map row is never touched, so its uuid and its share
+    # tokens survive the repair.
+    assert api.deleted_maps == []
+
+
+def test_replace_map_layers_handles_a_map_whose_layers_already_cascaded():
+    """Deleting the scene datasets takes their layers with them.
+
+    MapLayer.dataset_id is ON DELETE CASCADE, so by the time the repair gets
+    here the stack is usually already empty. The delete pass exists for the
+    layers that did NOT cascade - a scene kept because another map shares it.
+    """
+    api = _LayerApi([])
+    assert seeder._replace_map_layers(api, "m-pinned", [{"dataset_id": "d1"}]) == 1
+    assert api.deleted == []
+    assert api.added == [{"dataset_id": "d1"}]
+
+
+def test_sentinel2_does_not_return_on_a_pinned_keep():
+    """The pinned keep must not short-circuit the repair.
+
+    Every other builder returns straight out of the `_keep_existing_map` block.
+    build_sentinel2 has to fall through it, or `--only sentinel2 --force` -- the
+    documented repair for instances seeded before item_href -- is reachable
+    only via --force-pinned, which mints the new uuid the examples must not get.
+    """
+    body = _function_node(SOURCE, "build_sentinel2")
+    guard = next(
+        node
+        for node in ast.walk(body)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "_keep_existing_map"
+        and any(
+            isinstance(a, ast.Call)
+            and isinstance(a.func, ast.Name)
+            and a.func.id == "_map_exists"
+            for a in node.args
+        )
+    )
+    # The decision is bound to a name rather than used as a bare `if` test:
+    # the repair path needs it again further down to pick reuse over create.
+    assert isinstance(guard, ast.Call)
+    bindings = [
+        n
+        for n in ast.walk(body)
+        if isinstance(n, ast.Assign)
+        and any(
+            isinstance(t, ast.Name) and t.id == "keep_pinned_row" for t in n.targets
+        )
+    ]
+    assert bindings, "build_sentinel2 must keep the pin decision, not return on it"
+
+    # And it must reuse the row: a create_map call guarded by that decision,
+    # plus the in-place rebind.
+    called = {
+        n.func.id
+        for n in ast.walk(body)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+    }
+    assert "_replace_map_layers" in called
+
+
+def test_only_sentinel2_replaces_layers_in_place():
+    """No other builder rebinds a stack; they create their maps outright."""
+    users = {
+        node.name
+        for node in ast.walk(ast.parse(SOURCE))
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(c, ast.Call)
+            and isinstance(c.func, ast.Name)
+            and c.func.id == "_replace_map_layers"
+            for c in ast.walk(node)
+        )
+    }
+    assert users == {"build_sentinel2"}
+
+
+# --- the outcome main() reports (#1607 review r2) -----------------------------
+
+
+def test_a_pinned_keep_returns_a_distinct_marker():
+    assert seeder._announce_kept_map(PINNED, force=True) == "(pinned)"
+    assert seeder._announce_kept_map(PINNED, force=False) == "(skipped)"
+
+
+def test_the_pinned_outcome_line_does_not_tell_you_to_use_force():
+    """--force is what already ran and declined; saying "use --force" is wrong."""
+    line = seeder._builder_outcome_line("sentinel2", "(pinned)")
+    assert line is not None
+    assert "--force-pinned" in line
+    assert "use --force to recreate" not in line
+
+
+def test_the_ordinary_skip_line_is_unchanged():
+    line = seeder._builder_outcome_line("manhattan", "(skipped)")
+    assert line == "  manhattan: already exists, skipped (use --force to recreate)"
+
+
+def test_a_falsy_result_still_reports_as_skipped():
+    assert seeder._builder_outcome_line("embed", None) is not None
+    assert seeder._builder_outcome_line("embed", "") is not None
+
+
+def test_a_map_id_reports_nothing_and_counts_as_built():
+    assert seeder._builder_outcome_line("manhattan", "dcae16bd-40bd") is None
+    # The two builders that return a sentinel of their own must keep counting
+    # as built, exactly as they did before the marker was added.
+    assert seeder._builder_outcome_line("catalog", "(catalog)") is None
+    assert seeder._builder_outcome_line("collections", "(none)") is None
