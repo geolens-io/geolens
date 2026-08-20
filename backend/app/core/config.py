@@ -474,6 +474,18 @@ class Settings(BaseSettings):
     s3_allow_http: bool = False
     s3_addressing_style: Literal["auto", "path", "virtual"] = "auto"
 
+    # Ambient AWS credential markers, injected by the runtime rather than by an
+    # operator: EKS IRSA / Pod Identity set AWS_ROLE_ARN +
+    # AWS_WEB_IDENTITY_TOKEN_FILE, and the ECS/EKS container credential
+    # providers set one of the AWS_CONTAINER_CREDENTIALS_* pair. Modelled as
+    # fields rather than read through os.environ, matching CONF-03/CONF-04.
+    # Read only by has_ambient_aws_credentials below; boto3 and GDAL resolve
+    # the actual credentials from these themselves.
+    aws_role_arn: str | None = None
+    aws_web_identity_token_file: str | None = None
+    aws_container_credentials_full_uri: str | None = None
+    aws_container_credentials_relative_uri: str | None = None
+
     # Azure Blob Storage (STOR-01 / Phase 1210)
     azure_storage_container: str | None = None
     azure_storage_connection_string: SecretStr | None = (
@@ -1027,18 +1039,54 @@ class Settings(BaseSettings):
             )
         return self
 
+    @property
+    def has_ambient_aws_credentials(self) -> bool:
+        """True when the runtime supplies AWS credentials the SDKs resolve alone.
+
+        Covers EKS IRSA / Pod Identity (web-identity token) and the ECS/EKS
+        container credential providers. EC2 instance profiles are deliberately
+        NOT probed: detecting one needs an IMDS round trip during settings
+        construction, and a node role broad enough to reach the bucket is not a
+        posture to boot silently into — set the keys, or use IRSA.
+        """
+        return bool(
+            (self.aws_role_arn and self.aws_web_identity_token_file)
+            or self.aws_container_credentials_full_uri
+            or self.aws_container_credentials_relative_uri
+        )
+
     @model_validator(mode="after")
     def validate_provider_settings(self) -> "Settings":
         if self.storage_provider == "s3":
             missing: list[str] = []
             if not self.s3_bucket:
                 missing.append("S3_BUCKET")
-            if not self.s3_access_key_id:
+            # A static key pair is one of two supported credential sources. The
+            # other is ambient (IRSA / Pod Identity / container credentials),
+            # which S3StorageProvider and derive_gdal_s3_env already support:
+            # both omit the explicit key arguments when unset, leaving boto3 and
+            # GDAL to resolve the role themselves. Requiring the pair here was
+            # the ONLY thing forcing long-lived IAM user keys into a Kubernetes
+            # Secret on EKS.
+            #
+            # A HALF-configured pair stays an error under either source: it is
+            # always a mistake, and boto3 fails it far less legibly at runtime.
+            if not self.s3_access_key_id and not self.s3_secret_access_key:
+                if not self.has_ambient_aws_credentials:
+                    missing.append("S3_ACCESS_KEY_ID")
+                    missing.append("S3_SECRET_ACCESS_KEY")
+            elif not self.s3_access_key_id:
                 missing.append("S3_ACCESS_KEY_ID")
-            if not self.s3_secret_access_key:
+            elif not self.s3_secret_access_key:
                 missing.append("S3_SECRET_ACCESS_KEY")
             if missing:
-                raise ValueError("STORAGE_PROVIDER=s3 requires: " + ", ".join(missing))
+                raise ValueError(
+                    "STORAGE_PROVIDER=s3 requires: "
+                    + ", ".join(missing)
+                    + " (or ambient AWS credentials: on EKS, annotate the "
+                    "ServiceAccount with eks.amazonaws.com/role-arn and leave "
+                    "both keys unset)"
+                )
         elif self.storage_provider == "azure":
             if not self.azure_storage_container:
                 raise ValueError(
