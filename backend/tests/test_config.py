@@ -419,6 +419,39 @@ class TestOgrConnectionString:
         )
         assert "sslmode=require" in s.ogr_connection_string
 
+    def test_override_includes_ca_cert_for_verify_full(self):
+        """Measured on EKS against RDS with rds.force_ssl=1: sslmode=verify-full
+        without sslrootcert sent libpq to ~/.postgresql/root.crt, which the
+        image does not ship, and every vector ingest died in ogr2ogr with
+        "root certificate file ... does not exist" while the api stayed
+        healthy — asyncpg gets the CA as an SSLContext and never consults it."""
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        ogr = s.ogr_connection_string
+        assert "sslmode=verify-full" in ogr
+        assert "sslrootcert=/etc/ssl/rds/ca.pem" in ogr
+
+    def test_ca_cert_matches_the_procrastinate_sibling(self):
+        """The two libpq DSN builders must not drift apart again."""
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for token in ("sslmode=verify-full", "sslrootcert=/etc/ssl/rds/ca.pem"):
+            assert token in s.ogr_connection_string
+            assert token in s.procrastinate_conninfo
+
+    def test_no_ca_cert_emits_no_sslrootcert(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="require",
+        )
+        assert "sslrootcert" not in s.ogr_connection_string
+
     def test_override_omits_sslmode_for_prefer(self):
         s = _make_settings(
             database_url_override="postgresql://u:p@host/db",

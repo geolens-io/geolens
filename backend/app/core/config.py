@@ -1368,6 +1368,19 @@ class Settings(BaseSettings):
                 parts.append(f"password={parsed.password}")
             if self.database_ssl_mode not in ("disable", "prefer"):
                 parts.append(f"sslmode={self.database_ssl_mode}")
+            # ogr2ogr reaches PostGIS through libpq, which resolves the CA from
+            # the DSN or from its own ~/.postgresql/root.crt — it cannot see
+            # DATABASE_SSL_CA_CERT, which only reaches asyncpg as an SSLContext.
+            # Without this, sslmode=verify-full above sends libpq looking for a
+            # root.crt that is not in the image, and EVERY vector ingest fails
+            # ("root certificate file ... does not exist") while the api, the
+            # worker's own queue connection and raster ingest all stay healthy,
+            # because those paths never shell out. procrastinate_conninfo has
+            # always emitted this pair together; this is the sibling that did
+            # not. Emitted whenever a CA is configured: libpq ignores it under
+            # the modes that do not verify.
+            if self.database_ssl_ca_cert:
+                parts.append(f"sslrootcert={self.database_ssl_ca_cert}")
             return " ".join(parts)
         return (
             f"PG:host={self.postgres_host} "

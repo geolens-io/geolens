@@ -2961,7 +2961,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # already omitted unset keys, so this validator was the only thing forcing
     # long-lived IAM user keys into a Kubernetes Secret. Cap 1375 -> 1423,
     # exact.
-    "backend/app/core/config.py": 1423,
+        # ogr_connection_string now emits sslrootcert alongside sslmode, matching
+    # the procrastinate_conninfo sibling it had drifted from. Bought working
+    # vector ingest against a managed database under DATABASE_SSL_MODE=
+    # verify-full: ogr2ogr goes through libpq, which cannot see the CA that
+    # only ever reached asyncpg as an SSLContext. Most of the growth is the
+    # comment recording that asymmetry. Cap 1375 -> 1388, exact.
+        "backend/app/core/config.py": 1436,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
