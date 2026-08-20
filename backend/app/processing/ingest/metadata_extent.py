@@ -128,6 +128,7 @@ async def get_geometry_type(
     """
     result = await session.execute(
         text(
+            # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
             f"SELECT GeometryType(geom) FROM "
             f"{_qtable(table_name, schema=schema)} LIMIT 1"
         )
@@ -141,6 +142,7 @@ async def get_feature_count(
 ) -> int:
     """Count the number of features (rows) in the table."""
     result = await session.execute(
+        # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
         text(f"SELECT COUNT(*) FROM {_qtable(table_name, schema=schema)}")
     )
     return result.scalar_one()
@@ -190,6 +192,7 @@ async def get_extent(
     _validate_table_name(table_name)
     result = await session.execute(
         text(
+            # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
             f"SELECT CASE "
             f"  WHEN ext IS NULL THEN NULL "
             f"  WHEN GeometryType(ext::geometry) = 'POLYGON' "
@@ -233,6 +236,7 @@ async def detect_3d_metadata(
         # Aggregate across all rows to handle mixed-Z datasets correctly
         result = await session.execute(
             text(
+                # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                 f"SELECT "
                 f"  MAX(ST_NDims(geom)) AS n_dims, "
                 f"  CASE "
@@ -313,6 +317,7 @@ async def promote_z_to_elev(
     try:
         await session.execute(
             text(
+                # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                 f"ALTER TABLE {_qtable(table_name, schema=schema)} ADD COLUMN elev double precision"
             )
         )
@@ -320,6 +325,7 @@ async def promote_z_to_elev(
         if geom_upper == "POINT":
             await session.execute(
                 text(
+                    # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                     f"UPDATE {_qtable(table_name, schema=schema)} "
                     f"SET elev = ST_Z(geom) "
                     f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
@@ -329,6 +335,7 @@ async def promote_z_to_elev(
             # MultiPoint: extract Z from first point in the multi
             await session.execute(
                 text(
+                    # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                     f"UPDATE {_qtable(table_name, schema=schema)} "
                     f"SET elev = ST_Z(ST_GeometryN(geom, 1)) "
                     f"WHERE geom IS NOT NULL AND ST_NDims(geom) > 2"
@@ -474,6 +481,7 @@ async def get_sample_values(
     )
 
     rows = await session.execute(
+        # codeql[py/sql-injection] fix(#1615): table via _qtable, columns via _sql_quote_ident (metadata_sql.py)
         text(query).bindparams(sample_size=sample_size, t=table_name, schema=schema)
     )
 
@@ -552,6 +560,7 @@ async def extract_metadata(
     try:
         result = await session.execute(
             text(
+                # codeql[py/sql-injection] fix(#1615): identifiers validated by _qtable (metadata_sql.py)
                 f"""
                 WITH meta AS (
                     SELECT
