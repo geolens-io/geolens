@@ -1110,11 +1110,16 @@ What changes:
   # Secret, and the grep below returns 0. Update that Secret's source and
   # re-apply it FIRST; the helm upgrade alone changes nothing, and the pods
   # would come back on the old endpoint. Controller-managed sources
-  # (ExternalSecret, SealedSecret) reconcile asynchronously, so before the
-  # upgrade — whose migration hook reads this live Secret — confirm the target
-  # Secret actually carries the restored endpoint:
-  #   kubectl -n <ns> get secret <name> \
-  #     -o jsonpath='{.data.DATABASE_URL_OVERRIDE}' | base64 -d
+  # (ExternalSecret, SealedSecret) reconcile asynchronously — an ExternalSecret
+  # can be told to refresh now:
+  #   kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite
+  # — so before the upgrade, whose migration hook reads this live Secret,
+  # confirm the target Secret carries the restored endpoint in EVERY DSN key
+  # it holds (TILE_DATABASE_URL_OVERRIDE and friends too, if you set them),
+  # not just the obvious one:
+  #   kubectl -n <ns> get secret <name> -o json | jq -r \
+  #     '.data | to_entries[] | select(.key | test("DATABASE_URL"))
+  #      | "\(.key) \(.value | @base64d)"'
   grep -c '<restored-endpoint>' deployed-values.yaml    # 0 => the DSN is in the Secret
 
   # Before invoking the upgrade at all, prove the restored endpoint is the
@@ -1127,7 +1132,9 @@ What changes:
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
   # too — new images and a migration hook, during an incident.
-  CHART=$(helm list -n <ns> -o json | jq -r '.[] | select(.name=="<release>") | .chart | sub("^geolens-"; "")')
+  # (-a: a release left in a pending/failed state by an interrupted operation
+  # would otherwise not be listed, and CHART would come out empty.)
+  CHART=$(helm list -a -n <ns> -o json | jq -r '.[] | select(.name=="<release>") | .chart | sub("^geolens-"; "")')
   # Keep the writers down through the upgrade: deployed-values.yaml carries the
   # ORIGINAL replica counts, so a plain upgrade would bring pods straight back
   # up against an endpoint nobody has verified yet.
@@ -1161,7 +1168,12 @@ What changes:
      on it would deadlock. Apply that one committed resource first
      (`argocd app sync <app> --resource bitnami.com/SealedSecret:<ns>/<name>`,
      or `kubectl apply` of the same manifest you committed), let the controller
-     unseal it, and confirm the target Secret before going on. Then resume the
+     unseal it, and confirm the target Secret before going on. Before any
+     reconcile, also validate the restored endpoint itself — the same
+     `psql ... alembic_version` check as the manual path, from a debug pod —
+     because the resumed sync immediately runs the migration hook against
+     whatever the Secret now says, and a wrong-but-reachable host would
+     receive the migration. Then resume the
      sync you suspended at the start, or force one reconcile
      (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
      lands while it is suspended — and because the manifest now says zero, this
@@ -1180,8 +1192,9 @@ What changes:
   touched object storage, do that repair now too**, while the writers are still
   down — see [object versions](#restoring-an-object-version) below. Restarting
   the api first means serving 500s from rasters you are about to fix, and
-  re-ingesting or re-uploading against a half-restored bucket. Then restore the
-  replica counts that `deployed-values.yaml` already records:
+  re-ingesting or re-uploading against a half-restored bucket. Then, on the
+  manual path, restore the replica counts that `deployed-values.yaml` already
+  records (under GitOps this is step 4 above, not a `helm` command):
 
   ```bash
   helm upgrade <release> geolens/geolens -n <ns> \
@@ -1249,10 +1262,12 @@ What changes:
   #   originals/<dataset-id>/    archived source uploads
   #   vectors/<dataset-id>/      vector quicklooks
   #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
-  #   staging/                   in-flight uploads: promote the file_path keys
-  #                              of nonterminal AND retryable failed ingest
-  #                              jobs before the worker returns — retry
-  #                              requires the staged object to exist
+  #   staging/                   in-flight uploads. Promote the keys from
+  #                                SELECT file_path FROM ingest_jobs WHERE
+  #                                file_path LIKE 'staging/%' AND status IN
+  #                                ('pending','running','failed');
+  #                              before the worker returns — retry requires
+  #                              the staged object to exist
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
   # What versions exist, and what is on top right now:
@@ -1299,9 +1314,12 @@ What changes:
   ```
 
   While the writers are still down, confirm the promotion at the store:
-  `aws s3api head-object --bucket <bucket> --key "<key>"` should report the
-  promoted bytes as the current version. The end-to-end check comes after the
-  replicas return — re-request a tile, and it should stop returning 500.
+  `aws s3api head-object --bucket <bucket> --key "<key>"` shows what is
+  current now. The promoted copy is a **new** version, so its id will not
+  match the one you copied from — compare `ContentLength` (and, for a
+  single-part `copy-object`, `ETag`) against the version you selected. The
+  end-to-end check comes after the replicas return — re-request a tile, and it
+  should stop returning 500.
 
   A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
   **it must outlast the database recovery window, or it silently re-creates the
