@@ -1022,6 +1022,20 @@ no `backup` container, no `backup_data` volume, and no Compose project — the
 chart ships **no backup workload at all**, so the database backups are entirely
 your provider's, and object storage is entirely your bucket's.
 
+**Before anything else, stop the writers.** Scale the workloads to zero
+*before* you initiate the restore, not at cutover:
+
+```bash
+kubectl -n <ns> scale deploy/<release>-api deploy/<release>-worker --replicas=0
+```
+
+Provisioning a restored instance takes ten minutes or more. Every write
+accepted in that window — and any accepted after the point in time you are
+restoring to — lands only on the incident-state database and is discarded when
+you cut over. Quiescing first bounds the loss to what happened before you
+noticed; quiescing at cutover silently extends it by the length of the
+recovery. Keep them at zero until the new endpoint is verified.
+
 What changes:
 
 - **Step 1 is the same** and is the whole database recovery. Restoring an RDS
@@ -1034,15 +1048,12 @@ What changes:
   `#`, `?`, `@`, `/` or `:` produces a URL the API rejects at boot instead of
   connecting to the restored instance:
 
-  **Stop the workloads first.** A rolling restart would leave pods on the
-  incident-state database running alongside pods on the restored one, splitting
-  requests and queued jobs across two diverging databases:
+  The workloads are already at zero from the step above — keep them there.
+  Bringing them back before the endpoint changes would put pods on the
+  incident-state database alongside pods on the restored one, splitting
+  requests and queued jobs across two diverging databases.
 
-  ```bash
-  kubectl -n <ns> scale deploy/<release>-api deploy/<release>-worker --replicas=0
-  ```
-
-  Then change the endpoint **in whatever your deployment renders from** — the
+  Change the endpoint **in whatever your deployment renders from** — the
   values file, the SOPS/sealed secret, the ExternalSecret. Patching only the
   live Secret is temporary: the next `helm upgrade` or GitOps reconciliation
   re-renders it and silently points the workloads back at the incident-state
