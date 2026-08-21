@@ -141,8 +141,16 @@ database backup substitutes for it. Versioning is an S3 (and GCS) capability;
 **Cloudflare R2 does not implement it** — the bucket-versioning calls are
 outside R2's S3 compatibility surface, and the
 [version-promotion procedure](#restoring-an-object-version) below does not
-apply there. On R2 the equivalent protection is a scheduled copy to a second
-bucket (for example an `rclone sync` job), which is what you restore from. Uploaded raster datasets are the ones that
+apply there. On R2 the equivalent protection is a scheduled job that
+*preserves* replaced and deleted objects instead of mirroring their removal —
+a plain `rclone sync` would propagate the very deletion you need to survive at
+its next run. Use the backup-dir form, which moves anything overwritten or
+deleted into a dated archive prefix you can restore from:
+
+```bash
+rclone sync :s3:<bucket> :s3:<backup-bucket>/current \
+  --backup-dir ":s3:<backup-bucket>/archive/$(date -u +%F)"
+``` Uploaded raster datasets are the ones that
 depend on it: a managed COG exists only in the bucket, so a database restore
 brings the catalog row back while every tile fails. By-reference imports (STAC,
 public COGs) keep serving from the upstream URL instead. See
