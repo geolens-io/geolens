@@ -1205,7 +1205,8 @@ What changes:
 
   ```bash
   # Where objects are namespaced per tenant, every prefix below sits under
-  # tenants/<tenant-id>/.
+  # tenants/<tenant-id>/ — except maps/icons/, which is written at the bucket
+  # root in every mode.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
   # Repeat for every prefix the restored database still references — the
   # managed layout, in full:
