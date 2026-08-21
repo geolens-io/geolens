@@ -1053,7 +1053,12 @@ What changes:
   #   DATABASE_URL_OVERRIDE       runtime
   #   TILE_DATABASE_URL_OVERRIDE  vector-tile pool
   sed -i.bak 's/<old-endpoint>/<restored-endpoint>/g' values.yaml   # or your secret source
-  helm upgrade <release> geolens/geolens -n <ns> -f values.yaml
+
+  # Pin the chart you are already running. Without --version, helm takes the
+  # newest one in the repo and the recovery quietly becomes an app upgrade
+  # too — new images and a migration hook, during an incident.
+  CHART=$(helm list -n <ns> -o json | jq -r '.[] | select(.name=="<release>") | .chart | sub("^geolens-"; "")')
+  helm upgrade <release> geolens/geolens -n <ns> -f values.yaml --version "$CHART"
   ```
 
   With a chart-managed Secret, that `helm upgrade` is the whole cutover. If the
