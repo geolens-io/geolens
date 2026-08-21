@@ -1028,8 +1028,10 @@ your provider's, and object storage is entirely your bucket's.
 ```bash
 kubectl -n <ns> scale deploy/<release>-api deploy/<release>-worker --replicas=0
 # scale returns immediately; the pods are still draining and still writing.
-kubectl -n <ns> wait --for=delete pod \
-  -l app.kubernetes.io/instance=<release> --timeout=180s
+# Wait only on the two you scaled — the release's frontend and titiler pods
+# stay up, so an instance-wide selector would just time out.
+kubectl -n <ns> wait --for=delete pod --timeout=180s \
+  -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/component in (api,worker)'
 ```
 
 Provisioning a restored instance takes ten minutes or more. Every write
@@ -1089,16 +1091,26 @@ What changes:
   # newest one in the repo and the recovery quietly becomes an app upgrade
   # too — new images and a migration hook, during an incident.
   CHART=$(helm list -n <ns> -o json | jq -r '.[] | select(.name=="<release>") | .chart | sub("^geolens-"; "")')
+  # Keep the writers down through the upgrade: deployed-values.yaml carries the
+  # ORIGINAL replica counts, so a plain upgrade would bring pods straight back
+  # up against an endpoint nobody has verified yet.
   helm upgrade <release> geolens/geolens -n <ns> \
-    -f deployed-values.yaml --version "$CHART"
+    -f deployed-values.yaml --version "$CHART" \
+    --set api.replicas=0 --set worker.replicas=0
   ```
 
   With a chart-managed Secret, that `helm upgrade` is the whole cutover. If the
   Secret is operator-managed, update its source, re-apply it, and only then:
 
+  Verify the endpoint before letting traffic back in — connect with `psql` from
+  a debug pod, or check that the restored data is present. Then restore the
+  replica counts that `deployed-values.yaml` already records:
+
   ```bash
-  kubectl -n <ns> scale deploy/<release>-api --replicas=<n>
-  kubectl -n <ns> scale deploy/<release>-worker --replicas=<n>
+  helm upgrade <release> geolens/geolens -n <ns> \
+    -f deployed-values.yaml --version "$CHART"
+  kubectl -n <ns> rollout status deploy/<release>-api --timeout=300s
+  rm -f deployed-values.yaml     # it holds the DSN
   ```
 
   A `TILE_DATABASE_URL_OVERRIDE` left pointing at the old endpoint is the
