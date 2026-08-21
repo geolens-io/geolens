@@ -1197,6 +1197,7 @@ What changes:
   # Where objects are namespaced per tenant, the managed layout is
   # tenants/<tenant-id>/rasters/<dataset-id>/ — use that prefix instead.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
+  # Repeat for originals/<dataset-id>/ — the archived source upload lives there.
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
   # What versions exist, and what is on top right now:
