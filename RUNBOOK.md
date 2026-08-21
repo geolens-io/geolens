@@ -1194,8 +1194,8 @@ What changes:
   your database recovery point:
 
   ```bash
-  # Single-tenant. In multi-tenant mode the managed layout is namespaced —
-  # tenants/<tenant-id>/rasters/<dataset-id>/ — so use that prefix instead.
+  # Where objects are namespaced per tenant, the managed layout is
+  # tenants/<tenant-id>/rasters/<dataset-id>/ — use that prefix instead.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
