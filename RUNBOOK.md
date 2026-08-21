@@ -1211,9 +1211,12 @@ What changes:
     --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
   ```
 
-  Pick the version whose `LastModified` is the newest at or before `$POINT`, so
-  the object matches the database you restored — anything newer belongs to
-  writes the restore discarded.
+  Pick the newest entry at or before `$POINT` — **counting delete markers as
+  entries**. If that entry is a delete marker, the object was already deleted at
+  the recovery point and there is nothing to promote: the restored catalog
+  should not reference it, and putting bytes back would resurrect data the
+  restore deliberately dropped. Otherwise promote that version; anything newer
+  belongs to writes the restore discarded.
 
   Promote rather than just deleting the delete marker. Removing a marker makes
   the *immediately preceding* version current, which is the right one only if
