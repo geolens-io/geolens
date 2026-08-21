@@ -1096,7 +1096,12 @@ What changes:
   # With secrets.existingSecret the DSN is NOT in the values — it is in your
   # Secret, and the grep below returns 0. Update that Secret's source and
   # re-apply it FIRST; the helm upgrade alone changes nothing, and the pods
-  # would come back on the old endpoint.
+  # would come back on the old endpoint. Controller-managed sources
+  # (ExternalSecret, SealedSecret) reconcile asynchronously, so before the
+  # upgrade — whose migration hook reads this live Secret — confirm the target
+  # Secret actually carries the restored endpoint:
+  #   kubectl -n <ns> get secret <name> \
+  #     -o jsonpath='{.data.DATABASE_URL_OVERRIDE}' | base64 -d
   grep -c '<restored-endpoint>' deployed-values.yaml    # 0 => the DSN is in the Secret
 
   # Pin the chart you are already running. Without --version, helm takes the
@@ -1215,8 +1220,9 @@ What changes:
   #   vectors/<dataset-id>/      vector quicklooks
   #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
   #   staging/                   in-flight uploads: promote the file_path keys
-  #                              of nonterminal ingest jobs before the worker
-  #                              returns, or their retry refuses to run
+  #                              of nonterminal AND retryable failed ingest
+  #                              jobs before the worker returns — retry
+  #                              requires the staged object to exist
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
   # What versions exist, and what is on top right now:
