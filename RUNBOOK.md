@@ -1191,7 +1191,12 @@ What changes:
      `flux resume hr <name> -n <ns>` — resuming reconciles, while
      `flux reconcile` alone refuses as long as `.spec.suspend` is set — or,
      for Argo CD, a one-shot `argocd app sync <app>` (a manual sync works
-     while auto-sync is off; re-enable the sync policy at the end). Nothing
+     while auto-sync is off; re-enable the sync policy at the end). When a
+     Flux Kustomization delivers the HelmRelease manifest, reconcile that
+     first (`flux reconcile kustomization <name> -n <ns>`) so the live
+     HelmRelease already carries the committed zeros — resuming before the
+     Kustomization has applied them reconciles the old spec and brings the
+     writers back. Nothing
      lands while it is suspended — and because the manifest now says zero, this
      does not bring the writers back.
   3. Verify the endpoint, as below, with the database still quiet — and if the
@@ -1259,6 +1264,15 @@ What changes:
   left a published dataset whose tiles returned 500, and nothing could bring
   them back.
 
+  On **Azure Blob storage** — the application's other supported object store —
+  none of the `aws s3api` commands apply. The equivalents are Azure-native:
+  enable **blob versioning** and soft delete on the container, and promote a
+  prior version by copying it over the current blob (`az storage blob copy
+  start` with a version-id source). The selection logic below is identical:
+  per key, the newest version at or before the recovery point, with the
+  restored catalog arbitrating soft-deleted blobs the way it arbitrates
+  delete markers.
+
   <a id="restoring-an-object-version"></a>
   **Enabling it is protection for next time, not a recovery.** If versioning was
   already on when the incident happened, the objects are still there but not
@@ -1279,14 +1293,18 @@ What changes:
   #   vectors/<dataset-id>/      vector quicklooks
   #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
   #   staging/                   in-flight uploads. Promote the keys from
-  #                                SELECT file_path FROM catalog.ingest_jobs
+  #                                SELECT tenant_id, file_path
+  #                                FROM catalog.ingest_jobs
   #                                WHERE file_path LIKE 'staging/%'
   #                                  AND status IN ('pending','running','failed')
   #                                UNION
-  #                                SELECT user_metadata->>'s3_key'
+  #                                SELECT tenant_id, user_metadata->>'s3_key'
   #                                FROM catalog.ingest_jobs
   #                                WHERE user_metadata->>'s3_key' LIKE 'staging/%'
   #                                  AND status IN ('pending','running','failed');
+  #                              The rows are LOGICAL keys — where tenant_id is
+  #                              set, the object lives at
+  #                              tenants/<tenant_id>/<key>.
   #                              (a presigned upload keeps its key in
   #                              user_metadata until the completion call sets
   #                              file_path) before the worker returns — retry
@@ -1342,8 +1360,9 @@ What changes:
   match the one you copied from — compare `ContentLength` against the `Size`
   the listing above showed for the version you selected. `ETag` only
   corroborates when the source version's ETag carries no multipart `-N`
-  suffix: a single-request copy of a multipart-uploaded version (managed COGs
-  usually are) legitimately changes it. The
+  suffix **and** the object is not SSE-KMS/SSE-C encrypted: a single-request
+  copy of a multipart-uploaded version (managed COGs usually are) legitimately
+  changes it, and encrypted objects' ETags are not content digests at all. The
   end-to-end check comes after the replicas return — re-request a tile, and it
   should stop returning 500.
 
