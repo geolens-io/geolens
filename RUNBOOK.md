@@ -1116,12 +1116,18 @@ What changes:
 
   **If Argo CD or Flux owns the release, the `helm` commands above are not
   yours to run** — the controller holds the values and will revert anything you
-  apply directly. Make the same three changes (endpoint, pinned chart version,
-  replicas at zero) in the Application or HelmRelease manifest, commit, and let
-  a sync apply them. Verify the endpoint the same way as below, while the
-  writers are still down; only then resume the sync you suspended earlier and
-  commit the replica counts back. The ordering and the reasoning are identical — only the
-  thing you edit changes.
+  apply directly. The ordering and the reasoning are identical; only the thing
+  you edit changes:
+
+  1. Commit the same three changes to the Application or HelmRelease manifest:
+     the restored endpoint, the chart version pinned to what is deployed, and
+     both replica counts at zero.
+  2. Resume the sync you suspended at the start, or force one reconcile
+     (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
+     lands while it is suspended — and because the manifest now says zero, this
+     does not bring the writers back.
+  3. Verify the endpoint, as below, with the database still quiet.
+  4. Commit the original replica counts and let that reconcile.
 
   Verify the endpoint before letting traffic back in — connect with `psql` from
   a debug pod, or check that the restored data is present. Then restore the
