@@ -1134,7 +1134,11 @@ What changes:
   4. Commit the original replica counts and let that reconcile.
 
   Verify the endpoint before letting traffic back in — connect with `psql` from
-  a debug pod, or check that the restored data is present. Then restore the
+  a debug pod, or check that the restored data is present. **If the incident
+  touched object storage, do that repair now too**, while the writers are still
+  down — see [object versions](#restoring-an-object-version) below. Restarting
+  the api first means serving 500s from rasters you are about to fix, and
+  re-ingesting or re-uploading against a half-restored bucket. Then restore the
   replica counts that `deployed-values.yaml` already records:
 
   ```bash
@@ -1181,6 +1185,7 @@ What changes:
   left a published dataset whose tiles returned 500, and nothing could bring
   them back.
 
+  <a id="restoring-an-object-version"></a>
   **Enabling it is protection for next time, not a recovery.** If versioning was
   already on when the incident happened, the objects are still there but not
   *current* — a delete left a delete marker on top, an overwrite left the wrong
@@ -1189,6 +1194,8 @@ What changes:
   your database recovery point:
 
   ```bash
+  # Single-tenant. In multi-tenant mode the managed layout is namespaced —
+  # tenants/<tenant-id>/rasters/<dataset-id>/ — so use that prefix instead.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
