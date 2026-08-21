@@ -1119,9 +1119,13 @@ What changes:
   apply directly. The ordering and the reasoning are identical; only the thing
   you edit changes:
 
-  1. Commit the same three changes to the Application or HelmRelease manifest:
-     the restored endpoint, the chart version pinned to what is deployed, and
-     both replica counts at zero.
+  1. Commit the chart version pinned to what is deployed, and both replica
+     counts at zero, to the Application or HelmRelease manifest. The restored
+     **endpoint** goes wherever the DSN actually lives — the same manifest for
+     inline values, but the external provider (and a refresh of the
+     ExternalSecret) when it is `secrets.existingSecret`-backed. Reconciling
+     the manifest alone would apply the replica and version changes while
+     leaving the live Secret on the incident-state database.
   2. Resume the sync you suspended at the start, or force one reconcile
      (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
      lands while it is suspended — and because the manifest now says zero, this
