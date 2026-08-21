@@ -1058,10 +1058,17 @@ What changes:
   # (MIGRATION_DATABASE_URL_OVERRIDE is a Compose-only variable — docker-compose.yml
   # maps it into the migrate service. Nothing in the chart or the application
   # reads it, so it is not part of this path.)
-  # No -i.bak: that would leave values.yaml.bak holding the OLD DSN, password
-  # and all, sitting in plaintext next to the file you are careful about.
+  # Plain values file. If the DSN lives in SOPS, a SealedSecret or an
+  # ExternalSecret, do NOT edit the ciphertext — go through that tool
+  # (`sops values.enc.yaml`, re-seal, or edit the upstream secret store),
+  # or the next reconciliation overwrites what you just changed.
+  #
+  # No -i.bak, and the mode is carried over: a backup would leave the OLD DSN
+  # in plaintext beside the file, and a bare `mv` would replace a 0600 file
+  # with whatever your umask produces.
+  cp -p values.yaml values.yaml.tmp
   sed 's/<old-endpoint>/<restored-endpoint>/g' values.yaml > values.yaml.tmp \
-    && mv values.yaml.tmp values.yaml      # or your secret source
+    && mv values.yaml.tmp values.yaml
 
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
