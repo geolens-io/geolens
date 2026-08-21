@@ -1117,6 +1117,13 @@ What changes:
   #     -o jsonpath='{.data.DATABASE_URL_OVERRIDE}' | base64 -d
   grep -c '<restored-endpoint>' deployed-values.yaml    # 0 => the DSN is in the Secret
 
+  # Before invoking the upgrade at all, prove the restored endpoint is the
+  # database you intend — the pre-upgrade migration hook will run against it,
+  # and a wrong-but-reachable host would receive the migration. From a debug
+  # pod:
+  #   psql 'host=<restored-endpoint> ...' \
+  #     -c 'select version_num from alembic_version'
+  #
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
   # too — new images and a migration hook, during an incident.
@@ -1145,11 +1152,17 @@ What changes:
      ExternalSecret) when it is `secrets.existingSecret`-backed. Reconciling
      the manifest alone would apply the replica and version changes while
      leaving the live Secret on the incident-state database.
-  2. With a provider-backed Secret (ExternalSecret, SealedSecret), first wait
-     until the target Secret decodes to the restored endpoint (the
-     `kubectl get secret ... | base64 -d` check above) — provider refresh is
-     asynchronous, and the sync's migration hook reads the live Secret. Then
-     resume the sync you suspended at the start, or force one reconcile
+  2. With a provider-backed Secret, first wait until the target Secret decodes
+     to the restored endpoint (the `kubectl get secret ... | base64 -d` check
+     above) — provider refresh is asynchronous, and the sync's migration hook
+     reads the live Secret. An ExternalSecret reconciles independently of the
+     suspended sync, so the wait works as-is. A **SealedSecret that is itself
+     deployed by the suspended app cannot land while sync is paused** — waiting
+     on it would deadlock. Apply that one committed resource first
+     (`argocd app sync <app> --resource bitnami.com/SealedSecret:<ns>/<name>`,
+     or `kubectl apply` of the same manifest you committed), let the controller
+     unseal it, and confirm the target Secret before going on. Then resume the
+     sync you suspended at the start, or force one reconcile
      (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
      lands while it is suspended — and because the manifest now says zero, this
      does not bring the writers back.
