@@ -1114,6 +1114,14 @@ What changes:
   `secrets.existingSecret`, the Secret you updated above is, and the upgrade
   only re-renders the workloads around it.
 
+  **If Argo CD or Flux owns the release, the `helm` commands above are not
+  yours to run** — the controller holds the values and will revert anything you
+  apply directly. Make the same three changes (endpoint, pinned chart version,
+  replicas at zero) in the Application or HelmRelease manifest, commit, and let
+  a sync apply them; then resume the sync you suspended earlier and commit the
+  replica counts back. The ordering and the reasoning are identical — only the
+  thing you edit changes.
+
   Verify the endpoint before letting traffic back in — connect with `psql` from
   a debug pod, or check that the restored data is present. Then restore the
   replica counts that `deployed-values.yaml` already records:
