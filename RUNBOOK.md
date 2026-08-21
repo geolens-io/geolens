@@ -1176,6 +1176,9 @@ What changes:
   GeoLens-side equivalent:
 
   ```bash
+  # Non-AWS endpoint (self-hosted MinIO or similar): add
+  # --endpoint-url <S3_ENDPOINT> to every aws command in this section,
+  # or the commands silently target AWS instead of your object store.
   aws s3api put-bucket-versioning --bucket <bucket> \
     --versioning-configuration Status=Enabled
   ```
@@ -1208,7 +1211,10 @@ What changes:
 
   # PROMOTE the version that was current at $POINT, whatever happened since.
   # Copying it back writes a NEW current version, which supersedes a delete
-  # marker and an overwrite alike:
+  # marker and an overwrite alike.
+  # URL-encode <key> inside --copy-source: originals/ keys keep the uploaded
+  # filename, which can carry spaces or reserved characters. The destination
+  # --key stays literal.
   aws s3api copy-object --bucket <bucket> --key "<key>" \
     --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
   ```
