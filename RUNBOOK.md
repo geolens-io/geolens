@@ -1034,17 +1034,34 @@ What changes:
   `#`, `?`, `@`, `/` or `:` produces a URL the API rejects at boot instead of
   connecting to the restored instance:
 
+  **Stop the workloads first.** A rolling restart would leave pods on the
+  incident-state database running alongside pods on the restored one, splitting
+  requests and queued jobs across two diverging databases:
+
   ```bash
-  # In the Secret (preferred — keeps the DSN out of shell history):
+  kubectl -n <ns> scale deploy/<release>-api deploy/<release>-worker --replicas=0
+  ```
+
+  Then change the endpoint **in whatever your deployment renders from** — the
+  values file, the SOPS/sealed secret, the ExternalSecret. Patching only the
+  live Secret is temporary: the next `helm upgrade` or GitOps reconciliation
+  re-renders it and silently points the workloads back at the incident-state
+  database. Swap the host in place rather than retyping the URI:
+
+  ```bash
+  # Keys to update — both, if you set the second:
   #   DATABASE_URL_OVERRIDE       runtime
-  #   TILE_DATABASE_URL_OVERRIDE  vector-tile pool, when you have set one
-  # Swap the host in place rather than rebuilding the URI:
-  OLD=<old-endpoint>; NEW=<restored-endpoint>
-  kubectl -n <ns> get secret <release>-secrets -o json \
-    | jq --arg o "$OLD" --arg n "$NEW" '.data |= with_entries(
-        select(.key | test("DATABASE_URL")) |= (.value |= (@base64d | sub($o; $n) | @base64)))' \
-    | kubectl apply -f -
-  kubectl -n <ns> rollout restart deploy/<release>-api deploy/<release>-worker
+  #   TILE_DATABASE_URL_OVERRIDE  vector-tile pool
+  sed -i.bak 's/<old-endpoint>/<restored-endpoint>/g' values.yaml   # or your secret source
+  helm upgrade <release> geolens/geolens -n <ns> -f values.yaml
+  ```
+
+  With a chart-managed Secret, that `helm upgrade` is the whole cutover. If the
+  Secret is operator-managed, update its source, re-apply it, and only then:
+
+  ```bash
+  kubectl -n <ns> scale deploy/<release>-api --replicas=<n>
+  kubectl -n <ns> scale deploy/<release>-worker --replicas=<n>
   ```
 
   A `TILE_DATABASE_URL_OVERRIDE` left pointing at the old endpoint is the
