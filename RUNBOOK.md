@@ -1124,10 +1124,14 @@ What changes:
 
   # Before invoking the upgrade at all, prove the restored endpoint is the
   # database you intend — the pre-upgrade migration hook will run against it,
-  # and a wrong-but-reachable host would receive the migration. From a debug
-  # pod:
+  # and a wrong-but-reachable host would receive the migration. Schema alone
+  # cannot tell instances apart (the incident-state database is at the same
+  # migration revision), so check identity by TIME: the restored instance has
+  # no rows newer than the recovery point, while the incident-state one does.
+  # From a debug pod:
   #   psql 'host=<restored-endpoint> ...' \
-  #     -c 'select version_num from alembic_version'
+  #     -c 'select version_num from alembic_version' \
+  #     -c 'select max(created_at) from ingest_jobs'   # must be <= $POINT
   #
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
@@ -1166,11 +1170,11 @@ What changes:
      suspended sync, so the wait works as-is. A **SealedSecret that is itself
      deployed by the suspended app cannot land while sync is paused** — waiting
      on it would deadlock. Apply that one committed resource first
-     (`argocd app sync <app> --resource bitnami.com/SealedSecret:<ns>/<name>`,
+     (`argocd app sync <app> --resource bitnami.com:SealedSecret:<ns>/<name>`,
      or `kubectl apply` of the same manifest you committed), let the controller
      unseal it, and confirm the target Secret before going on. Before any
-     reconcile, also validate the restored endpoint itself — the same
-     `psql ... alembic_version` check as the manual path, from a debug pod —
+     reconcile, also validate the restored endpoint itself — the same psql
+     schema-plus-recency check as the manual path, from a debug pod —
      because the resumed sync immediately runs the migration hook against
      whatever the Secret now says, and a wrong-but-reachable host would
      receive the migration. Then resume the
