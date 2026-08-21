@@ -1118,8 +1118,9 @@ What changes:
   yours to run** — the controller holds the values and will revert anything you
   apply directly. Make the same three changes (endpoint, pinned chart version,
   replicas at zero) in the Application or HelmRelease manifest, commit, and let
-  a sync apply them; then resume the sync you suspended earlier and commit the
-  replica counts back. The ordering and the reasoning are identical — only the
+  a sync apply them. Verify the endpoint the same way as below, while the
+  writers are still down; only then resume the sync you suspended earlier and
+  commit the replica counts back. The ordering and the reasoning are identical — only the
   thing you edit changes.
 
   Verify the endpoint before letting traffic back in — connect with `psql` from
@@ -1130,6 +1131,7 @@ What changes:
   helm upgrade <release> geolens/geolens -n <ns> \
     -f deployed-values.yaml --version "$CHART"
   kubectl -n <ns> rollout status deploy/<release>-api --timeout=300s
+  kubectl -n <ns> rollout status deploy/<release>-worker --timeout=300s
   rm -f deployed-values.yaml     # it holds the DSN
   ```
 
