@@ -1189,3 +1189,29 @@ class TestLibpqValueQuoting:
         for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
             assert "dbname=my%20db" in dsn
             assert "dbname='my db'" not in dsn
+
+
+class TestRootCaOnlyUnderVerifyFull:
+    """codex review on #1617: libpq treats sslmode=require as verify-ca once a
+    root CA file is present. Emitting sslrootcert under `require` would make
+    ogr2ogr and Procrastinate verify the certificate while the API's
+    database_connect_args explicitly disables that check for `require` — the
+    exact client divergence this pair of properties exists to remove."""
+
+    def test_require_does_not_emit_the_root_ca(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="require",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslrootcert" not in dsn
+
+    def test_verify_full_still_emits_it(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslrootcert=/etc/ssl/rds/ca.pem" in dsn

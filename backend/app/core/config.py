@@ -1341,7 +1341,13 @@ class Settings(BaseSettings):
                 parts.append(f"password={libpq_value(unquote(parsed.password))}")
             if self.database_ssl_mode != "disable":
                 parts.append(f"sslmode={self.database_ssl_mode}")
-            if self.database_ssl_ca_cert:
+            # verify-full ONLY. libpq treats sslmode=require as verify-ca as
+            # soon as a root CA file is present, so emitting this under
+            # `require` would make ogr2ogr and Procrastinate verify the server
+            # certificate while database_connect_args explicitly disables that
+            # check for the API — the same divergence between clients this
+            # property exists to remove (codex review on #1617).
+            if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
             # BUG-002: the non-override branch sets
             # options='-c search_path=<schema>,public' so procrastinate's
@@ -1408,7 +1414,13 @@ class Settings(BaseSettings):
             # always emitted this pair together; this is the sibling that did
             # not. Emitted whenever a CA is configured: libpq ignores it under
             # the modes that do not verify.
-            if self.database_ssl_ca_cert:
+            # verify-full ONLY. libpq treats sslmode=require as verify-ca as
+            # soon as a root CA file is present, so emitting this under
+            # `require` would make ogr2ogr and Procrastinate verify the server
+            # certificate while database_connect_args explicitly disables that
+            # check for the API — the same divergence between clients this
+            # property exists to remove (codex review on #1617).
+            if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
             return " ".join(parts)
         return (
