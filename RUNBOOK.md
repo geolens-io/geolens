@@ -1028,16 +1028,34 @@ What changes:
   instance to a point in time produces a **new endpoint**, so the recovery ends
   with re-pointing the release rather than editing `.env`:
 
+  **Repoint every DSN, not just the runtime one.** Take the DSN you already
+  have and replace only its host — do not retype it. Passwords are
+  percent-encoded in a URI (see `.env.example`), so re-typing one containing
+  `#`, `?`, `@`, `/` or `:` produces a URL the API rejects at boot instead of
+  connecting to the restored instance:
+
   ```bash
-  helm upgrade geolens geolens/geolens -n <ns> -f values.yaml \
-    --set secrets.databaseUrlOverride='postgresql+asyncpg://<user>:<pw>@<restored-endpoint>:5432/<db>'
+  # In the Secret (preferred — keeps the DSN out of shell history):
+  #   DATABASE_URL_OVERRIDE       runtime
+  #   TILE_DATABASE_URL_OVERRIDE  vector-tile pool, when you have set one
+  # Swap the host in place rather than rebuilding the URI:
+  OLD=<old-endpoint>; NEW=<restored-endpoint>
+  kubectl -n <ns> get secret <release>-secrets -o json \
+    | jq --arg o "$OLD" --arg n "$NEW" '.data |= with_entries(
+        select(.key | test("DATABASE_URL")) |= (.value |= (@base64d | sub($o; $n) | @base64)))' \
+    | kubectl apply -f -
+  kubectl -n <ns> rollout restart deploy/<release>-api deploy/<release>-worker
   ```
 
-  Prefer a pre-created Secret (`secrets.existingSecret`) so the DSN never
-  reaches a shell history. Point-in-time restore is not instant in either
-  sense: the restorable window trails real time by several minutes, and
-  provisioning the restored instance takes ~10-15 minutes. Both are on top of
-  the time it takes to notice the incident.
+  A `TILE_DATABASE_URL_OVERRIDE` left pointing at the old endpoint is the
+  quiet one: the API reads the restored database while vector tiles keep
+  serving from the incident-state instance, until that endpoint is deleted and
+  they start failing instead.
+
+  Point-in-time restore is not instant in either sense: the restorable window
+  trails real time by several minutes, and provisioning the restored instance
+  takes ~10-15 minutes. Both are on top of the time it takes to notice the
+  incident.
 
 - **Step 2 has no equivalent, and that is the part that bites.** With
   `storage.backend=s3` there is no `upload_staging` volume to archive; objects
