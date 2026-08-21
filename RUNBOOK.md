@@ -1204,11 +1204,18 @@ What changes:
   your database recovery point:
 
   ```bash
-  # Where objects are namespaced per tenant, the managed layout is
-  # tenants/<tenant-id>/rasters/<dataset-id>/ — use that prefix instead.
+  # Where objects are namespaced per tenant, every prefix below sits under
+  # tenants/<tenant-id>/.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
-  # Repeat for originals/<dataset-id>/ — the archived source upload lives
-  # there — and, for vector datasets, vectors/<dataset-id>/ (the quicklook).
+  # Repeat for every prefix the restored database still references — the
+  # managed layout, in full:
+  #   rasters/<dataset-id>/      managed COGs and VRT artifacts
+  #   originals/<dataset-id>/    archived source uploads
+  #   vectors/<dataset-id>/      vector quicklooks
+  #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
+  #   staging/                   in-flight uploads: promote the file_path keys
+  #                              of nonterminal ingest jobs before the worker
+  #                              returns, or their retry refuses to run
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
   # What versions exist, and what is on top right now:
