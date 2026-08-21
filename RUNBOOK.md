@@ -1052,7 +1052,10 @@ kubectl -n <ns> wait --for=delete pod --timeout=180s \
 
 Under Argo CD or Flux, a `kubectl scale` is drift the controller undoes on its
 next sync — the writers come back mid-restore. Suspend the sync first
-(`argocd app set <app> --sync-policy none`, or `flux suspend hr <name> -n <ns>` —
+(`argocd app set <app> --sync-policy none`, then
+`argocd app terminate-op <app>` — the policy change stops *future* syncs but
+not one already running, which would still reapply the replica counts; or
+`flux suspend hr <name> -n <ns>` —
 it defaults to `flux-system`, not the release namespace), or set
 the replica counts to zero in the source repository, and reverse whichever you
 chose at the end.
@@ -1336,9 +1339,11 @@ What changes:
   While the writers are still down, confirm the promotion at the store:
   `aws s3api head-object --bucket <bucket> --key "<key>"` shows what is
   current now. The promoted copy is a **new** version, so its id will not
-  match the one you copied from — compare `ContentLength` (and, for a
-  single-part `copy-object`, `ETag`) against the `Size` and `ETag` the listing
-  above showed for the version you selected. The
+  match the one you copied from — compare `ContentLength` against the `Size`
+  the listing above showed for the version you selected. `ETag` only
+  corroborates when the source version's ETag carries no multipart `-N`
+  suffix: a single-request copy of a multipart-uploaded version (managed COGs
+  usually are) legitimately changes it. The
   end-to-end check comes after the replicas return — re-request a tile, and it
   should stop returning 500.
 
