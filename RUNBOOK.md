@@ -1027,6 +1027,9 @@ your provider's, and object storage is entirely your bucket's.
 
 ```bash
 kubectl -n <ns> scale deploy/<release>-api deploy/<release>-worker --replicas=0
+# scale returns immediately; the pods are still draining and still writing.
+kubectl -n <ns> wait --for=delete pod \
+  -l app.kubernetes.io/instance=<release> --timeout=180s
 ```
 
 Provisioning a restored instance takes ten minutes or more. Every write
@@ -1069,23 +1072,25 @@ What changes:
   # (MIGRATION_DATABASE_URL_OVERRIDE is a Compose-only variable — docker-compose.yml
   # maps it into the migrate service. Nothing in the chart or the application
   # reads it, so it is not part of this path.)
-  # Plain values file. If the DSN lives in SOPS, a SealedSecret or an
-  # ExternalSecret, do NOT edit the ciphertext — go through that tool
-  # (`sops values.enc.yaml`, re-seal, or edit the upstream secret store),
-  # or the next reconciliation overwrites what you just changed.
+  # Start from what the release is ACTUALLY running, not from a values file
+  # that may be one of several, or missing --set overrides given at install
+  # time. `helm get values` returns the complete user-supplied set.
   #
-  # No -i.bak, and the mode is carried over: a backup would leave the OLD DSN
-  # in plaintext beside the file, and a bare `mv` would replace a 0600 file
-  # with whatever your umask produces.
-  cp -p values.yaml values.yaml.tmp
-  sed 's/<old-endpoint>/<restored-endpoint>/g' values.yaml > values.yaml.tmp \
-    && mv values.yaml.tmp values.yaml
+  # If the DSN lives in SOPS, a SealedSecret or an ExternalSecret, do NOT edit
+  # the ciphertext — go through that tool (`sops values.enc.yaml`, re-seal, or
+  # edit the upstream secret store) or the next reconciliation overwrites it.
+  umask 077     # this file holds the DSN
+  helm get values <release> -n <ns> -o yaml > deployed-values.yaml
+  sed 's/<old-endpoint>/<restored-endpoint>/g' deployed-values.yaml > tmp \
+    && mv tmp deployed-values.yaml
+  grep -c '<restored-endpoint>' deployed-values.yaml    # expect >= 1
 
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
   # too — new images and a migration hook, during an incident.
   CHART=$(helm list -n <ns> -o json | jq -r '.[] | select(.name=="<release>") | .chart | sub("^geolens-"; "")')
-  helm upgrade <release> geolens/geolens -n <ns> -f values.yaml --version "$CHART"
+  helm upgrade <release> geolens/geolens -n <ns> \
+    -f deployed-values.yaml --version "$CHART"
   ```
 
   With a chart-managed Secret, that `helm upgrade` is the whole cutover. If the
