@@ -1245,7 +1245,10 @@ What changes:
   aws s3 cp /tmp/restore.tif "s3://<bucket>/<key>"
   ```
 
-  Then re-request a tile: it should stop returning 500.
+  While the writers are still down, confirm the promotion at the store:
+  `aws s3api head-object --bucket <bucket> --key "<key>"` should report the
+  promoted bytes as the current version. The end-to-end check comes after the
+  replicas return — re-request a tile, and it should stop returning 500.
 
   A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
   **it must outlast the database recovery window, or it silently re-creates the
