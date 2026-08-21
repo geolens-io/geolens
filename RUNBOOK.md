@@ -137,7 +137,12 @@ external object stores.
 
 Concretely, that means enabling **object versioning** on the bucket — it is the
 only thing that makes an accidental delete or overwrite recoverable, and no
-database backup substitutes for it. Uploaded raster datasets are the ones that
+database backup substitutes for it. Versioning is an S3 (and GCS) capability;
+**Cloudflare R2 does not implement it** — the bucket-versioning calls are
+outside R2's S3 compatibility surface, and the
+[version-promotion procedure](#restoring-an-object-version) below does not
+apply there. On R2 the equivalent protection is a scheduled copy to a second
+bucket (for example an `rclone sync` job), which is what you restore from. Uploaded raster datasets are the ones that
 depend on it: a managed COG exists only in the bucket, so a database restore
 brings the catalog row back while every tile fails. By-reference imports (STAC,
 public COGs) keep serving from the upstream URL instead. See
@@ -1237,9 +1242,9 @@ What changes:
   # PROMOTE the version that was current at $POINT, whatever happened since.
   # Copying it back writes a NEW current version, which supersedes a delete
   # marker and an overwrite alike.
-  # URL-encode <key> inside --copy-source: originals/ keys keep the uploaded
-  # filename, which can carry spaces or reserved characters. The destination
-  # --key stays literal.
+  # URL-encode <key> — and the versionId value — inside --copy-source:
+  # originals/ keys keep the uploaded filename, which can carry spaces or
+  # reserved characters. The destination --key stays literal.
   aws s3api copy-object --bucket <bucket> --key "<key>" \
     --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
   ```
