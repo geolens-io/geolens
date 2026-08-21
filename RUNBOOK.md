@@ -1036,7 +1036,8 @@ kubectl -n <ns> wait --for=delete pod --timeout=180s \
 
 Under Argo CD or Flux, a `kubectl scale` is drift the controller undoes on its
 next sync — the writers come back mid-restore. Suspend the sync first
-(`argocd app set <app> --sync-policy none`, or `flux suspend hr <name>`), or set
+(`argocd app set <app> --sync-policy none`, or `flux suspend hr <name> -n <ns>` —
+it defaults to `flux-system`, not the release namespace), or set
 the replica counts to zero in the source repository, and reverse whichever you
 chose at the end.
 
