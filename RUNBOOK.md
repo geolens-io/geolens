@@ -1131,7 +1131,10 @@ What changes:
      (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
      lands while it is suspended — and because the manifest now says zero, this
      does not bring the writers back.
-  3. Verify the endpoint, as below, with the database still quiet.
+  3. Verify the endpoint, as below, with the database still quiet — and if the
+     incident touched object storage, do the
+     [object-version repair](#restoring-an-object-version) now, while the
+     writers are still down.
   4. Commit the original replica counts, let that reconcile, and wait for both
      rollouts to finish (`kubectl -n <ns> rollout status deploy/<release>-api`
      and the worker equivalent) — a reconciled manifest says nothing about the
@@ -1204,7 +1207,8 @@ What changes:
   # Where objects are namespaced per tenant, the managed layout is
   # tenants/<tenant-id>/rasters/<dataset-id>/ — use that prefix instead.
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
-  # Repeat for originals/<dataset-id>/ — the archived source upload lives there.
+  # Repeat for originals/<dataset-id>/ — the archived source upload lives
+  # there — and, for vector datasets, vectors/<dataset-id>/ (the quicklook).
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
   # What versions exist, and what is on top right now:
