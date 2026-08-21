@@ -1184,9 +1184,11 @@ What changes:
      schema-plus-recency check as the manual path, from a debug pod —
      because the resumed sync immediately runs the migration hook against
      whatever the Secret now says, and a wrong-but-reachable host would
-     receive the migration. Then resume the
-     sync you suspended at the start, or force one reconcile
-     (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
+     receive the migration. Then resume what you suspended:
+     `flux resume hr <name> -n <ns>` — resuming reconciles, while
+     `flux reconcile` alone refuses as long as `.spec.suspend` is set — or,
+     for Argo CD, a one-shot `argocd app sync <app>` (a manual sync works
+     while auto-sync is off; re-enable the sync policy at the end). Nothing
      lands while it is suspended — and because the manifest now says zero, this
      does not bring the writers back.
   3. Verify the endpoint, as below, with the database still quiet — and if the
@@ -1274,11 +1276,18 @@ What changes:
   #   vectors/<dataset-id>/      vector quicklooks
   #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
   #   staging/                   in-flight uploads. Promote the keys from
-  #                                SELECT file_path FROM ingest_jobs WHERE
-  #                                file_path LIKE 'staging/%' AND status IN
-  #                                ('pending','running','failed');
-  #                              before the worker returns — retry requires
-  #                              the staged object to exist
+  #                                SELECT file_path FROM catalog.ingest_jobs
+  #                                WHERE file_path LIKE 'staging/%'
+  #                                  AND status IN ('pending','running','failed')
+  #                                UNION
+  #                                SELECT user_metadata->>'s3_key'
+  #                                FROM catalog.ingest_jobs
+  #                                WHERE user_metadata->>'s3_key' LIKE 'staging/%'
+  #                                  AND status IN ('pending','running','failed');
+  #                              (a presigned upload keeps its key in
+  #                              user_metadata until the completion call sets
+  #                              file_path) before the worker returns — retry
+  #                              requires the staged object to exist
   POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
 
   # What versions exist, and what is on top right now:
