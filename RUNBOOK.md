@@ -1181,6 +1181,35 @@ What changes:
   left a published dataset whose tiles returned 500, and nothing could bring
   them back.
 
+  **Enabling it is protection for next time, not a recovery.** If versioning was
+  already on when the incident happened, the objects are still there but not
+  *current* — a delete left a delete marker on top, an overwrite left the wrong
+  version current — so the restored catalog still points at something
+  unusable. Roll each affected prefix back to the version that was current at
+  your database recovery point:
+
+  ```bash
+  PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
+  POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
+
+  # What versions exist, and what is on top right now:
+  aws s3api list-object-versions --bucket <bucket> --prefix "$PREFIX" \
+    --query '{Versions: Versions[].[Key,VersionId,IsLatest,LastModified],
+              DeleteMarkers: DeleteMarkers[].[Key,VersionId,IsLatest]}'
+
+  # A deletion: remove the delete marker and the previous version is current again.
+  aws s3api delete-object --bucket <bucket> --key "<key>" \
+    --version-id <delete-marker-version-id>
+
+  # An overwrite: copy the version that was current at $POINT back over the key.
+  aws s3api copy-object --bucket <bucket> --key "<key>" \
+    --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
+  ```
+
+  Pick the version whose `LastModified` is the newest at or before `$POINT`, so
+  the object matches the database you restored — a newer one belongs to writes
+  the restore discarded. Then re-request a tile: it should stop returning 500.
+
   A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
   **it must outlast the database recovery window, or it silently re-creates the
   same failure.** The two retentions have to be read together: restoring the
