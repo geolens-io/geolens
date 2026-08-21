@@ -137,9 +137,10 @@ external object stores.
 
 Concretely, that means enabling **object versioning** on the bucket — it is the
 only thing that makes an accidental delete or overwrite recoverable, and no
-database backup substitutes for it. Raster datasets are the ones that depend on
-it: their COGs exist only in the bucket, so a database restore brings the
-catalog row back while every tile fails. See
+database backup substitutes for it. Uploaded raster datasets are the ones that
+depend on it: a managed COG exists only in the bucket, so a database restore
+brings the catalog row back while every tile fails. By-reference imports (STAC,
+public COGs) keep serving from the upstream URL instead. See
 [On Kubernetes](#on-kubernetes-the-community-helm-chart) for the measured
 breakdown of what a database-only restore does and does not recover.
 
@@ -1203,7 +1204,7 @@ What changes:
   # What versions exist, and what is on top right now:
   aws s3api list-object-versions --bucket <bucket> --prefix "$PREFIX" \
     --query '{Versions: Versions[].[Key,VersionId,IsLatest,LastModified],
-              DeleteMarkers: DeleteMarkers[].[Key,VersionId,IsLatest]}'
+              DeleteMarkers: DeleteMarkers[].[Key,VersionId,IsLatest,LastModified]}'
 
   # PROMOTE the version that was current at $POINT, whatever happened since.
   # Copying it back writes a NEW current version, which supersedes a delete
