@@ -1132,7 +1132,10 @@ What changes:
      lands while it is suspended — and because the manifest now says zero, this
      does not bring the writers back.
   3. Verify the endpoint, as below, with the database still quiet.
-  4. Commit the original replica counts and let that reconcile.
+  4. Commit the original replica counts, let that reconcile, and wait for both
+     rollouts to finish (`kubectl -n <ns> rollout status deploy/<release>-api`
+     and the worker equivalent) — a reconciled manifest says nothing about the
+     pods actually becoming ready.
 
   Verify the endpoint before letting traffic back in — connect with `psql` from
   a debug pod, or check that the restored data is present. **If the incident
