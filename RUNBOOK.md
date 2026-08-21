@@ -150,7 +150,9 @@ deleted into a dated archive prefix you can restore from:
 ```bash
 rclone sync :s3:<bucket> :s3:<backup-bucket>/current \
   --backup-dir ":s3:<backup-bucket>/archive/$(date -u +%F)"
-``` Uploaded raster datasets are the ones that
+```
+
+Uploaded raster datasets are the ones that
 depend on it: a managed COG exists only in the bucket, so a database restore
 brings the catalog row back while every tile fails. By-reference imports (STAC,
 public COGs) keep serving from the upstream URL instead. See
@@ -1128,10 +1130,15 @@ What changes:
   # cannot tell instances apart (the incident-state database is at the same
   # migration revision), so check identity by TIME: the restored instance has
   # no rows newer than the recovery point, while the incident-state one does.
-  # From a debug pod:
+  # From a debug pod (both tables live in the catalog schema):
   #   psql 'host=<restored-endpoint> ...' \
-  #     -c 'select version_num from alembic_version' \
-  #     -c 'select max(created_at) from ingest_jobs'   # must be <= $POINT
+  #     -c 'select version_num from catalog.alembic_version' \
+  #     -c 'select max(created_at) from catalog.ingest_jobs'  # must be <= $POINT
+  # If nothing was written after $POINT the data cannot tell the two instances
+  # apart — anchor identity on the endpoint itself: the host you install must
+  # be exactly what the restore produced,
+  #   aws rds describe-db-instances --db-instance-identifier <restored-id> \
+  #     --query 'DBInstances[0].Endpoint.Address' --output text
   #
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
