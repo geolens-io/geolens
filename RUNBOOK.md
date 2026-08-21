@@ -1221,6 +1221,16 @@ What changes:
   hands back the overwrite, silently pairing the recovered catalog with the
   wrong bytes. Copying the chosen version is correct in every case.
 
+  `copy-object` is a single-part copy and fails above **5 GB**, which COGs
+  reach easily. For those, round-trip the version instead — `aws s3 cp`
+  multiparts automatically on the way back up:
+
+  ```bash
+  aws s3api get-object --bucket <bucket> --key "<key>" \
+    --version-id <version-id-current-at-POINT> /tmp/restore.tif
+  aws s3 cp /tmp/restore.tif "s3://<bucket>/<key>"
+  ```
+
   Then re-request a tile: it should stop returning 500.
 
   A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
