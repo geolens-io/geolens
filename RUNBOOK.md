@@ -135,6 +135,14 @@ If your deployment offloads objects to an external S3/R2/GCS bucket, that bucket
 lifecycle policy is responsible for its own backup; GeoLens does not back up
 external object stores.
 
+Concretely, that means enabling **object versioning** on the bucket — it is the
+only thing that makes an accidental delete or overwrite recoverable, and no
+database backup substitutes for it. Raster datasets are the ones that depend on
+it: their COGs exist only in the bucket, so a database restore brings the
+catalog row back while every tile fails. See
+[On Kubernetes](#on-kubernetes-the-community-helm-chart) for the measured
+breakdown of what a database-only restore does and does not recover.
+
 ### Abandoned multipart uploads (bucket hygiene)
 
 A client that starts a presigned multipart upload and walks away — never
@@ -1006,6 +1014,59 @@ Update `.env` to point `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, an
 docker compose up -d api worker frontend
 docker compose ps    # confirm api and worker are healthy
 ```
+
+### On Kubernetes (the community Helm chart)
+
+Steps 2 and 3 above are Compose-shaped and do not apply. A chart deployment has
+no `backup` container, no `backup_data` volume, and no Compose project — the
+chart ships **no backup workload at all**, so the database backups are entirely
+your provider's, and object storage is entirely your bucket's.
+
+What changes:
+
+- **Step 1 is the same** and is the whole database recovery. Restoring an RDS
+  instance to a point in time produces a **new endpoint**, so the recovery ends
+  with re-pointing the release rather than editing `.env`:
+
+  ```bash
+  helm upgrade geolens geolens/geolens -n <ns> -f values.yaml \
+    --set secrets.databaseUrlOverride='postgresql+asyncpg://<user>:<pw>@<restored-endpoint>:5432/<db>'
+  ```
+
+  Prefer a pre-created Secret (`secrets.existingSecret`) so the DSN never
+  reaches a shell history. Point-in-time restore is not instant in either
+  sense: the restorable window trails real time by several minutes, and
+  provisioning the restored instance takes ~10-15 minutes. Both are on top of
+  the time it takes to notice the incident.
+
+- **Step 2 has no equivalent, and that is the part that bites.** With
+  `storage.backend=s3` there is no `upload_staging` volume to archive; objects
+  live in the bucket, which no GeoLens backup ever touched (see the
+  [Scope caveat](#scope-caveat)). Restoring only the database recovers your
+  catalog **asymmetrically**:
+
+  | | recovered by a database-only restore? |
+  |---|---|
+  | Vector datasets | **Yes, fully.** Features live in PostGIS. A lost object costs the original upload file and the quicklook thumbnail, not the data. |
+  | Raster datasets | **No.** The COG lives only in object storage. The catalog row comes back reading `published`, and every tile request then fails with a 500. Nothing in the catalog marks it broken. |
+
+  So protect the bucket *before* you need it — this is the step that has no
+  GeoLens-side equivalent:
+
+  ```bash
+  aws s3api put-bucket-versioning --bucket <bucket> \
+    --versioning-configuration Status=Enabled
+  ```
+
+  Versioning is what makes an accidental delete or overwrite recoverable at
+  all; add cross-region replication if the bucket itself is in scope for your
+  DR plan. A lifecycle rule to expire noncurrent versions keeps the cost
+  bounded. Verified by drill: with versioning off, deleting a raster's objects
+  left a published dataset whose tiles returned 500, and nothing could bring
+  them back.
+
+- **Step 3** becomes `kubectl -n <ns> get pods` plus a probe through the edge,
+  e.g. `curl -sf https://<host>/api/health`.
 
 ### Optional: point-in-time recovery (PITR) with WAL archiving
 
