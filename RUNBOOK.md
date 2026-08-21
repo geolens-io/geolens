@@ -1283,7 +1283,7 @@ What changes:
 
   # What versions exist, and what is on top right now:
   aws s3api list-object-versions --bucket <bucket> --prefix "$PREFIX" \
-    --query '{Versions: Versions[].[Key,VersionId,IsLatest,LastModified],
+    --query '{Versions: Versions[].[Key,VersionId,IsLatest,LastModified,Size,ETag],
               DeleteMarkers: DeleteMarkers[].[Key,VersionId,IsLatest,LastModified]}'
 
   # PROMOTE the version that was current at $POINT, whatever happened since.
@@ -1328,7 +1328,8 @@ What changes:
   `aws s3api head-object --bucket <bucket> --key "<key>"` shows what is
   current now. The promoted copy is a **new** version, so its id will not
   match the one you copied from — compare `ContentLength` (and, for a
-  single-part `copy-object`, `ETag`) against the version you selected. The
+  single-part `copy-object`, `ETag`) against the `Size` and `ETag` the listing
+  above showed for the version you selected. The
   end-to-end check comes after the replicas return — re-request a tile, and it
   should stop returning 500.
 
