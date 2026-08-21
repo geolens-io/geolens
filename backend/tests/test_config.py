@@ -1132,3 +1132,49 @@ class TestPendingJobTimeoutBounds:
         """The original gt=0 intent survives inside the higher floor."""
         with pytest.raises(Exception):
             _make_settings(pending_job_timeout_seconds=0)
+
+
+class TestLibpqValueQuoting:
+    """codex review on #1617: an unescaped value with whitespace ends the
+    keyword/value pair early and produces a malformed libpq DSN. Applied to
+    every interpolated value in both builders, not only the reported one."""
+
+    def test_ordinary_values_stay_bare(self):
+        # Byte-identical to what deployments already pass to GDAL's PG driver.
+        assert config_module.libpq_value("/etc/ssl/rds/ca.pem") == "/etc/ssl/rds/ca.pem"
+        assert config_module.libpq_value("geolens") == "geolens"
+
+    def test_value_with_space_is_quoted(self):
+        assert config_module.libpq_value("/etc/company certs/ca.pem") == (
+            "'/etc/company certs/ca.pem'"
+        )
+
+    def test_quotes_and_backslashes_are_escaped(self):
+        assert config_module.libpq_value("pa'ss\\word") == "'pa\\'ss\\\\word'"
+
+    def test_empty_value_is_quoted(self):
+        assert config_module.libpq_value("") == "''"
+
+    def test_ca_path_with_space_survives_into_both_builders(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/company certs/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslrootcert='/etc/company certs/ca.pem'" in dsn
+
+    def test_percent_encoded_credentials_are_decoded_like_sqlalchemy(self):
+        """Found while testing the quoting above. urlparse does NOT decode, so
+        these two builders were sending the literal `pass%20word` as the
+        password while the API path — which hands the DSN to SQLAlchemy, which
+        does decode — authenticated correctly. Any password needing
+        percent-encoding (a `@` is the common one) therefore worked for the API
+        and failed for vector ingest and the job queue."""
+        s = _make_settings(
+            database_url_override="postgresql://u%40corp:p%40ss%20word@host/my%20db",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "user=u@corp" in dsn
+            assert "password='p@ss word'" in dsn
+            assert "dbname='my db'" in dsn

@@ -2967,7 +2967,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # verify-full: ogr2ogr goes through libpq, which cannot see the CA that
     # only ever reached asyncpg as an SSLContext. Most of the growth is the
     # comment recording that asymmetry. Cap 1375 -> 1388, exact.
-        "backend/app/core/config.py": 1436,
+            # comment recording that asymmetry.
+    #
+    # codex review on #1617 then added libpq_value(), which quotes and escapes
+    # every interpolated value in BOTH DSN builders — an unescaped path or
+    # password containing whitespace ends the keyword/value pair early and
+    # yields a malformed DSN. Testing that turned up a second defect in the
+    # same two functions: urlparse does not percent-decode, so they sent the
+    # literal `pass%20word` while the API path (SQLAlchemy, which decodes)
+    # authenticated fine — fixed with unquote() on user/password/dbname.
+    # Cap 1375 -> 1409, exact.
+        "backend/app/core/config.py": 1457,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
