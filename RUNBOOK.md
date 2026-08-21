@@ -1060,10 +1060,26 @@ What changes:
 
   Versioning is what makes an accidental delete or overwrite recoverable at
   all; add cross-region replication if the bucket itself is in scope for your
-  DR plan. A lifecycle rule to expire noncurrent versions keeps the cost
-  bounded. Verified by drill: with versioning off, deleting a raster's objects
+  DR plan. Verified by drill: with versioning off, deleting a raster's objects
   left a published dataset whose tiles returned 500, and nothing could bring
   them back.
+
+  A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
+  **it must outlast the database recovery window, or it silently re-creates the
+  same failure.** The two retentions have to be read together: restoring the
+  database to a point 20 days back while noncurrent versions expire after 7
+  leaves exactly the rasters that were deleted or overwritten in between
+  pointing at versions AWS has already collected. Set the noncurrent expiry to
+  at least your PITR window plus however long an incident realistically takes
+  to notice and act on, and revisit it whenever either number moves — the pair
+  is only as good as the shorter half.
+
+  ```bash
+  # 35-day PITR + a week of detection headroom.
+  aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
+    --lifecycle-configuration '{"Rules":[{"ID":"noncurrent-42d","Status":"Enabled",
+      "Filter":{},"NoncurrentVersionExpiration":{"NoncurrentDays":42}}]}'
+  ```
 
 - **Step 3** becomes `kubectl -n <ns> get pods` plus a probe through the edge,
   e.g. `curl -sf https://<host>/api/health`.
