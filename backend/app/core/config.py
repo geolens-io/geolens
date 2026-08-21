@@ -1330,7 +1330,11 @@ class Settings(BaseSettings):
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
-                parts.append(f"dbname={libpq_value(unquote(parsed.path.lstrip('/')))}")
+                parts.append(f"dbname={libpq_value(parsed.path.lstrip('/'))}")
+            # unquote on the credentials ONLY: SQLAlchemy decodes username and
+            # password but leaves the database name percent-encoded, so decoding
+            # dbname here would make these two clients target a DIFFERENT
+            # database than the API (codex review on #1617).
             if parsed.username:
                 parts.append(f"user={libpq_value(unquote(parsed.username))}")
             if parsed.password:
@@ -1382,7 +1386,11 @@ class Settings(BaseSettings):
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
-                parts.append(f"dbname={libpq_value(unquote(parsed.path.lstrip('/')))}")
+                parts.append(f"dbname={libpq_value(parsed.path.lstrip('/'))}")
+            # unquote on the credentials ONLY: SQLAlchemy decodes username and
+            # password but leaves the database name percent-encoded, so decoding
+            # dbname here would make these two clients target a DIFFERENT
+            # database than the API (codex review on #1617).
             if parsed.username:
                 parts.append(f"user={libpq_value(unquote(parsed.username))}")
             if parsed.password:

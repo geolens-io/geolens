@@ -1177,4 +1177,15 @@ class TestLibpqValueQuoting:
         for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
             assert "user=u@corp" in dsn
             assert "password='p@ss word'" in dsn
-            assert "dbname='my db'" in dsn
+
+    def test_database_name_is_NOT_decoded_because_sqlalchemy_does_not(self):
+        """codex review on #1617: SQLAlchemy decodes username and password but
+        leaves the database name percent-encoded — `make_url(...).database` on
+        `/my%20db` returns `my%20db`. Decoding it here would point ogr2ogr and
+        Procrastinate at a different database than the API, so a healthy API
+        could sit alongside every queued job and vector ingest writing
+        somewhere else. Whatever the API uses, these two must use."""
+        s = _make_settings(database_url_override="postgresql://u:p@host/my%20db")
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "dbname=my%20db" in dsn
+            assert "dbname='my db'" not in dsn

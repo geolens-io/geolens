@@ -2977,7 +2977,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # literal `pass%20word` while the API path (SQLAlchemy, which decodes)
     # authenticated fine — fixed with unquote() on user/password/dbname.
     # Cap 1375 -> 1409, exact.
-        "backend/app/core/config.py": 1457,
+            # Cap 1375 -> 1417, exact.
+        "backend/app/core/config.py": 1465,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
