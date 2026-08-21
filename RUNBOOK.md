@@ -1219,8 +1219,10 @@ What changes:
     --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
   ```
 
-  Pick the newest entry at or before `$POINT`, **counting delete markers as
-  entries**. A real version there is the one to promote; anything newer belongs
+  The listing interleaves every key under the prefix — a COG travels with its
+  VRT artifacts and quicklook — so make this selection **per key**, for each
+  key the restored catalog references. Pick that key's newest entry at or
+  before `$POINT`, **counting delete markers as entries**. A real version there is the one to promote; anything newer belongs
   to writes the restore discarded. A delete marker there needs the restored
   catalog to arbitrate — deletion removes the objects *before* the database
   row, so a restore can land in that gap with the row back and a marker on top
