@@ -1049,9 +1049,15 @@ What changes:
   database. Swap the host in place rather than retyping the URI:
 
   ```bash
-  # Keys to update — both, if you set the second:
-  #   DATABASE_URL_OVERRIDE       runtime
-  #   TILE_DATABASE_URL_OVERRIDE  vector-tile pool
+  # Update EVERY key holding a DSN, not just the obvious one. On the chart
+  # that is DATABASE_URL_OVERRIDE and, if you set it, TILE_DATABASE_URL_OVERRIDE
+  # — plus any DSN you pass through migrate.extraEnv or your own Secret. The
+  # replacement below is a global host swap precisely so a key you forgot is
+  # still caught; grep the result before applying it.
+  #
+  # (MIGRATION_DATABASE_URL_OVERRIDE is a Compose-only variable — docker-compose.yml
+  # maps it into the migrate service. Nothing in the chart or the application
+  # reads it, so it is not part of this path.)
   sed -i.bak 's/<old-endpoint>/<restored-endpoint>/g' values.yaml   # or your secret source
 
   # Pin the chart you are already running. Without --version, helm takes the
