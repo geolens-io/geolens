@@ -1034,6 +1034,12 @@ kubectl -n <ns> wait --for=delete pod --timeout=180s \
   -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/component in (api,worker)'
 ```
 
+Under Argo CD or Flux, a `kubectl scale` is drift the controller undoes on its
+next sync — the writers come back mid-restore. Suspend the sync first
+(`argocd app set <app> --sync-policy none`, or `flux suspend hr <name>`), or set
+the replica counts to zero in the source repository, and reverse whichever you
+chose at the end.
+
 Provisioning a restored instance takes ten minutes or more. Every write
 accepted in that window — and any accepted after the point in time you are
 restoring to — lands only on the incident-state database and is discarded when
