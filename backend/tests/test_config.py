@@ -16,6 +16,19 @@ BASE_ENV = {
     "geolens_admin_password": "adminpass",
 }
 
+# Pinned off for every _make_settings() call: these are read from the ambient
+# environment, so a developer or runner that happens to export them (anything
+# running inside EKS or ECS) would otherwise satisfy the s3 credential
+# requirement and flip the expectations in TestConditionalValidation. Kept out
+# of BASE_ENV because that dict is also replayed through monkeypatch.setenv,
+# which takes str values only.
+_AMBIENT_AWS_OFF = {
+    "aws_role_arn": None,
+    "aws_web_identity_token_file": None,
+    "aws_container_credentials_full_uri": None,
+    "aws_container_credentials_relative_uri": None,
+}
+
 
 def _make_settings(**overrides):
     """Create a fresh Settings instance with given env overrides.
@@ -25,7 +38,7 @@ def _make_settings(**overrides):
     an independent Settings instance — the module-level ``settings`` singleton
     in ``app.config`` is never touched.
     """
-    env = {**BASE_ENV, **overrides}
+    env = {**BASE_ENV, **_AMBIENT_AWS_OFF, **overrides}
     return Settings(**env)
 
 
@@ -487,6 +500,59 @@ class TestConditionalValidation:
             s3_secret_access_key="secret",
         )
         assert s.storage_provider == "s3"
+
+    def test_s3_ambient_irsa_credentials_allow_missing_keys(self):
+        """EKS IRSA: the runtime injects a web-identity token, boto3 and GDAL
+        resolve the role themselves, and no static key pair should be needed."""
+        s = _make_settings(
+            storage_provider="s3",
+            s3_bucket="my-bucket",
+            aws_role_arn="arn:aws:iam::123456789012:role/geolens",
+            aws_web_identity_token_file=(
+                "/var/run/secrets/eks.amazonaws.com/serviceaccount/token"
+            ),
+        )
+        assert s.storage_provider == "s3"
+        assert s.has_ambient_aws_credentials is True
+        assert s.s3_access_key_id is None
+
+    def test_s3_ambient_container_credentials_allow_missing_keys(self):
+        s = _make_settings(
+            storage_provider="s3",
+            s3_bucket="my-bucket",
+            aws_container_credentials_full_uri="http://169.254.170.23/v1/creds",
+        )
+        assert s.has_ambient_aws_credentials is True
+
+    def test_s3_role_arn_without_token_file_is_not_ambient(self):
+        """Both halves of the web-identity pair are required — a lone
+        AWS_ROLE_ARN resolves no credentials, so it must not unlock the keys."""
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                storage_provider="s3",
+                s3_bucket="my-bucket",
+                aws_role_arn="arn:aws:iam::123456789012:role/geolens",
+            )
+        assert "S3_ACCESS_KEY_ID" in str(exc_info.value)
+
+    def test_s3_half_configured_key_pair_raises_even_with_ambient(self):
+        """A half-set static pair is always a mistake; ambient must not mask it."""
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(
+                storage_provider="s3",
+                s3_bucket="my-bucket",
+                s3_access_key_id="key",
+                aws_role_arn="arn:aws:iam::123456789012:role/geolens",
+                aws_web_identity_token_file="/var/run/secrets/token",
+            )
+        err = str(exc_info.value)
+        assert "S3_SECRET_ACCESS_KEY" in err
+        assert "S3_ACCESS_KEY_ID" not in err
+
+    def test_s3_missing_keys_error_points_at_the_ambient_option(self):
+        with pytest.raises(Exception) as exc_info:
+            _make_settings(storage_provider="s3", s3_bucket="my-bucket")
+        assert "eks.amazonaws.com/role-arn" in str(exc_info.value)
 
     def test_ssl_verify_full_without_cert_raises(self):
         with pytest.raises(Exception) as exc_info:

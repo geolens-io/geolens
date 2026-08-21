@@ -2950,7 +2950,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # deliberately stricter than a browser, so a future "browser accepts,
     # we reject" report is read against that list first. Cap 1307 -> 1375,
     # exact.
-    "backend/app/core/config.py": 1375,
+    #
+    # Ambient AWS credentials: four runtime-injected marker fields
+    # (AWS_ROLE_ARN / AWS_WEB_IDENTITY_TOKEN_FILE and the two
+    # AWS_CONTAINER_CREDENTIALS_* forms), the has_ambient_aws_credentials
+    # property that reads them, and the rework of the s3 branch of
+    # validate_provider_settings to accept EITHER a complete static key pair or
+    # an ambient source while still rejecting a half-configured pair. Bought
+    # keyless S3 on EKS (IRSA): the storage layer and derive_gdal_s3_env
+    # already omitted unset keys, so this validator was the only thing forcing
+    # long-lived IAM user keys into a Kubernetes Secret. Cap 1375 -> 1423,
+    # exact.
+    "backend/app/core/config.py": 1423,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of

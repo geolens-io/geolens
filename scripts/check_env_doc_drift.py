@@ -43,6 +43,17 @@ SETTINGS_DOC_ALLOWLIST: frozenset[str] = frozenset(
         "POSTGRES_DB_TEST",
         # Shared-volume invariant: Compose pins this to /app/staging.
         "UPLOAD_STAGING_DIR",
+        # Injected by the runtime, never set by a host operator: EKS IRSA and
+        # Pod Identity write the web-identity pair into the pod, and the
+        # ECS/EKS container credential providers write the other two. The
+        # Settings fields exist only so has_ambient_aws_credentials can read
+        # them the documented way instead of through os.environ. Putting them
+        # in .env.example would invite operators to set by hand what a platform
+        # is supposed to supply, and a hand-set AWS_ROLE_ARN resolves nothing.
+        "AWS_ROLE_ARN",
+        "AWS_WEB_IDENTITY_TOKEN_FILE",
+        "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+        "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
     }
 )
 
