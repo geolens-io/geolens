@@ -7,6 +7,44 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.14.2] - 2026-08-21
+
+### Added
+
+- **S3 storage works without static keys.** With `STORAGE_PROVIDER=s3`, boot
+  validation demanded `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` even when the
+  environment carried ambient AWS credentials, so keyless setups — EKS with
+  IRSA or Pod Identity, ECS task roles — could not start at all. The validator
+  now accepts an ambient credential source (a web-identity role or a container
+  credentials URI) in place of the static pair, while a half-configured pair
+  is still rejected. The storage layer and GDAL already resolved the SDK
+  default chain; the validator was the only thing in the way (#1616).
+
+### Fixed
+
+- **Vector ingest works against a TLS-verified database.** Under
+  `DATABASE_SSL_MODE=verify-full`, the CA certificate reached asyncpg as an
+  SSLContext but never reached ogr2ogr, whose libpq connection string carried
+  no `sslrootcert` — so every vector ingest failed certificate verification
+  while the rest of the app connected fine. The ogr2ogr and Procrastinate
+  connection strings now carry the same TLS parameters as the API path, values
+  are quoted and escaped per libpq rules, and percent-encoded credentials are
+  decoded to match what SQLAlchemy sends (#1617).
+- **The operator runbook covers managed-database and object-storage restore on
+  Kubernetes.** The backup/restore runbook assumed the Docker Compose stack;
+  restoring a chart deployment — RDS point-in-time restore, the Secret
+  cutover, GitOps-owned releases, S3 object-version promotion, and the full
+  managed-storage prefix layout — is now drilled and documented, including the
+  recovery asymmetry table for what a database-only restore does and does not
+  bring back (#1618).
+
+### Security
+
+- **CI dependency audit unblocked.** pip 26.1.2 — a transitive dependency of
+  the audit tooling, not of GeoLens itself — matched the newly published
+  PYSEC-2026-3721 advisory and failed every strict audit run; bumped to
+  26.2.1 (#1619).
+
 ## [1.14.1] - 2026-08-20
 
 ### Added
@@ -2411,7 +2449,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.14.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.14.2...HEAD
+[1.14.2]: https://github.com/geolens-io/geolens/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/geolens-io/geolens/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/geolens-io/geolens/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/geolens-io/geolens/compare/v1.13.0...v1.13.1
