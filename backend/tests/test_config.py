@@ -1215,3 +1215,36 @@ class TestRootCaOnlyUnderVerifyFull:
         )
         for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
             assert "sslrootcert=/etc/ssl/rds/ca.pem" in dsn
+
+
+class TestComponentFieldDsnCarriesTls:
+    """codex review on #1617: a deployment configured through POSTGRES_HOST
+    rather than DATABASE_URL_OVERRIDE took a branch that emitted no sslmode and
+    no sslrootcert at all, so ogr2ogr and Procrastinate connected under libpq's
+    default while the API honoured DATABASE_SSL_MODE — the same divergence in a
+    branch the original fix did not touch."""
+
+    def test_verify_full_reaches_both_component_field_builders(self):
+        s = _make_settings(
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslmode=verify-full" in dsn
+            assert "sslrootcert=/etc/ssl/rds/ca.pem" in dsn
+
+    def test_prefer_emits_nothing_since_libpq_already_defaults_to_it(self):
+        s = _make_settings(database_ssl_mode="prefer")
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslmode" not in dsn
+
+    def test_component_field_values_are_libpq_quoted(self):
+        s = _make_settings(postgres_password="pass word")
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "password='pass word'" in dsn
+
+    def test_procrastinate_keeps_its_search_path(self):
+        s = _make_settings(
+            database_ssl_mode="verify-full", database_ssl_ca_cert="/c.pem"
+        )
+        assert "options='-c search_path=catalog,public'" in s.procrastinate_conninfo

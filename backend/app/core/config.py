@@ -21,6 +21,23 @@ def reveal(secret: SecretStr | None) -> str | None:
     return secret.get_secret_value() if secret is not None else None
 
 
+def libpq_ssl_parts(mode: str, ca_cert: str | None) -> list[str]:
+    """Return the libpq TLS keyword/value pairs for one connection string.
+
+    Shared so the override and component-field branches of both DSN builders
+    cannot drift: a deployment that configures PostgreSQL through POSTGRES_HOST
+    rather than DATABASE_URL_OVERRIDE gets the same TLS posture. `disable` and
+    `prefer` emit nothing because libpq already defaults to prefer, and the CA
+    is emitted only for verify-full (see ogr_connection_string).
+    """
+    parts: list[str] = []
+    if mode not in ("disable", "prefer"):
+        parts.append(f"sslmode={mode}")
+    if mode == "verify-full" and ca_cert:
+        parts.append(f"sslrootcert={libpq_value(ca_cert)}")
+    return parts
+
+
 def libpq_value(value: object) -> str:
     """Render one value for a libpq keyword/value connection string.
 
@@ -1365,12 +1382,16 @@ class Settings(BaseSettings):
             )
             parts.append(f"options='{combined_options}'")
             return " ".join(parts)
-        return (
-            f"host={self.postgres_host} port={self.postgres_port} "
-            f"dbname={self.postgres_db} user={self.postgres_user} "
-            f"password={self.postgres_password.get_secret_value()} "
-            f"options='-c search_path={self.procrastinate_schema},public'"
-        )
+        parts = [
+            f"host={libpq_value(self.postgres_host)}",
+            f"port={self.postgres_port}",
+            f"dbname={libpq_value(self.postgres_db)}",
+            f"user={libpq_value(self.postgres_user)}",
+            f"password={libpq_value(self.postgres_password.get_secret_value())}",
+        ]
+        parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
+        parts.append(f"options='-c search_path={self.procrastinate_schema},public'")
+        return " ".join(parts)
 
     @property
     def ogr_connection_string(self) -> str:
@@ -1423,13 +1444,16 @@ class Settings(BaseSettings):
             if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
                 parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
             return " ".join(parts)
-        return (
-            f"PG:host={self.postgres_host} "
-            f"port={self.postgres_port} "
-            f"dbname={self.postgres_db} "
-            f"user={self.postgres_user} "
-            f"password={self.postgres_password.get_secret_value()}"
-        )
+        parts = [
+            "PG:",
+            f"host={libpq_value(self.postgres_host)}",
+            f"port={self.postgres_port}",
+            f"dbname={libpq_value(self.postgres_db)}",
+            f"user={libpq_value(self.postgres_user)}",
+            f"password={libpq_value(self.postgres_password.get_secret_value())}",
+        ]
+        parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
+        return " ".join(parts)
 
     model_config = SettingsConfigDict(
         env_file=str(_PROJECT_ROOT_ENV),
