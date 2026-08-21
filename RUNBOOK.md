@@ -135,6 +135,30 @@ If your deployment offloads objects to an external S3/R2/GCS bucket, that bucket
 lifecycle policy is responsible for its own backup; GeoLens does not back up
 external object stores.
 
+Concretely, that means enabling **object versioning** on the bucket — it is the
+only thing that makes an accidental delete or overwrite recoverable, and no
+database backup substitutes for it. Versioning is an S3 (and GCS) capability;
+**Cloudflare R2 does not implement it** — the bucket-versioning calls are
+outside R2's S3 compatibility surface, and the
+[version-promotion procedure](#restoring-an-object-version) below does not
+apply there. On R2 the equivalent protection is a scheduled job that
+*preserves* replaced and deleted objects instead of mirroring their removal —
+a plain `rclone sync` would propagate the very deletion you need to survive at
+its next run. Use the backup-dir form, which moves anything overwritten or
+deleted into a dated archive prefix you can restore from:
+
+```bash
+rclone sync :s3:<bucket> :s3:<backup-bucket>/current \
+  --backup-dir ":s3:<backup-bucket>/archive/$(date -u +%F)"
+```
+
+Uploaded raster datasets are the ones that
+depend on it: a managed COG exists only in the bucket, so a database restore
+brings the catalog row back while every tile fails. By-reference imports (STAC,
+public COGs) keep serving from the upstream URL instead. See
+[On Kubernetes](#on-kubernetes-the-community-helm-chart) for the measured
+breakdown of what a database-only restore does and does not recover.
+
 ### Abandoned multipart uploads (bucket hygiene)
 
 A client that starts a presigned multipart upload and walks away — never
@@ -1006,6 +1030,371 @@ Update `.env` to point `POSTGRES_HOST`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, an
 docker compose up -d api worker frontend
 docker compose ps    # confirm api and worker are healthy
 ```
+
+### On Kubernetes (the community Helm chart)
+
+Steps 2 and 3 above are Compose-shaped and do not apply. A chart deployment has
+no `backup` container, no `backup_data` volume, and no Compose project — the
+chart ships **no backup workload at all**, so the database backups are entirely
+your provider's, and object storage is entirely your bucket's.
+
+**Before anything else, stop the writers.** Scale the workloads to zero
+*before* you initiate the restore, not at cutover:
+
+```bash
+kubectl -n <ns> scale deploy/<release>-api deploy/<release>-worker --replicas=0
+# scale returns immediately; the pods are still draining and still writing.
+# Wait only on the two you scaled — the release's frontend and titiler pods
+# stay up, so an instance-wide selector would just time out.
+kubectl -n <ns> wait --for=delete pod --timeout=180s \
+  -l 'app.kubernetes.io/instance=<release>,app.kubernetes.io/component in (api,worker)'
+```
+
+Under Argo CD or Flux, a `kubectl scale` is drift the controller undoes on its
+next sync — the writers come back mid-restore. Suspend the sync first
+(`argocd app set <app> --sync-policy none`, then
+`argocd app terminate-op <app>` — the policy change stops *future* syncs but
+not one already running, which would still reapply the replica counts; or
+`flux suspend hr <name> -n <ns>` —
+it defaults to `flux-system`, not the release namespace), or set
+the replica counts to zero in the source repository, and reverse whichever you
+chose at the end.
+
+Provisioning a restored instance takes ten minutes or more. Every write
+accepted in that window — and any accepted after the point in time you are
+restoring to — lands only on the incident-state database and is discarded when
+you cut over. Quiescing first bounds the loss to what happened before you
+noticed; quiescing at cutover silently extends it by the length of the
+recovery. Keep them at zero until the new endpoint is verified.
+
+What changes:
+
+- **Step 1 is the same** and is the whole database recovery. Restoring an RDS
+  instance to a point in time produces a **new endpoint**, so the recovery ends
+  with re-pointing the release rather than editing `.env`:
+
+  **Repoint every DSN, not just the runtime one.** Take the DSN you already
+  have and replace only its host — do not retype it. Passwords are
+  percent-encoded in a URI (see `.env.example`), so re-typing one containing
+  `#`, `?`, `@`, `/` or `:` produces a URL the API rejects at boot instead of
+  connecting to the restored instance:
+
+  The workloads are already at zero from the step above — keep them there.
+  Bringing them back before the endpoint changes would put pods on the
+  incident-state database alongside pods on the restored one, splitting
+  requests and queued jobs across two diverging databases.
+
+  Change the endpoint **in whatever your deployment renders from** — the
+  values file, the SOPS/sealed secret, the ExternalSecret. Patching only the
+  live Secret is temporary: the next `helm upgrade` or GitOps reconciliation
+  re-renders it and silently points the workloads back at the incident-state
+  database. Swap the host in place rather than retyping the URI:
+
+  ```bash
+  # Update EVERY key holding a DSN, not just the obvious one. On the chart
+  # that is DATABASE_URL_OVERRIDE and, if you set it, TILE_DATABASE_URL_OVERRIDE
+  # — plus any DSN you pass through migrate.extraEnv or your own Secret. The
+  # replacement below is a global host swap precisely so a key you forgot is
+  # still caught; grep the result before applying it.
+  #
+  # (MIGRATION_DATABASE_URL_OVERRIDE is a Compose-only variable — docker-compose.yml
+  # maps it into the migrate service. Nothing in the chart or the application
+  # reads it, so it is not part of this path.)
+  # Start from what the release is ACTUALLY running, not from a values file
+  # that may be one of several, or missing --set overrides given at install
+  # time. `helm get values` returns the complete user-supplied set.
+  #
+  # If the DSN lives in SOPS, a SealedSecret or an ExternalSecret, do NOT edit
+  # the ciphertext — go through that tool (`sops values.enc.yaml`, re-seal, or
+  # edit the upstream secret store) or the next reconciliation overwrites it.
+  umask 077     # this file holds the DSN
+  helm get values <release> -n <ns> -o yaml > deployed-values.yaml
+  sed 's/<old-endpoint>/<restored-endpoint>/g' deployed-values.yaml > tmp \
+    && mv tmp deployed-values.yaml
+  # With secrets.existingSecret the DSN is NOT in the values — it is in your
+  # Secret, and the grep below returns 0. Update that Secret's source and
+  # re-apply it FIRST; the helm upgrade alone changes nothing, and the pods
+  # would come back on the old endpoint. Controller-managed sources
+  # (ExternalSecret, SealedSecret) reconcile asynchronously — an ExternalSecret
+  # can be told to refresh now:
+  #   kubectl -n <ns> annotate externalsecret <name> force-sync=$(date +%s) --overwrite
+  # — so before the upgrade, whose migration hook reads this live Secret,
+  # confirm the target Secret carries the restored endpoint in EVERY DSN key
+  # it holds (TILE_DATABASE_URL_OVERRIDE and friends too, if you set them),
+  # not just the obvious one. Print only the key and the host part — the full
+  # DSN carries the password, and scrollback outlives the incident:
+  #   kubectl -n <ns> get secret <name> -o json | jq -r \
+  #     '.data | to_entries[] | select(.key | test("DATABASE_URL"))
+  #      | "\(.key) \(.value | @base64d | sub("^.*@"; ""))"'
+  grep -c '<restored-endpoint>' deployed-values.yaml    # 0 => the DSN is in the Secret
+
+  # Before invoking the upgrade at all, prove the restored endpoint is the
+  # database you intend — the pre-upgrade migration hook will run against it,
+  # and a wrong-but-reachable host would receive the migration. Schema alone
+  # cannot tell instances apart (the incident-state database is at the same
+  # migration revision), so check identity by TIME: the restored instance has
+  # no rows newer than the recovery point, while the incident-state one does.
+  # From a debug pod (both tables live in the catalog schema):
+  #   psql 'host=<restored-endpoint> ...' \
+  #     -c 'select version_num from catalog.alembic_version' \
+  #     -c 'select max(created_at) from catalog.ingest_jobs'  # must be <= $POINT
+  # If nothing was written after $POINT the data cannot tell the two instances
+  # apart — anchor identity on the endpoint itself: the host you install must
+  # be exactly what the restore produced,
+  #   aws rds describe-db-instances --db-instance-identifier <restored-id> \
+  #     --query 'DBInstances[0].Endpoint.Address' --output text
+  #
+  # Pin the chart you are already running. Without --version, helm takes the
+  # newest one in the repo and the recovery quietly becomes an app upgrade
+  # too — new images and a migration hook, during an incident.
+  # (-a: a release left in a pending/failed state by an interrupted operation
+  # would otherwise not be listed, and CHART would come out empty.)
+  CHART=$(helm list -a -n <ns> -o json | jq -r '.[] | select(.name=="<release>") | .chart | sub("^geolens-"; "")')
+  # Keep the writers down through the upgrade: deployed-values.yaml carries the
+  # ORIGINAL replica counts, so a plain upgrade would bring pods straight back
+  # up against an endpoint nobody has verified yet.
+  helm upgrade <release> geolens/geolens -n <ns> \
+    -f deployed-values.yaml --version "$CHART" \
+    --set api.replicas=0 --set worker.replicas=0
+  ```
+
+  With a chart-managed Secret, that `helm upgrade` is the whole cutover. With
+  `secrets.existingSecret`, the Secret you updated above is, and the upgrade
+  only re-renders the workloads around it.
+
+  **If Argo CD or Flux owns the release, the `helm` commands above are not
+  yours to run** — the controller holds the values and will revert anything you
+  apply directly. The ordering and the reasoning are identical; only the thing
+  you edit changes:
+
+  1. Commit the chart version pinned to what is deployed, and both replica
+     counts at zero, to the Application or HelmRelease manifest. The restored
+     **endpoint** goes wherever the DSN actually lives — the same manifest for
+     inline values, but the external provider (and a refresh of the
+     ExternalSecret) when it is `secrets.existingSecret`-backed. Reconciling
+     the manifest alone would apply the replica and version changes while
+     leaving the live Secret on the incident-state database.
+  2. With a provider-backed Secret, first wait until the target Secret decodes
+     to the restored endpoint (the `kubectl get secret ... | base64 -d` check
+     above) — provider refresh is asynchronous, and the sync's migration hook
+     reads the live Secret. An ExternalSecret reconciles independently of the
+     suspended sync, so the wait works as-is. A **SealedSecret that is itself
+     deployed by the suspended app cannot land while sync is paused** — waiting
+     on it would deadlock. Apply that one committed resource first
+     (`argocd app sync <app> --resource bitnami.com:SealedSecret:<ns>/<name>`,
+     or `kubectl apply` of the same manifest you committed), let the controller
+     unseal it, and confirm the target Secret before going on. Before any
+     reconcile, also validate the restored endpoint itself — the same psql
+     schema-plus-recency check as the manual path, from a debug pod —
+     because the resumed sync immediately runs the migration hook against
+     whatever the Secret now says, and a wrong-but-reachable host would
+     receive the migration. Then resume what you suspended:
+     `flux resume hr <name> -n <ns>` — resuming reconciles, while
+     `flux reconcile` alone refuses as long as `.spec.suspend` is set — or,
+     for Argo CD, a one-shot `argocd app sync <app>` (a manual sync works
+     while auto-sync is off; re-enable the sync policy at the end). When a
+     Flux Kustomization delivers the HelmRelease manifest, reconcile that
+     first (`flux reconcile kustomization <name> -n <ns>`) so the live
+     HelmRelease already carries the committed zeros — resuming before the
+     Kustomization has applied them reconciles the old spec and brings the
+     writers back. Nothing
+     lands while it is suspended — and because the manifest now says zero, this
+     does not bring the writers back.
+  3. Verify the endpoint, as below, with the database still quiet — and if the
+     incident touched object storage, do the
+     [object-version repair](#restoring-an-object-version) now, while the
+     writers are still down.
+  4. Commit the original replica counts and reconcile them — on Argo CD
+     auto-sync is still off at this point, so re-enable the sync policy or run
+     the one-shot `argocd app sync` again; on Flux the resumed HelmRelease
+     picks the commit up. Then wait for both
+     rollouts to finish (`kubectl -n <ns> rollout status deploy/<release>-api`
+     and the worker equivalent) — a reconciled manifest says nothing about the
+     pods actually becoming ready.
+
+  Verify the endpoint before letting traffic back in — connect with `psql` from
+  a debug pod, or check that the restored data is present. **If the incident
+  touched object storage, do that repair now too**, while the writers are still
+  down — see [object versions](#restoring-an-object-version) below. Restarting
+  the api first means serving 500s from rasters you are about to fix, and
+  re-ingesting or re-uploading against a half-restored bucket. Then, on the
+  manual path, restore the replica counts that `deployed-values.yaml` already
+  records (under GitOps this is step 4 above, not a `helm` command):
+
+  ```bash
+  helm upgrade <release> geolens/geolens -n <ns> \
+    -f deployed-values.yaml --version "$CHART"
+  kubectl -n <ns> rollout status deploy/<release>-api --timeout=300s
+  kubectl -n <ns> rollout status deploy/<release>-worker --timeout=300s
+  rm -f deployed-values.yaml     # it holds the DSN
+  ```
+
+  A `TILE_DATABASE_URL_OVERRIDE` left pointing at the old endpoint is the
+  quiet one: the API reads the restored database while vector tiles keep
+  serving from the incident-state instance, until that endpoint is deleted and
+  they start failing instead.
+
+  Point-in-time restore is not instant in either sense: the restorable window
+  trails real time by several minutes, and provisioning the restored instance
+  takes ~10-15 minutes. Both are on top of the time it takes to notice the
+  incident.
+
+- **Step 2 has no equivalent, and that is the part that bites.** With
+  `storage.backend=s3` there is no `upload_staging` volume to archive; objects
+  live in the bucket, which no GeoLens backup ever touched (see the
+  [Scope caveat](#scope-caveat)). Restoring only the database recovers your
+  catalog **asymmetrically**:
+
+  | | recovered by a database-only restore? |
+  |---|---|
+  | Vector datasets | **Yes, fully.** Features live in PostGIS. A lost object costs the original upload file and the quicklook thumbnail, not the data. |
+  | Raster datasets, uploaded | **No.** A managed COG — anything ingested through GeoLens, plus VRT artifacts — lives only in your bucket. The catalog row comes back reading `published`, and every tile request then fails with a 500. Nothing in the catalog marks it broken. |
+  | Raster datasets, by reference | **Yes**, as far as GeoLens is concerned. STAC and public-COG imports keep the upstream asset URL (`storage_backend="remote"`) and are served from it, so a restore recovers a working pointer — provided the upstream asset still exists, which is somebody else's retention policy, not yours. |
+
+  So protect the bucket *before* you need it — this is the step that has no
+  GeoLens-side equivalent:
+
+  ```bash
+  # Non-AWS endpoint (self-hosted MinIO or similar): add
+  # --endpoint-url <S3_ENDPOINT> to every aws command in this section,
+  # or the commands silently target AWS instead of your object store.
+  aws s3api put-bucket-versioning --bucket <bucket> \
+    --versioning-configuration Status=Enabled
+  ```
+
+  Versioning is what makes an accidental delete or overwrite recoverable at
+  all; add cross-region replication if the bucket itself is in scope for your
+  DR plan. Verified by drill: with versioning off, deleting a raster's objects
+  left a published dataset whose tiles returned 500, and nothing could bring
+  them back.
+
+  On **Azure Blob storage** — the application's other supported object store —
+  none of the `aws s3api` commands apply. The equivalents are Azure-native:
+  enable **blob versioning** and soft delete on the container, and promote a
+  prior version by copying it over the current blob (`az storage blob copy
+  start` with a version-id source). The selection logic below is identical:
+  per key, the newest version at or before the recovery point, with the
+  restored catalog arbitrating soft-deleted blobs the way it arbitrates
+  delete markers.
+
+  <a id="restoring-an-object-version"></a>
+  **Enabling it is protection for next time, not a recovery.** If versioning was
+  already on when the incident happened, the objects are still there but not
+  *current* — a delete left a delete marker on top, an overwrite left the wrong
+  version current — so the restored catalog still points at something
+  unusable. Roll each affected prefix back to the version that was current at
+  your database recovery point:
+
+  ```bash
+  # Where objects are namespaced per tenant, every prefix below sits under
+  # tenants/<tenant-id>/ — except maps/icons/, which is written at the bucket
+  # root in every mode.
+  PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
+  # Repeat for every prefix the restored database still references — the
+  # managed layout, in full:
+  #   rasters/<dataset-id>/      managed COGs and VRT artifacts
+  #   originals/<dataset-id>/    archived source uploads
+  #   vectors/<dataset-id>/      vector quicklooks
+  #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
+  #   staging/                   in-flight uploads. Promote the keys from
+  #                                SELECT tenant_id, file_path
+  #                                FROM catalog.ingest_jobs
+  #                                WHERE file_path LIKE 'staging/%'
+  #                                  AND status IN ('pending','running','failed')
+  #                                UNION
+  #                                SELECT tenant_id, user_metadata->>'s3_key'
+  #                                FROM catalog.ingest_jobs
+  #                                WHERE user_metadata->>'s3_key' LIKE 'staging/%'
+  #                                  AND status IN ('pending','running','failed');
+  #                              The rows are LOGICAL keys — where tenant_id is
+  #                              set, the object lives at
+  #                              tenants/<tenant_id>/<key>.
+  #                              (a presigned upload keeps its key in
+  #                              user_metadata until the completion call sets
+  #                              file_path) before the worker returns — retry
+  #                              requires the staged object to exist
+  POINT=2026-08-20T23:45:08Z       # the same timestamp you restored the DB to
+
+  # What versions exist, and what is on top right now:
+  aws s3api list-object-versions --bucket <bucket> --prefix "$PREFIX" \
+    --query '{Versions: Versions[].[Key,VersionId,IsLatest,LastModified,Size,ETag],
+              DeleteMarkers: DeleteMarkers[].[Key,VersionId,IsLatest,LastModified]}'
+
+  # PROMOTE the version that was current at $POINT, whatever happened since.
+  # Copying it back writes a NEW current version, which supersedes a delete
+  # marker and an overwrite alike.
+  # URL-encode <key> — and the versionId value — inside --copy-source:
+  # originals/ keys keep the uploaded filename, which can carry spaces or
+  # reserved characters. The destination --key stays literal.
+  aws s3api copy-object --bucket <bucket> --key "<key>" \
+    --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
+  ```
+
+  The listing interleaves every key under the prefix — a COG travels with its
+  VRT artifacts and quicklook — so make this selection **per key**, for each
+  key the restored catalog references. Pick that key's newest entry at or
+  before `$POINT`, **counting delete markers as entries**. A real version there is the one to promote; anything newer belongs
+  to writes the restore discarded. A delete marker there needs the restored
+  catalog to arbitrate — deletion removes the objects *before* the database
+  row, so a restore can land in that gap with the row back and a marker on top
+  of its objects. If the restored catalog references the key, promote the
+  newest real version older than the marker: the bytes belong with the row. If
+  it does not, there is nothing to promote, and putting bytes back would
+  resurrect data the restore deliberately dropped.
+
+  Promote rather than just deleting the delete marker. Removing a marker makes
+  the *immediately preceding* version current, which is the right one only if
+  nothing else happened in between; after an overwrite followed by a delete it
+  hands back the overwrite, silently pairing the recovered catalog with the
+  wrong bytes. Copying the chosen version is correct in every case.
+
+  `copy-object` is a single-part copy and fails above **5 GB**, which COGs
+  reach easily. For those, round-trip the version instead — `aws s3 cp`
+  multiparts automatically on the way back up:
+
+  ```bash
+  aws s3api get-object --bucket <bucket> --key "<key>" \
+    --version-id <version-id-current-at-POINT> /tmp/restore.tif
+  aws s3 cp /tmp/restore.tif "s3://<bucket>/<key>"
+  ```
+
+  While the writers are still down, confirm the promotion at the store:
+  `aws s3api head-object --bucket <bucket> --key "<key>"` shows what is
+  current now. The promoted copy is a **new** version, so its id will not
+  match the one you copied from — compare `ContentLength` against the `Size`
+  the listing above showed for the version you selected. `ETag` only
+  corroborates when the source version's ETag carries no multipart `-N`
+  suffix **and** the object is not SSE-KMS/SSE-C encrypted: a single-request
+  copy of a multipart-uploaded version (managed COGs usually are) legitimately
+  changes it, and encrypted objects' ETags are not content digests at all. The
+  end-to-end check comes after the replicas return — re-request a tile, and it
+  should stop returning 500.
+
+  A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
+  **it must outlast the database recovery window, or it silently re-creates the
+  same failure.** The two retentions have to be read together: restoring the
+  database to a point 20 days back while noncurrent versions expire after 7
+  leaves exactly the rasters that were deleted or overwritten in between
+  pointing at versions AWS has already collected. Set the noncurrent expiry to
+  at least your PITR window plus however long an incident realistically takes
+  to notice and act on, and revisit it whenever either number moves — the pair
+  is only as good as the shorter half.
+
+  ```bash
+  # WARNING: put-bucket-lifecycle-configuration REPLACES the bucket's entire
+  # lifecycle configuration — including the abort-incomplete-multipart rule
+  # recommended in § 1. Fetch what is there and merge, never post this rule
+  # alone to a bucket that already has any:
+  #   aws s3api get-bucket-lifecycle-configuration --bucket <bucket>
+  #
+  # 35-day PITR + a week of detection headroom.
+  aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
+    --lifecycle-configuration '{"Rules":[{"ID":"noncurrent-42d","Status":"Enabled",
+      "Filter":{},"NoncurrentVersionExpiration":{"NoncurrentDays":42}}]}'
+  ```
+
+- **Step 3** becomes `kubectl -n <ns> get pods` plus a probe through the edge,
+  e.g. `curl -sf https://<host>/api/health`.
 
 ### Optional: point-in-time recovery (PITR) with WAL archiving
 
