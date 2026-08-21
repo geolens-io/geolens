@@ -1204,18 +1204,24 @@ What changes:
     --query '{Versions: Versions[].[Key,VersionId,IsLatest,LastModified],
               DeleteMarkers: DeleteMarkers[].[Key,VersionId,IsLatest]}'
 
-  # A deletion: remove the delete marker and the previous version is current again.
-  aws s3api delete-object --bucket <bucket> --key "<key>" \
-    --version-id <delete-marker-version-id>
-
-  # An overwrite: copy the version that was current at $POINT back over the key.
+  # PROMOTE the version that was current at $POINT, whatever happened since.
+  # Copying it back writes a NEW current version, which supersedes a delete
+  # marker and an overwrite alike:
   aws s3api copy-object --bucket <bucket> --key "<key>" \
     --copy-source "<bucket>/<key>?versionId=<version-id-current-at-POINT>"
   ```
 
   Pick the version whose `LastModified` is the newest at or before `$POINT`, so
-  the object matches the database you restored — a newer one belongs to writes
-  the restore discarded. Then re-request a tile: it should stop returning 500.
+  the object matches the database you restored — anything newer belongs to
+  writes the restore discarded.
+
+  Promote rather than just deleting the delete marker. Removing a marker makes
+  the *immediately preceding* version current, which is the right one only if
+  nothing else happened in between; after an overwrite followed by a delete it
+  hands back the overwrite, silently pairing the recovered catalog with the
+  wrong bytes. Copying the chosen version is correct in every case.
+
+  Then re-request a tile: it should stop returning 500.
 
   A lifecycle rule to expire noncurrent versions keeps the cost bounded, but
   **it must outlast the database recovery window, or it silently re-creates the
