@@ -1132,7 +1132,11 @@ What changes:
      ExternalSecret) when it is `secrets.existingSecret`-backed. Reconciling
      the manifest alone would apply the replica and version changes while
      leaving the live Secret on the incident-state database.
-  2. Resume the sync you suspended at the start, or force one reconcile
+  2. With a provider-backed Secret (ExternalSecret, SealedSecret), first wait
+     until the target Secret decodes to the restored endpoint (the
+     `kubectl get secret ... | base64 -d` check above) — provider refresh is
+     asynchronous, and the sync's migration hook reads the live Secret. Then
+     resume the sync you suspended at the start, or force one reconcile
      (`argocd app sync <app>`, `flux reconcile hr <name> -n <ns>`). Nothing
      lands while it is suspended — and because the manifest now says zero, this
      does not bring the writers back.
