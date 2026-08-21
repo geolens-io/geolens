@@ -419,6 +419,39 @@ class TestOgrConnectionString:
         )
         assert "sslmode=require" in s.ogr_connection_string
 
+    def test_override_includes_ca_cert_for_verify_full(self):
+        """Measured on EKS against RDS with rds.force_ssl=1: sslmode=verify-full
+        without sslrootcert sent libpq to ~/.postgresql/root.crt, which the
+        image does not ship, and every vector ingest died in ogr2ogr with
+        "root certificate file ... does not exist" while the api stayed
+        healthy — asyncpg gets the CA as an SSLContext and never consults it."""
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        ogr = s.ogr_connection_string
+        assert "sslmode=verify-full" in ogr
+        assert "sslrootcert=/etc/ssl/rds/ca.pem" in ogr
+
+    def test_ca_cert_matches_the_procrastinate_sibling(self):
+        """The two libpq DSN builders must not drift apart again."""
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for token in ("sslmode=verify-full", "sslrootcert=/etc/ssl/rds/ca.pem"):
+            assert token in s.ogr_connection_string
+            assert token in s.procrastinate_conninfo
+
+    def test_no_ca_cert_emits_no_sslrootcert(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="require",
+        )
+        assert "sslrootcert" not in s.ogr_connection_string
+
     def test_override_omits_sslmode_for_prefer(self):
         s = _make_settings(
             database_url_override="postgresql://u:p@host/db",
@@ -1099,3 +1132,119 @@ class TestPendingJobTimeoutBounds:
         """The original gt=0 intent survives inside the higher floor."""
         with pytest.raises(Exception):
             _make_settings(pending_job_timeout_seconds=0)
+
+
+class TestLibpqValueQuoting:
+    """codex review on #1617: an unescaped value with whitespace ends the
+    keyword/value pair early and produces a malformed libpq DSN. Applied to
+    every interpolated value in both builders, not only the reported one."""
+
+    def test_ordinary_values_stay_bare(self):
+        # Byte-identical to what deployments already pass to GDAL's PG driver.
+        assert config_module.libpq_value("/etc/ssl/rds/ca.pem") == "/etc/ssl/rds/ca.pem"
+        assert config_module.libpq_value("geolens") == "geolens"
+
+    def test_value_with_space_is_quoted(self):
+        assert config_module.libpq_value("/etc/company certs/ca.pem") == (
+            "'/etc/company certs/ca.pem'"
+        )
+
+    def test_quotes_and_backslashes_are_escaped(self):
+        assert config_module.libpq_value("pa'ss\\word") == "'pa\\'ss\\\\word'"
+
+    def test_empty_value_is_quoted(self):
+        assert config_module.libpq_value("") == "''"
+
+    def test_ca_path_with_space_survives_into_both_builders(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/company certs/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslrootcert='/etc/company certs/ca.pem'" in dsn
+
+    def test_percent_encoded_credentials_are_decoded_like_sqlalchemy(self):
+        """Found while testing the quoting above. urlparse does NOT decode, so
+        these two builders were sending the literal `pass%20word` as the
+        password while the API path — which hands the DSN to SQLAlchemy, which
+        does decode — authenticated correctly. Any password needing
+        percent-encoding (a `@` is the common one) therefore worked for the API
+        and failed for vector ingest and the job queue."""
+        s = _make_settings(
+            database_url_override="postgresql://u%40corp:p%40ss%20word@host/my%20db",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "user=u@corp" in dsn
+            assert "password='p@ss word'" in dsn
+
+    def test_database_name_is_NOT_decoded_because_sqlalchemy_does_not(self):
+        """codex review on #1617: SQLAlchemy decodes username and password but
+        leaves the database name percent-encoded — `make_url(...).database` on
+        `/my%20db` returns `my%20db`. Decoding it here would point ogr2ogr and
+        Procrastinate at a different database than the API, so a healthy API
+        could sit alongside every queued job and vector ingest writing
+        somewhere else. Whatever the API uses, these two must use."""
+        s = _make_settings(database_url_override="postgresql://u:p@host/my%20db")
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "dbname=my%20db" in dsn
+            assert "dbname='my db'" not in dsn
+
+
+class TestRootCaOnlyUnderVerifyFull:
+    """codex review on #1617: libpq treats sslmode=require as verify-ca once a
+    root CA file is present. Emitting sslrootcert under `require` would make
+    ogr2ogr and Procrastinate verify the certificate while the API's
+    database_connect_args explicitly disables that check for `require` — the
+    exact client divergence this pair of properties exists to remove."""
+
+    def test_require_does_not_emit_the_root_ca(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="require",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslrootcert" not in dsn
+
+    def test_verify_full_still_emits_it(self):
+        s = _make_settings(
+            database_url_override="postgresql://u:p@host/db",
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslrootcert=/etc/ssl/rds/ca.pem" in dsn
+
+
+class TestComponentFieldDsnCarriesTls:
+    """codex review on #1617: a deployment configured through POSTGRES_HOST
+    rather than DATABASE_URL_OVERRIDE took a branch that emitted no sslmode and
+    no sslrootcert at all, so ogr2ogr and Procrastinate connected under libpq's
+    default while the API honoured DATABASE_SSL_MODE — the same divergence in a
+    branch the original fix did not touch."""
+
+    def test_verify_full_reaches_both_component_field_builders(self):
+        s = _make_settings(
+            database_ssl_mode="verify-full",
+            database_ssl_ca_cert="/etc/ssl/rds/ca.pem",
+        )
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslmode=verify-full" in dsn
+            assert "sslrootcert=/etc/ssl/rds/ca.pem" in dsn
+
+    def test_prefer_emits_nothing_since_libpq_already_defaults_to_it(self):
+        s = _make_settings(database_ssl_mode="prefer")
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "sslmode" not in dsn
+
+    def test_component_field_values_are_libpq_quoted(self):
+        s = _make_settings(postgres_password="pass word")
+        for dsn in (s.ogr_connection_string, s.procrastinate_conninfo):
+            assert "password='pass word'" in dsn
+
+    def test_procrastinate_keeps_its_search_path(self):
+        s = _make_settings(
+            database_ssl_mode="verify-full", database_ssl_ca_cert="/c.pem"
+        )
+        assert "options='-c search_path=catalog,public'" in s.procrastinate_conninfo

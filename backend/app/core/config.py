@@ -21,6 +21,44 @@ def reveal(secret: SecretStr | None) -> str | None:
     return secret.get_secret_value() if secret is not None else None
 
 
+def libpq_ssl_parts(mode: str, ca_cert: str | None) -> list[str]:
+    """Return the libpq TLS keyword/value pairs for one connection string.
+
+    Shared so the override and component-field branches of both DSN builders
+    cannot drift: a deployment that configures PostgreSQL through POSTGRES_HOST
+    rather than DATABASE_URL_OVERRIDE gets the same TLS posture. `disable` and
+    `prefer` emit nothing because libpq already defaults to prefer, and the CA
+    is emitted only for verify-full (see ogr_connection_string).
+    """
+    parts: list[str] = []
+    if mode not in ("disable", "prefer"):
+        parts.append(f"sslmode={mode}")
+    if mode == "verify-full" and ca_cert:
+        parts.append(f"sslrootcert={libpq_value(ca_cert)}")
+    return parts
+
+
+def libpq_value(value: object) -> str:
+    """Render one value for a libpq keyword/value connection string.
+
+    libpq splits `keyword=value` pairs on whitespace, so a value containing a
+    space — a CA path under a directory with one, a generated password — ends
+    the pair early and produces a malformed DSN. The documented escape is to
+    single-quote the value and backslash-escape any single quote or backslash
+    inside it.
+
+    Quoting is applied only when the value actually needs it. GDAL parses the
+    remainder of a `PG:` string itself before handing it to libpq, so leaving
+    ordinary values bare keeps the emitted DSN byte-identical to what every
+    existing deployment already passes through that driver.
+    """
+    text = str(value)
+    if text and not re.search(r"""[\s'\\]""", text):
+        return text
+    escaped = text.replace("\\", "\\\\").replace("'", "\\'")
+    return f"'{escaped}'"
+
+
 def validate_privacy_url_shape(v: str) -> str:
     r"""PRIV-1: shape check for the login/register privacy-policy link.
 
@@ -1292,7 +1330,7 @@ class Settings(BaseSettings):
     @property
     def procrastinate_conninfo(self) -> str:
         if self.database_url_override:
-            from urllib.parse import parse_qs, urlparse
+            from urllib.parse import parse_qs, unquote, urlparse
 
             raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
@@ -1305,19 +1343,29 @@ class Settings(BaseSettings):
             parts = []
             host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
             if host:
-                parts.append(f"host={host}")
+                parts.append(f"host={libpq_value(host)}")
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
-                parts.append(f"dbname={parsed.path.lstrip('/')}")
+                parts.append(f"dbname={libpq_value(parsed.path.lstrip('/'))}")
+            # unquote on the credentials ONLY: SQLAlchemy decodes username and
+            # password but leaves the database name percent-encoded, so decoding
+            # dbname here would make these two clients target a DIFFERENT
+            # database than the API (codex review on #1617).
             if parsed.username:
-                parts.append(f"user={parsed.username}")
+                parts.append(f"user={libpq_value(unquote(parsed.username))}")
             if parsed.password:
-                parts.append(f"password={parsed.password}")
+                parts.append(f"password={libpq_value(unquote(parsed.password))}")
             if self.database_ssl_mode != "disable":
                 parts.append(f"sslmode={self.database_ssl_mode}")
-            if self.database_ssl_ca_cert:
-                parts.append(f"sslrootcert={self.database_ssl_ca_cert}")
+            # verify-full ONLY. libpq treats sslmode=require as verify-ca as
+            # soon as a root CA file is present, so emitting this under
+            # `require` would make ogr2ogr and Procrastinate verify the server
+            # certificate while database_connect_args explicitly disables that
+            # check for the API — the same divergence between clients this
+            # property exists to remove (codex review on #1617).
+            if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
+                parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
             # BUG-002: the non-override branch sets
             # options='-c search_path=<schema>,public' so procrastinate's
             # unqualified objects resolve in the catalog schema. The override
@@ -1334,17 +1382,21 @@ class Settings(BaseSettings):
             )
             parts.append(f"options='{combined_options}'")
             return " ".join(parts)
-        return (
-            f"host={self.postgres_host} port={self.postgres_port} "
-            f"dbname={self.postgres_db} user={self.postgres_user} "
-            f"password={self.postgres_password.get_secret_value()} "
-            f"options='-c search_path={self.procrastinate_schema},public'"
-        )
+        parts = [
+            f"host={libpq_value(self.postgres_host)}",
+            f"port={self.postgres_port}",
+            f"dbname={libpq_value(self.postgres_db)}",
+            f"user={libpq_value(self.postgres_user)}",
+            f"password={libpq_value(self.postgres_password.get_secret_value())}",
+        ]
+        parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
+        parts.append(f"options='-c search_path={self.procrastinate_schema},public'")
+        return " ".join(parts)
 
     @property
     def ogr_connection_string(self) -> str:
         if self.database_url_override:
-            from urllib.parse import parse_qs, urlparse
+            from urllib.parse import parse_qs, unquote, urlparse
 
             raw = self.database_url_override
             for prefix in ("postgresql+asyncpg://", "postgresql+psycopg://"):
@@ -1357,25 +1409,51 @@ class Settings(BaseSettings):
             parts = ["PG:"]
             host = parsed.hostname or parse_qs(parsed.query).get("host", [None])[0]
             if host:
-                parts.append(f"host={host}")
+                parts.append(f"host={libpq_value(host)}")
             if parsed.port:
                 parts.append(f"port={parsed.port}")
             if parsed.path and parsed.path != "/":
-                parts.append(f"dbname={parsed.path.lstrip('/')}")
+                parts.append(f"dbname={libpq_value(parsed.path.lstrip('/'))}")
+            # unquote on the credentials ONLY: SQLAlchemy decodes username and
+            # password but leaves the database name percent-encoded, so decoding
+            # dbname here would make these two clients target a DIFFERENT
+            # database than the API (codex review on #1617).
             if parsed.username:
-                parts.append(f"user={parsed.username}")
+                parts.append(f"user={libpq_value(unquote(parsed.username))}")
             if parsed.password:
-                parts.append(f"password={parsed.password}")
+                parts.append(f"password={libpq_value(unquote(parsed.password))}")
             if self.database_ssl_mode not in ("disable", "prefer"):
                 parts.append(f"sslmode={self.database_ssl_mode}")
+            # ogr2ogr reaches PostGIS through libpq, which resolves the CA from
+            # the DSN or from its own ~/.postgresql/root.crt — it cannot see
+            # DATABASE_SSL_CA_CERT, which only reaches asyncpg as an SSLContext.
+            # Without this, sslmode=verify-full above sends libpq looking for a
+            # root.crt that is not in the image, and EVERY vector ingest fails
+            # ("root certificate file ... does not exist") while the api, the
+            # worker's own queue connection and raster ingest all stay healthy,
+            # because those paths never shell out. procrastinate_conninfo has
+            # always emitted this pair together; this is the sibling that did
+            # not. Emitted whenever a CA is configured: libpq ignores it under
+            # the modes that do not verify.
+            # verify-full ONLY. libpq treats sslmode=require as verify-ca as
+            # soon as a root CA file is present, so emitting this under
+            # `require` would make ogr2ogr and Procrastinate verify the server
+            # certificate while database_connect_args explicitly disables that
+            # check for the API — the same divergence between clients this
+            # property exists to remove (codex review on #1617).
+            if self.database_ssl_mode == "verify-full" and self.database_ssl_ca_cert:
+                parts.append(f"sslrootcert={libpq_value(self.database_ssl_ca_cert)}")
             return " ".join(parts)
-        return (
-            f"PG:host={self.postgres_host} "
-            f"port={self.postgres_port} "
-            f"dbname={self.postgres_db} "
-            f"user={self.postgres_user} "
-            f"password={self.postgres_password.get_secret_value()}"
-        )
+        parts = [
+            "PG:",
+            f"host={libpq_value(self.postgres_host)}",
+            f"port={self.postgres_port}",
+            f"dbname={libpq_value(self.postgres_db)}",
+            f"user={libpq_value(self.postgres_user)}",
+            f"password={libpq_value(self.postgres_password.get_secret_value())}",
+        ]
+        parts += libpq_ssl_parts(self.database_ssl_mode, self.database_ssl_ca_cert)
+        return " ".join(parts)
 
     model_config = SettingsConfigDict(
         env_file=str(_PROJECT_ROOT_ENV),

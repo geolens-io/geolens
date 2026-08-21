@@ -2961,7 +2961,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # already omitted unset keys, so this validator was the only thing forcing
     # long-lived IAM user keys into a Kubernetes Secret. Cap 1375 -> 1423,
     # exact.
-    "backend/app/core/config.py": 1423,
+    # ogr_connection_string now emits sslrootcert alongside sslmode, matching
+    # the procrastinate_conninfo sibling it had drifted from. Bought working
+    # vector ingest against a managed database under DATABASE_SSL_MODE=
+    # verify-full: ogr2ogr goes through libpq, which cannot see the CA that
+    # only ever reached asyncpg as an SSLContext. Most of the growth is the
+    # comment recording that asymmetry.
+    #
+    # codex review on #1617 then added libpq_value(), which quotes and escapes
+    # every interpolated value in BOTH DSN builders — an unescaped path or
+    # password containing whitespace ends the keyword/value pair early and
+    # yields a malformed DSN. Testing that turned up a second defect in the
+    # same two functions: urlparse does not percent-decode, so they sent the
+    # literal `pass%20word` while the API path (SQLAlchemy, which decodes)
+    # authenticated fine — fixed with unquote() on user/password.
+    # Cap 1423 -> 1501, exact.
+    "backend/app/core/config.py": 1501,
     # fix(#1543): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that gave PersistentConfig a batch eviction. The code is small
     # (apply_side_effects_batch, plus splitting the process-local half of
