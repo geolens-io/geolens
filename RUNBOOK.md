@@ -1121,10 +1121,11 @@ What changes:
   # — so before the upgrade, whose migration hook reads this live Secret,
   # confirm the target Secret carries the restored endpoint in EVERY DSN key
   # it holds (TILE_DATABASE_URL_OVERRIDE and friends too, if you set them),
-  # not just the obvious one:
+  # not just the obvious one. Print only the key and the host part — the full
+  # DSN carries the password, and scrollback outlives the incident:
   #   kubectl -n <ns> get secret <name> -o json | jq -r \
   #     '.data | to_entries[] | select(.key | test("DATABASE_URL"))
-  #      | "\(.key) \(.value | @base64d)"'
+  #      | "\(.key) \(.value | @base64d | sub("^.*@"; ""))"'
   grep -c '<restored-endpoint>' deployed-values.yaml    # 0 => the DSN is in the Secret
 
   # Before invoking the upgrade at all, prove the restored endpoint is the
@@ -1203,7 +1204,10 @@ What changes:
      incident touched object storage, do the
      [object-version repair](#restoring-an-object-version) now, while the
      writers are still down.
-  4. Commit the original replica counts, let that reconcile, and wait for both
+  4. Commit the original replica counts and reconcile them — on Argo CD
+     auto-sync is still off at this point, so re-enable the sync policy or run
+     the one-shot `argocd app sync` again; on Flux the resumed HelmRelease
+     picks the commit up. Then wait for both
      rollouts to finish (`kubectl -n <ns> rollout status deploy/<release>-api`
      and the worker equivalent) — a reconciled manifest says nothing about the
      pods actually becoming ready.
