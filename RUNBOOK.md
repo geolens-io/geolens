@@ -1048,7 +1048,8 @@ What changes:
   | | recovered by a database-only restore? |
   |---|---|
   | Vector datasets | **Yes, fully.** Features live in PostGIS. A lost object costs the original upload file and the quicklook thumbnail, not the data. |
-  | Raster datasets | **No.** The COG lives only in object storage. The catalog row comes back reading `published`, and every tile request then fails with a 500. Nothing in the catalog marks it broken. |
+  | Raster datasets, uploaded | **No.** A managed COG — anything ingested through GeoLens, plus VRT artifacts — lives only in your bucket. The catalog row comes back reading `published`, and every tile request then fails with a 500. Nothing in the catalog marks it broken. |
+  | Raster datasets, by reference | **Yes**, as far as GeoLens is concerned. STAC and public-COG imports keep the upstream asset URL (`storage_backend="remote"`) and are served from it, so a restore recovers a working pointer — provided the upstream asset still exists, which is somebody else's retention policy, not yours. |
 
   So protect the bucket *before* you need it — this is the step that has no
   GeoLens-side equivalent:
@@ -1075,6 +1076,12 @@ What changes:
   is only as good as the shorter half.
 
   ```bash
+  # WARNING: put-bucket-lifecycle-configuration REPLACES the bucket's entire
+  # lifecycle configuration — including the abort-incomplete-multipart rule
+  # recommended in § 1. Fetch what is there and merge, never post this rule
+  # alone to a bucket that already has any:
+  #   aws s3api get-bucket-lifecycle-configuration --bucket <bucket>
+  #
   # 35-day PITR + a week of detection headroom.
   aws s3api put-bucket-lifecycle-configuration --bucket <bucket> \
     --lifecycle-configuration '{"Rules":[{"ID":"noncurrent-42d","Status":"Enabled",
