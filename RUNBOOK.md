@@ -1091,7 +1091,11 @@ What changes:
   helm get values <release> -n <ns> -o yaml > deployed-values.yaml
   sed 's/<old-endpoint>/<restored-endpoint>/g' deployed-values.yaml > tmp \
     && mv tmp deployed-values.yaml
-  grep -c '<restored-endpoint>' deployed-values.yaml    # expect >= 1
+  # With secrets.existingSecret the DSN is NOT in the values — it is in your
+  # Secret, and the grep below returns 0. Update that Secret's source and
+  # re-apply it FIRST; the helm upgrade alone changes nothing, and the pods
+  # would come back on the old endpoint.
+  grep -c '<restored-endpoint>' deployed-values.yaml    # 0 => the DSN is in the Secret
 
   # Pin the chart you are already running. Without --version, helm takes the
   # newest one in the repo and the recovery quietly becomes an app upgrade
@@ -1105,8 +1109,9 @@ What changes:
     --set api.replicas=0 --set worker.replicas=0
   ```
 
-  With a chart-managed Secret, that `helm upgrade` is the whole cutover. If the
-  Secret is operator-managed, update its source, re-apply it, and only then:
+  With a chart-managed Secret, that `helm upgrade` is the whole cutover. With
+  `secrets.existingSecret`, the Secret you updated above is, and the upgrade
+  only re-renders the workloads around it.
 
   Verify the endpoint before letting traffic back in — connect with `psql` from
   a debug pod, or check that the restored data is present. Then restore the
