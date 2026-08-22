@@ -33,6 +33,23 @@ function getAuthToken(): string {
 }
 
 let datasetId: string;
+let tableName: string;
+
+/**
+ * fix(#1624): match ONLY this dataset's own tiles.
+ *
+ * A bare `.pbf` test is worthless here: on the default OpenFreeMap basemap,
+ * 27 of the 35 `.pbf` responses on this page are third party (19 glyph ranges
+ * under /fonts/, 8 basemap planet tiles). A `> 0` assertion over all of them
+ * passes with the dataset's own tile pipeline completely dead, which is the
+ * exact failure this spec exists to catch.
+ *
+ * Covers both the plain and clustered routes:
+ *   /api/tiles/data.<table>/{z}/{x}/{y}.pbf
+ *   /api/tiles/clusters/data.<table>/{z}/{x}/{y}.pbf
+ */
+const isDatasetTile = (url: string): boolean =>
+  url.startsWith(`${BASE_URL}/api/tiles/`) && url.includes(`data.${tableName}/`) && url.includes('.pbf');
 
 test.describe('Vector tile pipeline', () => {
   test.beforeAll(async () => {
@@ -53,19 +70,23 @@ test.describe('Vector tile pipeline', () => {
       );
     expect(vector[0]).toBeTruthy();
     datasetId = vector[0].id;
+    tableName = vector[0].table_name;
+    expect(tableName, 'dataset exposes no table_name to scope tile URLs by').toBeTruthy();
     // Surfaced deliberately: if this ever drops to a trivial number the spec is
     // still green but has stopped being a meaningful canary.
-    console.log(`[vector-tile-pipeline] fixture: ${datasetId} (${vector[0].feature_count} features)`);
+    console.log(
+      `[vector-tile-pipeline] fixture: ${datasetId} / ${tableName} (${vector[0].feature_count} features)`,
+    );
   });
 
   test('MVT tiles are requested and served for a vector dataset', async ({ page }) => {
     const mvt: { url: string; status: number }[] = [];
-    const raster: number[] = [];
+    const thirdPartyPbf: string[] = [];
 
     page.on('response', (r) => {
       const url = r.url();
-      if (url.includes('.pbf')) mvt.push({ url, status: r.status() });
-      else if (url.includes('/raster-tiles/')) raster.push(r.status());
+      if (isDatasetTile(url)) mvt.push({ url, status: r.status() });
+      else if (url.includes('.pbf')) thirdPartyPbf.push(url);
     });
 
     await page.goto(`/datasets/${datasetId}`);
@@ -75,10 +96,13 @@ test.describe('Vector tile pipeline', () => {
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
     await page.waitForLoadState('networkidle');
 
-    // THE assertion. Zero here is the #8186 silent-worker signature.
+    // THE assertion. Zero here is the #8186 silent-worker signature. Scoped to
+    // this dataset's own route, so third-party basemap/glyph .pbf traffic
+    // cannot satisfy it.
     expect(
       mvt.length,
-      'no .pbf requests were made — the maplibre worker is not resolving vector sources',
+      `no tiles requested for data.${tableName} — the maplibre worker is not ` +
+        `resolving vector sources (${thirdPartyPbf.length} unrelated .pbf responses were ignored)`,
     ).toBeGreaterThan(0);
 
     // A 204 is a legitimately empty tile; anything else is a real failure.
@@ -86,17 +110,20 @@ test.describe('Vector tile pipeline', () => {
     expect(bad, `non-OK tile responses: ${JSON.stringify(bad.slice(0, 5))}`).toHaveLength(0);
   });
 
-  test('the tile worker survives a style swap (basemap change)', async ({ page }) => {
-    // Regression guard for the worker being torn down or orphaned when the
-    // style is replaced — setStyle() rebuilds Style, which re-reads the
-    // missing-image resolver and re-attaches sources to the worker pool.
+  test('the tile worker still serves the dataset after a basemap change', async ({ page }) => {
+    // Regression guard for the worker being orphaned when the style changes.
+    // Relevant to v6 specifically: Style construction re-reads the map's
+    // missing-image resolver, so a basemap change re-runs that path.
     await page.goto(`/datasets/${datasetId}`);
     await expect(page.locator('canvas.maplibregl-canvas')).toBeVisible({ timeout: 20_000 });
     await page.waitForLoadState('networkidle');
 
+    // Same first-party scoping as above: a basemap swap necessarily pulls a
+    // fresh set of THIRD-PARTY .pbf tiles, so an unscoped predicate here would
+    // be satisfied by the very thing the swap causes and could never fail.
     const afterSwap: number[] = [];
     page.on('response', (r) => {
-      if (r.url().includes('.pbf')) afterSwap.push(r.status());
+      if (isDatasetTile(r.url())) afterSwap.push(r.status());
     });
 
     const toggle = page.getByRole('button', { name: 'Change basemap' });
@@ -115,11 +142,29 @@ test.describe('Vector tile pipeline', () => {
     // nth(1) is a different basemap than the default-active nth(0), so setStyle
     // genuinely runs.
     await options.nth(1).click();
+    await page.waitForTimeout(3000);
+
+    // Then force NEW tiles to be needed. A basemap change alone proves nothing
+    // here: this app mutates basemap layers rather than rebuilding the dataset
+    // source, so already-cached tiles are correctly never re-fetched, and an
+    // assertion on the swap alone measures the basemap's traffic instead of the
+    // dataset's. Zooming after the swap is what actually exercises "the worker
+    // still serves THIS source once the style has changed underneath it."
+    // Must be the NavigationControl button, NOT mouse.wheel: DatasetMap sets
+    // `scrollZoom={isFullscreen}` (DatasetMap.tsx:936), so wheel zoom is off
+    // outside fullscreen and a wheel-based zoom silently does nothing, which
+    // makes this assertion fail for a reason that has nothing to do with tiles.
+    const zoomIn = page.getByRole('button', { name: /zoom in/i }).first();
+    await expect(zoomIn).toBeVisible({ timeout: 5000 });
+    await zoomIn.click();
+    await page.waitForTimeout(2000);
+    await zoomIn.click();
     await page.waitForTimeout(5000);
 
     expect(
       afterSwap.length,
-      'no .pbf requests after a style swap — worker orphaned by setStyle()',
+      `no data.${tableName} tiles after a basemap change plus zoom — the worker ` +
+        'stopped serving this source once the style changed underneath it',
     ).toBeGreaterThan(0);
   });
 });
