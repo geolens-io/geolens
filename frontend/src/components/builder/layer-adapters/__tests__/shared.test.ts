@@ -9,7 +9,15 @@ import {
   getLayerType,
   normalizeRasterBounds,
 } from '../shared';
+import type { LayoutPropertyName, PaintPropertyName } from '../shared';
 import type { FilterSpecification } from 'maplibre-gl';
+
+// fix(#846): the ownership options now carry the real MapLibre key unions, which is
+// accurate for every production caller (each passes a curated `as const` tuple). The
+// two tests below deliberately feed a builder-private `_`-prefixed key to prove the
+// runtime guards still drop it, so they assert past the narrowed type on purpose.
+const asPaintProperty = (key: string) => key as PaintPropertyName;
+const asLayoutProperty = (key: string) => key as LayoutPropertyName;
 
 function createMockMap(layerExists = true) {
   const setFilterCalls: Array<[string, FilterSpecification | null | undefined]> = [];
@@ -175,7 +183,10 @@ describe('syncOwnedPaintProperties', () => {
         'circle-radius': 8,
         '_outline-width': 4,
       },
-      { geomType: 'line', ownedProperties: ['line-color', 'circle-radius', '_outline-width'] },
+      {
+        geomType: 'line',
+        ownedProperties: ['line-color', 'circle-radius', asPaintProperty('_outline-width')],
+      },
     );
 
     expect(map.setPaintProperty).toHaveBeenCalledTimes(1);
@@ -402,7 +413,7 @@ describe('syncOwnedLayoutProperties', () => {
       map as unknown as import('maplibre-gl').Map,
       'L',
       { '_minzoom': 5, visibility: 'none' },
-      { ownedProperties: ['_minzoom', 'visibility'] },
+      { ownedProperties: [asLayoutProperty('_minzoom'), 'visibility'] },
     );
 
     expect(map.setLayoutProperty).toHaveBeenCalledTimes(1);

@@ -3,8 +3,7 @@ import { getEnvConfig } from '@/lib/env';
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { toMapLibreAttribution } from '@/lib/attribution-safety';
-import type { Map as MaplibreMap } from 'maplibre-gl';
-import maplibregl from 'maplibre-gl';
+import type { Map as MaplibreMap, VectorTileSource } from 'maplibre-gl';
 import { getMvtSourceLayerName } from '@/lib/tile-utils';
 
 /** Empty GeoJSON FeatureCollection */
@@ -345,7 +344,7 @@ export function useMapLayers({
     if (source && 'setTiles' in source) {
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfigCdnBaseUrl;
       const newUrl = buildSignedTileUrl(tableName, tileToken, tileBaseUrl, tileVersion);
-      (source as maplibregl.VectorTileSource).setTiles([newUrl]);
+      (source as VectorTileSource).setTiles([newUrl]);
     }
   }, [tileToken, tableName, tileConfigCdnBaseUrl, tileVersion, mapRef]);
 
