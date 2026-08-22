@@ -87,6 +87,7 @@ type FakeMap = {
   isStyleLoaded: ReturnType<typeof vi.fn>;
   getCanvas: ReturnType<typeof vi.fn>;
   setTerrain: ReturnType<typeof vi.fn>;
+  setMissingStyleImageResolver: ReturnType<typeof vi.fn>;
   setProjection: ReturnType<typeof vi.fn>;
   triggerRepaint: ReturnType<typeof vi.fn>;
   getSource: ReturnType<typeof vi.fn>;
@@ -128,6 +129,7 @@ const mapState = vi.hoisted(() => {
     isStyleLoaded: vi.fn(() => true),
     getCanvas: vi.fn(() => ({ style: { cursor: '' }, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
     setTerrain: vi.fn(),
+    setMissingStyleImageResolver: vi.fn(),
     setProjection: vi.fn(),
     triggerRepaint: vi.fn(),
     getSource: vi.fn(() => ({ type: 'vector', setTiles })),

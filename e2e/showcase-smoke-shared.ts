@@ -15,7 +15,11 @@ const CONSOLE_NOISE_PATTERNS = [
   /favicon/i,
   /Failed to load resource:.*sprite/i,
   /circle-11/i,
-  /styleimagemissing/i,
+  // feat(#846): matches the missing-image warning on BOTH engines. v5's text
+  // ended "...listening for the \"styleimagemissing\" map event"; v6 rewrote it
+  // to name setMissingStyleImageResolver(), so a /styleimagemissing/i pattern
+  // silently stops matching. The shared prefix is the stable anchor.
+  /Image ".*" could not be loaded/i,
   /React DevTools/i,
 ];
 

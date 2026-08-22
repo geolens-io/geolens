@@ -142,7 +142,7 @@ interface StyleImageHost {
 }
 
 /**
- * chore(#835): the single `styleimagemissing` handler shared by BuilderMap,
+ * chore(#835): the single missing-style-image resolver shared by BuilderMap,
  * ViewerMap, and DatasetMap. Stubs a missing style image with a transparent
  * 1x1 pixel so MapLibre stops warning about it.
  *
@@ -153,12 +153,21 @@ interface StyleImageHost {
  * - ViewerMap/DatasetMap pass `false` — read-only surfaces stub every missing
  *   image (e.g. `circle_11_black` and other basemap sprites outside the known
  *   set) to keep the public/preview console clean.
+ *
+ * feat(#846): maplibre-gl v6 made `styleimagemissing` notify-only — a listener
+ * can no longer supply the image for the request that fired it, because the
+ * response batch is assembled before the event is emitted. `addImage()` from a
+ * listener would only take effect on a LATER request for the same id, which
+ * reads as an intermittent missing icon. Registered via
+ * `map.setMissingStyleImageResolver()` instead, which MapLibre awaits before
+ * treating the image as missing. Each surface registers exactly one, so the
+ * per-surface divergence survives the one-resolver-per-map constraint.
  */
-export function makeStyleImageMissingHandler(
+export function makeStyleImageMissingResolver(
   map: StyleImageHost,
   { knownImagesOnly }: { knownImagesOnly: boolean },
-): (event: { id: string }) => void {
-  return ({ id }: { id: string }) => {
+): (id: string) => void {
+  return (id: string) => {
     if (knownImagesOnly && !isKnownMissingRemoteStyleImage(id)) return;
     if (!map.hasImage(id)) {
       map.addImage(id, { width: 1, height: 1, data: new Uint8Array(4) });

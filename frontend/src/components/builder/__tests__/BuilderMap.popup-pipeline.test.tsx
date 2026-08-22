@@ -108,6 +108,7 @@ const mapState = vi.hoisted(() => {
     isStyleLoaded: vi.fn(() => true),
     getCanvas: vi.fn(() => canvas),
     setTerrain: vi.fn(),
+    setMissingStyleImageResolver: vi.fn(),
     setProjection: vi.fn(),
     triggerRepaint: vi.fn(),
     getSource: vi.fn(() => null),

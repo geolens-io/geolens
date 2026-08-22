@@ -30,6 +30,7 @@ function createMap() {
       sources.delete(id);
     }),
     setTerrain: vi.fn(),
+    setMissingStyleImageResolver: vi.fn(),
     once: vi.fn((event: string, handler: () => void) => {
       const existing = handlers.get(event) ?? new Set();
       existing.add(handler);

@@ -25,6 +25,7 @@ function createTerrainMap() {
       sources.delete(id);
     }),
     setTerrain: vi.fn(),
+    setMissingStyleImageResolver: vi.fn(),
   };
 }
 
