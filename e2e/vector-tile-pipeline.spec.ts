@@ -122,8 +122,15 @@ test.describe('Vector tile pipeline', () => {
     // fresh set of THIRD-PARTY .pbf tiles, so an unscoped predicate here would
     // be satisfied by the very thing the swap causes and could never fail.
     const afterSwap: number[] = [];
+    // Third-party .pbf is counted too, but as PROOF THE SWAP HAPPENED rather
+    // than as the assertion: a real style change necessarily pulls fresh
+    // basemap tiles. Without that check a no-op click still lets the zoom
+    // below populate afterSwap, and the test passes having exercised nothing.
+    let basemapTraffic = 0;
     page.on('response', (r) => {
-      if (isDatasetTile(r.url())) afterSwap.push(r.status());
+      const url = r.url();
+      if (isDatasetTile(url)) afterSwap.push(r.status());
+      else if (url.includes('.pbf')) basemapTraffic += 1;
     });
 
     const toggle = page.getByRole('button', { name: 'Change basemap' });
@@ -135,14 +142,27 @@ test.describe('Vector tile pipeline', () => {
     // menuitem roles. Scope to the group and let a selector miss FAIL here —
     // swallowing it would report "no tiles after swap" for a swap that never
     // happened, i.e. a test bug wearing a product bug's error message.
-    const options = page.getByRole('group', { name: 'Change basemap' }).getByRole('button');
-    await expect(options.first()).toBeVisible({ timeout: 5000 });
-    const count = await options.count();
-    expect(count, 'basemap picker exposed no options').toBeGreaterThan(1);
-    // nth(1) is a different basemap than the default-active nth(0), so setStyle
-    // genuinely runs.
-    await options.nth(1).click();
+    const group = page.getByRole('group', { name: 'Change basemap' });
+    await expect(group.getByRole('button').first()).toBeVisible({ timeout: 5000 });
+    // fix(#1624): pick an option that is genuinely NOT active, rather than
+    // assuming nth(0) is. BasemapToggle marks the active one with aria-current
+    // (BasemapToggle.tsx:97), and which one that is depends on theme — under
+    // the dark theme nth(1) IS the active basemap, so clicking it leaves the
+    // basemap identity unchanged, DatasetMap never calls setStyle, and the zoom
+    // below still populates afterSwap. The test would pass having swapped
+    // nothing.
+    const inactive = group.locator('button:not([aria-current])');
+    const inactiveCount = await inactive.count();
+    expect(inactiveCount, 'basemap picker exposed no inactive option to switch to').toBeGreaterThan(0);
+    await inactive.first().click();
     await page.waitForTimeout(3000);
+
+    // The swap must have actually occurred, or everything below is vacuous.
+    expect(
+      basemapTraffic,
+      'no basemap tiles after selecting a different basemap — setStyle did not run, ' +
+        'so this test would be asserting against an unchanged style',
+    ).toBeGreaterThan(0);
 
     // Then force NEW tiles to be needed. A basemap change alone proves nothing
     // here: this app mutates basemap layers rather than rebuilding the dataset
