@@ -1,0 +1,43 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.geolens-io/geolens",
+  "title": "GeoLens",
+  "description": "Read-only access to a self-hosted GeoLens spatial catalog: datasets, features, maps, sandboxed SQL.",
+  "version": "1.14.2",
+  "websiteUrl": "https://docs.getgeolens.com/",
+  "repository": {
+    "url": "https://github.com/geolens-io/geolens",
+    "source": "github",
+    "subfolder": "mcp"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "geolens-mcp",
+      "version": "1.14.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "GEOLENS_INSTANCE",
+          "description": "Base URL of the GeoLens instance, e.g. https://geolens.example.com (the /api suffix is appended automatically).",
+          "format": "string",
+          "isRequired": true
+        },
+        {
+          "name": "GEOLENS_API_KEY",
+          "description": "API key, sent as X-Api-Key. Omit for public-only access.",
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "GEOLENS_TOKEN",
+          "description": "JWT bearer token, used only when GEOLENS_API_KEY is unset.",
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}

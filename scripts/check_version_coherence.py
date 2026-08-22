@@ -23,6 +23,8 @@ Sites checked:
   - package.json                            (root) .version
   - cli/pyproject.toml                      [project].version
   - mcp/pyproject.toml                      [project].version
+  - mcp/server.json                         .version + packages[].version (the
+                                            MCP Registry manifest)
   - sdks/python/pyproject.toml              [project].version
   - sdks/python/.openapi-python-client.yaml package_version_override
   - sdks/typescript/package.json            .version
@@ -65,6 +67,7 @@ FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
 ROOT_PACKAGE = REPO_ROOT / "package.json"
 CLI_PYPROJECT = REPO_ROOT / "cli" / "pyproject.toml"
 MCP_PYPROJECT = REPO_ROOT / "mcp" / "pyproject.toml"
+MCP_SERVER_JSON = REPO_ROOT / "mcp" / "server.json"
 PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
@@ -96,6 +99,18 @@ def _pyproject_version(path: Path) -> str:
 
 def _package_json_version(path: Path) -> str:
     return json.loads(path.read_text())["version"]
+
+
+def _server_json_versions(path: Path) -> list[tuple[str, str]]:
+    """(label, version) for the server release and every package it declares."""
+    data = json.loads(path.read_text())
+    found = [(".version", data["version"])]
+    packages = data.get("packages")
+    if not packages:
+        sys.exit(f"ERROR: no 'packages' entries in {_rel(path)}.")
+    for package in packages:
+        found.append((f"packages['{package['identifier']}'].version", package["version"]))
+    return found
 
 
 def _openapi_version(path: Path) -> str:
@@ -187,6 +202,8 @@ def main() -> int:
     sites[f"{_rel(MCP_PYPROJECT)} ([project].version)"] = _pyproject_version(
         MCP_PYPROJECT
     )
+    for label, found in _server_json_versions(MCP_SERVER_JSON):
+        sites[f"{_rel(MCP_SERVER_JSON)} ({label})"] = found
     sites[f"{_rel(PY_SDK_PYPROJECT)} ([project].version)"] = _pyproject_version(
         PY_SDK_PYPROJECT
     )

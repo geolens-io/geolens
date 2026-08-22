@@ -14,6 +14,11 @@
   - package.json                           (root .version — private/unpublished)
   - cli/pyproject.toml                     ([project] version)
   - mcp/pyproject.toml                     ([project] version)
+  - mcp/server.json                        (.version and packages[].version — the
+                                           MCP Registry manifest. The registry
+                                           rejects a publish whose package version
+                                           is not the one live on PyPI, so both
+                                           fields move with the release)
   - sdks/python/pyproject.toml             ([project] version)
   - sdks/python/.openapi-python-client.yaml (package_version_override)
   - sdks/typescript/package.json           (.version)
@@ -69,6 +74,7 @@ FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
 ROOT_PACKAGE = REPO_ROOT / "package.json"
 CLI_PYPROJECT = REPO_ROOT / "cli" / "pyproject.toml"
 MCP_PYPROJECT = REPO_ROOT / "mcp" / "pyproject.toml"
+MCP_SERVER_JSON = REPO_ROOT / "mcp" / "server.json"
 PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
@@ -123,6 +129,26 @@ def _bump_package_json(path: Path, version: str) -> None:
         new_text += "\n"
     path.write_text(new_text)
     print(f"  {_rel(path)} -> {version}")
+
+
+def _bump_server_json(path: Path, version: str) -> None:
+    # The MCP Registry manifest records the version twice: once for the server
+    # release and once for the PyPI package it points at. A missing `packages`
+    # list means the file was restructured, so fail rather than stamp half of it.
+    text = path.read_text()
+    had_trailing_newline = text.endswith("\n")
+    data = json.loads(text)
+    packages = data.get("packages")
+    if not packages:
+        sys.exit(f"ERROR: expected at least one entry under 'packages' in {_rel(path)}, found none.")
+    data["version"] = version
+    for package in packages:
+        package["version"] = version
+    new_text = json.dumps(data, indent=2)
+    if had_trailing_newline:
+        new_text += "\n"
+    path.write_text(new_text)
+    print(f"  {_rel(path)} (.version + packages[].version) -> {version}")
 
 
 def _bump_openapi(path: Path, version: str) -> None:
@@ -244,6 +270,7 @@ def main(argv: list[str]) -> int:
     _bump_package_json(ROOT_PACKAGE, version)
     _bump_project_version(CLI_PYPROJECT, version)
     _bump_project_version(MCP_PYPROJECT, version)
+    _bump_server_json(MCP_SERVER_JSON, version)
     _bump_project_version(PY_SDK_PYPROJECT, version)
     _bump_yaml_override(PY_SDK_GEN_CONFIG, version)
     _bump_package_json(TS_SDK_PACKAGE, version)

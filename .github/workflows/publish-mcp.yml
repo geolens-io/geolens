@@ -1,10 +1,19 @@
-# Publish workflow for the GeoLens MCP server (PyPI `geolens-mcp`).
+# Publish workflow for the GeoLens MCP server (PyPI `geolens-mcp`, then the
+# MCP Registry entry `io.github.geolens-io/geolens` described by mcp/server.json).
 #
 # Triggers:
 #   - push a `v*.*.*` tag → publish job queues behind the `publish` environment
 #     and pauses for required-reviewer approval (one click) before publishing.
-#   - workflow_dispatch → same gate; for ad-hoc / re-publish, run from a tag ref:
-#     `gh workflow run publish-mcp.yml --ref vX.Y.Z`
+#   - workflow_dispatch → same gate; run from a tag ref, which any non-dry run
+#     now enforces: `gh workflow run publish-mcp.yml --ref vX.Y.Z`
+#
+# Recovering a half-finished release (fix(#1623)): PyPI refuses a re-upload of a
+# version it already has, so once `uv publish` succeeds there is no way back
+# through the PyPI half — `force_publish` overrides the pre-flight gate but
+# `uv publish` still fails on the duplicate. If the registry half is what broke,
+# re-run with `registry_only=true`, which skips build and PyPI entirely and
+# publishes only mcp/server.json:
+#   `gh workflow run publish-mcp.yml --ref vX.Y.Z -f registry_only=true`
 #
 # One-time cold-start credentials required before the first publish:
 #   1. PyPI Trusted Publishing configured for `geolens-mcp` at https://pypi.org/manage/account/publishing/
@@ -25,6 +34,11 @@ on:
         default: false
       force_publish:
         description: 'Override pre-flight gate (allow re-publishing over an existing version). Only set true after confirming the existing version is intentionally being re-published.'
+        required: false
+        type: boolean
+        default: false
+      registry_only:
+        description: 'Skip build and PyPI; publish only the MCP Registry entry. Use to retry the registry half after PyPI already published this version.'
         required: false
         type: boolean
         default: false
@@ -66,10 +80,22 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Assert tag matches package version (tag push only)
-        if: ${{ github.event_name == 'push' }}
+      # Every publishing run must come from a tag ref, and this is a hard failure
+      # rather than a skipped check (fix(#1623)): a manual dispatch defaults to the
+      # branch selected in the Actions UI, and the repo sits at the last released
+      # version between bumps, so a branch run would happily publish that branch's
+      # current server.json as metadata for an already-released PyPI artifact.
+      # `make version-check` keeps server.json equal to this pyproject on every
+      # merged commit, so asserting the tag against one of them covers both. Dry
+      # runs are exempt — they only build.
+      - name: Require a tag ref, and assert it matches the package version
+        if: ${{ !inputs.dry_run }}
         working-directory: mcp
         run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::publishing requires a tag ref; got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'. Re-run with --ref vX.Y.Z"
+            exit 1
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(python - <<'PY'
           import tomllib
@@ -84,15 +110,17 @@ jobs:
           echo "tag v${TAG} matches mcp version ${PKG}"
 
       - name: Build wheel + sdist
+        if: ${{ !inputs.registry_only }}
         working-directory: mcp
         run: uv build
 
       - name: List built artifacts
+        if: ${{ !inputs.registry_only }}
         working-directory: mcp
         run: ls -la dist/
 
       - name: Pre-flight version gate (geolens-mcp on PyPI)
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && !inputs.registry_only }}
         working-directory: mcp
         run: |
           set -e
@@ -132,6 +160,48 @@ jobs:
           fi
 
       - name: Publish to PyPI
-        if: ${{ !inputs.dry_run }}
+        if: ${{ !inputs.dry_run && !inputs.registry_only }}
         working-directory: mcp
         run: uv publish --trusted-publishing automatic
+
+      # MCP Registry (registry.modelcontextprotocol.io). This runs AFTER the PyPI
+      # publish on purpose: the registry verifies ownership by fetching the
+      # published package description and looking for the `mcp-name:` marker in
+      # mcp/README.md, so the version named in server.json has to be live on PyPI
+      # first. `login github-oidc` needs the workflow-level `id-token: write` and
+      # no secret — the registry grants `io.github.<repo owner>/*`, which covers
+      # this server's name. If this half fails after PyPI succeeded, re-run with
+      # `registry_only=true` (see the header) — the PyPI half cannot be replayed.
+      #
+      # The binary is pinned by release tag AND by the sha256 the release's own
+      # checksums.txt published for that asset, rather than tracking `latest`
+      # (fix(#1623)): this step runs in a job holding `id-token: write`, so a
+      # swapped or compromised publisher build could mint OIDC tokens for this
+      # workflow's identity. A moved `latest` also silently changes what an
+      # old-tag re-run executes. Upgrading is a reviewed edit: bump the version,
+      # re-read the checksum from that release's registry_<version>_checksums.txt.
+      - name: Install mcp-publisher
+        if: ${{ !inputs.dry_run }}
+        env:
+          MCP_PUBLISHER_VERSION: '1.8.1'
+          # sha256 of mcp-publisher_linux_amd64.tar.gz, from the v1.8.1 release's
+          # registry_1.8.1_checksums.txt. Runners are ubuntu-latest (linux/amd64),
+          # so the asset is named outright rather than derived from uname.
+          MCP_PUBLISHER_SHA256: 'a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc'
+        run: |
+          set -euo pipefail
+          ASSET="mcp-publisher_linux_amd64.tar.gz"
+          curl -fsSL --retry 3 -o "$ASSET" \
+            "https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}/${ASSET}"
+          echo "${MCP_PUBLISHER_SHA256}  ${ASSET}" | sha256sum --check --strict -
+          tar xzf "$ASSET" mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+          rm -f "$ASSET"
+          mcp-publisher --help > /dev/null
+
+      - name: Publish to the MCP Registry
+        if: ${{ !inputs.dry_run }}
+        working-directory: mcp
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish
