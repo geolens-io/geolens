@@ -14,7 +14,7 @@ import { getModeName, extractSingleGeometry, isMultiPartGeometry } from '@/compo
 import { buildSignedTileUrl } from '@/lib/tile-utils';
 import { formatMutationError } from '@/lib/error-map';
 import { getEnvConfig } from '@/lib/env';
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { Map as MaplibreMap, GeoJSONSource, Point, VectorTileSource } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 
 /** Vector tile layer IDs used for querying and filtering */
@@ -116,7 +116,7 @@ export function useFeatureEditing({
     if (source && 'setTiles' in source) {
       const tileBaseUrl = getEnvConfig().TILE_BASE_URL || tileConfig?.cdn_base_url;
       const freshUrl = buildSignedTileUrl(tableName, tileToken ?? null, tileBaseUrl, String(Date.now()));
-      (source as maplibregl.VectorTileSource).setTiles([freshUrl]);
+      (source as VectorTileSource).setTiles([freshUrl]);
     }
   }, [mapRef, tableName, tileConfig?.cdn_base_url, tileToken]);
 
@@ -137,7 +137,7 @@ export function useFeatureEditing({
       const overlayFeature: GeoJSON.Feature = { type: 'Feature', geometry, properties: properties ?? {} };
       overlayFeaturesRef.current = [...overlayFeaturesRef.current, overlayFeature];
       if (map) {
-        const src = map.getSource('drawn-overlay') as maplibregl.GeoJSONSource | undefined;
+        const src = map.getSource('drawn-overlay') as GeoJSONSource | undefined;
         src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
       }
 
@@ -155,7 +155,7 @@ export function useFeatureEditing({
           cleanupOverlayListener();
           const clearOverlay = () => {
             overlayFeaturesRef.current = [];
-            const src = map.getSource('drawn-overlay') as maplibregl.GeoJSONSource | undefined;
+            const src = map.getSource('drawn-overlay') as GeoJSONSource | undefined;
             src?.setData(EMPTY_FC);
             overlayCleanupRef.current = null;
           };
@@ -182,7 +182,7 @@ export function useFeatureEditing({
         toast.error(formatMutationError('dataset:map.featureSaveFailed', err));
         overlayFeaturesRef.current = overlayFeaturesRef.current.filter((f) => f !== overlayFeature);
         if (map) {
-          const src = map.getSource('drawn-overlay') as maplibregl.GeoJSONSource | undefined;
+          const src = map.getSource('drawn-overlay') as GeoJSONSource | undefined;
           src?.setData({ type: 'FeatureCollection', features: overlayFeaturesRef.current });
         }
       }
@@ -281,7 +281,7 @@ export function useFeatureEditing({
 
   /** Select a feature from the map by clicking on it. */
   const selectFeatureFromMap = useCallback(
-    async (map: MaplibreMap, point: maplibregl.Point) => {
+    async (map: MaplibreMap, point: Point) => {
       if (useDrawingStore.getState().selectedFeature) return;
       if (!datasetId) return;
 

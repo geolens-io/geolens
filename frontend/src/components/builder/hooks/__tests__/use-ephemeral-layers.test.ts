@@ -1,6 +1,7 @@
 import { act } from 'react';
 import { renderHook } from '@/test/test-utils';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import type { Map as MaplibreMap } from 'maplibre-gl';
 
 interface MockMap {
   layers: Set<string>;
@@ -90,7 +91,7 @@ function sampleGeoJSON(): GeoJSON.FeatureCollection {
 describe('useEphemeralLayers', () => {
   it('starts with no ephemeral result', () => {
     const map = createMockMap();
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     expect(result.current.ephemeralResult).toBeNull();
@@ -100,7 +101,7 @@ describe('useEphemeralLayers', () => {
 
   it('handleQueryResult adds source, layers, and fits bounds', () => {
     const map = createMockMap();
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {
@@ -121,7 +122,7 @@ describe('useEphemeralLayers', () => {
 
   it('handleDismissEphemeral removes all ephemeral layers and source', () => {
     const map = createMockMap();
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {
@@ -159,7 +160,7 @@ describe('useEphemeralLayers', () => {
 
   it('replacing a query result tears down prior layers before adding new ones', () => {
     const map = createMockMap();
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {
@@ -180,7 +181,7 @@ describe('useEphemeralLayers', () => {
 describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
   it('re-adds the overlay on style.load without re-zooming', () => {
     const map = createMockMap();
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {
@@ -211,7 +212,7 @@ describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
     // not-loaded and the initial style.load has already fired (so the
     // style.load subscription alone would never run).
     map.styleLoaded = false;
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {
@@ -238,7 +239,7 @@ describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
   it('fix(#533 follow-up): unsubscribes the idle handler on dismiss', () => {
     const map = createMockMap();
     map.styleLoaded = false;
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {
@@ -254,7 +255,7 @@ describe('fix(#394) LM-02/B-028: overlay survives style reloads', () => {
 
   it('unsubscribes the style.load handler on dismiss', () => {
     const map = createMockMap();
-    const ref = { current: map as unknown as maplibregl.Map };
+    const ref = { current: map as unknown as MaplibreMap };
     const { result } = renderHook(() => useEphemeralLayers(ref));
 
     act(() => {

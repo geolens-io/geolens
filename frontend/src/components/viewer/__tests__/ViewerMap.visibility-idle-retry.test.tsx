@@ -24,6 +24,7 @@ type FakeMap = {
   moveLayer: ReturnType<typeof vi.fn>;
   removeSource: ReturnType<typeof vi.fn>;
   setTerrain: ReturnType<typeof vi.fn>;
+  setMissingStyleImageResolver: ReturnType<typeof vi.fn>;
   setLayoutProperty: ReturnType<typeof vi.fn>;
   setPaintProperty: ReturnType<typeof vi.fn>;
   setFilter: ReturnType<typeof vi.fn>;
@@ -71,6 +72,7 @@ const mapState = vi.hoisted(() => {
     moveLayer: vi.fn(),
     removeSource: vi.fn(),
     setTerrain: vi.fn(),
+    setMissingStyleImageResolver: vi.fn(),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     setFilter: vi.fn(),

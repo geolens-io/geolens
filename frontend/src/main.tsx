@@ -19,8 +19,24 @@ import { initReportCapture, pushReportEntry, redact, reportNetworkError } from '
 import { installStaleAssetReload } from '@/lib/stale-asset-reload';
 import { wireAuthCacheReset } from '@/lib/auth-cache-reset';
 import { ReportProblemHost } from '@/components/report/ReportProblemHost';
+import { setWorkerUrl } from 'maplibre-gl';
+import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 import { appRoutes } from './App';
 import './index.css';
+
+// feat(#846): maplibre-gl v6 ships its worker as a separate ESM file resolved
+// relative to `import.meta.url`. v5 was a UMD bundle that inlined the worker
+// source as a blob and self-registered it, so no consumer wiring was needed.
+// vite.config.ts folds maplibre-gl into the `map-vendor` chunk, which moves
+// `import.meta.url` away from the package dir and leaves the sibling worker
+// file unresolvable — so the URL has to be handed over explicitly.
+//
+// The `?worker&url` query is load-bearing: a plain `?url` emits the worker
+// without its `maplibre-gl-shared.mjs` sibling and fails SILENTLY in prod
+// builds — no error, no console message, vector tiles simply never request
+// (upstream maplibre-gl-js#8186). Runs before bootstrap() because the worker
+// pool is created lazily on the first Map construction.
+setWorkerUrl(maplibreWorkerUrl);
 
 // Start capturing console/network/error signal at app load so the in-app
 // problem reporter has history ready the moment a user opens it.

@@ -62,6 +62,7 @@ function skyMap(initialSky?: Sky) {
     map: {
       isStyleLoaded: vi.fn(() => true),
       setProjection: vi.fn(),
+      setMissingStyleImageResolver: vi.fn(),
       setSky,
       getSky: vi.fn(() => stored),
     } as unknown as MaplibreMap,
@@ -80,6 +81,7 @@ function containerMap() {
     map: {
       isStyleLoaded: vi.fn(() => true),
       setProjection: vi.fn(),
+      setMissingStyleImageResolver: vi.fn(),
       getContainer: vi.fn(() => container),
     } as unknown as MaplibreMap,
     container,
@@ -353,6 +355,7 @@ describe('map composition sync', () => {
     const skyLoading = {
       isStyleLoaded: vi.fn(() => false),
       setProjection: vi.fn(),
+      setMissingStyleImageResolver: vi.fn(),
       setSky: throwingSky,
       once: skyOnce,
       off: vi.fn(),

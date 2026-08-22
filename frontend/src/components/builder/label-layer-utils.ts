@@ -1,6 +1,10 @@
 import { MAP_COLORS } from '@/lib/map-colors';
 import type { LabelConfig } from '@/types/api';
-import type { AddLayerObject } from 'maplibre-gl';
+import type { AddLayerObject, Map as MaplibreMap } from 'maplibre-gl';
+import {
+  setDynamicLayoutProperty,
+  setDynamicPaintProperty,
+} from './layer-adapters/shared';
 
 export const LABEL_FONT_STACK = [
   'Noto Sans Regular',
@@ -103,17 +107,23 @@ export function buildLabelLayerSpec(opts: {
  * spreads, so add and update stay byte-for-byte in lockstep (LABEL-01).
  */
 export function syncLabelLayer(
-  map: { setLayoutProperty: (id: string, prop: string, val: unknown) => void; setPaintProperty: (id: string, prop: string, val: unknown) => void; setLayerZoomRange: (id: string, min: number, max: number) => void },
+  // fix(#846): derived from the real Map type instead of hand-written signatures.
+  // maplibre-gl v6 made setPaintProperty/setLayoutProperty generic, and a generic
+  // method is not assignable to a plain one, so a live Map stopped satisfying the
+  // old shape. `Pick` keeps the contract exactly as narrow as what this function
+  // touches — which is what lets the tests keep passing a plain mock — while making
+  // the Map itself the single source of those three signatures.
+  map: Pick<MaplibreMap, 'setLayoutProperty' | 'setPaintProperty' | 'setLayerZoomRange'>,
   labelId: string,
   lc: LabelConfig,
   geomType: string,
 ) {
   const { layout, paint } = buildLabelStyle(lc, geomType);
   for (const [prop, value] of Object.entries(layout)) {
-    map.setLayoutProperty(labelId, prop, value);
+    setDynamicLayoutProperty(map, labelId, prop, value);
   }
   for (const [prop, value] of Object.entries(paint)) {
-    map.setPaintProperty(labelId, prop, value);
+    setDynamicPaintProperty(map, labelId, prop, value);
   }
   map.setLayerZoomRange(labelId, lc.minZoom ?? 0, lc.maxZoom ?? 22);
 }

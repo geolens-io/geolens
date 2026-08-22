@@ -32,7 +32,13 @@ import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
 import { getCompanionLayerIds, COLOR_RELIEF_SUFFIX } from './companion-ids';
 
 // Shared utilities — imported for local use and re-exported for backward compatibility
-import { getLayerType, resolveAdapterType, normalizeRasterBounds } from './layer-adapters/shared';
+import {
+  getLayerType,
+  resolveAdapterType,
+  normalizeRasterBounds,
+  setDynamicLayoutProperty,
+  setDynamicPaintProperty,
+} from './layer-adapters/shared';
 // builder-audit #338 SYNC-01: re-export the SINGLE isTerrainCapableDemLayer predicate
 // from map-stack so the legend, the delete-time terrain-clear check, AND the 3D
 // mesh resolver (BuilderMap imports it from here) all consume one function. The
@@ -421,7 +427,7 @@ export function applyBasemapConfigToMap(
     const nextLayout = 'layout' in next ? next.layout as Record<string, unknown> | undefined : undefined;
     if (currentLayout?.visibility !== nextLayout?.visibility && nextLayout?.visibility != null) {
       try {
-        map.setLayoutProperty(current.id, 'visibility', nextLayout.visibility);
+        setDynamicLayoutProperty(map, current.id, 'visibility', nextLayout.visibility);
       } catch (error) {
         if (import.meta.env.DEV) console.warn('[map-sync] basemap layout sync failed', current.id, error);
       }
@@ -431,7 +437,7 @@ export function applyBasemapConfigToMap(
     const nextPaint = 'paint' in next ? next.paint as Record<string, unknown> | undefined : undefined;
     for (const key of changedPaintKeys(currentPaint, nextPaint)) {
       try {
-        map.setPaintProperty(current.id, key, nextPaint?.[key]);
+        setDynamicPaintProperty(map, current.id, key, nextPaint?.[key]);
       } catch (error) {
         if (import.meta.env.DEV) console.warn('[map-sync] basemap paint sync failed', current.id, key, error);
       }
