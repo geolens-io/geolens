@@ -4,8 +4,8 @@
 # Triggers:
 #   - push a `v*.*.*` tag → publish job queues behind the `publish` environment
 #     and pauses for required-reviewer approval (one click) before publishing.
-#   - workflow_dispatch → same gate; for ad-hoc / re-publish, run from a tag ref:
-#     `gh workflow run publish-mcp.yml --ref vX.Y.Z`
+#   - workflow_dispatch → same gate; run from a tag ref, which any non-dry run
+#     now enforces: `gh workflow run publish-mcp.yml --ref vX.Y.Z`
 #
 # Recovering a half-finished release (fix(#1623)): PyPI refuses a re-upload of a
 # version it already has, so once `uv publish` succeeds there is no way back
@@ -80,14 +80,22 @@ jobs:
         with:
           python-version: "3.14"
 
-      # Any tag ref, not just a tag push: a `registry_only` retry is dispatched
-      # manually, and running it from the wrong tag would claim a version that is
-      # not the one on PyPI. `make version-check` keeps server.json equal to this
-      # pyproject on every merged commit, so asserting one covers both.
-      - name: Assert tag matches package version (tag refs only)
-        if: ${{ github.ref_type == 'tag' }}
+      # Every publishing run must come from a tag ref, and this is a hard failure
+      # rather than a skipped check (fix(#1623)): a manual dispatch defaults to the
+      # branch selected in the Actions UI, and the repo sits at the last released
+      # version between bumps, so a branch run would happily publish that branch's
+      # current server.json as metadata for an already-released PyPI artifact.
+      # `make version-check` keeps server.json equal to this pyproject on every
+      # merged commit, so asserting the tag against one of them covers both. Dry
+      # runs are exempt — they only build.
+      - name: Require a tag ref, and assert it matches the package version
+        if: ${{ !inputs.dry_run }}
         working-directory: mcp
         run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::publishing requires a tag ref; got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'. Re-run with --ref vX.Y.Z"
+            exit 1
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(python - <<'PY'
           import tomllib
