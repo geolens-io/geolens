@@ -64,3 +64,9 @@ Cursor / Codex / any client that reads an `mcpServers` block:
 cd mcp
 uv run --extra dev python -m pytest -v
 ```
+
+<!-- mcp-name: io.github.geolens-io/geolens -->
+<!-- The marker above is how the MCP Registry proves ownership of the PyPI package: it
+     looks for `mcp-name: <server name>` in the published package description, which is
+     this file. Keep it byte-identical to `name` in server.json, and keep it alone on its
+     line — the token has to be followed by whitespace or the comment close to match. -->

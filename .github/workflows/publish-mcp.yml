@@ -1,4 +1,5 @@
-# Publish workflow for the GeoLens MCP server (PyPI `geolens-mcp`).
+# Publish workflow for the GeoLens MCP server (PyPI `geolens-mcp`, then the
+# MCP Registry entry `io.github.geolens-io/geolens` described by mcp/server.json).
 #
 # Triggers:
 #   - push a `v*.*.*` tag → publish job queues behind the `publish` environment
@@ -135,3 +136,26 @@ jobs:
         if: ${{ !inputs.dry_run }}
         working-directory: mcp
         run: uv publish --trusted-publishing automatic
+
+      # MCP Registry (registry.modelcontextprotocol.io). This runs AFTER the PyPI
+      # publish on purpose: the registry verifies ownership by fetching the
+      # published package description and looking for the `mcp-name:` marker in
+      # mcp/README.md, so the version named in server.json has to be live on PyPI
+      # first. `login github-oidc` needs the workflow-level `id-token: write` and
+      # no secret — the registry grants `io.github.<repo owner>/*`, which covers
+      # this server's name. A failure here leaves PyPI published; re-run the
+      # workflow from the tag with dry_run=false to retry just this half.
+      - name: Install mcp-publisher
+        if: ${{ !inputs.dry_run }}
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+          sudo mv mcp-publisher /usr/local/bin/
+          mcp-publisher --help > /dev/null
+
+      - name: Publish to the MCP Registry
+        if: ${{ !inputs.dry_run }}
+        working-directory: mcp
+        run: |
+          mcp-publisher login github-oidc
+          mcp-publisher publish
