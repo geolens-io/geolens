@@ -2097,13 +2097,17 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # export multiplies instead of emitting the v6 `-layer-opacity` keys (they
     # abort the style load on maplibre-gl < 6, verified against 5.24.0) and the
     # metadata handshake that keeps a GeoLens round trip lossless. Plus the
-    # allowlist note saying the two keys are left out on purpose. Cap 1641 -> 1694.
-    "backend/app/modules/catalog/maps/style_json.py": 1694,
-    # fix(#1626): +43 — `_restore_master_opacity` undoes the export fold from
+    # allowlist note saying the two keys are left out on purpose, and (#1631
+    # review) the note on the pre-existing absent-at-master-1 divergence the
+    # fold deliberately leaves alone. Cap 1641 -> 1703.
+    "backend/app/modules/catalog/maps/style_json.py": 1703,
+    # fix(#1626): +50 — `_restore_master_opacity` undoes the export fold from
     # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
-    # `layer.opacity` (number) or drops it with a warning (expression).
-    # Cap 450 -> 493.
-    "backend/app/modules/catalog/maps/style_import.py": 493,
+    # `layer.opacity` (number) or drops it with a warning (expression); plus
+    # (#1631 review) BUILDER_FEATURE_OPACITY_DEFAULTS, the mirror of the
+    # frontend's OPACITY_DEFAULTS the fold starts from when paint has none.
+    # Cap 450 -> 500.
+    "backend/app/modules/catalog/maps/style_import.py": 500,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they

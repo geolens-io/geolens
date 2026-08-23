@@ -18,6 +18,7 @@ from app.modules.catalog.maps.schemas import (
     MapLayerResponse,
 )
 from app.modules.catalog.maps.style_import import (
+    BUILDER_FEATURE_OPACITY_DEFAULTS,
     DEFAULT_ARROW_BASE_SIZE,
     FOLDED_OPACITY_KEYS,
     GEOLENS_SPRITE_ID,
@@ -959,12 +960,19 @@ def _fold_master_opacity(base: dict[str, Any], layer: MapLayerResponse) -> None:
     older consumer. The export therefore does what the pre-#1625 adapter did
     and multiplies the master into the per-feature value: a number times the
     master, an expression wrapped in ``["*", expr, master]``, and an absent or
-    wrong-typed value treated as the spec default of 1. The un-folded value is
-    kept in ``metadata.geolens.feature_opacity`` so the import side can undo
-    the fold and a GeoLens round trip does not apply the master twice.
+    wrong-typed value treated as the builder default the live adapter renders
+    (``BUILDER_FEATURE_OPACITY_DEFAULTS``: fill 0.3, line 1 — see
+    ``getFeatureOpacity`` in layer-adapters/shared.ts), not the spec default
+    of 1. The un-folded value is kept in ``metadata.geolens.feature_opacity``
+    so the import side can undo the fold and a GeoLens round trip does not
+    apply the master twice.
 
     The v6 default of 1 takes the untouched path: with ``layer.opacity`` at 1
-    the emitted paint stays bit-identical to before.
+    the emitted paint stays bit-identical to before. That deliberately leaves
+    one pre-existing divergence alone — absent per-feature opacity at master 1
+    exports nothing and renders at the spec default of 1 while the builder
+    draws 0.3 — because the bit-identical guarantee for untouched layers
+    matters more than fixing a defect this change did not create.
     """
     feature_key = FOLDED_OPACITY_KEYS.get(str(base.get("type")))
     opacity = _finite_number(layer.opacity)
@@ -978,7 +986,8 @@ def _fold_master_opacity(base: dict[str, Any], layer: MapLayerResponse) -> None:
         paint[feature_key] = feature_opacity * opacity
     else:
         feature_opacity = None
-        paint[feature_key] = opacity
+        feature_default = BUILDER_FEATURE_OPACITY_DEFAULTS[str(base.get("type"))]
+        paint[feature_key] = feature_default * opacity
     base["paint"] = paint
     base["metadata"]["geolens"]["feature_opacity"] = feature_opacity
 

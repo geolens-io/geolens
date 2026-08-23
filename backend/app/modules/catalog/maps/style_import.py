@@ -32,6 +32,13 @@ DEFAULT_ARROW_BASE_SIZE = 14
 # the two types maplibre-gl v6 gave a `-layer-opacity` to, so they are the two
 # whose export has to stand in for it (see `_fold_master_opacity` in style_json).
 FOLDED_OPACITY_KEYS: dict[str, str] = {"fill": "fill-opacity", "line": "line-opacity"}
+# fix(#1631 review): the per-feature opacity the live builder renders when the
+# stored paint carries none. Mirrors OPACITY_DEFAULTS in
+# frontend/src/components/builder/layer-adapters/shared.ts (getFeatureOpacity):
+# a polygon with no fill-opacity draws at 0.3 in the builder, not at the spec
+# default of 1, so the export fold has to start from the same number or the
+# exported document renders brighter than the app. Keep the two in step.
+BUILDER_FEATURE_OPACITY_DEFAULTS: dict[str, float] = {"fill": 0.3, "line": 1.0}
 
 
 @dataclass

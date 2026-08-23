@@ -2540,8 +2540,11 @@ def test_export_folds_master_opacity_into_expression_fill_opacity_1626():
     assert fill["metadata"]["geolens"]["feature_opacity"] == expr
 
 
-def test_export_emits_master_opacity_when_paint_has_no_fill_opacity_1626():
-    """No per-feature value means the spec default (1), so the master stands alone."""
+def test_export_folds_the_builder_default_when_paint_has_no_fill_opacity_1626():
+    """fix(#1631 review): absent per-feature opacity means the BUILDER default
+    (fill 0.3, mirrored from getFeatureOpacity in layer-adapters/shared.ts),
+    not the spec default of 1 — the live builder draws such a polygon at
+    0.3 * master, and the export has to match it."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
         opacity=0.5,
@@ -2552,8 +2555,24 @@ def test_export_emits_master_opacity_when_paint_has_no_fill_opacity_1626():
     )
     style = build_maplibre_style(_map(), [layer])
     fill = _primary(style, "fill")
-    assert fill["paint"]["fill-opacity"] == 0.5
+    assert fill["paint"]["fill-opacity"] == pytest.approx(0.15)
     assert fill["metadata"]["geolens"]["feature_opacity"] is None
+
+
+def test_export_folds_the_builder_default_when_paint_has_no_line_opacity_1626():
+    """The line default is 1, so the master stands alone for lines."""
+    layer = _layer(
+        dataset_geometry_type="LINESTRING",
+        opacity=0.5,
+        paint={"line-color": "#2255aa", "line-width": 3},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    line = _primary(style, "line")
+    assert line["paint"]["line-opacity"] == pytest.approx(0.5)
+    assert line["metadata"]["geolens"]["feature_opacity"] is None
 
 
 def test_export_treats_wrong_typed_fill_opacity_as_absent_when_folding_1626():
@@ -2569,7 +2588,9 @@ def test_export_treats_wrong_typed_fill_opacity_as_absent_when_folding_1626():
     )
     style = build_maplibre_style(_map(), [layer])
     fill = _primary(style, "fill")
-    assert fill["paint"]["fill-opacity"] == 0.5
+    # fix(#1631 review): wrong-typed counts as absent, so the builder default
+    # (0.3) is the per-feature starting point, same as the test above.
+    assert fill["paint"]["fill-opacity"] == pytest.approx(0.15)
     assert fill["metadata"]["geolens"]["feature_opacity"] is None
 
 
