@@ -1,6 +1,11 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { AdapterLayerInput, LayerAdapter } from './types';
-import { normalizeRasterBounds, paintValueChanged, syncSingleLayerVisibility } from './shared';
+import {
+  normalizeRasterBounds,
+  paintValueChanged,
+  setDynamicPaintProperty,
+  syncSingleLayerVisibility,
+} from './shared';
 
 /** Default lower percentile bound for the raster stretch. Backend default is 2. */
 const STRETCH_PMIN_DEFAULT = 2;
@@ -204,7 +209,12 @@ export const rasterAdapter: LayerAdapter = {
         ? supportedPaint[property]
         : RASTER_PAINT_DEFAULTS[property];
       if ((hasRasterPaintValue(supportedPaint, property) || current !== undefined) && paintValueChanged(current, desired)) {
-        map.setPaintProperty(layerId, property, desired);
+        // fix(#846): the KEY here is already narrow, but one loop body covers seven
+        // properties whose v6 value types differ (`raster-resampling` takes an enum,
+        // the rest numbers), so `desired` is their union and TypeScript cannot tie it
+        // back to the current `property`. Same untyped-style-JSON boundary as
+        // everywhere else in the adapters.
+        setDynamicPaintProperty(map, layerId, property, desired);
       }
     }
 

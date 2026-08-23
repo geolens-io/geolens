@@ -2,7 +2,12 @@ import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
 import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
-import { getBuilderStyleConfig } from '@/components/builder/layer-adapters/shared';
+import {
+  getBuilderStyleConfig,
+  setDynamicLayoutProperty,
+  setDynamicPaintProperty,
+} from '@/components/builder/layer-adapters/shared';
+import type { PaintPropertyName } from '@/components/builder/layer-adapters/shared';
 import { mixedFamilyFilter } from '@/components/builder/layer-adapters/mixed-adapter';
 import { coalesceFrame } from '@/lib/builder/raf-coalesce';
 // fix(#394) VT-03/VT-04: single source of truth for the MVT source-layer name.
@@ -348,7 +353,10 @@ export function clearExcludedPaintOnMap(
 ) {
   const mapLayerId = `layer-${layerId}`;
   if (!map.getLayer(mapLayerId)) return;
-  const keys: string[] = [];
+  // fix(#846): typed as the real MapLibre key union rather than `string[]` — the
+  // three keys pushed below are literals, so v6's generic `setPaintProperty` accepts
+  // them directly and no cast is needed for the clearing write.
+  const keys: PaintPropertyName[] = [];
   if (flags.isDataDrivenColor) keys.push('line-gradient');
   if (flags.dropsFillPattern) keys.push('fill-pattern');
   if (flags.patternOwnsFill) keys.push('fill-color');
@@ -703,9 +711,9 @@ export function useLayerMapSync(
             try {
               // line-dasharray is stored in layout JSON but is a MapLibre paint property
               if (prop === 'line-dasharray') {
-                map.setPaintProperty(mapLayerId, prop, value ?? undefined);
+                setDynamicPaintProperty(map, mapLayerId, prop, value ?? undefined);
               } else {
-                map.setLayoutProperty(mapLayerId, prop, value ?? undefined);
+                setDynamicLayoutProperty(map, mapLayerId, prop, value ?? undefined);
               }
             } catch (e) {
               if (import.meta.env.DEV) console.debug(`[builder] Failed to set layout ${prop}:`, e);
@@ -717,9 +725,9 @@ export function useLayerMapSync(
             if (!(prop in newLayout)) {
               try {
                 if (prop === 'line-dasharray') {
-                  map.setPaintProperty(mapLayerId, prop, undefined);
+                  setDynamicPaintProperty(map, mapLayerId, prop, undefined);
                 } else {
-                  map.setLayoutProperty(mapLayerId, prop, undefined);
+                  setDynamicLayoutProperty(map, mapLayerId, prop, undefined);
                 }
               } catch (e) {
                 if (import.meta.env.DEV) console.debug(`[builder] Failed to clear layout ${prop}:`, e);

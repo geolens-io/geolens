@@ -7,7 +7,7 @@ import { Map as MapGL, NavigationControl, ScaleControl } from '@vis.gl/react-map
 import { useBasemaps, useEnabledPlugins, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
 import {
   findBasemapById,
-  makeStyleImageMissingHandler,
+  makeStyleImageMissingResolver,
   toMaplibreStyle,
   BLANK_BASEMAP_ID,
 } from '@/lib/basemap-utils';
@@ -59,6 +59,9 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, VectorTileToken } from '@/api/tiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 /**
  * Map builder canvas — the editable composition surface used by `MapBuilderPage`.
@@ -301,7 +304,7 @@ export const BuilderMap = memo(function BuilderMap({
   // applyMapBasemapAppearance instead.
   const [initialProjection] = useState(() => basemapConfig?.projection ?? 'mercator');
   const errorHandlerRef = useRef<((e: { error: { message?: string; status?: number }; sourceId?: string }) => void) | null>(null);
-  const styleImageMissingHandlerRef = useRef<((e: { id: string }) => void) | null>(null);
+  const styleImageMissingHandlerRef = useRef<((id: string) => void) | null>(null);
   // builder-audit #338 SYNC-08: hold the dataloading/idle handlers so unmount detaches
   // them symmetrically with the error/styleimagemissing handlers.
   const dataLoadingHandlerRef = useRef<(() => void) | null>(null);
@@ -846,10 +849,10 @@ export const BuilderMap = memo(function BuilderMap({
       };
       map.on('error', errorHandlerRef.current);
 
-      // chore(#835): shared handler; knownImagesOnly keeps the builder's
+      // chore(#835): shared resolver; knownImagesOnly keeps the builder's
       // editor-facing missing-image warnings for unknown ids.
-      styleImageMissingHandlerRef.current = makeStyleImageMissingHandler(map, { knownImagesOnly: true });
-      map.on('styleimagemissing', styleImageMissingHandlerRef.current);
+      styleImageMissingHandlerRef.current = makeStyleImageMissingResolver(map, { knownImagesOnly: true });
+      map.setMissingStyleImageResolver(styleImageMissingHandlerRef.current);
 
       onMapRef?.(map);
     },
@@ -1438,8 +1441,11 @@ export const BuilderMap = memo(function BuilderMap({
       if (mapRef.current && errorHandlerRef.current) {
         mapRef.current.off('error', errorHandlerRef.current);
       }
+      // feat(#846): v6's resolver is a setter, not an emitter — clear it by
+      // passing null. Map.remove() never touches the field, so this only
+      // matters for the repo's symmetric-detach convention, not for a leak.
       if (mapRef.current && styleImageMissingHandlerRef.current) {
-        mapRef.current.off('styleimagemissing', styleImageMissingHandlerRef.current);
+        mapRef.current.setMissingStyleImageResolver(null);
       }
       // builder-audit #338 SYNC-08: detach the dataloading/idle handlers too.
       if (mapRef.current && dataLoadingHandlerRef.current) {

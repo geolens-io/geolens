@@ -6,7 +6,7 @@ import { useBasemaps, useBranding, useTileConfig } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
 import {
   findBasemapById,
-  makeStyleImageMissingHandler,
+  makeStyleImageMissingResolver,
   toMaplibreStyle,
   resolveBasemapId,
   BLANK_BASEMAP_ID,
@@ -58,6 +58,9 @@ import {
   viewerQueryLayerIds,
 } from '@/components/viewer/viewer-query-layer-ids';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 /**
  * Public map viewer canvas — used by the standalone viewer page and the
@@ -457,9 +460,9 @@ export const ViewerMap = memo(function ViewerMap({
         }
       });
 
-      // chore(#835): shared handler; the read-only viewer stubs every missing
+      // chore(#835): shared resolver; the read-only viewer stubs every missing
       // image (knownImagesOnly: false) to keep the public console clean.
-      map.on('styleimagemissing', makeStyleImageMissingHandler(map, { knownImagesOnly: false }));
+      map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
       // `idle` fires when no tiles are loading, no transitions are in
       // progress, and no animations are running. We flip the container's

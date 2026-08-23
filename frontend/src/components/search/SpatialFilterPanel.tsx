@@ -24,6 +24,9 @@ import { useBasemaps } from '@/hooks/use-settings';
 import { getThemeBasemap, toMaplibreStyle } from '@/lib/basemap-utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 type DrawMode = 'rectangle' | 'polygon';
 

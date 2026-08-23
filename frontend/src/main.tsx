@@ -22,6 +22,10 @@ import { ReportProblemHost } from '@/components/report/ReportProblemHost';
 import { appRoutes } from './App';
 import './index.css';
 
+// NOTE: maplibre's worker URL is wired in `@/lib/maplibre-worker`, imported by
+// the map surfaces themselves. It must NOT be imported here — that puts
+// map-vendor in the eager entry graph for every route (fix(#1624)).
+
 // Start capturing console/network/error signal at app load so the in-app
 // problem reporter has history ready the moment a user opens it.
 initReportCapture();

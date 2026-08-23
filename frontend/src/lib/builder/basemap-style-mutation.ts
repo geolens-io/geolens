@@ -22,6 +22,7 @@ import {
   isBasemapOwnedLayer,
   type StyleLayer,
 } from '@/lib/basemap-utils';
+import { setDynamicPaintProperty } from '@/components/builder/layer-adapters/shared';
 
 // builder-audit #338 DUP-01: the opacity-key table is now imported from
 // basemap-utils (single source of truth) rather than re-declared here. The
@@ -148,7 +149,10 @@ function applyOverrideToLayer(
 function safeSetPaint(map: MaplibreMap, layerId: string, key: string, value: unknown): void {
   try {
     if (map.getLayer(layerId)) {
-      map.setPaintProperty(layerId, key, value);
+      // fix(#846): the opacity keys come from OPACITY_PAINT_KEYS_BY_TYPE, looked up by
+      // the basemap layer's runtime `type`, so the key is dynamic and the override
+      // value is untyped API JSON — see setDynamicPaintProperty for the full rationale.
+      setDynamicPaintProperty(map, layerId, key, value);
     }
   } catch (err) {
     if (import.meta.env.DEV) {

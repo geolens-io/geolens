@@ -1,4 +1,9 @@
 import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
+import type {
+  AllLayoutProperties,
+  AllPaintProperties,
+  DataDrivenPropertyValueSpecification,
+} from '@maplibre/maplibre-gl-style-spec';
 import type { StyleConfig } from '@/types/api';
 import { toSpanBbox } from '@/lib/bbox';
 
@@ -153,18 +158,30 @@ export function getCompoundOpacity(
   return propOpacity * masterOpacity;
 }
 
+/**
+ * fix(#846): every call site feeds this straight into `setPaintProperty(id,
+ * '<geom>-opacity', …)`, which maplibre-gl v6 types as
+ * `DataDrivenPropertyValueSpecification<number>`. Declaring that contract here
+ * instead of returning `unknown` fixes all eight call sites at their source, and
+ * leaves exactly one place — the array branch below — where the untyped paint JSON
+ * has to be vouched for.
+ */
 export function getExpressionSafeOpacity(
   paint: Record<string, unknown>,
   geomType: 'fill' | 'line' | 'circle',
   masterOpacity: number,
-): unknown {
+): DataDrivenPropertyValueSpecification<number> {
   const propKey = `${geomType}-opacity`;
   const propOpacity = paint[propKey];
   if (Array.isArray(propOpacity)) {
     // fix(#394) ST-03: multiply expression-valued opacity by the master
     // slider — returning the expression untouched made the layer opacity
     // slider a silent no-op whenever *-opacity is a zoom/data expression.
-    return masterOpacity === 1 ? propOpacity : ['*', propOpacity, masterOpacity];
+    // The array is whatever the saved style holds, so it is asserted, not proven —
+    // MapLibre rejects a malformed expression at runtime exactly as it always has.
+    return (masterOpacity === 1
+      ? propOpacity
+      : ['*', propOpacity, masterOpacity]) as DataDrivenPropertyValueSpecification<number>;
   }
   if (typeof propOpacity === 'number') {
     return propOpacity * masterOpacity;
@@ -244,6 +261,68 @@ export function clampPaintBounds(paint: Record<string, unknown>): Record<string,
   return result;
 }
 
+/**
+ * fix(#846): the MapLibre style-property key unions, aliased off
+ * `@maplibre/maplibre-gl-style-spec` (a direct dependency) rather than off
+ * `maplibre-gl`. maplibre-gl v6 made the style accessors generic over these keys
+ * (`setPaintProperty<K extends keyof AllPaintProperties>(id, name: K, value:
+ * AllPaintProperties[K])`); v5's signature is the untyped `name: string, value:
+ * any`. Naming the union through the style-spec package keeps this file
+ * compiling against both.
+ */
+export type PaintPropertyName = keyof AllPaintProperties;
+export type LayoutPropertyName = keyof AllLayoutProperties;
+
+/**
+ * fix(#846): the ONE place v6's generic style setters are crossed with a value
+ * the compiler cannot check, so the cast lives here instead of at ~20 call sites.
+ *
+ * Every write on these paths is driven off a layer's stored `paint`/`layout` JSON.
+ * The value is an `unknown` off a `Record<string, unknown>`, and on the paths that
+ * iterate that record the key is an arbitrary string too — so there is no literal
+ * key for v6 to correlate a value type through, and no narrowing upstream can
+ * invent one. Even where the key IS from a curated tuple, `K` widens to the whole
+ * union and `AllPaintProperties[K]` widens with it.
+ *
+ * Nothing about the checking actually changes: MapLibre validates the name and the
+ * value at runtime exactly as it did under v5, and every caller already wraps these
+ * in the try/catch that swallows a rejected property.
+ *
+ * `map` is `Pick`ed down to the one method each helper calls, so a caller holding
+ * only a narrow slice of the Map (see `syncLabelLayer`) can use them too.
+ */
+export function setDynamicPaintProperty(
+  map: Pick<MaplibreMap, 'setPaintProperty'>,
+  layerId: string,
+  property: string,
+  value: unknown,
+): void {
+  map.setPaintProperty(
+    layerId,
+    property as PaintPropertyName,
+    value as AllPaintProperties[PaintPropertyName],
+  );
+}
+
+/** Layout half of `setDynamicPaintProperty` — same boundary, same rationale. */
+export function setDynamicLayoutProperty(
+  map: Pick<MaplibreMap, 'setLayoutProperty'>,
+  layerId: string,
+  property: string,
+  value: unknown,
+): void {
+  map.setLayoutProperty(
+    layerId,
+    property as LayoutPropertyName,
+    value as AllLayoutProperties[LayoutPropertyName],
+  );
+}
+
+/** Read half of `setDynamicPaintProperty` — the key is an arbitrary paint-JSON key. */
+function getDynamicPaintProperty(map: MaplibreMap, layerId: string, property: string): unknown {
+  return map.getPaintProperty(layerId, property as PaintPropertyName);
+}
+
 /** Replay expression-based paint properties via setPaintProperty (avoids addLayer failures). */
 function replayExpressions(
   map: MaplibreMap,
@@ -253,7 +332,7 @@ function replayExpressions(
 ) {
   for (const [prop, val] of Object.entries(rawPaint)) {
     if (Array.isArray(val) && isPaintPropertyForLayerType(prop, geomType)) {
-      try { map.setPaintProperty(layerId, prop, val); }
+      try { setDynamicPaintProperty(map, layerId, prop, val); }
       catch (e) { if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e); }
     }
   }
@@ -295,9 +374,9 @@ export function setLayerProperty(
 ): void {
   try {
     if (kind === 'paint') {
-      map.setPaintProperty(layerId, property, value);
+      setDynamicPaintProperty(map, layerId, property, value);
     } else {
-      map.setLayoutProperty(layerId, property, value);
+      setDynamicLayoutProperty(map, layerId, property, value);
     }
   } catch (e) {
     if (import.meta.env.DEV) {
@@ -387,14 +466,20 @@ export function paintValueChanged(current: unknown, incoming: unknown): boolean 
 
 type VectorGeomType = 'fill' | 'line' | 'circle';
 
+// fix(#846): the ownership sets are curated `as const` tuples of real MapLibre
+// property names, so they can carry the real key union instead of `string[]`. That
+// keeps the `get*Property` reads below statically valid under v6's generics, and it
+// makes a typo'd or non-existent property name a compile error at the tuple — the
+// failure mode that hid `circle-stroke-blur` in CIRCLE_OWNED_PAINT_PROPERTIES until
+// #338 SPEC-06, because setPaintProperty's try/catch swallowed it silently.
 export interface OwnedPaintSyncOptions {
-  ownedProperties: readonly string[];
+  ownedProperties: readonly PaintPropertyName[];
   geomType?: VectorGeomType;
   clearMissing?: boolean;
 }
 
 export interface OwnedLayoutSyncOptions {
-  ownedProperties: readonly string[];
+  ownedProperties: readonly LayoutPropertyName[];
   clearMissing?: boolean;
 }
 
@@ -444,7 +529,7 @@ export function syncOwnedPaintProperties(
     if (!hasDesired) {
       if (!currentKnown || current === undefined) continue;
       try {
-        map.setPaintProperty(layerId, prop, undefined);
+        setDynamicPaintProperty(map, layerId, prop, undefined);
       } catch (e) {
         debugPropertySyncFailure(layerId, prop, 'paint', 'set', e);
       }
@@ -454,7 +539,7 @@ export function syncOwnedPaintProperties(
     const desired = filteredPaint[prop];
     if (currentKnown && !paintValueChanged(current, desired)) continue;
     try {
-      map.setPaintProperty(layerId, prop, desired);
+      setDynamicPaintProperty(map, layerId, prop, desired);
     } catch (e) {
       debugPropertySyncFailure(layerId, prop, 'paint', 'set', e);
     }
@@ -489,7 +574,7 @@ export function syncOwnedLayoutProperties(
     if (!hasDesired) {
       if (!currentKnown || current === undefined) continue;
       try {
-        map.setLayoutProperty(layerId, prop, undefined);
+        setDynamicLayoutProperty(map, layerId, prop, undefined);
       } catch (e) {
         debugPropertySyncFailure(layerId, prop, 'layout', 'set', e);
       }
@@ -499,7 +584,7 @@ export function syncOwnedLayoutProperties(
     const desired = layout[prop];
     if (currentKnown && !paintValueChanged(current, desired)) continue;
     try {
-      map.setLayoutProperty(layerId, prop, desired);
+      setDynamicLayoutProperty(map, layerId, prop, desired);
     } catch (e) {
       debugPropertySyncFailure(layerId, prop, 'layout', 'set', e);
     }
@@ -516,9 +601,9 @@ export function syncVectorPaint(
   const paint = geomType ? filterPaintForLayerType(rawPaint, geomType) : stripCustomProps(rawPaint);
   for (const [prop, val] of Object.entries(paint)) {
     try {
-      const current = map.getPaintProperty(layerId, prop);
+      const current = getDynamicPaintProperty(map, layerId, prop);
       if (paintValueChanged(current, val)) {
-        map.setPaintProperty(layerId, prop, val);
+        setDynamicPaintProperty(map, layerId, prop, val);
       }
     } catch (e) {
       if (import.meta.env.DEV) console.debug(`[map-sync] Failed to set ${prop} on ${layerId}:`, e);

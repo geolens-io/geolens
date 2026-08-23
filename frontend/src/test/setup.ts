@@ -86,6 +86,12 @@ vi.mock('maplibre-gl', () => {
     NavigationControl: MockNavigationControl,
     Marker: MockMarker,
     Popup: MockPopup,
+    // feat(#846): `@/lib/maplibre-worker` calls setWorkerUrl at module scope
+    // and is side-effect imported by every map surface, so any test that
+    // renders one reaches this mock. Without these it throws
+    // "setWorkerUrl is not a function".
+    setWorkerUrl: vi.fn(),
+    getWorkerUrl: vi.fn(() => ''),
   }
 })
 

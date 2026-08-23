@@ -8,6 +8,7 @@ import { point, polygon } from '@turf/helpers';
 import { cn } from '@/lib/utils';
 import { MAP_COLORS } from '@/lib/map-colors';
 import { usePluginStore } from '@/stores/map-plugin-store';
+import type { GeoJSONSource } from 'maplibre-gl';
 import type { PluginContext } from '../types';
 
 type MeasureMode = 'distance' | 'area';
@@ -119,7 +120,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
     setResult(null);
     if (!targetMap) return;
     try {
-      const src = targetMap.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      const src = targetMap.getSource(MEASURE_SOURCE) as GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features: [] });
     } catch {
       // Map may be destroyed during teardown
@@ -183,7 +184,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
       setResult(computed);
 
       try {
-        const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+        const src = map.getSource(MEASURE_SOURCE) as GeoJSONSource | undefined;
         src?.setData({ type: 'FeatureCollection', features });
       } catch {
         // Map may be destroyed during click handling
@@ -233,7 +234,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
 
     if (!map) return;
     try {
-      const src = map.getSource(MEASURE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+      const src = map.getSource(MEASURE_SOURCE) as GeoJSONSource | undefined;
       src?.setData({ type: 'FeatureCollection', features });
     } catch {
       // Map may be destroyed during mode change

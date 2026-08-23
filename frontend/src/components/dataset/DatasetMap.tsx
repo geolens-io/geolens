@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { getThemeBasemap, makeStyleImageMissingHandler, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
+import { getThemeBasemap, makeStyleImageMissingResolver, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
@@ -31,8 +31,8 @@ import {
 import { Button } from '@/components/ui/button';
 import { Focus, Maximize2, Minimize2, PenLine } from 'lucide-react';
 import { toast } from 'sonner';
-import maplibregl from 'maplibre-gl';
-import type { LngLatBoundsLike, MapLibreEvent, StyleSpecification } from 'maplibre-gl';
+import { Point } from 'maplibre-gl';
+import type { LngLatBoundsLike, MapLibreEvent, MapMouseEvent, StyleSpecification } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry, GeoJsonProperties } from 'geojson';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -40,6 +40,9 @@ import { motionDuration } from '@/lib/reduced-motion';
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);
@@ -189,7 +192,12 @@ export const DatasetMap = memo(function DatasetMap({
   );
   // fix(#890): `url` is read to tell a raster/DEM auth failure (unrecoverable)
   // from a vector one (re-mintable).
-  const tileAuthErrorHandlerRef = useRef<((e: { error?: { status?: number; url?: string } }) => void) | null>(null);
+  // feat(#846): v6 narrowed the `error` event payload to `ErrorLike`
+  // ({ message: string }). A handler type with NO property in common with it
+  // trips TS's weak-type check, so `message` is declared here to match the
+  // sibling raster/vector handlers below. `status`/`url` are still populated at
+  // runtime — v6's AJAXError keeps both — so the recovery logic is unchanged.
+  const tileAuthErrorHandlerRef = useRef<((e: { error?: { message?: string; status?: number; url?: string } }) => void) | null>(null);
   // fix(#430 V-13): dataset-detail preview map had no data-tiles-loaded signal at
   // all. Mirror the re-arming ViewerMap/BuilderMap behavior: false while a
   // camera move is in flight, true once idle (no tiles loading / no
@@ -407,7 +415,7 @@ export const DatasetMap = memo(function DatasetMap({
       // Skip if a TerraDraw feature is already selected (drag/edit in progress)
       if (useDrawingStore.getState().selectedFeature) return;
       const rect = canvas.getBoundingClientRect();
-      const point = new maplibregl.Point(e.clientX - rect.left, e.clientY - rect.top);
+      const point = new Point(e.clientX - rect.left, e.clientY - rect.top);
       selectFeatureFromMap(map, point);
     };
 
@@ -426,7 +434,7 @@ export const DatasetMap = memo(function DatasetMap({
     // Only active when NOT in drawing/select mode
     if (activeMode) return;
 
-    const handleReadOnlyClick = (e: maplibregl.MapMouseEvent) => {
+    const handleReadOnlyClick = (e: MapMouseEvent) => {
       const sourceLayer = getSourceLayerName(
         tableName,
         tileConfig?.mvt_source_layer_prefix,
@@ -626,9 +634,9 @@ export const DatasetMap = memo(function DatasetMap({
 
       // Suppress missing-image warnings from basemap sprites (e.g. circle-11,
       // circle_11_black) with a transparent 1x1 pixel fallback for any missing
-      // icon. chore(#835): shared handler (knownImagesOnly: false — preview
+      // icon. chore(#835): shared resolver (knownImagesOnly: false — preview
       // surface, keep the console clean).
-      map.on('styleimagemissing', makeStyleImageMissingHandler(map, { knownImagesOnly: false }));
+      map.setMissingStyleImageResolver(makeStyleImageMissingResolver(map, { knownImagesOnly: false }));
 
       // fix(#430 V-13): data-tiles-loaded signal, re-armed on every camera move
       // (see ViewerMap.tsx / BuilderMap.tsx for the mirrored viewer/builder fix).
@@ -685,7 +693,7 @@ export const DatasetMap = memo(function DatasetMap({
       // raster. Still kick the re-mint (its apiFetch renews an expiring JWT,
       // which IS what a raster 401 needs — codex P1), but never let its `true`
       // stand in for recovery: route a raster failure to the error path.
-      tileAuthErrorHandlerRef.current = (e: { error?: { status?: number; url?: string } }) => {
+      tileAuthErrorHandlerRef.current = (e: { error?: { message?: string; status?: number; url?: string } }) => {
         const s = e.error?.status;
         if (s !== 401 && s !== 403) return;
         const reminting = recoverTileAuth();

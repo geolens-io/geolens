@@ -76,6 +76,7 @@ const mapState = vi.hoisted(() => {
     moveLayer: vi.fn(),
     removeSource: vi.fn(),
     setTerrain: vi.fn(),
+    setMissingStyleImageResolver: vi.fn(),
     setLayoutProperty: vi.fn(),
     setPaintProperty: vi.fn(),
     setFilter: vi.fn(),

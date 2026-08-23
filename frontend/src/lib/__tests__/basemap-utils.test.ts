@@ -10,7 +10,7 @@ import {
   hasVisibleBasemapStyle,
   applyBasemapConfigToStyle,
   isKnownMissingRemoteStyleImage,
-  makeStyleImageMissingHandler,
+  makeStyleImageMissingResolver,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
@@ -639,9 +639,10 @@ describe('applyBasemapConfigToStyle prominence reversibility (builder-audit #338
   });
 });
 
-// chore(#835): shared styleimagemissing handler; knownImagesOnly parameterizes
+// chore(#835): shared missing-style-image resolver; knownImagesOnly parameterizes
 // the builder-vs-viewer/dataset divergence instead of three inline copies.
-describe('makeStyleImageMissingHandler', () => {
+// feat(#846): v6 passes the bare id, not an event object.
+describe('makeStyleImageMissingResolver', () => {
   function fakeImageHost(has = false) {
     return {
       hasImage: vi.fn(() => has),
@@ -651,7 +652,7 @@ describe('makeStyleImageMissingHandler', () => {
 
   it('stubs any missing image when knownImagesOnly is false (viewer/dataset surfaces)', () => {
     const map = fakeImageHost();
-    makeStyleImageMissingHandler(map, { knownImagesOnly: false })({ id: 'circle_11_black' });
+    makeStyleImageMissingResolver(map, { knownImagesOnly: false })('circle_11_black');
     expect(map.addImage).toHaveBeenCalledWith('circle_11_black', {
       width: 1,
       height: 1,
@@ -661,16 +662,16 @@ describe('makeStyleImageMissingHandler', () => {
 
   it('stubs only known-noisy ids when knownImagesOnly is true (builder surface)', () => {
     const map = fakeImageHost();
-    const handler = makeStyleImageMissingHandler(map, { knownImagesOnly: true });
-    handler({ id: 'circle_11_black' });
+    const resolve = makeStyleImageMissingResolver(map, { knownImagesOnly: true });
+    resolve('circle_11_black');
     expect(map.addImage).not.toHaveBeenCalled();
-    handler({ id: 'circle-11' });
+    resolve('circle-11');
     expect(map.addImage).toHaveBeenCalledTimes(1);
   });
 
   it('never re-adds an image the map already has', () => {
     const map = fakeImageHost(true);
-    makeStyleImageMissingHandler(map, { knownImagesOnly: false })({ id: 'circle-11' });
+    makeStyleImageMissingResolver(map, { knownImagesOnly: false })('circle-11');
     expect(map.addImage).not.toHaveBeenCalled();
   });
 });
