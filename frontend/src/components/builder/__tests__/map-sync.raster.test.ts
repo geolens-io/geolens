@@ -606,7 +606,7 @@ describe('syncLayersToMap', () => {
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op1', 'circle-opacity', 1);
   });
 
-  it('fill layer with opacity 1.0 sets fill-opacity and outline line-opacity', () => {
+  it('fill layer with opacity 1.0 sets fill-opacity and the outline line-layer-opacity', () => {
     const layer = makeLayer({
       id: 'op2',
       dataset_geometry_type: 'Polygon',
@@ -616,9 +616,11 @@ describe('syncLayersToMap', () => {
 
     syncLayersToMap(map, [layer], tokenMap, undefined, managedSourcesRef, { current: '' });
 
-    // fill-opacity = 0.3 (default) * 1 = 0.3
+    // fix(#1625): per-feature fill-opacity = 0.3 (builder default), the master
+    // rides on fill-layer-opacity; the outline carries it as line-layer-opacity.
     expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2', 'fill-opacity', 0.3);
-    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2-outline', 'line-opacity', 1);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2', 'fill-layer-opacity', 1);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-op2-outline', 'line-layer-opacity', 1);
   });
 
   it('existing label layer syncs filter during paint update', () => {
