@@ -40,6 +40,9 @@ import { motionDuration } from '@/lib/reduced-motion';
 import { buildTileTransformRequest, isMvtSourceLayerConfigReady, refreshRasterTileSources } from '@/lib/tile-utils';
 import { isRasterTileAuthError, isRefreshableRasterAuthError, logUnhandledMapError } from '@/lib/map-error-log';
 import { reportTileTokenRemint } from '@/lib/report';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 /** System columns excluded from the attribute form */
 const SYSTEM_COLUMNS = new Set(['gid', 'geom', 'geom_4326']);

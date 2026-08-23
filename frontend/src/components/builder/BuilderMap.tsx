@@ -59,6 +59,9 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBasemapConfig, MapLayerResponse, MapTerrainConfig } from '@/types/api';
 import type { TileToken, VectorTileToken } from '@/api/tiles';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 /**
  * Map builder canvas — the editable composition surface used by `MapBuilderPage`.

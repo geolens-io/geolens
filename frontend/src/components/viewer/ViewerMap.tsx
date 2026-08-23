@@ -58,6 +58,9 @@ import {
   viewerQueryLayerIds,
 } from '@/components/viewer/viewer-query-layer-ids';
 import 'maplibre-gl/dist/maplibre-gl.css';
+// feat(#846): wires maplibre v6's worker URL. Side-effect import, kept out of
+// main.tsx so map-vendor stays out of the eager entry graph (fix(#1624)).
+import '@/lib/maplibre-worker';
 
 /**
  * Public map viewer canvas — used by the standalone viewer page and the
