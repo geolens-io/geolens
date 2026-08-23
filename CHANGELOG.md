@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Object-valued feature properties render as JSON in the map popup.** A
+  feature property holding an object or array (a JSON column, a nested
+  attribute) rendered as the literal text `[object Object]` when clicked,
+  while the accessible data panel already rendered the same value as JSON
+  text. Both components now call one shared formatter, so an object or array
+  property renders the same way in either place (#1627).
+
 ## [1.14.2] - 2026-08-21
 
 ### Added

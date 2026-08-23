@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/sheet';
 import type { SharedLayerResponse } from '@/types/api';
 import { createViewerLayerEntries } from '@/components/viewer/layer-identity';
+import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
 import type { AccessibleMapFeatureResult } from './accessible-map-data';
 
 interface AccessibleMapDataPanelProps {
@@ -36,15 +37,10 @@ function formatValue(
   booleanTrue: string,
   booleanFalse: string,
 ): string {
-  if (value === null || value === undefined) return '—';
-  if (typeof value === 'boolean') return value ? booleanTrue : booleanFalse;
-  if (typeof value === 'number') {
-    return Number.isInteger(value)
-      ? value.toLocaleString(locale)
-      : value.toLocaleString(locale, { maximumFractionDigits: 5 });
-  }
-  if (typeof value === 'object') return JSON.stringify(value) ?? '—';
-  return String(value);
+  // 5 fraction digits (not the shared default of 4): this panel is the
+  // accessible surface for raw feature coordinates, so it keeps its
+  // original, more precise formatting.
+  return formatFeaturePropertyValue(value, locale, booleanTrue, booleanFalse, 5) ?? '—';
 }
 
 export function AccessibleMapDataPanel({
