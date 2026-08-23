@@ -1,6 +1,7 @@
 """Tests for map sprite and icon helper behavior."""
 
 import asyncio
+from contextlib import contextmanager
 from io import BytesIO
 import struct
 import threading
@@ -11,6 +12,8 @@ from PIL import Image
 from httpx import AsyncClient
 import pytest
 
+from app.core.config import settings
+from app.core.db.tenant_session import current_tenant_var
 from app.modules.catalog.maps import sprites
 from app.modules.catalog.maps.models import MapIconAsset
 from app.modules.catalog.maps.sprites import (
@@ -629,3 +632,67 @@ async def test_icon_upload_route_rejects_oversized_dimensions(
 
     assert resp.status_code == 400
     assert "dimensions" in resp.json()["detail"]
+
+
+# fix(#1621): the icon catalog is deployment-global, so the icon BYTES have to
+# be too. catalog.map_icon_assets carries no tenant_id and no RLS policy, and
+# every tenant's anonymous sprite request loads the same rows, so routing the
+# keys through resolve_current_storage_key (the way maps/thumbnails/ and
+# maps/og-images/ are routed) would write each icon under its uploader's prefix
+# where no other tenant could read it. The next cold sprite build for any other
+# tenant would then raise FileNotFoundError and 500 an unauthenticated route.
+# These pin the global key so that change fails here instead of in production.
+TENANT_ICONS = "00000000-0000-0000-0000-000000001621"
+
+
+@contextmanager
+def _tenant_mode(monkeypatch, mode: str, tenant_id: str | None):
+    monkeypatch.setattr(settings, "geolens_tenancy_mode", mode)
+    token = current_tenant_var.set(tenant_id)
+    try:
+        yield
+    finally:
+        current_tenant_var.reset(token)
+
+
+@pytest.mark.anyio
+async def test_icon_storage_keys_stay_global_under_tenant_context(monkeypatch):
+    """Upload, single read, and sheet build all use the unprefixed key.
+
+    Staging the bytes at the global key and nowhere else is what makes the read
+    assertions bite: a tenant-resolved lookup would ask FakeStorage for
+    tenants/<id>/maps/icons/... and raise instead of returning the icon.
+    """
+    storage = FakeStorage()
+    monkeypatch.setattr("app.modules.catalog.maps.sprites.get_storage", lambda: storage)
+    session = FakeSession()
+
+    with _tenant_mode(monkeypatch, "multi_tenant", TENANT_ICONS):
+        asset = await create_icon_asset(
+            session,
+            filename="Bus.svg",
+            content_type="image/svg+xml",
+            content=b"<svg></svg>",
+            created_by=uuid.uuid4(),
+        )
+
+        assert asset.storage_key == f"maps/icons/{asset.id}.svg"
+        assert list(storage.objects) == [asset.storage_key]
+
+        content, media_type = await get_icon_content(session, str(asset.id))
+        assert b"<svg" in content
+        assert media_type == "image/svg+xml"
+
+        png = await build_sprite_png(session)
+        assert png.startswith(b"\x89PNG\r\n\x1a\n")
+
+
+def test_map_icon_assets_has_no_tenant_column():
+    """The schema fact the global storage key depends on.
+
+    If a tenant_id column ever lands on this table, the icon catalog stops
+    being fleet-wide and the storage keys can (and should) move under
+    tenants/<id>/ with it. Revisit the comment in create_icon_asset and the
+    RUNBOOK prefix inventory at the same time.
+    """
+    assert "tenant_id" not in MapIconAsset.__table__.columns
