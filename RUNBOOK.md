@@ -1287,15 +1287,20 @@ What changes:
 
   ```bash
   # Where objects are namespaced per tenant, every prefix below sits under
-  # tenants/<tenant-id>/ — except maps/icons/, which is written at the bucket
-  # root in every mode.
+  # tenants/<tenant-id>/. maps/icons/ is the deliberate exception and is
+  # written at the bucket root in every mode: the icon catalog
+  # (catalog.map_icon_assets) has no tenant_id and no RLS policy, so one set
+  # of icons serves every tenant and one copy of the bytes has to be readable
+  # from every tenant's request. Back it up once, restore it once (#1621).
   PREFIX=rasters/<dataset-id>/     # from the catalog row you restored
   # Repeat for every prefix the restored database still references — the
   # managed layout, in full:
   #   rasters/<dataset-id>/      managed COGs and VRT artifacts
   #   originals/<dataset-id>/    archived source uploads
   #   vectors/<dataset-id>/      vector quicklooks
-  #   maps/thumbnails/ maps/og-images/ maps/icons/   map assets
+  #   maps/thumbnails/ maps/og-images/   per-map images
+  #   maps/icons/                bucket-root icon catalog, never under
+  #                                tenants/ (see the note above)
   #   staging/                   in-flight uploads. Promote the keys from
   #                                SELECT tenant_id, file_path
   #                                FROM catalog.ingest_jobs

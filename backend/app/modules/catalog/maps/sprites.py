@@ -309,6 +309,23 @@ async def create_icon_asset(
     icon_id = uuid.uuid4()
     extension = SUPPORTED_MEDIA_TYPES[media_type]
     slug = f"{base_slug}-{str(icon_id)[:8]}"
+    # fix(#1621): this key is DELIBERATELY global. It stays outside the
+    # tenants/<id>/ prefix that maps/thumbnails/ and maps/og-images/ resolve
+    # into through resolve_current_storage_key, because the bytes have to
+    # follow the rows and the rows are fleet-wide: catalog.map_icon_assets
+    # carries no tenant_id, has no RLS policy, appears in no tenant-adoption
+    # SQL, and its slug uniqueness is deployment-global (models.py). Every
+    # tenant's anonymous sprite request loads that one catalog, and the sheet
+    # cache is process-global to match.
+    #
+    # Resolving this key per tenant writes an icon under the uploader's prefix
+    # that no other tenant can read, so the next cold sprite build for any
+    # other tenant raises FileNotFoundError and 500s an unauthenticated route.
+    # Making icons per-tenant means moving the ROWS first: tenant_id, an RLS
+    # policy, per-tenant slug uniqueness, and a per-tenant sheet cache. Until
+    # that happens the bytes belong at the bucket root, and
+    # test_map_sprites.py::test_icon_storage_keys_stay_global_under_tenant_context
+    # fails if anyone reroutes them.
     storage_key = f"maps/icons/{icon_id}{extension}"
     # Persist the sanitized form so the bytes on disk match what validation
     # accepted (SEC-09). For PNG this is the original bytes unchanged.
