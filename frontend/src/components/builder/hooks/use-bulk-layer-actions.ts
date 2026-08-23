@@ -284,7 +284,7 @@ export function useBulkLayerActions({
     setHasUnsavedChanges(true);
 
     // STATE-03: delegate the per-layer live-map sync to the SAME shared
-    // side-effect handleOpacityChange uses, so getCompoundOpacity wrapping and
+    // side-effect handleOpacityChange uses, so applyMasterOpacity split and
     // the dedicated cluster branch cannot diverge between single and bulk. The
     // single setLocalLayers write above owns React state; this only repaints.
     const map = mapInstanceRef.current;

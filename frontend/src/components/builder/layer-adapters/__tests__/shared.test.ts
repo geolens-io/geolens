@@ -8,6 +8,9 @@ import {
   classifyGeometry,
   getLayerType,
   normalizeRasterBounds,
+  applyMasterOpacity,
+  getExpressionSafeOpacity,
+  getFeatureOpacity,
 } from '../shared';
 import type { LayoutPropertyName, PaintPropertyName } from '../shared';
 import type { FilterSpecification } from 'maplibre-gl';
@@ -418,5 +421,66 @@ describe('syncOwnedLayoutProperties', () => {
 
     expect(map.setLayoutProperty).toHaveBeenCalledTimes(1);
     expect(map.setLayoutProperty).toHaveBeenCalledWith('L', 'visibility', 'none');
+  });
+});
+
+// fix(#1625): the single branch point for the master-opacity split.
+describe('applyMasterOpacity (#1625)', () => {
+  const expr = ['step', ['zoom'], 0.2, 9, 0.7];
+
+  it('fill: writes the per-feature fill-opacity unmultiplied and the master on fill-layer-opacity', () => {
+    const map = { setPaintProperty: vi.fn() };
+    applyMasterOpacity(map, 'L', { 'fill-opacity': 0.3 }, 'fill', 0.5);
+    expect(map.setPaintProperty.mock.calls).toEqual([
+      ['L', 'fill-opacity', 0.3],
+      ['L', 'fill-layer-opacity', 0.5],
+    ]);
+  });
+
+  it('line: an expression per-feature opacity passes through untouched', () => {
+    const map = { setPaintProperty: vi.fn() };
+    applyMasterOpacity(map, 'L', { 'line-opacity': expr }, 'line', 0.5);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-opacity', expr);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'line-layer-opacity', 0.5);
+  });
+
+  it('fill: master 1 still writes fill-layer-opacity 1 so a previous lower value is reset', () => {
+    const map = { setPaintProperty: vi.fn() };
+    applyMasterOpacity(map, 'L', {}, 'fill', 1);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'fill-opacity', 0.3);
+    expect(map.setPaintProperty).toHaveBeenCalledWith('L', 'fill-layer-opacity', 1);
+  });
+
+  it('circle: no -layer-opacity exists, so the master is multiplied into circle-opacity', () => {
+    const map = { setPaintProperty: vi.fn() };
+    applyMasterOpacity(map, 'L', { 'circle-opacity': 0.8 }, 'circle', 0.5);
+    expect(map.setPaintProperty.mock.calls).toEqual([['L', 'circle-opacity', 0.4]]);
+  });
+
+  it('circle: an expression per-feature opacity is wrapped in ["*", expr, master]', () => {
+    const map = { setPaintProperty: vi.fn() };
+    applyMasterOpacity(map, 'L', { 'circle-opacity': expr }, 'circle', 0.5);
+    expect(map.setPaintProperty.mock.calls).toEqual([['L', 'circle-opacity', ['*', expr, 0.5]]]);
+  });
+});
+
+describe('getFeatureOpacity / getExpressionSafeOpacity', () => {
+  it('getFeatureOpacity returns the stored number, the stored expression, or the builder default', () => {
+    const expr = ['step', ['zoom'], 0.2, 9, 0.7];
+    expect(getFeatureOpacity({ 'fill-opacity': 0.45 }, 'fill')).toBe(0.45);
+    expect(getFeatureOpacity({ 'fill-opacity': expr }, 'fill')).toBe(expr);
+    expect(getFeatureOpacity({}, 'fill')).toBe(0.3);
+    expect(getFeatureOpacity({}, 'line')).toBe(1);
+    expect(getFeatureOpacity({}, 'circle')).toBe(1);
+    // A wrong-typed scalar counts as absent.
+    expect(getFeatureOpacity({ 'fill-opacity': '0.5' }, 'fill')).toBe(0.3);
+  });
+
+  it('getExpressionSafeOpacity multiplies a number and wraps an expression (skipping the wrap at master 1)', () => {
+    const expr = ['step', ['zoom'], 0.2, 9, 0.7];
+    expect(getExpressionSafeOpacity({ 'circle-opacity': 0.8 }, 'circle', 0.5)).toBeCloseTo(0.4);
+    expect(getExpressionSafeOpacity({ 'circle-opacity': expr }, 'circle', 0.5)).toEqual(['*', expr, 0.5]);
+    expect(getExpressionSafeOpacity({ 'circle-opacity': expr }, 'circle', 1)).toBe(expr);
+    expect(getExpressionSafeOpacity({}, 'fill', 0.5)).toBeCloseTo(0.15);
   });
 });

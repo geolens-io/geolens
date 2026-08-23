@@ -51,7 +51,7 @@ export {
   getLayerType,
   resolveAdapterType,
   simplifyPaint,
-  getCompoundOpacity,
+  applyMasterOpacity,
   getExpressionSafeOpacity,
   stripCustomProps,
   filterPaintForLayerType,

@@ -218,3 +218,28 @@ describe('mixed adapter — id contracts', () => {
     ]);
   });
 });
+
+// fix(#1625): the fill/line/outline sublayers get the v6 `-layer-opacity`
+// treatment; the point sublayer keeps the multiply (circle has no such key).
+describe('mixed adapter — master opacity per family sublayer (#1625)', () => {
+  function paintWrites(map: ReturnType<typeof createMockMap>, layerId: string, prop: string) {
+    return map.setPaintProperty.mock.calls
+      .filter(([id, name]) => id === layerId && name === prop)
+      .map(([, , value]) => value);
+  }
+  const paint = { 'fill-opacity': 0.3, 'line-opacity': 0.6, 'circle-opacity': 0.8 };
+
+  it('syncPaint: fill/lines/outline get <geom>-layer-opacity, per-feature stays unmultiplied, points multiply', () => {
+    const map = createMockMap({ layerExists: true });
+    mixedAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({ opacity: 0.5, paint }));
+
+    expect(paintWrites(map, 'layer-mixed-1', 'fill-layer-opacity')).toEqual([0.5]);
+    expect(paintWrites(map, 'layer-mixed-1', 'fill-opacity').at(-1)).toBe(0.3);
+    expect(paintWrites(map, mixedLinesLayerId('layer-mixed-1'), 'line-layer-opacity')).toEqual([0.5]);
+    expect(paintWrites(map, mixedLinesLayerId('layer-mixed-1'), 'line-opacity').at(-1)).toBe(0.6);
+    expect(paintWrites(map, 'layer-mixed-1-outline', 'line-layer-opacity')).toEqual([0.5]);
+    expect(paintWrites(map, 'layer-mixed-1-outline', 'line-opacity')).toEqual([]);
+    expect(paintWrites(map, mixedPointsLayerId('layer-mixed-1'), 'circle-opacity').at(-1)).toBeCloseTo(0.4);
+    expect(paintWrites(map, mixedPointsLayerId('layer-mixed-1'), 'circle-layer-opacity')).toEqual([]);
+  });
+});

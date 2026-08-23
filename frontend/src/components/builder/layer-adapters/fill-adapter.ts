@@ -4,7 +4,7 @@ import {
   simplifyPaint,
   filterPaintForLayerType,
   finalizeLayer,
-  getExpressionSafeOpacity,
+  applyMasterOpacity,
   getBuilderStyleConfig,
   syncLayerFilter,
   setLayerProperty,
@@ -27,7 +27,12 @@ export const FILL_OWNED_PAINT_PROPERTIES = [
   'fill-translate',
   'fill-translate-anchor',
 ] as const;
-export const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-opacity'] as const;
+// fix(#1625): the outline is a line layer with no per-feature opacity of its own, so
+// the master slider rides on `line-layer-opacity` here too — shared polygon edges
+// are drawn once per polygon and double-darkened under `line-opacity`. Registered
+// here because `syncOwnedPaintProperties` only reconciles keys in this set: an
+// unregistered key is written once by addLayers and never updated again.
+export const OUTLINE_OWNED_PAINT_PROPERTIES = ['line-color', 'line-width', 'line-layer-opacity'] as const;
 // builder-audit #338 SPEC-11: 3D extrusion authoring is a DELIBERATE single-purpose subset
 // (column height only). fill-extrusion-base is intentionally fixed to 0 and
 // fill-extrusion-pattern / -translate / -translate-anchor are intentionally NOT authored;
@@ -180,7 +185,7 @@ export const fillAdapter: LayerAdapter = {
         },
         ...(visible === false ? { layout: { visibility: 'none' as const } } : {}),
       });
-      map.setPaintProperty(outlineId, 'line-opacity', opacity ?? 1);
+      map.setPaintProperty(outlineId, 'line-layer-opacity', opacity ?? 1);
       // strokeDisabled hides the outline regardless of layer visibility.
       // When the layer is hidden we leave the outline hidden too (it cannot be
       // visible while its parent is none); when the layer is visible, we
@@ -226,7 +231,7 @@ export const fillAdapter: LayerAdapter = {
         geomType: 'fill',
         ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
       });
-      map.setPaintProperty(layerId, 'fill-opacity', getExpressionSafeOpacity(rawPaint, 'fill', opacity ?? 1));
+      applyMasterOpacity(map, layerId, rawPaint, 'fill', opacity ?? 1);
       syncLayerFilter(map, layerId, filter);
       const strokeDisabled = builder.strokeDisabled ?? !!rawPaint['_stroke-disabled'];
       const outlineColor = (builder.outlineColor ?? rawPaint['_outline-color'] ?? rawPaint['outline-color']) as string | undefined;
@@ -240,7 +245,7 @@ export const fillAdapter: LayerAdapter = {
       syncOwnedPaintProperties(map, outlineId, {
         'line-color': typeof outlineColor === 'string' ? outlineColor : MAP_COLORS.default.stroke,
         'line-width': typeof outlineWidth === 'number' ? outlineWidth : 1,
-        'line-opacity': opacity ?? 1,
+        'line-layer-opacity': opacity ?? 1,
       }, {
         geomType: 'line',
         ownedProperties: OUTLINE_OWNED_PAINT_PROPERTIES,

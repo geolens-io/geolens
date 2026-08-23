@@ -6,7 +6,7 @@ import {
   filterPaintForLayerType,
   finalizeLayer,
   getBuilderStyleConfig,
-  getExpressionSafeOpacity,
+  applyMasterOpacity,
   syncOwnedLayoutProperties,
   syncOwnedPaintProperties,
   syncSingleLayerVisibility,
@@ -263,7 +263,7 @@ function syncUnclusteredPointLayer(map: MaplibreMap, input: AdapterLayerInput) {
     geomType: 'circle',
     ownedProperties: CIRCLE_OWNED_PAINT_PROPERTIES,
   });
-  map.setPaintProperty(input.layerId, 'circle-opacity', getExpressionSafeOpacity(input.paint, 'circle', input.opacity ?? 1));
+  applyMasterOpacity(map, input.layerId, input.paint, 'circle', input.opacity ?? 1);
   map.setFilter(input.layerId, unclusteredFilter(input));
 }
 
