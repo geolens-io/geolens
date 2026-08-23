@@ -3,7 +3,7 @@
   "name": "io.github.geolens-io/geolens",
   "title": "GeoLens",
   "description": "Read-only access to a self-hosted GeoLens spatial catalog: datasets, features, maps, sandboxed SQL.",
-  "version": "1.14.2",
+  "version": "1.15.0",
   "websiteUrl": "https://docs.getgeolens.com/",
   "repository": {
     "url": "https://github.com/geolens-io/geolens",
@@ -14,7 +14,7 @@
     {
       "registryType": "pypi",
       "identifier": "geolens-mcp",
-      "version": "1.14.2",
+      "version": "1.15.0",
       "transport": {
         "type": "stdio"
       },

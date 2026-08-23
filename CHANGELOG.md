@@ -7,7 +7,30 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-08-23
+
+### Added
+
+- **The MCP server is published to the official MCP Registry.** Each release
+  now registers `geolens-mcp` in the community registry
+  (`io.github.geolens-io/geolens`) alongside the PyPI publish, so MCP clients
+  that browse the registry can find the GeoLens server without knowing the
+  package name (#1623).
+
 ### Changed
+
+- **The map engine is now maplibre-gl 6.5.0.** The frontend moved off the
+  5.x line, whose last release was 5.24.0, onto v6. The upgrade is
+  behaviour-preserving for saved maps: Mercator and terrain rendering are
+  pixel-identical to 5.24.0, and globe maps differ only within tile-timing
+  variance. Two internal migrations came with it. The tile worker is now
+  registered explicitly, since v6 ships it as a separate ESM file instead of
+  inlining it, and missing sprite images resolve through
+  `setMissingStyleImageResolver` rather than a notify-only event, which
+  removes the intermittently absent icon that the old listener could produce.
+  A new smoke test asserts that vector tiles are actually requested, a
+  property no existing test covered, so a dead tile worker can no longer pass
+  the suite (#1624).
 
 - **The layer opacity slider fades polygon and line layers as one surface.**
   A vector layer has two opacity controls: the Style Editor's per-feature
@@ -2494,7 +2517,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.14.2...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/geolens-io/geolens/compare/v1.14.2...v1.15.0
 [1.14.2]: https://github.com/geolens-io/geolens/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/geolens-io/geolens/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/geolens-io/geolens/compare/v1.13.1...v1.14.0
