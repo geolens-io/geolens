@@ -178,15 +178,22 @@ test.describe('Vector tile pipeline', () => {
     // assertion on the swap alone measures the basemap's traffic instead of the
     // dataset's. Zooming after the swap is what actually exercises "the worker
     // still serves THIS source once the style has changed underneath it."
+    // Zoom OUT, not in. fix(#1624): DatasetMap fits the dataset's extent, and a
+    // single-point dataset has a zero-area extent that fits at MAX zoom, which
+    // leaves the zoom-in control disabled — `.click()` then hangs on
+    // actionability until the test times out. CI's seeded fixture
+    // (e2e/fixtures/sample.geojson) is exactly one point, so zoom-in can never
+    // work there. Zooming out is available from any fitted extent and requests
+    // tiles at a new z either way.
+    //
     // Must be the NavigationControl button, NOT mouse.wheel: DatasetMap sets
     // `scrollZoom={isFullscreen}` (DatasetMap.tsx:936), so wheel zoom is off
-    // outside fullscreen and a wheel-based zoom silently does nothing, which
-    // makes this assertion fail for a reason that has nothing to do with tiles.
-    const zoomIn = page.getByRole('button', { name: /zoom in/i }).first();
-    await expect(zoomIn).toBeVisible({ timeout: 5000 });
-    await zoomIn.click();
+    // outside fullscreen and silently does nothing.
+    const zoomOut = page.getByRole('button', { name: /zoom out/i }).first();
+    await expect(zoomOut).toBeEnabled({ timeout: 5000 });
+    await zoomOut.click();
     await page.waitForTimeout(2000);
-    await zoomIn.click();
+    await zoomOut.click();
     await page.waitForTimeout(5000);
 
     expect(
