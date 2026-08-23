@@ -90,4 +90,30 @@ describe('fix(#1628): inline cell editor survives an unrelated re-render', () =>
     expect(afterRerender).toBe(editor);
     expect(afterRerender).toHaveValue('250');
   });
+
+  // fix(#458 E-03/E-39) says a rejected value stays in the box to be
+  // corrected. Setting editError re-rendered AttributeTable, which rebuilt
+  // `columns`, which remounted the editor — so the rejected text was replaced
+  // by the old value and only the message survived.
+  it('keeps a rejected value in the editor and marks the field invalid', async () => {
+    const user = userEvent.setup();
+    render(<AttributeTable datasetId="ds-1628" canEdit />);
+
+    await user.click(screen.getByRole('button', { name: '100' }));
+
+    const editor = screen.getByRole('textbox', { name: 'Edit population for feature 1' });
+    await user.clear(editor);
+    await user.type(editor, 'not-a-number');
+    await user.keyboard('{Enter}');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Not a valid integer value',
+    );
+    const afterReject = screen.getByRole('textbox', {
+      name: 'Edit population for feature 1',
+    });
+    expect(afterReject).toBe(editor);
+    expect(afterReject).toHaveValue('not-a-number');
+    expect(afterReject).toHaveAttribute('aria-invalid', 'true');
+  });
 });
