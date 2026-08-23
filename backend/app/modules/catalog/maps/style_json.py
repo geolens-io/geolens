@@ -19,6 +19,7 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.style_import import (
     DEFAULT_ARROW_BASE_SIZE,
+    FOLDED_OPACITY_KEYS,
     GEOLENS_SPRITE_ID,
     STYLE_VERSION,
     ImportedStyleMap,
@@ -940,6 +941,48 @@ def _color_relief_companion_layer(
     }
 
 
+def _fold_master_opacity(base: dict[str, Any], layer: MapLayerResponse) -> None:
+    """Apply ``layer.opacity`` to the primary fill/line layer's exported paint.
+
+    fix(#1626): the primary layer copied ``layer.paint`` through verbatim and never
+    applied the master opacity, while every companion (outline, extrusion, icon)
+    did — so a faded layer in the builder exported fully opaque.
+
+    fix(#1625) moved the live builder's master onto maplibre-gl v6's
+    ``fill-layer-opacity`` / ``line-layer-opacity``, but the export deliberately
+    does NOT emit those keys. An unknown paint property is a hard validation
+    error in every maplibre-gl before 6 (``validateProperty`` returns
+    ``unknown property`` as an error, ``emitValidationErrors`` has no severity
+    and reports any error, and ``Style._load`` returns before installing a
+    single source or layer — verified against the 5.24.0 build that shipped
+    until #1624), so a style.json carrying them would not load AT ALL on an
+    older consumer. The export therefore does what the pre-#1625 adapter did
+    and multiplies the master into the per-feature value: a number times the
+    master, an expression wrapped in ``["*", expr, master]``, and an absent or
+    wrong-typed value treated as the spec default of 1. The un-folded value is
+    kept in ``metadata.geolens.feature_opacity`` so the import side can undo
+    the fold and a GeoLens round trip does not apply the master twice.
+
+    The v6 default of 1 takes the untouched path: with ``layer.opacity`` at 1
+    the emitted paint stays bit-identical to before.
+    """
+    feature_key = FOLDED_OPACITY_KEYS.get(str(base.get("type")))
+    opacity = _finite_number(layer.opacity)
+    if feature_key is None or opacity is None or opacity >= 1:
+        return
+    paint = dict(base["paint"])
+    feature_opacity: Any = paint.get(feature_key)
+    if isinstance(feature_opacity, list):
+        paint[feature_key] = ["*", feature_opacity, opacity]
+    elif _finite_number(feature_opacity) is not None:
+        paint[feature_key] = feature_opacity * opacity
+    else:
+        feature_opacity = None
+        paint[feature_key] = opacity
+    base["paint"] = paint
+    base["metadata"]["geolens"]["feature_opacity"] = feature_opacity
+
+
 def _style_layer_for_map_layer(
     layer: MapLayerResponse,
     source_id: str,
@@ -1054,6 +1097,9 @@ def _style_layer_for_map_layer(
         relief = _color_relief_companion_layer(layer, source_id, layer_id)
         if relief is not None:
             below_companions.append(relief)
+    # After the fill branch above: it rewrites base["paint"] (outline colour,
+    # stash seeding) and the fold has to see the final per-feature value.
+    _fold_master_opacity(base, layer)
 
     if layer_type == "symbol":
         base["layout"] = _symbol_layout_from_style(
@@ -1118,6 +1164,13 @@ _PAINT_PROPERTIES_BY_TYPE: dict[str, frozenset[str]] = {
     "background": frozenset(
         {"background-color", "background-pattern", "background-opacity"}
     ),
+    # fix(#1625/#1626): `fill-layer-opacity` and `line-layer-opacity` are
+    # deliberately NOT listed. The export carries the master opacity by folding
+    # it into `*-opacity` (see `_fold_master_opacity` for why: the v6 keys abort
+    # the whole style load on maplibre-gl < 6), so a stored paint that happens to
+    # hold one (API-authored, or a v6 style pasted into the JSON editor) is
+    # stripped here instead of leaking into a document older consumers reject.
+    # Import maps the keys onto `layer.opacity` in `_restore_master_opacity`.
     "fill": frozenset(
         {
             "fill-antialias",

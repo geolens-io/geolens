@@ -2092,8 +2092,18 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # mostly the note recording that the write guard already keeps `<`/`>` out,
     # which leaves this escaping the ampersand and covering a value written
     # before that guard existed. Cap 1629 -> 1641, exact.
-    "backend/app/modules/catalog/maps/style_json.py": 1641,
-    "backend/app/modules/catalog/maps/style_import.py": 450,
+    # fix(#1626): +53 — `_fold_master_opacity` applies `layer.opacity` to the
+    # primary fill/line layer on export. Mostly its docstring: it records why the
+    # export multiplies instead of emitting the v6 `-layer-opacity` keys (they
+    # abort the style load on maplibre-gl < 6, verified against 5.24.0) and the
+    # metadata handshake that keeps a GeoLens round trip lossless. Plus the
+    # allowlist note saying the two keys are left out on purpose. Cap 1641 -> 1694.
+    "backend/app/modules/catalog/maps/style_json.py": 1694,
+    # fix(#1626): +43 — `_restore_master_opacity` undoes the export fold from
+    # `metadata.geolens.feature_opacity` and maps a v6 `-layer-opacity` key onto
+    # `layer.opacity` (number) or drops it with a warning (expression).
+    # Cap 450 -> 493.
+    "backend/app/modules/catalog/maps/style_import.py": 493,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 200,
     # fix(getgeolens.com#86 review): +6 — the icon-asset and sprite-index GETs
     # gained per-route `responses={403: FORBIDDEN_RESPONSE}` overrides; they

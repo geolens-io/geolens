@@ -1895,6 +1895,9 @@ def test_emitted_style_strips_wrong_typed_paint_values_spec_01():
     ``*-color``, is dropped on emit; valid scalars and expressions survive."""
     layer = _layer(
         dataset_geometry_type="POLYGON",
+        # opacity 1 keeps the #1626 fold out of this test: at 1 the primary
+        # paint is emitted untouched, so the type check alone decides.
+        opacity=1,
         paint={
             "fill-color": 123,  # number where a color string is required
             "fill-opacity": "0.5",  # string where a number is required (NaN risk)
@@ -1916,6 +1919,7 @@ def test_emitted_style_keeps_expression_opacity_spec_01():
     expr = ["interpolate", ["linear"], ["zoom"], 0, 0.2, 10, 0.9]
     layer = _layer(
         dataset_geometry_type="POLYGON",
+        opacity=1,  # at 1 the #1626 fold leaves the expression as stored
         paint={"fill-color": "#94a3b8", "fill-opacity": expr},
         label_config=None,
         filter=None,
@@ -2484,3 +2488,275 @@ def test_exported_source_attribution_neutralizes_stored_markup():
     source = next(iter(style["sources"].values()))
     assert "<" not in source["attribution"]
     assert ">" not in source["attribution"]
+
+
+# ---------------------------------------------------------------------------
+# fix(#1626): the primary fill/line layer applies layer.opacity on export.
+# fix(#1625): it does so by folding, never by emitting the v6 -layer-opacity
+# keys, which abort the whole style load on maplibre-gl < 6.
+# ---------------------------------------------------------------------------
+def _primary(style, layer_type):
+    return next(
+        e
+        for e in style["layers"]
+        if e["type"] == layer_type and "companion" not in e["metadata"]["geolens"]
+    )
+
+
+def test_export_folds_master_opacity_into_numeric_fill_opacity_1626():
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        opacity=0.5,
+        paint={"fill-color": "#94a3b8", "fill-opacity": 0.3},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = _primary(style, "fill")
+    assert fill["paint"]["fill-opacity"] == pytest.approx(0.15)
+    assert "fill-layer-opacity" not in fill["paint"]
+    # The un-folded per-feature value rides along for the import side.
+    assert fill["metadata"]["geolens"]["feature_opacity"] == 0.3
+    assert fill["metadata"]["geolens"]["opacity"] == 0.5
+    # The outline companion already carried the master before #1626.
+    outline = next(e for e in style["layers"] if e["id"].endswith("-outline"))
+    assert outline["paint"]["line-opacity"] == 0.5
+
+
+def test_export_folds_master_opacity_into_expression_fill_opacity_1626():
+    expr = ["interpolate", ["linear"], ["zoom"], 0, 0.2, 10, 0.9]
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        opacity=0.5,
+        paint={"fill-color": "#94a3b8", "fill-opacity": expr},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = _primary(style, "fill")
+    assert fill["paint"]["fill-opacity"] == ["*", expr, 0.5]
+    assert fill["metadata"]["geolens"]["feature_opacity"] == expr
+
+
+def test_export_emits_master_opacity_when_paint_has_no_fill_opacity_1626():
+    """No per-feature value means the spec default (1), so the master stands alone."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        opacity=0.5,
+        paint={"fill-color": "#94a3b8"},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = _primary(style, "fill")
+    assert fill["paint"]["fill-opacity"] == 0.5
+    assert fill["metadata"]["geolens"]["feature_opacity"] is None
+
+
+def test_export_treats_wrong_typed_fill_opacity_as_absent_when_folding_1626():
+    """A string opacity would be stripped by SPEC-01 anyway; the master must
+    survive that rather than vanish with it."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        opacity=0.5,
+        paint={"fill-color": "#94a3b8", "fill-opacity": "0.3"},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = _primary(style, "fill")
+    assert fill["paint"]["fill-opacity"] == 0.5
+    assert fill["metadata"]["geolens"]["feature_opacity"] is None
+
+
+def test_export_folds_master_opacity_into_line_opacity_1626():
+    layer = _layer(
+        dataset_geometry_type="LINESTRING",
+        opacity=0.25,
+        paint={"line-color": "#2255aa", "line-width": 3, "line-opacity": 0.8},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    line = _primary(style, "line")
+    assert line["paint"]["line-opacity"] == pytest.approx(0.2)
+    assert "line-layer-opacity" not in line["paint"]
+    assert line["metadata"]["geolens"]["feature_opacity"] == 0.8
+
+
+def test_export_leaves_primary_paint_untouched_at_master_opacity_one_1626():
+    """The v6 default of 1 takes the pre-existing path: bit-identical output."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        opacity=1,
+        paint={"fill-color": "#94a3b8", "fill-opacity": 0.3},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = _primary(style, "fill")
+    assert fill["paint"] == {"fill-color": "#94a3b8", "fill-opacity": 0.3}
+    assert "feature_opacity" not in fill["metadata"]["geolens"]
+
+
+def test_export_does_not_fold_circle_opacity_1626():
+    """Circle has no v6 -layer-opacity, and the live adapter still multiplies;
+    the export keeps the stored paint as-is for it (pre-existing behaviour)."""
+    layer = _layer(
+        dataset_geometry_type="POINT",
+        opacity=0.5,
+        paint={"circle-color": "#2255aa", "circle-radius": 6, "circle-opacity": 0.8},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    circle = _primary(style, "circle")
+    assert circle["paint"]["circle-opacity"] == 0.8
+    assert "feature_opacity" not in circle["metadata"]["geolens"]
+
+
+def test_export_strips_a_stored_v6_layer_opacity_key_1625():
+    """A stored `fill-layer-opacity` (API-authored, or pasted from a v6 style)
+    must not leak into the document: maplibre-gl < 6 refuses to load it."""
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        opacity=1,
+        paint={"fill-color": "#94a3b8", "fill-layer-opacity": 0.5},
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    fill = _primary(style, "fill")
+    assert "fill-layer-opacity" not in fill["paint"]
+
+
+@pytest.mark.parametrize(
+    ("geometry", "paint"),
+    [
+        ("POLYGON", {"fill-color": "#94a3b8", "fill-opacity": 0.3}),
+        (
+            "POLYGON",
+            {
+                "fill-color": "#94a3b8",
+                "fill-opacity": ["interpolate", ["linear"], ["zoom"], 0, 0.2, 10, 0.9],
+            },
+        ),
+        ("POLYGON", {"fill-color": "#94a3b8"}),
+        ("LINESTRING", {"line-color": "#2255aa", "line-width": 3, "line-opacity": 0.8}),
+    ],
+)
+def test_import_undoes_the_export_fold_so_a_round_trip_keeps_both_tiers_1626(
+    geometry, paint
+):
+    """build -> parse must give back the stored per-feature paint AND the master
+    opacity, not the product of the two (which the builder would then apply the
+    master to again)."""
+    dataset_id = uuid.uuid4()
+    layer = _layer(
+        dataset_id=dataset_id,
+        dataset_geometry_type=geometry,
+        opacity=0.5,
+        paint=paint,
+        label_config=None,
+        filter=None,
+        style_config=None,
+    )
+    style = build_maplibre_style(_map(), [layer])
+    imported = parse_maplibre_style_import(style)
+    assert imported.summary.layers_imported == 1
+    restored = imported.layers[0]
+    assert restored.opacity == 0.5
+    assert restored.paint == paint
+
+
+def test_import_maps_a_v6_layer_opacity_key_onto_the_master_opacity_1625():
+    """A style authored for maplibre-gl v6 carries the master on
+    `fill-layer-opacity`; it becomes `layer.opacity` and leaves paint."""
+    dataset_id = uuid.uuid4()
+    style = build_maplibre_style(
+        _map(),
+        [
+            _layer(
+                dataset_id=dataset_id,
+                dataset_geometry_type="POLYGON",
+                opacity=1,
+                paint={"fill-color": "#94a3b8", "fill-opacity": 0.3},
+                label_config=None,
+                filter=None,
+                style_config=None,
+            )
+        ],
+    )
+    primary = _primary(style, "fill")
+    primary["paint"]["fill-layer-opacity"] = 0.4
+    imported = parse_maplibre_style_import(style)
+    restored = imported.layers[0]
+    assert restored.opacity == pytest.approx(0.4)
+    assert restored.paint == {"fill-color": "#94a3b8", "fill-opacity": 0.3}
+    assert not imported.summary.warnings
+
+
+def test_import_composes_v6_layer_opacity_with_the_metadata_master_1625():
+    dataset_id = uuid.uuid4()
+    style = build_maplibre_style(
+        _map(),
+        [
+            _layer(
+                dataset_id=dataset_id,
+                dataset_geometry_type="LINESTRING",
+                opacity=0.5,
+                paint={"line-color": "#2255aa", "line-opacity": 0.8},
+                label_config=None,
+                filter=None,
+                style_config=None,
+            )
+        ],
+    )
+    primary = _primary(style, "line")
+    primary["paint"]["line-layer-opacity"] = 0.5
+    restored = parse_maplibre_style_import(style).layers[0]
+    assert restored.opacity == pytest.approx(0.25)
+    assert restored.paint == {"line-color": "#2255aa", "line-opacity": 0.8}
+
+
+def test_import_drops_an_expression_layer_opacity_with_a_warning_1625():
+    """`layer.opacity` is a scalar column; a zoom-driven layer opacity has no home."""
+    dataset_id = uuid.uuid4()
+    style = build_maplibre_style(
+        _map(),
+        [
+            _layer(
+                dataset_id=dataset_id,
+                dataset_geometry_type="POLYGON",
+                opacity=1,
+                paint={"fill-color": "#94a3b8"},
+                label_config=None,
+                filter=None,
+                style_config=None,
+            )
+        ],
+    )
+    primary = _primary(style, "fill")
+    primary["paint"]["fill-layer-opacity"] = [
+        "interpolate",
+        ["linear"],
+        ["zoom"],
+        0,
+        0.2,
+        10,
+        1,
+    ]
+    imported = parse_maplibre_style_import(style)
+    restored = imported.layers[0]
+    assert restored.opacity == 1
+    assert "fill-layer-opacity" not in restored.paint
+    assert [w.code for w in imported.summary.warnings] == ["unsupported_layer_opacity"]
+    assert imported.summary.warnings[0].layer_id == primary["id"]

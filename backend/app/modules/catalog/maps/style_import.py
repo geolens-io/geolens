@@ -15,6 +15,7 @@ from app.modules.catalog.maps.schemas import (
     TerrainConfig,
 )
 from app.modules.catalog.maps.style_sanitizers import (
+    clamp_number,
     clean_basemap_config,
     clean_label_metadata,
     clean_layout,
@@ -26,6 +27,11 @@ from app.modules.catalog.maps.style_sanitizers import (
 STYLE_VERSION = 8
 GEOLENS_SPRITE_ID = "geolens"
 DEFAULT_ARROW_BASE_SIZE = 14
+# fix(#1626): the primary layer types whose master `layer.opacity` is folded into
+# a per-feature paint key on export, and that key. Only fill and line: they are
+# the two types maplibre-gl v6 gave a `-layer-opacity` to, so they are the two
+# whose export has to stand in for it (see `_fold_master_opacity` in style_json).
+FOLDED_OPACITY_KEYS: dict[str, str] = {"fill": "fill-opacity", "line": "line-opacity"}
 
 
 @dataclass
@@ -259,6 +265,57 @@ _BUILDER_COMPANION_PARSERS = {
 }
 
 
+def _restore_master_opacity(
+    style_layer: dict[str, Any],
+    geolens: dict[str, Any],
+    paint: dict[str, Any],
+    summary: MapStyleImportSummary,
+) -> float:
+    """Recover ``layer.opacity`` for an imported primary layer, un-folding ``paint``.
+
+    fix(#1626): export folds the master opacity into the primary fill/line layer's
+    ``*-opacity`` (a v6 ``*-layer-opacity`` key fails validation and aborts the
+    whole style load on maplibre-gl < 6) and keeps the un-folded per-feature value
+    in ``metadata.geolens.feature_opacity`` — ``null`` when the stored paint had
+    none. Put that back so a GeoLens round trip does not apply the master twice.
+
+    fix(#1625): a style authored for v6 may carry ``fill-layer-opacity`` /
+    ``line-layer-opacity`` instead. A number maps onto the master column,
+    composed with any metadata opacity; an expression has no scalar home and is
+    dropped with a warning rather than stored as paint the builder would ignore.
+    """
+    opacity = float(geolens.get("opacity", 1) or 1)
+    layer_type = style_layer.get("type")
+    feature_key = FOLDED_OPACITY_KEYS.get(str(layer_type))
+    if feature_key is None:
+        return opacity
+    if "feature_opacity" in geolens:
+        feature_opacity = geolens["feature_opacity"]
+        if feature_opacity is None:
+            paint.pop(feature_key, None)
+        else:
+            paint[feature_key] = feature_opacity
+    layer_opacity = paint.pop(f"{layer_type}-layer-opacity", None)
+    if layer_opacity is not None:
+        number = finite_number(layer_opacity)
+        if number is None:
+            summary.warnings.append(
+                MapStyleImportWarning(
+                    code="unsupported_layer_opacity",
+                    message=(
+                        f"{layer_type}-layer-opacity must be a number to become "
+                        "the layer opacity; an expression was dropped."
+                    ),
+                    layer_id=str(style_layer.get("id"))
+                    if style_layer.get("id")
+                    else None,
+                )
+            )
+        else:
+            opacity *= number
+    return clamp_number(opacity, 0.0, 1.0)
+
+
 def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
     style: dict[str, Any],
 ) -> ImportedStyleMap:
@@ -352,6 +409,12 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
                 style_config["builder"] = builder
             if not style_config:
                 style_config = None
+        paint = clean_paint(
+            style_layer.get("paint")
+            if isinstance(style_layer.get("paint"), dict)
+            else {}
+        )
+        opacity = _restore_master_opacity(style_layer, geolens, paint, summary)
         imported_layers.append(
             MapLayerInput(
                 dataset_id=dataset_id,
@@ -359,12 +422,8 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
                 visible=((style_layer.get("layout") or {}).get("visibility") != "none")
                 if isinstance(style_layer.get("layout"), dict)
                 else True,
-                opacity=float(geolens.get("opacity", 1) or 1),
-                paint=clean_paint(
-                    style_layer.get("paint")
-                    if isinstance(style_layer.get("paint"), dict)
-                    else {}
-                ),
+                opacity=opacity,
+                paint=paint,
                 layout=clean_layout(
                     style_layer.get("layout")
                     if isinstance(style_layer.get("layout"), dict)
