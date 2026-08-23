@@ -247,6 +247,18 @@ describe('FeaturePopup', () => {
     expect(cells[3]).toHaveTextContent('1');
   });
 
+  it('fix(#1627): renders an object-valued property as its JSON text, not [object Object]', () => {
+    const features: FeatureInfo[] = [
+      makeFeature({
+        properties: { metadata: { source: 'survey', accuracy: 5 } },
+        visibleFields: ['metadata'],
+      }),
+    ];
+    render(<FeaturePopup longitude={0} latitude={0} features={features} onClose={vi.fn()} />);
+    expect(screen.getByText('{"source":"survey","accuracy":5}')).toBeInTheDocument();
+    expect(screen.queryByText('[object Object]')).not.toBeInTheDocument();
+  });
+
   it('clamps activeIndex when features.length shrinks below the active page', () => {
     const features: FeatureInfo[] = [
       makeFeature({ properties: { name: 'A' } }),

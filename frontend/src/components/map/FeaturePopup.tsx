@@ -7,6 +7,7 @@ import { ChevronLeft, ChevronRight, Copy, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { truncateGraphemes } from '@/lib/text';
 import { splitTextWithUrls, classifyUrl } from '@/lib/popup-rich-text';
+import { formatFeaturePropertyValue } from '@/lib/feature-property-value';
 
 export interface FeatureInfo {
   properties: Record<string, unknown>;
@@ -106,17 +107,13 @@ export function FeaturePopup({
   const feature = features[activeIndex] ?? features[0];
 
   const formatValue = useCallback(
-    (value: unknown): string => {
-      if (value === null || value === undefined) return '--';
-      if (typeof value === 'boolean')
-        return value ? t('featurePopup.booleanTrue') : t('featurePopup.booleanFalse');
-      if (typeof value === 'number') {
-        return Number.isInteger(value)
-          ? value.toLocaleString(i18n.language)
-          : value.toLocaleString(i18n.language, { maximumFractionDigits: 4 });
-      }
-      return String(value);
-    },
+    (value: unknown): string =>
+      formatFeaturePropertyValue(
+        value,
+        i18n.language,
+        t('featurePopup.booleanTrue'),
+        t('featurePopup.booleanFalse'),
+      ) ?? '--',
     [t],
   );
 
