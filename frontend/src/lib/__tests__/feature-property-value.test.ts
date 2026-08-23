@@ -12,9 +12,17 @@ describe('formatFeaturePropertyValue', () => {
     expect(formatFeaturePropertyValue(false, 'en', 'Yes', 'No')).toBe('No');
   });
 
-  it('formats integers without decimals and floats to 4 fraction digits', () => {
+  it('formats integers without decimals and floats to 4 fraction digits by default', () => {
     expect(formatFeaturePropertyValue(1234, 'en', 'True', 'False')).toBe('1,234');
     expect(formatFeaturePropertyValue(1.23456789, 'en', 'True', 'False')).toBe('1.2346');
+  });
+
+  it('fix(#1629 codex): a caller-supplied maxFractionDigits overrides the 4-digit default', () => {
+    // The data panel renders raw feature coordinates and needs 5 digits;
+    // the popup relies on the default. Both must be reachable through the
+    // same shared function.
+    expect(formatFeaturePropertyValue(1.234567, 'en', 'True', 'False', 5)).toBe('1.23457');
+    expect(formatFeaturePropertyValue(1.234567, 'en', 'True', 'False')).toBe('1.2346');
   });
 
   it('fix(#1627): renders a plain object as its JSON text, not [object Object]', () => {
