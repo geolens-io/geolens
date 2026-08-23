@@ -103,10 +103,16 @@ function InlineCellEditor({
   const [value, setValue] = useState(initialValue);
   const errorId = useId();
 
+  // fix(#1628): keyed on isSaving, not []. The saving branch below swaps the
+  // input out for a spinner, and a save that fails leaves the editor open —
+  // before #1628 the editor was remounted wholesale on every render, so this
+  // effect happened to re-run and put the caret back. It no longer remounts,
+  // so re-focus explicitly when the input comes back.
   useEffect(() => {
+    if (isSaving) return;
     inputRef.current?.focus();
     inputRef.current?.select();
-  }, []);
+  }, [isSaving]);
 
   // fix(#458 E-35): an unchanged value is a cancel, not a save — blur used to
   // commit a no-op PATCH that bumped updated_at, rolled the tile version, and
@@ -167,8 +173,6 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
   const [cursorHistory, setCursorHistory] = useState<number[]>([0]);
   const [editingCell, setEditingCell] = useState<EditingCell | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
-  const editingCellRef = useRef<EditingCell | null>(null);
-  editingCellRef.current = editingCell;
   // Scroll container ref used by the row virtualizer (PERF-07).
   const parentRef = useRef<HTMLDivElement>(null);
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
@@ -246,6 +250,38 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
     }
   }, [datasetId, updateFeature, t]);
 
+  // fix(#1628): everything the cell renderer needs that changes from render to
+  // render, read through one ref so `columns` below never has to list it.
+  //
+  // TanStack's `<table.FlexRender cell={cell} />` renders `columnDef.cell` as
+  // the React component TYPE (`React.createElement(def.cell, ctx)`), so a new
+  // `columns` array is a new element type at every cell position and React
+  // unmounts and remounts the whole cell subtree instead of re-rendering it.
+  // That resets InlineCellEditor's `value` state back to the stored cell value.
+  // `columns` used to depend on `handleCellSave`, whose own dep list carries
+  // the object react-query's useMutation returns — and that is rebuilt on
+  // EVERY render (`return { ...result, mutate, mutateAsync: result.mutate }`,
+  // react-query 5.101 useMutation.ts). So any re-render at all, from anywhere
+  // in the page, silently threw away what the user had typed into an open
+  // cell editor. Enter then hit commit()'s value === initialValue branch: no
+  // PATCH, no validation message, editor just closes. That is the #1628 e2e
+  // flake, and the same reset also defeated the "keep the editor open so the
+  // value can be corrected" behaviour of E-03/E-21 for real users.
+  //
+  // Reading state from a ref during render is the pattern this component
+  // already used for `editingCell`: the ref is written in this render pass,
+  // before FlexRender renders the cells that read it.
+  const cellRenderState = {
+    editingCell,
+    editError,
+    isSaving: updateFeature.isPending,
+    canEdit,
+    compact,
+    onSave: handleCellSave,
+  };
+  const cellRenderRef = useRef(cellRenderState);
+  cellRenderRef.current = cellRenderState;
+
   const handleNextPage = useCallback(() => {
     if (data?.next_cursor != null) {
       setCursorHistory((prev) => [...prev, data.next_cursor!]);
@@ -268,9 +304,16 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
       accessorKey: col.name,
       header: `${col.name} (${col.type})`,
       cell: (info) => {
+        const {
+          editingCell: currentEdit,
+          editError: cellError,
+          isSaving,
+          canEdit: cellsEditable,
+          compact: isCompact,
+          onSave,
+        } = cellRenderRef.current;
         const rowData = info.row.original;
         const gid = rowData.gid as number;
-        const currentEdit = editingCellRef.current;
         const isEditing =
           currentEdit?.rowGid === gid && currentEdit?.column === col.name;
 
@@ -284,21 +327,21 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
                 defaultValue: 'Edit {{column}} for feature {{gid}}',
               })}
               colType={col.type}
-              error={editError}
-              onSave={(val) => handleCellSave(gid, col.name, col.type, val)}
+              error={cellError}
+              onSave={(val) => onSave(gid, col.name, col.type, val)}
               onCancel={() => {
                 setEditError(null);
                 setEditingCell(null);
               }}
-              isSaving={updateFeature.isPending}
-              compact={compact}
+              isSaving={isSaving}
+              compact={isCompact}
             />
           );
         }
 
         const cellValue = String(info.getValue() ?? '');
 
-        if (canEdit && !NON_EDITABLE_COLUMNS.has(col.name)) {
+        if (cellsEditable && !NON_EDITABLE_COLUMNS.has(col.name)) {
           return (
             <button
               type="button"
@@ -327,7 +370,13 @@ export function AttributeTable({ datasetId, canEdit = false, compact = false }: 
         return cellValue;
       },
     }));
-  }, [data?.columns, canEdit, compact, handleCellSave, updateFeature.isPending, editError, t]);
+    // fix(#1628): the column list and `t` ONLY. Every other input the renderer
+    // needs comes from cellRenderRef, because adding any of them back here
+    // remounts every cell — and with it any open editor — whenever they change.
+    // `t` is safe to keep: react-i18next caches its useSyncExternalStore
+    // snapshot and only hands back a new `t` on a language change, which is a
+    // legitimate reason to rebuild the columns.
+  }, [data?.columns, t]);
 
   const table = useTable(
     {

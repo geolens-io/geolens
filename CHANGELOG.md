@@ -41,6 +41,17 @@ and releases use semantic versioning.
   text. Both components now call one shared formatter, so an object or array
   property renders the same way in either place (#1627).
 
+- **Editing an attribute cell no longer loses what you typed.** The dataset
+  Data tab rebuilt its column definitions on every render, and because
+  TanStack Table renders a column's `cell` function as a React component type,
+  that rebuild remounted every cell instead of re-rendering it. An open cell
+  editor was reset to the stored value, so a save started from a re-render —
+  the map above finishing its load, a background query settling — wrote
+  nothing and showed nothing: no update, no rejection message, the editor just
+  closed. Column definitions are now stable, so an in-progress edit survives
+  unrelated renders, and a value the backend or the type check rejects stays
+  in the box to be corrected (#1628).
+
 ## [1.14.2] - 2026-08-21
 
 ### Added

@@ -138,6 +138,12 @@ test.describe('Feature editing round-trips', () => {
     const input = page.locator('tbody input');
     await expect(input).toBeVisible();
     await input.fill(nextValue);
+    // fix(#1628): assert the editor is actually holding the new value before
+    // committing. When a re-render used to remount the cell it silently reset
+    // the input to the stored value, and Enter then took the unchanged-value
+    // branch — no PATCH, no toast. The failure surfaced 10s later as "Cell
+    // updated never appeared", which named the wrong thing.
+    await expect(input).toHaveValue(nextValue);
     await input.press('Enter');
     await expect(page.getByText('Cell updated').first()).toBeVisible({
       timeout: 10_000,
@@ -175,6 +181,9 @@ test.describe('Feature editing round-trips', () => {
     await cell.click();
     const input = page.locator('tbody input');
     await input.fill('not-a-number');
+    // fix(#1628): same precondition as editCell — a reset editor would make
+    // Enter a no-op cancel and the rejection message would never be reached.
+    await expect(input).toHaveValue('not-a-number');
     await input.press('Enter');
     await expect(page.getByText(/not a valid/i).first()).toBeVisible({
       timeout: 10_000,
