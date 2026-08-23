@@ -81,3 +81,36 @@ describe('circle adapter — getLayerIds returns [layerId]', () => {
     expect(ids).toEqual(['circle-xyz']);
   });
 });
+
+// fix(#1625): circle has no `-layer-opacity` in maplibre-gl v6, so the circle
+// adapter keeps multiplying the master into the per-feature value. This pins the
+// ceiling named at the branch point in shared.ts `applyMasterOpacity`.
+describe('circle adapter — still multiplies master into circle-opacity (#1625 ceiling)', () => {
+  function paintWrites(map: ReturnType<typeof createMockMap>, prop: string) {
+    return map.setPaintProperty.mock.calls
+      .filter(([id, name]) => id === 'layer-circle-1' && name === prop)
+      .map(([, , value]) => value);
+  }
+
+  it('addLayers: circle-opacity 0.8 + master 0.5 -> circle-opacity 0.4 and no circle-layer-opacity write', () => {
+    const map = createMockMap({ layerExists: true });
+    circleAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({
+      opacity: 0.5,
+      paint: { 'circle-color': '#ff0000', 'circle-radius': 4, 'circle-opacity': 0.8 },
+    }));
+
+    expect(paintWrites(map, 'circle-opacity').at(-1)).toBeCloseTo(0.4);
+    expect(paintWrites(map, 'circle-layer-opacity')).toEqual([]);
+  });
+
+  it('syncPaint: the same multiply on edit', () => {
+    const map = createMockMap({ layerExists: true });
+    circleAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({
+      opacity: 0.5,
+      paint: { 'circle-color': '#ff0000', 'circle-radius': 4, 'circle-opacity': 0.8 },
+    }));
+
+    expect(paintWrites(map, 'circle-opacity').at(-1)).toBeCloseTo(0.4);
+    expect(paintWrites(map, 'circle-layer-opacity')).toEqual([]);
+  });
+});

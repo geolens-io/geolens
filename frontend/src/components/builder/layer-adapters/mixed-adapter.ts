@@ -6,7 +6,7 @@ import {
   filterPaintForLayerType,
   finalizeLayer,
   getBuilderStyleConfig,
-  getExpressionSafeOpacity,
+  applyMasterOpacity,
   syncOwnedLayoutProperties,
   syncOwnedPaintProperties,
   syncSingleLayerVisibility,
@@ -122,7 +122,7 @@ function mixedOutlinePaint(input: AdapterLayerInput): Record<string, unknown> {
   return {
     'line-color': MAP_COLORS.default.stroke,
     'line-width': 1,
-    'line-opacity': input.opacity ?? 1,
+    'line-layer-opacity': input.opacity ?? 1,
   };
 }
 
@@ -223,7 +223,7 @@ function syncFillLayer(map: MaplibreMap, input: AdapterLayerInput) {
     geomType: 'fill',
     ownedProperties: FILL_OWNED_PAINT_PROPERTIES,
   });
-  map.setPaintProperty(input.layerId, 'fill-opacity', getExpressionSafeOpacity(input.paint, 'fill', input.opacity ?? 1));
+  applyMasterOpacity(map, input.layerId, input.paint, 'fill', input.opacity ?? 1);
   map.setFilter(input.layerId, mixedFamilyFilter('polygon', input.filter));
 }
 
@@ -251,7 +251,7 @@ function syncLinesLayer(map: MaplibreMap, input: AdapterLayerInput) {
     ownedProperties: LINE_OWNED_LAYOUT_PROPERTIES,
     clearMissing: false,
   });
-  map.setPaintProperty(id, 'line-opacity', getExpressionSafeOpacity(input.paint, 'line', input.opacity ?? 1));
+  applyMasterOpacity(map, id, input.paint, 'line', input.opacity ?? 1);
   map.setFilter(id, mixedFamilyFilter('line', input.filter));
 }
 
@@ -262,7 +262,8 @@ function syncPointsLayer(map: MaplibreMap, input: AdapterLayerInput) {
     geomType: 'circle',
     ownedProperties: CIRCLE_OWNED_PAINT_PROPERTIES,
   });
-  map.setPaintProperty(id, 'circle-opacity', getExpressionSafeOpacity(input.paint, 'circle', input.opacity ?? 1));
+  // The point sublayer keeps the multiply path: circle has no -layer-opacity (#1625).
+  applyMasterOpacity(map, id, input.paint, 'circle', input.opacity ?? 1);
   map.setFilter(id, mixedFamilyFilter('point', input.filter));
 }
 

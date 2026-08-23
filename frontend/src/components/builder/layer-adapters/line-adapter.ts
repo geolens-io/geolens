@@ -5,7 +5,7 @@ import {
   filterPaintForLayerType,
   finalizeLayer,
   getBuilderStyleConfig,
-  getExpressionSafeOpacity,
+  applyMasterOpacity,
   syncOwnedLayoutProperties,
   syncOwnedPaintProperties,
   syncSingleLayerVisibility,
@@ -225,7 +225,7 @@ export const lineAdapter: LayerAdapter = {
       geomType: 'line',
       ownedProperties: LINE_OWNED_PAINT_PROPERTIES,
     });
-    map.setPaintProperty(layerId, 'line-opacity', getExpressionSafeOpacity(rawPaint, 'line', opacity ?? 1));
+    applyMasterOpacity(map, layerId, rawPaint, 'line', opacity ?? 1);
     // Phase 1136 EDITOR-LINE-01/02: reconcile owned layout properties (line-cap, line-join)
     // clearMissing: false — addLayers hardcodes 'round'/'round' as defaults; when the stored
     // layout does not carry cap/join, leave the map's current value intact rather than

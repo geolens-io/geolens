@@ -4,7 +4,7 @@ import {
   simplifyPaint,
   filterPaintForLayerType,
   finalizeLayer,
-  getExpressionSafeOpacity,
+  applyMasterOpacity,
   syncOwnedPaintProperties,
   syncSingleLayerVisibility,
   syncLayerFilter,
@@ -64,7 +64,7 @@ export const circleAdapter: LayerAdapter = {
       geomType: 'circle',
       ownedProperties: CIRCLE_OWNED_PAINT_PROPERTIES,
     });
-    map.setPaintProperty(layerId, 'circle-opacity', getExpressionSafeOpacity(rawPaint, 'circle', opacity ?? 1));
+    applyMasterOpacity(map, layerId, rawPaint, 'circle', opacity ?? 1);
     syncLayerFilter(map, layerId, filter);
   },
 

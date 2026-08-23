@@ -812,12 +812,13 @@ describe('lineAdapter', () => {
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'line-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
-    // fix(#394) ST-03: the LAST write wins — the master slider (0.4)
-    // multiplies the expression (shape preserved, never flattened to a
-    // number). Earlier writes replay the raw expression before the compound
-    // set, same as before the fix.
+    // fix(#1625): the LAST write wins — the per-feature expression lands on
+    // line-opacity UNMULTIPLIED (shape preserved, never flattened to a number)
+    // and the master slider (0.4) rides on line-layer-opacity. Before #1625 the
+    // last write was ['*', expr, 0.4] (fix(#394) ST-03).
     const lastOpacityValue = opacityCalls[opacityCalls.length - 1][2];
-    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(['*', opacityExpression, 0.4]));
+    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(opacityExpression));
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l5b', 'line-layer-opacity', 0.4);
   });
 
   it('syncPaint preserves line gap, blur, offset, and line-gradient paint', () => {
@@ -902,12 +903,11 @@ describe('lineAdapter', () => {
     const opacityCalls = (map.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls
       .filter(([, prop]) => prop === 'line-opacity');
     expect(opacityCalls.length).toBeGreaterThan(0);
-    // fix(#394) ST-03: the LAST write wins — the master slider (0.4)
-    // multiplies the expression (shape preserved, never flattened to a
-    // number). Earlier writes replay the raw expression before the compound
-    // set, same as before the fix.
+    // fix(#1625): per-feature expression stays unmultiplied on line-opacity;
+    // the master slider (0.4) goes to line-layer-opacity (was ['*', expr, 0.4]).
     const lastOpacityValue = opacityCalls[opacityCalls.length - 1][2];
-    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(['*', opacityExpression, 0.4]));
+    expect(JSON.stringify(lastOpacityValue)).toBe(JSON.stringify(opacityExpression));
+    expect(map.setPaintProperty).toHaveBeenCalledWith('layer-l7', 'line-layer-opacity', 0.4);
   });
 
   it('addLayers does not pass flattened line-gradient string to MapLibre addLayer when expressions present', () => {

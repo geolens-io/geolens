@@ -148,45 +148,84 @@ const OPACITY_DEFAULTS: Record<string, number> = {
   circle: 1,
 };
 
-export function getCompoundOpacity(
-  paint: Record<string, unknown>,
-  geomType: 'fill' | 'line' | 'circle',
-  masterOpacity: number,
-): number {
-  const propKey = `${geomType}-opacity`;
-  const propOpacity = (paint[propKey] as number) ?? OPACITY_DEFAULTS[geomType];
-  return propOpacity * masterOpacity;
-}
-
 /**
+ * Per-feature opacity MULTIPLIED by the master slider, as one paint value.
+ *
+ * fix(#1625): this is now the path for layer types that have no `-layer-opacity`
+ * in maplibre-gl v6 (circle, and the cluster/mixed point sublayers). Fill and
+ * line go through `applyMasterOpacity`, which keeps the two tiers apart.
+ *
  * fix(#846): every call site feeds this straight into `setPaintProperty(id,
  * '<geom>-opacity', …)`, which maplibre-gl v6 types as
  * `DataDrivenPropertyValueSpecification<number>`. Declaring that contract here
- * instead of returning `unknown` fixes all eight call sites at their source, and
- * leaves exactly one place — the array branch below — where the untyped paint JSON
- * has to be vouched for.
+ * instead of returning `unknown` fixes the call sites at their source, and
+ * leaves exactly one place — the array branch in `getFeatureOpacity` — where the
+ * untyped paint JSON has to be vouched for.
  */
 export function getExpressionSafeOpacity(
   paint: Record<string, unknown>,
   geomType: 'fill' | 'line' | 'circle',
   masterOpacity: number,
 ): DataDrivenPropertyValueSpecification<number> {
-  const propKey = `${geomType}-opacity`;
-  const propOpacity = paint[propKey];
+  const propOpacity = getFeatureOpacity(paint, geomType);
+  if (typeof propOpacity === 'number') return propOpacity * masterOpacity;
+  // fix(#394) ST-03: multiply expression-valued opacity by the master
+  // slider — returning the expression untouched made the layer opacity
+  // slider a silent no-op whenever *-opacity is a zoom/data expression.
+  return (masterOpacity === 1
+    ? propOpacity
+    : ['*', propOpacity, masterOpacity]) as DataDrivenPropertyValueSpecification<number>;
+}
+
+/**
+ * The per-feature `<geom>-opacity` exactly as the Style Editor stored it, with
+ * the builder default when the key is absent. Never multiplied by the master slider.
+ * The array is whatever the saved style holds, so it is asserted, not proven —
+ * MapLibre rejects a malformed expression at runtime exactly as it always has.
+ */
+export function getFeatureOpacity(
+  paint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+): DataDrivenPropertyValueSpecification<number> {
+  const propOpacity = paint[`${geomType}-opacity`];
   if (Array.isArray(propOpacity)) {
-    // fix(#394) ST-03: multiply expression-valued opacity by the master
-    // slider — returning the expression untouched made the layer opacity
-    // slider a silent no-op whenever *-opacity is a zoom/data expression.
-    // The array is whatever the saved style holds, so it is asserted, not proven —
-    // MapLibre rejects a malformed expression at runtime exactly as it always has.
-    return (masterOpacity === 1
-      ? propOpacity
-      : ['*', propOpacity, masterOpacity]) as DataDrivenPropertyValueSpecification<number>;
+    return propOpacity as DataDrivenPropertyValueSpecification<number>;
   }
-  if (typeof propOpacity === 'number') {
-    return propOpacity * masterOpacity;
+  if (typeof propOpacity === 'number') return propOpacity;
+  return OPACITY_DEFAULTS[geomType];
+}
+
+/**
+ * fix(#1625): drive the master `layer.opacity` slider on a live vector layer.
+ *
+ * Fill and line layers carry two opacity tiers — the Style Editor's per-feature
+ * `fill-opacity`/`line-opacity` and the master slider — and multiplying them into
+ * one per-feature value (the pre-#1625 wiring) made MapLibre accumulate the
+ * product across overlapping features, so overlaps inside a layer double-darkened
+ * and the slider never produced a uniform layer. maplibre-gl v6's
+ * `fill-layer-opacity`/`line-layer-opacity` composite the whole layer once AFTER
+ * the per-feature pass, which is exactly the two-tier model: per-feature stays on
+ * `<geom>-opacity` unmultiplied, the master rides on `<geom>-layer-opacity`.
+ *
+ * Every master-opacity write for a fill/line/circle layer goes through here —
+ * addLayers (via finalizeLayer), syncPaint, and the slider's direct path in
+ * use-layer-map-sync — so the split cannot drift between entry points.
+ */
+export function applyMasterOpacity(
+  map: Pick<MaplibreMap, 'setPaintProperty'>,
+  layerId: string,
+  paint: Record<string, unknown>,
+  geomType: 'fill' | 'line' | 'circle',
+  masterOpacity: number,
+): void {
+  if (geomType === 'circle') {
+    // fix(#1625) ceiling: only fill/line have a -layer-opacity in maplibre 6;
+    // other types still multiply, so point layers still double-darken.
+    map.setPaintProperty(layerId, 'circle-opacity', getExpressionSafeOpacity(paint, 'circle', masterOpacity));
+    return;
   }
-  return OPACITY_DEFAULTS[geomType] * masterOpacity;
+  map.setPaintProperty(layerId, `${geomType}-opacity`, getFeatureOpacity(paint, geomType));
+  map.setPaintProperty(layerId, `${geomType}-layer-opacity`, masterOpacity);
 }
 
 /** Strip custom paint properties that are not valid MapLibre paint props. */
@@ -350,7 +389,7 @@ export function finalizeLayer(
 ) {
   if (!map.getLayer(layerId)) return;
   if (hasExpressions) replayExpressions(map, layerId, rawPaint, geomType);
-  map.setPaintProperty(layerId, `${geomType}-opacity`, getExpressionSafeOpacity(rawPaint, geomType, masterOpacity));
+  applyMasterOpacity(map, layerId, rawPaint, geomType, masterOpacity);
   if (filter && Array.isArray(filter) && filter.length > 0) {
     map.setFilter(layerId, filter);
   }

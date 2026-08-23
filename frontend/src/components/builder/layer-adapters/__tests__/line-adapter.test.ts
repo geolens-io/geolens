@@ -143,3 +143,36 @@ describe('line adapter — syncPaint reconciles line-cap and line-join via syncO
     expect(capResets).toHaveLength(0);
   });
 });
+
+// fix(#1625): the master slider rides on maplibre-gl v6's `line-layer-opacity`;
+// the per-feature `line-opacity` is written unmultiplied.
+describe('line adapter — master opacity drives line-layer-opacity (#1625)', () => {
+  function paintWrites(map: ReturnType<typeof createMockMap>, prop: string) {
+    return map.setPaintProperty.mock.calls
+      .filter(([id, name]) => id === 'layer-line-1' && name === prop)
+      .map(([, , value]) => value);
+  }
+
+  it('addLayers: numeric line-opacity 0.6 + master 0.5 -> line-opacity 0.6 and line-layer-opacity 0.5', () => {
+    const map = createMockMap({ layerExists: true });
+    lineAdapter.addLayers(map as unknown as import('maplibre-gl').Map, makeInput({
+      opacity: 0.5,
+      paint: { 'line-color': '#ff0000', 'line-width': 2, 'line-opacity': 0.6 },
+    }));
+
+    expect(paintWrites(map, 'line-opacity').at(-1)).toBe(0.6);
+    expect(paintWrites(map, 'line-opacity')).not.toContain(0.3);
+    expect(paintWrites(map, 'line-layer-opacity')).toEqual([0.5]);
+  });
+
+  it('syncPaint after addLayer: a new master value lands on line-layer-opacity and leaves line-opacity unmultiplied', () => {
+    const map = createMockMap({ layerExists: true });
+    lineAdapter.syncPaint(map as unknown as import('maplibre-gl').Map, makeInput({
+      opacity: 0.25,
+      paint: { 'line-color': '#ff0000', 'line-width': 2, 'line-opacity': 0.6 },
+    }));
+
+    expect(paintWrites(map, 'line-layer-opacity')).toEqual([0.25]);
+    expect(paintWrites(map, 'line-opacity').at(-1)).toBe(0.6);
+  });
+});

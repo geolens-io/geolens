@@ -152,3 +152,86 @@ describe('fill adapter — getLayerIds returns [layerId, outline, extrusion]', (
     expect(ids).toEqual(['fill-abc', 'fill-abc-outline', 'fill-abc-extrusion']);
   });
 });
+
+type MapArg = import('maplibre-gl').Map;
+
+function paintWrites(map: ReturnType<typeof createMockMap>, layerId: string, prop: string) {
+  return map.setPaintProperty.mock.calls
+    .filter(([id, name]) => id === layerId && name === prop)
+    .map(([, , value]) => value);
+}
+
+// fix(#1625): the master slider rides on maplibre-gl v6's `fill-layer-opacity`
+// (one composite of the whole layer) and the Style Editor's per-feature
+// `fill-opacity` is written UNMULTIPLIED. Before #1625 the two were multiplied
+// into one per-feature value, so overlapping polygons double-darkened and a
+// 50% master never produced a uniformly 50% layer.
+describe('fill adapter — master opacity drives fill-layer-opacity, per-feature fill-opacity stays unmultiplied (#1625)', () => {
+  it('addLayers: numeric fill-opacity 0.3 + master 0.5 -> fill-opacity 0.3 and fill-layer-opacity 0.5, never 0.15', () => {
+    const map = createMockMap({ layerExists: true });
+    fillAdapter.addLayers(map as unknown as MapArg, makeInput({
+      opacity: 0.5,
+      paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3 },
+    }));
+
+    expect(paintWrites(map, 'layer-fill-1', 'fill-layer-opacity')).toEqual([0.5]);
+    const featureWrites = paintWrites(map, 'layer-fill-1', 'fill-opacity');
+    expect(featureWrites.length).toBeGreaterThan(0);
+    expect(featureWrites.at(-1)).toBe(0.3);
+    expect(featureWrites).not.toContain(0.15);
+  });
+
+  it('addLayers: an expression fill-opacity is replayed as-is, not wrapped in ["*", expr, master]', () => {
+    const map = createMockMap({ layerExists: true });
+    const expr = ['step', ['zoom'], 0.2, 9, 0.7];
+    fillAdapter.addLayers(map as unknown as MapArg, makeInput({
+      opacity: 0.5,
+      paint: { 'fill-color': '#ff0000', 'fill-opacity': expr },
+    }));
+
+    const featureWrites = paintWrites(map, 'layer-fill-1', 'fill-opacity');
+    expect(JSON.stringify(featureWrites.at(-1))).toBe(JSON.stringify(expr));
+    expect(paintWrites(map, 'layer-fill-1', 'fill-layer-opacity')).toEqual([0.5]);
+  });
+
+  it('addLayers: with no fill-opacity in paint the builder default (0.3) is the per-feature value', () => {
+    const map = createMockMap({ layerExists: true });
+    fillAdapter.addLayers(map as unknown as MapArg, makeInput({
+      opacity: 0.5,
+      paint: { 'fill-color': '#ff0000' },
+    }));
+
+    expect(paintWrites(map, 'layer-fill-1', 'fill-opacity').at(-1)).toBe(0.3);
+    expect(paintWrites(map, 'layer-fill-1', 'fill-layer-opacity')).toEqual([0.5]);
+  });
+
+  it('addLayers: the outline companion gets line-layer-opacity, and its line-opacity is left at the spec default', () => {
+    const map = createMockMap({ layerExists: true });
+    fillAdapter.addLayers(map as unknown as MapArg, makeInput({ opacity: 0.5 }));
+
+    expect(paintWrites(map, 'layer-fill-1-outline', 'line-layer-opacity')).toEqual([0.5]);
+    expect(paintWrites(map, 'layer-fill-1-outline', 'line-opacity')).toEqual([]);
+    const outlineSpec = map.addLayer.mock.calls[1][0] as { id: string; paint: Record<string, unknown> };
+    expect(outlineSpec.id).toBe('layer-fill-1-outline');
+    expect(outlineSpec.paint).not.toHaveProperty('line-opacity');
+  });
+
+  it('syncPaint after addLayer: moving the master slider updates fill-layer-opacity on the primary AND line-layer-opacity on the outline', () => {
+    // The outline is reconciled through syncOwnedPaintProperties, which only
+    // touches keys in OUTLINE_OWNED_PAINT_PROPERTIES — an unregistered key would
+    // be written once by addLayers and then stick at its first value forever.
+    const map = createMockMap({ layerExists: true });
+    map.getPaintProperty.mockImplementation((_id: string, prop: string) =>
+      prop === 'line-layer-opacity' ? 0.5 : undefined,
+    );
+    fillAdapter.syncPaint(map as unknown as MapArg, makeInput({
+      opacity: 0.25,
+      paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3 },
+    }));
+
+    expect(paintWrites(map, 'layer-fill-1', 'fill-layer-opacity')).toEqual([0.25]);
+    expect(paintWrites(map, 'layer-fill-1', 'fill-opacity').at(-1)).toBe(0.3);
+    expect(paintWrites(map, 'layer-fill-1-outline', 'line-layer-opacity')).toEqual([0.25]);
+    expect(paintWrites(map, 'layer-fill-1-outline', 'line-opacity')).toEqual([]);
+  });
+});

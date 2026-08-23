@@ -33,10 +33,16 @@ vi.mock('@/components/builder/layer-adapters/registry', () => ({
   getAdapter: vi.fn(() => mockAdapter),
 }));
 
-vi.mock('@/components/builder/map-sync', () => ({
+vi.mock('@/components/builder/map-sync', async () => ({
   getLayerType: vi.fn(() => 'fill'),
   resolveAdapterType: vi.fn(() => 'fill'),
-  getCompoundOpacity: vi.fn((_paint: Record<string, unknown>, _type: string, opacity: number) => opacity),
+  // fix(#1625): the real helper, so the slider-path test below asserts the
+  // actual setPaintProperty writes rather than a stand-in's.
+  applyMasterOpacity: (
+    await vi.importActual<typeof import('@/components/builder/layer-adapters/shared')>(
+      '@/components/builder/layer-adapters/shared',
+    )
+  ).applyMasterOpacity,
   getSourceIdForLayer: vi.fn((layer: { id: string }) => `source-${layer.id}`),
   isDemTerrainVisualSuppressed: vi.fn((layer: { is_dem?: boolean | null; style_config?: { render_mode?: unknown } | null }) =>
     layer.is_dem === true && layer.style_config?.render_mode === 'terrain'),
@@ -1810,5 +1816,34 @@ describe('useLayerMapSync — a null fill key is not an active one', () => {
     const builder = (updated.style_config as { builder?: Record<string, unknown> } | null)?.builder;
     expect(builder?.fillColorSaved).toBeUndefined();
     expect(updated.paint?.['fill-color']).toBe('#00ff00');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fix(#1625): the master slider's direct map path (applyLayerOpacityToMap)
+// ---------------------------------------------------------------------------
+describe('useLayerMapSync — handleOpacityChange drives fill-layer-opacity (#1625)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('writes the master to fill-layer-opacity and the outline line-layer-opacity, leaving fill-opacity unmultiplied', () => {
+    const layer = makeLayer({ opacity: 1, paint: { 'fill-color': '#ff0000', 'fill-opacity': 0.3 } });
+    const mapStub = makeMapStub([`layer-${LAYER_ID}`, `layer-${LAYER_ID}-outline`]);
+    const mapRef = { current: mapStub };
+    const { result } = renderHook(() =>
+      useLayerMapSync([layer], vi.fn(), vi.fn(), mapRef),
+    );
+
+    act(() => {
+      result.current.handleOpacityChange(layer.id, 0.5);
+    });
+
+    const writes = (mapStub.setPaintProperty as ReturnType<typeof vi.fn>).mock.calls;
+    expect(writes).toContainEqual([`layer-${LAYER_ID}`, 'fill-opacity', 0.3]);
+    expect(writes).toContainEqual([`layer-${LAYER_ID}`, 'fill-layer-opacity', 0.5]);
+    expect(writes).toContainEqual([`layer-${LAYER_ID}-outline`, 'line-layer-opacity', 0.5]);
+    expect(writes).not.toContainEqual([`layer-${LAYER_ID}`, 'fill-opacity', 0.15]);
+    expect(writes).not.toContainEqual([`layer-${LAYER_ID}-outline`, 'line-opacity', expect.anything()]);
   });
 });

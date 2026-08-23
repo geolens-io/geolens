@@ -1,6 +1,6 @@
 import { useCallback, useLayoutEffect, useRef } from 'react';
 import type { Map as MaplibreMap, FilterSpecification } from 'maplibre-gl';
-import { getLayerType, getSourceIdForLayer, resolveAdapterType, getCompoundOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
+import { getLayerType, getSourceIdForLayer, resolveAdapterType, applyMasterOpacity, isDemTerrainVisualSuppressed } from '@/components/builder/map-sync';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import {
   getBuilderStyleConfig,
@@ -80,7 +80,7 @@ export function applyLayerVisibilityToMap(
 
 // STATE-03 / SYNC-04: the canonical per-layer opacity map side-effect. The
 // single-layer (`handleOpacityChange`) AND the bulk (`handleBulkOpacity`)
-// paths both call this so the getCompoundOpacity wrapping and the dedicated
+// paths both call this so the applyMasterOpacity split and the dedicated
 // cluster branch can never diverge.
 export function applyLayerOpacityToMap(
   map: MaplibreMap,
@@ -165,14 +165,12 @@ export function applyLayerOpacityToMap(
     getAdapter('mixed').syncPaint(map, input);
   } else if (adapterType === 'fill' || adapterType === 'line' || adapterType === 'circle') {
     if (map.getLayer(mapLayerId)) {
-      map.setPaintProperty(
-        mapLayerId,
-        `${adapterType}-opacity`,
-        getCompoundOpacity(paint, adapterType, opacity),
-      );
+      // fix(#1625): same split as the adapters' syncPaint — fill/line put the
+      // master on `-layer-opacity`, circle still multiplies.
+      applyMasterOpacity(map, mapLayerId, paint, adapterType, opacity);
     }
     if (adapterType === 'fill' && map.getLayer(ids.outline)) {
-      map.setPaintProperty(ids.outline, 'line-opacity', opacity);
+      map.setPaintProperty(ids.outline, 'line-layer-opacity', opacity);
     }
   }
 }
