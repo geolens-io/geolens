@@ -45,11 +45,17 @@ let tableName: string;
  * exact failure this spec exists to catch.
  *
  * Covers both the plain and clustered routes:
- *   /api/tiles/data.<table>/{z}/{x}/{y}.pbf
- *   /api/tiles/clusters/data.<table>/{z}/{x}/{y}.pbf
+ *   /tiles/data.<table>/{z}/{x}/{y}.pbf
+ *   /tiles/clusters/data.<table>/{z}/{x}/{y}.pbf
+ *
+ * Matched by ROUTE, not by origin: buildSignedTileUrl()/buildClusterTileUrl()
+ * use TILE_BASE_URL or the server-provided cdn_base_url when configured, so a
+ * healthy deployment can legitimately serve these from https://cdn.example/.
+ * `data.<table>/` is specific enough on its own; no third-party basemap URL
+ * contains it.
  */
 const isDatasetTile = (url: string): boolean =>
-  url.startsWith(`${BASE_URL}/api/tiles/`) && url.includes(`data.${tableName}/`) && url.includes('.pbf');
+  url.includes('/tiles/') && url.includes(`data.${tableName}/`) && url.includes('.pbf');
 
 test.describe('Vector tile pipeline', () => {
   test.beforeAll(async () => {
@@ -122,15 +128,8 @@ test.describe('Vector tile pipeline', () => {
     // fresh set of THIRD-PARTY .pbf tiles, so an unscoped predicate here would
     // be satisfied by the very thing the swap causes and could never fail.
     const afterSwap: number[] = [];
-    // Third-party .pbf is counted too, but as PROOF THE SWAP HAPPENED rather
-    // than as the assertion: a real style change necessarily pulls fresh
-    // basemap tiles. Without that check a no-op click still lets the zoom
-    // below populate afterSwap, and the test passes having exercised nothing.
-    let basemapTraffic = 0;
     page.on('response', (r) => {
-      const url = r.url();
-      if (isDatasetTile(url)) afterSwap.push(r.status());
-      else if (url.includes('.pbf')) basemapTraffic += 1;
+      if (isDatasetTile(r.url())) afterSwap.push(r.status());
     });
 
     const toggle = page.getByRole('button', { name: 'Change basemap' });
@@ -151,18 +150,27 @@ test.describe('Vector tile pipeline', () => {
     // basemap identity unchanged, DatasetMap never calls setStyle, and the zoom
     // below still populates afterSwap. The test would pass having swapped
     // nothing.
+    const activeBefore = await group.locator('button[aria-current]').first().textContent();
     const inactive = group.locator('button:not([aria-current])');
     const inactiveCount = await inactive.count();
     expect(inactiveCount, 'basemap picker exposed no inactive option to switch to').toBeGreaterThan(0);
+    const targetName = (await inactive.first().textContent())?.trim();
     await inactive.first().click();
     await page.waitForTimeout(3000);
 
     // The swap must have actually occurred, or everything below is vacuous.
+    // Asserted against the DOM rather than by counting basemap tile traffic:
+    // a configured basemap may be a raster XYZ style that emits no .pbf at all
+    // (CI's does), so tile-format-based proof fails on a perfectly healthy
+    // swap. aria-current moving is what actually means setStyle ran.
+    await toggle.click();
+    const activeAfter = await group.locator('button[aria-current]').first().textContent();
     expect(
-      basemapTraffic,
-      'no basemap tiles after selecting a different basemap — setStyle did not run, ' +
-        'so this test would be asserting against an unchanged style',
-    ).toBeGreaterThan(0);
+      activeAfter?.trim(),
+      `basemap did not change (still "${activeBefore?.trim()}") — setStyle never ran, ` +
+        'so the assertion below would be measuring an unchanged style',
+    ).toBe(targetName);
+    await page.keyboard.press('Escape');
 
     // Then force NEW tiles to be needed. A basemap change alone proves nothing
     // here: this app mutates basemap layers rather than rebuilding the dataset
