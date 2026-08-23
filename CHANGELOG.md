@@ -7,7 +7,32 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **The layer opacity slider fades polygon and line layers as one surface.**
+  A vector layer has two opacity controls: the Style Editor's per-feature
+  `fill-opacity`/`line-opacity` and the master slider. The builder multiplied
+  them into a single per-feature value, so wherever two features in the same
+  layer overlapped the overlap drew darker, and a layer at 50% was never
+  uniformly 50%. The master now drives maplibre-gl v6's `fill-layer-opacity`
+  and `line-layer-opacity`, which composite the whole layer once after the
+  per-feature pass; per-feature opacity is written as stored. Polygon outlines
+  take the same route, so shared edges stop double-darkening. Point, cluster,
+  heatmap and raster layers have no such property in v6 and keep the previous
+  multiply (#1625).
+
 ### Fixed
+
+- **Exported style.json honours the layer opacity slider.** The primary fill or
+  line layer copied its paint through verbatim and never applied `layer.opacity`,
+  while the outline, extrusion and icon companions did — so a layer faded in the
+  builder rendered fully opaque in a shared or embedded style. The export now
+  folds the master opacity into `fill-opacity`/`line-opacity` (multiplying a
+  number, wrapping an expression) instead of emitting the v6 `-layer-opacity`
+  keys, which every maplibre-gl before 6 rejects at load. The stored per-feature
+  value travels in the layer metadata so importing a GeoLens export gives back
+  both tiers unchanged, and a style authored for v6 with `fill-layer-opacity`
+  imports onto the layer opacity instead of being dropped (#1626).
 
 - **Object-valued feature properties render as JSON in the map popup.** A
   feature property holding an object or array (a JSON column, a nested
