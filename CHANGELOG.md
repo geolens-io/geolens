@@ -28,6 +28,20 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **GeoPackage exports are now byte-deterministic under load.** Two exports
+  of unchanged data could still hash differently after `normalize_gpkg_timestamps`
+  ran on both, because SQLite's own file-change-counter header fields
+  (offsets 24–27 and 92–95) are incremented by transaction *count*, not by
+  content, and ogr2ogr's write path can commit a different number of
+  transactions between two otherwise-identical builds under CI load. That
+  broke the export artifact cache's byte-determinism gate (#1532): a
+  contested selection refuses every range request, so it silently disabled
+  range-serving for the default export format whenever this fired. GPKG
+  normalization now also stamps those two header fields with a value
+  derived from the file's own normalized content, after the SQLite
+  connection closes: identical exports still land on the identical value,
+  but two exports of different data no longer collide on the same one
+  (#1633).
 - **Low-bit-depth rasters (NBITS < 8) no longer fail COG conversion.**
   LULC and palette rasters commonly pack 1/2/4-bit samples into a rasterio
   `uint8` container, via GDAL's `IMAGE_STRUCTURE` `NBITS` tag, which lives

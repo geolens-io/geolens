@@ -107,6 +107,113 @@ _GPKG_TIMESTAMP_COLUMNS = (
     ("gpkg_metadata_reference", "timestamp"),
 )
 
+# fix(#1633): the SQLite header fields the row-level UPDATEs above cannot
+# reach. #1633 observed the gpkg byte-determinism gate flake once in a
+# merge-group run and reproduce a second time under load; the evidence
+# capture added there (#1637) proved the two builds differed in EXACTLY two
+# header bytes, both transaction-count-dependent:
+#
+#   offset 24-27 (big-endian uint32) — the file change counter, incremented
+#     once per committed write transaction.
+#   offset 92-95 (big-endian uint32) — "version-valid-for", the change
+#     counter's value at the moment the SQLite version number (offset 96-99)
+#     was last stamped.
+#
+# ogr2ogr's own write path commits a different number of transactions
+# between otherwise-identical builds under load (one extra intermediate
+# commit), so these two fields diverge even though every table's rows and
+# the timestamp columns above already match. The UPDATEs this function runs
+# cannot fix them: going through SQLite to write anything bumps the counter
+# on BOTH builds by the same amount, so the pre-existing delta survives.
+# Patching the header bytes directly, after the connection is closed, is
+# necessary: SQLite uses this pair to let one connection detect that a
+# DIFFERENT connection wrote the file since it cached a page, so it knows to
+# invalidate that cache.
+#
+# fix(#1633 review, codex P2): the first version of this patch stamped both
+# fields to a FIXED constant. That collided identically across every export
+# regardless of content — harmless for THIS process (an export artifact is
+# written once, closed, hashed, and never reopened for a write here), but a
+# client that keeps a `.gpkg` open and watches this counter to know when to
+# invalidate its own page cache could read stale pages if the file were later
+# overwritten in place with materially different data, because the counter
+# would never move. Deriving the value from the NORMALIZED content instead
+# keeps both properties: unchanged data still normalizes to the same counter
+# (see `_stamp_gpkg_header_counters`), and changed data gets a different one.
+_GPKG_HEADER_CHANGE_COUNTER_OFFSET = 24
+_GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
+# Never write a change counter of 0 — a brand-new SQLite file always starts
+# at 1, so 0 does not read as "a real counter value" even though the format
+# does not forbid it.
+_GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO = 1
+# fix(#1633 review, codex P1): read/hash size for _stamp_gpkg_header_counters.
+# `export_dataset` supports multi-GB GeoPackages and the production API
+# container has a 2 GiB memory cap, so loading a whole export into a
+# bytearray — and then hashlib.sha256() making a SECOND full copy of it —
+# could OOM the process on a large export, or on a few concurrent ones. Both
+# header offsets sit inside byte 0..99, comfortably inside one chunk, so
+# only the FIRST chunk ever needs the zero substitution.
+_GPKG_HASH_CHUNK_SIZE = 1024 * 1024
+
+
+def _stamp_gpkg_header_counters(path: str) -> None:
+    """Derive the SQLite change-counter pair from the file's own content.
+
+    fix(#1633 review, codex P2): a fixed constant here would make the pair
+    identical across every export, defeating the one thing SQLite uses it
+    for — letting a connection notice that a DIFFERENT connection wrote the
+    file since it cached a page. The value is instead the first 4 bytes of
+    the sha256 of the file with both counter fields zeroed first, so it is a
+    pure function of everything else in the file: identical normalized
+    content (the property #1633 exists for) hashes to the identical counter,
+    and different content hashes to a different one with overwhelming
+    probability — closing the stale-cache hazard a constant would leave
+    open.
+
+    fix(#1633 review, codex P1): streamed in `_GPKG_HASH_CHUNK_SIZE` chunks
+    rather than loaded whole — see that constant's comment. The digest is
+    kept byte-identical to "hash the whole file with both fields zeroed in
+    one shot": only HOW it is computed changed, not the derived value, so
+    the tests that pin specific counter behaviour do not need to change
+    alongside this.
+
+    Must run after the sqlite3 connection that did the row-level normalize is
+    closed: writing through that connection would immediately re-bump the
+    counter it just set, undoing the patch (and changing the content the
+    counter is derived from).
+    """
+    import hashlib
+    import struct
+
+    zero = b"\x00\x00\x00\x00"
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        first_chunk = True
+        while chunk := handle.read(_GPKG_HASH_CHUNK_SIZE):
+            if first_chunk:
+                chunk = bytearray(chunk)
+                chunk[
+                    _GPKG_HEADER_CHANGE_COUNTER_OFFSET : _GPKG_HEADER_CHANGE_COUNTER_OFFSET
+                    + 4
+                ] = zero
+                chunk[
+                    _GPKG_HEADER_VERSION_VALID_FOR_OFFSET : _GPKG_HEADER_VERSION_VALID_FOR_OFFSET
+                    + 4
+                ] = zero
+                first_chunk = False
+            hasher.update(chunk)
+    digest = hasher.digest()
+    counter = (
+        struct.unpack(">I", digest[:4])[0] or _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO
+    )
+    stamped = struct.pack(">I", counter)
+
+    with open(path, "r+b") as handle:
+        handle.seek(_GPKG_HEADER_CHANGE_COUNTER_OFFSET)
+        handle.write(stamped)
+        handle.seek(_GPKG_HEADER_VERSION_VALID_FOR_OFFSET)
+        handle.write(stamped)
+
 
 def normalize_gpkg_timestamps(path: str) -> None:
     """Make a GeoPackage byte-deterministic for unchanged data.
@@ -135,10 +242,20 @@ def normalize_gpkg_timestamps(path: str) -> None:
     Uses stdlib sqlite3 rather than GDAL: a GeoPackage is a SQLite database, the
     columns are spec-defined, and going through the driver to rewrite two cells
     would mean another full open and rewrite of the file.
+
+    fix(#1633): also derives and stamps the SQLite header's change-counter
+    pair from the file's own normalized content (see
+    `_stamp_gpkg_header_counters`) once the row-level UPDATEs below are
+    committed and this function's own connection is closed — the counter is
+    bumped by transaction COUNT, not by content, so it can (and did, under
+    CI load) diverge between two builds of identical data even after every
+    row matches. Deriving rather than hardcoding it keeps unchanged data on
+    one counter while still letting different data land on a different one.
     """
     import sqlite3
 
     conn = sqlite3.connect(path)
+    normalized = False
     try:
         for table, column in _GPKG_TIMESTAMP_COLUMNS:
             try:
@@ -150,6 +267,7 @@ def normalize_gpkg_timestamps(path: str) -> None:
                 # The table is optional in the spec; its absence is not an error.
                 continue
         conn.commit()
+        normalized = True
     except sqlite3.DatabaseError:
         # Not a SQLite file at all ("file is not a database"). This step exists
         # for cache determinism, not validation: a GeoPackage SQLite cannot open
@@ -163,6 +281,12 @@ def normalize_gpkg_timestamps(path: str) -> None:
         # close, and an open handle can leave the rollback journal beside the
         # file — which the caller is about to hash.
         conn.close()
+
+    if normalized:
+        # fix(#1633): only for a file that was genuinely opened as SQLite
+        # above — the DatabaseError branch already logged and left the
+        # invalid file untouched, so there is no valid header to patch.
+        _stamp_gpkg_header_counters(path)
 
 
 def safe_content_disposition(filename: str) -> str:
