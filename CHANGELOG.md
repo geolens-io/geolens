@@ -30,7 +30,8 @@ and releases use semantic versioning.
   upload filename, e.g. "Could not open 'march.gpkg' as a spatial dataset —
   the file may be corrupt, incomplete, or not a valid GeoPackage (.gpkg)
   file."; the full stderr still reaches structured logs at error level, and
-  every other ogr2ogr/ogrinfo failure keeps its real message unchanged.
+  every other ogr2ogr/ogrinfo failure keeps its real message unchanged
+  (#1640).
 
 ## [1.15.0] - 2026-08-23
 
