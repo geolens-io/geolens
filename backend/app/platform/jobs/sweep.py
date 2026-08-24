@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Literal, overload
 
 import structlog
-from sqlalchemy import and_, delete, func, not_, or_, select, text, update
+from sqlalchemy import and_, case, delete, func, not_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -133,6 +133,85 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
         completion_key if completion_bound else not_(completion_key),
         no_live_procrastinate_job(),
     )
+
+
+# fix(#1556): the terminal state for a presigned upload nobody ever bound bytes
+# to. `failed` claims an ingest was attempted and broke; for a visitor who
+# presigned an upload and walked away, nothing was ever attempted, and on the
+# public demo those rows are indistinguishable from real ingest failures in the
+# admin jobs list and the failed-jobs badge that counts it. `cancelled` is
+# already in the `ingest_jobs` status CHECK constraint, in the admin `JobStatus`
+# literal and in openapi.json, so this needs no migration and changes no
+# published contract.
+ABANDONED_UPLOAD_MESSAGE = "Abandoned: upload was never completed"
+
+
+def is_abandoned_presigned_upload(
+    file_path: str | None, user_metadata: dict | None
+) -> bool:
+    """Python twin of ``abandoned_presigned_upload``, over one loaded row.
+
+    Only the worker's startup recovery needs it: that site mirrors the UPDATE
+    onto the returned ORM instances, and a plain ``job.status = "failed"``
+    there would write the in-memory object back over the status the database
+    just computed. Kept beside the SQL so the two are read as one rule.
+    """
+    return not file_path and bool((user_metadata or {}).get("presigned"))
+
+
+def abandoned_presigned_upload():
+    """Predicate: a presigned upload whose bytes were never bound.
+
+    Deliberately narrower than "falsy ``file_path``". The unbound half of the
+    pending sweep also reaps rows that DID have work attempted for them, and
+    each of those must keep reporting `failed`:
+
+    - a service/URL import (``source_url`` set, ``file_path`` empty) whose
+      defer never landed. ``/jobs/{id}/retry`` requires status `failed`, and
+      ``_retry_capability`` offers exactly that row, so cancelling it would
+      take a recoverable job's only recovery path away — the same 1h-to-
+      recoverable-becomes-unrecoverable trap #1235 avoided for absolute paths.
+    - an analysis run or an admin embedding backfill, both of which carry
+      ``file_path=""`` by construction. A dispatch that never landed is a real
+      failure of something the user asked for, and #1550's audit trail settles
+      the backfill `never_started` in the same transaction as the row.
+
+    The ``presigned`` marker is what both presign doors stamp
+    (``processing/ingest/router.py`` and ``datasets/api/router_reupload.py``)
+    at the moment they hand a client a URL, so it names the one class where an
+    empty ``file_path`` means "the client never came back". A completion binds
+    ``staging/{job}/frozen/...`` and is therefore the BOUND half's business,
+    never this one.
+    """
+    return and_(
+        func.coalesce(IngestJob.file_path, "") == "",
+        func.coalesce(IngestJob.user_metadata["presigned"].astext, "false") == "true",
+    )
+
+
+def stale_pending_unbound_values(now: datetime, *, message: str) -> dict:
+    """Every column the unbound half of the pending sweep writes.
+
+    The companion to ``stale_pending_clauses``, for the same reason it exists:
+    three sites flip an unbound pending row terminal — the background sweep,
+    `get_job_status` (the one that actually fires, polled every 2s) and the
+    worker's startup recovery — and a split expressed in the ACTION at one of
+    them, with the other two still writing `failed`, would make the same
+    abandoned upload report two different terminal states depending on which
+    actor reached it first. Returning the whole mapping rather than just the
+    status means a caller cannot take the split without also taking the
+    message.
+
+    ``message`` is the caller's own unbound wording (the poll path interpolates
+    the elapsed seconds); it survives untouched for every row that is not an
+    abandoned upload, so nothing about the existing failure reporting moves.
+    """
+    abandoned = abandoned_presigned_upload()
+    return {
+        "status": case((abandoned, "cancelled"), else_="failed"),
+        "error_message": case((abandoned, ABANDONED_UPLOAD_MESSAGE), else_=message),
+        "completed_at": now,
+    }
 
 
 def no_live_procrastinate_job():
@@ -1144,9 +1223,7 @@ async def fail_stale_jobs(
         update(IngestJob)
         .where(*stale_pending_clauses(now, completion_bound=False))
         .values(
-            status="failed",
-            error_message=STALE_PENDING_UNBOUND_MESSAGE,
-            completed_at=now,
+            **stale_pending_unbound_values(now, message=STALE_PENDING_UNBOUND_MESSAGE)
         )
         .returning(IngestJob.id, IngestJob.user_metadata, IngestJob.created_by)
     )

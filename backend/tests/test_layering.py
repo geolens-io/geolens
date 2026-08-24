@@ -2852,7 +2852,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `terminal_backfill_audit_exists`: one operation gets one terminal entry,
     # whoever writes it first, because three actors can legitimately close the
     # same run and two of them disagreeing is the defect.
-    "backend/app/platform/jobs/sweep.py": 1522,
+    # fix(#1556): +77 — the unbound half of the pending sweep gained an ACTION
+    # helper (`stale_pending_unbound_values`) to sit beside the existing clause
+    # helper, so a presigned upload nobody ever bound bytes to settles
+    # `cancelled` at all three sites that can reach it instead of `failed` at
+    # whichever one got there first. Most of the lines are the two predicate
+    # docstrings recording why the class is "presigned marker AND empty
+    # file_path" and not "falsy file_path": a service import with a source_url
+    # is also unbound, and `/jobs/{id}/retry` only offers a `failed` row, so
+    # the broader rule would take a recoverable job's recovery away.
+    # Cap 1522 -> 1599, exact.
+    "backend/app/platform/jobs/sweep.py": 1599,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

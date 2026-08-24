@@ -294,20 +294,27 @@ def require_completable_presigned_job(job: "IngestJob", *, restart_hint: str) ->
        whatever now sits at the staging key, which the client's unexpired PUT
        URL controls.
 
-    2. status `failed` — the job is terminal and no task will ever run for it.
-       Without this a client could re-PUT after a content refusal and complete
-       again: the endpoint 200s and binds a frozen object, but the row stays
-       failed, so preview and commit then reject it with "Job already
-       processed". The 200 is a lie, the client's recovery path is dead, and
-       the frozen object is unowned — no task tail fires for a job nothing was
-       deferred for, and the post-expiry sweep only covers the client's key.
+    2. a TERMINAL status — the job is settled and no task will ever run for
+       it. Without this a client could re-PUT after a content refusal and
+       complete again: the endpoint 200s and binds a frozen object, but the
+       row stays terminal, so preview and commit then reject it with "Job
+       already processed". The 200 is a lie, the client's recovery path is
+       dead, and the frozen object is unowned — no task tail fires for a job
+       nothing was deferred for, and the post-expiry sweep only covers the
+       client's key.
 
     The two doors reach state 2 by different routes, which is why this guard
     belongs to both: the reupload door stamps `failed` itself before a content
     422 (its direct sibling does, and a provenance test asserts that trail),
-    while an abandoned presigned upload is marked failed by the stale-pending
-    reaper after an hour — the same hour the PUT URL stays valid, so the
-    windows overlap.
+    while an abandoned presigned upload is settled by the stale-pending reaper
+    after an hour — the same hour the PUT URL stays valid, so the windows
+    overlap.
+
+    fix(#1556): that reaper now settles the abandoned-upload class `cancelled`
+    rather than `failed`, so "terminal" here is BOTH statuses. Reading only
+    `failed` would have reopened this hole for the exact rows the sentence
+    above is about — the class that reaches state 2 without any door stamping
+    it — while every test covering the door-stamped route kept passing.
 
     REJECT rather than resurrect. Reviving a failed job would re-open the
     client-writable-state-re-entering class this endpoint spent ten rounds
@@ -322,6 +329,13 @@ def require_completable_presigned_job(job: "IngestJob", *, restart_hint: str) ->
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"This job has already failed and cannot be completed. {restart_hint}",
+        )
+    if job.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"This upload was abandoned and has been cancelled. {restart_hint}"
+            ),
         )
 
 
