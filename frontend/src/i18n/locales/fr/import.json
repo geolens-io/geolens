@@ -74,7 +74,8 @@
     "multiLayerRetryClose": "Fermer (recliquer sur 'Ingérer toutes les couches')",
     "quotaShort": "Ignoré — limite de jeux de données atteinte",
     "quotaBannerTitle": "Limite de jeux de données atteinte",
-    "quotaBannerHint": "Supprimez des jeux de données existants pour libérer de l'espace, ou demandez à un administrateur d'augmenter la limite."
+    "quotaBannerHint": "Supprimez des jeux de données existants pour libérer de l'espace, ou demandez à un administrateur d'augmenter la limite.",
+    "reportProblem": "Signaler ce problème"
   },
   "warnings": {
     "bannerTitle": "Importation terminée avec des avertissements",

@@ -4,6 +4,7 @@ import { API_BASE } from '@/lib/constants';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
 import { useAuthStore } from '@/stores/auth-store';
+import { reportNetworkError } from '@/lib/report';
 import type {
   UploadResponse,
   JobStatusResponse,
@@ -42,6 +43,15 @@ async function xhrUpload<T>(
     await tryRefresh();
   }
 
+  // A direct-POST upload (uploadFile) previously bypassed the problem
+  // reporter entirely: it's called from a plain try/catch in UploadForm, not
+  // a TanStack mutation, so the shared MutationCache.onError tap in main.tsx
+  // never sees it. Report here instead — metadata only (status, error text,
+  // filename), never the multipart file body.
+  const uploadedFile = formData.get('file');
+  const filename = uploadedFile instanceof File ? uploadedFile.name : undefined;
+  const reportUrl = filename ? `${path} (${filename})` : path;
+
   const attempt = (): Promise<{ status: number; body: string }> =>
     new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -59,7 +69,13 @@ async function xhrUpload<T>(
       xhr.send(formData);
     });
 
-  let res = await attempt();
+  let res: { status: number; body: string };
+  try {
+    res = await attempt();
+  } catch (err) {
+    reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
+    throw err;
+  }
   // fix(#1446): capture the dead session BEFORE refreshing, matching
   // authenticatedRawFetch — every concurrent failure then keys the
   // notification latch on the same value.
@@ -67,7 +83,12 @@ async function xhrUpload<T>(
   if (res.status === 401) {
     deadSessionKey = useAuthStore.getState().token;
     if (await tryRefresh()) {
-      res = await attempt();
+      try {
+        res = await attempt();
+      } catch (err) {
+        reportNetworkError({ status: 0, url: reportUrl, detail: err instanceof Error ? err.message : undefined });
+        throw err;
+      }
     }
   }
 
@@ -79,6 +100,7 @@ async function xhrUpload<T>(
     } catch {
       // Non-JSON failures use the localized status category below.
     }
+    reportNetworkError({ status: res.status, url: reportUrl, detail });
     // fix(#1446): route terminal auth failure through the shared path instead
     // of clearing the store directly. Since the refresh credential became an
     // httpOnly cookie, a store-only logout leaves it and its server-side row
@@ -130,9 +152,21 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
   const url = layerName
     ? `/ingest/preview/${jobId}?layer_name=${encodeURIComponent(layerName)}`
     : `/ingest/preview/${jobId}`;
-  return apiFetch<FilePreviewResponse>(url, {
-    method: 'POST',
-  });
+  try {
+    return await apiFetch<FilePreviewResponse>(url, {
+      method: 'POST',
+    });
+  } catch (err) {
+    // Detection/preview also runs outside any TanStack mutation (UploadForm
+    // calls it directly to keep per-file state granular), so it was invisible
+    // to the report buffer the same way uploadFile was. Drop the job id from
+    // the reported path — same reasoning as reportQueryKey in main.tsx: an id
+    // isn't reliably distinguishable from a secret by shape.
+    if (err instanceof ApiError) {
+      reportNetworkError({ status: err.status, url: '/ingest/preview', detail: err.body ?? err.message });
+    }
+    throw err;
+  }
 }
 
 export async function commitImport(
@@ -209,42 +243,85 @@ export async function completePresignedUpload(
   });
 }
 
+// Metadata-only report for a step in the presigned-upload handshake
+// (request → PUT → complete). `stage` is a short static label, never the
+// presigned URL itself, which carries a time-limited access signature.
+function reportPresignFailure(stage: string, filename: string, err: unknown): void {
+  const url = `presigned:${stage} (${filename})`;
+  if (err instanceof ApiError) {
+    reportNetworkError({ status: err.status, url, detail: err.body ?? err.message });
+  } else {
+    reportNetworkError({ status: 0, url, detail: err instanceof Error ? err.message : undefined });
+  }
+}
+
 /**
  * Upload a file via presigned URL flow:
  * 1. Request presigned URL(s) from backend
  * 2. PUT file directly to S3
  * 3. Notify backend of completion
  * Returns the same UploadResponse as the regular upload endpoint.
+ *
+ * This whole flow runs outside any TanStack mutation (UploadForm calls it
+ * directly to keep per-file state granular), so none of its failures ever
+ * reached the shared MutationCache.onError tap in main.tsx — a job could be
+ * staged on the backend by step 1 and then abandoned by a step-2/3 failure
+ * with nothing recorded anywhere the user could report. Each step below
+ * reports its own failure through the existing reportNetworkError tap.
  */
 export async function uploadPresigned(
   file: File,
   onProgress?: UploadProgress,
 ): Promise<UploadResponse> {
-  const { job_id, urls, upload_id, part_size } = await requestPresignedUpload(
-    file.name,
-    file.size,
-    file.type || undefined,
-  );
+  let job_id: string, urls: string[], upload_id: string | null | undefined, part_size: number | null | undefined;
+  try {
+    ({ job_id, urls, upload_id, part_size } = await requestPresignedUpload(
+      file.name,
+      file.size,
+      file.type || undefined,
+    ));
+  } catch (err) {
+    reportPresignFailure('request', file.name, err);
+    throw err;
+  }
 
   if (urls.length === 1 && !upload_id) {
     // Simple PUT upload. Single-PUT is only used for small files, so progress
     // is a coarse 0→1 instead of an extra XHR-with-progress path.
     onProgress?.(0);
-    const resp = await fetch(urls[0], { method: 'PUT', body: file });
+    let resp: Response;
+    try {
+      resp = await fetch(urls[0], { method: 'PUT', body: file });
+    } catch (err) {
+      reportPresignFailure('put', file.name, err);
+      throw err;
+    }
     if (!resp.ok) {
+      reportNetworkError({ status: resp.status, url: `presigned:put (${file.name})` });
       throw new Error(
         i18n.t('common:errors.storageUploadFailed', { status: resp.status }),
       );
     }
     onProgress?.(1);
-    return completePresignedUpload(job_id);
+    try {
+      return await completePresignedUpload(job_id);
+    } catch (err) {
+      reportPresignFailure('complete', file.name, err);
+      throw err;
+    }
   }
 
-  // Multipart upload — progress reported per completed chunk.
+  // Multipart upload — progress reported per completed chunk. uploadChunks
+  // reports its own per-part failures.
   const etags = await uploadChunks(urls, file, part_size!, onProgress);
   const completedParts = etags.map((etag, i) => ({ etag, part_number: i + 1 }));
 
-  return completePresignedUpload(job_id, completedParts);
+  try {
+    return await completePresignedUpload(job_id, completedParts);
+  } catch (err) {
+    reportPresignFailure('complete', file.name, err);
+    throw err;
+  }
 }
 
 export async function createVrt(request: VrtCreateRequest): Promise<VrtCreateResponse> {

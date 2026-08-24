@@ -74,7 +74,8 @@
     "multiLayerRetryClose": "Close (retry by re-clicking Ingest all layers)",
     "quotaShort": "Skipped — dataset limit reached",
     "quotaBannerTitle": "Dataset limit reached",
-    "quotaBannerHint": "Delete existing datasets to free space, or ask an administrator to raise the limit."
+    "quotaBannerHint": "Delete existing datasets to free space, or ask an administrator to raise the limit.",
+    "reportProblem": "Report this problem"
   },
   "warnings": {
     "bannerTitle": "Import completed with warnings",

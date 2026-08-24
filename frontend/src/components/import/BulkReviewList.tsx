@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
-import { Layers, X, ChevronDown, ChevronRight } from 'lucide-react';
+import { Layers, X, ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,7 +12,33 @@ import { StatusPill } from './StatusPill';
 import { isRasterPreview, isFilePreview, fileExt, kindFromEntry } from './utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
+import { useReportDialog } from '@/lib/report';
 import type { FileEntry, CommitImportRequest, FilePreviewResponse } from '@/types/api';
+
+/* ── Report CTA (upload/commit failure rows) ─────────── */
+
+/**
+ * Inline nudge on a failed staged file toward the in-app problem reporter.
+ * The import route already maps to the "Import / Ingestion" area
+ * (mapAreaFromPath in build-issue.ts), so opening the wizard from here
+ * pre-seeds it without any wizard changes.
+ */
+function ReportProblemButton() {
+  const { t } = useTranslation('import');
+  const openReport = useReportDialog((s) => s.openReport);
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="xs"
+      onClick={openReport}
+    >
+      <LifeBuoy className="size-3" />
+      {t('upload.reportProblem')}
+    </Button>
+  );
+}
 
 /* ── Detection panel (expanded row) ──────────────────── */
 
@@ -400,14 +426,25 @@ export function BulkReviewList({
                   )}
 
                   {entry.status === 'commit-failed' && entry.error && (
-                    <p className="mt-2 text-sm text-destructive">{entry.error}</p>
+                    <div className="mt-2 space-y-1.5">
+                      <p className="text-sm text-destructive">{entry.error}</p>
+                      <ReportProblemButton />
+                    </div>
                   )}
                 </div>
               )}
 
-              {/* Non-expanded error */}
-              {!isExpanded && entry.status === 'upload-failed' && entry.error && (
-                <p className="px-4 pb-3 text-sm text-destructive">{entry.error}</p>
+              {/* Non-expanded error. Guarded on `canExpand` (always false for
+                  upload-failed), not just `isExpanded`: `expandedId` seeds
+                  from entries[0], so when the FIRST — or sole — staged file
+                  fails upload, isExpanded is true for it despite canExpand
+                  being false, and `!isExpanded` alone hid the error and this
+                  CTA for exactly the single-file-upload-fails case. */}
+              {!(isExpanded && canExpand) && entry.status === 'upload-failed' && entry.error && (
+                <div className="space-y-1.5 px-4 pb-3">
+                  <p className="text-sm text-destructive">{entry.error}</p>
+                  <ReportProblemButton />
+                </div>
               )}
             </div>
           );
