@@ -29,7 +29,7 @@ const COLOR_CLASSES: Record<string, string> = {
 
 const DISMISS_KEY = 'gl-site-banner-dismissed';
 
-// feat(#123-followup): make https:// URLs in admin-entered banner text
+// feat(#1662): make https:// URLs in admin-entered banner text
 // clickable. The text itself stays React-escaped; only the matched URL
 // becomes an anchor, so an admin cannot inject markup through the banner.
 // Trailing sentence punctuation stays outside the link.
@@ -40,7 +40,23 @@ function renderBannerText(text: string) {
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
     if (m.index! > last) parts.push(text.slice(last, m.index));
-    parts.push({ url: m[1], trail: m[2] });
+    let url = m[1];
+    let trail = m[2];
+    // fix(#1662 review): a URL that legitimately ends in ')' — e.g. a
+    // Wikipedia path like /Function_(mathematics) — should keep as many
+    // closing parens as it has unmatched opening ones; only the excess is
+    // sentence punctuation.
+    let unmatched = 0;
+    for (const ch of url) {
+      if (ch === '(') unmatched += 1;
+      else if (ch === ')' && unmatched > 0) unmatched -= 1;
+    }
+    while (unmatched > 0 && trail.startsWith(')')) {
+      url += ')';
+      trail = trail.slice(1);
+      unmatched -= 1;
+    }
+    parts.push({ url, trail });
     last = m.index! + m[0].length;
   }
   if (last < text.length) parts.push(text.slice(last));

@@ -113,4 +113,14 @@ describe('SiteBanner', () => {
     expect(screen.getAllByRole('link')).toHaveLength(1);
     expect(screen.getByRole('link')).toHaveAttribute('href', 'https://ok.example/x');
   });
+
+  it('H) a URL with balanced parens keeps its closing paren; excess stays punctuation', () => {
+    renderBanner({
+      banner_text: 'See https://en.wikipedia.org/wiki/Function_(mathematics). Also (https://ok.example/y).',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://en.wikipedia.org/wiki/Function_(mathematics)');
+    // parenthesized plain URL: the closing paren has no unmatched opener inside the URL
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/y');
+  });
 });
