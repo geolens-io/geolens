@@ -20,6 +20,19 @@ and releases use semantic versioning.
   `convert_to_cog` now checks each band's actual bit width before deciding
   whether a predictor creation option is safe to pass.
 
+- **A corrupt vector upload no longer shows a raw GDAL diagnostic dump.**
+  When ogr2ogr or ogrinfo couldn't open an uploaded file — a corrupt or
+  incomplete GeoPackage, Shapefile, or similar — the stored and displayed
+  `IngestJob.error_message` was GDAL's raw stderr verbatim: either a 100+
+  line driver enumeration or SQLite's own corrupt-database diagnostics,
+  both including the internal staging file path. Both failure shapes are
+  now recognized and replaced with a short message built from the original
+  upload filename, e.g. "Could not open 'march.gpkg' as a spatial dataset —
+  the file may be corrupt, incomplete, or not a valid GeoPackage (.gpkg)
+  file."; the full stderr still reaches structured logs at error level, and
+  every other ogr2ogr/ogrinfo failure keeps its real message unchanged
+  (#1640).
+
 ## [1.15.0] - 2026-08-23
 
 ### Added

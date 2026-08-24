@@ -2762,7 +2762,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # credit. Most of the lines are the comment recording why this path is the
     # only reupload one that needs it and why dataset.record is safe to touch
     # (joinedloaded by the SELECT above it). Cap 1139 -> 1151, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1151,
+    # fix: +5 — thread original_filename through _detect_reupload_crs and the
+    # two run_ogrinfo/run_ogr2ogr call sites so a corrupt reupload gets the
+    # same friendly "could not open" message as a fresh upload, instead of
+    # leaking the staging path / GDAL driver dump. Cap 1151 -> 1156, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1156,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3257,7 +3261,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # typename instead of storing nothing. Most of it is the comment recording
     # that build_gdal_source makes id and name mutually exclusive per service,
     # which is why one key suffices. Cap 1074 -> 1090, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1090,
+    # fix: +3 — pass original_filename (job.source_filename) to run_ogrinfo
+    # and run_ogr2ogr so a corrupt vector upload gets a friendly message
+    # instead of GDAL's raw driver-enumeration stderr. Cap 1090 -> 1093, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1093,
+    # --- entered by the inclusion rule ------------------------------------
+    # Crossed 1000 lines adding the "unable to open datasource" friendly-
+    # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
+    # regexes (GDAL's driver-enumeration line and SQLite's own "file is not
+    # a database"), the per-extension format-label table, and the message
+    # builder, plus the log-then-raise branch duplicated at both call sites'
+    # failure handling (ogrinfo's text-fallback raise and ogr2ogr's raise).
+    # Exact line count at entry.
+    # fix(codex review, #1640): +16 — a third pattern, SQLite's "database
+    # disk image is malformed" (a valid header with a corrupt interior
+    # b-tree page — distinct from "file is not a database", which is a
+    # corrupt header). Empirically confirmed against a real GPKG with a
+    # byte-flipped leaf page. Cap 1073 -> 1089, exact.
+    "backend/app/processing/ingest/ogr.py": 1089,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

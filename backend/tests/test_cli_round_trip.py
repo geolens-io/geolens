@@ -474,7 +474,7 @@ class TestManifestApplyRoundTrip:
         assert city_parks["job_id"]
         assert city_parks["job_id"] == queued["job_id"]
 
-        async def _fake_run_ogrinfo(file_path, layer_name=None):
+        async def _fake_run_ogrinfo(file_path, layer_name=None, original_filename=None):
             return {
                 "columns": [{"name": "name", "type": "String"}],
                 "geometry_type": "Point",
@@ -491,6 +491,7 @@ class TestManifestApplyRoundTrip:
             *,
             schema,
             effective_srid=None,
+            original_filename=None,
         ):
             from app.core.db import async_session
             from sqlalchemy import text
