@@ -2776,14 +2776,17 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
     the real bug. This test instead reproduces the ACTUAL mechanism directly
     against a copy of the first build: two reversible UPDATE transactions
     that leave every row exactly as they found it, but commit twice.
+
+    fix(#1633 review, codex P2): the fix stamps a DERIVED value now, not a
+    fixed constant (see `test_normalize_derives_distinct_counters_for_different_content`
+    below for why), so this only checks the two header fields agree with
+    each other and land on the same value for the same content — not that
+    they equal any particular number.
     """
     import sqlite3
     import struct
 
-    from app.processing.export.service import (
-        _GPKG_FIXED_HEADER_COUNTER,
-        normalize_gpkg_timestamps,
-    )
+    from app.processing.export.service import normalize_gpkg_timestamps
 
     _require_ogr2ogr()
 
@@ -2849,15 +2852,93 @@ def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
         "those UPDATEs preserves whatever delta ogr2ogr's build left behind"
     )
 
-    for path in (first, second):
-        counter, valid_for = _header_pair(path)
-        assert (counter, valid_for) == (
-            _GPKG_FIXED_HEADER_COUNTER,
-            _GPKG_FIXED_HEADER_COUNTER,
-        ), (
-            f"{path.name}: header change-counter pair is {(counter, valid_for)}, "
-            f"not pinned to the constant every normalized GeoPackage should share"
+    first_pair = _header_pair(first)
+    second_pair = _header_pair(second)
+    for path, pair in ((first, first_pair), (second, second_pair)):
+        counter, valid_for = pair
+        assert counter == valid_for, (
+            f"{path.name}: header change-counter pair is {pair} — the change "
+            f"counter and version-valid-for fields should always be stamped "
+            f"together and agree, or the file misrepresents when its own "
+            f"SQLITE_VERSION_NUMBER was last written"
         )
+    assert first_pair == second_pair, (
+        f"two builds of the SAME normalized content derived different header "
+        f"counters ({first_pair} vs {second_pair}) — the derivation is meant "
+        f"to be a pure function of content, so identical content must land on "
+        f"the identical counter"
+    )
+
+
+def test_normalize_derives_distinct_counters_for_different_content(tmp_path):
+    """fix(#1633 review, codex P2): the derived counter must vary with content.
+
+    The first version of this fix stamped both header fields to a FIXED
+    constant. That made #1633's determinism property hold, but it also meant
+    every GeoPackage this route ever exports — for ANY dataset, at ANY time —
+    shares one change-counter value. SQLite uses that pair for exactly one
+    thing: letting a connection notice that a DIFFERENT connection wrote the
+    file since it cached a page, so it knows to invalidate that cache. A
+    client that keeps a `.gpkg` open and later has it overwritten in place
+    with a materially different export would see the counter it already
+    cached and skip invalidating — reading stale pages against new content.
+
+    Deriving the counter from the normalized content instead keeps the
+    determinism test above passing (same content -> same counter) while
+    closing that hazard: different content must land on a different counter.
+    """
+    import struct
+
+    from app.processing.export.service import normalize_gpkg_timestamps
+
+    _require_ogr2ogr()
+
+    def _build(tag: str, n: int) -> Path:
+        source = tmp_path / f"src_{tag}.geojson"
+        source.write_text(
+            '{"type":"FeatureCollection","features":[{"type":"Feature",'
+            f'"properties":{{"n":{n}}},'
+            '"geometry":{"type":"Point","coordinates":[1,2]}}]}'
+        )
+        out = tmp_path / f"{tag}.gpkg"
+        subprocess.run(
+            ["ogr2ogr", "-f", "GPKG", str(out), str(source)],
+            check=True,
+            capture_output=True,
+        )
+        return out
+
+    def _header_pair(path: Path) -> tuple[int, int]:
+        data = path.read_bytes()[:100]
+        return (
+            struct.unpack(">I", data[24:28])[0],
+            struct.unpack(">I", data[92:96])[0],
+        )
+
+    first = _build("a", 1)
+    second = _build("b", 2)  # different attribute value -> different content
+
+    normalize_gpkg_timestamps(str(first))
+    normalize_gpkg_timestamps(str(second))
+
+    assert (
+        hashlib.sha256(first.read_bytes()).hexdigest()
+        != hashlib.sha256(second.read_bytes()).hexdigest()
+    ), (
+        "the two builds carry different data, so this test would prove "
+        "nothing if they already hashed the same after normalize"
+    )
+
+    first_pair = _header_pair(first)
+    second_pair = _header_pair(second)
+    assert first_pair != second_pair, (
+        f"two exports of DIFFERENT content share the header change-counter "
+        f"pair {first_pair} — a client watching this counter to know when "
+        f"to invalidate a cached page could read stale data after the file "
+        f"is overwritten in place with different content, since SQLite uses "
+        f"this pair specifically to detect that a different connection wrote "
+        f"the file"
+    )
 
 
 async def test_an_unchanged_rebuild_does_not_contest_the_selection(test_db_session):

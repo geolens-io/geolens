@@ -126,28 +126,67 @@ _GPKG_TIMESTAMP_COLUMNS = (
 # cannot fix them: going through SQLite to write anything bumps the counter
 # on BOTH builds by the same amount, so the pre-existing delta survives.
 # Patching the header bytes directly, after the connection is closed, is
-# safe: SQLite uses this pair only to let one connection detect that a
+# necessary: SQLite uses this pair to let one connection detect that a
 # DIFFERENT connection wrote the file since it cached a page, so it knows to
-# invalidate that cache. An export artifact is written once, closed, hashed,
-# and never reopened for a write by this process — there is no second
-# connection whose cache these fields could ever need to invalidate — so
-# stamping them to a fixed constant changes nothing about how the file
-# behaves, only what it hashes to.
+# invalidate that cache.
+#
+# fix(#1633 review, codex P2): the first version of this patch stamped both
+# fields to a FIXED constant. That collided identically across every export
+# regardless of content — harmless for THIS process (an export artifact is
+# written once, closed, hashed, and never reopened for a write here), but a
+# client that keeps a `.gpkg` open and watches this counter to know when to
+# invalidate its own page cache could read stale pages if the file were later
+# overwritten in place with materially different data, because the counter
+# would never move. Deriving the value from the NORMALIZED content instead
+# keeps both properties: unchanged data still normalizes to the same counter
+# (see `_stamp_gpkg_header_counters`), and changed data gets a different one.
 _GPKG_HEADER_CHANGE_COUNTER_OFFSET = 24
 _GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
-_GPKG_FIXED_HEADER_COUNTER = 1
+# Never write a change counter of 0 — a brand-new SQLite file always starts
+# at 1, so 0 does not read as "a real counter value" even though the format
+# does not forbid it.
+_GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO = 1
 
 
 def _stamp_gpkg_header_counters(path: str) -> None:
-    """Pin the SQLite change-counter pair to a constant, by direct byte patch.
+    """Derive the SQLite change-counter pair from the file's own content.
+
+    fix(#1633 review, codex P2): a fixed constant here would make the pair
+    identical across every export, defeating the one thing SQLite uses it
+    for — letting a connection notice that a DIFFERENT connection wrote the
+    file since it cached a page. The value is instead the first 4 bytes of
+    the sha256 of the file with both counter fields zeroed first, so it is a
+    pure function of everything else in the file: identical normalized
+    content (the property #1633 exists for) hashes to the identical counter,
+    and different content hashes to a different one with overwhelming
+    probability — closing the stale-cache hazard a constant would leave
+    open.
 
     Must run after the sqlite3 connection that did the row-level normalize is
     closed: writing through that connection would immediately re-bump the
-    counter it just set, undoing the patch.
+    counter it just set, undoing the patch (and changing the content the
+    counter is derived from).
     """
+    import hashlib
     import struct
 
-    stamped = struct.pack(">I", _GPKG_FIXED_HEADER_COUNTER)
+    with open(path, "rb") as handle:
+        data = bytearray(handle.read())
+
+    zero = b"\x00\x00\x00\x00"
+    data[
+        _GPKG_HEADER_CHANGE_COUNTER_OFFSET : _GPKG_HEADER_CHANGE_COUNTER_OFFSET + 4
+    ] = zero
+    data[
+        _GPKG_HEADER_VERSION_VALID_FOR_OFFSET : _GPKG_HEADER_VERSION_VALID_FOR_OFFSET
+        + 4
+    ] = zero
+    digest = hashlib.sha256(bytes(data)).digest()
+    counter = (
+        struct.unpack(">I", digest[:4])[0] or _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO
+    )
+    stamped = struct.pack(">I", counter)
+
     with open(path, "r+b") as handle:
         handle.seek(_GPKG_HEADER_CHANGE_COUNTER_OFFSET)
         handle.write(stamped)
@@ -183,12 +222,14 @@ def normalize_gpkg_timestamps(path: str) -> None:
     columns are spec-defined, and going through the driver to rewrite two cells
     would mean another full open and rewrite of the file.
 
-    fix(#1633): also pins the SQLite header's change-counter pair (see
+    fix(#1633): also derives and stamps the SQLite header's change-counter
+    pair from the file's own normalized content (see
     `_stamp_gpkg_header_counters`) once the row-level UPDATEs below are
     committed and this function's own connection is closed — the counter is
     bumped by transaction COUNT, not by content, so it can (and did, under
     CI load) diverge between two builds of identical data even after every
-    row matches.
+    row matches. Deriving rather than hardcoding it keeps unchanged data on
+    one counter while still letting different data land on a different one.
     """
     import sqlite3
 
