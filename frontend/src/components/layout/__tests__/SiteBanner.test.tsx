@@ -123,4 +123,14 @@ describe('SiteBanner', () => {
     // parenthesized plain URL: the closing paren has no unmatched opener inside the URL
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/y');
   });
+
+  it('I) URLs wrapped in quotes or angle brackets still linkify', () => {
+    renderBanner({
+      banner_text: 'Read "https://ok.example/docs" or <https://ok.example/alt>',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/docs');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/alt');
+  });
 });
