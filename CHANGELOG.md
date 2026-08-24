@@ -25,8 +25,6 @@ and releases use semantic versioning.
   invisible, because its row started expanded by state even though
   upload-failed rows have no expand panel to show.
 
-## [1.15.1] - 2026-08-24
-
 ### Changed
 
 - **Anonymous visitors can report problems too.** The in-app problem reporter
@@ -36,6 +34,10 @@ and releases use semantic versioning.
   traffic browses anonymously, so a visitor who hit a broken map had no way to
   say so. The gate is removed; the button still appears only after an error is
   captured.
+
+## [1.15.1] - 2026-08-24
+
+### Changed
 
 - **An upload that was never started is now `cancelled`, not `failed`.** Ask
   for a presigned upload URL and walk away, and the job row sat `pending` until
