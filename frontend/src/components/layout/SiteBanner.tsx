@@ -36,16 +36,22 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // Apostrophes are legitimate URL characters (/O'Reilly), so ' is NOT an
 // excluded body character; a single quote only acts as a delimiter when it
 // wraps the URL ('https://…'), handled by the paired-wrapper check below.
-const URL_RE =
-  /(https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]+?)([.,;:!?)\]\u2026\u3002\u3001]*)(?=[\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]|$)/gi;
+// fix(#1662 review): a single greedy group with no trailing-group/lookahead
+// split — the earlier lazy-body + punctuation-group pair let the engine retry
+// every split point on adversarial runs (quadratic). The trail is peeled in
+// plain code below instead, which is linear by construction.
+const URL_RE = /https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]+/gi;
+const TRAIL_RE = /[.,;:!?)\]\u2026\u3002\u3001]+$/;
 
 function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
     if (m.index! > last) parts.push(text.slice(last, m.index));
-    let url = m[1];
-    let trail = m[2];
+    const matched = m[0];
+    const trailMatch = TRAIL_RE.exec(matched);
+    let url = trailMatch ? matched.slice(0, trailMatch.index) : matched;
+    let trail = trailMatch ? trailMatch[0] : '';
     // fix(#1662 review): <https://…> is RFC 3986's own URL delimiting. Inside
     // angle brackets the URL is taken VERBATIM — trailing punctuation like
     // /wiki/Yahoo! stays in the href, and no wrapper/balance heuristics run.
@@ -54,7 +60,7 @@ function renderBannerText(text: string) {
     const angleDelimited =
       m.index! > 0 && text[m.index! - 1] === '<' && text[m.index! + m[0].length] === '>';
     if (angleDelimited) {
-      parts.push({ url: url + trail, trail: '' });
+      parts.push({ url: matched, trail: '' });
       last = m.index! + m[0].length;
       continue;
     }
