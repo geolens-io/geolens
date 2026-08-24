@@ -1103,7 +1103,15 @@ class TestCleanupStaleJobs:
             audit for audit in audits if audit["details"].get("outcome") == "completed"
         )
         operation_id = completed["details"]["operation_id"]
-        assert completed["details"] == {
+        details = dict(completed["details"])
+        # fix(#1556): the audit detail carries one count the published response
+        # model does not. `pending_cancelled` reaches this JSONB blob (and the
+        # multi-tenant fleet totals) so an operator can see that a pass settled
+        # abandoned uploads rather than failing anything; StaleCleanupResponse
+        # has no such field and pydantic drops it on the way out. Popped here so
+        # the exact-shape assertion below still refuses any OTHER new key.
+        assert isinstance(details.pop("pending_cancelled"), int)
+        assert details == {
             "operation_id": operation_id,
             "outcome": "completed",
             **{key: data[key] for key in expected_counts},

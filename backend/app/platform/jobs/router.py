@@ -38,6 +38,7 @@ from app.platform.jobs.schemas import (
 )
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
 from app.platform.jobs.sweep import (
+    ABANDONED_UPLOAD_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     JOB_TIMEOUT_SECONDS,
     audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
@@ -50,8 +51,10 @@ from app.platform.jobs.sweep import (
     fail_stale_jobs,
     post_expiry_sweep_after_seconds,  # noqa: F401 -- re-exported, see __all__
     publish_refresh_reconciliation,
+    is_abandoned_presigned_upload,  # noqa: F401 -- re-exported, see __all__
     stale_pending_clauses,
     stale_pending_cutoff_seconds,
+    stale_pending_unbound_values,
     sweep_stale_vrt_assets,  # noqa: F401 -- re-exported, see __all__
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -386,6 +389,16 @@ async def get_job_status(
                 completion_bound=completion_bound
             ):
                 continue
+            # fix(#1556): the unbound half takes the shared ACTION, which
+            # settles a never-bound presigned upload as `cancelled`. The bound
+            # half keeps writing `failed` outright — a completion that bound
+            # bytes and then stalled IS a failure — and this is the same split
+            # the background sweep and the worker's startup recovery apply.
+            values = (
+                {"status": "failed", "error_message": message, "completed_at": now}
+                if completion_bound
+                else stale_pending_unbound_values(now, message=message)
+            )
             result = await db.execute(
                 update(IngestJob)
                 .where(
@@ -393,11 +406,7 @@ async def get_job_status(
                     IngestJob.attempt_id == job.attempt_id,
                     *stale_pending_clauses(now, completion_bound=completion_bound),
                 )
-                .values(
-                    status="failed",
-                    error_message=message,
-                    completed_at=now,
-                )
+                .values(**values)
             )
             if result.rowcount:
                 await audit_settled_embedding_backfill(
@@ -777,6 +786,7 @@ async def retry_job(
 
 
 __all__ = [
+    "ABANDONED_UPLOAD_MESSAGE",
     "JOB_TIMEOUT_SECONDS",
     "STALE_PENDING_BOUND_MESSAGE",
     "STALE_PENDING_UNBOUND_MESSAGE",
@@ -789,9 +799,11 @@ __all__ = [
     "audit_settled_embedding_backfill",
     "fail_stale_jobs",
     "get_retry_capability",
+    "is_abandoned_presigned_upload",
     "post_expiry_sweep_after_seconds",
     "router",
     "stale_pending_clauses",
     "stale_pending_cutoff_seconds",
+    "stale_pending_unbound_values",
     "sweep_stale_vrt_assets",
 ]

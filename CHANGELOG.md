@@ -7,6 +7,25 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- **An upload that was never started is now `cancelled`, not `failed`.** Ask
+  for a presigned upload URL and walk away, and the job row sat `pending` until
+  the stale sweep marked it failed with "pending too long (never queued)" — a
+  state that reads, in the admin jobs list and in the failed-jobs count beside
+  it, exactly like an ingest that broke. Nothing was ever attempted for those
+  rows, so they now settle `cancelled` with "Abandoned: upload was never
+  completed", at all three places that can settle them: the background sweep,
+  the status poll, and a worker's startup recovery. Only that class moves.
+  Every other never-queued job keeps reporting `failed` — including a service
+  or URL import whose dispatch never landed, because retry is offered on failed
+  jobs and taking that away would cost a recoverable job its recovery. The
+  cleanup pass counts cancellations apart from failures, so an operator reading
+  a sweep's audit entry sees what it actually did, and the import view stops
+  polling a job once it settles cancelled instead of asking for its status
+  every two seconds for the life of the tab. No schema change: `cancelled` was
+  already a permitted job status (#1556).
+
 ### Fixed
 
 - **Low-bit-depth rasters (NBITS < 8) no longer fail COG conversion.**

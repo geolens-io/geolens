@@ -2856,7 +2856,26 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `terminal_backfill_audit_exists`: one operation gets one terminal entry,
     # whoever writes it first, because three actors can legitimately close the
     # same run and two of them disagreeing is the defect.
-    "backend/app/platform/jobs/sweep.py": 1522,
+    # fix(#1556): +77 — the unbound half of the pending sweep gained an ACTION
+    # helper (`stale_pending_unbound_values`) to sit beside the existing clause
+    # helper, so a presigned upload nobody ever bound bytes to settles
+    # `cancelled` at all three sites that can reach it instead of `failed` at
+    # whichever one got there first. Most of the lines are the two predicate
+    # docstrings recording why the class is "presigned marker AND empty
+    # file_path" and not "falsy file_path": a service import with a source_url
+    # is also unbound, and `/jobs/{id}/retry` only offers a `failed` row, so
+    # the broader rule would take a recoverable job's recovery away.
+    # Cap 1522 -> 1599, exact.
+    # fix(#1556 review, codex P2): +54 — the unbound UPDATE returns the status
+    # its CASE chose, so `pending_failed` can stop counting the rows that were
+    # cancelled. Without it the admin cleanup response, its audit event and the
+    # sweeper's log line all still reported an abandoned upload as a failure,
+    # which is the whole thing the split exists to stop. The lines are the new
+    # field plus the docstrings recording why `total_cleaned` excludes
+    # cancellations while `total_affected` includes them, and why the count
+    # reaches the audit event but not the published response model.
+    # Cap 1599 -> 1653, exact.
+    "backend/app/platform/jobs/sweep.py": 1653,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

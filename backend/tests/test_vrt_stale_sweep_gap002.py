@@ -138,7 +138,9 @@ def _make_mock_db_for_fail_stale(
 
     execute() side effects (in order):
       1. stale UNBOUND pending IngestJobs (1h) → all() returns
-         (id, user_metadata, created_by) triples
+         (id, user_metadata, created_by, status) — fix(#1556 review) widened
+         this one RETURNING so the sweep can count the rows its CASE settled
+         `cancelled` apart from the ones it failed
       2. stale BOUND pending IngestJobs (24h, fix(#1234)) → empty here
       3. stale running IngestJobs → all() returns the same triples
       3. stale VrtGeneration UPDATE → all() returns (id, vrt_dataset_id) pairs
@@ -160,14 +162,16 @@ def _make_mock_db_for_fail_stale(
       6. optional surviving-path SELECT when a deleted row had a file_path
     """
     results = []
-    for returned_ids in [
-        stale_jobs_pending or [],
-        # fix(#1234): the pending sweep is two clauses now — unbound rows at
-        # 1h, then rows that bound bytes but never committed at 24h. These
-        # fixtures exercise the first, so the second returns nothing.
-        [],
-        stale_jobs_running or [],
-    ]:
+    for index, returned_ids in enumerate(
+        [
+            stale_jobs_pending or [],
+            # fix(#1234): the pending sweep is two clauses now — unbound rows at
+            # 1h, then rows that bound bytes but never committed at 24h. These
+            # fixtures exercise the first, so the second returns nothing.
+            [],
+            stale_jobs_running or [],
+        ]
+    ):
         mock_result = MagicMock()
         mock_result.scalars.return_value = returned_ids
         # fix(#1550 review): the three job sweeps RETURN (id, user_metadata,
@@ -176,7 +180,19 @@ def _make_mock_db_for_fail_stale(
         # run's own metadata to write a correlated entry. These fixtures carry
         # no backfill marker, so the audit emission is a no-op for them; the
         # shape still has to match or the counts read zero.
-        mock_result.all.return_value = [(job_id, None, None) for job_id in returned_ids]
+        #
+        # fix(#1556 review): the UNBOUND half (index 0) carries a fourth column,
+        # the status its CASE chose. These fixtures describe rows with no
+        # `presigned` marker, so the status the database would have written is
+        # `failed` — which is what keeps `pending_failed` reading 1 below.
+        if index == 0:
+            mock_result.all.return_value = [
+                (job_id, None, None, "failed") for job_id in returned_ids
+            ]
+        else:
+            mock_result.all.return_value = [
+                (job_id, None, None) for job_id in returned_ids
+            ]
         results.append(mock_result)
 
     # feat(#1267): RETURNING widened to (id, vrt_dataset_id) — the storage

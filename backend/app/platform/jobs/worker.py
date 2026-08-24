@@ -159,28 +159,41 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         # bound/unbound split (#1234, so it could fail a completion mid-commit
         # every time a worker booted).
         from app.platform.jobs.router import (
+            ABANDONED_UPLOAD_MESSAGE,
             STALE_PENDING_UNBOUND_MESSAGE,
+            is_abandoned_presigned_upload,
             stale_pending_clauses,
+            stale_pending_unbound_values,
         )
 
         orphaned_result = await session.execute(
             update(IngestJob)
             .where(*stale_pending_clauses(now, completion_bound=False))
             .values(
-                status="failed",
-                error_message=STALE_PENDING_UNBOUND_MESSAGE,
-                completed_at=now,
+                **stale_pending_unbound_values(
+                    now, message=STALE_PENDING_UNBOUND_MESSAGE
+                )
             )
             .returning(IngestJob)
         )
         orphaned_jobs = list(orphaned_result.scalars())
         for job in orphaned_jobs:
-            job.status = "failed"
-            job.error_message = STALE_PENDING_UNBOUND_MESSAGE
+            # fix(#1556): the mirror has to reproduce the CASE the database
+            # just evaluated, not a constant. These assignments exist to keep
+            # lightweight session doubles representative (see the running half
+            # above), but they are writes to a persistent instance either way —
+            # a flat `job.status = "failed"` here would mark the object dirty
+            # and push `failed` back over the `cancelled` the UPDATE wrote.
+            abandoned = is_abandoned_presigned_upload(job.file_path, job.user_metadata)
+            job.status = "cancelled" if abandoned else "failed"
+            job.error_message = (
+                ABANDONED_UPLOAD_MESSAGE if abandoned else STALE_PENDING_UNBOUND_MESSAGE
+            )
             job.completed_at = now
             log.warning(
                 "Recovered orphaned pending job",
                 job_id=str(job.id),
+                status=job.status,
             )
             # fix(#1556): the other half, same reason. A backfill whose
             # dispatch never landed is `pending` with no queue row, which is

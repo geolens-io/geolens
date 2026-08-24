@@ -185,8 +185,20 @@ class TestStatusPollDoesNotReapQueuedJobs:
         assert "without being processed" in (job.error_message or "")
 
 
-async def _make_pending_job(session, *, age_seconds: int, file_path: str):
-    """A pending job aged past a cutoff, with file_path as given."""
+async def _make_pending_job(
+    session,
+    *,
+    age_seconds: int,
+    file_path: str,
+    presigned: bool = True,
+    source_url: str | None = None,
+):
+    """A pending job aged past a cutoff, with file_path as given.
+
+    fix(#1556): `presigned` is now a parameter because it discriminates two
+    classes that both reach the unbound half. Default True keeps every existing
+    caller describing the presigned upload it already described.
+    """
     from datetime import datetime, timedelta, timezone
 
     from sqlalchemy import select, update
@@ -202,7 +214,8 @@ async def _make_pending_job(session, *, age_seconds: int, file_path: str):
         created_by=admin.id,
         status="pending",
         file_path=file_path,
-        user_metadata={"presigned": True},
+        source_url=source_url,
+        user_metadata={"presigned": True} if presigned else {},
     )
     session.add(job)
     await session.commit()
@@ -226,7 +239,9 @@ class TestBoundPendingSweep:
     """
 
     @staticmethod
-    async def _make_job(session, *, age_seconds: int, file_path: str):
+    async def _make_job(
+        session, *, age_seconds: int, file_path: str, presigned: bool = True
+    ):
         from datetime import datetime, timedelta, timezone
 
         from sqlalchemy import select, update
@@ -242,7 +257,7 @@ class TestBoundPendingSweep:
             created_by=admin.id,
             status="pending",
             file_path=file_path,
-            user_metadata={"presigned": True},
+            user_metadata={"presigned": True} if presigned else {},
         )
         session.add(job)
         await session.commit()
@@ -276,11 +291,35 @@ class TestBoundPendingSweep:
             "bytes — the completion that set file_path was still committing"
         )
 
-    async def test_an_unbound_job_still_fails_at_1h(self, test_db_session) -> None:
-        """The policy itself is deliberate and stays."""
+    async def test_an_unbound_job_is_still_settled_at_1h(self, test_db_session) -> None:
+        """The policy itself is deliberate and stays.
+
+        fix(#1556): the TERMINAL STATE moved for this row and only this row —
+        a presigned upload with nothing bound is an abandonment, not a failed
+        ingest. The 1h clause, the class it selects and the sites that apply it
+        are all untouched; see TestAbandonedUploadsAreCancelled for the split.
+        """
         from app.platform.jobs.router import fail_stale_jobs
 
         job = await self._make_job(test_db_session, age_seconds=7200, file_path="")
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert "Abandoned" in (job.error_message or "")
+
+    async def test_an_unbound_non_presigned_job_still_fails_at_1h(
+        self, test_db_session
+    ) -> None:
+        """The other side of the same fork: an analysis run or an embedding
+        backfill also carries `file_path=""`, and a dispatch that never landed
+        is a real failure of something the user asked for."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await self._make_job(
+            test_db_session, age_seconds=7200, file_path="", presigned=False
+        )
 
         await fail_stale_jobs(test_db_session)
 
@@ -402,11 +441,32 @@ class TestPollingPathHonoursTheSameGuard:
             "completion that set file_path was still committing"
         )
 
-    async def test_a_poll_still_fails_an_unbound_pending_job(
+    async def test_a_poll_still_settles_an_unbound_pending_job(
         self, client, admin_auth_header, test_db_session
     ) -> None:
-        """The 1h abandonment policy is deliberate and stays on this path too."""
+        """The 1h abandonment policy is deliberate and stays on this path too.
+
+        fix(#1556): terminal state only — this row is a presigned upload with
+        nothing bound, so the poll settles it `cancelled` exactly as the
+        background sweep does. The non-presigned twin below keeps `failed`.
+        """
         job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+
+        resp = await self._poll(client, admin_auth_header, job.id)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert "Abandoned" in (job.error_message or "")
+
+    async def test_a_poll_still_fails_an_unbound_non_presigned_job(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The poll keeps its own elapsed-seconds wording for everything that
+        is not an abandoned upload."""
+        job = await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="", presigned=False
+        )
 
         resp = await self._poll(client, admin_auth_header, job.id)
 
@@ -454,6 +514,289 @@ class TestPollingPathHonoursTheSameGuard:
         await test_db_session.refresh(job)
         assert job.status == "failed"
         assert "completed but never committed" in (job.error_message or "")
+
+
+class TestAbandonedUploadsAreCancelled:
+    """fix(#1556): a presigned upload nobody ever bound bytes to is not a
+    failed ingest.
+
+    On the public demo two rows (uls.csv, 2026-08-18) sat in the admin jobs
+    list as `failed` with "Stale: pending too long (never queued)" — a visitor
+    asked for a presigned URL and walked away. Nothing was ever attempted, so
+    they were indistinguishable from real ingest failures in the failed-jobs
+    badge and in operator triage.
+
+    `cancelled` is already in the `ingest_jobs` status CHECK constraint, in the
+    admin `JobStatus` literal and in openapi.json, so this is a state change
+    and not a schema or contract change.
+    """
+
+    async def test_the_sweep_cancels_an_abandoned_upload(self, test_db_session) -> None:
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert job.error_message == "Abandoned: upload was never completed"
+        assert job.completed_at is not None
+
+    async def test_a_service_import_awaiting_retry_still_fails(
+        self, test_db_session
+    ) -> None:
+        """The reason the class is not "falsy file_path".
+
+        A service/URL import that was never queued is unbound too, and it IS
+        recoverable — but `/jobs/{id}/retry` and `_retry_capability` both
+        require status `failed`, so cancelling it would take its only recovery
+        path away.
+        """
+        from app.platform.jobs.router import fail_stale_jobs, get_retry_capability
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="",
+            presigned=False,
+            source_url="https://example.test/roads.geojson",
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+        can_retry, reason = await get_retry_capability(job)
+        assert can_retry, f"the retry path was lost: {reason}"
+
+    async def test_a_direct_upload_with_a_real_file_still_fails(
+        self, test_db_session
+    ) -> None:
+        """#1235's absolute-path class, unchanged: a real file exists and
+        retry matters, so the row must stay `failed`."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
+    async def test_the_bound_half_is_untouched(self, test_db_session) -> None:
+        """The 24h backstop keeps writing `failed` with its own message: a
+        completion that bound bytes and then stalled IS a failure."""
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=90000,
+            file_path="staging/x/frozen/roads.geojson",
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "completed but never committed" in (job.error_message or "")
+
+    async def test_the_running_lease_sweep_is_untouched(self, test_db_session) -> None:
+        """The stale-RUNNING path shares the function, not the values."""
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import update
+
+        from app.platform.jobs.models import IngestJob
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                status="running",
+                started_at=datetime.now(timezone.utc) - timedelta(seconds=7200),
+            )
+        )
+        await test_db_session.commit()
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "running for over" in (job.error_message or "")
+
+    async def test_the_worker_startup_recovery_cancels_it_too(
+        self, test_db_session
+    ) -> None:
+        """The third site. It settles the same rows with the same clauses, and
+        it is the pass that actually reaches a row after a hard restart."""
+        from app.platform.jobs.worker import recover_stale_jobs
+
+        abandoned = await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path=""
+        )
+        dispatched = await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="", presigned=False
+        )
+
+        await recover_stale_jobs()
+
+        test_db_session.expire_all()
+        await test_db_session.refresh(abandoned)
+        await test_db_session.refresh(dispatched)
+        assert abandoned.status == "cancelled", (
+            "the worker's startup recovery still reports an abandoned upload "
+            "as a failed ingest"
+        )
+        assert abandoned.error_message == "Abandoned: upload was never completed"
+        assert dispatched.status == "failed"
+        assert "never queued" in (dispatched.error_message or "")
+
+    async def test_the_outcome_counts_cancellations_apart_from_failures(
+        self, test_db_session
+    ) -> None:
+        """fix(#1556 review, codex P2): settling the row was only half of it.
+
+        `pending_failed` is read as a failure count by the admin cleanup
+        response, by its `job.cleanup_stale` audit event and by the sweeper's
+        log line. Leaving abandoned uploads inside it undoes the split at
+        exactly the surfaces the split exists for — the row would say
+        `cancelled` while the pass that wrote it still reported a failure.
+        """
+        from app.platform.jobs.router import fail_stale_jobs
+
+        # The test database is shared across every test on this xdist worker
+        # (see conftest's isolation note), so drain whatever is already stale
+        # before counting. Without this the assertions below measure other
+        # tests' leftovers.
+        await fail_stale_jobs(test_db_session)
+
+        await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+        await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="", presigned=False
+        )
+
+        outcome = await fail_stale_jobs(test_db_session, detailed=True)
+
+        assert outcome.pending_cancelled == 1
+        assert outcome.pending_failed == 1, (
+            "the abandoned upload is still being counted as a failure"
+        )
+        assert outcome.total_cleaned == outcome.pending_failed + outcome.running_failed
+        # Work done, not failures: a pass that cancelled a row mutated it.
+        assert outcome.total_affected >= outcome.total_cleaned + 1
+        detail = outcome.as_dict()
+        assert detail["pending_cancelled"] == 1
+        assert detail["pending_failed"] == 1
+
+    async def test_a_cancelled_job_cannot_be_completed(self) -> None:
+        """The completion door reads the sweep's terminal state.
+
+        `require_completable_presigned_job` refuses a settled job precisely
+        because the PUT URL outlives the 1h clause, so a client can still
+        re-PUT and complete. Reading only `failed` would have reopened that
+        hole for the one class that reaches it without any door stamping it.
+        """
+        from app.processing.ingest.presigned import require_completable_presigned_job
+
+        job = SimpleNamespace(file_path="", status="cancelled")
+        with pytest.raises(HTTPException) as exc:
+            require_completable_presigned_job(job, restart_hint="Start again.")
+        assert exc.value.status_code == 400
+        assert "cancelled" in exc.value.detail.lower()
+
+    @pytest.mark.parametrize(
+        "file_path,user_metadata,abandoned",
+        [
+            ("", {"presigned": True}, True),
+            (None, {"presigned": True}, True),
+            ("", {}, False),
+            ("", None, False),
+            ("", {"analysis": True}, False),
+            ("", {"embedding_backfill": {}}, False),
+            ("/tmp/fake.geojson", {"presigned": True}, False),
+            ("staging/x/frozen/roads.geojson", {"presigned": True}, False),
+        ],
+    )
+    def test_the_python_twin_agrees_with_the_sql_predicate(
+        self, file_path, user_metadata, abandoned
+    ) -> None:
+        """The worker mirrors the UPDATE onto ORM instances, so the two
+        expressions of one rule must not drift. Enumerated over every shape a
+        pending row can carry, not just the reported one."""
+        from app.platform.jobs.router import is_abandoned_presigned_upload
+
+        assert is_abandoned_presigned_upload(file_path, user_metadata) is abandoned
+
+
+def test_the_published_cleanup_response_drops_the_new_count_without_raising() -> None:
+    """fix(#1556 review, codex P2): the boundary, pinned deliberately.
+
+    `pending_cancelled` reaches the audit event's `details` (a JSONB blob with
+    no schema) and the multi-tenant fleet totals. It stops at
+    `StaleCleanupResponse`, which is published in openapi.json and generated
+    into both SDKs and `api.generated.ts` — adding a field there is a contract
+    change with a regen attached, and it is a decision to take on its own
+    rather than a side effect of this one.
+
+    The endpoint builds that model with `StaleCleanupResponse(**details)`, so
+    the half that MUST hold is that the extra key is ignored rather than
+    refused: an `extra="forbid"` added later (six sibling models in that file
+    have it) would turn every cleanup call into a 500.
+    """
+    from app.platform.jobs.schemas import StaleCleanupResponse
+    from app.platform.jobs.sweep import StaleCleanupOutcome
+
+    outcome = StaleCleanupOutcome(
+        pending_failed=1,
+        running_failed=0,
+        vrt_assets_recovered=0,
+        vrt_generations_failed=0,
+        terminal_jobs_purged=0,
+        staged_paths_considered=0,
+        local_files_reaped=0,
+        storage_objects_reaped=0,
+        staged_paths_skipped=0,
+        staged_cleanup_failures=0,
+        pending_cancelled=2,
+    )
+    details = outcome.as_dict()
+    assert details["pending_cancelled"] == 2
+    assert details["pending_failed"] == 1
+    assert details["total_cleaned"] == 1, "cancellations must not inflate the failures"
+    assert details["total_affected"] == 3, "cancellations are work the pass did"
+
+    response = StaleCleanupResponse(**details)
+    assert response.pending_failed == 1
+    assert not hasattr(response, "pending_cancelled")
+
+
+def test_every_unbound_pending_site_uses_the_shared_action() -> None:
+    """fix(#1556): the census again, for the ACTION this time.
+
+    The clause helper stopped a fifth site from reconstructing the predicates.
+    The same argument applies to what a site WRITES: three of them settle an
+    unbound pending row, and a split applied at one while the others keep
+    writing `failed` makes the same abandoned upload report two different
+    terminal states depending on which actor reached it first.
+    """
+    import inspect
+
+    from app.platform.jobs import router as jobs_router
+    from app.platform.jobs import sweep as jobs_sweep
+    from app.platform.jobs import worker as jobs_worker
+
+    for module in (jobs_router, jobs_sweep, jobs_worker):
+        assert "stale_pending_unbound_values" in inspect.getsource(module), (
+            f"{module.__name__} settles unbound pending rows without the "
+            "shared action helper"
+        )
 
 
 def test_every_pending_fail_site_uses_the_shared_clauses() -> None:
@@ -677,15 +1020,16 @@ class TestThePollPathSkipsUpdatesItCannotMatch:
             "routine poll, and the frontend polls this route every 2s"
         )
 
-    async def test_a_genuinely_stale_job_is_still_failed(
+    async def test_a_genuinely_stale_job_is_still_settled(
         self, test_db_session: AsyncSession
     ) -> None:
         """The skip must not become the guard: past the cutoff the UPDATE runs
-        and the row is failed exactly as before."""
+        and the row goes terminal exactly as before (fix(#1556): `cancelled`
+        for this presigned-and-unbound row)."""
         job = await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
 
         statements = await self._poll_recording_statements(test_db_session, job)
 
         assert self._updates(statements), "the stale job was never updated"
         await test_db_session.refresh(job)
-        assert job.status == "failed"
+        assert job.status == "cancelled"
