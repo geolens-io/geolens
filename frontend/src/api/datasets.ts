@@ -1,8 +1,9 @@
 import { API_BASE } from '@/lib/constants';
 import { translateApiErrorDetail } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
-import { apiFetch, authenticatedRawFetch } from './client';
+import { apiFetch, authenticatedRawFetch, ApiError } from './client';
 import { uploadChunks } from './_presignedUpload';
+import { reportNetworkError } from '@/lib/report';
 import type {
   CreateDatasetRequest,
   DatasetResponse,
@@ -480,8 +481,27 @@ export async function commitFanOut(
   jobId: string,
   layers: { layer_name: string; title?: string }[],
 ): Promise<FanOutCommitResponse> {
-  return apiFetch<FanOutCommitResponse>(`/ingest/commit-fan-out/${jobId}`, {
-    method: 'POST',
-    body: JSON.stringify({ layers }),
-  });
+  // codex on #1660: commitFanOut is a direct apiFetch call reached from
+  // UploadForm's handleIngestAllLayers, not a TanStack mutation — a
+  // network/HTTP-level failure here (as opposed to a 200 response naming
+  // per-layer failures, which the results modal already shows) set every
+  // layer's row to 'commit-failed' with nothing written to the report
+  // buffer at all.
+  try {
+    return await apiFetch<FanOutCommitResponse>(`/ingest/commit-fan-out/${jobId}`, {
+      method: 'POST',
+      body: JSON.stringify({ layers }),
+    });
+  } catch (err) {
+    if (err instanceof ApiError) {
+      reportNetworkError({ status: err.status, url: '/ingest/commit-fan-out', detail: err.body ?? err.message });
+    } else {
+      reportNetworkError({
+        status: 0,
+        url: '/ingest/commit-fan-out',
+        detail: err instanceof Error ? err.message : undefined,
+      });
+    }
+    throw err;
+  }
 }

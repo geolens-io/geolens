@@ -117,7 +117,21 @@ async function xhrUpload<T>(
     throw new ApiError(translateApiErrorDetail(detail, res.status), res.status, detail);
   }
 
-  return JSON.parse(res.body) as T;
+  // codex on #1660: a 2xx response whose body isn't valid JSON (empty,
+  // truncated, an HTML error page from an intermediary proxy) previously
+  // threw a raw SyntaxError here, outside every reporting branch above —
+  // the status-based `if (res.status < 200 || res.status >= 300)` block
+  // never runs for a 2xx, so this failure had no capture path at all.
+  try {
+    return JSON.parse(res.body) as T;
+  } catch (err) {
+    reportNetworkError({
+      status: res.status,
+      url: reportUrl,
+      detail: err instanceof Error ? `Malformed response body: ${err.message}` : undefined,
+    });
+    throw err;
+  }
 }
 
 export async function uploadFile(
@@ -162,9 +176,13 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
     // to the report buffer the same way uploadFile was. Drop the job id from
     // the reported path — same reasoning as reportQueryKey in main.tsx: an id
     // isn't reliably distinguishable from a secret by shape.
-    if (err instanceof ApiError) {
-      reportNetworkError({ status: err.status, url: '/ingest/preview', detail: err.body ?? err.message });
-    }
+    //
+    // codex on #1660: gating this on `instanceof ApiError` skipped a real
+    // failure class — apiFetch's own `response.json()` throws a raw
+    // SyntaxError (not ApiError) on a malformed 2xx body, and that error type
+    // silently fell through this guard uncaptured. reportApiCallFailure
+    // handles every error shape uniformly.
+    reportApiCallFailure('/ingest/preview', err);
     throw err;
   }
 }
@@ -173,10 +191,20 @@ export async function commitImport(
   jobId: string,
   request: CommitImportRequest,
 ): Promise<CommitImportResponse> {
-  return apiFetch<CommitImportResponse>(`/ingest/commit/${jobId}`, {
-    method: 'POST',
-    body: JSON.stringify(request),
-  });
+  // codex on #1660: commitImport is a direct apiFetch call reached from
+  // UploadForm's handleCommitSingle/handleCommitAll, neither of which is a
+  // TanStack mutation — a commit failure set the row to 'commit-failed' with
+  // nothing written to the report buffer at all (a different gap from the
+  // upload/preview one: no capture attempt existed here previously).
+  try {
+    return await apiFetch<CommitImportResponse>(`/ingest/commit/${jobId}`, {
+      method: 'POST',
+      body: JSON.stringify(request),
+    });
+  } catch (err) {
+    reportApiCallFailure('/ingest/commit', err);
+    throw err;
+  }
 }
 
 export async function retryJob(jobId: string): Promise<UploadResponse> {
@@ -243,16 +271,27 @@ export async function completePresignedUpload(
   });
 }
 
+/**
+ * Metadata-only report for any apiFetch-driven failure: an ApiError (a real
+ * HTTP error status) or anything else apiFetch can throw uncaught — notably
+ * a raw SyntaxError from `response.json()` on a malformed 2xx body, which the
+ * previous `instanceof ApiError` gates in this file silently swallowed
+ * (codex on #1660). `label` is a short static description, never a raw URL
+ * with an id or a presigned query string in it.
+ */
+function reportApiCallFailure(label: string, err: unknown): void {
+  if (err instanceof ApiError) {
+    reportNetworkError({ status: err.status, url: label, detail: err.body ?? err.message });
+  } else {
+    reportNetworkError({ status: 0, url: label, detail: err instanceof Error ? err.message : undefined });
+  }
+}
+
 // Metadata-only report for a step in the presigned-upload handshake
 // (request → PUT → complete). `stage` is a short static label, never the
 // presigned URL itself, which carries a time-limited access signature.
 function reportPresignFailure(stage: string, filename: string, err: unknown): void {
-  const url = `presigned:${stage} (${filename})`;
-  if (err instanceof ApiError) {
-    reportNetworkError({ status: err.status, url, detail: err.body ?? err.message });
-  } else {
-    reportNetworkError({ status: 0, url, detail: err instanceof Error ? err.message : undefined });
-  }
+  reportApiCallFailure(`presigned:${stage} (${filename})`, err);
 }
 
 /**

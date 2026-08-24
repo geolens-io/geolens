@@ -15,9 +15,20 @@
  * (d) multipart presigned PUT failure (uploadPresigned → uploadChunks)
  * (e) preview/detection failure (previewFile)
  * (f) a redaction-worthy error detail is scrubbed the same as any other entry
+ *
+ * codex on #1660 found the same gap class at three more sites — a failure
+ * path that flips a staged file's row to 'upload-failed'/'commit-failed'
+ * (and so shows the report CTA) without writing a buffer entry:
+ * (g) commitImport failure (no capture existed here at all, unlike (a)/(e))
+ * (h) commitFanOut failure (same — a different API module, same gap)
+ * (i) a 2xx response with a malformed JSON body on the direct-POST upload
+ *     (xhrUpload's final JSON.parse, outside the status-based reporting)
+ * (j) a non-ApiError preview rejection (apiFetch's own response.json()
+ *     parse failure isn't an ApiError, so the old `instanceof` guard skipped it)
  */
 import { clearReportEntries, getReportEntries } from '@/lib/report';
-import { previewFile, uploadFile, uploadPresigned } from '@/api/ingest';
+import { commitImport, previewFile, uploadFile, uploadPresigned } from '@/api/ingest';
+import { commitFanOut } from '@/api/datasets';
 
 function jsonResponse(status: number, body: unknown): Response {
   return {
@@ -186,5 +197,93 @@ describe('upload-path report capture', () => {
     const entries = getReportEntries();
     expect(entries).toHaveLength(1);
     expect(entries[0].detail ?? '').not.toContain('SUPERSECRET123');
+  });
+
+  it('(g) captures a commitImport failure (a class codex found uncaptured entirely)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(500, { detail: 'Dispatch failed' })),
+    );
+
+    await expect(
+      commitImport('job-1', { title: 'Parcels' }),
+    ).rejects.toBeTruthy();
+
+    const entries = getReportEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe('network');
+    expect(entries[0].message).toContain('500');
+    expect(entries[0].message).toContain('/ingest/commit');
+    expect(entries[0].message).not.toContain('job-1');
+  });
+
+  it('(h) captures a commitFanOut failure (same gap, different API module)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse(502, { detail: 'Bad gateway' })),
+    );
+
+    await expect(
+      commitFanOut('job-1', [{ layer_name: 'a' }, { layer_name: 'b' }]),
+    ).rejects.toBeTruthy();
+
+    const entries = getReportEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe('network');
+    expect(entries[0].message).toContain('502');
+    expect(entries[0].message).toContain('/ingest/commit-fan-out');
+  });
+
+  it('(i) captures a malformed-JSON 2xx body on the direct-POST upload', async () => {
+    class MalformedJsonXHR {
+      status = 0;
+      responseText = '';
+      upload = { onprogress: null as unknown };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      open() {}
+      setRequestHeader() {}
+      send() {
+        this.status = 200;
+        // Truncated body — valid HTTP 200, invalid JSON. The old code's
+        // status-based branch (`res.status < 200 || res.status >= 300`)
+        // never runs for a 2xx, so JSON.parse threw completely uncaptured.
+        this.responseText = '{"job_id": "job-1"';
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    vi.stubGlobal('XMLHttpRequest', MalformedJsonXHR);
+
+    await expect(
+      uploadFile(new File(['x'], 'parcels.csv')),
+    ).rejects.toBeTruthy();
+
+    const entries = getReportEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe('network');
+    expect(entries[0].message).toContain('200');
+    expect(entries[0].message).toContain('parcels.csv');
+  });
+
+  it('(j) captures a non-ApiError preview rejection (malformed 2xx JSON)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        // apiFetch calls response.json() directly; a malformed body throws a
+        // raw SyntaxError here, never an ApiError.
+        json: () => Promise.reject(new SyntaxError('Unexpected end of JSON input')),
+      }) as unknown as Response),
+    );
+
+    await expect(previewFile('job-1')).rejects.toBeInstanceOf(SyntaxError);
+
+    const entries = getReportEntries();
+    expect(entries).toHaveLength(1);
+    expect(entries[0].source).toBe('network');
+    // No HTTP error status exists for this failure — reported as status 0,
+    // the same convention xhrUpload's network-layer catch uses.
+    expect(entries[0].message).toContain('/ingest/preview');
   });
 });
