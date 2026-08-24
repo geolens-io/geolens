@@ -142,4 +142,13 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', 'https://ok.example/plain');
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/item[3]');
   });
+
+  it('K) typographic punctuation stays out of the href', () => {
+    renderBanner({
+      banner_text: 'Read \u201Chttps://ok.example/docs\u201D or https://ok.example/more\u2026',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/docs');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/more');
+  });
 });

@@ -33,7 +33,8 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // clickable. The text itself stays React-escaped; only the matched URL
 // becomes an anchor, so an admin cannot inject markup through the banner.
 // Trailing sentence punctuation stays outside the link.
-const URL_RE = /(https:\/\/[^\s<>"']+?)([.,;:!?)\]]*)(?=[\s<>"']|$)/g;
+const URL_RE =
+  /(https:\/\/[^\s<>"'\u201C\u201D\u2018\u2019\u00AB\u00BB]+?)([.,;:!?)\]\u2026\u3002\u3001]*)(?=[\s<>"'\u201C\u201D\u2018\u2019\u00AB\u00BB]|$)/g;
 
 function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
