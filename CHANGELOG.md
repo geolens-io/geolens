@@ -7,6 +7,24 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **A failed upload now leaves a trace, and a way to report it.** UploadForm
+  calls the presign, PUT, direct-upload POST, preview/detection, commit, and
+  commit-fan-out endpoints directly from a plain try/catch instead of through
+  a TanStack mutation, so none of their failures ever reached the shared
+  problem-reporter tap in main.tsx: a broken CSV just showed an error with
+  nothing recorded anywhere a user could report. Each of those calls now
+  reports its own failure into the same buffer (status, error text, and
+  filename only, never the file body or a presigned URL's signature),
+  including a 2xx response with a malformed JSON body and a preview rejection
+  that isn't an `ApiError`, both of which used to fall through the reporting
+  entirely. A failed file's row now also carries a "Report this problem"
+  action that opens the reporter pre-scoped to Import / Ingestion. Also
+  fixed: the error text on the first, or only, staged file in a batch was
+  invisible, because its row started expanded by state even though
+  upload-failed rows have no expand panel to show.
+
 ## [1.15.1] - 2026-08-24
 
 ### Changed

@@ -74,7 +74,8 @@
     "multiLayerRetryClose": "Schließen (erneut auf 'Alle Ebenen importieren' klicken)",
     "quotaShort": "Übersprungen – Datensatzlimit erreicht",
     "quotaBannerTitle": "Datensatzlimit erreicht",
-    "quotaBannerHint": "Löschen Sie vorhandene Datensätze, um Platz zu schaffen, oder bitten Sie einen Administrator, das Limit zu erhöhen."
+    "quotaBannerHint": "Löschen Sie vorhandene Datensätze, um Platz zu schaffen, oder bitten Sie einen Administrator, das Limit zu erhöhen.",
+    "reportProblem": "Dieses Problem melden"
   },
   "warnings": {
     "bannerTitle": "Import mit Warnungen abgeschlossen",

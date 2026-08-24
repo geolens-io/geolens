@@ -1,4 +1,5 @@
 import i18n from '@/i18n/i18n';
+import { reportNetworkError } from '@/lib/report';
 
 /**
  * Shared chunked-PUT helper for presigned S3 multipart uploads.
@@ -79,6 +80,13 @@ export async function uploadChunks(
 ): Promise<string[]> {
   const { signal, maxRetries = DEFAULT_MAX_RETRIES } = options;
   const etags: string[] = [];
+  // Metadata only for the report buffer: filename (only known when the
+  // caller passed a File, not a bare Blob) and the part index — never the
+  // presigned URL itself (bearer-equivalent; unlike an Authorization header
+  // it can't be scrubbed by key name) or the chunk body.
+  const filename = file instanceof File ? file.name : undefined;
+  const partLabel = (i: number) =>
+    `presigned:put (part ${i + 1}/${urls.length})${filename ? ` — ${filename}` : ''}`;
 
   for (let i = 0; i < urls.length; i++) {
     const start = i * partSize;
@@ -99,6 +107,7 @@ export async function uploadChunks(
           break;
         }
         if (!isRetriableStatus(resp.status) || attempt >= maxRetries) {
+          reportNetworkError({ status: resp.status, url: partLabel(i) });
           throw new UploadHttpError(
             i18n.t('common:errors.storageUploadPartFailed', {
               part: i + 1,
@@ -107,12 +116,15 @@ export async function uploadChunks(
           );
         }
       } catch (err) {
-        // A caller-initiated abort is terminal, not a retriable failure.
+        // A caller-initiated abort is terminal, not a retriable failure — and
+        // not a problem to report.
         if (err instanceof DOMException && err.name === 'AbortError') throw err;
-        // A non-retriable HTTP status threw above; re-throw once retries are out.
+        // A non-retriable HTTP status threw (and was already reported) above;
+        // re-throw once retries are out.
         if (err instanceof UploadHttpError) throw err;
         // Otherwise it is a network-layer error (TypeError) — retriable.
         if (attempt >= maxRetries) {
+          reportNetworkError({ status: 0, url: partLabel(i) });
           throw new Error(
             i18n.t('common:errors.storageUploadPartRetriesFailed', {
               part: i + 1,

@@ -74,7 +74,8 @@
     "multiLayerRetryClose": "Cerrar (volver a hacer clic en 'Ingerir todas las capas')",
     "quotaShort": "Omitido: límite de conjuntos de datos alcanzado",
     "quotaBannerTitle": "Límite de conjuntos de datos alcanzado",
-    "quotaBannerHint": "Elimina conjuntos de datos existentes para liberar espacio o pide a un administrador que aumente el límite."
+    "quotaBannerHint": "Elimina conjuntos de datos existentes para liberar espacio o pide a un administrador que aumente el límite.",
+    "reportProblem": "Informar de este problema"
   },
   "warnings": {
     "bannerTitle": "Importación completada con advertencias",
