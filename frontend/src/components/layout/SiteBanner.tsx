@@ -29,6 +29,40 @@ const COLOR_CLASSES: Record<string, string> = {
 
 const DISMISS_KEY = 'gl-site-banner-dismissed';
 
+// feat(#123-followup): make https:// URLs in admin-entered banner text
+// clickable. The text itself stays React-escaped; only the matched URL
+// becomes an anchor, so an admin cannot inject markup through the banner.
+// Trailing sentence punctuation stays outside the link.
+const URL_RE = /(https:\/\/[^\s<>"']+?)([.,;:!?)]*)(?=\s|$)/g;
+
+function renderBannerText(text: string) {
+  const parts: Array<string | { url: string; trail: string }> = [];
+  let last = 0;
+  for (const m of text.matchAll(URL_RE)) {
+    if (m.index! > last) parts.push(text.slice(last, m.index));
+    parts.push({ url: m[1], trail: m[2] });
+    last = m.index! + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts.map((p, i) =>
+    typeof p === 'string' ? (
+      p
+    ) : (
+      <span key={i}>
+        <a
+          href={p.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2 hover:opacity-80"
+        >
+          {p.url}
+        </a>
+        {p.trail}
+      </span>
+    ),
+  );
+}
+
 function getDismissed(): string | null {
   try {
     return sessionStorage.getItem(DISMISS_KEY);
@@ -66,7 +100,7 @@ export function SiteBanner() {
       aria-live="polite"
       className={`relative border-b px-8 py-1.5 text-center text-sm ${colorClass}`}
     >
-      {text}
+      {renderBannerText(text)}
       <button
         type="button"
         onClick={handleDismiss}

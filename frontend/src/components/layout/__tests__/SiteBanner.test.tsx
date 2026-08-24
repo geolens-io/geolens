@@ -88,4 +88,29 @@ describe('SiteBanner', () => {
     renderBanner({ banner_text: 'New announcement' });
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
+
+  it('F) https:// URLs in banner text render as anchors; the rest stays text', () => {
+    renderBanner({
+      banner_text: 'Release notes at https://buttondown.com/geolens. Enjoy!',
+    });
+    const link = screen.getByRole('link', { name: 'https://buttondown.com/geolens' });
+    expect(link).toHaveAttribute('href', 'https://buttondown.com/geolens');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute('target', '_blank');
+    // trailing period stays outside the anchor; surrounding prose is plain text
+    expect(link.textContent).toBe('https://buttondown.com/geolens');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Release notes at https://buttondown.com/geolens. Enjoy!',
+    );
+  });
+
+  it('G) markup in banner text is escaped, not rendered; http:// is not linkified', () => {
+    renderBanner({
+      banner_text: '<b>bold?</b> see http://plain.example and https://ok.example/x',
+    });
+    // the literal tag text is visible (escaped), no <b> element materializes
+    expect(screen.getByRole('status')).toHaveTextContent('<b>bold?</b>');
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://ok.example/x');
+  });
 });
