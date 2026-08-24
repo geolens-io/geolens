@@ -3273,7 +3273,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # builder, plus the log-then-raise branch duplicated at both call sites'
     # failure handling (ogrinfo's text-fallback raise and ogr2ogr's raise).
     # Exact line count at entry.
-    "backend/app/processing/ingest/ogr.py": 1073,
+    # fix(codex review, #1640): +16 — a third pattern, SQLite's "database
+    # disk image is malformed" (a valid header with a corrupt interior
+    # b-tree page — distinct from "file is not a database", which is a
+    # corrupt header). Empirically confirmed against a real GPKG with a
+    # byte-flipped leaf page. Cap 1073 -> 1089, exact.
+    "backend/app/processing/ingest/ogr.py": 1089,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

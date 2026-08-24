@@ -14,17 +14,23 @@ fixture files built in ``tmp_path`` and assert:
   2. The full raw stderr (driver list / SQLite diagnostics) still reaches
      structured logs at error level, so the diagnostic is not lost.
 
-Two corrupt-file shapes are covered, matching the two stderr patterns GDAL
-actually produces for this failure class:
+Three corrupt-file shapes are covered, matching the three stderr patterns
+GDAL/SQLite actually produce for this failure class:
 
   - No driver recognizes the source at all (plain garbage bytes) → GDAL's
     "Unable to open datasource ... with the following drivers." enumeration.
-  - The SQLite/GPKG magic header is intact but the content underneath is
-    corrupt (a truncated/garbage-filled GPKG) → SQLite's own
-    "file is not a database" diagnostics. This is the realistic upload case:
-    the app's content-sniffing at upload time already rejects files with no
-    magic header at all, so a corrupt upload that reaches ogr2ogr/ogrinfo in
-    production has a valid header and corrupt content underneath it.
+  - The SQLite/GPKG magic header itself doesn't parse (a truncated/
+    garbage-filled GPKG whose first bytes claim to be SQLite but the header
+    fields are junk) → SQLite's own "file is not a database" diagnostics.
+    This is the realistic upload case: the app's content-sniffing at upload
+    time already rejects files with no magic header at all, so a corrupt
+    upload that reaches ogr2ogr/ogrinfo in production has a valid header and
+    corrupt content underneath it.
+  - The SQLite header parses fine but an interior b-tree page is corrupt
+    (a real GPKG with a byte-flipped leaf page of its own schema table) →
+    SQLite's "database disk image is malformed" diagnostics — a distinct
+    string from "file is not a database" (codex review on #1640: the
+    header-corrupt and page-corrupt cases report different SQLite errors).
 
 Requires the real ogr2ogr/ogrinfo binaries — skipped when unavailable
 (dev hosts without GDAL; CI and the backend Docker image install it).
@@ -32,6 +38,8 @@ Requires the real ogr2ogr/ogrinfo binaries — skipped when unavailable
 
 import os
 import shutil
+import sqlite3
+import subprocess
 
 import pytest
 import structlog
@@ -62,6 +70,67 @@ def _write_sqlite_magic_corrupt_gpkg(tmp_path) -> str:
     return str(path)
 
 
+def _write_malformed_page_gpkg(tmp_path) -> str:
+    """A REAL GPKG (via ogr2ogr) with an intact SQLite header but a
+    corrupted interior b-tree page.
+
+    Distinct corruption class from ``_write_sqlite_magic_corrupt_gpkg``: the
+    header this time is completely valid (untouched), so SQLite gets past
+    header validation and only fails once it tries to parse page content —
+    which it reports as "database disk image is malformed", not "file is not
+    a database" (codex review, #1640). The fixture must therefore be a real,
+    well-formed SQLite/GPKG file with one byte-flipped page, not hand-rolled
+    bytes.
+
+    Uses SQLite's ``dbstat`` virtual table (built into Python's stdlib
+    sqlite3) to find the fullest LEAF page of the sqlite_schema b-tree
+    itself — corrupting a near-full page hits real cell content rather than
+    a page's unused free space, and every GDAL/SQLite open reads the schema
+    table first regardless of which user table is queried.
+    """
+    seed_geojson = tmp_path / "seed_for_malformed_page.geojson"
+    seed_geojson.write_text(
+        '{"type": "FeatureCollection", "features": ['
+        '{"type": "Feature", "properties": {"name": "a"}, '
+        '"geometry": {"type": "Point", "coordinates": [-77.0, 38.9]}}, '
+        '{"type": "Feature", "properties": {"name": "b"}, '
+        '"geometry": {"type": "Point", "coordinates": [-77.1, 38.8]}}]}'
+    )
+    real_gpkg = tmp_path / "seed_for_malformed_page.gpkg"
+    subprocess.run(
+        ["ogr2ogr", "-f", "GPKG", str(real_gpkg), str(seed_geojson)],
+        check=True,
+        capture_output=True,
+    )
+
+    conn = sqlite3.connect(str(real_gpkg))
+    try:
+        page_size = conn.execute("PRAGMA page_size").fetchone()[0]
+        # Least "unused" == fullest page; page 1 (the file header) is
+        # excluded by pagetype='leaf' since it's an interior page here.
+        row = conn.execute(
+            "SELECT pgoffset, unused FROM dbstat "
+            "WHERE name = 'sqlite_schema' AND pagetype = 'leaf' "
+            "ORDER BY unused ASC LIMIT 1"
+        ).fetchone()
+    finally:
+        conn.close()
+    assert row is not None, "expected at least one sqlite_schema leaf page"
+    pgoffset, _unused = row
+
+    data = bytearray(real_gpkg.read_bytes())
+    # Flip a chunk well inside the page (past any per-page header bytes),
+    # clear of the 100-byte SQLite file header GDAL validates up front.
+    start = pgoffset + 150
+    length = min(1200, page_size - 300)
+    for i in range(start, start + length):
+        data[i] ^= 0xFF
+
+    corrupt_path = tmp_path / "9a1b2c3d-uuid_march.gpkg"
+    corrupt_path.write_bytes(bytes(data))
+    return str(corrupt_path)
+
+
 class TestRunOgrinfoFriendlyOpenFailure:
     """ogrinfo runs before ogr2ogr in the ingest_file task (CRS detection), so
     for the realistic corrupt-upload case — content-sniffing at upload time
@@ -70,10 +139,10 @@ class TestRunOgrinfoFriendlyOpenFailure:
     matching the orchestrator's live dev-stack reproduction), ogrinfo's
     "no driver at all" failure is a short one-liner without a driver
     enumeration (a distinct, out-of-scope leak noted in the PR description),
-    so only the sqlite-magic-header-but-corrupt-content shape is exercised
-    against ogrinfo here; the driver-enumeration shape is exercised against
-    ogr2ogr below, which is where the original march.gpkg incident's exact
-    stderr came from.
+    so only the two SQLite-diagnostic shapes (corrupt header, corrupt page)
+    are exercised against ogrinfo here; the driver-enumeration shape is
+    exercised against ogr2ogr below, which is where the original march.gpkg
+    incident's exact stderr came from.
     """
 
     async def test_sqlite_corrupt_content_case_raises_friendly_message(self, tmp_path):
@@ -104,6 +173,35 @@ class TestRunOgrinfoFriendlyOpenFailure:
         # The staging path DOES appear in the logged raw stderr (that's the
         # point — full diagnostics for us) even though it never reaches the
         # user-facing message asserted above.
+        assert source in logged["stderr"]
+        assert logged["original_filename"] == "march.gpkg"
+
+    async def test_malformed_page_case_raises_friendly_message(self, tmp_path):
+        """Valid header, corrupt interior page — SQLite's "database disk
+        image is malformed", not "file is not a database" (codex review)."""
+        source = _write_malformed_page_gpkg(tmp_path)
+        with pytest.raises(IngestionError) as exc_info:
+            await run_ogrinfo(source, original_filename="march.gpkg")
+        message = str(exc_info.value)
+        assert message == (
+            "Could not open 'march.gpkg' as a spatial dataset — the file "
+            "may be corrupt, incomplete, or not a valid GeoPackage (.gpkg) "
+            "file."
+        )
+        assert str(tmp_path) not in message
+
+    async def test_malformed_page_full_stderr_still_reaches_structured_logs(
+        self, tmp_path
+    ):
+        source = _write_malformed_page_gpkg(tmp_path)
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(IngestionError):
+                await run_ogrinfo(source, original_filename="march.gpkg")
+
+        error_events = [e for e in captured if e.get("log_level") == "error"]
+        assert error_events, [e for e in captured]
+        logged = error_events[0]
+        assert "database disk image is malformed" in logged["stderr"]
         assert source in logged["stderr"]
         assert logged["original_filename"] == "march.gpkg"
 
@@ -189,6 +287,47 @@ class TestRunOgr2ogrFriendlyOpenFailure:
         assert error_events, [e for e in captured]
         logged = error_events[0]
         assert "file is not a database" in logged["stderr"]
+        assert source in logged["stderr"]
+        assert logged["original_filename"] == "march.gpkg"
+
+    async def test_malformed_page_case_raises_friendly_message(self, tmp_path):
+        """Valid header, corrupt interior page — SQLite's "database disk
+        image is malformed", not "file is not a database" (codex review)."""
+        source = _write_malformed_page_gpkg(tmp_path)
+        with pytest.raises(IngestionError) as exc_info:
+            await run_ogr2ogr(
+                source,
+                "some_table",
+                "PG:dbname=unused_this_never_gets_reached",
+                schema="data",
+                original_filename="march.gpkg",
+            )
+        message = str(exc_info.value)
+        assert message == (
+            "Could not open 'march.gpkg' as a spatial dataset — the file "
+            "may be corrupt, incomplete, or not a valid GeoPackage (.gpkg) "
+            "file."
+        )
+        assert str(tmp_path) not in message
+
+    async def test_malformed_page_full_stderr_still_reaches_structured_logs(
+        self, tmp_path
+    ):
+        source = _write_malformed_page_gpkg(tmp_path)
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(IngestionError):
+                await run_ogr2ogr(
+                    source,
+                    "some_table",
+                    "PG:dbname=unused_this_never_gets_reached",
+                    schema="data",
+                    original_filename="march.gpkg",
+                )
+
+        error_events = [e for e in captured if e.get("log_level") == "error"]
+        assert error_events, [e for e in captured]
+        logged = error_events[0]
+        assert "database disk image is malformed" in logged["stderr"]
         assert source in logged["stderr"]
         assert logged["original_filename"] == "march.gpkg"
 

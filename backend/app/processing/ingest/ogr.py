@@ -37,20 +37,36 @@ _OGR_UNABLE_TO_OPEN_RE = re.compile(
 # warning above this for GPKG specifically, but the "file is not a
 # database" line is the one that's common to the class and safe to anchor
 # on — it's SQLite's own open-failure text, not phrasing GDAL reuses for
-# anything else.
+# anything else. This fires when the SQLite header itself doesn't parse
+# (e.g. the magic string is present but the page-size/header fields are
+# garbage).
 _SQLITE_NOT_A_DATABASE_RE = re.compile(r"file is not a database")
+
+# fix(codex review, #1640): a THIRD shape of the same problem — the SQLite
+# header parses fine (magic, page size, application_id all valid) but an
+# interior b-tree page is corrupt, which SQLite reports as "database disk
+# image is malformed" instead of "file is not a database". Empirically
+# reproduced: a real GPKG (via ogr2ogr) with the first 100 header bytes
+# untouched and ~1KB flipped inside a near-full leaf page of the sqlite
+# schema b-tree (found via `dbstat`) makes `sqlite3` itself report exactly
+# this string, and both ogrinfo and ogr2ogr surface it verbatim in stderr —
+# ogrinfo's failure text does NOT also contain "with the following drivers"
+# or "file is not a database", so without this pattern it fell through to
+# the raw stderr (and the leaked staging path) unmodified.
+_SQLITE_DISK_IMAGE_MALFORMED_RE = re.compile(r"database disk image is malformed")
 
 
 def _is_unopenable_source_stderr(stderr_text: str) -> bool:
     """True when ``stderr_text`` matches a known "can't open this source" shape.
 
-    Both patterns below mean the same thing to the person who uploaded the
-    file — GDAL could not read it as a spatial dataset — so both map to the
-    same friendly message; see ``_friendly_open_failure_message``.
+    All three patterns below mean the same thing to the person who uploaded
+    the file — GDAL could not read it as a spatial dataset — so all three
+    map to the same friendly message; see ``_friendly_open_failure_message``.
     """
     return bool(
         _OGR_UNABLE_TO_OPEN_RE.search(stderr_text)
         or _SQLITE_NOT_A_DATABASE_RE.search(stderr_text)
+        or _SQLITE_DISK_IMAGE_MALFORMED_RE.search(stderr_text)
     )
 
 

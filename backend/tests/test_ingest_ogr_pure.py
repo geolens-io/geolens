@@ -946,9 +946,10 @@ class TestIsUnopenableSourceStderr:
     """The "unable to open datasource" leak: an ogr2ogr/ogrinfo failure whose
     raw stderr is a 100+ line GDAL driver enumeration (the exact text a demo
     visitor saw for an invalid march.gpkg upload). This is the pattern-match
-    that gates the friendly-message replacement — it must catch both stderr
-    shapes GDAL produces for "I can't read this as spatial data" and stay
-    narrow enough to leave every other ogr2ogr/ogrinfo failure untouched.
+    that gates the friendly-message replacement — it must catch all three
+    stderr shapes GDAL/SQLite produce for "I can't read this as spatial
+    data" and stay narrow enough to leave every other ogr2ogr/ogrinfo
+    failure untouched.
     """
 
     def test_matches_driver_enumeration_failure(self):
@@ -974,6 +975,27 @@ class TestIsUnopenableSourceStderr:
             "ERROR 1: sqlite3_prepare_v2(SELECT COUNT(*) FROM sqlite_master "
             "WHERE name IN ('gpkg_metadata', 'gpkg_metadata_reference') AND "
             "type IN ('table', 'view')) failed: file is not a database\n"
+        )
+        assert _is_unopenable_source_stderr(stderr) is True
+
+    def test_matches_sqlite_malformed_page_failure(self):
+        """A GPKG with a fully intact SQLite header but a corrupted interior
+        b-tree page — a DIFFERENT SQLite diagnostic from the corrupt-header
+        case above (codex review, #1640): "database disk image is
+        malformed", not "file is not a database". Empirically confirmed
+        against a real ogr2ogr-generated GPKG with one byte-flipped leaf
+        page (see test_ingest_open_failure_message.py's
+        _write_malformed_page_gpkg for the real-binaries reproduction)."""
+        stderr = (
+            "ERROR 1: database disk image is malformed\n"
+            "ERROR 1: sqlite3_prepare_v2(SELECT COUNT(*) FROM sqlite_master "
+            "WHERE name IN ('gpkg_metadata', 'gpkg_metadata_reference') AND "
+            "type IN ('table', 'view')) failed: database disk image is "
+            "malformed\n"
+            "ERROR 1: database disk image is malformed\n"
+            "ogrinfo failed - unable to open "
+            "'/app/staging/9a1b_march.gpkg'. Did you intend to call "
+            "gdalinfo?\n"
         )
         assert _is_unopenable_source_stderr(stderr) is True
 
