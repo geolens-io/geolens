@@ -2941,6 +2941,61 @@ def test_normalize_derives_distinct_counters_for_different_content(tmp_path):
     )
 
 
+def test_the_streamed_header_derivation_matches_a_naive_whole_file_hash(tmp_path):
+    """fix(#1633 review, codex P1): streaming must not change what gets stamped.
+
+    `_stamp_gpkg_header_counters` reads and hashes the file in fixed-size
+    chunks rather than loading it whole, because the naive version's
+    `bytearray(handle.read())` followed by `hashlib.sha256(bytes(data))`
+    holds up to THREE copies of a multi-GB GeoPackage in memory at once
+    (`export_dataset` supports files that large), against a production API
+    container with a 2 GiB cap.
+
+    This proves the refactor is behaviour-preserving. The derived counter is
+    defined as "the first 4 bytes of sha256(whole file, both counter fields
+    zeroed)". Only the two 8-byte header ranges the patch writes differ
+    between the pre-patch and post-patch file, so zeroing those same two
+    ranges and hashing the (already patched) file the naive way must
+    reproduce exactly the value that is currently stamped there — there is
+    no need to reconstruct the pre-patch bytes to check this.
+    """
+    import struct
+
+    from app.processing.export.service import normalize_gpkg_timestamps
+
+    _require_ogr2ogr()
+
+    source = tmp_path / "src.geojson"
+    source.write_text(
+        '{"type":"FeatureCollection","features":[{"type":"Feature",'
+        '"properties":{"n":1},"geometry":{"type":"Point","coordinates":[1,2]}}]}'
+    )
+    out = tmp_path / "a.gpkg"
+    subprocess.run(
+        ["ogr2ogr", "-f", "GPKG", str(out), str(source)],
+        check=True,
+        capture_output=True,
+    )
+
+    normalize_gpkg_timestamps(str(out))
+
+    stamped = struct.unpack(">I", out.read_bytes()[24:28])[0]
+
+    naive = bytearray(out.read_bytes())
+    naive[24:28] = b"\x00\x00\x00\x00"
+    naive[92:96] = b"\x00\x00\x00\x00"
+    naive_digest = hashlib.sha256(bytes(naive)).digest()
+    naive_counter = struct.unpack(">I", naive_digest[:4])[0] or 1
+
+    assert stamped == naive_counter, (
+        f"the streamed derivation stamped {stamped}, but hashing the whole "
+        f"file in one shot with both counter fields zeroed — the naive "
+        f"approach this function replaced — derives {naive_counter}; the "
+        f"streaming refactor must be byte-for-byte equivalent to the naive "
+        f"one, only cheaper in memory"
+    )
+
+
 async def test_an_unchanged_rebuild_does_not_contest_the_selection(test_db_session):
     """The consequence of the above, at the level that matters.
 

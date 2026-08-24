@@ -146,6 +146,14 @@ _GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
 # at 1, so 0 does not read as "a real counter value" even though the format
 # does not forbid it.
 _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO = 1
+# fix(#1633 review, codex P1): read/hash size for _stamp_gpkg_header_counters.
+# `export_dataset` supports multi-GB GeoPackages and the production API
+# container has a 2 GiB memory cap, so loading a whole export into a
+# bytearray — and then hashlib.sha256() making a SECOND full copy of it —
+# could OOM the process on a large export, or on a few concurrent ones. Both
+# header offsets sit inside byte 0..99, comfortably inside one chunk, so
+# only the FIRST chunk ever needs the zero substitution.
+_GPKG_HASH_CHUNK_SIZE = 1024 * 1024
 
 
 def _stamp_gpkg_header_counters(path: str) -> None:
@@ -162,6 +170,13 @@ def _stamp_gpkg_header_counters(path: str) -> None:
     probability — closing the stale-cache hazard a constant would leave
     open.
 
+    fix(#1633 review, codex P1): streamed in `_GPKG_HASH_CHUNK_SIZE` chunks
+    rather than loaded whole — see that constant's comment. The digest is
+    kept byte-identical to "hash the whole file with both fields zeroed in
+    one shot": only HOW it is computed changed, not the derived value, so
+    the tests that pin specific counter behaviour do not need to change
+    alongside this.
+
     Must run after the sqlite3 connection that did the row-level normalize is
     closed: writing through that connection would immediately re-bump the
     counter it just set, undoing the patch (and changing the content the
@@ -170,18 +185,24 @@ def _stamp_gpkg_header_counters(path: str) -> None:
     import hashlib
     import struct
 
-    with open(path, "rb") as handle:
-        data = bytearray(handle.read())
-
     zero = b"\x00\x00\x00\x00"
-    data[
-        _GPKG_HEADER_CHANGE_COUNTER_OFFSET : _GPKG_HEADER_CHANGE_COUNTER_OFFSET + 4
-    ] = zero
-    data[
-        _GPKG_HEADER_VERSION_VALID_FOR_OFFSET : _GPKG_HEADER_VERSION_VALID_FOR_OFFSET
-        + 4
-    ] = zero
-    digest = hashlib.sha256(bytes(data)).digest()
+    hasher = hashlib.sha256()
+    with open(path, "rb") as handle:
+        first_chunk = True
+        while chunk := handle.read(_GPKG_HASH_CHUNK_SIZE):
+            if first_chunk:
+                chunk = bytearray(chunk)
+                chunk[
+                    _GPKG_HEADER_CHANGE_COUNTER_OFFSET : _GPKG_HEADER_CHANGE_COUNTER_OFFSET
+                    + 4
+                ] = zero
+                chunk[
+                    _GPKG_HEADER_VERSION_VALID_FOR_OFFSET : _GPKG_HEADER_VERSION_VALID_FOR_OFFSET
+                    + 4
+                ] = zero
+                first_chunk = False
+            hasher.update(chunk)
+    digest = hasher.digest()
     counter = (
         struct.unpack(">I", digest[:4])[0] or _GPKG_HEADER_COUNTER_FALLBACK_WHEN_ZERO
     )
