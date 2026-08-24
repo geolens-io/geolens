@@ -133,4 +133,13 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', 'https://ok.example/docs');
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/alt');
   });
+
+  it('J) a bracket-wrapped URL sheds the wrapper; balanced brackets in the path survive', () => {
+    renderBanner({
+      banner_text: 'Docs: [https://ok.example/plain] and https://ok.example/item[3]',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/plain');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/item[3]');
+  });
 });

@@ -33,7 +33,7 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // clickable. The text itself stays React-escaped; only the matched URL
 // becomes an anchor, so an admin cannot inject markup through the banner.
 // Trailing sentence punctuation stays outside the link.
-const URL_RE = /(https:\/\/[^\s<>"']+?)([.,;:!?)]*)(?=[\s<>"']|$)/g;
+const URL_RE = /(https:\/\/[^\s<>"']+?)([.,;:!?)\]]*)(?=[\s<>"']|$)/g;
 
 function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
@@ -42,19 +42,25 @@ function renderBannerText(text: string) {
     if (m.index! > last) parts.push(text.slice(last, m.index));
     let url = m[1];
     let trail = m[2];
-    // fix(#1662 review): a URL that legitimately ends in ')' — e.g. a
+    // fix(#1662 review): a URL that legitimately ends in ')' or ']' — e.g. a
     // Wikipedia path like /Function_(mathematics) — should keep as many
-    // closing parens as it has unmatched opening ones; only the excess is
-    // sentence punctuation.
-    let unmatched = 0;
-    for (const ch of url) {
-      if (ch === '(') unmatched += 1;
-      else if (ch === ')' && unmatched > 0) unmatched -= 1;
-    }
-    while (unmatched > 0 && trail.startsWith(')')) {
-      url += ')';
-      trail = trail.slice(1);
-      unmatched -= 1;
+    // closing brackets as it has unmatched opening ones of the same kind;
+    // only the excess is sentence punctuation or a wrapping delimiter.
+    for (const [openCh, closeCh] of [
+      ['(', ')'],
+      ['[', ']'],
+    ] as const) {
+      let unmatched = 0;
+      for (const ch of url) {
+        if (ch === openCh) unmatched += 1;
+        else if (ch === closeCh && unmatched > 0) unmatched -= 1;
+      }
+      while (unmatched > 0 && trail.includes(closeCh)) {
+        const j = trail.indexOf(closeCh);
+        url += trail.slice(0, j + 1);
+        trail = trail.slice(j + 1);
+        unmatched -= 1;
+      }
     }
     parts.push({ url, trail });
     last = m.index! + m[0].length;
