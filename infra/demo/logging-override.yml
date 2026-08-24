@@ -1,0 +1,98 @@
+# ==============================================================================
+# Demo-VM log retention override — NOT part of the shipped root compose.
+# ==============================================================================
+# Root docker-compose.prod.yml (and docker-compose.yml) leave every service on
+# Docker's default `json-file` log driver with no explicit `log-opts`. On a
+# fresh host that means the daemon's own default applies, which most self-host
+# installs never touch — switching the SHIPPED compose to journald by default
+# would silently break any non-systemd host (bare Docker on a distro without
+# journald, a Docker-in-a-VM appliance, etc.), so that default stays put. This
+# file is an opt-in override, demo-only.
+#
+# The problem it fixes: `docker logs` output is tied to the CONTAINER's log
+# file, not the image or the compose project. `docker compose up -d --build`
+# (or any command that recreates a container — a new image tag, a changed
+# `environment:` block, `--force-recreate`) allocates a fresh container ID and
+# a fresh, EMPTY log file; the old container's log file is deleted with it.
+# The 2026-08-23 v1.15.0 redeploy did exactly that and took a week of api/
+# nginx history with it mid-incident-review. journald instead retains log
+# entries by CONTAINER_NAME/CONTAINER_TAG independent of container churn, so
+# history survives recreation (bounded by journald's own retention policy on
+# the host, e.g. SystemMaxUse in journald.conf).
+#
+# Activate on the VM via COMPOSE_FILE in /opt/geolens/.env so a bare
+# `docker compose ...` (no -f flags) picks it up automatically:
+#   COMPOSE_FILE=docker-compose.prod.yml:logging-override.yml
+# (compose reads COMPOSE_FILE as a `:`-joined list, applied in order — the
+# override merges on top of the base file exactly as -f/-f would.)
+#
+# `docker logs <container>` keeps working unmodified: Docker's journald log
+# driver still backs the `docker logs`/`docker compose logs` API, it just also
+# persists into the systemd journal outside the container's lifecycle.
+#
+# Querying history directly via journald (survives `docker compose up -d`
+# recreating the container, unlike `docker logs`):
+#   journalctl CONTAINER_NAME=geolens-api-1 --since "2026-08-23 00:00:00"
+#   journalctl CONTAINER_NAME=geolens-frontend-1 --since "-1 week"
+# CONTAINER_NAME is always populated by the journald driver regardless of the
+# `tag` option below; `tag` additionally sets SYSLOG_IDENTIFIER for tools that
+# key off that field instead.
+#
+# IMPORTANT: only override services that exist in docker-compose.prod.yml — a
+# service name here that ISN'T in the base file creates a NEW service instead
+# of overriding an existing one. Verify after any edit:
+#   docker compose -f docker-compose.prod.yml -f infra/demo/logging-override.yml config --quiet
+# and confirm the merged `docker compose config --services` list is unchanged
+# from the base file's.
+# ==============================================================================
+services:
+  db:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  migrate:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  api:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  worker:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  titiler:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  frontend:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  backup:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  minio:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  minio-setup:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"
+  valkey:
+    logging:
+      driver: journald
+      options:
+        tag: "{{.Name}}"

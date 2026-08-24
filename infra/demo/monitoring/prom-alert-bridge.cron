@@ -1,0 +1,17 @@
+# /etc/cron.d/geolens-prom-bridge — install as root:owned, mode 0644, at
+# /etc/cron.d/geolens-prom-bridge on the demo VM.
+#
+# /etc/cron.d/ format differs from a user crontab: it carries an explicit
+# user field (5th column) between the schedule and the command, and cron
+# reads it without a `crontab -e`/`crontab -l` step — dropping this file in
+# place is the whole install.
+#
+#   install -o root -g root -m 0644 infra/demo/monitoring/prom-alert-bridge.cron \
+#     /etc/cron.d/geolens-prom-bridge
+#
+# PATH is set explicitly because /etc/cron.d entries run with a minimal
+# environment — no inherited login PATH, so bare `curl`/`python3` would
+# otherwise fail to resolve.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+*/5 * * * * root /opt/geolens-monitoring/prom-alert-bridge.sh >/dev/null 2>&1
