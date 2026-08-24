@@ -7,6 +7,8 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-08-24
+
 ### Changed
 
 - **An upload that was never started is now `cancelled`, not `failed`.** Ask
@@ -2576,7 +2578,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.15.1...HEAD
+[1.15.1]: https://github.com/geolens-io/geolens/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/geolens-io/geolens/compare/v1.14.2...v1.15.0
 [1.14.2]: https://github.com/geolens-io/geolens/compare/v1.14.1...v1.14.2
 [1.14.1]: https://github.com/geolens-io/geolens/compare/v1.14.0...v1.14.1
