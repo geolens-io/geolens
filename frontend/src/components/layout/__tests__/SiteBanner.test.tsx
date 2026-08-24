@@ -151,4 +151,13 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', 'https://ok.example/docs');
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/more');
   });
+
+  it("L) apostrophes inside a URL survive; a single-quote wrapper is shed", () => {
+    renderBanner({
+      banner_text: "See https://ok.example/O'Reilly and 'https://ok.example/wrapped'",
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', "https://ok.example/O'Reilly");
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/wrapped');
+  });
 });

@@ -33,8 +33,11 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // clickable. The text itself stays React-escaped; only the matched URL
 // becomes an anchor, so an admin cannot inject markup through the banner.
 // Trailing sentence punctuation stays outside the link.
+// Apostrophes are legitimate URL characters (/O'Reilly), so ' is NOT an
+// excluded body character; a single quote only acts as a delimiter when it
+// wraps the URL ('https://…'), handled by the paired-wrapper check below.
 const URL_RE =
-  /(https:\/\/[^\s<>"'\u201C\u201D\u2018\u2019\u00AB\u00BB]+?)([.,;:!?)\]\u2026\u3002\u3001]*)(?=[\s<>"'\u201C\u201D\u2018\u2019\u00AB\u00BB]|$)/g;
+  /(https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]+?)([.,;:!?)\]\u2026\u3002\u3001]*)(?=[\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]|$)/g;
 
 function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
@@ -43,6 +46,13 @@ function renderBannerText(text: string) {
     if (m.index! > last) parts.push(text.slice(last, m.index));
     let url = m[1];
     let trail = m[2];
+    // fix(#1662 review): 'https://…' wrapped in single quotes — the opening
+    // quote sits just before the match, so a trailing apostrophe is the
+    // closing wrapper, not part of the URL. Unpaired apostrophes stay in.
+    if (m.index! > 0 && text[m.index! - 1] === "'" && url.endsWith("'")) {
+      url = url.slice(0, -1);
+      trail = "'" + trail;
+    }
     // fix(#1662 review): a URL that legitimately ends in ')' or ']' — e.g. a
     // Wikipedia path like /Function_(mathematics) — should keep as many
     // closing brackets as it has unmatched opening ones of the same kind;
