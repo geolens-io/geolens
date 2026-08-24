@@ -35,6 +35,21 @@ and releases use semantic versioning.
   say so. The gate is removed; the button still appears only after an error is
   captured.
 
+### Fixed
+
+- **A raster open-failure error no longer echoes the internal staging path.**
+  Deferred from #1640, which fixed the vector side: when a corrupt or
+  unopenable raster upload reached `rasterio.open`, `IngestJob.error_message`
+  carried GDAL's raw one-liner verbatim — `'<path>' not recognized as being
+  in a supported file format.` — leaking the internal
+  `/app/staging/<uuid>_...` path instead of the original upload filename.
+  That shape is now pattern-matched and replaced with a short message built
+  from the upload's original filename (e.g. `Could not open 'survey.tif' as
+  a raster dataset — the file may be corrupt, incomplete, or not a valid
+  GeoTIFF (.tif) file.`); the full rasterio message still reaches structured
+  logs at error level, and every other rasterio/GDAL failure keeps its real
+  message unchanged.
+
 ## [1.15.1] - 2026-08-24
 
 ### Changed
