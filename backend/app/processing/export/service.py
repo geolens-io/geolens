@@ -107,6 +107,53 @@ _GPKG_TIMESTAMP_COLUMNS = (
     ("gpkg_metadata_reference", "timestamp"),
 )
 
+# fix(#1633): the SQLite header fields the row-level UPDATEs above cannot
+# reach. #1633 observed the gpkg byte-determinism gate flake once in a
+# merge-group run and reproduce a second time under load; the evidence
+# capture added there (#1637) proved the two builds differed in EXACTLY two
+# header bytes, both transaction-count-dependent:
+#
+#   offset 24-27 (big-endian uint32) — the file change counter, incremented
+#     once per committed write transaction.
+#   offset 92-95 (big-endian uint32) — "version-valid-for", the change
+#     counter's value at the moment the SQLite version number (offset 96-99)
+#     was last stamped.
+#
+# ogr2ogr's own write path commits a different number of transactions
+# between otherwise-identical builds under load (one extra intermediate
+# commit), so these two fields diverge even though every table's rows and
+# the timestamp columns above already match. The UPDATEs this function runs
+# cannot fix them: going through SQLite to write anything bumps the counter
+# on BOTH builds by the same amount, so the pre-existing delta survives.
+# Patching the header bytes directly, after the connection is closed, is
+# safe: SQLite uses this pair only to let one connection detect that a
+# DIFFERENT connection wrote the file since it cached a page, so it knows to
+# invalidate that cache. An export artifact is written once, closed, hashed,
+# and never reopened for a write by this process — there is no second
+# connection whose cache these fields could ever need to invalidate — so
+# stamping them to a fixed constant changes nothing about how the file
+# behaves, only what it hashes to.
+_GPKG_HEADER_CHANGE_COUNTER_OFFSET = 24
+_GPKG_HEADER_VERSION_VALID_FOR_OFFSET = 92
+_GPKG_FIXED_HEADER_COUNTER = 1
+
+
+def _stamp_gpkg_header_counters(path: str) -> None:
+    """Pin the SQLite change-counter pair to a constant, by direct byte patch.
+
+    Must run after the sqlite3 connection that did the row-level normalize is
+    closed: writing through that connection would immediately re-bump the
+    counter it just set, undoing the patch.
+    """
+    import struct
+
+    stamped = struct.pack(">I", _GPKG_FIXED_HEADER_COUNTER)
+    with open(path, "r+b") as handle:
+        handle.seek(_GPKG_HEADER_CHANGE_COUNTER_OFFSET)
+        handle.write(stamped)
+        handle.seek(_GPKG_HEADER_VERSION_VALID_FOR_OFFSET)
+        handle.write(stamped)
+
 
 def normalize_gpkg_timestamps(path: str) -> None:
     """Make a GeoPackage byte-deterministic for unchanged data.
@@ -135,10 +182,18 @@ def normalize_gpkg_timestamps(path: str) -> None:
     Uses stdlib sqlite3 rather than GDAL: a GeoPackage is a SQLite database, the
     columns are spec-defined, and going through the driver to rewrite two cells
     would mean another full open and rewrite of the file.
+
+    fix(#1633): also pins the SQLite header's change-counter pair (see
+    `_stamp_gpkg_header_counters`) once the row-level UPDATEs below are
+    committed and this function's own connection is closed — the counter is
+    bumped by transaction COUNT, not by content, so it can (and did, under
+    CI load) diverge between two builds of identical data even after every
+    row matches.
     """
     import sqlite3
 
     conn = sqlite3.connect(path)
+    normalized = False
     try:
         for table, column in _GPKG_TIMESTAMP_COLUMNS:
             try:
@@ -150,6 +205,7 @@ def normalize_gpkg_timestamps(path: str) -> None:
                 # The table is optional in the spec; its absence is not an error.
                 continue
         conn.commit()
+        normalized = True
     except sqlite3.DatabaseError:
         # Not a SQLite file at all ("file is not a database"). This step exists
         # for cache determinism, not validation: a GeoPackage SQLite cannot open
@@ -163,6 +219,12 @@ def normalize_gpkg_timestamps(path: str) -> None:
         # close, and an open handle can leave the rollback journal beside the
         # file — which the caller is about to hash.
         conn.close()
+
+    if normalized:
+        # fix(#1633): only for a file that was genuinely opened as SQLite
+        # above — the DatabaseError branch already logged and left the
+        # invalid file untouched, so there is no valid header to patch.
+        _stamp_gpkg_header_counters(path)
 
 
 def safe_content_disposition(filename: str) -> str:

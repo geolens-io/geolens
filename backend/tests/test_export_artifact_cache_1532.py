@@ -2758,6 +2758,108 @@ def test_two_gpkg_conversions_of_unchanged_data_are_byte_identical(tmp_path):
     )
 
 
+def test_normalize_survives_a_diverged_sqlite_change_counter(tmp_path):
+    """fix(#1633): the counter that r12's test above cannot force by editing.
+
+    #1633's evidence capture (#1637) caught a real merge-group flake and
+    proved the two builds differed in EXACTLY two bytes, both in the SQLite
+    header: offset 24-27 (the file change counter) and offset 92-95
+    ("version-valid-for"), both incremented by transaction COUNT rather than
+    by content. ogr2ogr's own write path committed one extra transaction on
+    one build under CI load, so the counter pair diverged even though every
+    row and every timestamp column already matched.
+
+    r12's test above deliberately does NOT force a difference by editing a
+    file, because a content edit ALSO bumps the counter and would make the
+    pair "differ forever however the timestamps were normalized" (see its
+    comment) — that was a false positive from the wrong tool, not evidence of
+    the real bug. This test instead reproduces the ACTUAL mechanism directly
+    against a copy of the first build: two reversible UPDATE transactions
+    that leave every row exactly as they found it, but commit twice.
+    """
+    import sqlite3
+    import struct
+
+    from app.processing.export.service import (
+        _GPKG_FIXED_HEADER_COUNTER,
+        normalize_gpkg_timestamps,
+    )
+
+    _require_ogr2ogr()
+
+    source = tmp_path / "src.geojson"
+    source.write_text(
+        '{"type":"FeatureCollection","features":[{"type":"Feature",'
+        '"properties":{"n":1},"geometry":{"type":"Point","coordinates":[1,2]}}]}'
+    )
+
+    first = tmp_path / "a.gpkg"
+    subprocess.run(
+        ["ogr2ogr", "-f", "GPKG", str(first), str(source)],
+        check=True,
+        capture_output=True,
+    )
+    second = tmp_path / "b.gpkg"
+    shutil.copy2(first, second)  # identical content, identical counter, to start
+
+    def _header_pair(path: Path) -> tuple[int, int]:
+        data = path.read_bytes()[:100]
+        return (
+            struct.unpack(">I", data[24:28])[0],
+            struct.unpack(">I", data[92:96])[0],
+        )
+
+    # Two reversible transactions: set a column away from its original value
+    # and commit, then set it straight back and commit. SQLite skips the
+    # write entirely for an UPDATE that assigns a column's EXISTING value —
+    # measured; a bare `BEGIN IMMEDIATE; COMMIT` with no write, and an UPDATE
+    # to the same value, both leave the counter untouched. An actual value
+    # change (even reverted immediately after) forces two real write
+    # transactions, which is exactly the divergence the issue diagnosed:
+    # final content identical, counter moved by transaction count alone.
+    conn = sqlite3.connect(second)
+    try:
+        original = conn.execute("SELECT last_change FROM gpkg_contents").fetchone()[0]
+        conn.execute("UPDATE gpkg_contents SET last_change = ?", ("__temp__",))
+        conn.commit()
+        conn.execute("UPDATE gpkg_contents SET last_change = ?", (original,))
+        conn.commit()
+    finally:
+        conn.close()
+
+    assert _header_pair(first) != _header_pair(second), (
+        "the two reversible transactions did not move the change counter, so "
+        "this test would pass without reproducing #1633's mechanism at all"
+    )
+    assert (
+        hashlib.sha256(first.read_bytes()).hexdigest()
+        != hashlib.sha256(second.read_bytes()).hexdigest()
+    ), "the counter divergence above should already make the raw files differ"
+
+    normalize_gpkg_timestamps(str(first))
+    normalize_gpkg_timestamps(str(second))
+
+    assert (
+        hashlib.sha256(first.read_bytes()).hexdigest()
+        == hashlib.sha256(second.read_bytes()).hexdigest()
+    ), (
+        "two GeoPackage builds that diverged ONLY by transaction count still "
+        "differ after normalize_gpkg_timestamps — the row-level UPDATEs it runs "
+        "cannot reach the SQLite header, so the change counter's own bump from "
+        "those UPDATEs preserves whatever delta ogr2ogr's build left behind"
+    )
+
+    for path in (first, second):
+        counter, valid_for = _header_pair(path)
+        assert (counter, valid_for) == (
+            _GPKG_FIXED_HEADER_COUNTER,
+            _GPKG_FIXED_HEADER_COUNTER,
+        ), (
+            f"{path.name}: header change-counter pair is {(counter, valid_for)}, "
+            f"not pinned to the constant every normalized GeoPackage should share"
+        )
+
+
 async def test_an_unchanged_rebuild_does_not_contest_the_selection(test_db_session):
     """The consequence of the above, at the level that matters.
 
