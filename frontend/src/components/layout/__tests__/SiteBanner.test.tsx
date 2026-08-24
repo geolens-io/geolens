@@ -160,4 +160,13 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', "https://ok.example/O'Reilly");
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/wrapped');
   });
+
+  it('M) uppercase scheme matches; angle-delimited URLs are taken verbatim', () => {
+    renderBanner({
+      banner_text: 'Go to HTTPS://ok.example/up or <https://en.wikipedia.org/wiki/Yahoo!>',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'HTTPS://ok.example/up');
+    expect(links[1]).toHaveAttribute('href', 'https://en.wikipedia.org/wiki/Yahoo!');
+  });
 });

@@ -37,7 +37,7 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // excluded body character; a single quote only acts as a delimiter when it
 // wraps the URL ('https://…'), handled by the paired-wrapper check below.
 const URL_RE =
-  /(https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]+?)([.,;:!?)\]\u2026\u3002\u3001]*)(?=[\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]|$)/g;
+  /(https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]+?)([.,;:!?)\]\u2026\u3002\u3001]*)(?=[\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]|$)/gi;
 
 function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
@@ -46,6 +46,18 @@ function renderBannerText(text: string) {
     if (m.index! > last) parts.push(text.slice(last, m.index));
     let url = m[1];
     let trail = m[2];
+    // fix(#1662 review): <https://…> is RFC 3986's own URL delimiting. Inside
+    // angle brackets the URL is taken VERBATIM — trailing punctuation like
+    // /wiki/Yahoo! stays in the href, and no wrapper/balance heuristics run.
+    // This is also the documented escape hatch: an admin who needs an exact
+    // URL that the heuristics would trim can always write <URL>.
+    const angleDelimited =
+      m.index! > 0 && text[m.index! - 1] === '<' && text[m.index! + m[0].length] === '>';
+    if (angleDelimited) {
+      parts.push({ url: url + trail, trail: '' });
+      last = m.index! + m[0].length;
+      continue;
+    }
     // fix(#1662 review): 'https://…' wrapped in single quotes — the opening
     // quote sits just before the match, so a trailing apostrophe is the
     // closing wrapper, not part of the URL. Unpaired apostrophes stay in.
