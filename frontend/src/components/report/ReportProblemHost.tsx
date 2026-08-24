@@ -1,6 +1,5 @@
 import { useTranslation } from 'react-i18next';
 import { LifeBuoy } from 'lucide-react';
-import { useAuthStore } from '@/stores/auth-store';
 import { countDistinctFailures, useReportDialog, useReportEntries } from '@/lib/report';
 import { cn } from '@/lib/utils';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -13,17 +12,19 @@ import { ReportProblemWizard } from './ReportProblemWizard';
  *   - a floating button that appears ONLY once errors are captured, surfacing a
  *     count badge so a user notices a problem the moment it happens.
  *
- * Gated to authenticated users. Capture runs app-wide via initReportCapture()
- * (main.tsx); this only owns the affordance + wizard.
+ * Available to everyone, signed in or not. Capture runs app-wide via
+ * initReportCapture() (main.tsx); this only owns the affordance + wizard.
+ * Anonymous visitors matter here: on a public instance most traffic browses
+ * without an account, the floating button only appears once an error is
+ * captured, and the wizard's output is a prefilled GitHub issue — nothing
+ * about it needs a GeoLens session. (Originally auth-gated; relaxed so an
+ * anonymous visitor who hits a broken map can still tell someone.)
  */
 export function ReportProblemHost() {
-  const token = useAuthStore((s) => s.token);
   const entries = useReportEntries();
   const { t } = useTranslation('report');
   const open = useReportDialog((s) => s.open);
   const setOpen = useReportDialog((s) => s.setOpen);
-
-  if (!token) return null;
 
   // fix(#908): distinct failures, not rows — one unrecovered map error writes
   // both a `maplibre` row and a `console` row, and the badge used to read "2".

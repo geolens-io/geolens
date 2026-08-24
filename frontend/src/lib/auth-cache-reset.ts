@@ -1,5 +1,6 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
+import { clearReportEntries } from '@/lib/report';
 
 /**
  * fix(#430 codex r6): user-scoped queries (dataset search, map search, map
@@ -23,5 +24,12 @@ export function wireAuthCacheReset(queryClient: QueryClient): () => void {
     // is error-prone (a missed key leaks the prior user's data); revisit only if
     // the refetch burst is measured to matter.
     queryClient.clear();
+    // fix(#1663 review P1): the problem reporter's in-memory capture buffer is
+    // the same kind of identity-scoped residue. With the reporter visible to
+    // anonymous visitors, a logout that leaves the buffer populated would show
+    // the previous user's captured entries (and attach them to a report) in
+    // the now-anonymous tab. Same choke point, same rule: identity changed,
+    // drop everything captured under the old one.
+    clearReportEntries();
   });
 }

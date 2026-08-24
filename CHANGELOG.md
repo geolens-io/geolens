@@ -25,6 +25,16 @@ and releases use semantic versioning.
   invisible, because its row started expanded by state even though
   upload-failed rows have no expand panel to show.
 
+### Changed
+
+- **Anonymous visitors can report problems too.** The in-app problem reporter
+  (error-triggered floating button + wizard) was gated to signed-in users, but
+  error capture already runs for everyone and the report itself is a prefilled
+  GitHub issue that needs no GeoLens session. On a public instance most
+  traffic browses anonymously, so a visitor who hit a broken map had no way to
+  say so. The gate is removed; the button still appears only after an error is
+  captured.
+
 ## [1.15.1] - 2026-08-24
 
 ### Changed

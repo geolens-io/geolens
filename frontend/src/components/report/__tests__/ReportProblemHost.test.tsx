@@ -15,9 +15,15 @@ beforeEach(() => {
 });
 
 describe('ReportProblemHost', () => {
-  it('renders nothing for unauthenticated users', () => {
+  it('shows no floating button for an anonymous visitor with no errors', () => {
     render(<ReportProblemHost />);
     expect(screen.queryByRole('button', { name: /report a problem/i })).toBeNull();
+  });
+
+  it('surfaces the floating button to an anonymous visitor once an error is captured', async () => {
+    render(<ReportProblemHost />);
+    pushReportEntry({ severity: 'error', source: 'console', message: 'anon-visible failure' });
+    expect(await screen.findByRole('button', { name: /report a problem/i })).toBeInTheDocument();
   });
 
   it('shows no floating button when authenticated and idle (no errors)', () => {
