@@ -18,8 +18,11 @@ and releases use semantic versioning.
   broke the export artifact cache's byte-determinism gate (#1532): a
   contested selection refuses every range request, so it silently disabled
   range-serving for the default export format whenever this fired. GPKG
-  normalization now also pins those two header fields to a fixed constant
-  after the SQLite connection closes (#1633).
+  normalization now also stamps those two header fields with a value
+  derived from the file's own normalized content, after the SQLite
+  connection closes: identical exports still land on the identical value,
+  but two exports of different data no longer collide on the same one
+  (#1633).
 - **Low-bit-depth rasters (NBITS < 8) no longer fail COG conversion.**
   LULC and palette rasters commonly pack 1/2/4-bit samples into a rasterio
   `uint8` container, via GDAL's `IMAGE_STRUCTURE` `NBITS` tag, which lives
