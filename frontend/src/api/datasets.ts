@@ -3,7 +3,7 @@ import { translateApiErrorDetail } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
 import { apiFetch, authenticatedRawFetch, ApiError } from './client';
 import { uploadChunks } from './_presignedUpload';
-import { reportNetworkError } from '@/lib/report';
+import { pushReportEntry, reportNetworkError } from '@/lib/report';
 import type {
   CreateDatasetRequest,
   DatasetResponse,
@@ -483,15 +483,36 @@ export async function commitFanOut(
 ): Promise<FanOutCommitResponse> {
   // codex on #1660: commitFanOut is a direct apiFetch call reached from
   // UploadForm's handleIngestAllLayers, not a TanStack mutation — a
-  // network/HTTP-level failure here (as opposed to a 200 response naming
-  // per-layer failures, which the results modal already shows) set every
-  // layer's row to 'commit-failed' with nothing written to the report
-  // buffer at all.
+  // network/HTTP-level failure here set every layer's row to 'commit-failed'
+  // with nothing written to the report buffer at all. codex round 3 found
+  // the same is true of a 200 response naming per-layer failures — see
+  // below, where that case gets its own capture.
   try {
-    return await apiFetch<FanOutCommitResponse>(`/ingest/commit-fan-out/${jobId}`, {
+    const response = await apiFetch<FanOutCommitResponse>(`/ingest/commit-fan-out/${jobId}`, {
       method: 'POST',
       body: JSON.stringify({ layers }),
     });
+    // codex round 3 on #1660: a 200 response here can still carry per-layer
+    // failures (results[].status === 'failed') — not a transport/HTTP
+    // failure, so reportNetworkError doesn't apply, but UploadForm still
+    // maps these to a commit-failed row that shows the report CTA. Without
+    // this, a filed report carried nothing about which layer failed or why:
+    // the results modal shows the USER, but the buffer is what a filed
+    // REPORT carries. One entry per failed layer, not one merged summary,
+    // so two layers failing with byte-identical error text don't collapse
+    // into a single count via the buffer's own dedup, which compares
+    // message text alone.
+    for (const result of response.results) {
+      if (result.status === 'failed') {
+        pushReportEntry({
+          severity: 'error',
+          source: 'network',
+          message: `Layer import failed: ${result.layer_name}`,
+          detail: result.error ?? undefined,
+        });
+      }
+    }
+    return response;
   } catch (err) {
     if (err instanceof ApiError) {
       reportNetworkError({ status: err.status, url: '/ingest/commit-fan-out', detail: err.body ?? err.message });

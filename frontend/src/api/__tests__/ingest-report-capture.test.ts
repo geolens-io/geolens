@@ -25,6 +25,14 @@
  *     (xhrUpload's final JSON.parse, outside the status-based reporting)
  * (j) a non-ApiError preview rejection (apiFetch's own response.json()
  *     parse failure isn't an ApiError, so the old `instanceof` guard skipped it)
+ *
+ * codex round 3 on #1660: commitFanOut can return HTTP 200 with
+ * results[].status === 'failed' for one or more layers — not a transport
+ * failure, so reportNetworkError doesn't apply, but UploadForm still maps
+ * that to a commit-failed row (showing the report CTA) with nothing about
+ * WHICH layer failed or WHY ever written to the buffer:
+ * (k) a mixed 200 (some layers failed) writes one entry per failed layer
+ * (l) an all-success 200 writes nothing
  */
 import { clearReportEntries, getReportEntries } from '@/lib/report';
 import { commitImport, previewFile, uploadFile, uploadPresigned } from '@/api/ingest';
@@ -285,5 +293,73 @@ describe('upload-path report capture', () => {
     // No HTTP error status exists for this failure — reported as status 0,
     // the same convention xhrUpload's network-layer catch uses.
     expect(entries[0].message).toContain('/ingest/preview');
+  });
+
+  it('(k) a mixed 200 from commitFanOut writes one entry per failed layer', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(200, {
+          fan_out_id: 'job-1',
+          results: [
+            { layer_name: 'roads', new_job_id: 'j2', dataset_id: null, status: 'queued', error: null },
+            {
+              layer_name: 'parcels',
+              new_job_id: null,
+              dataset_id: null,
+              status: 'failed',
+              error: 'Dispatch failed: queue unavailable',
+            },
+            {
+              layer_name: 'rivers',
+              new_job_id: null,
+              dataset_id: null,
+              status: 'failed',
+              error: 'Dispatch failed: queue unavailable',
+            },
+          ],
+        }),
+      ),
+    );
+
+    const response = await commitFanOut('job-1', [
+      { layer_name: 'roads' },
+      { layer_name: 'parcels' },
+      { layer_name: 'rivers' },
+    ]);
+    expect(response.results).toHaveLength(3);
+
+    const entries = getReportEntries();
+    // Two failed layers, byte-identical error text — still two entries, not
+    // one deduped row, because each message names its own layer.
+    expect(entries).toHaveLength(2);
+    for (const entry of entries) {
+      expect(entry.source).toBe('network');
+      expect(entry.severity).toBe('error');
+      expect(entry.detail).toContain('Dispatch failed: queue unavailable');
+    }
+    expect(entries.some((e) => e.message.includes('parcels'))).toBe(true);
+    expect(entries.some((e) => e.message.includes('rivers'))).toBe(true);
+    // The queued layer wrote nothing.
+    expect(entries.some((e) => e.message.includes('roads'))).toBe(false);
+  });
+
+  it('(l) an all-success 200 from commitFanOut writes nothing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        jsonResponse(200, {
+          fan_out_id: 'job-1',
+          results: [
+            { layer_name: 'roads', new_job_id: 'j2', dataset_id: null, status: 'queued', error: null },
+            { layer_name: 'parcels', new_job_id: 'j3', dataset_id: null, status: 'queued', error: null },
+          ],
+        }),
+      ),
+    );
+
+    await commitFanOut('job-1', [{ layer_name: 'roads' }, { layer_name: 'parcels' }]);
+
+    expect(getReportEntries()).toHaveLength(0);
   });
 });
