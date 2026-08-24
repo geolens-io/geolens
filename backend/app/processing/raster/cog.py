@@ -529,10 +529,54 @@ def _predictor_for_dtype(dtype: str, compression: str = "DEFLATE") -> str | None
 
     Predictors only work for DEFLATE, ZSTD, and LZW.
     Returns None for JPEG, WEBP, LERC (no predictor applicable).
+
+    A rasterio dtype string alone is not the whole story: see
+    ``_predictor_supported`` for the sample-width check ``convert_to_cog``
+    layers on top of this before it lets a predictor onto the argv.
     """
     if compression.upper() not in ("DEFLATE", "ZSTD", "LZW"):
         return None
     return "3" if _is_float_dtype(dtype) else "2"
+
+
+def _predictor_supported(file_path: str) -> bool:
+    """Whether every band's actual sample width supports a GDAL PREDICTOR.
+
+    A rasterio dtype like ``uint8`` does not say how many bits a sample
+    occupies: GDAL's ``IMAGE_STRUCTURE`` ``NBITS`` tag sub-byte-packs 1/2/4-bit
+    samples (common for LULC/palette rasters) or non-standard widths (e.g.
+    12/14-bit sensor data) into a wider dtype container. gdal_translate's
+    ``PREDICTOR=2``/``PREDICTOR=3`` creation options hard-refuse anything
+    outside {8, 16, 32, 64} bits -- ``ERROR 1: ... PREDICTOR=2 is only
+    supported with 8/16/32/64 bit samples`` -- which fails the whole COG
+    conversion (observed in production on an NBITS=4 LULC raster).
+
+    The tag lives at the BAND level, not the dataset level: calling
+    ``src.tags(ns="IMAGE_STRUCTURE")`` with no band index returns only
+    ``INTERLEAVE`` for a packed source and never sees ``NBITS`` at all, so
+    every band is probed individually via
+    ``src.tags(band, ns="IMAGE_STRUCTURE")``. A source that declares no
+    NBITS on any band is trusted at its rasterio dtype, which is always one
+    of 8/16/32/64; this only disables the predictor when a band explicitly
+    declares a narrower one.
+
+    Fails closed: a probe that cannot complete (unreadable file, unexpected
+    tag value) reports "not supported" rather than risk reproducing the
+    gdal_translate failure this exists to prevent -- the cost of a wrong
+    False here is a slightly larger COG, the cost of a wrong True is a
+    failed ingest job.
+    """
+    import rasterio
+
+    try:
+        with rasterio.open(file_path) as src:
+            for band in range(1, src.count + 1):
+                raw = src.tags(band, ns="IMAGE_STRUCTURE").get("NBITS")
+                if raw is not None and int(raw) not in (8, 16, 32, 64):
+                    return False
+    except Exception:  # broad: best-effort probe -- fail closed (see docstring)
+        return False
+    return True
 
 
 def convert_to_cog(
@@ -555,6 +599,11 @@ def convert_to_cog(
     reaches ``gdaladdo`` and nothing else: it decides how overviews are
     built, never what the base band contains.
 
+    ``dtype`` alone is not enough to pick a PREDICTOR: see
+    ``_predictor_supported`` for why a low-bit-depth source (NBITS < 8, e.g.
+    LULC/palette rasters) must skip it or gdal_translate refuses to run at
+    all.
+
     Raises RuntimeError on failure.
     """
     # fix(#1291): overviews are built from the SOURCE grid, which is also the
@@ -566,6 +615,8 @@ def convert_to_cog(
     )
     try:
         predictor = _predictor_for_dtype(dtype, compression)
+        if predictor is not None and not _predictor_supported(tmp_path):
+            predictor = None
         # KNOWN-03 (Phase 1071): apply the raster-pipeline GDAL safety clamps
         # on top of GDAL_CACHEMAX=200.
         env = gdal_safe_env(extras={"GDAL_CACHEMAX": "200"})

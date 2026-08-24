@@ -351,6 +351,12 @@ RASTERIO_OPEN_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         "local staged/temp path only; probes for internal overviews before "
         "spawning the (safe-env) gdaladdo subprocess",
     ),
+    ("processing/raster/cog.py", "_predictor_supported"): (
+        1,
+        "local staged/temp path only; probes per-band IMAGE_STRUCTURE NBITS "
+        "before letting convert_to_cog put PREDICTOR=<n> on the gdal_translate "
+        "argv",
+    ),
     ("processing/raster/quicklook.py", "generate_quicklook"): (
         1,
         "opens the locally produced COG output, never a source URL",

@@ -7,6 +7,19 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Low-bit-depth rasters (NBITS < 8) no longer fail COG conversion.**
+  LULC and palette rasters commonly pack 1/2/4-bit samples into a rasterio
+  `uint8` container, via GDAL's `IMAGE_STRUCTURE` `NBITS` tag, which lives
+  at the band level rather than the dataset level. The COG converter picked
+  a `PREDICTOR` from the dtype string alone, so it handed `gdal_translate` a
+  `PREDICTOR=2` the tool hard-refuses on anything outside 8/16/32/64-bit
+  samples, failing the whole conversion step and the ingest job with it.
+  This is what broke `Peshawar_City_LULC_2050.tif` on the demo.
+  `convert_to_cog` now checks each band's actual bit width before deciding
+  whether a predictor creation option is safe to pass.
+
 ## [1.15.0] - 2026-08-23
 
 ### Added

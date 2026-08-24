@@ -424,3 +424,133 @@ class TestGdalFailureTempCleanup:
         assert list(work_dir.iterdir()) == [], (
             "a temp file leaked from the CRS-assignment path after run_gdal raised"
         )
+
+
+# ---------------------------------------------------------------------------
+# Low-bit-depth predictor guard: production failure on
+# Peshawar_City_LULC_2050.tif (2026-08-21 demo ingest)
+# ---------------------------------------------------------------------------
+#
+# A rasterio dtype string like "uint8" does not say how many bits a sample
+# occupies. GDAL's IMAGE_STRUCTURE NBITS tag sub-byte-packs 1/2/4-bit samples
+# (common for LULC/palette rasters) into that same uint8 container, and
+# gdal_translate hard-refuses PREDICTOR=2/3 on anything outside 8/16/32/64
+# bits:
+#
+#   ERROR 1: source.cog.tif: PREDICTOR=2 is only supported with 8/16/32/64
+#   bit samples.
+#
+# which failed the whole COG conversion step (and the ingest job with it).
+# These tests write REAL on-disk GeoTIFFs via rasterio's `nbits` creation
+# option -- the GDAL CLI is not guaranteed on the test host, but rasterio's
+# own driver bindings always are -- and let ``convert_to_cog`` run its real
+# rasterio-based NBITS probe against them. Only the GDAL CLI subprocesses
+# are mocked (via ``_capture_subprocess_runs``), so the fixture and the
+# per-band tag detection are both genuine.
+
+
+def _write_nbits_fixture(
+    path: str, *, nbits: int | None, width: int = 4, height: int = 4
+) -> None:
+    """A minimal on-disk uint8 GeoTIFF, optionally sub-byte-packed via NBITS.
+
+    ``nbits=None`` writes a plain uint8 band with no NBITS tag at all (the
+    common case: rasterio dtype and true sample width agree). ``nbits=1/2/4``
+    reproduces the LULC/palette shape that broke production: rasterio still
+    reports the band as ``uint8``, but GDAL's IMAGE_STRUCTURE tag (band-level,
+    not dataset-level -- ``src.tags(ns=...)`` with no band index returns only
+    INTERLEAVE) declares the true, narrower packing.
+    """
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    kwargs = {} if nbits is None else {"nbits": nbits}
+    with rasterio.open(
+        path,
+        "w",
+        driver="GTiff",
+        width=width,
+        height=height,
+        count=1,
+        dtype="uint8",
+        crs="EPSG:4326",
+        transform=from_origin(0, height, 1, 1),
+        **kwargs,
+    ) as dst:
+        dst.write(np.zeros((height, width), dtype="uint8"), 1)
+
+
+def _gdal_translate_argv(captured):
+    calls = [(cmd, env) for cmd, env in captured if cmd and cmd[0] == "gdal_translate"]
+    assert calls, f"gdal_translate was not invoked; ran {[c[0] for c in captured]}"
+    return calls[0][0]
+
+
+class TestPredictorLowBitDepth:
+    """convert_to_cog must not hand gdal_translate a PREDICTOR it will refuse."""
+
+    def test_nbits4_source_drops_the_predictor(self, tmp_path, monkeypatch):
+        """NBITS=4 (e.g. an LULC classification raster) is the exact shape that
+        broke Peshawar_City_LULC_2050.tif in production."""
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        _write_nbits_fixture(str(src), nbits=4)
+
+        with _capture_subprocess_runs(monkeypatch) as captured:
+            cog_module.convert_to_cog(str(src), str(tmp_path / "out.tif"), "uint8")
+
+        cmd = _gdal_translate_argv(captured)
+        assert not any(arg.startswith("PREDICTOR=") for arg in cmd), (
+            f"NBITS=4 source must not receive any PREDICTOR -- gdal_translate "
+            f"hard-refuses PREDICTOR=2 on sub-byte samples; argv: {cmd}"
+        )
+
+    def test_nbits1_source_drops_the_predictor(self, tmp_path, monkeypatch):
+        """NBITS=1 (a binary mask/palette raster) is the other end of the same
+        failure class."""
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        _write_nbits_fixture(str(src), nbits=1)
+
+        with _capture_subprocess_runs(monkeypatch) as captured:
+            cog_module.convert_to_cog(str(src), str(tmp_path / "out.tif"), "uint8")
+
+        cmd = _gdal_translate_argv(captured)
+        assert not any(arg.startswith("PREDICTOR=") for arg in cmd), (
+            f"NBITS=1 source must not receive any PREDICTOR; argv: {cmd}"
+        )
+
+    def test_ordinary_uint8_source_keeps_the_predictor(self, tmp_path, monkeypatch):
+        """Counterpoint: a genuine 8-bit source (no NBITS tag at all) must keep
+        PREDICTOR=2 -- the fix must not turn the predictor off across the
+        board, only for the sources that actually can't take it."""
+        from app.processing.raster import cog as cog_module
+
+        src = tmp_path / "src.tif"
+        _write_nbits_fixture(str(src), nbits=None)
+
+        with _capture_subprocess_runs(monkeypatch) as captured:
+            cog_module.convert_to_cog(str(src), str(tmp_path / "out.tif"), "uint8")
+
+        cmd = _gdal_translate_argv(captured)
+        assert "PREDICTOR=2" in cmd, (
+            f"an ordinary uint8 source should still get PREDICTOR=2; argv: {cmd}"
+        )
+
+    def test_predictor_supported_reads_band_level_tag_not_dataset_level(self, tmp_path):
+        """Direct pin on the probe itself: NBITS lives under
+        ``src.tags(band, ns="IMAGE_STRUCTURE")``, not
+        ``src.tags(ns="IMAGE_STRUCTURE")`` (which only ever reports
+        INTERLEAVE for a packed source and would silently miss the tag)."""
+        from app.processing.raster import cog as cog_module
+
+        packed = tmp_path / "packed.tif"
+        plain = tmp_path / "plain.tif"
+        _write_nbits_fixture(str(packed), nbits=4)
+        _write_nbits_fixture(str(plain), nbits=None)
+
+        assert cog_module._predictor_supported(str(packed)) is False
+        assert cog_module._predictor_supported(str(plain)) is True
