@@ -13,6 +13,8 @@ import pytest
 from app.processing.ingest.metadata import _sql_quote_ident
 from app.processing.ingest.ogr import (
     _extract_common_layer_metadata,
+    _friendly_open_failure_message,
+    _is_unopenable_source_stderr,
     _sanitize_authorization_token,
     _strip_ogr_driver_list,
     extract_srid_from_json,
@@ -938,6 +940,107 @@ class TestStripOgrDriverList:
 
         assert hasattr(settings, "ingest_http_timeout_seconds")
         assert settings.ingest_http_timeout_seconds == 300
+
+
+class TestIsUnopenableSourceStderr:
+    """The "unable to open datasource" leak: an ogr2ogr/ogrinfo failure whose
+    raw stderr is a 100+ line GDAL driver enumeration (the exact text a demo
+    visitor saw for an invalid march.gpkg upload). This is the pattern-match
+    that gates the friendly-message replacement — it must catch both stderr
+    shapes GDAL produces for "I can't read this as spatial data" and stay
+    narrow enough to leave every other ogr2ogr/ogrinfo failure untouched.
+    """
+
+    def test_matches_driver_enumeration_failure(self):
+        """No driver claims the source at all — the original march.gpkg incident."""
+        stderr = (
+            "ERROR 1: Unable to open datasource "
+            "`/app/staging/9f2c_march.gpkg' with the following drivers.\n"
+            "  -> `GPKG'\n"
+            "  -> `FITS'\n"
+            "  -> `PCIDSK'\n"
+        )
+        assert _is_unopenable_source_stderr(stderr) is True
+
+    def test_matches_sqlite_corrupt_content_failure(self):
+        """A GPKG with an intact SQLite header but corrupt page data — the
+        driver claims the source by header/extension, then SQLite itself
+        refuses to open it. Live-reproduced stderr shape (bad application_id
+        warning + "file is not a database" + the sqlite3_prepare_v2 detail)."""
+        stderr = (
+            "Warning 1: GPKG: bad application_id=0x75de07d1 on "
+            "'/app/staging/1a2b_march.gpkg'\n"
+            "ERROR 1: file is not a database\n"
+            "ERROR 1: sqlite3_prepare_v2(SELECT COUNT(*) FROM sqlite_master "
+            "WHERE name IN ('gpkg_metadata', 'gpkg_metadata_reference') AND "
+            "type IN ('table', 'view')) failed: file is not a database\n"
+        )
+        assert _is_unopenable_source_stderr(stderr) is True
+
+    def test_does_not_match_unrelated_ogr2ogr_failure(self):
+        """Narrow anchoring: a real, different ogr2ogr failure (constraint
+        violation) must NOT be caught by this pattern — those messages keep
+        their real stderr."""
+        stderr = (
+            'ERROR 1: PQclear() failed: ERROR:  null value in column "geom" '
+            "violates not-null constraint\n"
+        )
+        assert _is_unopenable_source_stderr(stderr) is False
+
+    def test_does_not_match_permission_denied(self):
+        stderr = "ERROR 1: permission denied for schema data\n"
+        assert _is_unopenable_source_stderr(stderr) is False
+
+    def test_empty_string_does_not_match(self):
+        assert _is_unopenable_source_stderr("") is False
+
+
+class TestFriendlyOpenFailureMessage:
+    """The user-facing replacement text — built only from the original
+    upload filename, never from the staging path or the raw stderr."""
+
+    def test_gpkg_extension_names_geopackage(self):
+        msg = _friendly_open_failure_message("march.gpkg")
+        assert msg == (
+            "Could not open 'march.gpkg' as a spatial dataset — the file "
+            "may be corrupt, incomplete, or not a valid GeoPackage (.gpkg) "
+            "file."
+        )
+
+    def test_shp_extension_names_shapefile(self):
+        msg = _friendly_open_failure_message("parcels.shp")
+        assert "Shapefile (.shp)" in msg
+        assert "parcels.shp" in msg
+
+    def test_zip_extension_names_zipped_shapefile(self):
+        msg = _friendly_open_failure_message("export.zip")
+        assert "zipped Shapefile (.zip)" in msg
+
+    def test_unknown_extension_falls_back_to_generic_phrasing(self):
+        msg = _friendly_open_failure_message("data.mysteryformat")
+        assert "data.mysteryformat" in msg
+        assert "not a valid spatial data file" in msg
+
+    def test_no_filename_uses_fully_generic_message(self):
+        msg = _friendly_open_failure_message(None)
+        assert msg == (
+            "Could not open the uploaded file as a spatial dataset — it "
+            "may be corrupt, incomplete, or not a valid spatial data file."
+        )
+
+    def test_staging_path_never_appears_in_message(self):
+        """The staging path GDAL echoes in its own stderr must never reach
+        this message — only the original upload filename does."""
+        msg = _friendly_open_failure_message("march.gpkg")
+        assert "/app/staging" not in msg
+        assert "staging" not in msg
+
+    def test_directory_component_stripped_even_if_passed(self):
+        """Defensive: even if a caller passed a path instead of a bare
+        filename, only the leaf name is shown — never the directories."""
+        msg = _friendly_open_failure_message("/app/staging/9f2c_march.gpkg")
+        assert "march.gpkg" in msg
+        assert "/app/staging" not in msg
 
 
 class TestSecFu04SanitizeAuthorizationToken:
