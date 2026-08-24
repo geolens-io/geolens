@@ -368,7 +368,9 @@ async def ingest_file(
             source_filename = job.source_filename
 
             # 2. Detect CRS via ogrinfo
-            info = await run_ogrinfo(file_path, layer_name=layer_name)
+            info = await run_ogrinfo(
+                file_path, layer_name=layer_name, original_filename=source_filename
+            )
             srid = info.get("srid")
             geometry_type = info.get("geometry_type")
             has_geometry = geometry_type is not None
@@ -468,6 +470,7 @@ async def ingest_file(
             layer_name=layer_name,
             schema=_current_tenant_schema(),
             effective_srid=effective_srid,
+            original_filename=source_filename,
         )
 
         # ----------------------------------------------------------------- #

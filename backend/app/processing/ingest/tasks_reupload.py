@@ -84,6 +84,8 @@ async def _detect_reupload_crs(
     file_path: str,
     layer_name: str | None,
     user_metadata: dict,
+    *,
+    original_filename: str | None = None,
 ) -> tuple[dict, int]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
@@ -101,7 +103,9 @@ async def _detect_reupload_crs(
     from app.processing.ingest.ogr import IngestionError, run_ogrinfo
     from app.processing.ingest.tasks_common import check_missing_crs
 
-    info = await run_ogrinfo(file_path, layer_name=layer_name)
+    info = await run_ogrinfo(
+        file_path, layer_name=layer_name, original_filename=original_filename
+    )
     srid = info.get("srid")
     geometry_type = info.get("geometry_type")
     srid_override = user_metadata.get("srid_override")
@@ -296,7 +300,7 @@ async def reupload_file(
         # 2-3. Detect CRS from the new file, enforce the missing-CRS gate,
         # and resolve the effective SRID (override > detected > 4326).
         info, effective_srid = await _detect_reupload_crs(
-            file_path, layer_name, user_metadata
+            file_path, layer_name, user_metadata, original_filename=source_filename
         )
         srid = info.get("srid")
         geometry_type = info.get("geometry_type")
@@ -315,6 +319,7 @@ async def reupload_file(
             layer_name=layer_name,
             schema=_current_tenant_schema(),
             effective_srid=effective_srid,
+            original_filename=source_filename,
         )
 
         # 7. Compute file hash (moved up — must be outside any session)

@@ -7,6 +7,8 @@ import re
 from collections.abc import Callable
 from typing import TypedDict
 
+import structlog
+
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
 from app.core.service_tokens import HEADER_TOKEN_CHARSET, HEADER_TOKEN_MIN_LENGTH
@@ -18,6 +20,77 @@ from app.core.url_redaction import redact_url_credentials
 # The trailing mode group (...) is optional — some GDAL builds emit bare driver names
 # without a mode suffix, so the regex accepts " -> 'NAME'" with optional "(...)" after.
 _OGR_DRIVER_LIST_LINE_RE = re.compile(r"^\s*->\s*'[^']+'\s*(\([^)]*\))?\s*$")
+
+# When ogr2ogr/ogrinfo can find no driver willing to open the source, they
+# print this one line followed by GDAL's full driver enumeration (100+
+# lines) — the raw text a demo visitor saw verbatim in the job UI for an
+# invalid march.gpkg upload. Anchored tightly to that exact phrase so no
+# other failure class (bad SRS, permission denied, disk full, ...) matches.
+_OGR_UNABLE_TO_OPEN_RE = re.compile(
+    r"Unable to open datasource `[^']*' with the following drivers\."
+)
+
+# A second shape of the same user-facing problem: a driver DOES claim the
+# source (by extension/header — e.g. GPKG is SQLite) but the content
+# underneath is corrupt, which surfaces as SQLite's own error instead of a
+# GDAL driver-enumeration failure. GDAL prints a "bad application_id=0x..."
+# warning above this for GPKG specifically, but the "file is not a
+# database" line is the one that's common to the class and safe to anchor
+# on — it's SQLite's own open-failure text, not phrasing GDAL reuses for
+# anything else.
+_SQLITE_NOT_A_DATABASE_RE = re.compile(r"file is not a database")
+
+
+def _is_unopenable_source_stderr(stderr_text: str) -> bool:
+    """True when ``stderr_text`` matches a known "can't open this source" shape.
+
+    Both patterns below mean the same thing to the person who uploaded the
+    file — GDAL could not read it as a spatial dataset — so both map to the
+    same friendly message; see ``_friendly_open_failure_message``.
+    """
+    return bool(
+        _OGR_UNABLE_TO_OPEN_RE.search(stderr_text)
+        or _SQLITE_NOT_A_DATABASE_RE.search(stderr_text)
+    )
+
+
+# Human-readable label per uploaded extension, used only to phrase the
+# friendly "could not open" message below. Unknown/missing extensions fall
+# back to a generic "spatial data" phrasing.
+_VECTOR_FORMAT_LABELS: dict[str, str] = {
+    ".gpkg": "GeoPackage (.gpkg)",
+    ".shp": "Shapefile (.shp)",
+    ".zip": "zipped Shapefile (.zip)",
+    ".geojson": "GeoJSON (.geojson)",
+    ".json": "GeoJSON (.json)",
+    ".csv": "CSV (.csv)",
+    ".kml": "KML (.kml)",
+    ".kmz": "KMZ (.kmz)",
+    ".fgb": "FlatGeobuf (.fgb)",
+    ".gml": "GML (.gml)",
+    ".gdb": "File Geodatabase (.gdb)",
+}
+
+
+def _friendly_open_failure_message(original_filename: "str | None") -> str:
+    """User-facing text for an ogr2ogr "unable to open datasource" failure.
+
+    Deliberately built from ``original_filename`` alone — never from the
+    staging path or the raw stderr — so the message can never leak the
+    `/app/staging/<uuid>_...` path GDAL echoes back on this failure class.
+    """
+    name = os.path.basename(original_filename) if original_filename else None
+    suffix = os.path.splitext(name)[1].lower() if name else ""
+    format_label = _VECTOR_FORMAT_LABELS.get(suffix, "spatial data")
+    if name:
+        return (
+            f"Could not open '{name}' as a spatial dataset — the file may be "
+            f"corrupt, incomplete, or not a valid {format_label} file."
+        )
+    return (
+        "Could not open the uploaded file as a spatial dataset — it may be "
+        "corrupt, incomplete, or not a valid spatial data file."
+    )
 
 
 def _sanitize_authorization_token(token: "str | None") -> "str | None":
@@ -467,12 +540,23 @@ def _parse_text_ogrinfo(output: str) -> dict:
     }
 
 
-async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> OgrinfoResult:
+async def run_ogrinfo(
+    file_path: str,
+    layer_name: str | None = None,
+    *,
+    original_filename: str | None = None,
+) -> OgrinfoResult:
     """Run ogrinfo to detect CRS and layer metadata.
 
     Returns dict with keys: srid, geometry_type, layer_name, feature_count, all_layers.
     When multiple layers exist and no layer_name is specified, all_layers lists them.
     Tries JSON output first (GDAL 3.7+), falls back to text parsing.
+
+    Args:
+        original_filename: The user-visible upload filename (not the staging
+            path in ``file_path``), used only to phrase the friendly message
+            on an "unable to open" failure. Optional — callers without it
+            (e.g. the preview endpoint) still get a generic-but-safe message.
     """
     if layer_name:
         validate_layer_name_argv(layer_name)
@@ -532,9 +616,21 @@ async def run_ogrinfo(file_path: str, layer_name: str | None = None) -> OgrinfoR
     )
 
     if proc.returncode != 0:
-        raise IngestionError(
-            f"ogrinfo failed (exit {proc.returncode}): {stderr.decode().strip()}"
-        )
+        stderr_text = stderr.decode().strip()
+        if _is_unopenable_source_stderr(stderr_text):
+            # The full stderr (driver enumeration, or SQLite's own corrupt-
+            # database diagnostics) is diagnostic gold for us and unreadable
+            # noise — plus a leaked staging path — for the job UI. Log the
+            # raw text at error level here, the one place that still sees
+            # it, then raise a short, human-readable IngestionError.
+            structlog.get_logger().error(
+                "ogrinfo could not open source file",
+                exit_code=proc.returncode,
+                stderr=stderr_text,
+                original_filename=original_filename,
+            )
+            raise IngestionError(_friendly_open_failure_message(original_filename))
+        raise IngestionError(f"ogrinfo failed (exit {proc.returncode}): {stderr_text}")
 
     result = _parse_text_ogrinfo(stdout.decode())
     # Text-fallback parse doesn't extract field definitions, so the DBF
@@ -622,6 +718,7 @@ async def run_ogr2ogr(
     *,
     schema: str,
     effective_srid: int | None = None,
+    original_filename: str | None = None,
 ) -> None:
     """Run ogr2ogr to load a file into PostGIS.
 
@@ -637,6 +734,9 @@ async def run_ogr2ogr(
             (user srid_override > detected > 4326). Used only by the parquet
             path, which must stamp geometries with the SRID the downstream
             ST_Transform will trust; GDAL formats carry their own CRS.
+        original_filename: The user-visible upload filename (not the staging
+            path in ``file_path``), used only to phrase the friendly message
+            on an "unable to open" failure.
 
     Raises:
         IngestionError: If ogr2ogr exits with non-zero code.
@@ -752,9 +852,18 @@ async def run_ogr2ogr(
     )
 
     if proc.returncode != 0:
-        raise IngestionError(
-            f"ogr2ogr failed (exit {proc.returncode}): {stderr.decode().strip()}"
-        )
+        stderr_text = stderr.decode().strip()
+        if _is_unopenable_source_stderr(stderr_text):
+            # Same rationale as the matching branch in run_ogrinfo above:
+            # log the full diagnostic once, raise a short user-facing one.
+            structlog.get_logger().error(
+                "ogr2ogr could not open source file",
+                exit_code=proc.returncode,
+                stderr=stderr_text,
+                original_filename=original_filename,
+            )
+            raise IngestionError(_friendly_open_failure_message(original_filename))
+        raise IngestionError(f"ogr2ogr failed (exit {proc.returncode}): {stderr_text}")
 
 
 async def run_ogr2ogr_service(
