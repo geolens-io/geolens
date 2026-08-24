@@ -19,8 +19,12 @@ and releases use semantic versioning.
   the status poll, and a worker's startup recovery. Only that class moves.
   Every other never-queued job keeps reporting `failed` — including a service
   or URL import whose dispatch never landed, because retry is offered on failed
-  jobs and taking that away would cost a recoverable job its recovery. No
-  schema change: `cancelled` was already a permitted job status (#1556).
+  jobs and taking that away would cost a recoverable job its recovery. The
+  cleanup pass counts cancellations apart from failures, so an operator reading
+  a sweep's audit entry sees what it actually did, and the import view stops
+  polling a job once it settles cancelled instead of asking for its status
+  every two seconds for the life of the tab. No schema change: `cancelled` was
+  already a permitted job status (#1556).
 
 ### Fixed
 

@@ -12,6 +12,29 @@ export function useUploadFile() {
   });
 }
 
+/**
+ * Job statuses a job never transitions out of, so polling must stop.
+ *
+ * 'fanned_out' is terminal because the parent never transitions again; its
+ * children (with their own job IDs) carry forward progress. See SMOKE-v1013-F1.
+ *
+ * fix(#1556): 'cancelled' joined the set, and the set became a named function
+ * rather than an inline condition. This is a DENYLIST — anything missing from
+ * it polls /jobs/{id} every 2s for the life of the tab — so it has to be
+ * exhaustive over the status enum, and the one place that decides is easier to
+ * keep exhaustive than a condition inside a query option. An abandoned
+ * presigned upload now settles 'cancelled' instead of 'failed', which is
+ * exactly the status that was missing.
+ */
+export function isTerminalJobStatus(status: string | undefined): boolean {
+  return (
+    status === 'complete' ||
+    status === 'failed' ||
+    status === 'fanned_out' ||
+    status === 'cancelled'
+  );
+}
+
 export function useJobStatus(jobId: string | null) {
   // fix(#762): AnalysisJobWatcher mounts in RootLayout with a persist-backed
   // job id, so without this gate a stale tracked job made an anonymous
@@ -24,13 +47,7 @@ export function useJobStatus(jobId: string | null) {
     queryFn: () => getJobStatus(jobId!),
     enabled: !!jobId && hasToken,
     staleTime: 2000,
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      // 'fanned_out' is terminal — the parent never transitions again; children
-      // (with their own job IDs) carry forward progress. See SMOKE-v1013-F1.
-      if (status === 'complete' || status === 'failed' || status === 'fanned_out') return false;
-      return 2000;
-    },
+    refetchInterval: (query) => (isTerminalJobStatus(query.state.data?.status) ? false : 2000),
   });
 }
 

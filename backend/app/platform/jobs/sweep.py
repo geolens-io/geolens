@@ -258,6 +258,16 @@ class StaleCleanupOutcome:
     storage_objects_reaped: int
     staged_paths_skipped: int
     staged_cleanup_failures: int
+    # fix(#1556 review, codex P2): pending rows the sweep settled `cancelled`
+    # rather than `failed` — abandoned presigned uploads. Counted apart from
+    # `pending_failed` because that number is read as a failure count by the
+    # admin cleanup response, its audit event and the sweeper's log line, and
+    # folding abandonments back into it would undo the split at exactly the
+    # surfaces the split exists for.
+    #
+    # Last, with a default, only because a dataclass cannot put a defaulted
+    # field before undefaulted ones; it belongs beside `pending_failed`.
+    pending_cancelled: int = 0
     _staged_paths: tuple[str, ...] = field(default=(), repr=False, compare=False)
     # fix(#1202 review r5): presigned staging keys of the purged rows. Kept
     # separate from _staged_paths because they need no survivor query — a
@@ -282,14 +292,26 @@ class StaleCleanupOutcome:
 
     @property
     def total_cleaned(self) -> int:
-        """Legacy count: ingest jobs transitioned from active to failed."""
+        """Legacy count: ingest jobs transitioned from active to failed.
+
+        fix(#1556 review): still literally that, which is why cancellations
+        are absent. Its published identity is `pending_failed + running_failed`
+        and a caller reading "cleaned" as "failed" is reading it correctly.
+        """
         return self.pending_failed + self.running_failed
 
     @property
     def total_affected(self) -> int:
-        """Rows and staged objects mutated by the cleanup pass."""
+        """Rows and staged objects mutated by the cleanup pass.
+
+        fix(#1556 review): cancellations DO belong here. This one counts work
+        done, not failures, so leaving them out would under-report the rows the
+        pass actually mutated — a number that hides work is worse than one that
+        does not break down.
+        """
         return (
             self.total_cleaned
+            + self.pending_cancelled
             + self.vrt_assets_recovered
             + self.vrt_generations_failed
             + self.terminal_jobs_purged
@@ -298,9 +320,21 @@ class StaleCleanupOutcome:
         )
 
     def as_dict(self) -> dict[str, int]:
-        """Return the stable API and audit detail shape."""
+        """Return the stable API and audit detail shape.
+
+        fix(#1556 review): `pending_cancelled` reaches the audit event (a JSONB
+        `details` blob with no schema) and the multi-tenant fleet totals, which
+        is where an operator reconstructs what a pass did. It deliberately does
+        NOT reach the HTTP response: `StaleCleanupResponse` is a published
+        model, generated into both SDKs and `api.generated.ts`, and pydantic's
+        default `extra="ignore"` drops the key on the way out. Surfacing it
+        there is a contract change with a regen attached, and it is not needed
+        to fix the misreport — `pending_failed` no longer counts abandonments
+        on any of the three surfaces.
+        """
         return {
             "pending_failed": self.pending_failed,
+            "pending_cancelled": self.pending_cancelled,
             "running_failed": self.running_failed,
             "total_cleaned": self.total_cleaned,
             "vrt_assets_recovered": self.vrt_assets_recovered,
@@ -1219,16 +1253,35 @@ async def fail_stale_jobs(
     # presign endpoints, and analysis jobs carry "" too (see
     # `_retry_capability`). An IS NULL guard would match nothing and leave the
     # race exactly as it was, while looking fixed.
-    pending_result = await db.execute(
+    unbound_result = await db.execute(
         update(IngestJob)
         .where(*stale_pending_clauses(now, completion_bound=False))
         .values(
             **stale_pending_unbound_values(now, message=STALE_PENDING_UNBOUND_MESSAGE)
         )
-        .returning(IngestJob.id, IngestJob.user_metadata, IngestJob.created_by)
+        # fix(#1556 review, codex P2): RETURNING carries the status the CASE
+        # actually chose. Postgres returns the NEW row, so this is what the
+        # database wrote — the alternative, re-deriving the predicate in
+        # Python to classify the rows, is a second copy of the rule that can
+        # disagree with the one that ran.
+        .returning(
+            IngestJob.id,
+            IngestJob.user_metadata,
+            IngestJob.created_by,
+            IngestJob.status,
+        )
     )
-    pending_rows = list(pending_result.all())
-    pending_job_ids = [row[0] for row in pending_rows]
+    unbound_rows = list(unbound_result.all())
+    # Positional, like every other row read in this function: a mocked session
+    # hands back plain tuples, and attribute access would work against the
+    # database while raising in the unit suites that drive this with doubles.
+    pending_cancelled = sum(1 for row in unbound_rows if row[3] == "cancelled")
+    # Back to the three columns every consumer below expects; the audit loop
+    # still visits cancelled rows, which is a no-op for them by construction
+    # (an embedding backfill carries no `presigned` marker, so it is never in
+    # the cancelled class).
+    pending_rows = [(row[0], row[1], row[2]) for row in unbound_rows]
+    pending_job_ids = [row[0] for row in unbound_rows]
 
     # fix(#1234): the other half. A row that DID bind bytes but never committed
     # its status is now exempt from the 1h clause, and the retention purge only
@@ -1471,7 +1524,8 @@ async def fail_stale_jobs(
             deleted_paths -= set(survivors.scalars())
         staged_paths_considered = len(deleted_paths)
     outcome = StaleCleanupOutcome(
-        pending_failed=len(pending_job_ids),
+        pending_failed=len(pending_job_ids) - pending_cancelled,
+        pending_cancelled=pending_cancelled,
         running_failed=len(running_job_ids),
         vrt_assets_recovered=vrt_assets_recovered,
         vrt_generations_failed=vrt_generations_failed,

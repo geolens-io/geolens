@@ -658,6 +658,43 @@ class TestAbandonedUploadsAreCancelled:
         assert dispatched.status == "failed"
         assert "never queued" in (dispatched.error_message or "")
 
+    async def test_the_outcome_counts_cancellations_apart_from_failures(
+        self, test_db_session
+    ) -> None:
+        """fix(#1556 review, codex P2): settling the row was only half of it.
+
+        `pending_failed` is read as a failure count by the admin cleanup
+        response, by its `job.cleanup_stale` audit event and by the sweeper's
+        log line. Leaving abandoned uploads inside it undoes the split at
+        exactly the surfaces the split exists for — the row would say
+        `cancelled` while the pass that wrote it still reported a failure.
+        """
+        from app.platform.jobs.router import fail_stale_jobs
+
+        # The test database is shared across every test on this xdist worker
+        # (see conftest's isolation note), so drain whatever is already stale
+        # before counting. Without this the assertions below measure other
+        # tests' leftovers.
+        await fail_stale_jobs(test_db_session)
+
+        await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
+        await _make_pending_job(
+            test_db_session, age_seconds=7200, file_path="", presigned=False
+        )
+
+        outcome = await fail_stale_jobs(test_db_session, detailed=True)
+
+        assert outcome.pending_cancelled == 1
+        assert outcome.pending_failed == 1, (
+            "the abandoned upload is still being counted as a failure"
+        )
+        assert outcome.total_cleaned == outcome.pending_failed + outcome.running_failed
+        # Work done, not failures: a pass that cancelled a row mutated it.
+        assert outcome.total_affected >= outcome.total_cleaned + 1
+        detail = outcome.as_dict()
+        assert detail["pending_cancelled"] == 1
+        assert detail["pending_failed"] == 1
+
     async def test_a_cancelled_job_cannot_be_completed(self) -> None:
         """The completion door reads the sweep's terminal state.
 
@@ -696,6 +733,48 @@ class TestAbandonedUploadsAreCancelled:
         from app.platform.jobs.router import is_abandoned_presigned_upload
 
         assert is_abandoned_presigned_upload(file_path, user_metadata) is abandoned
+
+
+def test_the_published_cleanup_response_drops_the_new_count_without_raising() -> None:
+    """fix(#1556 review, codex P2): the boundary, pinned deliberately.
+
+    `pending_cancelled` reaches the audit event's `details` (a JSONB blob with
+    no schema) and the multi-tenant fleet totals. It stops at
+    `StaleCleanupResponse`, which is published in openapi.json and generated
+    into both SDKs and `api.generated.ts` — adding a field there is a contract
+    change with a regen attached, and it is a decision to take on its own
+    rather than a side effect of this one.
+
+    The endpoint builds that model with `StaleCleanupResponse(**details)`, so
+    the half that MUST hold is that the extra key is ignored rather than
+    refused: an `extra="forbid"` added later (six sibling models in that file
+    have it) would turn every cleanup call into a 500.
+    """
+    from app.platform.jobs.schemas import StaleCleanupResponse
+    from app.platform.jobs.sweep import StaleCleanupOutcome
+
+    outcome = StaleCleanupOutcome(
+        pending_failed=1,
+        running_failed=0,
+        vrt_assets_recovered=0,
+        vrt_generations_failed=0,
+        terminal_jobs_purged=0,
+        staged_paths_considered=0,
+        local_files_reaped=0,
+        storage_objects_reaped=0,
+        staged_paths_skipped=0,
+        staged_cleanup_failures=0,
+        pending_cancelled=2,
+    )
+    details = outcome.as_dict()
+    assert details["pending_cancelled"] == 2
+    assert details["pending_failed"] == 1
+    assert details["total_cleaned"] == 1, "cancellations must not inflate the failures"
+    assert details["total_affected"] == 3, "cancellations are work the pass did"
+
+    response = StaleCleanupResponse(**details)
+    assert response.pending_failed == 1
+    assert not hasattr(response, "pending_cancelled")
 
 
 def test_every_unbound_pending_site_uses_the_shared_action() -> None:

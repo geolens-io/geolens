@@ -2862,7 +2862,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # is also unbound, and `/jobs/{id}/retry` only offers a `failed` row, so
     # the broader rule would take a recoverable job's recovery away.
     # Cap 1522 -> 1599, exact.
-    "backend/app/platform/jobs/sweep.py": 1599,
+    # fix(#1556 review, codex P2): +54 — the unbound UPDATE returns the status
+    # its CASE chose, so `pending_failed` can stop counting the rows that were
+    # cancelled. Without it the admin cleanup response, its audit event and the
+    # sweeper's log line all still reported an abandoned upload as a failure,
+    # which is the whole thing the split exists to stop. The lines are the new
+    # field plus the docstrings recording why `total_cleaned` excludes
+    # cancellations while `total_affected` includes them, and why the count
+    # reaches the audit event but not the published response model.
+    # Cap 1599 -> 1653, exact.
+    "backend/app/platform/jobs/sweep.py": 1653,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

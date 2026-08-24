@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@/test/test-utils';
+import { act, renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
 import { useRef } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
@@ -26,6 +26,7 @@ import {
   useDiscoverTables,
   useUploadConfig,
   useCreateVrt,
+  isTerminalJobStatus,
 } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import { useAuthStore } from '@/stores/auth-store';
@@ -120,6 +121,75 @@ describe('useJobStatus', () => {
     const { result } = renderHook(() => useJobStatus('bad-id'));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+
+  /**
+   * fix(#1556): the poll's terminal check is a DENYLIST, so a terminal status
+   * missing from it does not merely mis-render — it polls /jobs/{id} every 2s
+   * for the life of the tab. An abandoned presigned upload now settles
+   * 'cancelled', which was the missing one.
+   */
+  it('stops polling once a job settles cancelled', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockGetJobStatus.mockResolvedValue({ job_id: 'j-c', status: 'cancelled' } as never);
+
+      const { result } = renderHook(() => useJobStatus('j-c'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.isSuccess).toBe(true);
+      expect(mockGetJobStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mockGetJobStatus).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps polling a job that is still running', async () => {
+    // The control for the test above: without it, a hook that never polls at
+    // all would satisfy the cancelled case for the wrong reason.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mockGetJobStatus.mockResolvedValue({ job_id: 'j-r', status: 'running' } as never);
+
+      renderHook(() => useJobStatus('j-r'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(mockGetJobStatus).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_000);
+      });
+      expect(mockGetJobStatus.mock.calls.length).toBeGreaterThan(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('isTerminalJobStatus', () => {
+  // Enumerated over the whole JobStatusResponse status enum rather than the
+  // one status that was reported, because the failure mode is "a status is
+  // missing from the denylist" and only enumeration can see that.
+  it.each(['complete', 'failed', 'fanned_out', 'cancelled'])(
+    'treats %s as terminal',
+    (status) => {
+      expect(isTerminalJobStatus(status)).toBe(true);
+    },
+  );
+
+  it.each(['pending', 'running'])('keeps %s pollable', (status) => {
+    expect(isTerminalJobStatus(status)).toBe(false);
+  });
+
+  it('treats an absent status as pollable', () => {
+    expect(isTerminalJobStatus(undefined)).toBe(false);
   });
 });
 
