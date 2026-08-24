@@ -1456,6 +1456,27 @@ jobs:
           path: backend/htmlcov/
           retention-days: 14
 
+      # fix(#1633): the gpkg byte-determinism gate
+      # (test_export_artifact_cache_1532.py::test_every_export_format_is_byte_deterministic)
+      # flaked once in a merge-group run and passed 10/10 locally right after —
+      # a rare, environment- or time-dependent nondeterminism the issue asks
+      # to gather evidence on at the next occurrence rather than guess at now.
+      # This job runs pytest directly on the runner (Postgres is started via
+      # a plain `docker run`, not docker compose exec into a container), so
+      # `backend/test-artifacts/determinism/` — written by the test itself
+      # only when a digest assertion is about to fail — is already on the
+      # runner filesystem; nothing needs to be copied out of a container.
+      # `if: failure()` (an explicit status function, not a bare `if:`, which
+      # silently ANDs success()) so this only fires when a step above failed.
+      - name: Upload determinism evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7
+        with:
+          name: determinism-evidence
+          path: backend/test-artifacts/determinism/
+          if-no-files-found: ignore
+          retention-days: 14
+
   # ---------- alembic clean-DB upgrade smoke ----------
   # Exercise the full migration chain against a freshly-initialized PostGIS
   # container via the clean-DB upgrade

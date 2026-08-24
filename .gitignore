@@ -35,6 +35,12 @@ coverage.xml
 .coverage
 coverage/
 
+# Test evidence capture. fix(#1633): backend/tests/test_export_artifact_cache_1532.py
+# writes both artifacts plus a manifest here when a byte-determinism assertion
+# is about to fail; CI uploads this dir as a workflow artifact on failure, and
+# it must never be committed.
+backend/test-artifacts/
+
 # Build output
 build/
 dist/
