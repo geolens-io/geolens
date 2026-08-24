@@ -23,6 +23,7 @@ Requirements:
 """
 
 import hashlib
+import json
 from datetime import UTC, datetime
 import os
 import shutil
@@ -2920,7 +2921,9 @@ def _require_ogr2ogr():
         pytest.skip("ogr2ogr not available")
 
 
-def _build_export(format_key: str, work_dir: Path, tag: str) -> Path:
+def _build_export(
+    format_key: str, work_dir: Path, tag: str, evidence: dict | None = None
+) -> Path:
     """Produce one export the way the route produces it, and return its path.
 
     Goes through the real writers — the driver named in ``FORMAT_MAP``, then
@@ -2928,6 +2931,12 @@ def _build_export(format_key: str, work_dir: Path, tag: str) -> Path:
     `_zip_export_files` for shapefile, none for the rest). A test that packaged
     the bytes its own way would be pinning its own mirror of the export path
     rather than the export path.
+
+    fix(#1633): ``evidence``, when given a dict, is a side channel the
+    determinism test uses to record the GPKG normalize step's before/after
+    digest under ``f"{tag}_pre_normalize_sha256"`` /
+    ``f"{tag}_post_normalize_sha256"``. Every other caller passes nothing and
+    this behaves exactly as before.
     """
     from app.processing.export.service import _zip_export_files
     from app.processing.export.service import normalize_gpkg_timestamps
@@ -2963,13 +2972,214 @@ def _build_export(format_key: str, work_dir: Path, tag: str) -> Path:
     )
 
     if format_key == "gpkg":
+        if evidence is not None:
+            evidence[f"{tag}_pre_normalize_sha256"] = hashlib.sha256(
+                ogr_output.read_bytes()
+            ).hexdigest()
         normalize_gpkg_timestamps(str(ogr_output))
+        if evidence is not None:
+            evidence[f"{tag}_post_normalize_sha256"] = hashlib.sha256(
+                ogr_output.read_bytes()
+            ).hexdigest()
         return ogr_output
     if format_key == "shp":
         archive = stage / "export.zip"
         _zip_export_files(str(stage), str(archive))
         return archive
     return ogr_output
+
+
+# ---------------------------------------------------------------------------
+# fix(#1633): evidence capture for the next occurrence
+# ---------------------------------------------------------------------------
+#
+# #1633 observed this gate fail ONCE in a merge-group run and pass 10/10 on a
+# dev machine immediately after — a rare, environment- or time-dependent
+# nondeterminism the issue explicitly asks to gather evidence on next time
+# rather than guess at now. Everything below fires ONLY from inside the
+# `if digests[0] != digests[1]` branch the test adds ahead of its (unchanged)
+# assert: on the pass path this whole mechanism costs one list-equality check,
+# so it does not change what the test measures or how it fails.
+
+_DETERMINISM_EVIDENCE_DIR = (
+    Path(__file__).resolve().parent.parent / "test-artifacts" / "determinism"
+)
+
+
+def _ogr2ogr_version() -> str:
+    """Best-effort GDAL/ogr2ogr version string. Never raises."""
+    try:
+        result = subprocess.run(
+            ["ogr2ogr", "--version"], capture_output=True, text=True, timeout=10
+        )
+        return (result.stdout or result.stderr).strip()
+    except Exception as exc:  # noqa: BLE001 - evidence capture must never raise
+        return f"<unavailable: {exc!r}>"
+
+
+def _sqlite_structural_diff(
+    path_a: Path, path_b: Path, max_diff_tables: int = 5
+) -> dict | None:
+    """Compare two SQLite files structurally, stdlib only.
+
+    Returns None when either file is not a SQLite database this process can
+    open read-only (e.g. a shapefile zip) — that is a normal "not applicable"
+    outcome for a non-GPKG format, not an error worth surfacing.
+    """
+    import sqlite3
+
+    try:
+        conn_a = sqlite3.connect(f"file:{path_a}?mode=ro", uri=True)
+        conn_b = sqlite3.connect(f"file:{path_b}?mode=ro", uri=True)
+        # `connect` with mode=ro does not itself prove the file is a database;
+        # a real query is needed to force that check.
+        conn_a.execute("SELECT name FROM sqlite_master LIMIT 1")
+        conn_b.execute("SELECT name FROM sqlite_master LIMIT 1")
+    except sqlite3.Error:
+        return None
+
+    try:
+        tables_a = {
+            row[0]
+            for row in conn_a.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        tables_b = {
+            row[0]
+            for row in conn_b.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        common = sorted(tables_a & tables_b)
+
+        row_counts = {}
+        differing_tables = []
+        for table in common:
+            # Table names come from sqlite_master, not user input.
+            count_a = conn_a.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]  # noqa: S608
+            count_b = conn_b.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]  # noqa: S608
+            row_counts[table] = {"first": count_a, "second": count_b}
+            if len(differing_tables) < max_diff_tables:
+                rows_a = conn_a.execute(f'SELECT * FROM "{table}"').fetchall()  # noqa: S608
+                rows_b = conn_b.execute(f'SELECT * FROM "{table}"').fetchall()  # noqa: S608
+                if rows_a != rows_b:
+                    differing_tables.append(
+                        {
+                            "table": table,
+                            "first_row_count": len(rows_a),
+                            "second_row_count": len(rows_b),
+                            "first_sample": [list(r) for r in rows_a[:3]],
+                            "second_sample": [list(r) for r in rows_b[:3]],
+                        }
+                    )
+
+        pragmas = {}
+        for pragma in ("page_count", "page_size", "freelist_count"):
+            pragmas[pragma] = {
+                "first": conn_a.execute(f"PRAGMA {pragma}").fetchone()[0],
+                "second": conn_b.execute(f"PRAGMA {pragma}").fetchone()[0],
+            }
+
+        gpkg_rows = {}
+        for special in ("gpkg_contents", "gpkg_metadata"):
+            if special in common:
+                gpkg_rows[special] = {
+                    "first": [
+                        list(r)
+                        for r in conn_a.execute(
+                            f'SELECT * FROM "{special}"'  # noqa: S608
+                        ).fetchall()
+                    ],
+                    "second": [
+                        list(r)
+                        for r in conn_b.execute(
+                            f'SELECT * FROM "{special}"'  # noqa: S608
+                        ).fetchall()
+                    ],
+                }
+
+        return {
+            "tables_only_in_first": sorted(tables_a - tables_b),
+            "tables_only_in_second": sorted(tables_b - tables_a),
+            "row_counts": row_counts,
+            "pragmas": pragmas,
+            "gpkg_tables": gpkg_rows,
+            "first_n_differing_tables": differing_tables,
+        }
+    finally:
+        conn_a.close()
+        conn_b.close()
+
+
+def _capture_determinism_evidence(
+    format_key: str,
+    first: Path,
+    second: Path,
+    digests: list[str],
+    evidence: dict,
+) -> None:
+    """Persist both artifacts plus a manifest when their digests diverge.
+
+    fix(#1633): the gpkg byte-determinism gate flaked ONCE in a merge-group
+    run and passed 10/10 locally right after — a rare nondeterminism the issue
+    asks to gather evidence on, not guess at, on the next occurrence. This is
+    called only from inside the caller's ``if digests[0] != digests[1]``
+    branch, so it never runs on the pass path, and any failure inside here is
+    swallowed so a capture bug can never turn a real determinism regression
+    into an unrelated crash that masks the original assertion.
+    """
+    try:
+        capture_dir = (
+            _DETERMINISM_EVIDENCE_DIR
+            / f"{format_key}_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        )
+        capture_dir.mkdir(parents=True, exist_ok=True)
+
+        first_copy = capture_dir / f"first_{first.name}"
+        second_copy = capture_dir / f"second_{second.name}"
+        shutil.copy2(first, first_copy)
+        shutil.copy2(second, second_copy)
+
+        manifest = {
+            "format_key": format_key,
+            "captured_at_utc": datetime.now(UTC).isoformat(),
+            "gdal_version": _ogr2ogr_version(),
+            "artifacts": {
+                "first": {
+                    "filename": first_copy.name,
+                    "sha256": digests[0],
+                    "size_bytes": first.stat().st_size,
+                },
+                "second": {
+                    "filename": second_copy.name,
+                    "sha256": digests[1],
+                    "size_bytes": second.stat().st_size,
+                },
+            },
+            "normalize_step": {
+                "applicable": format_key == "gpkg",
+                "first_pre_normalize_sha256": evidence.get(
+                    "first_pre_normalize_sha256"
+                ),
+                "first_post_normalize_sha256": evidence.get(
+                    "first_post_normalize_sha256"
+                ),
+                "second_pre_normalize_sha256": evidence.get(
+                    "second_pre_normalize_sha256"
+                ),
+                "second_post_normalize_sha256": evidence.get(
+                    "second_post_normalize_sha256"
+                ),
+            },
+            "sqlite_structural_diff": _sqlite_structural_diff(first, second),
+        }
+        (capture_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2, default=str)
+        )
+        print(f"determinism evidence captured: {capture_dir}")
+    except Exception as exc:  # noqa: BLE001 - never let capture mask a real failure
+        print(f"determinism evidence capture failed (non-fatal): {exc!r}")
 
 
 @pytest.mark.parametrize("format_key", _DETERMINISM_FORMATS)
@@ -2987,14 +3197,22 @@ def test_every_export_format_is_byte_deterministic(format_key, tmp_path):
 
     The gap between the two builds is set by the COARSEST clock any of these
     formats records, not by a round number — see the constant.
+
+    fix(#1633): when the digests are about to differ, both artifacts and a
+    manifest are captured to ``test-artifacts/determinism/`` before the
+    assert below raises — see `_capture_determinism_evidence`. That capture
+    is a no-op on the pass path and never changes this assertion.
     """
     _require_ogr2ogr()
 
-    first = _build_export(format_key, tmp_path, "first")
+    evidence: dict = {}
+    first = _build_export(format_key, tmp_path, "first", evidence=evidence)
     time.sleep(_DISTINGUISHABLE_BUILD_GAP_SECONDS)
-    second = _build_export(format_key, tmp_path, "second")
+    second = _build_export(format_key, tmp_path, "second", evidence=evidence)
 
     digests = [hashlib.sha256(p.read_bytes()).hexdigest() for p in (first, second)]
+    if digests[0] != digests[1]:
+        _capture_determinism_evidence(format_key, first, second, digests, evidence)
     assert digests[0] == digests[1], (
         f"two {format_key} exports of unchanged data differ ({digests[0][:12]} vs "
         f"{digests[1][:12]}); every rebuild registers as a new representation, "
