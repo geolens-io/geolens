@@ -12,6 +12,8 @@ module, which is the kind of reach-across that makes a later split harder than
 it needs to be. They have one home now.
 """
 
+import os
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -19,8 +21,87 @@ from typing import Any
 import structlog
 
 from app.platform.dataset_origin import set_dataset_origin
-from app.processing.raster.cog import check_cog_compliance
+from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
 from app.platform.storage.titiler_url import resolve_current_storage_key
+
+
+# fix(#1661): mirrors ogr.py's vector-side #1640 fix. GDAL/rasterio print this
+# exact one-liner when NO driver recognizes the source at all — no driver
+# enumeration (unlike the vector "Unable to open datasource ... with the
+# following drivers." case), but it still echoes the internal staging path
+# (``'/app/staging/<uuid>_...' not recognized...``) verbatim. Anchored to the
+# literal GDAL phrasing so no other rasterio.open failure (permission denied,
+# disk full, unsupported band count, ...) matches.
+_RASTER_NOT_RECOGNIZED_RE = re.compile(
+    r"not recognized as being in a supported file format\."
+)
+
+# Human-readable label per uploaded extension, used only to phrase the
+# friendly "could not open" message below.
+_RASTER_FORMAT_LABELS: dict[str, str] = {
+    ".tif": "GeoTIFF (.tif)",
+    ".tiff": "GeoTIFF (.tiff)",
+    ".vrt": "VRT (.vrt)",
+}
+
+
+def _is_unopenable_raster_stderr(message: str) -> bool:
+    """True when a rasterio error message matches GDAL's "no driver" shape."""
+    return bool(_RASTER_NOT_RECOGNIZED_RE.search(message))
+
+
+def _friendly_raster_open_failure_message(original_filename: "str | None") -> str:
+    """User-facing text for a rasterio "not recognized" open failure.
+
+    Deliberately built from ``original_filename`` alone — never from the
+    staging path or the raw rasterio message — so the message can never leak
+    the `/app/staging/<uuid>_...` path GDAL echoes back on this failure class.
+    """
+    name = os.path.basename(original_filename) if original_filename else None
+    suffix = os.path.splitext(name)[1].lower() if name else ""
+    format_label = _RASTER_FORMAT_LABELS.get(suffix, "raster")
+    if name:
+        return (
+            f"Could not open '{name}' as a raster dataset — the file may be "
+            f"corrupt, incomplete, or not a valid {format_label} file."
+        )
+    return (
+        "Could not open the uploaded file as a raster dataset — it may be "
+        "corrupt, incomplete, or not a valid raster file."
+    )
+
+
+def extract_source_raster_metadata(
+    file_path: str, *, original_filename: "str | None" = None
+) -> dict:
+    """``extract_raster_metadata``, translating an unrecognized-format failure.
+
+    fix(#1661): both raster ingest tails (``ingest_raster``, the replace tail)
+    call this on the freshly-staged SOURCE upload, where ``rasterio.open``
+    raising the "not recognized as being in a supported file format" shape
+    used to land the raw message — including the internal staging path — in
+    ``IngestJob.error_message`` verbatim. The full rasterio message still
+    reaches structured logs at error level here, the one place that sees it;
+    every other rasterio/GDAL failure (corrupt-but-recognized TIFF, permission
+    error, ...) keeps its real message unchanged. Callers reading their own
+    just-produced COG (no upload filename to leak) don't need this wrapper.
+    """
+    import rasterio
+
+    try:
+        return extract_raster_metadata(file_path)
+    except rasterio.errors.RasterioIOError as exc:
+        message = str(exc)
+        if not _is_unopenable_raster_stderr(message):
+            raise
+        structlog.get_logger().error(
+            "rasterio could not open raster source",
+            error=message,
+            original_filename=original_filename,
+        )
+        raise ValueError(
+            _friendly_raster_open_failure_message(original_filename)
+        ) from exc
 
 
 def _is_manifest_vrt_job(job: Any) -> bool:

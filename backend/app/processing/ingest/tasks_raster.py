@@ -39,6 +39,7 @@ from app.processing.ingest.tasks_raster_common import (
     _reject_raw_vrt_job,
     _resolve_managed_raster_storage_keys,
     create_raster_dataset,
+    extract_source_raster_metadata,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -245,7 +246,14 @@ async def ingest_raster(
         # 5. Extract metadata from the SOURCE. Only two things come from this
         # read now (fix(#1290 review)): whether a CRS assignment is needed, and
         # `original_srid`. Everything the catalog stores describes the COG.
-        source_meta = await asyncio.to_thread(extract_raster_metadata, file_path)
+        # fix(#1661): extract_source_raster_metadata (not extract_raster_metadata
+        # directly) so an unopenable upload raises a friendly message built from
+        # `source_filename` instead of leaking the staging path in `file_path`.
+        source_meta = await asyncio.to_thread(
+            extract_source_raster_metadata,
+            file_path,
+            original_filename=source_filename,
+        )
 
         # Read GDAL options from user_metadata (set at commit time)
         assign_crs = um.get("srid_override")
