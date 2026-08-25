@@ -43,7 +43,15 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 const URL_RE = /https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]+/gi;
 const TRAIL_RE = /[.,;:!?)\]\u2026\u3002\u3001]+$/;
 
+// fix(#1662 review): the linkifier runs per visitor render on admin-entered
+// text with no schema length limit. Rather than proving every scan linear on
+// adversarial input, cap the work: a banner longer than this renders as plain
+// text (an announcement banner past 2,000 characters is broken UX regardless),
+// which bounds worst-case cost to a constant.
+const LINKIFY_MAX_LENGTH = 2000;
+
 function renderBannerText(text: string) {
+  if (text.length > LINKIFY_MAX_LENGTH) return [text];
   const parts: Array<string | { url: string; trail: string }> = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {

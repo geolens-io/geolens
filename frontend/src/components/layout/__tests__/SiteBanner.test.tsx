@@ -213,4 +213,11 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', 'https://ok.example/open');
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/next');
   });
+
+  it('S) a banner over the linkify length cap renders as plain text', () => {
+    const long = '<https://a.example/x\u2014'.repeat(200) + ' https://ok.example/tail';
+    renderBanner({ banner_text: long });
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('https://ok.example/tail');
+  });
 });
