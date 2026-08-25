@@ -47,6 +47,12 @@ function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
+    // fix(#1662 review): only linkify at a token boundary — an https:// embedded
+    // inside another token (nothttps://…, or a URL nested in another URL's
+    // path) is not a link of its own.
+    if (m.index! > 0 && !/[\s<>"'()[\]\u201C\u201D\u2018\u2019\u00AB\u00BB]/.test(text[m.index! - 1])) {
+      continue;
+    }
     if (m.index! > last) parts.push(text.slice(last, m.index));
     const matched = m[0];
     const trailMatch = TRAIL_RE.exec(matched);

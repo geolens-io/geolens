@@ -169,4 +169,13 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', 'HTTPS://ok.example/up');
     expect(links[1]).toHaveAttribute('href', 'https://en.wikipedia.org/wiki/Yahoo!');
   });
+
+  it('N) an https:// embedded inside another token does not linkify', () => {
+    renderBanner({
+      banner_text: 'nothttps://ok.example/a and http://proxy.example/https://ok.example/b stay plain, https://ok.example/c links',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/c');
+  });
 });
