@@ -70,10 +70,15 @@ function renderBannerText(text: string) {
     // The regex may stop early inside <…> (excluded characters like dashes are
     // allowed there), so the verbatim span runs to the closing bracket itself.
     if (m.index! > 0 && text[m.index! - 1] === '<') {
-      const close = text.indexOf('>', m.index!);
-      const span = close === -1 ? '' : text.slice(m.index!, close);
-      if (close !== -1 && !/\s/.test(span)) {
-        parts.push({ url: span, trail: '' });
+      // fix(#1662 review): bound the '>' search to the current whitespace-free
+      // token — an unclosed '<' must not scan the whole remaining text, or
+      // repeated unclosed spans would make the render quadratic.
+      const ws = text.slice(m.index!).search(/\s/);
+      const tokenEnd = ws === -1 ? text.length : m.index! + ws;
+      const closeInToken = text.slice(m.index!, tokenEnd).indexOf('>');
+      if (closeInToken !== -1) {
+        const close = m.index! + closeInToken;
+        parts.push({ url: text.slice(m.index!, close), trail: '' });
         last = close;
         continue;
       }

@@ -203,4 +203,14 @@ describe('SiteBanner', () => {
     expect(links[0]).toHaveAttribute('href', 'https://a.example/x\u2014https://b.example/y');
     expect(screen.getByRole('status')).toHaveTextContent('now');
   });
+
+  it('R) an unclosed < falls back to normal linkify without scanning ahead', () => {
+    renderBanner({
+      banner_text: '<https://ok.example/open and later https://ok.example/next',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/open');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/next');
+  });
 });
