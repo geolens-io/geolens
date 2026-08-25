@@ -371,11 +371,13 @@ and releases use semantic versioning.
   vectors anchors on the one search would use (#1546, #1578, #1580, #1583).
 
   Overlay authors: `EXTENSION_API_VERSION` is now 9, bumped twice in this
-  release. `CatalogPort` gained a required
-  `resolve_embedding_config_fingerprint`, `generate_embedding` takes the
-  resolved configuration as a pin, `get_record_embedding` returns the row's
-  model and fingerprint alongside the vector, `get_embedding_distances` takes
-  that pair, and `get_nearest_record_ids` takes the anchor's pair.
+  release. `CatalogPort` gained a required `resolve_embedding_config`,
+  `generate_embedding` takes the resolved configuration as a pin,
+  `get_record_embedding` returns the row's model and fingerprint alongside the
+  vector, `get_embedding_distances` takes that pair as two required keyword-only
+  arguments, and `get_nearest_record_ids` takes the caller's already-read
+  anchor — the vector and that pair together, in one required `anchor` keyword —
+  instead of reading one for itself.
 - **A force embedding regenerate no longer deletes before it can finish.**
   It used to commit `DELETE` of every embedding before generating anything,
   so any abort after that point left the catalog with no vectors. Old rows
