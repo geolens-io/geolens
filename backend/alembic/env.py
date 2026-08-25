@@ -48,61 +48,71 @@ def _discover_migration_paths() -> list[str]:
     ``Can't locate revision 'e002_add_saml_columns'`` (existing enterprise DB)
     or a SAML ``UndefinedColumn`` at login (fresh enterprise DB).
 
-    We distinguish three classes, and the import-error suppression is scoped to
-    ``ep.load()`` ALONE so a provider failure can never be reclassified as
-    "absent" (Codex PR #250 review):
+    fix(#1665): ANY failure of an enumerated entry point raises. "Overlay not
+    installed" is represented by the entry-point group being EMPTY, not by an
+    entry point that fails — ``entry_points()`` only enumerates what an
+    installed distribution declared, so a Community install never enters the
+    loop body at all. (Verified: a stock OSS container reports
+    ``entry_points(group="geolens.migrations") == []``.)
 
-    - ``ModuleNotFoundError`` / ``ImportError`` from ``ep.load()`` means the
-      overlay package is simply not installed. On an OSS-only deployment this is
-      the normal, expected case, so it stays silent (debug-level only).
-    - Any *other* exception from ``ep.load()`` means the overlay IS installed but
-      fails to import (bad editable install, import-time error). Surfaced loudly.
-    - Once ``ep.load()`` succeeds the overlay IS installed, so ANY exception from
-      CALLING its path provider — INCLUDING an ``ImportError`` from a missing
-      submodule inside the provider — is a broken overlay, surfaced loudly. (If
-      this were folded into the load() try, that provider ``ImportError`` would be
-      swallowed as "absent" — the exact silent drop GAP-013 exists to prevent.)
+    That is the correction this function needed. It previously read a
+    ``ModuleNotFoundError`` / ``ImportError`` from ``ep.load()`` as "the overlay
+    package is simply not installed" and continued silently, and read the two
+    broken classes below as merely worth an ``ERROR`` log:
+
+    - a non-import failure of ``ep.load()`` (bad editable install, import-time
+      error in the overlay module);
+    - any exception from CALLING the loaded path provider — including an
+      ``ImportError`` from a missing submodule inside it (Codex PR #250 review).
+
+    All three left that overlay's revisions out of ``version_locations``.
+    Alembic then computed heads over an incomplete graph and ``upgrade heads``
+    exited 0 having skipped a whole chain — including the RLS policies an
+    overlay's migrations own. Deployment pipelines gate on that exit code, so a
+    partial schema was reported as a successful migration. An ERROR log is not
+    enough when the process goes on to claim success.
+
+    The lenient first branch was the subtlest of the three: a missing submodule
+    or dependency inside the overlay's own module surfaces as
+    ``ModuleNotFoundError`` from ``ep.load()``, which is indistinguishable at
+    that point from the module being absent — so a broken overlay was skipped
+    without even an ``ERROR``. Treating the group's emptiness as the signal
+    removes the need to tell those apart.
+
+    The ``GEOLENS_EDITION=enterprise`` guard below does not cover any of this:
+    it fires only when NO paths were discovered at all, so a broken overlay
+    alongside a working one passed straight through it.
     """
     paths = []
     for ep in iter_entry_points(group="geolens.migrations"):
+        # Reaching this body at all means a distribution DECLARED the entry
+        # point, so the overlay IS installed. A Community install has an empty
+        # group and never gets here — which is why every failure below refuses
+        # to migrate rather than being read as "overlay absent".
+        #
         # Step 1 — import the entry point.
         try:
             fn = ep.load()
-        except (ModuleNotFoundError, ImportError) as exc:
-            # Overlay genuinely not installed — normal for OSS deployments.
-            _log.debug(
-                "migration entry point %r not importable (overlay not installed): %s",
-                getattr(ep, "name", ep),
-                exc,
-            )
-            continue
-        except Exception:
-            # Installed but fails to import — surface loudly, never silently drop.
-            _log.error(
-                "Failed to load geolens.migrations entry point %r — its migration "
-                "version directory will be MISSING from version_locations "
-                "(enterprise e-chain may not apply). Configuration error, not OSS.",
-                getattr(ep, "name", ep),
-                exc_info=True,
-            )
-            continue
-        # Step 2 — load() succeeded (overlay IS installed). Any failure calling
-        # its provider — incl. ImportError from a missing submodule inside it — is
-        # a BROKEN overlay, never an absent one.
+        except Exception as exc:
+            raise RuntimeError(
+                f"geolens.migrations entry point {getattr(ep, 'name', ep)!r} is "
+                "installed but failed to import; refusing to migrate with an "
+                "incomplete version_locations set"
+            ) from exc
+        # Step 2 — load() succeeded. Any failure calling its path provider —
+        # incl. an ImportError from a missing submodule inside it — is likewise
+        # a broken overlay.
         try:
             if callable(fn):
                 for p in fn():
                     if pathlib.Path(p).is_dir():
                         paths.append(p)
-        except Exception:
-            _log.error(
-                "geolens.migrations entry point %r loaded but its migration-path "
-                "provider failed — its version directory will be MISSING from "
-                "version_locations (enterprise e-chain may not apply). "
-                "Configuration error, not OSS.",
-                getattr(ep, "name", ep),
-                exc_info=True,
-            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"geolens.migrations entry point {getattr(ep, 'name', ep)!r} is "
+                "installed but its migration-path provider failed; refusing to "
+                "migrate with an incomplete version_locations set"
+            ) from exc
     return paths
 
 
