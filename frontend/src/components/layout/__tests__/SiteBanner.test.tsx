@@ -186,5 +186,11 @@ describe('SiteBanner', () => {
     const links = screen.getAllByRole('link');
     expect(links[0]).toHaveAttribute('href', 'https://ok.example/a');
     expect(links[1]).toHaveAttribute('href', 'https://ok.example/b\u2013c');
+    // a dash is also a valid LEFT boundary: Maintenance\u2014https://… linkifies
+  });
+
+  it('P) a URL immediately after an em dash still linkifies', () => {
+    renderBanner({ banner_text: 'Maintenance\u2014https://ok.example/status tonight' });
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://ok.example/status');
   });
 });

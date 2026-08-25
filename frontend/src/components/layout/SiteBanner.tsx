@@ -50,7 +50,7 @@ function renderBannerText(text: string) {
     // fix(#1662 review): only linkify at a token boundary — an https:// embedded
     // inside another token (nothttps://…, or a URL nested in another URL's
     // path) is not a link of its own.
-    if (m.index! > 0 && !/[\s<>"'()[\]\u201C\u201D\u2018\u2019\u00AB\u00BB]/.test(text[m.index! - 1])) {
+    if (m.index! > 0 && !/[\s<>"'()[\]\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]/.test(text[m.index! - 1])) {
       continue;
     }
     if (m.index! > last) parts.push(text.slice(last, m.index));
