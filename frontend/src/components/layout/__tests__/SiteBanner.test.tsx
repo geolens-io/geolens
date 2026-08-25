@@ -193,4 +193,14 @@ describe('SiteBanner', () => {
     renderBanner({ banner_text: 'Maintenance\u2014https://ok.example/status tonight' });
     expect(screen.getByRole('link')).toHaveAttribute('href', 'https://ok.example/status');
   });
+
+  it('Q) a scheme inside a consumed <…> span does not produce a second link', () => {
+    renderBanner({
+      banner_text: 'See <https://a.example/x\u2014https://b.example/y> now',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', 'https://a.example/x\u2014https://b.example/y');
+    expect(screen.getByRole('status')).toHaveTextContent('now');
+  });
 });

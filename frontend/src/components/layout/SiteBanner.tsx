@@ -47,6 +47,10 @@ function renderBannerText(text: string) {
   const parts: Array<string | { url: string; trail: string }> = [];
   let last = 0;
   for (const m of text.matchAll(URL_RE)) {
+    // fix(#1662 review): a verbatim <…> span advances `last` past characters
+    // matchAll has not seen; a scheme inside the consumed span must not
+    // produce a second, overlapping link.
+    if (m.index! < last) continue;
     // fix(#1662 review): only linkify at a token boundary — an https:// embedded
     // inside another token (nothttps://…, or a URL nested in another URL's
     // path) is not a link of its own.
