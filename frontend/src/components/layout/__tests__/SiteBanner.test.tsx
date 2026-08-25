@@ -178,4 +178,13 @@ describe('SiteBanner', () => {
     expect(links).toHaveLength(1);
     expect(links[0]).toHaveAttribute('href', 'https://ok.example/c');
   });
+
+  it('O) an em or en dash ends the URL; <URL> keeps one verbatim', () => {
+    renderBanner({
+      banner_text: 'See https://ok.example/a\u2014tonight and <https://ok.example/b\u2013c>',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/a');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/b\u2013c');
+  });
 });

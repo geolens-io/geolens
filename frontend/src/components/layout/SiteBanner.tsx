@@ -40,7 +40,7 @@ const DISMISS_KEY = 'gl-site-banner-dismissed';
 // split — the earlier lazy-body + punctuation-group pair let the engine retry
 // every split point on adversarial runs (quadratic). The trail is peeled in
 // plain code below instead, which is linear by construction.
-const URL_RE = /https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB]+/gi;
+const URL_RE = /https:\/\/[^\s<>"\u201C\u201D\u2018\u2019\u00AB\u00BB\u2013\u2014]+/gi;
 const TRAIL_RE = /[.,;:!?)\]\u2026\u3002\u3001]+$/;
 
 function renderBannerText(text: string) {
@@ -63,12 +63,16 @@ function renderBannerText(text: string) {
     // /wiki/Yahoo! stays in the href, and no wrapper/balance heuristics run.
     // This is also the documented escape hatch: an admin who needs an exact
     // URL that the heuristics would trim can always write <URL>.
-    const angleDelimited =
-      m.index! > 0 && text[m.index! - 1] === '<' && text[m.index! + m[0].length] === '>';
-    if (angleDelimited) {
-      parts.push({ url: matched, trail: '' });
-      last = m.index! + m[0].length;
-      continue;
+    // The regex may stop early inside <…> (excluded characters like dashes are
+    // allowed there), so the verbatim span runs to the closing bracket itself.
+    if (m.index! > 0 && text[m.index! - 1] === '<') {
+      const close = text.indexOf('>', m.index!);
+      const span = close === -1 ? '' : text.slice(m.index!, close);
+      if (close !== -1 && !/\s/.test(span)) {
+        parts.push({ url: span, trail: '' });
+        last = close;
+        continue;
+      }
     }
     // fix(#1662 review): 'https://…' wrapped in single quotes — the opening
     // quote sits just before the match, so a trailing apostrophe is the
