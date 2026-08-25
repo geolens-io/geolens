@@ -72,6 +72,7 @@ from app.processing.ingest.tasks_raster_common import (
     _cleanup_orphaned_storage_keys,
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
+    extract_source_raster_metadata,
 )
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
@@ -395,7 +396,14 @@ async def reupload_raster(
         # conversion needs a CRS assignment. Nothing here is persisted —
         # fix(#1290 review) moved every stored field onto the converted COG's
         # own metadata, which is the file the dataset will actually serve.
-        source_meta = await asyncio.to_thread(extract_raster_metadata, file_path)
+        # fix(#1661): extract_source_raster_metadata (not extract_raster_metadata
+        # directly) so an unopenable upload raises a friendly message built from
+        # `source_filename` instead of leaking the staging path in `file_path`.
+        source_meta = await asyncio.to_thread(
+            extract_source_raster_metadata,
+            file_path,
+            original_filename=source_filename,
+        )
 
         user_compression = um.get("compression") or "DEFLATE"
         user_resampling = um.get("resampling") or None
