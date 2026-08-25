@@ -6,7 +6,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases use semantic versioning.
 
 ## [Unreleased]
-
 ### Added
 
 - **A failed upload now leaves a trace, and a way to report it.** UploadForm
@@ -34,6 +33,11 @@ and releases use semantic versioning.
   traffic browses anonymously, so a visitor who hit a broken map had no way to
   say so. The gate is removed; the button still appears only after an error is
   captured.
+- **`https://` links in the site banner are clickable.** The admin-configured
+  announcement banner rendered its text as plain escaped text, so a URL in it
+  could only be retyped. Matched `https://` URLs now render as anchors
+  (new tab, `rel="noopener noreferrer"`); everything else stays escaped text,
+  so banner content still cannot inject markup.
 
 ### Fixed
 

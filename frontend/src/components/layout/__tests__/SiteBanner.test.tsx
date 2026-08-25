@@ -88,4 +88,136 @@ describe('SiteBanner', () => {
     renderBanner({ banner_text: 'New announcement' });
     expect(screen.getByRole('status')).toBeInTheDocument();
   });
+
+  it('F) https:// URLs in banner text render as anchors; the rest stays text', () => {
+    renderBanner({
+      banner_text: 'Release notes at https://buttondown.com/geolens. Enjoy!',
+    });
+    const link = screen.getByRole('link', { name: 'https://buttondown.com/geolens' });
+    expect(link).toHaveAttribute('href', 'https://buttondown.com/geolens');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toHaveAttribute('target', '_blank');
+    // trailing period stays outside the anchor; surrounding prose is plain text
+    expect(link.textContent).toBe('https://buttondown.com/geolens');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Release notes at https://buttondown.com/geolens. Enjoy!',
+    );
+  });
+
+  it('G) markup in banner text is escaped, not rendered; http:// is not linkified', () => {
+    renderBanner({
+      banner_text: '<b>bold?</b> see http://plain.example and https://ok.example/x',
+    });
+    // the literal tag text is visible (escaped), no <b> element materializes
+    expect(screen.getByRole('status')).toHaveTextContent('<b>bold?</b>');
+    expect(screen.getAllByRole('link')).toHaveLength(1);
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://ok.example/x');
+  });
+
+  it('H) a URL with balanced parens keeps its closing paren; excess stays punctuation', () => {
+    renderBanner({
+      banner_text: 'See https://en.wikipedia.org/wiki/Function_(mathematics). Also (https://ok.example/y).',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://en.wikipedia.org/wiki/Function_(mathematics)');
+    // parenthesized plain URL: the closing paren has no unmatched opener inside the URL
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/y');
+  });
+
+  it('I) URLs wrapped in quotes or angle brackets still linkify', () => {
+    renderBanner({
+      banner_text: 'Read "https://ok.example/docs" or <https://ok.example/alt>',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/docs');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/alt');
+  });
+
+  it('J) a bracket-wrapped URL sheds the wrapper; balanced brackets in the path survive', () => {
+    renderBanner({
+      banner_text: 'Docs: [https://ok.example/plain] and https://ok.example/item[3]',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/plain');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/item[3]');
+  });
+
+  it('K) typographic punctuation stays out of the href', () => {
+    renderBanner({
+      banner_text: 'Read \u201Chttps://ok.example/docs\u201D or https://ok.example/more\u2026',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/docs');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/more');
+  });
+
+  it("L) apostrophes inside a URL survive; a single-quote wrapper is shed", () => {
+    renderBanner({
+      banner_text: "See https://ok.example/O'Reilly and 'https://ok.example/wrapped'",
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', "https://ok.example/O'Reilly");
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/wrapped');
+  });
+
+  it('M) uppercase scheme matches; angle-delimited URLs are taken verbatim', () => {
+    renderBanner({
+      banner_text: 'Go to HTTPS://ok.example/up or <https://en.wikipedia.org/wiki/Yahoo!>',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'HTTPS://ok.example/up');
+    expect(links[1]).toHaveAttribute('href', 'https://en.wikipedia.org/wiki/Yahoo!');
+  });
+
+  it('N) an https:// embedded inside another token does not linkify', () => {
+    renderBanner({
+      banner_text: 'nothttps://ok.example/a and http://proxy.example/https://ok.example/b stay plain, https://ok.example/c links',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/c');
+  });
+
+  it('O) an em or en dash ends the URL; <URL> keeps one verbatim', () => {
+    renderBanner({
+      banner_text: 'See https://ok.example/a\u2014tonight and <https://ok.example/b\u2013c>',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/a');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/b\u2013c');
+    // a dash is also a valid LEFT boundary: Maintenance\u2014https://… linkifies
+  });
+
+  it('P) a URL immediately after an em dash still linkifies', () => {
+    renderBanner({ banner_text: 'Maintenance\u2014https://ok.example/status tonight' });
+    expect(screen.getByRole('link')).toHaveAttribute('href', 'https://ok.example/status');
+  });
+
+  it('Q) a scheme inside a consumed <…> span does not produce a second link', () => {
+    renderBanner({
+      banner_text: 'See <https://a.example/x\u2014https://b.example/y> now',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute('href', 'https://a.example/x\u2014https://b.example/y');
+    expect(screen.getByRole('status')).toHaveTextContent('now');
+  });
+
+  it('R) an unclosed < falls back to normal linkify without scanning ahead', () => {
+    renderBanner({
+      banner_text: '<https://ok.example/open and later https://ok.example/next',
+    });
+    const links = screen.getAllByRole('link');
+    expect(links).toHaveLength(2);
+    expect(links[0]).toHaveAttribute('href', 'https://ok.example/open');
+    expect(links[1]).toHaveAttribute('href', 'https://ok.example/next');
+  });
+
+  it('S) a banner over the linkify length cap renders as plain text', () => {
+    const long = '<https://a.example/x\u2014'.repeat(200) + ' https://ok.example/tail';
+    renderBanner({ banner_text: long });
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.getByRole('status')).toHaveTextContent('https://ok.example/tail');
+  });
 });
