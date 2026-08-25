@@ -54,14 +54,27 @@ def _discover_migration_paths() -> list[str]:
 
     - ``ModuleNotFoundError`` / ``ImportError`` from ``ep.load()`` means the
       overlay package is simply not installed. On an OSS-only deployment this is
-      the normal, expected case, so it stays silent (debug-level only).
+      the normal, expected case, so it stays silent (debug-level only) and is
+      the ONLY class that continues.
     - Any *other* exception from ``ep.load()`` means the overlay IS installed but
-      fails to import (bad editable install, import-time error). Surfaced loudly.
+      fails to import (bad editable install, import-time error).
     - Once ``ep.load()`` succeeds the overlay IS installed, so ANY exception from
       CALLING its path provider — INCLUDING an ``ImportError`` from a missing
-      submodule inside the provider — is a broken overlay, surfaced loudly. (If
-      this were folded into the load() try, that provider ``ImportError`` would be
-      swallowed as "absent" — the exact silent drop GAP-013 exists to prevent.)
+      submodule inside the provider — is a broken overlay. (If this were folded
+      into the load() try, that provider ``ImportError`` would be swallowed as
+      "absent" — the exact silent drop GAP-013 exists to prevent.)
+
+    fix(#1665): both installed-but-broken classes RAISE. They used to log at
+    ``ERROR`` and continue, which left that overlay's revisions out of
+    ``version_locations``; Alembic then computed heads over an incomplete graph
+    and ``upgrade heads`` exited 0 having skipped a whole chain — including the
+    RLS policies an overlay's migrations own. Deployment pipelines gate on that
+    exit code, so a partial schema was reported as a successful migration. An
+    ERROR log is not enough when the process goes on to claim success.
+
+    The ``GEOLENS_EDITION=enterprise`` guard below does not cover this: it fires
+    only when NO paths were discovered at all, so a broken overlay alongside a
+    working one still passed.
     """
     paths = []
     for ep in iter_entry_points(group="geolens.migrations"):
@@ -76,16 +89,15 @@ def _discover_migration_paths() -> list[str]:
                 exc,
             )
             continue
-        except Exception:
-            # Installed but fails to import — surface loudly, never silently drop.
-            _log.error(
-                "Failed to load geolens.migrations entry point %r — its migration "
-                "version directory will be MISSING from version_locations "
-                "(enterprise e-chain may not apply). Configuration error, not OSS.",
-                getattr(ep, "name", ep),
-                exc_info=True,
-            )
-            continue
+        except Exception as exc:
+            # Installed but fails to import — refuse to migrate, never silently
+            # drop. Continuing here computed heads over an incomplete graph and
+            # let `upgrade heads` exit 0 having skipped a whole chain (#1665).
+            raise RuntimeError(
+                f"geolens.migrations entry point {getattr(ep, 'name', ep)!r} is "
+                "installed but failed to import; refusing to migrate with an "
+                "incomplete version_locations set"
+            ) from exc
         # Step 2 — load() succeeded (overlay IS installed). Any failure calling
         # its provider — incl. ImportError from a missing submodule inside it — is
         # a BROKEN overlay, never an absent one.
@@ -94,15 +106,12 @@ def _discover_migration_paths() -> list[str]:
                 for p in fn():
                     if pathlib.Path(p).is_dir():
                         paths.append(p)
-        except Exception:
-            _log.error(
-                "geolens.migrations entry point %r loaded but its migration-path "
-                "provider failed — its version directory will be MISSING from "
-                "version_locations (enterprise e-chain may not apply). "
-                "Configuration error, not OSS.",
-                getattr(ep, "name", ep),
-                exc_info=True,
-            )
+        except Exception as exc:
+            raise RuntimeError(
+                f"geolens.migrations entry point {getattr(ep, 'name', ep)!r} is "
+                "installed but its migration-path provider failed; refusing to "
+                "migrate with an incomplete version_locations set"
+            ) from exc
     return paths
 
 
