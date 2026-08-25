@@ -13,7 +13,6 @@ it needs to be. They have one home now.
 """
 
 import os
-import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -25,17 +24,6 @@ from app.processing.raster.cog import check_cog_compliance, extract_raster_metad
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 
-# fix(#1661): mirrors ogr.py's vector-side #1640 fix. GDAL/rasterio print this
-# exact one-liner when NO driver recognizes the source at all — no driver
-# enumeration (unlike the vector "Unable to open datasource ... with the
-# following drivers." case), but it still echoes the internal staging path
-# (``'/app/staging/<uuid>_...' not recognized...``) verbatim. Anchored to the
-# literal GDAL phrasing so no other rasterio.open failure (permission denied,
-# disk full, unsupported band count, ...) matches.
-_RASTER_NOT_RECOGNIZED_RE = re.compile(
-    r"not recognized as being in a supported file format\."
-)
-
 # Human-readable label per uploaded extension, used only to phrase the
 # friendly "could not open" message below.
 _RASTER_FORMAT_LABELS: dict[str, str] = {
@@ -45,17 +33,15 @@ _RASTER_FORMAT_LABELS: dict[str, str] = {
 }
 
 
-def _is_unopenable_raster_stderr(message: str) -> bool:
-    """True when a rasterio error message matches GDAL's "no driver" shape."""
-    return bool(_RASTER_NOT_RECOGNIZED_RE.search(message))
-
-
 def _friendly_raster_open_failure_message(original_filename: "str | None") -> str:
-    """User-facing text for a rasterio "not recognized" open failure.
+    """User-facing text for a raster source ``rasterio.open`` open-time failure.
 
     Deliberately built from ``original_filename`` alone — never from the
     staging path or the raw rasterio message — so the message can never leak
-    the `/app/staging/<uuid>_...` path GDAL echoes back on this failure class.
+    the `/app/staging/<uuid>_...` path rasterio/GDAL echo back on any
+    open-time failure (unrecognized format, corrupt/truncated IFD, missing
+    file, permission error — all read, from the person who uploaded the
+    file, as the same thing: "GeoLens could not open this as a raster").
     """
     name = os.path.basename(original_filename) if original_filename else None
     suffix = os.path.splitext(name)[1].lower() if name else ""
@@ -74,17 +60,27 @@ def _friendly_raster_open_failure_message(original_filename: "str | None") -> st
 def extract_source_raster_metadata(
     file_path: str, *, original_filename: "str | None" = None
 ) -> dict:
-    """``extract_raster_metadata``, translating an unrecognized-format failure.
+    """``extract_raster_metadata``, translating an open-time rasterio failure.
 
     fix(#1661): both raster ingest tails (``ingest_raster``, the replace tail)
-    call this on the freshly-staged SOURCE upload, where ``rasterio.open``
-    raising the "not recognized as being in a supported file format" shape
-    used to land the raw message — including the internal staging path — in
-    ``IngestJob.error_message`` verbatim. The full rasterio message still
-    reaches structured logs at error level here, the one place that sees it;
-    every other rasterio/GDAL failure (corrupt-but-recognized TIFF, permission
-    error, ...) keeps its real message unchanged. Callers reading their own
-    just-produced COG (no upload filename to leak) don't need this wrapper.
+    call this on the freshly-staged SOURCE upload. ``extract_raster_metadata``
+    opens that file with a single ``rasterio.open`` call and reads everything
+    else off the resulting dataset, so ANY ``RasterioIOError`` it raises is by
+    definition "rasterio could not open this file" — the class GDAL raises
+    for an unrecognized format, a corrupt/truncated IFD, a missing file, or a
+    permission error alike (codex review on #1661 round 1: a narrower pattern
+    match on just the "not recognized as being in a supported file format"
+    text missed the corrupt-IFD shape, which ALSO quotes the staging path and
+    is equally production-reachable — a .tif with a valid magic header but a
+    corrupt IFD passes upload-time content-sniffing same as any other .tif).
+    That used to land the raw rasterio message — including the internal
+    staging path — in ``IngestJob.error_message`` verbatim. The full rasterio
+    message still reaches structured logs at error level here, the one place
+    that sees it; a failure raised by anything OTHER than the open call
+    itself (e.g. malformed EXIF/tag parsing further down in
+    ``extract_raster_metadata``) is not a ``RasterioIOError`` and keeps its
+    real message unchanged. Callers reading their own just-produced COG (no
+    upload filename to leak) don't need this wrapper.
     """
     import rasterio
 
@@ -92,8 +88,6 @@ def extract_source_raster_metadata(
         return extract_raster_metadata(file_path)
     except rasterio.errors.RasterioIOError as exc:
         message = str(exc)
-        if not _is_unopenable_raster_stderr(message):
-            raise
         structlog.get_logger().error(
             "rasterio could not open raster source",
             error=message,

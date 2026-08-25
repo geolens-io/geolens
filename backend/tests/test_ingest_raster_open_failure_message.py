@@ -2,19 +2,22 @@
 
 Deferred from #1640 (which fixed the VECTOR side): for a corrupt/unopenable
 uploaded raster, ``rasterio.open`` (via ``extract_raster_metadata``) raises
-``RasterioIOError`` with GDAL's one-liner ``'<path>' not recognized as being
-in a supported file format.`` — no driver enumeration (far less noisy than
-the vector case), but it still echoes the internal ``/app/staging/<uuid>_...``
-path instead of the original upload filename, and that raw message used to
-land verbatim in ``IngestJob.error_message``.
+``RasterioIOError``, and its message — whatever shape it takes — used to land
+verbatim in ``IngestJob.error_message``, echoing the internal
+``/app/staging/<uuid>_...`` path instead of the original upload filename.
 
-Mirrors ``test_ingest_ogr_pure.py`` (pure pattern/message-builder unit tests)
-and ``test_ingest_open_failure_message.py`` (real-binaries end-to-end
-coverage) for the vector fix. The raster class has only ONE known stderr
-shape (empirically confirmed: plain unrecognized bytes, GDAL never gets far
-enough to enumerate drivers for a genuinely-unrecognized raster the way it
-does for a claimed-but-corrupt vector source), so there is only one pattern
-here rather than three.
+Mirrors ``test_ingest_ogr_pure.py`` (pure message-builder unit tests) and
+``test_ingest_open_failure_message.py`` (real-binaries end-to-end coverage)
+for the vector fix. Unlike the vector side, the raster boundary is NOT a
+pattern match on specific stderr text: ``extract_raster_metadata`` opens the
+source with exactly one ``rasterio.open`` call and reads everything else off
+the resulting dataset, so ANY ``RasterioIOError`` it raises is by definition
+an open-time "could not read this file" failure (codex review on #1661
+round 1: an earlier version of this fix pattern-matched only the "not
+recognized as being in a supported file format" text and missed a real,
+production-reachable shape — a .tif with a valid TIFF magic header but a
+corrupt/truncated IFD, which passes upload-time content-sniffing the same as
+any other .tif and ALSO quotes the staging path in its rasterio message).
 """
 
 import os
@@ -24,38 +27,8 @@ import structlog
 
 from app.processing.ingest.tasks_raster_common import (
     _friendly_raster_open_failure_message,
-    _is_unopenable_raster_stderr,
     extract_source_raster_metadata,
 )
-
-
-class TestIsUnopenableRasterStderr:
-    def test_matches_not_recognized_message(self):
-        """Empirically reproduced (GDAL/rasterio on this host): plain
-        unrecognized bytes given a .tif name produce exactly this
-        RasterioIOError text, quoting the path GDAL was asked to open."""
-        stderr = "'/app/staging/9f2c1a3e-uuid_survey.tif' not recognized as being in a supported file format."
-        assert _is_unopenable_raster_stderr(stderr) is True
-
-    def test_matches_message_without_quoted_path(self):
-        """The pattern anchors on the trailing phrase only, not the quoting —
-        some rasterio/GDAL builds omit the leading quoted path entirely."""
-        stderr = "not recognized as being in a supported file format."
-        assert _is_unopenable_raster_stderr(stderr) is True
-
-    def test_does_not_match_unrelated_rasterio_failure(self):
-        """Narrow anchoring: a real, different rasterio/GDAL failure (a TIFF
-        whose magic header is intact but whose IFD is corrupt) must NOT be
-        caught by this pattern — that message keeps its real stderr."""
-        stderr = "survey.tif: TIFFReadDirectory:Failed to read directory at offset 1907891221"
-        assert _is_unopenable_raster_stderr(stderr) is False
-
-    def test_does_not_match_permission_denied(self):
-        stderr = "Permission denied"
-        assert _is_unopenable_raster_stderr(stderr) is False
-
-    def test_empty_string_does_not_match(self):
-        assert _is_unopenable_raster_stderr("") is False
 
 
 class TestFriendlyRasterOpenFailureMessage:
@@ -105,27 +78,54 @@ class TestFriendlyRasterOpenFailureMessage:
 class TestExtractSourceRasterMetadataFriendlyOpenFailure:
     """Real-binaries coverage against the actual rasterio/GDAL install.
 
-    Plain garbage bytes with a ``.tif`` name reproduce GDAL's "no driver
-    recognizes this at all" shape (confirmed live on this host: a valid TIFF
-    magic prefix instead makes the GTiff driver claim the source and fail
-    with a DIFFERENT, more specific error — "TIFFReadDirectory:Failed to
-    read directory..." — which is exactly the unrelated-failure case
-    ``test_does_not_match_unrelated_rasterio_failure`` above pins). The
-    upload-time content-sniffer (``validate_file_content``) would reject
-    magic-less bytes before they ever reach this function in production —
-    same as the vector fix's "no driver at all" fixture — but that gate is a
-    separate, already-tested layer; this test exercises
-    ``extract_source_raster_metadata`` directly, the one place that
-    translates whatever rasterio raises.
+    Two DIFFERENT corrupt-file shapes both reach ``rasterio.open`` and both
+    raise ``RasterioIOError`` — confirmed live on this host (rasterio 1.5.1):
+    plain garbage bytes with a ``.tif`` name ("no driver recognizes this at
+    all") and a valid TIFF magic header followed by garbage ("the GTiff
+    driver claims the source by magic, then fails reading the IFD" —
+    ``TIFFReadDirectory:Failed to read directory...``). Both get the friendly
+    message, because both are open-time failures at this call site; a
+    narrower fix that pattern-matched only the first shape's exact text
+    missed the second, which is equally production-reachable (a corrupt-IFD
+    .tif passes upload-time content-sniffing the same as any other .tif) and
+    equally leaks the staging path.
     """
 
     def _write_unrecognized_raster(self, tmp_path) -> str:
+        """Plain garbage bytes with a .tif name — no driver recognizes this
+        at all."""
         path = tmp_path / "9f2c1a3e-uuid_survey.tif"
         path.write_bytes(os.urandom(500))
         return str(path)
 
+    def _write_corrupt_ifd_raster(self, tmp_path) -> str:
+        """Valid little-endian TIFF magic ("II*\\x00") followed by garbage —
+        the GTiff driver claims the source by magic, then fails reading the
+        IFD. A DIFFERENT rasterio failure shape from the "no driver" case
+        above, and the one the round-1 fix's narrower pattern match missed."""
+        path = tmp_path / "9f2c1a3e-uuid_survey.tif"
+        path.write_bytes(b"II*\x00" + os.urandom(500))
+        return str(path)
+
     def test_unrecognized_source_raises_friendly_message(self, tmp_path):
         source = self._write_unrecognized_raster(tmp_path)
+        with pytest.raises(ValueError) as exc_info:
+            extract_source_raster_metadata(source, original_filename="survey.tif")
+        message = str(exc_info.value)
+        assert message == (
+            "Could not open 'survey.tif' as a raster dataset — the file may "
+            "be corrupt, incomplete, or not a valid GeoTIFF (.tif) file."
+        )
+        assert str(tmp_path) not in message
+        assert source not in message
+
+    def test_corrupt_ifd_source_raises_friendly_message(self, tmp_path):
+        """codex review, #1661 round 1: a valid TIFF magic header with a
+        corrupt IFD is a distinct RasterioIOError shape from the "no driver"
+        case, but it is STILL an open-time failure at this call site — and
+        its rasterio message ALSO quotes the staging path — so it gets the
+        same friendly translation, not the raw message."""
+        source = self._write_corrupt_ifd_raster(tmp_path)
         with pytest.raises(ValueError) as exc_info:
             extract_source_raster_metadata(source, original_filename="survey.tif")
         message = str(exc_info.value)
@@ -153,6 +153,22 @@ class TestExtractSourceRasterMetadataFriendlyOpenFailure:
         assert source in logged["error"]
         assert logged["original_filename"] == "survey.tif"
 
+    def test_corrupt_ifd_message_also_reaches_structured_logs(self, tmp_path):
+        source = self._write_corrupt_ifd_raster(tmp_path)
+        with structlog.testing.capture_logs() as captured:
+            with pytest.raises(ValueError):
+                extract_source_raster_metadata(source, original_filename="survey.tif")
+
+        error_events = [e for e in captured if e.get("log_level") == "error"]
+        assert error_events, [e for e in captured]
+        logged = error_events[0]
+        assert "TIFFReadDirectory" in logged["error"]
+        # This shape's rasterio message quotes only the basename, not the
+        # full staging path (unlike the "not recognized" shape above) — the
+        # point stands either way: the full diagnostic reaches the log.
+        assert os.path.basename(source) in logged["error"]
+        assert logged["original_filename"] == "survey.tif"
+
     def test_no_original_filename_uses_generic_message(self, tmp_path):
         source = self._write_unrecognized_raster(tmp_path)
         with pytest.raises(ValueError) as exc_info:
@@ -164,22 +180,28 @@ class TestExtractSourceRasterMetadataFriendlyOpenFailure:
         )
         assert source not in message
 
-    def test_unrelated_rasterio_failure_keeps_real_message(self, tmp_path):
-        """A TIFF with a valid magic header but a corrupt IFD is a
-        DIFFERENT rasterio failure shape from the "not recognized" class —
-        it must propagate the real rasterio message unchanged, not the
-        friendly one, so a genuinely different problem doesn't get
-        misdiagnosed as "wrong format"."""
-        path = tmp_path / "9f2c1a3e-uuid_survey.tif"
-        # Valid little-endian TIFF magic ("II*\x00") followed by garbage —
-        # the GTiff driver claims the source by magic, then fails reading
-        # the IFD, which is a distinct rasterio error from the
-        # "not recognized" class this fix targets.
-        path.write_bytes(b"II*\x00" + os.urandom(500))
-        source = str(path)
+    def test_post_open_failure_keeps_real_message(self, tmp_path, monkeypatch):
+        """The boundary is "the open call itself", not "anything
+        ``extract_raster_metadata`` can raise". A failure from something
+        OTHER than ``rasterio.open`` — e.g. a non-``RasterioIOError`` raised
+        while parsing metadata off an already-opened dataset — must keep its
+        real message, not get relabeled as an open failure. Simulated via
+        monkeypatch (a real post-open, non-open-time rasterio failure isn't
+        cheaply reproducible with fixture bytes) so this pins the boundary
+        decision itself rather than any one rasterio internal."""
+        source = self._write_unrecognized_raster(tmp_path)
 
-        with pytest.raises(Exception) as exc_info:
+        def _raise_unrelated(_file_path):
+            raise ValueError("malformed TIFFTAG_DATETIME tag: not a date")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_common.extract_raster_metadata",
+            _raise_unrelated,
+        )
+
+        with pytest.raises(ValueError) as exc_info:
             extract_source_raster_metadata(source, original_filename="survey.tif")
         message = str(exc_info.value)
+        assert message == "malformed TIFFTAG_DATETIME tag: not a date"
         assert "Could not open" not in message
         assert "raster dataset" not in message
