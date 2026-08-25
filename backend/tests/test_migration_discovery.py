@@ -123,33 +123,46 @@ def test_real_discover_broken_overlay_beside_a_working_one_raises(tmp_path):
         )
 
 
-def test_real_discover_absent_overlay_is_silent(caplog):
-    """OSS deployment: a missing overlay (ImportError) logs nothing at error.
+def test_real_discover_oss_install_is_silent(caplog):
+    """OSS deployment: an empty entry-point group logs nothing at error.
 
-    iter_entry_points returns the not-installed overlay whose load() raises
-    ModuleNotFoundError. This is the normal OSS path — it must NOT log an
-    error (only debug) and must return an empty path list.
+    This is what "overlay not installed" actually looks like.
+    ``entry_points()`` only enumerates what an installed distribution declared,
+    so a Community install yields an empty group and the loop body never runs.
+    Verified against a stock OSS container, which reports
+    ``entry_points(group="geolens.migrations") == []``.
     """
-    real_fn = _load_real_discover_fn()
-
-    absent_ep = MagicMock()
-    absent_ep.name = "enterprise"
-    absent_ep.load.side_effect = ModuleNotFoundError(
-        "No module named 'geolens_enterprise'"
-    )
-
-    # The compiled function closes over the `iter_entry_points` name in its
-    # exec namespace; patch that name directly.
-    real_fn.__globals__["iter_entry_points"] = lambda **kw: [absent_ep]
     with caplog.at_level(logging.ERROR, logger="alembic.env"):
-        result = real_fn()
+        assert _discover_with() == []
 
-    assert result == []
-    error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
-    assert not error_records, (
-        "An absent overlay (ModuleNotFoundError) must NOT log an error — "
-        "that is the normal OSS deployment path."
+    assert not [r for r in caplog.records if r.levelno >= logging.ERROR], (
+        "The normal OSS deployment path must not log an error."
     )
+
+
+def test_real_discover_entry_point_that_cannot_import_raises():
+    """An enumerated entry point whose module is missing is BROKEN, not absent.
+
+    fix(#1665, codex P1): this used to be read as "the overlay package is simply
+    not installed" and skipped silently. But the entry point's presence already
+    proves a distribution declared it, so the module failing to import means the
+    install is broken — and a ModuleNotFoundError raised from INSIDE the
+    overlay's own module (a missing submodule or dependency) is indistinguishable
+    from an absent one at this point. Skipping either produced the same
+    incomplete revision graph under a zero exit code.
+    """
+    with pytest.raises(RuntimeError) as excinfo:
+        _discover_with(
+            _ep(
+                "enterprise",
+                load_raises=ModuleNotFoundError(
+                    "No module named 'geolens_enterprise.migrations._missing'"
+                ),
+            )
+        )
+
+    assert "enterprise" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, ModuleNotFoundError)
 
 
 def test_real_discover_broken_overlay_raises():
