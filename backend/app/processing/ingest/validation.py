@@ -9,6 +9,7 @@ Validates uploaded files beyond extension checks:
 - VRT XML sniff + path-traversal guard on `<SourceFilename>` body (IA-P1-03)
 """
 
+import codecs
 import re
 import struct
 import zipfile
@@ -61,6 +62,26 @@ _PARQUET_MAGIC = b"PAR1"
 # reject a file written by a newer FlatGeobuf that GDAL still reads fine.
 _FGB_MAGIC_WORD = b"fgb"
 _FGB_MAGIC_SIZE = 8
+
+# XML byte-order marks, widest first: BOM_UTF32_LE begins with BOM_UTF16_LE,
+# so checking UTF-16 first would read a UTF-32 document as UTF-16.
+_XML_BOMS: tuple[tuple[bytes, str], ...] = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF8, "utf-8"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
+
+# XML 1.0 Appendix F: with no BOM, a UTF-16/32 document is recognised from how
+# the opening `<` is padded. Same assumption the spec makes — that the document
+# begins with the `<`, not with whitespace.
+_UNMARKED_WIDE_XML_PREFIXES = (
+    b"\x00\x00\x00<",
+    b"<\x00\x00\x00",
+    b"\x00<",
+    b"<\x00",
+)
 
 # ZIP bomb thresholds
 MAX_COMPRESSION_RATIO = 500
@@ -396,14 +417,25 @@ def validate_flatgeobuf_file(file_path: str) -> None:
 def _is_xml_like(header: bytes) -> bool:
     """True when the header opens an XML/KML document.
 
-    Text-based check rather than a magic signature: KML written without an
+    A structural check rather than a magic signature: KML written without an
     ``<?xml`` prologue is valid and common, and puremagic detects nothing for
-    it. Leading whitespace and a UTF-8 BOM are both legal before the root tag.
+    it.
+
+    Encoding-aware because LIBKML reads UTF-16 KML (verified against the
+    worker's GDAL), and a UTF-16 document's interleaved NUL bytes make the
+    plain "no NULs" text check call it binary. The BOM decides the encoding
+    when there is one; XML 1.0 Appendix F's byte patterns decide when there
+    is not.
     """
+    for bom, encoding in _XML_BOMS:
+        if header.startswith(bom):
+            decoded = header[len(bom) :].decode(encoding, "ignore")
+            return decoded.lstrip().startswith("<")
+    if header.startswith(_UNMARKED_WIDE_XML_PREFIXES):
+        return True
     if not _is_text_content(header):
         return False
-    body = header[3:] if header.startswith(b"\xef\xbb\xbf") else header
-    return body.lstrip().startswith(b"<")
+    return header.lstrip().startswith(b"<")
 
 
 def validate_file_content(file_path: str, filename: str) -> None:

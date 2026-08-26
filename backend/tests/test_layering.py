@@ -2769,7 +2769,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # advertised page size returned SOME rows per page while the offset
     # skipped records, so positive growth alone could swap a truncated
     # copy. Cap 2211 -> 2308, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2308,
+    # fix(#1682 codex r1): +3 — the DBF field-name-truncation warning in the
+    # shared reupload helper is keyed on the derived source_format instead of
+    # the .zip suffix, plus the import and the comment saying why (a File
+    # Geodatabase arrives in a .zip and has no DBF). Cap 2308 -> 2311, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2311,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2822,7 +2826,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # origin-contact stamp when the probe's request begins — the probe is
     # the first outbound contact and can die before any subprocess spawns.
     # Cap 1156 -> 1245, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1245,
+    # feat(tier-1 vector import) + fix(#1682 codex r1): +2 — the source_format
+    # derivation moved to the shared ingest/source_format.py (one import line),
+    # and the DBF-truncation guard gained the comment recording that it is
+    # keyed on the derived format, not the .zip suffix. Cap 1245 -> 1247, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1247,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is

@@ -361,7 +361,9 @@ async def reupload_file(
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
-            if file_path.lower().endswith(".zip"):
+            #     Keyed on the derived format, not the .zip suffix — a File
+            #     Geodatabase arrives in a .zip too and has no DBF to truncate.
+            if source_format == "shapefile":
                 from app.processing.ingest.metadata import (
                     detect_dbf_truncation_collisions,
                 )

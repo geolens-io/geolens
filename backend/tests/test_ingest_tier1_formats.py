@@ -17,6 +17,8 @@ without GDAL, exactly like ``test_ingest_column_preservation.py``. Everything
 above it runs anywhere.
 """
 
+import ast
+import codecs
 import shutil
 import uuid
 import zipfile
@@ -141,6 +143,44 @@ class TestContentValidation:
         f = tmp_path / "bom.kml"
         f.write_bytes(b"\xef\xbb\xbf" + b'<kml xmlns="x"></kml>')
         validate_file_content(str(f), "bom.kml")
+
+    @pytest.mark.parametrize(
+        "bom,encoding",
+        [
+            (codecs.BOM_UTF16_LE, "utf-16-le"),
+            (codecs.BOM_UTF16_BE, "utf-16-be"),
+            (codecs.BOM_UTF32_LE, "utf-32-le"),
+            (codecs.BOM_UTF32_BE, "utf-32-be"),
+        ],
+    )
+    def test_wide_encoded_kml_with_bom_passes(
+        self, tmp_path: Path, bom: bytes, encoding: str
+    ):
+        """fix(#1682 codex r1): LIBKML reads UTF-16 KML — verified against the
+        worker's GDAL — but its interleaved NULs read as binary to the plain
+        text check, so these were refused before GDAL ever saw them."""
+        f = tmp_path / "wide.kml"
+        body = '<?xml version="1.0" encoding="UTF-16"?><kml xmlns="x"></kml>'
+        f.write_bytes(bom + body.encode(encoding))
+        validate_file_content(str(f), "wide.kml")
+
+    @pytest.mark.parametrize(
+        "encoding", ["utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"]
+    )
+    def test_wide_encoded_kml_without_bom_passes(self, tmp_path: Path, encoding: str):
+        """XML 1.0 Appendix F recognises these from the padded opening `<`."""
+        f = tmp_path / "nobom.kml"
+        f.write_bytes('<kml xmlns="x"></kml>'.encode(encoding))
+        validate_file_content(str(f), "nobom.kml")
+
+    def test_wide_encoded_non_xml_still_rejected(self, tmp_path: Path):
+        """The BOM alone must not be a pass — the content still has to open a tag."""
+        f = tmp_path / "notxml.kml"
+        f.write_bytes(
+            codecs.BOM_UTF16_LE + "plain prose, no markup".encode("utf-16-le")
+        )
+        with pytest.raises(ValueError, match="content"):
+            validate_file_content(str(f), "notxml.kml")
 
     def test_kmz_that_is_not_a_zip_rejected(self, tmp_path: Path):
         f = tmp_path / "fake.kmz"
@@ -285,6 +325,46 @@ def _quoted_values(sql: str) -> list[str]:
     import re
 
     return re.findall(r"'([a-z_0-9]+)'", sql)
+
+
+class TestDbfWarningIsShapefileOnly:
+    """fix(#1682 codex r1): every DBF-truncation block, not just the one found.
+
+    DBF field-name truncation is a Shapefile property. Both ingest paths used
+    to gate the warning on the ``.zip`` suffix, which a File Geodatabase now
+    shares, and the first fix caught only the first-upload path. This walks
+    every call site in the ingest package so a third one cannot regress
+    silently.
+    """
+
+    def test_every_call_site_gates_on_the_derived_format(self):
+        ingest_dir = Path(__file__).parents[1] / "app" / "processing" / "ingest"
+        call_sites = 0
+        for module in sorted(ingest_dir.glob("*.py")):
+            tree = ast.parse(module.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.If):
+                    continue
+                if not any(
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Name)
+                    and inner.func.id == "detect_dbf_truncation_collisions"
+                    for stmt in node.body
+                    for inner in ast.walk(stmt)
+                ):
+                    continue
+                call_sites += 1
+                guard = ast.unparse(node.test)
+                assert "source_format" in guard, (
+                    f"{module.name}: the DBF-truncation warning is guarded by "
+                    f"`{guard}`, which a File Geodatabase zip also satisfies. "
+                    "Gate it on the derived source_format instead."
+                )
+        assert call_sites == 3, (
+            "Expected the first-upload, reupload, and shared-helper call "
+            f"sites; found {call_sites}. Update this test if a path was "
+            "added or removed."
+        )
 
 
 # ---------------------------------------------------------------------------

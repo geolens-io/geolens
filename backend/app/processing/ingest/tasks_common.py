@@ -26,6 +26,7 @@ from app.platform.dataset_origin import classify_origin, set_dataset_origin
 from app.core.config import settings
 from app.core.url_redaction import redact_url_credentials
 from app.processing.embeddings.helpers import defer_embedding
+from app.processing.ingest.source_format import derive_source_format
 from app.platform.storage import get_storage
 
 if TYPE_CHECKING:
@@ -1248,7 +1249,9 @@ async def _ingest_vector_into_staging(
 
         _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
-    if file_path.lower().endswith(".zip"):
+    # Shapefile-only. Keyed on the derived format, not the .zip suffix — a
+    # File Geodatabase arrives in a .zip too and has no DBF to truncate.
+    if derive_source_format(file_path) == "shapefile":
         from app.processing.ingest.metadata import detect_dbf_truncation_collisions
         from app.processing.ingest.ogr import run_ogrinfo_preview
         from app.processing.ingest.warnings import make_dbf_truncation_warning
