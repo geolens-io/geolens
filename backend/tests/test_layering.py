@@ -2142,8 +2142,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # documented in the decorator: an open object schema pointing at the
     # MapLibre style spec plus the sprite array-form guarantee, replacing the
     # empty {} schema a generated client could misread (sprite string vs
-    # array). Deliberately description-heavy, zero logic added.
-    "backend/app/modules/catalog/maps/router_sharing.py": 436,
+    # array). Deliberately description-heavy, zero logic added. Then +4
+    # (codex r1): additionalProperties: true, or openapi-typescript closes
+    # the open object to Record<string, never>. Cap 436 -> 440, exact.
+    "backend/app/modules/catalog/maps/router_sharing.py": 440,
     "backend/app/modules/catalog/search/query_params.py": 225,
     "backend/app/modules/catalog/search/router_saved.py": 100,
     # fix(#821): +14 lines — admin key mint accepts expires_at (audit
