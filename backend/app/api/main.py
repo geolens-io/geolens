@@ -1436,6 +1436,13 @@ def _repair_depends_bound_query_model(schema: dict) -> None:
     ``collection_items`` cannot use that form itself: FastAPI expands a query
     model only when it is the operation's ONLY query-parameter source, and
     alongside this route's five OGC parameters it collapses to one scalar.
+
+    One asymmetry this leaves, deliberately: the operation still BINDS the
+    legacy GET body at runtime, because that is inseparable from ``Depends()``.
+    Removing it from the published contract is the point — a request body on a
+    GET should be sunset, not advertised — but it means a caller that sends a
+    malformed JSON body sees a validation 400 the contract does not describe.
+    Sending no body, which is every correct client, is unaffected.
     """
     paths = schema.get("paths", {})
     donor = paths.get("/search/datasets/", {}).get("get")

@@ -605,3 +605,106 @@ async def test_published_filter_lang_wins_over_the_legacy_spelling(
         ],
     )
     assert resp.status_code == 200, resp.text[:200]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+async def test_legacy_keywords_json_body_still_filters(
+    client: AsyncClient, test_db_session, path: str
+):
+    """compat(#1666 codex P2): an old SDK's GET-body keywords still filter.
+
+    The pre-fix contract declared `keywords` as an `application/json` request
+    body on a GET — the generated Python client's parameter was named `body` —
+    and the old `Depends()` binding consumed it. The corrected query-parameter
+    binding reads the opposite one, so without this shim an unchanged client
+    would silently receive UNFILTERED results.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    unique = uuid.uuid4().hex[:8]
+    await create_dataset(
+        session,
+        created_by=admin_id,
+        name=f"legacy-body-{unique}",
+        description="legacy GET-body keywords fixture",
+        visibility="public",
+        keywords=[f"legacy{unique}"],
+    )
+    await session.commit()
+
+    hit = await client.request("GET", path, json=[f"legacy{unique}"])
+    assert hit.status_code == 200, hit.text[:200]
+    assert hit.json()["numberMatched"] >= 1
+
+    miss = await client.request("GET", path, json=[f"absent{unique}"])
+    assert miss.status_code == 200, miss.text[:200]
+    assert miss.json()["numberMatched"] == 0, (
+        "the legacy GET body was ignored — an unchanged old SDK client would "
+        "silently get unfiltered results."
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+async def test_query_keywords_win_over_the_legacy_body(
+    client: AsyncClient, test_db_session, path: str
+):
+    """The published form decides when a client somehow sends both."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    unique = uuid.uuid4().hex[:8]
+    await create_dataset(
+        session,
+        created_by=admin_id,
+        name=f"both-forms-{unique}",
+        description="query-wins fixture",
+        visibility="public",
+        keywords=[f"query{unique}"],
+    )
+    await session.commit()
+
+    resp = await client.request(
+        "GET",
+        path,
+        params={"keywords": f"query{unique}", "limit": 100},
+        json=[f"absent{unique}"],
+    )
+    assert resp.status_code == 200, resp.text[:200]
+    assert resp.json()["numberMatched"] >= 1, (
+        "the legacy body overrode the query parameter."
+    )
+
+
+@pytest.mark.anyio
+async def test_non_keyword_json_body_is_ignored_on_search(client: AsyncClient):
+    """The shim recognises one shape and ignores anything else, without failing.
+
+    Scoped to `/search/datasets/` on purpose. `/collections/datasets/items`
+    keeps `Depends()`, so FastAPI still BINDS and VALIDATES the legacy body
+    there and answers 400 for a malformed one — pre-existing behaviour that
+    this PR removes from the published contract but cannot remove from the
+    runtime without the query-model form that route cannot use.
+    """
+    for payload in ({"not": "a list"}, [1, 2, 3], []):
+        resp = await client.request("GET", "/search/datasets/", json=payload)
+        assert resp.status_code == 200, f"{payload!r} -> {resp.status_code}"
+
+
+@pytest.mark.anyio
+async def test_malformed_legacy_body_still_validates_on_collection_items(
+    client: AsyncClient,
+):
+    """Pin the runtime/contract asymmetry rather than leave it undiscovered.
+
+    `_repair_depends_bound_query_model` drops the phantom body from the
+    published schema, but `Depends()` keeps binding it at runtime, so a caller
+    sending a malformed JSON body sees a 400 the contract does not describe.
+    Every client that sends no body — which is every correct one — is
+    unaffected. If this ever starts returning 200, the binding changed and the
+    keyword compatibility shim above needs to cover this route too.
+    """
+    resp = await client.request(
+        "GET", "/collections/datasets/items", json={"not": "a list"}
+    )
+    assert resp.status_code == 400, resp.status_code

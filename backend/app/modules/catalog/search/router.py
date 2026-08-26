@@ -418,6 +418,37 @@ _SUPPORTED_FILTER_LANGS = ("cql2-text", "cql2-json")
 _LEGACY_FILTER_LANG_PARAM = "cql2_filter_lang"
 
 
+async def _legacy_keywords_body(request: Request) -> list[str] | None:
+    """Read ``keywords`` from a JSON request body on a GET, for older clients.
+
+    compat(#1666 codex P2): the pre-fix contract declared ``keywords`` as an
+    ``application/json`` request BODY on a GET, so that is what SDKs generated
+    before this change send — the Python client's parameter was literally named
+    ``body``. Under the old ``Depends()`` binding FastAPI consumed it, and the
+    query-string form worked only because the handler read it separately. The
+    corrected query-parameter binding reads the opposite one, so an unchanged
+    client would silently receive UNFILTERED results, which is a worse failure
+    than an error.
+
+    Deliberately not republished: a request body on a GET is the defect being
+    fixed, is not reliably forwarded by proxies and CDNs, and should be sunset.
+    This honours what old clients send without offering it to new ones.
+
+    Anything that is not a JSON array of strings is ignored rather than
+    rejected. This runs on a normal search request, and the only job here is to
+    recognise the one shape the old generator emitted.
+    """
+    if not request.headers.get("content-type", "").startswith("application/json"):
+        return None
+    try:
+        body = await request.json()
+    except Exception:  # broad: any unreadable/!JSON body simply is not the legacy shape
+        return None
+    if isinstance(body, list) and body and all(isinstance(v, str) for v in body):
+        return body
+    return None
+
+
 def _resolve_filter_lang(
     params: SearchQueryParams, request: Request
 ) -> SearchQueryParams:
@@ -571,6 +602,10 @@ async def search_datasets_endpoint(
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
     params = _resolve_filter_lang(params, request)
+    if not params.keywords:
+        legacy_keywords = await _legacy_keywords_body(request)
+        if legacy_keywords:
+            params = params.model_copy(update={"keywords": legacy_keywords})
     result = await _handle_search(db, user, request, params)
     for name, value in standard_response_headers(
         list(result.links or []),
@@ -1176,7 +1211,14 @@ async def collection_items(
     # are read from the raw query string here, which is what actually makes them
     # work on this route. (`filter` binds fine; its alias is a valid identifier.)
     raw_keywords = request.query_params.getlist("keywords")
-    if raw_keywords and not params.keywords:
+    if raw_keywords:
+        # The PUBLISHED form wins. This route still binds the legacy GET body
+        # natively — it keeps `Depends()`, so FastAPI continues to populate
+        # `params.keywords` from it — and this used to be conditional on that
+        # being empty, which let the deprecated body override the query
+        # parameter. `_legacy_keywords_body` is therefore not needed here: the
+        # native binding already provides the compatibility the other route
+        # needs the shim for.
         overrides["keywords"] = raw_keywords
 
     effective_params = params.model_copy(update=overrides) if overrides else params
