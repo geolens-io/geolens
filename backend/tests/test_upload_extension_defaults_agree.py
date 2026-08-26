@@ -97,6 +97,51 @@ def test_admin_ui_fallback_is_not_narrower_than_the_server():
     assert _normalize(match.group(1)) == CODE_DEFAULT
 
 
+class TestDegradedConfigLookupFallbacks:
+    """fix(#1682 codex r3): the DB-failure fallbacks, which had frozen literals.
+
+    Both upload doors tolerate a persistent_config read failure by falling back
+    to a hard-coded list. Those literals stayed put through two format
+    additions, so during the exact hiccup they exist to survive, an upload of a
+    supported format was refused for a reason nobody configured. They read from
+    ``settings`` now; these tests drive the failure path rather than reading
+    the source, so a future re-freeze fails here too.
+    """
+
+    async def test_upload_door_falls_back_to_the_configured_list(self, monkeypatch):
+        from app.processing.ingest import router as ingest_router
+
+        async def _boom(_db):
+            raise RuntimeError("persistent_config unavailable")
+
+        monkeypatch.setattr(ingest_router, "get_allowed_extensions_list", _boom)
+        recovered = await ingest_router._get_allowed_extensions_safely(None)
+        assert _normalize(",".join(recovered)) == CODE_DEFAULT
+
+    def test_reupload_door_uses_the_same_source(self):
+        """The presigned-reupload handler builds its fallback from the same
+        property, so the two doors cannot answer differently."""
+        from app.core.config import settings as live_settings
+
+        assert _normalize(",".join(live_settings.allowed_extensions_list)) == (
+            CODE_DEFAULT
+        )
+        source = (
+            ROOT
+            / "backend"
+            / "app"
+            / "modules"
+            / "catalog"
+            / "datasets"
+            / "api"
+            / "router_reupload.py"
+        ).read_text(encoding="utf-8")
+        assert "settings.allowed_extensions_list" in source, (
+            "The presigned-reupload fallback stopped reading the configured "
+            "list; a re-frozen literal will drift on the next format added."
+        )
+
+
 def test_the_tier1_formats_are_actually_in_the_code_default():
     """Guards the whole file against passing by agreeing on the wrong list."""
     for extension in (".fgb", ".kml", ".kmz", ".zip"):

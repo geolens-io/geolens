@@ -2619,7 +2619,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # concurrently with the responses={403:...} addition above; recounted
     # after merge rather than picking either side's number. Cap 1550 ->
     # 1543, exact.
-    "backend/app/processing/ingest/router.py": 1543,
+    # fix(#1682 codex r3): +4 — the DB-failure fallback for allowed upload
+    # extensions became a function reading settings.allowed_extensions_list
+    # instead of an eight-entry literal that had drifted two formats behind.
+    # Most of the growth is the docstring recording why a narrower fallback is
+    # not a safer one. Cap 1543 -> 1547, exact.
+    "backend/app/processing/ingest/router.py": 1547,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3268,7 +3273,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead of swallowing it, mirroring the re-raise convention already used
     # by the other three CancelledError checks in this file. Cap 1149 -> 1151,
     # exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1151,
+    # fix(#1682 codex r3): -7 — the presigned-reupload DB-failure fallback
+    # dropped its nine-entry literal for settings.allowed_extensions_list, so
+    # the two upload doors cannot answer differently. Ratchet DOWN in the same
+    # commit, per the no-headroom rule. Cap 1151 -> 1144, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1144,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python

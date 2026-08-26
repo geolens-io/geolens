@@ -127,19 +127,23 @@ router = APIRouter(
     responses=ERROR_RESPONSES_WRITE,
 )
 
-# Fallback list used when the persistent_config DB lookup fails (R-7).
-# Kept intentionally conservative: matches the original production default.
-# Canonical source: UPLOAD_ALLOWED_EXTENSIONS in app/core/persistent_config.py.
-_FALLBACK_ALLOWED_EXTENSIONS: list[str] = [
-    ".geojson",
-    ".json",
-    ".csv",
-    ".xlsx",
-    ".gpkg",
-    ".zip",
-    ".tif",
-    ".tiff",
-]
+
+def _fallback_allowed_extensions() -> list[str]:
+    """Allowed extensions when the persistent_config DB lookup fails (R-7).
+
+    fix(#1682 codex r3): read from ``settings`` rather than a frozen literal.
+    The literal was written to match "the original production default" and then
+    stayed put through two format additions, so during the exact DB hiccup this
+    fallback exists to tolerate, a `.parquet`/`.fgb`/`.kml`/`.kmz` upload was
+    refused for a reason the operator could not see and had not configured.
+
+    A narrower list is not a safer one: the accepted-extension list gates
+    nothing on its own — content validation, the size limit, and the quota
+    check all still run — so a stale fallback only breaks uploads the operator
+    is entitled to make. ``settings`` needs no database, and when nothing is
+    stored it is already what ``UPLOAD_ALLOWED_EXTENSIONS`` resolves to.
+    """
+    return list(settings.allowed_extensions_list)
 
 
 def _reject_standalone_vrt(filename: str) -> None:
@@ -182,7 +186,7 @@ async def _get_allowed_extensions_safely(db: AsyncSession) -> list[str]:
             "Failed to load allowed extensions from persistent_config — using fallback",
             error=str(exc),
         )
-        return list(_FALLBACK_ALLOWED_EXTENSIONS)
+        return _fallback_allowed_extensions()
 
 
 @router.get(
