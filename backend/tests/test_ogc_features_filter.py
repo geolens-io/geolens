@@ -937,15 +937,21 @@ async def test_qgis_344_request_sequence_end_to_end(
     }
     assert required <= conforms_to
 
-    # 3. Collection metadata: QGIS resolves the queryables link from here.
+    # 3. Collection metadata: QGIS resolves the queryables AND items links
+    # from here -- neither is a path the client is allowed to assume.
     collection = await client.get(f"/collections/{filter_dataset.id}")
     assert collection.status_code == 200
+    collection_links = collection.json()["links"]
     queryables_href = next(
         link["href"]
-        for link in collection.json()["links"]
+        for link in collection_links
         if link["rel"] == "http://www.opengis.net/def/rel/ogc/1.0/queryables"
     )
     assert queryables_href.endswith(f"/collections/{filter_dataset.id}/queryables")
+    items_href = next(
+        link["href"] for link in collection_links if link["rel"] == "items"
+    )
+    assert items_href.endswith(f"/collections/{filter_dataset.id}/items")
 
     # 4. Queryables: QGIS builds its field list + geometry queryable from
     # this -- again via the discovered href's path, not a re-typed one.
@@ -957,9 +963,11 @@ async def test_qgis_344_request_sequence_end_to_end(
 
     # 5. Items with a pushed-down spatial predicate, exactly as QGIS's
     # QgsOapifCql2TextExpressionCompiler emits it for a map-canvas-extent
-    # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded.
+    # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded. fix(#1680
+    # codex r2): issued against the discovered items_href's path, not a
+    # re-typed one -- same rationale as the conformance/queryables legs above.
     items = await client.get(
-        f"/collections/{filter_dataset.id}/items",
+        urlparse(items_href).path,
         params={
             "filter": f"S_INTERSECTS(geometry,BBOX({','.join(str(v) for v in BBOX_12)}))",
             "filter-lang": "cql2-text",
