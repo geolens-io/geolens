@@ -20,6 +20,7 @@ unadvertised until it worked:
 import json
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 import pytest
 from httpx import AsyncClient
@@ -887,3 +888,183 @@ async def test_filter_still_rejected_without_value_types(
         params={"filter": "S_DWITHIN(geometry, POINT(0 0), 10, 'meters')"},
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# QGIS >=3.44 client-shaped integration replay (qgis/QGIS#62156)
+# ---------------------------------------------------------------------------
+#
+# QGIS's OAPIF provider issues this exact sequence before it ever emits a
+# filter=: landing page -> /conformance (capability detection, gating
+# mServerSupportsFilterCql2Text + mServerSupportsBasicSpatialFunctions) ->
+# /collections/{id} (find the rel=queryables link, only fetched at all when
+# the conformance check passed) -> /collections/{id}/queryables (build the
+# field list) -> /collections/{id}/items?filter=...&filter-lang=cql2-text
+# once a QgsFeatureRequest carries a spatial predicate QGIS's
+# QgsOapifCql2TextExpressionCompiler can push down. Replaying the whole
+# sequence catches a break in any leg -- not just the CQL2 compiler itself --
+# before it reaches a real QGIS session.
+
+
+def _same_origin_path(href: str, expected_origin: str) -> str:
+    """Path+query of ``href`` iff it shares ``expected_origin``.
+
+    fix(#1680 codex r3): urlparse(href).path alone discards scheme/host, so a
+    PUBLIC_API_URL that resolved a *different* origin on one leg would still
+    resolve locally via ASGITransport and pass every suffix assertion -- a
+    real client (QGIS) would instead be pointed off-server and fail to
+    connect. Asserting the origin before discarding it makes that class of
+    bug fail loudly here instead of shipping silently.
+    """
+    parsed = urlparse(href)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    assert origin == expected_origin, (
+        f"advertised link {href!r} has origin {origin!r}, expected "
+        f"{expected_origin!r} -- a real client could not follow it"
+    )
+    path = parsed.path
+    return f"{path}?{parsed.query}" if parsed.query else path
+
+
+@pytest.mark.anyio
+async def test_qgis_344_request_sequence_end_to_end(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    # 1. Landing page: QGIS follows rel=data (collections) and rel=conformance
+    # from here. Every subsequent leg is fetched via its *discovered* href,
+    # validated to share the landing page's own origin (fix(#1680 codex
+    # r1-r3): a hard-coded path would still land on the right local route even
+    # if an advertised link pointed somewhere QGIS could never actually reach,
+    # silently defeating the whole point of replaying advertised links).
+    landing = await client.get("/")
+    assert landing.status_code == 200
+    landing_links = landing.json()["links"]
+    # The expected origin is the landing page's OWN self href, not
+    # client.base_url ("http://test" for this ASGI-transport fixture).
+    # fix(#1680 codex r5) tried comparing against client.base_url instead,
+    # reasoning that self-href-derivation was circular; that broke in CI
+    # (build_url()'s PUBLIC_API_URL resolution legitimately returned
+    # "http://localhost:8000" there, independent of the dummy transport
+    # host) because GeoLens's public API URL is BY DESIGN allowed to differ
+    # from the literal address a client connected on -- that's the entire
+    # point of PUBLIC_API_URL/PUBLIC_BASE_URL (reverse proxy / custom
+    # domain support; see app/core/public_urls.py). What actually matters,
+    # and IS a real regression to catch, is every advertised link agreeing
+    # with every OTHER advertised link -- a client that starts at the
+    # landing page has no ground truth beyond what the landing page itself
+    # says, so self-consistency across the whole discovery chain is the
+    # right invariant, not agreement with this test harness's placeholder
+    # transport address.
+    self_href = next(link["href"] for link in landing_links if link["rel"] == "self")
+    self_parsed = urlparse(self_href)
+    # fix(#1680 codex r7): normalize_public_url() (app/core/public_urls.py)
+    # accepts any nonempty string verbatim -- it strips whitespace and a
+    # trailing slash but never validates scheme or host. A misconfigured
+    # PUBLIC_API_URL of "https://" (no host) or "ftp://catalog.example"
+    # would make every generated link agree with that same broken origin,
+    # passing self-consistency while no real client could dereference any
+    # of it. Require a real HTTP(S) origin before trusting it as the
+    # baseline every other link gets checked against.
+    assert self_parsed.scheme in ("http", "https"), (
+        f"landing page self href {self_href!r} has a non-HTTP(S) scheme"
+    )
+    assert self_parsed.netloc, f"landing page self href {self_href!r} has no host"
+    origin = f"{self_parsed.scheme}://{self_parsed.netloc}"
+
+    conformance_href = next(
+        link["href"] for link in landing_links if link["rel"] == "conformance"
+    )
+    assert conformance_href.endswith("/conformance")
+    data_href = next(link["href"] for link in landing_links if link["rel"] == "data")
+    assert data_href.endswith("/collections")
+
+    # 2. Conformance: gates mServerSupportsFilterCql2Text (base push-down) AND
+    # mServerSupportsBasicSpatialFunctions (spatial predicate push-down), per
+    # qgis/QGIS#62156 (see test_ogc_discovery.py for the full URI-by-URI pin).
+    conformance = await client.get(_same_origin_path(conformance_href, origin))
+    assert conformance.status_code == 200
+    conforms_to = set(conformance.json()["conformsTo"])
+    required = {
+        "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+        "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
+        "http://www.opengis.net/spec/cql2/1.0/conf/basic-spatial-functions",
+    }
+    assert required <= conforms_to
+
+    # 3. Collections list, reached via the landing page's rel=data link (the
+    # ONE hand-known value left is *which* collection id to pick, matching
+    # how a QGIS user browses the list and clicks a layer -- every href that
+    # gets followed, including paging, comes from a response, never from
+    # re-deriving it from the id). Other tests in this shared-DB file leave
+    # their fixture datasets' catalog rows behind (only the backing table is
+    # dropped), so the target collection is not guaranteed to be on page one
+    # -- follow rel=next like a real client paging a large catalog would.
+    target_id = str(filter_dataset.id)
+    collections_href = data_href
+    collection_entry = None
+    for _ in range(50):  # generous bound; a real catalog would still terminate
+        collections = await client.get(_same_origin_path(collections_href, origin))
+        assert collections.status_code == 200
+        payload = collections.json()
+        collection_entry = next(
+            (e for e in payload["collections"] if e["id"] == target_id), None
+        )
+        if collection_entry is not None:
+            break
+        next_href = next(
+            (link["href"] for link in payload["links"] if link["rel"] == "next"),
+            None,
+        )
+        assert next_href is not None, (
+            f"collection {target_id} not found in /collections and no "
+            "rel=next page remains"
+        )
+        collections_href = next_href
+    assert collection_entry is not None
+    collection_self_href = next(
+        link["href"] for link in collection_entry["links"] if link["rel"] == "self"
+    )
+    assert collection_self_href.endswith(f"/collections/{filter_dataset.id}")
+
+    # 4. Collection metadata, reached via the collections-list entry's own
+    # rel=self link discovered above.
+    collection = await client.get(_same_origin_path(collection_self_href, origin))
+    assert collection.status_code == 200
+    collection_links = collection.json()["links"]
+    queryables_href = next(
+        link["href"]
+        for link in collection_links
+        if link["rel"] == "http://www.opengis.net/def/rel/ogc/1.0/queryables"
+    )
+    assert queryables_href.endswith(f"/collections/{filter_dataset.id}/queryables")
+    items_href = next(
+        link["href"] for link in collection_links if link["rel"] == "items"
+    )
+    assert items_href.endswith(f"/collections/{filter_dataset.id}/items")
+
+    # 5. Queryables: QGIS builds its field list + geometry queryable from
+    # this -- again via the discovered href, not a re-typed path.
+    queryables = await client.get(_same_origin_path(queryables_href, origin))
+    assert queryables.status_code == 200
+    props = queryables.json()["properties"]
+    assert "geometry" in props
+    assert "name" in props
+
+    # 6. Items with a pushed-down spatial predicate, exactly as QGIS's
+    # QgsOapifCql2TextExpressionCompiler emits it for a map-canvas-extent
+    # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded. Issued
+    # against the discovered items_href, not a re-typed path.
+    items = await client.get(
+        _same_origin_path(items_href, origin),
+        params={
+            "filter": f"S_INTERSECTS(geometry,BBOX({','.join(str(v) for v in BBOX_12)}))",
+            "filter-lang": "cql2-text",
+        },
+    )
+    assert items.status_code == 200, items.text
+    body = items.json()
+    assert body["numberMatched"] == 2
+    names = {f["properties"]["name"] for f in body["features"]}
+    assert names == {"Alpha", "Beta"}
