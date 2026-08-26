@@ -4323,7 +4323,7 @@ export type EnterpriseTabsResponse = {
 /**
  * ExportFormat
  */
-export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv' | 'parquet' | 'fgb';
+export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv' | 'parquet' | 'fgb' | 'pmtiles';
 
 /**
  * FacetCountResponse

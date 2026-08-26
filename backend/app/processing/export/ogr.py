@@ -62,7 +62,24 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "ext": ".fgb",
         "media": "application/vnd.flatgeobuf",
     },
+    # PMTiles has no IANA registration either; `application/vnd.pmtiles` is
+    # the vendor-prefixed type the protomaps tooling itself uses. Single
+    # file, like fgb/gpkg/geojson/csv — no zip special-casing.
+    "pmtiles": {
+        "driver": "PMTiles",
+        "ext": ".pmtiles",
+        "media": "application/vnd.pmtiles",
+    },
 }
+
+# The PMTiles driver's dataset creation options default to
+# MAXZOOM=5, far too coarse for anything but a world overview. MINZOOM=0 /
+# MAXZOOM=14 is the fixed zoom range every PMTiles export uses — GeoLens has
+# no per-dataset zoom configuration to plumb through, and 14 matches the
+# vector-tile pyramid's own top zoom (catalog/records/service.py's
+# vector_tiles distribution and the map builder's default source config).
+_PMTILES_MINZOOM = "0"
+_PMTILES_MAXZOOM = "14"
 
 
 def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
@@ -176,6 +193,21 @@ async def run_ogr2ogr_export(
 
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
+
+    if format_key == "pmtiles":
+        # The driver defaults MAXZOOM to 5; every attribute
+        # column already comes through by default (no -select), and the
+        # layer name is left to ogr2ogr's own default (the source table
+        # name) rather than an explicit -nln, matching every other format
+        # here.
+        cmd.extend(
+            [
+                "-dsco",
+                f"MINZOOM={_PMTILES_MINZOOM}",
+                "-dsco",
+                f"MAXZOOM={_PMTILES_MAXZOOM}",
+            ]
+        )
 
     # fix(#430 BA-06): bound the export subprocess wall-clock with a kill-on-timeout
     # (mirrors the ingest path) so a slow/large table can't hold an API worker;

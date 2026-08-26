@@ -554,6 +554,75 @@ class TestExportFormats:
         )
         assert resp.status_code == 400
 
+    @pytest.mark.anyio
+    async def test_export_format_pmtiles(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Request with format=pmtiles returns 200 with the PMTiles Content-Type."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="PmtilesDS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert "vnd.pmtiles" in resp.headers["content-type"]
+
+    @pytest.mark.anyio
+    async def test_export_non_spatial_dataset_pmtiles_returns_400(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """PMTiles is a spatial-only format, like gpkg/geojson/shp/parquet/fgb."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NonSpatialPmtilesDS",
+            geometry_type=None,
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_export_pmtiles_rejects_non_3857_target_crs(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """PMTiles always tiles in Web Mercator; a conflicting target_crs is a 400."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="PmtilesCrsDS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles", "target_crs": "EPSG:4326"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "3857" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_export_pmtiles_allows_explicit_3857_target_crs(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The one target_crs value that matches what PMTiles actually emits."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="PmtilesCrsOkDS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles", "target_crs": "EPSG:3857"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+
 
 # ---------------------------------------------------------------------------
 # Audit tests

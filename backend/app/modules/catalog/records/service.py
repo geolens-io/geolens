@@ -622,6 +622,15 @@ _DISTRIBUTION_TEMPLATES = [
         False,
     ),
     (
+        "download",
+        "pmtiles",
+        "/datasets/{dataset_id}/export?format=pmtiles",
+        "PMTiles Download",
+        "HTTP",
+        "application/vnd.pmtiles",
+        False,
+    ),
+    (
         "ogc_features",
         "geojson",
         "/collections/{dataset_id}/items",
@@ -701,9 +710,9 @@ async def generate_distributions(
 ) -> list[RecordDistribution]:
     """Generate standard distribution records for a dataset.
 
-    For spatial datasets (geometry_type is not None): creates 8 distribution rows
-    (6 download formats incl. GeoParquet and FlatGeobuf + OGC features + vector
-    tiles).
+    For spatial datasets (geometry_type is not None): creates 9 distribution rows
+    (7 download formats incl. GeoParquet, FlatGeobuf, and PMTiles + OGC
+    features + vector tiles).
     For non-spatial datasets (geometry_type is None): creates only csv download
     + OGC features (2 rows).
 

@@ -7399,7 +7399,8 @@
           "shp",
           "csv",
           "parquet",
-          "fgb"
+          "fgb",
+          "pmtiles"
         ],
         "title": "ExportFormat",
         "type": "string"
@@ -34073,7 +34074,7 @@
     },
     "/datasets/{dataset_id}/export": {
       "get": {
-        "description": "Export a dataset as a downloadable file.\n\nSupports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and\nFlatGeobuf formats. Optional CRS reprojection, spatial filtering, and\nattribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).",
+        "description": "Export a dataset as a downloadable file.\n\nSupports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,\nFlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial\nfiltering, and attribute filtering. GeoParquet is always emitted in\nEPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.",
         "operationId": "export_dataset_endpoint_datasets__dataset_id__export_get",
         "parameters": [
           {

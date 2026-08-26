@@ -328,9 +328,10 @@ async def export_dataset_endpoint(
 ) -> Response:
     """Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
-    FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
-    attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
+    FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
+    filtering, and attribute filtering. GeoParquet is always emitted in
+    EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
     """
     port = get_processing_port()
     data_schema = tenant_data_schema(current_tenant_var.get())
@@ -413,6 +414,19 @@ async def export_dataset_endpoint(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="GeoParquet export is emitted in EPSG:4326; omit target_crs.",
             )
+        # The PMTiles driver ignores -t_srs outright (it always tiles in Web
+        # Mercator) and only warns on stderr, which ogr2ogr exits 0 through --
+        # so a caller asking for some other CRS would silently get EPSG:3857
+        # back with no signal anything was ignored. Reject the mismatch
+        # instead, same reasoning as GeoParquet above.
+        if format == ExportFormat.pmtiles and target_crs.upper() != "EPSG:3857":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "PMTiles export is always rendered in EPSG:3857 "
+                    "(Web Mercator); omit target_crs."
+                ),
+            )
 
     # 5. Reject raster/VRT datasets: they have no tabular feature table.
     # Key on record_type (loaded via joinedload(Dataset.record) in
@@ -437,6 +451,7 @@ async def export_dataset_endpoint(
         "shp",
         "parquet",
         "fgb",
+        "pmtiles",
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

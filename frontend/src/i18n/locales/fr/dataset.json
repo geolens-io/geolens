@@ -195,6 +195,7 @@
     "csv": "CSV",
     "parquet": "GeoParquet",
     "fgb": "FlatGeobuf",
+    "pmtiles": "PMTiles",
     "duckdbHint": "Interroger avec DuckDB",
     "button": "Exporter",
     "failed": "Échec de l'exportation",

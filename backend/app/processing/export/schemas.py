@@ -10,3 +10,4 @@ class ExportFormat(StrEnum):
     csv = "csv"
     parquet = "parquet"
     fgb = "fgb"
+    pmtiles = "pmtiles"

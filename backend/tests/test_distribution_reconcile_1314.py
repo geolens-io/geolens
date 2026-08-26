@@ -54,6 +54,7 @@ _SPATIAL_PAIRS = {
     ("download", "parquet"),
     ("download", "csv"),
     ("download", "fgb"),
+    ("download", "pmtiles"),
     ("ogc_features", "geojson"),
     ("vector_tiles", "pbf"),
 }
