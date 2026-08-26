@@ -48214,6 +48214,7 @@
             "content": {
               "application/json": {
                 "schema": {
+                  "additionalProperties": true,
                   "description": "MapLibre style document (https://maplibre.org/maplibre-style-spec/)",
                   "type": "object"
                 }

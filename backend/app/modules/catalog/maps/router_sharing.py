@@ -242,6 +242,10 @@ async def visibility_check_endpoint(
                 "application/json": {
                     "schema": {
                         "type": "object",
+                        # fix(#1672 codex r1): without this, openapi-typescript
+                        # renders the open object as Record<string, never> and
+                        # TS consumers cannot touch any style property.
+                        "additionalProperties": True,
                         "description": (
                             "MapLibre style document "
                             "(https://maplibre.org/maplibre-style-spec/)"

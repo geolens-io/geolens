@@ -76,6 +76,9 @@ def test_openapi_style_json_export_declares_its_shape() -> None:
     schema = ok["content"]["application/json"]["schema"]
     assert schema.get("type") == "object", schema
     assert "maplibre-style-spec" in schema.get("description", ""), schema
+    # fix(#1672 codex r1): the open-object semantics must be explicit or
+    # openapi-typescript closes the type to Record<string, never>.
+    assert schema.get("additionalProperties") is True, schema
 
 
 class TestMapsImportTypedBody:
