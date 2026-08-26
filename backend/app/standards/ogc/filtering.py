@@ -319,19 +319,35 @@ def build_feature_queryables_response(
     return schema
 
 
-def _bbox_polygon(minx, miny, maxx, maxy) -> dict:
-    return {
-        "type": "Polygon",
-        "coordinates": [
-            [
-                [minx, miny],
-                [maxx, miny],
-                [maxx, maxy],
-                [minx, maxy],
-                [minx, miny],
-            ]
-        ],
-    }
+def _bbox_ring(minx, miny, maxx, maxy) -> list:
+    return [
+        [
+            [minx, miny],
+            [maxx, miny],
+            [maxx, maxy],
+            [minx, maxy],
+            [minx, miny],
+        ]
+    ]
+
+
+def _bbox_geometry(minx, miny, maxx, maxy) -> dict:
+    """GeoJSON geometry for a BBox literal.
+
+    fix(#1614 codex r1): minx > maxx is a legal antimeridian-crossing box
+    (same convention as the ``bbox=`` parameter). A single planar rectangle
+    would invert it into nearly the whole globe, so split at the dateline
+    into a MultiPolygon — mirroring what get_features() does for ``bbox=``.
+    """
+    if minx > maxx:
+        return {
+            "type": "MultiPolygon",
+            "coordinates": [
+                _bbox_ring(minx, miny, 180, maxy),
+                _bbox_ring(-180, miny, maxx, maxy),
+            ],
+        }
+    return {"type": "Polygon", "coordinates": _bbox_ring(minx, miny, maxx, maxy)}
 
 
 def _normalize_cql2_json(node):
@@ -357,7 +373,7 @@ def _normalize_cql2_json(node):
     ):
         if len(bbox) == 6:  # 3D bbox: Z bounds are ignored, like parse_bbox
             bbox = [bbox[0], bbox[1], bbox[3], bbox[4]]
-        return _bbox_polygon(*bbox)
+        return _bbox_geometry(*bbox)
     out = {k: _normalize_cql2_json(v) for k, v in node.items()}
     args = out.get("args")
     if out.get("op") == "between" and isinstance(args, list) and len(args) == 3:
@@ -384,8 +400,18 @@ def _rewrite_text_bbox_literals(node):
         if len(args) == 4 and all(
             isinstance(a, (int, float)) and not isinstance(a, bool) for a in args
         ):
-            return pgf_values.Geometry(_bbox_polygon(*args))
+            return pgf_values.Geometry(_bbox_geometry(*args))
         return node
+    if isinstance(node, pgf_ast.BBox) and node.crs is None:
+        # fix(#1614 codex r1): the legacy BBOX(prop, ...) predicate renders a
+        # planar rectangle upstream, inverting antimeridian-crossing boxes.
+        # Route it through the same split geometry as the BBox literal.
+        return pgf_ast.GeometryIntersects(
+            node.lhs,
+            pgf_values.Geometry(
+                _bbox_geometry(node.minx, node.miny, node.maxx, node.maxy)
+            ),
+        )
     if isinstance(node, pgf_ast.Node):
         for field, value in vars(node).items():
             setattr(node, field, _rewrite_text_bbox_literals(value))
@@ -503,9 +529,9 @@ def _validate_spatial_predicate(node, queryables: dict[str, str], errors: list[s
     from pygeofilter import values as pgf_values
 
     if isinstance(node, pgf_ast.BBox):
-        pg_type = _require_attribute(node.lhs, queryables, errors)
-        if pg_type is not None and pg_type != _GEOMETRY_MARKER:
-            errors.append("BBOX applies to the geometry property")
+        # crs-less BBox predicates were rewritten to S_INTERSECTS above; only
+        # a crs-qualified form reaches here, and only CRS84 boxes are defined.
+        errors.append("BBOX with an explicit CRS is not supported")
         return
     attr_side, literal_side = node.lhs, node.rhs
     if isinstance(literal_side, pgf_ast.Attribute) and not isinstance(

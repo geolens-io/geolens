@@ -636,6 +636,71 @@ async def test_missing_table_with_filter_keeps_503(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "params",
+    [
+        pytest.param(
+            {"filter": "S_INTERSECTS(geometry, BBOX(170, 40.6, -170, 40.8))"},
+            id="text-literal",
+        ),
+        pytest.param(
+            {
+                "filter": _j(
+                    "s_intersects",
+                    {"property": "geometry"},
+                    {"bbox": [170, 40.6, -170, 40.8]},
+                ),
+                "filter-lang": "cql2-json",
+            },
+            id="json-literal",
+        ),
+        pytest.param(
+            {"filter": "BBOX(geometry, 170, 40.6, -170, 40.8)"},
+            id="legacy-predicate",
+        ),
+    ],
+)
+async def test_antimeridian_bbox_is_a_dateline_strip_not_the_globe(
+    client: AsyncClient, filter_dataset: Dataset, params: dict
+):
+    """fix(#1614 codex r1): minx > maxx is a dateline-crossing box.
+
+    A planar rectangle rendering would invert it into x in [-170, 170] and
+    match every NYC-longitude feature; the split MultiPolygon matches none.
+    """
+    resp = await client.get(_items_url(filter_dataset), params=params)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberMatched"] == 0
+
+
+def test_antimeridian_bbox_compiles_to_a_split_multipolygon():
+    """The crossing box renders as two hemispheres, not a rejection."""
+    from app.standards.ogc.filtering import compile_feature_cql2
+
+    sql, params = compile_feature_cql2(
+        "S_INTERSECTS(geometry, BBOX(170, -45, -170, -30))",
+        "cql2-text",
+        {"geometry": "geometry"},
+    )
+    assert "ST_Intersects" in sql
+    (value,) = params.values()
+    assert "MULTIPOLYGON" in value
+    assert "170 -45" in value and "-180 -45" in value
+
+
+@pytest.mark.anyio
+async def test_legacy_bbox_predicate_with_crs_rejected(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    resp = await client.get(
+        _items_url(filter_dataset),
+        params={"filter": "BBOX(geometry, 1, 2, 3, 4, 'EPSG:3857')"},
+    )
+    assert resp.status_code == 400
+    assert "explicit CRS" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_filter_still_rejected_without_value_types(
     client: AsyncClient, filter_dataset: Dataset
 ):

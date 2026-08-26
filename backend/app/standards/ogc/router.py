@@ -52,6 +52,13 @@ logger = structlog.stdlib.get_logger(__name__)
 _CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
 
+# feat(#1614): SQLSTATEs that mean "the CQL2 filter doesn't type against this
+# table": undefined operator/function, datatype mismatch, cannot coerce,
+# indeterminate datatype. Deliberately NOT the whole 42 class — 42P01 is the
+# missing-table 503 and e.g. 42501 (privilege) is an operator problem.
+_TYPE_FAULT_SQLSTATES = {"42883", "42804", "42846", "42P18"}
+
+
 def _pg_sqlstate(exc: Exception) -> str | None:
     """SQLSTATE from a SQLAlchemy-wrapped asyncpg error, if present."""
     orig = getattr(exc, "orig", None)
@@ -489,6 +496,20 @@ async def get_collection_queryables(
             ),
         )
 
+    # fix(#1614 codex r1): a cold (evicted) table has no information_schema
+    # rows, so deriving queryables from it would publish an attribute-less
+    # document as authoritative. Run the same cold-rehydrate seam as /items
+    # BEFORE reading the live schema (202-warming instead of a wrong 200).
+    if dataset.table_name and dataset.record:
+        _q_cold_tid = current_tenant_var.get(None)
+        _q_cold_result = await _check_cold_rehydrate(
+            dataset.table_name,
+            dataset.record.record_status or "",
+            str(_q_cold_tid) if _q_cold_tid is not None else "",
+        )
+        if _q_cold_result is not None:
+            return _q_cold_result
+
     queryables = feature_queryable_columns(
         await get_feature_queryable_columns(db, dataset.table_name),
         dataset.geometry_type,
@@ -744,13 +765,22 @@ async def get_collection_items(
             cql2_params=cql2_params,
         )
     except (ProgrammingError, OperationalError, DataError) as exc:
-        # feat(#1614): with a filter active, a database error that is not the
-        # missing-table case (undefined_table, 42P01) is almost always the
-        # filter itself — e.g. a property-property comparison between
-        # incomparable types that pre-validation lets through. Report it as
-        # the caller's 400, never the retryable 503 the missing-table path
-        # keeps, and never an unhandled 500 (QA finding B3).
-        if cql2_where is not None and _pg_sqlstate(exc) != "42P01":
+        # feat(#1614): with a filter active, a type-shaped database error is
+        # the filter itself — e.g. a property-property comparison between
+        # incomparable types that pre-validation lets through. Report those
+        # as the caller's 400, never an unhandled 500 (QA finding B3).
+        # fix(#1614 codex r1): only type/data SQLSTATEs are caller faults —
+        # class 22 (data exceptions), the 42xxx operator/cast states, and
+        # client-side bind DataErrors. Everything else (dropped connection,
+        # cancellation, missing table) keeps the retryable 503 so monitoring
+        # and clients classify outages correctly.
+        sqlstate = _pg_sqlstate(exc) or ""
+        filter_fault = cql2_where is not None and (
+            sqlstate.startswith("22")
+            or sqlstate in _TYPE_FAULT_SQLSTATES
+            or (isinstance(exc, DataError) and not sqlstate)
+        )
+        if filter_fault:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
