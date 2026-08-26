@@ -686,6 +686,101 @@ async def _resolve_service_token(
     return token
 
 
+async def _fetch_service_layer_with_paging_guard(
+    *,
+    service_type_raw: str,
+    service_type: str,
+    source_url: str,
+    layer_name: str,
+    layer_id,
+    token: str | None,
+    staging_table: str,
+    db_conn_str: str,
+    schema: str,
+    fallback_order_field: str | None,
+    on_spawn,
+) -> None:
+    """Fetch a service layer into staging, paging large ArcGIS layers.
+
+    fix(#1675): parity with the initial-import path. A refresh of a large
+    ArcGIS layer used to do ONE unpaged fetch and trust GDAL driver paging —
+    the exact behavior the import path's guarded loop exists to distrust.
+    Same criteria, same shared loop (tasks_common); the page-info fetch
+    resolves through tasks_vector's module attribute so test monkeypatches
+    cover both doors.
+    """
+    from app.platform.extensions import get_processing_port
+    from app.processing.ingest import tasks_vector as _tv
+    from app.processing.ingest.ogr import run_ogr2ogr_service
+    from app.processing.ingest.tasks_common import run_paged_arcgis_service_fetch
+
+    page_size = _tv._ARCGIS_SERVICE_IMPORT_CHUNK_SIZE
+    feature_count = None
+    supports_pagination = False
+    pagination_order_field = None
+    if service_type == "arcgis_featureserver":
+        # fix(#1675 codex r1): the page-info probe is now the FIRST outbound
+        # contact of a refresh, and it can fail (498/499 token errors raise
+        # IngestionError) before any subprocess exists to fire on_spawn. The
+        # last_checked_at contract is "last time GeoLens contacted the origin
+        # at all", so arm the contact stamp when the probe's request begins,
+        # not only at subprocess spawn. Arming is a monotonic OR gated on the
+        # attempted binding matching the stored one, so the later per-page
+        # spawns re-arming is harmless.
+        if on_spawn is not None:
+            on_spawn()
+        (
+            feature_count,
+            max_record_count,
+            supports_pagination,
+            pagination_order_field,
+        ) = await _tv._fetch_arcgis_import_page_info(source_url, layer_id, token)
+        if max_record_count is not None:
+            page_size = max(1, min(page_size, max_record_count))
+    if (
+        service_type == "arcgis_featureserver"
+        and supports_pagination
+        and pagination_order_field is not None
+        and feature_count is not None
+        and feature_count > page_size
+    ):
+        await run_paged_arcgis_service_fetch(
+            service_type_raw=service_type_raw,
+            service_type=service_type,
+            source_url=source_url,
+            layer_name=layer_name,
+            layer_id=layer_id,
+            token=token,
+            staging_table=staging_table,
+            db_conn_str=db_conn_str,
+            schema=schema,
+            feature_count=feature_count,
+            page_size=page_size,
+            order_field=pagination_order_field,
+            on_spawn=on_spawn,
+        )
+        return
+
+    gdal_source, layer_arg = get_processing_port().build_gdal_source(
+        service_type_raw,
+        source_url,
+        layer_name,
+        layer_id,
+        token=token,
+        order_field=fallback_order_field,
+    )
+    await run_ogr2ogr_service(
+        gdal_source,
+        layer_arg,
+        staging_table,
+        db_conn_str,
+        service_type,
+        token=token,
+        schema=schema,
+        on_spawn=on_spawn,
+    )
+
+
 @task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
 @tenant_task
 async def reupload_service(
@@ -739,7 +834,6 @@ async def reupload_service(
     from app.processing.ingest.ogr import (
         IngestionError,
         build_pg_conn_str,
-        run_ogr2ogr_service,
     )
     from app.platform.jobs.models import IngestJob
     from sqlalchemy import text
@@ -899,22 +993,17 @@ async def reupload_service(
             )
 
         async def _run_service_import(layer_name: str) -> None:
-            gdal_source, layer_arg = port.build_gdal_source(
-                service_type_raw,
-                source_url_value,
-                layer_name,
-                layer_id,
+            await _fetch_service_layer_with_paging_guard(
+                service_type_raw=service_type_raw,
+                service_type=service_type,
+                source_url=source_url_value,
+                layer_name=layer_name,
+                layer_id=layer_id,
                 token=token,
-                order_field=reupload_oid_field,
-            )
-            await run_ogr2ogr_service(
-                gdal_source,
-                layer_arg,
-                staging_tn,
-                db_conn_str,
-                service_type,
-                token=token,
+                staging_table=staging_tn,
+                db_conn_str=db_conn_str,
                 schema=_current_tenant_schema(),
+                fallback_order_field=reupload_oid_field,
                 on_spawn=_arm_contact,
             )
 

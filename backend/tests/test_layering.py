@@ -2750,7 +2750,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # module lives under modules/admin/ (it emits the run's audit events, which
     # processing/ may not import) rather than beside the backfill it runs.
     # Cap 2207 -> 2211, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2211,
+    # fix(#1675): +81 — run_paged_arcgis_service_fetch, the guarded
+    # resultOffset paging loop extracted from tasks_vector so the refresh
+    # executor pages large ArcGIS layers with the same no-progress guard
+    # instead of trusting GDAL driver paging. Then +16 (codex r2): the
+    # growth check became exact — a server capping responses below its
+    # advertised page size returned SOME rows per page while the offset
+    # skipped records, so positive growth alone could swap a truncated
+    # copy. Cap 2211 -> 2308, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2308,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2796,7 +2804,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # two run_ogrinfo/run_ogr2ogr call sites so a corrupt reupload gets the
     # same friendly "could not open" message as a fresh upload, instead of
     # leaking the staging path / GDAL driver dump. Cap 1151 -> 1156, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1156,
+    # fix(#1675): +79 — _fetch_service_layer_with_paging_guard: the paging
+    # decision (page-info probe, criteria, paged-vs-single dispatch) for the
+    # refresh executor, module-level so the branches stay out of
+    # reupload_service's complexity budget. Then +10 (codex r1): arm the
+    # origin-contact stamp when the probe's request begins — the probe is
+    # the first outbound contact and can die before any subprocess spawns.
+    # Cap 1156 -> 1245, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1245,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3313,7 +3328,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix: +3 — pass original_filename (job.source_filename) to run_ogrinfo
     # and run_ogr2ogr so a corrupt vector upload gets a friendly message
     # instead of GDAL's raw driver-enumeration stderr. Cap 1090 -> 1093, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1093,
+    # fix(#1675): -10 — the inline paged loop moved to tasks_common's shared
+    # run_paged_arcgis_service_fetch. Cap 1093 -> 1083, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1083,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

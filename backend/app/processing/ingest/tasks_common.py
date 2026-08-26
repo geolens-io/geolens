@@ -824,6 +824,103 @@ async def _archive_original_file(
         return False
 
 
+async def run_paged_arcgis_service_fetch(
+    *,
+    service_type_raw: str,
+    service_type: str,
+    source_url: str,
+    layer_name: str,
+    layer_id: "int | str | None",
+    token: "str | None",
+    staging_table: str,
+    db_conn_str: str,
+    schema: str,
+    feature_count: int,
+    page_size: int,
+    order_field: str,
+    is_non_spatial: bool = False,
+    on_spawn: Any = None,
+    on_page: Any = None,
+) -> None:
+    """Guarded resultOffset paging for an ArcGIS FeatureServer fetch.
+
+    fix(#1675): shared by initial import and the refresh/reupload executor so
+    both replacement paths distrust driver-side paging the same way. Each
+    page must grow the staging row count; a page that makes no progress
+    aborts the fetch instead of looping or silently stopping short (the
+    import path's original guard, extracted verbatim).
+
+    ``on_spawn`` is forwarded to every page's subprocess spawn (the refresh
+    door's origin-contact stamp is a monotonic OR, so repeated arming is
+    harmless). ``on_page`` (async, ``(imported_rows, feature_count)``) lets
+    the import path publish per-page progress; pass None to skip.
+    """
+    from sqlalchemy import text as _text
+
+    from app.core.db import async_session
+    from app.platform.extensions import get_processing_port
+    from app.processing.ingest import ogr
+    from app.processing.ingest.metadata import _qtable
+
+    port = get_processing_port()
+    imported_rows = 0
+    append = False
+    for offset in range(0, feature_count, page_size):
+        page_source, page_layer = port.build_gdal_source(
+            service_type_raw,
+            source_url,
+            layer_name,
+            layer_id,
+            token=token,
+            order_field=order_field,
+            result_limit=page_size,
+            result_offset=offset,
+        )
+        await ogr.run_ogr2ogr_service(
+            page_source,
+            page_layer,
+            staging_table,
+            db_conn_str,
+            service_type,
+            token=token,
+            is_non_spatial=is_non_spatial,
+            append=append,
+            schema=schema,
+            on_spawn=on_spawn,
+        )
+        async with async_session() as session:
+            result = await session.execute(
+                _text(f"SELECT COUNT(*) FROM {_qtable(staging_table, schema=schema)}")
+            )
+            next_imported_rows = int(result.scalar_one())
+        grew = next_imported_rows - imported_rows
+        if grew <= 0:
+            raise ogr.IngestionError(
+                "ArcGIS service import made no row-count progress "
+                f"at offset {offset}; upstream pagination may be "
+                "unsupported or returned an empty page."
+            )
+        expected = min(page_size, feature_count - offset)
+        if grew != expected:
+            # fix(#1675 codex r2): a server that returns SOME rows but fewer
+            # than the requested page while the offset still advances by
+            # page_size would silently skip records — positive growth is not
+            # enough, the growth must be exact or a truncated copy swaps in
+            # cleanly. A mid-fetch source mutation trips this too, which is
+            # the safe direction: fail and retry against fresh counts.
+            raise ogr.IngestionError(
+                f"ArcGIS page at offset {offset} returned {grew} rows where "
+                f"{expected} were expected; the server may cap responses "
+                "below its advertised page size or the source changed "
+                "mid-fetch. Refusing to continue with a potentially "
+                "incomplete copy."
+            )
+        imported_rows = next_imported_rows
+        if on_page is not None:
+            await on_page(imported_rows, feature_count)
+        append = True
+
+
 async def _run_staging_pipeline(
     session,
     *,
