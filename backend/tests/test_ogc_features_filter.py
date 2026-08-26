@@ -906,26 +906,53 @@ async def test_filter_still_rejected_without_value_types(
 # before it reaches a real QGIS session.
 
 
+def _same_origin_path(href: str, expected_origin: str) -> str:
+    """Path+query of ``href`` iff it shares ``expected_origin``.
+
+    fix(#1680 codex r3): urlparse(href).path alone discards scheme/host, so a
+    PUBLIC_API_URL that resolved a *different* origin on one leg would still
+    resolve locally via ASGITransport and pass every suffix assertion -- a
+    real client (QGIS) would instead be pointed off-server and fail to
+    connect. Asserting the origin before discarding it makes that class of
+    bug fail loudly here instead of shipping silently.
+    """
+    parsed = urlparse(href)
+    origin = f"{parsed.scheme}://{parsed.netloc}"
+    assert origin == expected_origin, (
+        f"advertised link {href!r} has origin {origin!r}, expected "
+        f"{expected_origin!r} -- a real client could not follow it"
+    )
+    path = parsed.path
+    return f"{path}?{parsed.query}" if parsed.query else path
+
+
 @pytest.mark.anyio
 async def test_qgis_344_request_sequence_end_to_end(
     client: AsyncClient, filter_dataset: Dataset
 ):
-    # 1. Landing page: QGIS follows rel=conformance from here. Fetch the next
-    # leg via the *discovered* href's path (fix(#1680 codex r1): a hard-coded
-    # "/conformance" request would still land on the right route even if
-    # PUBLIC_API_URL produced a wrong scheme/host/prefix, silently defeating
-    # the whole point of replaying advertised links).
+    # 1. Landing page: QGIS follows rel=data (collections) and rel=conformance
+    # from here. Every subsequent leg is fetched via its *discovered* href,
+    # validated to share the landing page's own origin (fix(#1680 codex
+    # r1-r3): a hard-coded path would still land on the right local route even
+    # if an advertised link pointed somewhere QGIS could never actually reach,
+    # silently defeating the whole point of replaying advertised links).
     landing = await client.get("/")
     assert landing.status_code == 200
+    landing_links = landing.json()["links"]
+    self_href = next(link["href"] for link in landing_links if link["rel"] == "self")
+    origin = f"{urlparse(self_href).scheme}://{urlparse(self_href).netloc}"
+
     conformance_href = next(
-        link["href"] for link in landing.json()["links"] if link["rel"] == "conformance"
+        link["href"] for link in landing_links if link["rel"] == "conformance"
     )
     assert conformance_href.endswith("/conformance")
+    data_href = next(link["href"] for link in landing_links if link["rel"] == "data")
+    assert data_href.endswith("/collections")
 
     # 2. Conformance: gates mServerSupportsFilterCql2Text (base push-down) AND
     # mServerSupportsBasicSpatialFunctions (spatial predicate push-down), per
     # qgis/QGIS#62156 (see test_ogc_discovery.py for the full URI-by-URI pin).
-    conformance = await client.get(urlparse(conformance_href).path)
+    conformance = await client.get(_same_origin_path(conformance_href, origin))
     assert conformance.status_code == 200
     conforms_to = set(conformance.json()["conformsTo"])
     required = {
@@ -937,9 +964,14 @@ async def test_qgis_344_request_sequence_end_to_end(
     }
     assert required <= conforms_to
 
-    # 3. Collection metadata: QGIS resolves the queryables AND items links
-    # from here -- neither is a path the client is allowed to assume.
-    collection = await client.get(f"/collections/{filter_dataset.id}")
+    # 3. Collection metadata, reached via the landing page's rel=data
+    # (collections) link -- the dataset id itself is the one thing a real
+    # QGIS user supplies (by picking it from the browsable collections list,
+    # which this single-dataset fixture can't exercise meaningfully; the
+    # origin+path validation above and below is what actually matters here).
+    collection = await client.get(
+        f"{_same_origin_path(data_href, origin)}/{filter_dataset.id}"
+    )
     assert collection.status_code == 200
     collection_links = collection.json()["links"]
     queryables_href = next(
@@ -954,8 +986,8 @@ async def test_qgis_344_request_sequence_end_to_end(
     assert items_href.endswith(f"/collections/{filter_dataset.id}/items")
 
     # 4. Queryables: QGIS builds its field list + geometry queryable from
-    # this -- again via the discovered href's path, not a re-typed one.
-    queryables = await client.get(urlparse(queryables_href).path)
+    # this -- again via the discovered href, not a re-typed path.
+    queryables = await client.get(_same_origin_path(queryables_href, origin))
     assert queryables.status_code == 200
     props = queryables.json()["properties"]
     assert "geometry" in props
@@ -963,11 +995,10 @@ async def test_qgis_344_request_sequence_end_to_end(
 
     # 5. Items with a pushed-down spatial predicate, exactly as QGIS's
     # QgsOapifCql2TextExpressionCompiler emits it for a map-canvas-extent
-    # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded. fix(#1680
-    # codex r2): issued against the discovered items_href's path, not a
-    # re-typed one -- same rationale as the conformance/queryables legs above.
+    # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded. Issued
+    # against the discovered items_href, not a re-typed path.
     items = await client.get(
-        urlparse(items_href).path,
+        _same_origin_path(items_href, origin),
         params={
             "filter": f"S_INTERSECTS(geometry,BBOX({','.join(str(v) for v in BBOX_12)}))",
             "filter-lang": "cql2-text",
