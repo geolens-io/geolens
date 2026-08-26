@@ -220,7 +220,39 @@ async def visibility_check_endpoint(
     )
 
 
-@router.get("/{map_id}/style.json", responses={403: FORBIDDEN_RESPONSE})
+@router.get(
+    "/{map_id}/style.json",
+    responses={
+        # fix(#1672): the 200 schema stays deliberately open — a hand-typed
+        # mirror of the versioned MapLibre style spec is exactly the kind of
+        # copy that drifts (#1670 avoided the same trap). The contract names
+        # the upstream spec and pins the one shape the two sides disagreed
+        # on: sprite is ALWAYS the array form, which /maps/import accepts.
+        200: {
+            "description": (
+                "A complete MapLibre style document for the saved map. Its "
+                "shape is governed by the MapLibre Style Specification "
+                "(https://maplibre.org/maplibre-style-spec/) and is not "
+                "mirrored field-by-field in this contract. One guarantee "
+                "beyond the spec: `sprite` is always emitted in the array "
+                "form `[{id, url}]`, which POST /maps/import also accepts, "
+                "so exported documents round-trip."
+            ),
+            "content": {
+                "application/json": {
+                    "schema": {
+                        "type": "object",
+                        "description": (
+                            "MapLibre style document "
+                            "(https://maplibre.org/maplibre-style-spec/)"
+                        ),
+                    }
+                }
+            },
+        },
+        403: FORBIDDEN_RESPONSE,
+    },
+)
 async def export_map_style_endpoint(
     map_id: uuid.UUID,
     request: Request,

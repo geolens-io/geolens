@@ -10308,6 +10308,27 @@
         "title": "MapResponse",
         "type": "object"
       },
+      "MapSpriteEntry": {
+        "description": "One entry of the MapLibre array-form ``sprite`` ({id, url}).",
+        "properties": {
+          "id": {
+            "maxLength": 255,
+            "title": "Id",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2000,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "url"
+        ],
+        "title": "MapSpriteEntry",
+        "type": "object"
+      },
       "MapStyleImportRequest": {
         "additionalProperties": true,
         "description": "Typed request body for POST /maps/import \u2014 API-01 / M-05.\n\nMirrors the top-level keys of the MapLibre Style Specification that\n``parse_maplibre_style_import`` actually reads. ``extra=\"allow\"`` keeps\nforward-compatibility with future MapLibre fields (e.g. ``projection``,\n``light``, ``transition``) so adding a new key on the client side\ndoesn't require a server release.\n\nReplacing the previous bare-``dict`` body parameter removes\n``additionalProperties: true`` from the OpenAPI schema and lets\nopenapi-python-client generate a navigable named model class.",
@@ -10424,9 +10445,16 @@
                 "type": "string"
               },
               {
+                "items": {
+                  "$ref": "#/components/schemas/MapSpriteEntry"
+                },
+                "type": "array"
+              },
+              {
                 "type": "null"
               }
             ],
+            "description": "MapLibre sprite: base URL string or array of {id, url} entries (the array form is what GeoLens style exports emit)",
             "title": "Sprite"
           },
           "glyphs": {
@@ -48185,10 +48213,13 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "description": "MapLibre style document (https://maplibre.org/maplibre-style-spec/)",
+                  "type": "object"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "A complete MapLibre style document for the saved map. Its shape is governed by the MapLibre Style Specification (https://maplibre.org/maplibre-style-spec/) and is not mirrored field-by-field in this contract. One guarantee beyond the spec: `sprite` is always emitted in the array form `[{id, url}]`, which POST /maps/import also accepts, so exported documents round-trip."
           },
           "400": {
             "content": {
