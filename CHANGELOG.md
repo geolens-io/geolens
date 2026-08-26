@@ -55,6 +55,16 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **A database hiccup no longer narrows which file types you can upload.**
+  Both upload doors tolerate a failed settings lookup by falling back to a
+  built-in extension list, and that list was frozen at the formats available
+  when it was written. GeoParquet has been missing from it since GeoParquet
+  import shipped, so during exactly the transient failure the fallback exists
+  to survive, a `.parquet` upload was refused for a reason no operator had
+  configured. Both fallbacks now read the configured default. A narrower list
+  was never the safer one: the extension check gates nothing by itself, since
+  content validation, the size limit, and the storage quota all still run.
+
 - **The API contract now describes what the server actually accepts and
   returns.** Three things in the generated OpenAPI schema described FastAPI's
   defaults where the app overrides them, and anyone generating a client
