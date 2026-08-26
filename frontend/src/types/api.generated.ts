@@ -20486,6 +20486,18 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                        job_id?: string;
+                    };
+                };
+            };
             /** @description Bad request — invalid query parameters or payload */
             400: {
                 headers: {
@@ -20625,6 +20637,18 @@ export interface operations {
                     "application/json": unknown;
                 };
             };
+            /** @description Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                        job_id?: string;
+                    };
+                };
+            };
             /** @description Bad request — invalid query parameters or payload */
             400: {
                 headers: {
@@ -20703,6 +20727,18 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        status?: string;
+                        job_id?: string;
+                    };
                 };
             };
             /** @description Bad request — invalid query parameters or payload */

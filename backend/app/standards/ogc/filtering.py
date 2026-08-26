@@ -321,6 +321,16 @@ def build_feature_queryables_response(
     return schema
 
 
+def _is_finite_number(value) -> bool:
+    """True for a finite int/float; False for NaN/Infinity and for integers
+    too large for a C double (fix(#1614 codex r5): math.isfinite raises
+    OverflowError on those, which would 500 on caller input)."""
+    try:
+        return math.isfinite(value)
+    except (OverflowError, TypeError):
+        return False
+
+
 def _bbox_ring(minx, miny, maxx, maxy) -> list:
     return [
         [
@@ -348,7 +358,7 @@ def _bbox_geometry(minx, miny, maxx, maxy) -> dict:
     the right dimension instead of a zero-area ring PostGIS may reject.
     """
     for v in (minx, miny, maxx, maxy):
-        if not math.isfinite(v):
+        if not _is_finite_number(v):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="BBox coordinates must be finite numbers",
@@ -505,9 +515,22 @@ def _checked_value(value, pg_type: str | None, errors: list[str]):
     if pg_type in _STRING_PG_TYPES:
         ok = isinstance(value, str)
     elif pg_type in _INTEGER_PG_TYPES:
-        ok = isinstance(value, int) and not isinstance(value, bool)
+        # int8 bound: an out-of-range literal would raise inside the driver's
+        # encode path rather than compare (fix(#1614 codex r5)).
+        ok = (
+            isinstance(value, int)
+            and not isinstance(value, bool)
+            and -(2**63) <= value < 2**63
+        )
     elif pg_type in _NUMBER_PG_TYPES:
-        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
+        # Python's JSON decoder accepts NaN/Infinity tokens; `height <
+        # Infinity` would otherwise match every finite row instead of being
+        # rejected as an invalid filter (fix(#1614 codex r5)).
+        ok = (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and _is_finite_number(value)
+        )
     elif pg_type == "boolean":
         ok = isinstance(value, bool)
     else:  # geometry marker in a scalar position

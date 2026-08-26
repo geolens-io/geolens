@@ -29315,6 +29315,24 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "job_id": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry."
+          },
           "400": {
             "content": {
               "application/problem+json": {
@@ -29572,6 +29590,24 @@
             },
             "description": "Successful Response"
           },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "job_id": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry."
+          },
           "400": {
             "content": {
               "application/problem+json": {
@@ -29700,6 +29736,24 @@
               }
             },
             "description": "Successful Response"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "type": "string"
+                    },
+                    "job_id": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry."
           },
           "400": {
             "content": {

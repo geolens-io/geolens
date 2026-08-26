@@ -15477,6 +15477,13 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
             title?: string | null;
         }>;
     };
+    /**
+     * Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry.
+     */
+    202: {
+        status?: string;
+        job_id?: string;
+    };
 };
 
 export type GetCollectionItemsCollectionsDatasetIdItemsGetResponse = GetCollectionItemsCollectionsDatasetIdItemsGetResponses[keyof GetCollectionItemsCollectionsDatasetIdItemsGetResponses];
@@ -15603,6 +15610,13 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
             title?: string | null;
         }>;
     };
+    /**
+     * Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry.
+     */
+    202: {
+        status?: string;
+        job_id?: string;
+    };
 };
 
 export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponses[keyof GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponses];
@@ -15658,7 +15672,16 @@ export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponses = 
      * Successful Response
      */
     200: unknown;
+    /**
+     * Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry.
+     */
+    202: {
+        status?: string;
+        job_id?: string;
+    };
 };
+
+export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse = GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponses[keyof GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponses];
 
 export type DryRunConfigurationConfigOpsDryRunPostData = {
     body: ConfigImportRequest;

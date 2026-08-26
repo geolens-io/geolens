@@ -8,6 +8,9 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
+from ...models.get_collection_queryables_collections_dataset_id_queryables_get_response_202 import (
+    GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -43,10 +46,22 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> (
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
+    | ProblemDetail
+    | None
+):
     if response.status_code == 200:
         response_200 = response.json()
         return response_200
+
+    if response.status_code == 202:
+        response_202 = GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202.from_dict(
+            response.json()
+        )
+
+        return response_202
 
     if response.status_code == 400:
         response_400 = ProblemDetail.from_dict(response.json())
@@ -86,7 +101,11 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
+    | ProblemDetail
+]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -100,7 +119,11 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
-) -> Response[Any | ProblemDetail]:
+) -> Response[
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
+    | ProblemDetail
+]:
     """Get Collection Queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
@@ -119,7 +142,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -139,7 +162,12 @@ def sync(
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
-) -> Any | ProblemDetail | None:
+) -> (
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
+    | ProblemDetail
+    | None
+):
     """Get Collection Queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
@@ -158,7 +186,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail
     """
 
     return sync_detailed(
@@ -173,7 +201,11 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
-) -> Response[Any | ProblemDetail]:
+) -> Response[
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
+    | ProblemDetail
+]:
     """Get Collection Queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
@@ -192,7 +224,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -210,7 +242,12 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
-) -> Any | ProblemDetail | None:
+) -> (
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
+    | ProblemDetail
+    | None
+):
     """Get Collection Queryables
 
      Queryable properties for one feature collection (OGC Features Part 3).
@@ -229,7 +266,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail
     """
 
     return (

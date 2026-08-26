@@ -611,6 +611,38 @@ async def test_invalid_filters_return_400(
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "filter_json",
+    [
+        pytest.param(
+            '{"op":"<","args":[{"property":"height"},Infinity]}', id="infinity"
+        ),
+        pytest.param('{"op":"=","args":[{"property":"height"},NaN]}', id="nan"),
+        pytest.param(
+            '{"op":"=","args":[{"property":"cat"},' + "9" * 401 + "]}",
+            id="huge-int-int8",
+        ),
+        pytest.param(
+            '{"op":"s_intersects","args":[{"property":"geometry"},'
+            '{"bbox":[' + "9" * 401 + ",0,1,1]}]}",
+            id="huge-int-bbox",
+        ),
+    ],
+)
+async def test_non_finite_and_oversized_literals_rejected(
+    client: AsyncClient, filter_dataset: Dataset, filter_json: str
+):
+    """fix(#1614 codex r5): Python's JSON decoder accepts NaN/Infinity, and
+    math.isfinite raises OverflowError on a 401-digit integer — all of these
+    must be the caller's 400, never a match-everything filter or a 500."""
+    resp = await client.get(
+        _items_url(filter_dataset),
+        params={"filter": filter_json, "filter-lang": "cql2-json"},
+    )
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.anyio
 async def test_oversized_filter_rejected(client: AsyncClient, filter_dataset: Dataset):
     resp = await client.get(
         _items_url(filter_dataset),

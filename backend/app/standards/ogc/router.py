@@ -53,6 +53,29 @@ logger = structlog.stdlib.get_logger(__name__)
 
 _CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
 
+# fix(#1614 codex r5): every route that runs _check_cold_rehydrate can answer
+# 202 {status: 'warming', job_id} in multi-tenant mode; declaring it keeps
+# generated SDK clients from discarding the body or raising UnexpectedStatus.
+COLD_WARMING_RESPONSE: dict = {
+    202: {
+        "description": (
+            "Dataset table is cold and being rehydrated (multi-tenant); "
+            "poll the job and retry."
+        ),
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string"},
+                        "job_id": {"type": "string"},
+                    },
+                }
+            }
+        },
+    }
+}
+
 
 # feat(#1614): SQLSTATEs that mean "the CQL2 filter doesn't type against this
 # table": undefined operator/function, datatype mismatch, cannot coerce,
@@ -468,7 +491,7 @@ async def get_dataset_collection(
 @ogc_features_router.get(
     "/collections/{dataset_id}/queryables",
     response_class=JSONResponse,
-    responses=ERROR_RESPONSES_PUBLIC,
+    responses={**COLD_WARMING_RESPONSE, **ERROR_RESPONSES_PUBLIC},
 )
 async def get_collection_queryables(
     request: Request,
@@ -563,6 +586,7 @@ async def get_collection_queryables(
                 }
             }
         },
+        **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
 )
@@ -945,6 +969,7 @@ async def get_collection_items(
                 }
             }
         },
+        **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
 )

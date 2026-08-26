@@ -11,6 +11,9 @@ from ... import errors
 from ...models.get_collection_items_collections_dataset_id_items_get_ogc_feature_items_response import (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse,
 )
+from ...models.get_collection_items_collections_dataset_id_items_get_response_202 import (
+    GetCollectionItemsCollectionsDatasetIdItemsGetResponse202,
+)
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -100,6 +103,7 @@ def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
+    | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
     | ProblemDetail
     | None
 ):
@@ -109,6 +113,15 @@ def _parse_response(
         )
 
         return response_200
+
+    if response.status_code == 202:
+        response_202 = (
+            GetCollectionItemsCollectionsDatasetIdItemsGetResponse202.from_dict(
+                response.json()
+            )
+        )
+
+        return response_202
 
     if response.status_code == 400:
         response_400 = ProblemDetail.from_dict(response.json())
@@ -150,6 +163,7 @@ def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
+    | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
     | ProblemDetail
 ]:
     return Response(
@@ -176,6 +190,7 @@ def sync_detailed(
     filter_crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
+    | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
     | ProblemDetail
 ]:
     r"""Get Collection Items
@@ -219,7 +234,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | ProblemDetail]
+        Response[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -259,6 +274,7 @@ def sync(
     filter_crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
+    | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
     | ProblemDetail
     | None
 ):
@@ -303,7 +319,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | ProblemDetail
+        GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202 | ProblemDetail
     """
 
     return sync_detailed(
@@ -338,6 +354,7 @@ async def asyncio_detailed(
     filter_crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
+    | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
     | ProblemDetail
 ]:
     r"""Get Collection Items
@@ -381,7 +398,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | ProblemDetail]
+        Response[GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -419,6 +436,7 @@ async def asyncio(
     filter_crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
+    | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202
     | ProblemDetail
     | None
 ):
@@ -463,7 +481,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | ProblemDetail
+        GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse | GetCollectionItemsCollectionsDatasetIdItemsGetResponse202 | ProblemDetail
     """
 
     return (
