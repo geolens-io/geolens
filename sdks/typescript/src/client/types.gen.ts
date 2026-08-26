@@ -15355,6 +15355,24 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
          * Include geometry in response. Set to false for attribute-only queries.
          */
         include_geometry?: boolean;
+        /**
+         * Filter
+         *
+         * CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND.
+         */
+        filter?: string | null;
+        /**
+         * Filter-Lang
+         *
+         * Filter language: cql2-text (default) or cql2-json.
+         */
+        'filter-lang'?: string;
+        /**
+         * Filter-Crs
+         *
+         * CRS of filter geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
+         */
+        'filter-crs'?: string | null;
     };
     url: '/collections/{dataset_id}/items';
 };
@@ -15458,6 +15476,13 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetResponses = {
              */
             title?: string | null;
         }>;
+    };
+    /**
+     * Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry.
+     */
+    202: {
+        status?: string;
+        job_id?: string;
     };
 };
 
@@ -15585,9 +15610,78 @@ export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetRespons
             title?: string | null;
         }>;
     };
+    /**
+     * Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry.
+     */
+    202: {
+        status?: string;
+        job_id?: string;
+    };
 };
 
 export type GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponses[keyof GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponses];
+
+export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetData = {
+    body?: never;
+    path: {
+        /**
+         * Dataset Id
+         */
+        dataset_id: string;
+    };
+    query?: {
+        /**
+         * F
+         */
+        f?: string | null;
+    };
+    url: '/collections/{dataset_id}/queryables';
+};
+
+export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored.
+     */
+    401: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetError = GetCollectionQueryablesCollectionsDatasetIdQueryablesGetErrors[keyof GetCollectionQueryablesCollectionsDatasetIdQueryablesGetErrors];
+
+export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: unknown;
+    /**
+     * Dataset table is cold and being rehydrated (multi-tenant); poll the job and retry.
+     */
+    202: {
+        status?: string;
+        job_id?: string;
+    };
+};
+
+export type GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse = GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponses[keyof GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponses];
 
 export type DryRunConfigurationConfigOpsDryRunPostData = {
     body: ConfigImportRequest;

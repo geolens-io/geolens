@@ -5,7 +5,7 @@ import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError, ProgrammingError
+from sqlalchemy.exc import DataError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -22,7 +22,9 @@ from app.modules.catalog.authorization import apply_visibility_filter, get_user_
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.features.schemas import inline_json_schema
 from app.modules.catalog.features.service import (
+    feature_table_exists,
     get_feature_by_id,
+    get_feature_queryable_columns,
     get_features,
     parse_bbox,
 )
@@ -31,6 +33,12 @@ from app.platform.extensions import (
     get_data_serving_extension,
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.filtering import (
+    build_feature_queryables_response,
+    compile_feature_cql2_ast,
+    feature_queryable_columns,
+    parse_feature_cql2,
+)
 from app.standards.ogc.schemas import (
     ConformanceResponse,
     LandingPage,
@@ -42,6 +50,44 @@ from app.standards.ogc.schemas import (
 from app.standards.ogc.utils import build_url, link_header_value
 
 logger = structlog.stdlib.get_logger(__name__)
+
+_CRS84_URI = "http://www.opengis.net/def/crs/OGC/1.3/CRS84"
+
+# fix(#1614 codex r5): every route that runs _check_cold_rehydrate can answer
+# 202 {status: 'warming', job_id} in multi-tenant mode; declaring it keeps
+# generated SDK clients from discarding the body or raising UnexpectedStatus.
+COLD_WARMING_RESPONSE: dict = {
+    202: {
+        "description": (
+            "Dataset table is cold and being rehydrated (multi-tenant); "
+            "poll the job and retry."
+        ),
+        "content": {
+            "application/json": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string"},
+                        "job_id": {"type": "string"},
+                    },
+                }
+            }
+        },
+    }
+}
+
+
+# feat(#1614): SQLSTATEs that mean "the CQL2 filter doesn't type against this
+# table": undefined operator/function, datatype mismatch, cannot coerce,
+# indeterminate datatype. Deliberately NOT the whole 42 class — 42P01 is the
+# missing-table 503 and e.g. 42501 (privilege) is an operator problem.
+_TYPE_FAULT_SQLSTATES = {"42883", "42804", "42846", "42P18"}
+
+
+def _pg_sqlstate(exc: Exception) -> str | None:
+    """SQLSTATE from a SQLAlchemy-wrapped asyncpg error, if present."""
+    orig = getattr(exc, "orig", None)
+    return getattr(orig, "sqlstate", None) or getattr(orig, "pgcode", None)
 
 
 async def _emit_ogc_usage_event(table_name: str) -> None:
@@ -273,14 +319,24 @@ async def conformance(f: str | None = Query(None)) -> ConformanceResponse:
             # OGC API Features Part 1: Core
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core",
             "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/geojson",
-            # CQL2 query language (advertised for the Records collection, which
-            # supports filtering + /queryables). fix(#430 BA-14): the Features Part 3
-            # `conf/filter` / `conf/features-filter` classes were dropped because
-            # per-dataset feature collections reject `filter` with 400 — advertising
-            # them told spec-driven clients to send filters that always 400.
+            # OGC API Features Part 3: Filtering. fix(#430 BA-14) dropped these
+            # classes while per-dataset feature collections rejected `filter`
+            # with 400; feat(#1614) restored them in the same commit that made
+            # `filter=` + per-collection /queryables work, so they are never
+            # advertised ahead of the implementation.
+            "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/queryables",
+            "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
+            "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+            # CQL2 query language (Records collection + feature collections).
+            # advanced-comparison-operators and basic-spatial-functions are
+            # advertised because every operator they cover is tested in both
+            # encodings (test_ogc_features_filter.py), including the encoding
+            # shims in standards/ogc/filtering.py that final-spec clients need.
             "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
             "http://www.opengis.net/spec/cql2/1.0/conf/cql2-json",
             "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
+            "http://www.opengis.net/spec/cql2/1.0/conf/advanced-comparison-operators",
+            "http://www.opengis.net/spec/cql2/1.0/conf/basic-spatial-functions",
             # OGC API Records Part 1
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core",
             "http://www.opengis.net/spec/ogcapi-records-1/1.0/conf/record-core-query-parameters",
@@ -365,6 +421,19 @@ async def get_dataset_collection(
                 title="Features",
             )
         )
+        # feat(#1614): OGC Features Part 3 queryables link — required by the
+        # conf/queryables class, vector collections only (raster has no items).
+        links.append(
+            OGCLink(
+                rel="http://www.opengis.net/def/rel/ogc/1.0/queryables",
+                href=build_url(
+                    f"/collections/{dataset.id}/queryables",
+                    base_url=public_api_url,
+                ),
+                type="application/schema+json",
+                title="Queryables",
+            )
+        )
     else:
         # fix(#315): a coverage collection has no rel=items, so without a
         # replacement link the body would only carry self+root and be a
@@ -420,6 +489,87 @@ async def get_dataset_collection(
 
 
 @ogc_features_router.get(
+    "/collections/{dataset_id}/queryables",
+    response_class=JSONResponse,
+    responses={**COLD_WARMING_RESPONSE, **ERROR_RESPONSES_PUBLIC},
+)
+async def get_collection_queryables(
+    request: Request,
+    dataset_id: uuid.UUID,
+    f: str | None = Query(None),
+    user: Identity | None = Depends(get_optional_user),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Queryable properties for one feature collection (OGC Features Part 3).
+
+    feat(#1614): derived from the live table schema (never the stored
+    column_info snapshot) so the advertised set always matches what `filter=`
+    on /items validates against. `additionalProperties: false` is what makes
+    rejecting filters on unlisted properties spec-conformant.
+    """
+    _validate_f_param(f)
+    public_api_url = await get_public_api_url(db, request=request)
+    dataset = await _get_visible_dataset(db, user, dataset_id)
+
+    # Mirrors get_collection_items: raster collections have no feature table.
+    if dataset.record.record_type in RASTER_FAMILY_RECORD_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=(
+                f"Collection '{dataset_id}' is a raster collection and has no "
+                "feature items; use the tile/coverage endpoints instead."
+            ),
+        )
+
+    # fix(#1614 codex r1): a cold (evicted) table has no information_schema
+    # rows, so deriving queryables from it would publish an attribute-less
+    # document as authoritative. Run the same cold-rehydrate seam as /items
+    # BEFORE reading the live schema (202-warming instead of a wrong 200).
+    if dataset.table_name and dataset.record:
+        _q_cold_tid = current_tenant_var.get(None)
+        _q_cold_result = await _check_cold_rehydrate(
+            dataset.table_name,
+            dataset.record.record_status or "",
+            str(_q_cold_tid) if _q_cold_tid is not None else "",
+        )
+        if _q_cold_result is not None:
+            return _q_cold_result
+
+    # fix(#1614 codex r2): get_column_info returns [] for a MISSING table as
+    # well as for an attribute-less one. A missing table (partial ingest /
+    # eviction race) must stay the same retryable 503 the /items path
+    # reports, not publish an empty queryables document as authoritative.
+    # fix(#1614 codex r6): schema-introspection database errors are
+    # operational — same 503 classification as the items path.
+    try:
+        if not await feature_table_exists(db, dataset.table_name):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is temporarily unavailable",
+            )
+        live_columns = await get_feature_queryable_columns(db, dataset.table_name)
+    except (ProgrammingError, OperationalError):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is temporarily unavailable",
+        )
+
+    queryables = feature_queryable_columns(
+        live_columns,
+        dataset.geometry_type,
+    )
+    return JSONResponse(
+        content=build_feature_queryables_response(
+            str(dataset.id),
+            dataset.record.title,
+            queryables,
+            public_api_url,
+        ),
+        media_type="application/schema+json",
+    )
+
+
+@ogc_features_router.get(
     "/collections/{dataset_id}/items/",
     response_class=JSONResponse,
     responses={
@@ -445,6 +595,7 @@ async def get_dataset_collection(
                 }
             }
         },
+        **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
 )
@@ -492,6 +643,28 @@ async def get_collection_items(
         True,
         description="Include geometry in response. Set to false for attribute-only queries.",
     ),
+    filter_expr: str | None = Query(
+        None,
+        alias="filter",
+        description=(
+            "CQL2 filter expression evaluated server-side against this "
+            "collection's queryables document (feat(#1614), OGC Features "
+            "Part 3). Combines with bbox and property filters by AND."
+        ),
+    ),
+    filter_lang: str = Query(
+        "cql2-text",
+        alias="filter-lang",
+        description="Filter language: cql2-text (default) or cql2-json.",
+    ),
+    filter_crs: str | None = Query(
+        None,
+        alias="filter-crs",
+        description=(
+            "CRS of filter geometries. Only CRS84 "
+            "(http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported."
+        ),
+    ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -529,17 +702,13 @@ async def get_collection_items(
             ),
         )
 
-    # fix(#315): CQL2 filtering is only supported on the datasets (records) collection,
-    # which has a dedicated handler. On per-dataset feature collections a filter
-    # would otherwise be silently dropped (or a malformed one return 200), so
-    # reject it explicitly with 400 — matching the records-path reject contract.
-    if request.query_params.get("filter") is not None:
+    # feat(#1614): `filter=` is now evaluated server-side (compiled below,
+    # after the cold-rehydrate seam). Filter geometries are WGS84-only —
+    # reject any other filter-crs instead of misinterpreting coordinates.
+    if filter_crs is not None and filter_crs != _CRS84_URI:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                "CQL2 filter is not supported on feature collections; use the "
-                "datasets (records) collection for catalog-level CQL2 filtering."
-            ),
+            detail=f"Unsupported filter-crs: only {_CRS84_URI} is supported.",
         )
 
     # Parse bbox
@@ -565,10 +734,11 @@ async def get_collection_items(
         "crs",
         "api_key",
         "include_geometry",
-        # fix(#315): filter/filter-lang are rejected above on feature collections; keep
-        # them out of property_filters so they never leak into the SQL WHERE.
+        # feat(#1614): the CQL2 filter params bind explicitly above; keep them
+        # out of property_filters so they never double as column filters.
         "filter",
         "filter-lang",
+        "filter-crs",
     }
     property_filters = {
         k: v for k, v in request.query_params.items() if k not in ogc_reserved
@@ -605,6 +775,41 @@ async def get_collection_items(
     # still raises ProgrammingError/OperationalError here; mirror the native
     # list_features handler and return 503 rather than an unhandled 500 that
     # holds a DB connection.
+    # feat(#1614): compile the CQL2 filter against the live table schema —
+    # the same schema authority the queryables document publishes. This runs
+    # after the cold-rehydrate seam so a cold table warms (202) instead of
+    # misreporting its columns as unknown queryables.
+    cql2_where: str | None = None
+    cql2_binds: list = []
+    if filter_expr is not None:
+        # Ordering is deliberate: a parse failure is the caller's bug (400,
+        # no database access); then fix(#1614 codex r2) — a missing table
+        # yields an empty live schema, and compiling against it would 400
+        # every attribute filter as an unknown property, so table
+        # availability stays the retryable 503; schema-dependent validation
+        # runs last.
+        filter_ast = parse_feature_cql2(filter_expr, filter_lang)
+        # fix(#1614 codex r6): the schema-introspection queries carry no
+        # caller input, so any database error here is operational — classify
+        # it exactly like the feature query's 503, not a 500.
+        try:
+            if not await feature_table_exists(db, dataset.table_name):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Dataset table is temporarily unavailable",
+                )
+            live_columns = await get_feature_queryable_columns(db, dataset.table_name)
+        except (ProgrammingError, OperationalError):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is temporarily unavailable",
+            )
+        queryables = feature_queryable_columns(
+            live_columns,
+            dataset.geometry_type,
+        )
+        cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
+
     try:
         # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
         # a full *final* page; otherwise a feature count that is an exact multiple
@@ -621,8 +826,35 @@ async def get_collection_items(
             allowed_columns=allowed_columns,
             include_geometry=include_geometry,
             cached_feature_count=dataset.feature_count,
+            cql2_where=cql2_where,
+            cql2_binds=cql2_binds,
         )
-    except (ProgrammingError, OperationalError):
+    except (ProgrammingError, OperationalError, DataError) as exc:
+        # feat(#1614): with a filter active, a type-shaped database error is
+        # the filter itself — e.g. a property-property comparison between
+        # incomparable types that pre-validation lets through. Report those
+        # as the caller's 400, never an unhandled 500 (QA finding B3).
+        # fix(#1614 codex r1): only type/data SQLSTATEs are caller faults —
+        # class 22 (data exceptions), the 42xxx operator/cast states, and
+        # client-side bind DataErrors. Everything else (dropped connection,
+        # cancellation, missing table) keeps the retryable 503 so monitoring
+        # and clients classify outages correctly.
+        sqlstate = _pg_sqlstate(exc) or ""
+        filter_fault = cql2_where is not None and (
+            sqlstate.startswith("22")
+            or sqlstate in _TYPE_FAULT_SQLSTATES
+            or (isinstance(exc, DataError) and not sqlstate)
+        )
+        if filter_fault:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "CQL2 filter is not evaluable against this collection's "
+                    "property types"
+                ),
+            )
+        if isinstance(exc, DataError):
+            raise
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dataset table is temporarily unavailable",
@@ -650,6 +882,12 @@ async def get_collection_items(
         active_params["bbox"] = bbox
     if datetime_param:
         active_params["datetime"] = datetime_param
+    if filter_expr is not None:
+        active_params["filter"] = filter_expr
+        if filter_lang != "cql2-text":
+            active_params["filter-lang"] = filter_lang
+        if filter_crs:
+            active_params["filter-crs"] = filter_crs
     if property_filters:
         active_params.update(property_filters)
 
@@ -750,6 +988,7 @@ async def get_collection_items(
                 }
             }
         },
+        **COLD_WARMING_RESPONSE,
         **ERROR_RESPONSES_PUBLIC,
     },
 )

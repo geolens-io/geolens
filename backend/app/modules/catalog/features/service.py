@@ -186,6 +186,41 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     )
 
 
+async def feature_table_exists(db: AsyncSession, table_name: str) -> bool:
+    """Whether the tenant-schema data table currently exists.
+
+    fix(#1614 codex r2): ``get_column_info`` returns [] both for a table with
+    zero attribute columns and for a MISSING table (partial ingest, eviction).
+    Queryables/filter callers must distinguish the two — an empty schema is
+    authoritative only when the table is really there; a missing table is the
+    same retryable 503 the feature query paths report.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
+    result = await db.execute(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = :schema AND table_name = :tn)"
+        ).bindparams(schema=schema, tn=table_name)
+    )
+    return bool(result.scalar_one())
+
+
+async def get_feature_queryable_columns(
+    db: AsyncSession, table_name: str
+) -> list[dict]:
+    """Live column name/type rows for Part 3 queryables and CQL2 filtering.
+
+    fix(#1614): same live-schema authority rule as ``live_property_columns`` —
+    the filterable set must match the table the SQL runs against, not the
+    stored ``Dataset.column_info`` snapshot. The catalog port resolves the
+    tenant schema itself when none is passed.
+    """
+    return await get_catalog_port().get_column_info(db, table_name)
+
+
 async def _projected_row_source(
     db: AsyncSession, table_name: str, *, with_geometry: bool
 ) -> str:
@@ -218,6 +253,8 @@ async def get_features(
     include_geometry: bool = True,
     cached_feature_count: int | None = None,
     after_gid: int | None = None,
+    cql2_where: str | None = None,
+    cql2_binds: Sequence | None = None,
 ) -> tuple[list[dict], int]:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
@@ -228,6 +265,14 @@ async def get_features(
     ``OFFSET 999000`` deep-paging cost. The ``offset`` parameter remains
     supported as a legacy fallback for clients that have not migrated to
     cursor pagination.
+
+    fix(#1614): ``cql2_where``/``cql2_binds`` carry a pre-compiled CQL2
+    fragment from ``app.standards.ogc.filtering`` — the only sanctioned
+    producer: it restricts identifiers to live-schema columns and passes
+    every value as a typed ``:cql2_N`` BindParameter (collision-free with
+    the binds built here, and typed so the asyncpg cast matches the column —
+    codex r3). It joins ``where_clauses`` so the data query, count query,
+    and cached-count bypass all compose exactly like ``bbox``.
     """
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
@@ -275,6 +320,9 @@ async def get_features(
                 where_clauses.append(f'"{col}" = :{param_name}')
                 bind_values[param_name] = val
 
+    if cql2_where:
+        where_clauses.append(cql2_where)
+
     # H-24: keyset cursor pagination — `gid > :after_gid` short-circuits the
     # OFFSET cost path entirely. Both pagination styles use the same `gid`
     # column, so the existing PRIMARY KEY index on `gid` handles the cursor
@@ -302,7 +350,13 @@ async def get_features(
         bind_values["offset"] = offset
     bind_values["limit"] = limit
 
-    result = await db.execute(text(data_sql).bindparams(**bind_values))
+    def _with_cql2_binds(stmt):
+        # typed BindParameters (codex r3) — see the cql2_binds docstring note
+        return stmt.bindparams(*cql2_binds) if cql2_binds else stmt
+
+    result = await db.execute(
+        _with_cql2_binds(text(data_sql).bindparams(**bind_values))
+    )
     rows = [dict(row._mapping) for row in result.all()]
 
     # Count query (same WHERE *minus* the after_gid cursor, no LIMIT/OFFSET).
@@ -326,7 +380,9 @@ async def get_features(
             f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)} "
             f"t {count_where_sql}"
         )
-        count_result = await db.execute(text(count_sql).bindparams(**count_bind))
+        count_result = await db.execute(
+            _with_cql2_binds(text(count_sql).bindparams(**count_bind))
+        )
         total = count_result.scalar_one()
 
     return rows, total

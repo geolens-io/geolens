@@ -8,11 +8,8 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
-from ...models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_ogc_single_feature_response import (
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse,
-)
-from ...models.get_collection_item_feature_collections_dataset_id_items_feature_id_get_response_202 import (
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202,
+from ...models.get_collection_queryables_collections_dataset_id_queryables_get_response_202 import (
+    GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202,
 )
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
@@ -21,7 +18,6 @@ from uuid import UUID
 
 def _get_kwargs(
     dataset_id: UUID,
-    feature_id: int,
     *,
     f: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
@@ -39,9 +35,8 @@ def _get_kwargs(
 
     _kwargs: dict[str, Any] = {
         "method": "get",
-        "url": "/collections/{dataset_id}/items/{feature_id}".format(
+        "url": "/collections/{dataset_id}/queryables".format(
             dataset_id=quote(str(dataset_id), safe=""),
-            feature_id=quote(str(feature_id), safe=""),
         ),
         "params": params,
     }
@@ -52,20 +47,17 @@ def _get_kwargs(
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> (
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
-    | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
     | None
 ):
     if response.status_code == 200:
-        response_200 = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse.from_dict(
-            response.json()
-        )
-
+        response_200 = response.json()
         return response_200
 
     if response.status_code == 202:
-        response_202 = GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202.from_dict(
+        response_202 = GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202.from_dict(
             response.json()
         )
 
@@ -110,8 +102,8 @@ def _parse_response(
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
 ) -> Response[
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
-    | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
 ]:
     return Response(
@@ -124,22 +116,25 @@ def _build_response(
 
 def sync_detailed(
     dataset_id: UUID,
-    feature_id: int,
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
 ) -> Response[
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
-    | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
 ]:
-    """Get Collection Item Feature
+    """Get Collection Queryables
 
-     OGC API Features single feature endpoint -- returns a GeoJSON Feature.
+     Queryable properties for one feature collection (OGC Features Part 3).
+
+    feat(#1614): derived from the live table schema (never the stored
+    column_info snapshot) so the advertised set always matches what `filter=`
+    on /items validates against. `additionalProperties: false` is what makes
+    rejecting filters on unlisted properties spec-conformant.
 
     Args:
         dataset_id (UUID):
-        feature_id (int):
         f (None | str | Unset):
 
     Raises:
@@ -147,12 +142,11 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202 | ProblemDetail]
+        Response[Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
-        feature_id=feature_id,
         f=f,
     )
 
@@ -165,23 +159,26 @@ def sync_detailed(
 
 def sync(
     dataset_id: UUID,
-    feature_id: int,
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
 ) -> (
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
-    | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
     | None
 ):
-    """Get Collection Item Feature
+    """Get Collection Queryables
 
-     OGC API Features single feature endpoint -- returns a GeoJSON Feature.
+     Queryable properties for one feature collection (OGC Features Part 3).
+
+    feat(#1614): derived from the live table schema (never the stored
+    column_info snapshot) so the advertised set always matches what `filter=`
+    on /items validates against. `additionalProperties: false` is what makes
+    rejecting filters on unlisted properties spec-conformant.
 
     Args:
         dataset_id (UUID):
-        feature_id (int):
         f (None | str | Unset):
 
     Raises:
@@ -189,12 +186,11 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202 | ProblemDetail
+        Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail
     """
 
     return sync_detailed(
         dataset_id=dataset_id,
-        feature_id=feature_id,
         client=client,
         f=f,
     ).parsed
@@ -202,22 +198,25 @@ def sync(
 
 async def asyncio_detailed(
     dataset_id: UUID,
-    feature_id: int,
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
 ) -> Response[
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
-    | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
 ]:
-    """Get Collection Item Feature
+    """Get Collection Queryables
 
-     OGC API Features single feature endpoint -- returns a GeoJSON Feature.
+     Queryable properties for one feature collection (OGC Features Part 3).
+
+    feat(#1614): derived from the live table schema (never the stored
+    column_info snapshot) so the advertised set always matches what `filter=`
+    on /items validates against. `additionalProperties: false` is what makes
+    rejecting filters on unlisted properties spec-conformant.
 
     Args:
         dataset_id (UUID):
-        feature_id (int):
         f (None | str | Unset):
 
     Raises:
@@ -225,12 +224,11 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202 | ProblemDetail]
+        Response[Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
         dataset_id=dataset_id,
-        feature_id=feature_id,
         f=f,
     )
 
@@ -241,23 +239,26 @@ async def asyncio_detailed(
 
 async def asyncio(
     dataset_id: UUID,
-    feature_id: int,
     *,
     client: AuthenticatedClient,
     f: None | str | Unset = UNSET,
 ) -> (
-    GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse
-    | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202
+    Any
+    | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202
     | ProblemDetail
     | None
 ):
-    """Get Collection Item Feature
+    """Get Collection Queryables
 
-     OGC API Features single feature endpoint -- returns a GeoJSON Feature.
+     Queryable properties for one feature collection (OGC Features Part 3).
+
+    feat(#1614): derived from the live table schema (never the stored
+    column_info snapshot) so the advertised set always matches what `filter=`
+    on /items validates against. `additionalProperties: false` is what makes
+    rejecting filters on unlisted properties spec-conformant.
 
     Args:
         dataset_id (UUID):
-        feature_id (int):
         f (None | str | Unset):
 
     Raises:
@@ -265,13 +266,12 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetOGCSingleFeatureResponse | GetCollectionItemFeatureCollectionsDatasetIdItemsFeatureIdGetResponse202 | ProblemDetail
+        Any | GetCollectionQueryablesCollectionsDatasetIdQueryablesGetResponse202 | ProblemDetail
     """
 
     return (
         await asyncio_detailed(
             dataset_id=dataset_id,
-            feature_id=feature_id,
             client=client,
             f=f,
         )

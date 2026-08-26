@@ -81,11 +81,12 @@ async def test_record_schema_endpoint(client: AsyncClient):
 
 @pytest.mark.anyio
 async def test_conformance_includes_cql2(client: AsyncClient):
-    """GET /conformance advertises the CQL2 language classes for the Records collection.
+    """GET /conformance advertises the CQL2 language and Part 3 filter classes.
 
-    fix(#430 BA-14): the Features Part 3 `conf/filter` / `conf/features-filter` classes
-    are NOT declared, because per-dataset feature collections reject `filter` with
-    400 — only the Records collection filters.
+    fix(#430 BA-14) dropped the Features Part 3 classes while feature
+    collections rejected `filter` with 400; feat(#1614) restored them in the
+    same commit that implemented `filter=` + per-collection /queryables, so
+    the advertisement and the implementation flip together.
     """
     resp = await client.get("/conformance")
     assert resp.status_code == 200
@@ -95,16 +96,19 @@ async def test_conformance_includes_cql2(client: AsyncClient):
         "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
         "http://www.opengis.net/spec/cql2/1.0/conf/cql2-json",
         "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
+        "http://www.opengis.net/spec/cql2/1.0/conf/advanced-comparison-operators",
+        "http://www.opengis.net/spec/cql2/1.0/conf/basic-spatial-functions",
     ]
     for cls in cql2_classes:
         assert cls in data["conformsTo"], f"Missing conformance class: {cls}"
 
     features_filter_classes = [
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/queryables",
         "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
         "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
     ]
     for cls in features_filter_classes:
-        assert cls not in data["conformsTo"], f"Should not advertise: {cls}"
+        assert cls in data["conformsTo"], f"Missing conformance class: {cls}"
 
 
 # ---------------------------------------------------------------------------
