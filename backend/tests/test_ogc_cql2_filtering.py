@@ -544,3 +544,64 @@ async def test_validation_failure_returns_the_declared_problem_body(
     assert isinstance(body["detail"], str), (
         "detail is a flattened string, not FastAPI's error array."
     )
+
+
+# ---------------------------------------------------------------------------
+# compat(#1666 codex P2): the pre-fix contract published `filter-lang` under
+# the field's Python name, so every SDK generated before the fix sends
+# `cql2_filter_lang` — and under the old `Depends()` binding that was the only
+# spelling that actually bound. Both are accepted; only the correct one is
+# published.
+# ---------------------------------------------------------------------------
+
+_JSON_FILTER = '{"op":"=","args":[{"property":"srid"},4326]}'
+_FILTER_LANG_SPELLINGS = ["filter-lang", "cql2_filter_lang"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+@pytest.mark.parametrize("name", _FILTER_LANG_SPELLINGS)
+async def test_cql2_json_parses_under_either_filter_lang_spelling(
+    client: AsyncClient, path: str, name: str
+):
+    """A CQL2-JSON filter parses under both spellings.
+
+    This is the discriminating case: a JSON filter string is not valid
+    cql2-text, so if the spelling were ignored the request would fail rather
+    than quietly return the wrong rows.
+    """
+    resp = await client.get(
+        path, params={"filter": _JSON_FILTER, name: "cql2-json", "limit": 1}
+    )
+    assert resp.status_code == 200, f"?{name}=cql2-json -> {resp.text[:200]}"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+@pytest.mark.parametrize("name", _FILTER_LANG_SPELLINGS)
+async def test_bogus_filter_lang_rejected_under_either_spelling(
+    client: AsyncClient, path: str, name: str
+):
+    """An unsupported value is a 400 whichever spelling carried it."""
+    resp = await client.get(path, params={"filter": "srid=4326", name: "bogus"})
+    assert resp.status_code == 400, f"?{name}=bogus -> {resp.status_code}"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+async def test_published_filter_lang_wins_over_the_legacy_spelling(
+    client: AsyncClient, path: str
+):
+    """When both are sent, the published name decides."""
+    # The correct name says cql2-json, which parses the JSON filter. The legacy
+    # name says cql2-text, under which that same string does not parse — so a
+    # 200 can only mean the correct name won.
+    resp = await client.get(
+        path,
+        params=[
+            ("filter", _JSON_FILTER),
+            ("filter-lang", "cql2-json"),
+            ("cql2_filter_lang", "cql2-text"),
+        ],
+    )
+    assert resp.status_code == 200, resp.text[:200]

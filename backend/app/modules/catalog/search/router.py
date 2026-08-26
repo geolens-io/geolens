@@ -415,30 +415,44 @@ search_router = APIRouter(prefix="/search", tags=["Search"])
 _SUPPORTED_FILTER_LANGS = ("cql2-text", "cql2-json")
 
 
-def _checked_filter_lang(params: SearchQueryParams) -> SearchQueryParams:
-    """Refuse an unsupported ``filter-lang``, shared by both search handlers.
+_LEGACY_FILTER_LANG_PARAM = "cql2_filter_lang"
 
-    fix(#1666): ``filter-lang`` now binds through the model's validation alias,
-    so this is a validation rather than the binding workaround it replaced. The
-    field stays a bare ``str`` deliberately — tightening it to a ``Literal``
+
+def _resolve_filter_lang(
+    params: SearchQueryParams, request: Request
+) -> SearchQueryParams:
+    """Resolve and validate ``filter-lang``, shared by both search handlers.
+
+    Reads the wire rather than the bound value, because the two handlers bind
+    this model differently and neither binding sees both accepted spellings.
+
+    compat(#1666 codex P2): ``cql2_filter_lang`` is still honoured. It is the
+    field's Python name, and the pre-fix contract published it — so it is what
+    every SDK generated before this change sends, and under the old
+    ``Depends()`` binding it was the only spelling that actually bound. Ignoring
+    it now would leave an older client's ``cql2-json`` filter silently parsed as
+    ``cql2-text``: a wrong grammar or a rejected request, from a caller that
+    changed nothing. ``filter-lang`` wins when both are present, and only the
+    correct spelling is published.
+
+    The field stays a bare ``str`` deliberately — tightening it to a ``Literal``
     would route the refusal through ``RequestValidationError``, which answers
     422 on ``/search/datasets/``, and both handlers contract to 400 here.
 
     An explicitly empty ``?filter-lang=`` keeps its long-standing treatment as
-    "not supplied" rather than becoming a newly-rejected request; the previous
-    raw-query-string read skipped its check on any falsy value.
+    "not supplied" rather than becoming a newly-rejected request; the raw read
+    this replaced skipped its check on any falsy value.
     """
-    if not params.cql2_filter_lang:
-        return params.model_copy(update={"cql2_filter_lang": "cql2-text"})
-    if params.cql2_filter_lang not in _SUPPORTED_FILTER_LANGS:
+    supplied = request.query_params.get("filter-lang") or request.query_params.get(
+        _LEGACY_FILTER_LANG_PARAM
+    )
+    lang = supplied or params.cql2_filter_lang or "cql2-text"
+    if lang not in _SUPPORTED_FILTER_LANGS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"Unsupported filter-lang: {params.cql2_filter_lang}. "
-                "Use cql2-text or cql2-json."
-            ),
+            detail=(f"Unsupported filter-lang: {lang}. Use cql2-text or cql2-json."),
         )
-    return params
+    return params.model_copy(update={"cql2_filter_lang": lang})
 
 
 search_router.include_router(saved_search_router)
@@ -556,7 +570,7 @@ async def search_datasets_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
-    params = _checked_filter_lang(params)
+    params = _resolve_filter_lang(params, request)
     result = await _handle_search(db, user, request, params)
     for name, value in standard_response_headers(
         list(result.links or []),
@@ -1164,12 +1178,9 @@ async def collection_items(
     raw_keywords = request.query_params.getlist("keywords")
     if raw_keywords and not params.keywords:
         overrides["keywords"] = raw_keywords
-    raw_filter_lang = request.query_params.get("filter-lang")
-    if raw_filter_lang:
-        overrides["cql2_filter_lang"] = raw_filter_lang
 
     effective_params = params.model_copy(update=overrides) if overrides else params
-    effective_params = _checked_filter_lang(effective_params)
+    effective_params = _resolve_filter_lang(effective_params, request)
 
     pagination_params: dict[str, str | list[str]] = {}
     for parameter in ("type", "ids", "externalIds", "externalId"):

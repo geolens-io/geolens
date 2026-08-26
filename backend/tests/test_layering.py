@@ -2222,7 +2222,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     shared `_checked_filter_lang` that replaced the two duplicated checks costs
 #     more lines than it saves, because the reason the field stays a bare `str`
 #     (a `Literal` would answer 422 where both routes contract to 400) has to be
-#     written down or the next reader tightens it.
+#     written down or the next reader tightens it. 1483 -> 1494 for the codex
+#     P2 round: `_resolve_filter_lang` reads the wire instead of the bound value,
+#     because neither binding form sees both accepted spellings, and it keeps
+#     honouring `cql2_filter_lang` — the name the PRE-FIX contract published, so
+#     the only one older generated SDKs send.
 #   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
 #     `_document_unresolvable_credential_401`, which publishes the 401 that
 #     #1518 made normal runtime behaviour on every credential-aware anonymous
@@ -3681,7 +3685,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # surface reports the composition being SERVED like every other one. Most
     # of the lines are the comment explaining why the generation's own count is
     # a fact about the attempt, not about the dataset. Cap 1455 -> 1468, exact.
-    "backend/app/modules/catalog/search/router.py": 1483,
+    "backend/app/modules/catalog/search/router.py": 1494,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
