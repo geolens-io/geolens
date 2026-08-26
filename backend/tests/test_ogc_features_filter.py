@@ -939,8 +939,20 @@ async def test_qgis_344_request_sequence_end_to_end(
     landing = await client.get("/")
     assert landing.status_code == 200
     landing_links = landing.json()["links"]
+    # fix(#1680 codex r5): deriving the expected origin from the landing
+    # page's OWN self href was circular -- a uniformly misconfigured
+    # PUBLIC_API_URL would make every advertised link agree with itself and
+    # this replay would still pass. The client's base_url is the one origin
+    # a real client (QGIS) actually used to reach the server; validate every
+    # advertised link -- self included -- against THAT instead.
+    base_url = urlparse(str(client.base_url))
+    origin = f"{base_url.scheme}://{base_url.netloc}"
     self_href = next(link["href"] for link in landing_links if link["rel"] == "self")
-    origin = f"{urlparse(self_href).scheme}://{urlparse(self_href).netloc}"
+    # Origin-only check (fix(#1680 codex r5) doesn't need this link's exact
+    # path -- PUBLIC_API_URL legitimately carries a mount prefix, e.g. "/api"
+    # behind a reverse proxy -- just that it resolves under the same origin
+    # a real client used to reach the server at all.
+    _same_origin_path(self_href, origin)
 
     conformance_href = next(
         link["href"] for link in landing_links if link["rel"] == "conformance"
