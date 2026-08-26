@@ -240,6 +240,9 @@ from .embed_token_update import EmbedTokenUpdate
 from .embedding_stats_response import EmbeddingStatsResponse
 from .enterprise_tabs_response import EnterpriseTabsResponse
 from .export_format import ExportFormat
+from .export_map_style_endpoint_maps_map_id_style_json_get_response_200 import (
+    ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200,
+)
 from .facet_count_response import FacetCountResponse
 from .facet_count_response_record_type import FacetCountResponseRecordType
 from .facet_value_count import FacetValueCount
@@ -438,6 +441,7 @@ from .map_layer_response_paint import MapLayerResponsePaint
 from .map_layer_response_style_config_type_0 import MapLayerResponseStyleConfigType0
 from .map_list_response import MapListResponse
 from .map_response import MapResponse
+from .map_sprite_entry import MapSpriteEntry
 from .map_style_import_request import MapStyleImportRequest
 from .map_style_import_request_layers_type_0_item import (
     MapStyleImportRequestLayersType0Item,
@@ -951,6 +955,7 @@ __all__ = (
     "EmbedTokenUpdate",
     "EnterpriseTabsResponse",
     "ExportFormat",
+    "ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200",
     "FacetCountResponse",
     "FacetCountResponseRecordType",
     "FacetValueCount",
@@ -1075,6 +1080,7 @@ __all__ = (
     "MapLayerResponseStyleConfigType0",
     "MapListResponse",
     "MapResponse",
+    "MapSpriteEntry",
     "MapStyleImportRequest",
     "MapStyleImportRequestLayersType0Item",
     "MapStyleImportRequestMetadataType0",

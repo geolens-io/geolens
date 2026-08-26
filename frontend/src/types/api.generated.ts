@@ -9553,6 +9553,16 @@ export interface components {
             legend_title?: string | null;
         };
         /**
+         * MapSpriteEntry
+         * @description One entry of the MapLibre array-form ``sprite`` ({id, url}).
+         */
+        MapSpriteEntry: {
+            /** Id */
+            id: string;
+            /** Url */
+            url: string;
+        };
+        /**
          * MapStyleImportRequest
          * @description Typed request body for POST /maps/import — API-01 / M-05.
          *
@@ -9602,8 +9612,11 @@ export interface components {
             sources?: {
                 [key: string]: unknown;
             } | null;
-            /** Sprite */
-            sprite?: string | null;
+            /**
+             * Sprite
+             * @description MapLibre sprite: base URL string or array of {id, url} entries (the array form is what GeoLens style exports emit)
+             */
+            sprite?: string | components["schemas"]["MapSpriteEntry"][] | null;
             /** Glyphs */
             glyphs?: string | null;
             /**
@@ -33423,13 +33436,15 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description A complete MapLibre style document for the saved map. Its shape is governed by the MapLibre Style Specification (https://maplibre.org/maplibre-style-spec/) and is not mirrored field-by-field in this contract. One guarantee beyond the spec: `sprite` is always emitted in the array form `[{id, url}]`, which POST /maps/import also accepts, so exported documents round-trip. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
                 };
             };
             /** @description Bad request — invalid payload */

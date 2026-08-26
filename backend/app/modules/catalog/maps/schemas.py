@@ -1058,6 +1058,13 @@ class MapStyleImportResponse(BaseModel):
     summary: MapStyleImportSummary
 
 
+class MapSpriteEntry(BaseModel):
+    """One entry of the MapLibre array-form ``sprite`` ({id, url})."""
+
+    id: str = Field(max_length=255)
+    url: str = Field(max_length=2000)
+
+
 class MapStyleImportRequest(BaseModel):
     """Typed request body for POST /maps/import — API-01 / M-05.
 
@@ -1096,7 +1103,19 @@ class MapStyleImportRequest(BaseModel):
         default=None,
         description="MapLibre sources object keyed by source id",
     )
-    sprite: str | None = Field(default=None, max_length=2000)
+    # fix(#1672): the MapLibre spec allows both the base-URL string and the
+    # array form, and GET /maps/{map_id}/style.json always EMITS the array
+    # form — a string-only field made exported styles fail import with 422,
+    # so export output could not round-trip through import.
+    sprite: (
+        Annotated[str, StringConstraints(max_length=2000)] | list[MapSpriteEntry] | None
+    ) = Field(
+        default=None,
+        description=(
+            "MapLibre sprite: base URL string or array of {id, url} entries "
+            "(the array form is what GeoLens style exports emit)"
+        ),
+    )
     glyphs: str | None = Field(default=None, max_length=2000)
     terrain: dict | None = Field(
         default=None,

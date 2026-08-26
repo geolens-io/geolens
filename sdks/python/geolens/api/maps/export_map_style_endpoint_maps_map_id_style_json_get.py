@@ -8,6 +8,9 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
+from ...models.export_map_style_endpoint_maps_map_id_style_json_get_response_200 import (
+    ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200,
+)
 from ...models.problem_detail import ProblemDetail
 from uuid import UUID
 
@@ -28,9 +31,12 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | ProblemDetail | None:
+) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     if response.status_code == 200:
-        response_200 = response.json()
+        response_200 = ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200.from_dict(
+            response.json()
+        )
+
         return response_200
 
     if response.status_code == 400:
@@ -86,7 +92,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | ProblemDetail]:
+) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -99,7 +105,7 @@ def sync_detailed(
     map_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ProblemDetail]:
+) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     """Export Map Style Endpoint
 
      Export a saved map as a complete MapLibre style JSON document.
@@ -112,7 +118,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -130,7 +136,7 @@ def sync(
     map_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | ProblemDetail | None:
+) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     """Export Map Style Endpoint
 
      Export a saved map as a complete MapLibre style JSON document.
@@ -143,7 +149,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail
     """
 
     return sync_detailed(
@@ -156,7 +162,7 @@ async def asyncio_detailed(
     map_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | ProblemDetail]:
+) -> Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]:
     """Export Map Style Endpoint
 
      Export a saved map as a complete MapLibre style JSON document.
@@ -169,7 +175,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | ProblemDetail]
+        Response[ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -185,7 +191,7 @@ async def asyncio(
     map_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | ProblemDetail | None:
+) -> ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail | None:
     """Export Map Style Endpoint
 
      Export a saved map as a complete MapLibre style JSON document.
@@ -198,7 +204,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | ProblemDetail
+        ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse200 | ProblemDetail
     """
 
     return (

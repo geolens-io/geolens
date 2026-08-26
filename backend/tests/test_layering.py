@@ -2138,7 +2138,14 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # verdict comes from the service because that is where the scope is
     # resolved; re-deriving it here would be a second lookup that could
     # disagree with the first.
-    "backend/app/modules/catalog/maps/router_sharing.py": 404,
+    # fix(#1672): +32 — the style.json export route's 200 response is now
+    # documented in the decorator: an open object schema pointing at the
+    # MapLibre style spec plus the sprite array-form guarantee, replacing the
+    # empty {} schema a generated client could misread (sprite string vs
+    # array). Deliberately description-heavy, zero logic added. Then +4
+    # (codex r1): additionalProperties: true, or openapi-typescript closes
+    # the open object to Record<string, never>. Cap 436 -> 440, exact.
+    "backend/app/modules/catalog/maps/router_sharing.py": 440,
     "backend/app/modules/catalog/search/query_params.py": 225,
     "backend/app/modules/catalog/search/router_saved.py": 100,
     # fix(#821): +14 lines — admin key mint accepts expires_at (audit
@@ -2477,7 +2484,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # recording that the shared/embed response carries it deliberately: that is
     # the surface a source's display obligation most needs to reach, because it
     # is the one shown to people outside the instance. Cap 1369 -> 1377, exact.
-    "backend/app/modules/catalog/maps/schemas.py": 1377,
+    # fix(#1672): +19 — MapSpriteEntry model and the sprite union
+    # (str | list[MapSpriteEntry]), so exported styles (which always emit the
+    # array form) round-trip through /maps/import instead of 422ing.
+    # Cap 1377 -> 1396, exact.
+    "backend/app/modules/catalog/maps/schemas.py": 1396,
     # fix(#1042): decomposed. The file reached 2151 lines with five carve-outs
     # on this cap, each one a correctness fix that had to argue for its lines:
     # #888 (+117, shift a 0..360 source instead of clipping it, plus the clip

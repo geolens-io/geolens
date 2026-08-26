@@ -58,6 +58,28 @@ def test_openapi_schema_no_additional_properties_true_on_maps_import() -> None:
         f"Missing fields: {expected - fields.keys()}"
     )
 
+    # fix(#1672): the sprite field accepts the array form the export emits.
+    sprite_schema = json.dumps(fields["sprite"])
+    assert "MapSpriteEntry" in sprite_schema or "array" in sprite_schema, sprite_schema
+
+
+def test_openapi_style_json_export_declares_its_shape() -> None:
+    """fix(#1672): the style.json 200 is an object pointing at the MapLibre
+    spec (deliberately not a field-by-field mirror), not an empty schema."""
+    with open("openapi.json") as f:
+        spec = json.load(f)
+
+    op = spec["paths"]["/maps/{map_id}/style.json"]["get"]
+    ok = op["responses"]["200"]
+    assert "maplibre-style-spec" in ok["description"], ok["description"]
+    assert "sprite" in ok["description"]
+    schema = ok["content"]["application/json"]["schema"]
+    assert schema.get("type") == "object", schema
+    assert "maplibre-style-spec" in schema.get("description", ""), schema
+    # fix(#1672 codex r1): the open-object semantics must be explicit or
+    # openapi-typescript closes the type to Record<string, never>.
+    assert schema.get("additionalProperties") is True, schema
+
 
 class TestMapsImportTypedBody:
     """Behavior regression for the typed-body change (API-01 / M-05)."""
@@ -104,6 +126,70 @@ class TestMapsImportTypedBody:
         # RFC 7807 problem-details shape: {type, title, status, detail}
         assert payload.get("status") == 422, payload
         assert "zoom" in (payload.get("detail") or ""), payload
+
+    async def test_sprite_accepts_string_and_array_forms(
+        self, client: AsyncClient, editor_auth_header: dict
+    ) -> None:
+        """fix(#1672): sprite is a string OR the array form the export emits."""
+        for sprite in (
+            "https://example.com/sprites/basic",
+            [{"id": "geolens", "url": "/maps/sprites/geolens"}],
+        ):
+            body = {
+                "version": 8,
+                "name": f"1672 sprite {type(sprite).__name__}",
+                "sources": {},
+                "layers": [],
+                "sprite": sprite,
+            }
+            resp = await client.post(
+                "/maps/import", json=body, headers=editor_auth_header
+            )
+            assert resp.status_code == 201, (sprite, resp.text)
+
+        bad = {
+            "version": 8,
+            "name": "1672 sprite bad",
+            "sources": {},
+            "layers": [],
+            "sprite": 42,
+        }
+        resp = await client.post("/maps/import", json=bad, headers=editor_auth_header)
+        assert resp.status_code == 422, resp.text
+        assert "sprite" in (resp.json().get("detail") or "")
+
+    async def test_exported_style_round_trips_through_import(
+        self, client: AsyncClient, editor_auth_header: dict
+    ) -> None:
+        """fix(#1672): GET /maps/{id}/style.json output is valid import input.
+
+        The export always emits `sprite` as `[{id, url}]`; before the sprite
+        field accepted the array form, this exact round-trip failed with 422.
+        """
+        created = await client.post(
+            "/maps/import",
+            json={
+                "version": 8,
+                "name": "1672 round-trip source",
+                "sources": {},
+                "layers": [],
+            },
+            headers=editor_auth_header,
+        )
+        assert created.status_code == 201, created.text
+        map_id = created.json()["map"]["id"]
+
+        exported = await client.get(
+            f"/maps/{map_id}/style.json", headers=editor_auth_header
+        )
+        assert exported.status_code == 200, exported.text
+        style = exported.json()
+        assert isinstance(style.get("sprite"), list), style.get("sprite")
+
+        reimported = await client.post(
+            "/maps/import", json=style, headers=editor_auth_header
+        )
+        assert reimported.status_code == 201, reimported.text
 
     async def test_post_maps_import_extra_allow_forward_compat(
         self, client: AsyncClient, editor_auth_header: dict

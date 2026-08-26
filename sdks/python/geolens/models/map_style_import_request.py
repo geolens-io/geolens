@@ -11,6 +11,7 @@ from ..types import UNSET, Unset
 from typing import cast
 
 if TYPE_CHECKING:
+    from ..models.map_sprite_entry import MapSpriteEntry
     from ..models.map_style_import_request_layers_type_0_item import (
         MapStyleImportRequestLayersType0Item,
     )
@@ -52,7 +53,8 @@ class MapStyleImportRequest:
             bearing (float | None | Unset):
             pitch (float | None | Unset):
             sources (MapStyleImportRequestSourcesType0 | None | Unset): MapLibre sources object keyed by source id
-            sprite (None | str | Unset):
+            sprite (list[MapSpriteEntry] | None | str | Unset): MapLibre sprite: base URL string or array of {id, url}
+                entries (the array form is what GeoLens style exports emit)
             glyphs (None | str | Unset):
             terrain (MapStyleImportRequestTerrainType0 | None | Unset): MapLibre terrain config (source + exaggeration)
             layers (list[MapStyleImportRequestLayersType0Item] | None | Unset): MapLibre layer specifications
@@ -66,7 +68,7 @@ class MapStyleImportRequest:
     bearing: float | None | Unset = UNSET
     pitch: float | None | Unset = UNSET
     sources: MapStyleImportRequestSourcesType0 | None | Unset = UNSET
-    sprite: None | str | Unset = UNSET
+    sprite: list[MapSpriteEntry] | None | str | Unset = UNSET
     glyphs: None | str | Unset = UNSET
     terrain: MapStyleImportRequestTerrainType0 | None | Unset = UNSET
     layers: list[MapStyleImportRequestLayersType0Item] | None | Unset = UNSET
@@ -138,9 +140,15 @@ class MapStyleImportRequest:
         else:
             sources = self.sources
 
-        sprite: None | str | Unset
+        sprite: list[dict[str, Any]] | None | str | Unset
         if isinstance(self.sprite, Unset):
             sprite = UNSET
+        elif isinstance(self.sprite, list):
+            sprite = []
+            for sprite_type_1_item_data in self.sprite:
+                sprite_type_1_item = sprite_type_1_item_data.to_dict()
+                sprite.append(sprite_type_1_item)
+
         else:
             sprite = self.sprite
 
@@ -202,6 +210,7 @@ class MapStyleImportRequest:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.map_sprite_entry import MapSpriteEntry
         from ..models.map_style_import_request_layers_type_0_item import (
             MapStyleImportRequestLayersType0Item,
         )
@@ -317,12 +326,27 @@ class MapStyleImportRequest:
 
         sources = _parse_sources(d.pop("sources", UNSET))
 
-        def _parse_sprite(data: object) -> None | str | Unset:
+        def _parse_sprite(data: object) -> list[MapSpriteEntry] | None | str | Unset:
             if data is None:
                 return data
             if isinstance(data, Unset):
                 return data
-            return cast(None | str | Unset, data)
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                sprite_type_1 = []
+                _sprite_type_1 = data
+                for sprite_type_1_item_data in _sprite_type_1:
+                    sprite_type_1_item = MapSpriteEntry.from_dict(
+                        sprite_type_1_item_data
+                    )
+
+                    sprite_type_1.append(sprite_type_1_item)
+
+                return sprite_type_1
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[MapSpriteEntry] | None | str | Unset, data)
 
         sprite = _parse_sprite(d.pop("sprite", UNSET))
 
