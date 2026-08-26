@@ -345,6 +345,55 @@ async def test_conformance_f_json_accepted(client):
     assert response.status_code == 200
 
 
+# fix(#1674 codex): qgis/QGIS#62156 (merged 2025-06-05, first released in QGIS
+# 3.44) fixed the OAPIF provider's server-capability detection to recognize
+# the FINAL-SPEC conformance class name `cql2/1.0/conf/basic-spatial-functions`
+# -- QGIS<3.44 only recognized the deprecated draft name
+# `cql2/{0.0,1.0}/conf/basic-spatial-operators`. QgsOapifProvider::init() sets
+# two independent capability flags from the classes below (verified against
+# the merged patch, src/providers/wfs/oapif/qgsoapifprovider.cpp):
+#
+#   mServerSupportsFilterCql2Text (base gate for ANY filter push-down; ALL
+#   four required):
+#     cql2/{0.0,1.0}/conf/basic-cql2
+#     ogcapi-features-3/{0.0,1.0}/conf/filter
+#     ogcapi-features-3/{0.0,1.0}/conf/features-filter
+#     cql2/{0.0,1.0}/conf/cql2-text
+#
+#   mServerSupportsBasicSpatialFunctions (gates S_INTERSECTS/BBOX()/POINT()
+#   push-down specifically -- the class this PR fixed recognition of):
+#     cql2/1.0/conf/basic-spatial-functions
+#
+# The CQL2 spec (opengeospatial/ogcapi-features, cql2/standard/requirements/
+# basic-spatial-functions/REQ_spatial-functions.adoc) mandates only
+# S_INTERSECTS for this class, which is exactly what GeoLens's filter
+# validator (standards/ogc/filtering.py) supports -- advertising it is
+# honest. GeoLens serves the 1.0 URI for every class below; this pins that
+# set so a future conformance-list edit cannot silently drop QGIS push-down.
+_QGIS_3_44_CQL2_PUSHDOWN_CLASSES = [
+    "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
+    "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
+    "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+    "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
+    "http://www.opengis.net/spec/cql2/1.0/conf/basic-spatial-functions",
+]
+
+
+async def test_conformance_pins_qgis_344_cql2_pushdown_classes(client):
+    """GET /conformance advertises every class QGIS>=3.44 needs before it
+    pushes CQL2 filters (including spatial S_INTERSECTS) down to this server.
+
+    A regression here never 500s or 400s anywhere: QGIS just falls back to
+    client-side filtering, which is silent until someone notices a large
+    layer got slow. See qgis/QGIS#62156 for the exact detection logic.
+    """
+    response = await client.get("/conformance")
+    assert response.status_code == 200
+    conforms_to = response.json()["conformsTo"]
+    for cls in _QGIS_3_44_CQL2_PUSHDOWN_CLASSES:
+        assert cls in conforms_to, f"Missing QGIS CQL2 push-down class: {cls}"
+
+
 async def test_conformance_f_unsupported_returns_400(client):
     """GET /conformance?f=xml returns 400."""
     response = await client.get("/conformance", params={"f": "xml"})

@@ -887,3 +887,80 @@ async def test_filter_still_rejected_without_value_types(
         params={"filter": "S_DWITHIN(geometry, POINT(0 0), 10, 'meters')"},
     )
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# QGIS >=3.44 client-shaped integration replay (qgis/QGIS#62156)
+# ---------------------------------------------------------------------------
+#
+# QGIS's OAPIF provider issues this exact sequence before it ever emits a
+# filter=: landing page -> /conformance (capability detection, gating
+# mServerSupportsFilterCql2Text + mServerSupportsBasicSpatialFunctions) ->
+# /collections/{id} (find the rel=queryables link, only fetched at all when
+# the conformance check passed) -> /collections/{id}/queryables (build the
+# field list) -> /collections/{id}/items?filter=...&filter-lang=cql2-text
+# once a QgsFeatureRequest carries a spatial predicate QGIS's
+# QgsOapifCql2TextExpressionCompiler can push down. Replaying the whole
+# sequence catches a break in any leg -- not just the CQL2 compiler itself --
+# before it reaches a real QGIS session.
+
+
+@pytest.mark.anyio
+async def test_qgis_344_request_sequence_end_to_end(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    # 1. Landing page: QGIS follows rel=conformance from here.
+    landing = await client.get("/")
+    assert landing.status_code == 200
+    conformance_href = next(
+        link["href"] for link in landing.json()["links"] if link["rel"] == "conformance"
+    )
+    assert conformance_href.endswith("/conformance")
+
+    # 2. Conformance: gates mServerSupportsFilterCql2Text (base push-down) AND
+    # mServerSupportsBasicSpatialFunctions (spatial predicate push-down), per
+    # qgis/QGIS#62156 (see test_ogc_discovery.py for the full URI-by-URI pin).
+    conformance = await client.get("/conformance")
+    assert conformance.status_code == 200
+    conforms_to = set(conformance.json()["conformsTo"])
+    required = {
+        "http://www.opengis.net/spec/cql2/1.0/conf/basic-cql2",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/filter",
+        "http://www.opengis.net/spec/ogcapi-features-3/1.0/conf/features-filter",
+        "http://www.opengis.net/spec/cql2/1.0/conf/cql2-text",
+        "http://www.opengis.net/spec/cql2/1.0/conf/basic-spatial-functions",
+    }
+    assert required <= conforms_to
+
+    # 3. Collection metadata: QGIS resolves the queryables link from here.
+    collection = await client.get(f"/collections/{filter_dataset.id}")
+    assert collection.status_code == 200
+    queryables_href = next(
+        link["href"]
+        for link in collection.json()["links"]
+        if link["rel"] == "http://www.opengis.net/def/rel/ogc/1.0/queryables"
+    )
+    assert queryables_href.endswith(f"/collections/{filter_dataset.id}/queryables")
+
+    # 4. Queryables: QGIS builds its field list + geometry queryable from this.
+    queryables = await client.get(f"/collections/{filter_dataset.id}/queryables")
+    assert queryables.status_code == 200
+    props = queryables.json()["properties"]
+    assert "geometry" in props
+    assert "name" in props
+
+    # 5. Items with a pushed-down spatial predicate, exactly as QGIS's
+    # QgsOapifCql2TextExpressionCompiler emits it for a map-canvas-extent
+    # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded.
+    items = await client.get(
+        f"/collections/{filter_dataset.id}/items",
+        params={
+            "filter": f"S_INTERSECTS(geometry,BBOX({','.join(str(v) for v in BBOX_12)}))",
+            "filter-lang": "cql2-text",
+        },
+    )
+    assert items.status_code == 200, items.text
+    body = items.json()
+    assert body["numberMatched"] == 2
+    names = {f["properties"]["name"] for f in body["features"]}
+    assert names == {"Alpha", "Beta"}
