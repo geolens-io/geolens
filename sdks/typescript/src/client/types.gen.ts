@@ -4633,16 +4633,6 @@ export type GeoJsonGeometryCollection = {
 };
 
 /**
- * HTTPValidationError
- */
-export type HttpValidationError = {
-    /**
-     * Detail
-     */
-    detail?: Array<ValidationError>;
-};
-
-/**
  * HealthResponse
  */
 export type HealthResponse = {
@@ -10601,34 +10591,6 @@ export type UserUpdate = {
 };
 
 /**
- * ValidationError
- */
-export type ValidationError = {
-    /**
-     * Location
-     */
-    loc: Array<string | number>;
-    /**
-     * Message
-     */
-    msg: string;
-    /**
-     * Error Type
-     */
-    type: string;
-    /**
-     * Input
-     */
-    input?: unknown;
-    /**
-     * Context
-     */
-    ctx?: {
-        [key: string]: unknown;
-    };
-};
-
-/**
  * ValidationIssue
  */
 export type ValidationIssue = {
@@ -14953,10 +14915,7 @@ export type GetCollectionMetadataCollectionsDatasetsGetResponses = {
 export type GetCollectionMetadataCollectionsDatasetsGetResponse = GetCollectionMetadataCollectionsDatasetsGetResponses[keyof GetCollectionMetadataCollectionsDatasetsGetResponses];
 
 export type CollectionItemsCollectionsDatasetsItemsGetData = {
-    /**
-     * Keywords
-     */
-    body?: Array<string> | null;
+    body?: never;
     path?: never;
     query?: {
         /**
@@ -15052,10 +15011,6 @@ export type CollectionItemsCollectionsDatasetsItemsGetData = {
          */
         filter?: string | null;
         /**
-         * Cql2 Filter Lang
-         */
-        cql2_filter_lang?: string;
-        /**
          * Datetime
          */
         datetime?: string | null;
@@ -15075,6 +15030,18 @@ export type CollectionItemsCollectionsDatasetsItemsGetData = {
          * Collection Id
          */
         collection_id?: string | null;
+        /**
+         * Keywords
+         *
+         * Filter by keywords
+         */
+        keywords?: Array<string> | null;
+        /**
+         * Filter-Lang
+         *
+         * Filter language: cql2-text or cql2-json
+         */
+        'filter-lang'?: string;
     };
     url: '/collections/datasets/items';
 };
@@ -17452,9 +17419,9 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetErrors = {
      */
     413: ProblemDetail;
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -24577,94 +24544,139 @@ export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutRespo
 export type UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponse = UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponses[keyof UpsertTranslationEndpointRecordsRecordIdTranslationsLanguagePutResponses];
 
 export type SearchDatasetsEndpointSearchDatasetsGetData = {
-    /**
-     * Keywords
-     */
-    body?: Array<string> | null;
+    body?: never;
     path?: never;
     query?: {
         /**
          * Q
+         *
+         * Full-text search query
          */
         q?: string | null;
         /**
          * Bbox
+         *
+         * Bounding box: minx,miny,maxx,maxy
          */
         bbox?: string | null;
         /**
+         * Keywords
+         *
+         * Filter by keywords
+         */
+        keywords?: Array<string> | null;
+        /**
          * Geometry Type
+         *
+         * Filter by geometry type
          */
         geometry_type?: string | null;
         /**
          * Srid
+         *
+         * Filter by SRID
          */
         srid?: number | null;
         /**
          * Source Organization
+         *
+         * Filter by source organization
          */
         source_organization?: string | null;
         /**
          * Record Type
+         *
+         * Filter by record type (vector_dataset, raster_dataset)
          */
         record_type?: string | null;
         /**
          * Date From
+         *
+         * Filter created_at >=
          */
         date_from?: string | null;
         /**
          * Date To
+         *
+         * Filter created_at <=
          */
         date_to?: string | null;
         /**
          * Vintage Start
+         *
+         * Filter data_vintage_start >=
          */
         vintage_start?: string | null;
         /**
          * Vintage End
+         *
+         * Filter data_vintage_end <=
          */
         vintage_end?: string | null;
         /**
          * Sort By
+         *
+         * Sort: relevance, date_added, name, last_updated
          */
         sort_by?: string;
         /**
          * Sort Desc
+         *
+         * Sort direction override
          */
         sort_desc?: boolean | null;
         /**
          * Offset
+         *
+         * Pagination offset
          */
         offset?: number;
         /**
          * Limit
+         *
+         * Page size. Values above the maximum (200) are clamped to it rather than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C).
          */
         limit?: number;
         /**
          * Filter
+         *
+         * CQL2 filter expression
          */
         filter?: string | null;
         /**
-         * Cql2 Filter Lang
+         * Filter-Lang
+         *
+         * Filter language: cql2-text or cql2-json
          */
-        cql2_filter_lang?: string;
+        'filter-lang'?: string;
         /**
          * Datetime
+         *
+         * OGC datetime interval: instant, start/end, ../end, start/..
          */
         datetime?: string | null;
         /**
          * Exclude Synthetic
+         *
+         * Exclude synthetic/test datasets
          */
         exclude_synthetic?: boolean;
         /**
          * Spatial Predicate
+         *
+         * Spatial predicate: intersects or within
          */
         spatial_predicate?: 'intersects' | 'within';
         /**
          * Geometry
+         *
+         * GeoJSON geometry for spatial filter
          */
         geometry?: string | null;
         /**
          * Collection Id
+         *
+         * Filter by collection membership
          */
         collection_id?: string | null;
     };
@@ -24681,9 +24693,9 @@ export type SearchDatasetsEndpointSearchDatasetsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -24789,9 +24801,9 @@ export type SearchFacetsEndpointSearchFacetsGetErrors = {
      */
     401: ProblemDetail;
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -24835,9 +24847,9 @@ export type ListSavedSearchesEndpointSearchSavedGetData = {
 
 export type ListSavedSearchesEndpointSearchSavedGetErrors = {
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -24872,9 +24884,9 @@ export type CreateSavedSearchEndpointSearchSavedPostData = {
 
 export type CreateSavedSearchEndpointSearchSavedPostErrors = {
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -24918,9 +24930,9 @@ export type DeleteSavedSearchEndpointSearchSavedSearchIdDeleteErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */
@@ -24964,9 +24976,9 @@ export type GetSavedSearchEndpointSearchSavedSearchIdGetErrors = {
      */
     404: ProblemDetail;
     /**
-     * Validation Error
+     * Validation error
      */
-    422: HttpValidationError;
+    422: ProblemDetail;
     /**
      * Too many requests — retry after the advertised interval
      */

@@ -2200,6 +2200,36 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
+#   api/main.py 1635 -> 1750. fix(#1666): +115 for three OpenAPI post-processing
+#     passes, joining the four already here. `_normalize_validation_error_contract`
+#     replaces FastAPI's `HTTPValidationError` at every 422 with the problem+json
+#     `ProblemDetail` the app-wide handler actually returns, and
+#     `_drop_unreferenced_validation_models` removes the models once nothing
+#     references them — checked rather than popped, since a dangling `$ref`
+#     breaks SDK generation. `_repair_depends_bound_query_model` republishes the
+#     two `SearchQueryParams` fields that do not survive `Depends()` binding on
+#     `collection_items` (`keywords`, which FastAPI reads as a GET request body,
+#     and the `filter-lang` alias, which pydantic cannot name), copying them from
+#     the sibling operation that declares the same model correctly rather than
+#     restating them. Most of the addition is the rationale for why that route
+#     cannot use the query-parameter-model form the other one now does. The last
+#     13 are the codex P2 round: the reference scan excludes only the candidate,
+#     never both models, so a retained `HTTPValidationError` cannot take the
+#     `ValidationError` it points at down with it.
+#   search/router.py 1468 -> 1483. fix(#1666): +15. `search_datasets_endpoint`
+#     moved to `Annotated[SearchQueryParams, Query()]`, which binds `keywords`
+#     and `filter-lang` natively and retired its raw-query-string reads; the
+#     shared `_checked_filter_lang` that replaced the two duplicated checks costs
+#     more lines than it saves, because the reason the field stays a bare `str`
+#     (a `Literal` would answer 422 where both routes contract to 400) has to be
+#     written down or the next reader tightens it. 1483 -> 1494 for the codex
+#     P2 round: `_resolve_filter_lang` reads the wire instead of the bound value,
+#     because neither binding form sees both accepted spellings, and it keeps
+#     honouring `cql2_filter_lang` — the name the PRE-FIX contract published, so
+#     the only one older generated SDKs send. Plus `_legacy_keywords_body`, which
+#     honours the GET-body `keywords` the pre-fix contract declared and older
+#     generated clients still send — accepted, never republished, since a request
+#     body on a GET is the defect being fixed.
 #   api/main.py 1499 -> 1558. fix(#1518 codex P2): +59 for
 #     `_document_unresolvable_credential_401`, which publishes the 401 that
 #     #1518 made normal runtime behaviour on every credential-aware anonymous
@@ -2424,7 +2454,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # route registers. The other two widen the production CORS warning, which
     # told an operator only standards reads were open to any browser origin.
     # Cap 1628 -> 1635, exact.
-    "backend/app/api/main.py": 1635,
+    "backend/app/api/main.py": 1757,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3658,7 +3688,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # surface reports the composition being SERVED like every other one. Most
     # of the lines are the comment explaining why the generation's own count is
     # a fact about the attempt, not about the dataset. Cap 1455 -> 1468, exact.
-    "backend/app/modules/catalog/search/router.py": 1468,
+    "backend/app/modules/catalog/search/router.py": 1536,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.

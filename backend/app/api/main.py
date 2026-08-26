@@ -1,5 +1,6 @@
 # ruff: noqa: E402
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -1417,6 +1418,123 @@ def _document_global_failures(schema: dict) -> None:
                 responses.setdefault("503", DATABASE_UNAVAILABLE_RESPONSE)
 
 
+def _repair_depends_bound_query_model(schema: dict) -> None:
+    """Publish the query parameters a ``Depends()``-bound model fails to declare.
+
+    fix(#1666): ``SearchQueryParams`` reaches ``collection_items`` through
+    ``Depends()``, and two of its fields do not survive that binding.
+    ``keywords`` is a ``list[str]``, which FastAPI reads as a JSON request body
+    — on a GET. ``cql2_filter_lang`` carries the alias ``filter-lang``, which
+    pydantic's synthesized ``__init__`` cannot name, so the contract advertises
+    the field name instead. Either way a generated client sends something the
+    handler never reads and is silently unfiltered.
+
+    ``search_datasets_endpoint`` takes the same model as
+    ``Annotated[SearchQueryParams, Query()]``, which declares both correctly, so
+    the repair COPIES those definitions rather than restating them — a
+    hand-written mirror of a model's parameters is the thing that drifts.
+    ``collection_items`` cannot use that form itself: FastAPI expands a query
+    model only when it is the operation's ONLY query-parameter source, and
+    alongside this route's five OGC parameters it collapses to one scalar.
+
+    One asymmetry this leaves, deliberately: the operation still BINDS the
+    legacy GET body at runtime, because that is inseparable from ``Depends()``.
+    Removing it from the published contract is the point — a request body on a
+    GET should be sunset, not advertised — but it means a caller that sends a
+    malformed JSON body sees a validation 400 the contract does not describe.
+    Sending no body, which is every correct client, is unaffected.
+    """
+    paths = schema.get("paths", {})
+    donor = paths.get("/search/datasets/", {}).get("get")
+    target = paths.get("/collections/datasets/items", {}).get("get")
+    if donor is None or target is None:
+        return
+
+    donated = {
+        parameter["name"]: parameter
+        for parameter in donor.get("parameters", [])
+        if parameter.get("name") in {"keywords", "filter-lang"}
+    }
+    if len(donated) != 2:
+        # The donor stopped declaring them correctly; leave the target alone
+        # rather than publishing a half-repaired contract.
+        return
+
+    parameters = [
+        parameter
+        for parameter in target.get("parameters", [])
+        if parameter.get("name") not in {"cql2_filter_lang", *donated}
+    ]
+    parameters.extend(donated.values())
+    target["parameters"] = parameters
+
+    # The phantom body this defect produces. Only drop the one the model caused.
+    body = target.get("requestBody", {})
+    body_schema = body.get("content", {}).get("application/json", {}).get("schema", {})
+    if body_schema.get("title") == "Keywords":
+        target.pop("requestBody", None)
+
+
+def _normalize_validation_error_contract(schema: dict) -> None:
+    """Publish the RFC 7807 body every validation failure actually returns.
+
+    fix(#1666): FastAPI stamps ``422 -> HTTPValidationError`` (an
+    ``application/json`` body of ``{detail: [{loc, msg, type}, ...]}``) on every
+    operation with request validation. The ``RequestValidationError`` handler in
+    ``standards/ogc/errors.py`` overrides that at runtime with a problem+json
+    ``ProblemDetail`` whose ``detail`` is flattened to one string, so both the
+    media type and the body shape were wrong — and generated clients inherit
+    both. The standards-path loop below already applies the same correction
+    under the OGC status rule; this covers every other operation.
+    """
+    validation_response = {
+        "description": "Validation error",
+        "content": {
+            "application/problem+json": {
+                "schema": {"$ref": "#/components/schemas/ProblemDetail"}
+            }
+        },
+    }
+    for path_item in schema.get("paths", {}).values():
+        for method, operation in path_item.items():
+            if method not in {"get", "post", "put", "patch", "delete", "head"}:
+                continue
+            responses = operation.get("responses", {})
+            if "422" in responses:
+                responses["422"] = dict(validation_response)
+
+
+def _drop_unreferenced_validation_models(schema: dict) -> None:
+    """Drop FastAPI's validation models once nothing references them.
+
+    Checked rather than popped unconditionally: a route is free to name
+    ``HTTPValidationError`` in an explicit ``responses=`` block, and removing a
+    component that is still referenced leaves a dangling ``$ref`` that breaks
+    SDK generation instead of tidying it.
+
+    fix(#1666 codex P2): the search excludes only the candidate, never both
+    targets. ``HTTPValidationError`` holds the sole ``$ref`` to
+    ``ValidationError``, so hiding it while deciding ``ValidationError`` reads
+    the container's own reference as absent — and a run where an operation kept
+    ``HTTPValidationError`` alive would then delete the schema it points at.
+
+    Order matters with it: the container is considered before the leaf, so
+    dropping the container in the first pass makes the leaf unreferenced in the
+    second and both go. Reversed, the leaf would be held alive by a container
+    that is itself about to be removed.
+    """
+    schemas = schema.get("components", {}).get("schemas", {})
+    for name in ("HTTPValidationError", "ValidationError"):
+        others = json.dumps(
+            {
+                **{k: v for k, v in schema.items() if k != "components"},
+                "schemas": {k: v for k, v in schemas.items() if k != name},
+            }
+        )
+        if f"#/components/schemas/{name}" not in others:
+            schemas.pop(name, None)
+
+
 def _standards_aware_openapi() -> dict:
     schema = _fastapi_openapi()
     if schema.get("x-geolens-standards-errors") == "400-problem-details":
@@ -1465,6 +1583,8 @@ def _standards_aware_openapi() -> dict:
     _document_unresolvable_credential_401(schema)
     _document_rate_limits(schema)
     _document_global_failures(schema)
+    _normalize_validation_error_contract(schema)
+    _repair_depends_bound_query_model(schema)
 
     for path, path_item in schema.get("paths", {}).items():
         if standards_api_path(path) is None:
@@ -1493,6 +1613,8 @@ def _standards_aware_openapi() -> dict:
                         # comma-separated form arrays (explode=false).
                         parameter["style"] = "form"
                         parameter["explode"] = False
+
+    _drop_unreferenced_validation_models(schema)
 
     schema["x-geolens-standards-errors"] = "400-problem-details"
     app.openapi_schema = schema

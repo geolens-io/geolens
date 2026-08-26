@@ -1420,11 +1420,7 @@ export const collectionItemsCollectionsDatasetsItemsGet = <ThrowOnError extends 
         }
     ],
     url: '/collections/datasets/items',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers
-    }
+    ...options
 });
 
 /**
@@ -4669,11 +4665,7 @@ export const searchDatasetsEndpointSearchDatasetsGet = <ThrowOnError extends boo
         }
     ],
     url: '/search/datasets/',
-    ...options,
-    headers: {
-        'Content-Type': 'application/json',
-        ...options?.headers
-    }
+    ...options
 });
 
 /**

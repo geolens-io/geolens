@@ -9,7 +9,6 @@ from ...types import Response, UNSET
 from ... import errors
 
 from ...models.export_format import ExportFormat
-from ...models.http_validation_error import HTTPValidationError
 from ...models.problem_detail import ProblemDetail
 from ...types import Unset
 from uuid import UUID
@@ -68,7 +67,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | HTTPValidationError | ProblemDetail | None:
+) -> Any | ProblemDetail | None:
     if response.status_code == 200:
         response_200 = cast(Any, None)
         return response_200
@@ -99,7 +98,7 @@ def _parse_response(
         return response_413
 
     if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+        response_422 = ProblemDetail.from_dict(response.json())
 
         return response_422
 
@@ -126,7 +125,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | HTTPValidationError | ProblemDetail]:
+) -> Response[Any | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -143,7 +142,7 @@ def sync_detailed(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Response[Any | HTTPValidationError | ProblemDetail]:
+) -> Response[Any | ProblemDetail]:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -164,7 +163,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError | ProblemDetail]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -190,7 +189,7 @@ def sync(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Any | HTTPValidationError | ProblemDetail | None:
+) -> Any | ProblemDetail | None:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -211,7 +210,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError | ProblemDetail
+        Any | ProblemDetail
     """
 
     return sync_detailed(
@@ -232,7 +231,7 @@ async def asyncio_detailed(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Response[Any | HTTPValidationError | ProblemDetail]:
+) -> Response[Any | ProblemDetail]:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -253,7 +252,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError | ProblemDetail]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -277,7 +276,7 @@ async def asyncio(
     target_crs: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     where: None | str | Unset = UNSET,
-) -> Any | HTTPValidationError | ProblemDetail | None:
+) -> Any | ProblemDetail | None:
     """Export Dataset Endpoint
 
      Export a dataset as a downloadable file.
@@ -298,7 +297,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError | ProblemDetail
+        Any | ProblemDetail
     """
 
     return (

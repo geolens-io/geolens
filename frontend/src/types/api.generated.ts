@@ -8614,11 +8614,6 @@ export interface components {
             /** Geometries */
             geometries: components["schemas"]["GeoJSONGeometry"][];
         };
-        /** HTTPValidationError */
-        HTTPValidationError: {
-            /** Detail */
-            detail?: components["schemas"]["ValidationError"][];
-        };
         /** HealthResponse */
         HealthResponse: {
             /** Status */
@@ -13088,19 +13083,6 @@ export interface components {
              * @description New role: 'admin', 'editor', or 'viewer'. Omit to leave unchanged.
              */
             role?: string | null;
-        };
-        /** ValidationError */
-        ValidationError: {
-            /** Location */
-            loc: (string | number)[];
-            /** Message */
-            msg: string;
-            /** Error Type */
-            type: string;
-            /** Input */
-            input?: unknown;
-            /** Context */
-            ctx?: Record<string, never>;
         };
         /** ValidationIssue */
         ValidationIssue: {
@@ -19938,22 +19920,21 @@ export interface operations {
                 offset?: number;
                 limit?: number;
                 filter?: string | null;
-                cql2_filter_lang?: string;
                 datetime?: string | null;
                 exclude_synthetic?: boolean;
                 spatial_predicate?: "intersects" | "within";
                 geometry?: string | null;
                 collection_id?: string | null;
+                /** @description Filter by keywords */
+                keywords?: string[] | null;
+                /** @description Filter language: cql2-text or cql2-json */
+                "filter-lang"?: string;
             };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": string[] | null;
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -23685,13 +23666,13 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */
@@ -35322,37 +35303,56 @@ export interface operations {
     search_datasets_endpoint_search_datasets__get: {
         parameters: {
             query?: {
+                /** @description Full-text search query */
                 q?: string | null;
+                /** @description Bounding box: minx,miny,maxx,maxy */
                 bbox?: string | null;
+                /** @description Filter by keywords */
+                keywords?: string[] | null;
+                /** @description Filter by geometry type */
                 geometry_type?: string | null;
+                /** @description Filter by SRID */
                 srid?: number | null;
+                /** @description Filter by source organization */
                 source_organization?: string | null;
+                /** @description Filter by record type (vector_dataset, raster_dataset) */
                 record_type?: string | null;
+                /** @description Filter created_at >= */
                 date_from?: string | null;
+                /** @description Filter created_at <= */
                 date_to?: string | null;
+                /** @description Filter data_vintage_start >= */
                 vintage_start?: string | null;
+                /** @description Filter data_vintage_end <= */
                 vintage_end?: string | null;
+                /** @description Sort: relevance, date_added, name, last_updated */
                 sort_by?: string;
+                /** @description Sort direction override */
                 sort_desc?: boolean | null;
+                /** @description Pagination offset */
                 offset?: number;
+                /** @description Page size. Values above the maximum (200) are clamped to it rather than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C). */
                 limit?: number;
+                /** @description CQL2 filter expression */
                 filter?: string | null;
-                cql2_filter_lang?: string;
+                /** @description Filter language: cql2-text or cql2-json */
+                "filter-lang"?: string;
+                /** @description OGC datetime interval: instant, start/end, ../end, start/.. */
                 datetime?: string | null;
+                /** @description Exclude synthetic/test datasets */
                 exclude_synthetic?: boolean;
+                /** @description Spatial predicate: intersects or within */
                 spatial_predicate?: "intersects" | "within";
+                /** @description GeoJSON geometry for spatial filter */
                 geometry?: string | null;
+                /** @description Filter by collection membership */
                 collection_id?: string | null;
             };
             header?: never;
             path?: never;
             cookie?: never;
         };
-        requestBody?: {
-            content: {
-                "application/json": string[] | null;
-            };
-        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -35381,13 +35381,13 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */
@@ -35471,13 +35471,13 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */
@@ -35532,13 +35532,13 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchListResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */
@@ -35594,13 +35594,13 @@ export interface operations {
                     "application/json": components["schemas"]["SavedSearchResponse"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */
@@ -35663,13 +35663,13 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */
@@ -35730,13 +35730,13 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
-            /** @description Validation Error */
+            /** @description Validation error */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
             /** @description Too many requests — retry after the advertised interval */

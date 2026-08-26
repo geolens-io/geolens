@@ -41,6 +41,28 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **The API contract now describes what the server actually accepts and
+  returns.** Three things in the generated OpenAPI schema described FastAPI's
+  defaults where the app overrides them, and anyone generating a client
+  inherited all three. Validation failures were declared as
+  `HTTPValidationError` on every operation with request validation, while the
+  server has always answered `application/problem+json` with a `ProblemDetail`
+  whose `detail` is a single string. `keywords` was declared as a JSON request
+  body on a GET rather than the query parameter it is. And `filter-lang` was
+  published under its internal name `cql2_filter_lang`, so a generated client
+  sent a parameter the handler never read and its filter language was silently
+  ignored. All three are corrected on `/search/datasets/` and
+  `/collections/datasets/items` (#1666).
+
+  SDK users: the generated surface changes shape — `body` becomes `keywords`,
+  `cql2_filter_lang` becomes `filter_lang`, and `HTTPValidationError` is gone.
+  Regenerating is the fix, and nothing needs it urgently: the server still
+  accepts both the old `cql2_filter_lang` spelling and the old JSON-body
+  `keywords`, so a client built against the previous contract keeps working
+  unchanged. Neither legacy form is published, and both will be removed in a
+  future release — a request body on a GET in particular is not reliably
+  forwarded by proxies and CDNs.
+
 - **A raster open-failure error no longer echoes the internal staging path.**
   Deferred from #1640, which fixed the vector side: when a corrupt or
   unopenable raster upload reached `rasterio.open`, `IngestJob.error_message`

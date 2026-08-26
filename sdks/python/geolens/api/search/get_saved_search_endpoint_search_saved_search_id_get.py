@@ -8,7 +8,6 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.http_validation_error import HTTPValidationError
 from ...models.problem_detail import ProblemDetail
 from ...models.saved_search_response import SavedSearchResponse
 from uuid import UUID
@@ -30,7 +29,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ProblemDetail | SavedSearchResponse | None:
+) -> ProblemDetail | SavedSearchResponse | None:
     if response.status_code == 200:
         response_200 = SavedSearchResponse.from_dict(response.json())
 
@@ -42,7 +41,7 @@ def _parse_response(
         return response_404
 
     if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+        response_422 = ProblemDetail.from_dict(response.json())
 
         return response_422
 
@@ -69,7 +68,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]:
+) -> Response[ProblemDetail | SavedSearchResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -82,7 +81,7 @@ def sync_detailed(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]:
+) -> Response[ProblemDetail | SavedSearchResponse]:
     """Get Saved Search Endpoint
 
      Get a single saved search by ID.
@@ -95,7 +94,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]
+        Response[ProblemDetail | SavedSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -113,7 +112,7 @@ def sync(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | ProblemDetail | SavedSearchResponse | None:
+) -> ProblemDetail | SavedSearchResponse | None:
     """Get Saved Search Endpoint
 
      Get a single saved search by ID.
@@ -126,7 +125,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ProblemDetail | SavedSearchResponse
+        ProblemDetail | SavedSearchResponse
     """
 
     return sync_detailed(
@@ -139,7 +138,7 @@ async def asyncio_detailed(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]:
+) -> Response[ProblemDetail | SavedSearchResponse]:
     """Get Saved Search Endpoint
 
      Get a single saved search by ID.
@@ -152,7 +151,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]
+        Response[ProblemDetail | SavedSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -168,7 +167,7 @@ async def asyncio(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> HTTPValidationError | ProblemDetail | SavedSearchResponse | None:
+) -> ProblemDetail | SavedSearchResponse | None:
     """Get Saved Search Endpoint
 
      Get a single saved search by ID.
@@ -181,7 +180,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ProblemDetail | SavedSearchResponse
+        ProblemDetail | SavedSearchResponse
     """
 
     return (

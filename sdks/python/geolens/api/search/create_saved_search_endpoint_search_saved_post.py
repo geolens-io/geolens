@@ -7,7 +7,6 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.http_validation_error import HTTPValidationError
 from ...models.problem_detail import ProblemDetail
 from ...models.saved_search_create import SavedSearchCreate
 from ...models.saved_search_response import SavedSearchResponse
@@ -34,14 +33,14 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | ProblemDetail | SavedSearchResponse | None:
+) -> ProblemDetail | SavedSearchResponse | None:
     if response.status_code == 201:
         response_201 = SavedSearchResponse.from_dict(response.json())
 
         return response_201
 
     if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+        response_422 = ProblemDetail.from_dict(response.json())
 
         return response_422
 
@@ -68,7 +67,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]:
+) -> Response[ProblemDetail | SavedSearchResponse]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -81,7 +80,7 @@ def sync_detailed(
     *,
     client: AuthenticatedClient,
     body: SavedSearchCreate,
-) -> Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]:
+) -> Response[ProblemDetail | SavedSearchResponse]:
     """Create Saved Search Endpoint
 
      Save a search query with a name for later reuse.
@@ -94,7 +93,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]
+        Response[ProblemDetail | SavedSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -112,7 +111,7 @@ def sync(
     *,
     client: AuthenticatedClient,
     body: SavedSearchCreate,
-) -> HTTPValidationError | ProblemDetail | SavedSearchResponse | None:
+) -> ProblemDetail | SavedSearchResponse | None:
     """Create Saved Search Endpoint
 
      Save a search query with a name for later reuse.
@@ -125,7 +124,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ProblemDetail | SavedSearchResponse
+        ProblemDetail | SavedSearchResponse
     """
 
     return sync_detailed(
@@ -138,7 +137,7 @@ async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
     body: SavedSearchCreate,
-) -> Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]:
+) -> Response[ProblemDetail | SavedSearchResponse]:
     """Create Saved Search Endpoint
 
      Save a search query with a name for later reuse.
@@ -151,7 +150,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | ProblemDetail | SavedSearchResponse]
+        Response[ProblemDetail | SavedSearchResponse]
     """
 
     kwargs = _get_kwargs(
@@ -167,7 +166,7 @@ async def asyncio(
     *,
     client: AuthenticatedClient,
     body: SavedSearchCreate,
-) -> HTTPValidationError | ProblemDetail | SavedSearchResponse | None:
+) -> ProblemDetail | SavedSearchResponse | None:
     """Create Saved Search Endpoint
 
      Save a search query with a name for later reuse.
@@ -180,7 +179,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | ProblemDetail | SavedSearchResponse
+        ProblemDetail | SavedSearchResponse
     """
 
     return (
