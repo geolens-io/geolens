@@ -187,6 +187,41 @@ async def test_refresh_no_progress_page_fails_the_run(
 
 
 @pytest.mark.anyio
+async def test_probe_failure_still_stamps_origin_contact(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """fix(#1675 codex r1): a refresh that dies in the page-info probe (e.g.
+    an ArcGIS 498/499 token error) still CONTACTED the origin — the failure
+    path must stamp last_checked_at even though no subprocess ever spawned."""
+    from app.processing.ingest.ogr import IngestionError
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+    assert dataset.last_checked_at is None
+
+    async def _probe_token_error(source_url, layer_id, token):
+        raise IngestionError("ArcGIS token required (498)")
+
+    monkeypatch.setattr(
+        tasks_vector, "_fetch_arcgis_import_page_info", _probe_token_error
+    )
+
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    # The tokenless auth failure is rewrapped with the "retry with a token"
+    # hint by _run_service_import_with_wfs_fallback — that rewrap is the
+    # expected user-facing shape, and the contact stamp must survive it.
+    with pytest.raises(IngestionError, match="authentication failed"):
+        await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 0))
+
+    assert calls == []  # the fetch never spawned
+    runs = await _runs_ordered(test_db_session, dataset.id)
+    assert [r.status for r in runs] == ["failed"]
+    await test_db_session.refresh(dataset)
+    assert dataset.last_checked_at is not None
+
+
+@pytest.mark.anyio
 async def test_refresh_small_layer_keeps_single_fetch(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):

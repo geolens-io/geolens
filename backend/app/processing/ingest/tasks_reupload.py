@@ -719,6 +719,16 @@ async def _fetch_service_layer_with_paging_guard(
     supports_pagination = False
     pagination_order_field = None
     if service_type == "arcgis_featureserver":
+        # fix(#1675 codex r1): the page-info probe is now the FIRST outbound
+        # contact of a refresh, and it can fail (498/499 token errors raise
+        # IngestionError) before any subprocess exists to fire on_spawn. The
+        # last_checked_at contract is "last time GeoLens contacted the origin
+        # at all", so arm the contact stamp when the probe's request begins,
+        # not only at subprocess spawn. Arming is a monotonic OR gated on the
+        # attempted binding matching the stored one, so the later per-page
+        # spawns re-arming is harmless.
+        if on_spawn is not None:
+            on_spawn()
         (
             feature_count,
             max_record_count,

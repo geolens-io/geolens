@@ -2803,8 +2803,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1675): +79 — _fetch_service_layer_with_paging_guard: the paging
     # decision (page-info probe, criteria, paged-vs-single dispatch) for the
     # refresh executor, module-level so the branches stay out of
-    # reupload_service's complexity budget. Cap 1156 -> 1235, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1235,
+    # reupload_service's complexity budget. Then +10 (codex r1): arm the
+    # origin-contact stamp when the probe's request begins — the probe is
+    # the first outbound contact and can die before any subprocess spawns.
+    # Cap 1156 -> 1245, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1245,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
