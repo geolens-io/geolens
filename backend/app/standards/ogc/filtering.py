@@ -20,6 +20,7 @@
 import json
 import re
 from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -592,6 +593,25 @@ def _validate_feature_filter_node(node, queryables: dict[str, str], errors: list
         errors.append(f"unsupported expression: {type(node).__name__}")
 
 
+def _quote_single_char_attributes(expr: str) -> str:
+    """Double-quote lone single-letter identifiers in a cql2-text filter.
+
+    fix(#1614 codex r3): pygeofilter's unquoted-attribute token requires at
+    least two characters, so a conforming client filtering on a common GIS
+    column like ``x`` or ``y`` gets a parse error — while the queryables
+    document rightly advertises the column. ``"x"`` parses fine, so quote the
+    bare form. Single-quoted string literals are held out verbatim (the
+    grammar has no escape sequences inside them); outside strings, a lone
+    letter can only be an identifier — keywords, functions, and units are all
+    longer, and ``1e5``-style exponents are protected by the word-character
+    lookarounds. Already-quoted or dotted names are left alone.
+    """
+    parts = re.split(r"('[^']*')", expr)
+    for i in range(0, len(parts), 2):
+        parts[i] = re.sub(r'(?<![\w".])([A-Za-z])(?![\w".(])', r'"\1"', parts[i])
+    return "".join(parts)
+
+
 def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
     """Length-cap, parse, and shim-rewrite a feature-collection filter.
 
@@ -605,6 +625,8 @@ def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(f"filter exceeds the {MAX_FEATURE_FILTER_LENGTH}-character limit"),
         )
+    if filter_lang == "cql2-text":
+        filter_expr = _quote_single_char_attributes(filter_expr)
     ast_root = parse_cql2_filter(filter_expr, filter_lang)
     return _rewrite_text_bbox_literals(ast_root)
 
@@ -648,10 +670,19 @@ def compile_feature_cql2_ast(
             detail="Unsupported CQL2 filter: " + "; ".join(sorted(set(errors))),
         )
 
+    # fix(#1614 codex r3): the asyncpg dialect casts every bind to its
+    # SQLAlchemy type ($1::FLOAT ...), and a float8-cast bind against a REAL
+    # column promotes the stored float4 for comparison — 0.1::real =
+    # 0.1::float8 is FALSE. NUMERIC through float8 loses precision the same
+    # way. Each numeric family therefore keeps its own database type, and
+    # the compiled bind types are carried into execution (see the returned
+    # BindParameter list).
     sa_type_for_pg = {
         **{t: sa_types.Text() for t in _STRING_PG_TYPES},
         **{t: sa_types.BigInteger() for t in _INTEGER_PG_TYPES},
-        **{t: sa_types.Float() for t in _NUMBER_PG_TYPES},
+        "real": sa_types.REAL(),
+        "double precision": sa_types.Float(),
+        "numeric": sa_types.Numeric(),
         "boolean": sa_types.Boolean(),
         "date": sa_types.Date(),
         "timestamp without time zone": sa_types.DateTime(),
@@ -678,8 +709,10 @@ def compile_feature_cql2_ast(
             detail=f"Invalid CQL2 expression: {e}",
         )
 
+    from sqlalchemy import bindparam
+
     sql = str(compiled)
-    params: dict = {}
+    binds: list = []
     for i, (key, value) in enumerate(compiled.params.items()):
         new_key = f"cql2_{i}"
         # (?<!:) skips ::casts; \b keeps :param_1 from matching inside
@@ -690,5 +723,37 @@ def compile_feature_cql2_ast(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid CQL2 expression: parameter rendering failed",
             )
-        params[new_key] = value
-    return f"({sql})", params
+        # fix(#1614 codex r3): keep the compiled bind's SQLAlchemy type so
+        # execution doesn't re-infer it from the Python value. A
+        # render_postcompile-expanded IN member is named <base>_<n>; its
+        # BindParameter lives under the base key. (Explicit None checks: a
+        # BindParameter defines no truthiness.)
+        bp = compiled.binds.get(key)
+        if bp is None:
+            bp = compiled.binds.get(re.sub(r"_\d+$", "", key))
+        if bp is not None and isinstance(bp.type, sa_types.REAL):
+            # The asyncpg dialect renders the SAME ::FLOAT bind cast for REAL
+            # as for FLOAT (verified against 2.0.52), and a float8-cast bind
+            # promotes the stored float4 in comparison — 0.1 never matches.
+            # An explicit outer cast is constant-folded at plan time, so the
+            # comparison happens in float4 and stays index-friendly.
+            sql = sql.replace(f":{new_key}", f"CAST(:{new_key} AS REAL)")
+        if (
+            bp is not None
+            and isinstance(bp.type, sa_types.Numeric)
+            and not isinstance(bp.type, sa_types.Float)
+            and isinstance(value, float)
+        ):
+            # fix(#1614 codex r3): binding the float raw sends its full
+            # binary expansion (19.99 -> 19.98999...) into the NUMERIC
+            # comparison; the decimal text form is what the caller wrote.
+            # (Done here, not in the AST walk — pygeofilter's evaluator has
+            # no handler for Decimal literals. Note Float subclasses Numeric
+            # and REAL subclasses Float, hence the isinstance pair.)
+            value = Decimal(str(value))
+        binds.append(
+            bindparam(new_key, value, type_=bp.type)
+            if bp is not None
+            else bindparam(new_key, value)
+        )
+    return f"({sql})", binds

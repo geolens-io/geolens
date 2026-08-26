@@ -254,7 +254,7 @@ async def get_features(
     cached_feature_count: int | None = None,
     after_gid: int | None = None,
     cql2_where: str | None = None,
-    cql2_params: dict | None = None,
+    cql2_binds: Sequence | None = None,
 ) -> tuple[list[dict], int]:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
@@ -266,12 +266,13 @@ async def get_features(
     supported as a legacy fallback for clients that have not migrated to
     cursor pagination.
 
-    fix(#1614): ``cql2_where``/``cql2_params`` carry a pre-compiled CQL2
-    fragment from ``app.standards.ogc.filtering.compile_feature_cql2`` — the
-    only sanctioned producer: it restricts identifiers to live-schema columns
-    and passes every value as a ``:cql2_N`` bind (collision-free with the
-    binds built here). It joins ``where_clauses`` so the data query, count
-    query, and cached-count bypass all compose exactly like ``bbox``.
+    fix(#1614): ``cql2_where``/``cql2_binds`` carry a pre-compiled CQL2
+    fragment from ``app.standards.ogc.filtering`` — the only sanctioned
+    producer: it restricts identifiers to live-schema columns and passes
+    every value as a typed ``:cql2_N`` BindParameter (collision-free with
+    the binds built here, and typed so the asyncpg cast matches the column —
+    codex r3). It joins ``where_clauses`` so the data query, count query,
+    and cached-count bypass all compose exactly like ``bbox``.
     """
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
@@ -321,7 +322,6 @@ async def get_features(
 
     if cql2_where:
         where_clauses.append(cql2_where)
-        bind_values.update(cql2_params or {})
 
     # H-24: keyset cursor pagination — `gid > :after_gid` short-circuits the
     # OFFSET cost path entirely. Both pagination styles use the same `gid`
@@ -350,7 +350,13 @@ async def get_features(
         bind_values["offset"] = offset
     bind_values["limit"] = limit
 
-    result = await db.execute(text(data_sql).bindparams(**bind_values))
+    def _with_cql2_binds(stmt):
+        # typed BindParameters (codex r3) — see the cql2_binds docstring note
+        return stmt.bindparams(*cql2_binds) if cql2_binds else stmt
+
+    result = await db.execute(
+        _with_cql2_binds(text(data_sql).bindparams(**bind_values))
+    )
     rows = [dict(row._mapping) for row in result.all()]
 
     # Count query (same WHERE *minus* the after_gid cursor, no LIMIT/OFFSET).
@@ -374,7 +380,9 @@ async def get_features(
             f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)} "
             f"t {count_where_sql}"
         )
-        count_result = await db.execute(text(count_sql).bindparams(**count_bind))
+        count_result = await db.execute(
+            _with_cql2_binds(text(count_sql).bindparams(**count_bind))
+        )
         total = count_result.scalar_one()
 
     return rows, total

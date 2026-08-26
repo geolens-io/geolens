@@ -65,6 +65,9 @@ async def _create_typed_table_and_dataset(
             f"cat INTEGER, "
             f"built TIMESTAMP, "
             f"active BOOLEAN, "
+            f"ratio REAL, "
+            f"price NUMERIC(12, 2), "
+            f"x INTEGER, "
             f"{geometry_col_sql}"
             f'"WeirdCol" TEXT, '
             f"meta JSONB)"
@@ -73,27 +76,32 @@ async def _create_typed_table_and_dataset(
     await session.execute(text(f"GRANT SELECT ON data.{table_name} TO geolens_reader"))
 
     rows = [
-        # (name, height, cat, built, active, lng, lat)
-        ("Alpha", 1.5, 1, "2020-01-01T00:00:00", True, -74.00, 40.70),
-        ("Beta", 2.5, 2, "2021-06-15T12:00:00", False, -73.99, 40.71),
-        ("Gamma", 3.5, 2, "2022-01-01T00:00:00", True, -73.98, 40.72),
-        ("Delta", 10.0, 3, "2023-01-01T00:00:00", False, -73.97, 40.73),
-        (None, 20.0, 3, "2024-01-01T00:00:00", True, -73.96, 40.74),
+        # (name, height, cat, built, active, ratio, price, x, lng, lat)
+        ("Alpha", 1.5, 1, "2020-01-01T00:00:00", True, 0.1, 19.99, 1, -74.00, 40.70),
+        ("Beta", 2.5, 2, "2021-06-15T12:00:00", False, 0.2, 20.00, 2, -73.99, 40.71),
+        ("Gamma", 3.5, 2, "2022-01-01T00:00:00", True, 0.3, 100.50, 3, -73.98, 40.72),
+        ("Delta", 10.0, 3, "2023-01-01T00:00:00", False, 0.4, 0.05, 4, -73.97, 40.73),
+        (None, 20.0, 3, "2024-01-01T00:00:00", True, 0.5, 6.01, 5, -73.96, 40.74),
     ]
-    for name, height, cat, built, active, lng, lat in rows:
+    for name, height, cat, built, active, ratio, price, x, lng, lat in rows:
         await session.execute(
             text(
                 f"INSERT INTO data.{table_name} "
-                f"(geom, geom_4326, name, height, cat, built, active) VALUES ("
+                f"(geom, geom_4326, name, height, cat, built, active, "
+                f'ratio, price, "x") VALUES ('
                 f"ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326), "
                 f"ST_SetSRID(ST_MakePoint({lng}, {lat}), 4326), "
-                f":name, :height, :cat, :built, :active)"
+                f":name, :height, :cat, :built, :active, "
+                f":ratio, :price, :x)"
             ).bindparams(
                 name=name,
                 height=height,
                 cat=cat,
                 built=datetime.fromisoformat(built),
                 active=active,
+                ratio=ratio,
+                price=price,
+                x=x,
             )
         )
 
@@ -230,6 +238,9 @@ async def test_queryables_document_shape(client: AsyncClient, filter_dataset: Da
     assert props["cat"] == {"type": "integer"}
     assert props["built"] == {"type": "string", "format": "date-time"}
     assert props["active"] == {"type": "boolean"}
+    assert props["ratio"] == {"type": "number"}
+    assert props["price"] == {"type": "number"}
+    assert props["x"] == {"type": "integer"}
     assert props["geometry"]["format"] == "geometry-any"
 
     # Live-schema derivation: the drifted stored column_info lists "ghost"
@@ -341,6 +352,13 @@ OPERATOR_CASES = [
     ("lt", "height < 2", _j("<", P, 2), 1),
     ("lte", "height <= 2.5", _j("<=", P, 2.5), 2),
     ("bool_eq", "active = TRUE", _j("=", {"property": "active"}, True), 3),
+    # fix(#1614 codex r3): a float8-cast bind against a REAL column promotes
+    # the stored float4 and 0.1 never matches; the typed REAL bind does.
+    ("real_eq", "ratio = 0.1", _j("=", {"property": "ratio"}, 0.1), 1),
+    ("numeric_eq", "price = 19.99", _j("=", {"property": "price"}, 19.99), 1),
+    # fix(#1614 codex r3): the text grammar's unquoted identifier needs two
+    # characters; the shim quotes lone letters so bare `x = 3` parses.
+    ("single_char_prop", "x = 3", _j("=", {"property": "x"}, 3), 1),
     ("like", "name LIKE 'A%'", _j("like", {"property": "name"}, "A%"), 1),
     ("like_suffix", "name LIKE '%a'", _j("like", {"property": "name"}, "%a"), 4),
     # cql2-json BETWEEN uses the FINAL flat 3-element args (the shim rewrites
@@ -423,6 +441,15 @@ async def test_operator_matrix_both_encodings(
     else:  # s_intersects_geom: different literals per encoding
         assert resp_text.json()["numberReturned"] == 1
         assert resp_json.json()["numberReturned"] == 2
+
+
+@pytest.mark.anyio
+async def test_single_char_property_quoted_form_still_parses(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    resp = await client.get(_items_url(filter_dataset), params={"filter": '"x" = 3'})
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberReturned"] == 1
 
 
 @pytest.mark.anyio
@@ -712,15 +739,15 @@ def test_antimeridian_bbox_compiles_to_a_split_multipolygon():
     """The crossing box renders as two hemispheres, not a rejection."""
     from app.standards.ogc.filtering import compile_feature_cql2
 
-    sql, params = compile_feature_cql2(
+    sql, binds = compile_feature_cql2(
         "S_INTERSECTS(geometry, BBOX(170, -45, -170, -30))",
         "cql2-text",
         {"geometry": "geometry"},
     )
     assert "ST_Intersects" in sql
-    (value,) = params.values()
-    assert "MULTIPOLYGON" in value
-    assert "170 -45" in value and "-180 -45" in value
+    (bind,) = binds
+    assert "MULTIPOLYGON" in bind.value
+    assert "170 -45" in bind.value and "-180 -45" in bind.value
 
 
 @pytest.mark.anyio

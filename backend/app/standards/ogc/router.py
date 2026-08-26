@@ -747,7 +747,7 @@ async def get_collection_items(
     # after the cold-rehydrate seam so a cold table warms (202) instead of
     # misreporting its columns as unknown queryables.
     cql2_where: str | None = None
-    cql2_params: dict = {}
+    cql2_binds: list = []
     if filter_expr is not None:
         # Ordering is deliberate: a parse failure is the caller's bug (400,
         # no database access); then fix(#1614 codex r2) — a missing table
@@ -765,7 +765,7 @@ async def get_collection_items(
             await get_feature_queryable_columns(db, dataset.table_name),
             dataset.geometry_type,
         )
-        cql2_where, cql2_params = compile_feature_cql2_ast(filter_ast, queryables)
+        cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
         # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
@@ -784,7 +784,7 @@ async def get_collection_items(
             include_geometry=include_geometry,
             cached_feature_count=dataset.feature_count,
             cql2_where=cql2_where,
-            cql2_params=cql2_params,
+            cql2_binds=cql2_binds,
         )
     except (ProgrammingError, OperationalError, DataError) as exc:
         # feat(#1614): with a filter active, a type-shaped database error is
