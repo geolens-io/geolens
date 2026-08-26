@@ -287,19 +287,30 @@ class TestPythonRoundTrip:
         sdk = GeolensClient(base_url="http://test", bearer_token=token)
         _wire_asgi_transport(sdk, app)
 
-        # body=None: the search endpoint's generated _get_kwargs unconditionally
-        # sets _kwargs["json"] = body, and httpx fails to serialize the SDK's
-        # UNSET sentinel. Passing body=None routes through the same code path
-        # but with a JSON-serializable value (None → no body sent). This is a
-        # known openapi-python-client 0.28.3 quirk for endpoints that declare
-        # an optional list body on a GET route.
+        # fix(#1666): this used to need an explicit body=None. The endpoint
+        # declared `keywords` as an optional list BODY on a GET, so the generated
+        # _get_kwargs unconditionally set _kwargs["json"] = body and httpx could
+        # not serialize the SDK's UNSET sentinel. `keywords` is a query parameter
+        # now, the generated function takes no body at all, and the call is
+        # simply the call.
         resp = await search_datasets_endpoint_search_datasets_get.asyncio_detailed(
             client=sdk.client,
-            body=None,
         )
         assert resp.status_code == 200, resp.content
         # parsed model is an attrs dataclass; just confirm response shape
         assert resp.parsed is not None
+
+        # And the parameter reaches the server as a repeated query value rather
+        # than a body the handler never reads — the defect #1666 reported.
+        filtered = await search_datasets_endpoint_search_datasets_get.asyncio_detailed(
+            client=sdk.client,
+            keywords=["zzz-no-such-keyword"],
+        )
+        assert filtered.status_code == 200, filtered.content
+        assert filtered.parsed.number_matched == 0, (
+            "keywords did not filter — the SDK is sending it somewhere the "
+            "handler does not read."
+        )
 
     @pytest.mark.anyio
     async def test_get_single_dataset_404_for_missing(
@@ -399,7 +410,6 @@ class TestPythonRoundTrip:
 
         resp = await search_datasets_endpoint_search_datasets_get.asyncio_detailed(
             client=sdk.client,
-            body=None,
         )
         assert resp.status_code == 200, resp.content
 
