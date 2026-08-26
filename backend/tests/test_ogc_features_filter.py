@@ -956,7 +956,20 @@ async def test_qgis_344_request_sequence_end_to_end(
     # right invariant, not agreement with this test harness's placeholder
     # transport address.
     self_href = next(link["href"] for link in landing_links if link["rel"] == "self")
-    origin = f"{urlparse(self_href).scheme}://{urlparse(self_href).netloc}"
+    self_parsed = urlparse(self_href)
+    # fix(#1680 codex r7): normalize_public_url() (app/core/public_urls.py)
+    # accepts any nonempty string verbatim -- it strips whitespace and a
+    # trailing slash but never validates scheme or host. A misconfigured
+    # PUBLIC_API_URL of "https://" (no host) or "ftp://catalog.example"
+    # would make every generated link agree with that same broken origin,
+    # passing self-consistency while no real client could dereference any
+    # of it. Require a real HTTP(S) origin before trusting it as the
+    # baseline every other link gets checked against.
+    assert self_parsed.scheme in ("http", "https"), (
+        f"landing page self href {self_href!r} has a non-HTTP(S) scheme"
+    )
+    assert self_parsed.netloc, f"landing page self href {self_href!r} has no host"
+    origin = f"{self_parsed.scheme}://{self_parsed.netloc}"
 
     conformance_href = next(
         link["href"] for link in landing_links if link["rel"] == "conformance"
