@@ -22,6 +22,7 @@ from app.modules.catalog.authorization import apply_visibility_filter, get_user_
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.features.schemas import inline_json_schema
 from app.modules.catalog.features.service import (
+    feature_table_exists,
     get_feature_by_id,
     get_feature_queryable_columns,
     get_features,
@@ -34,8 +35,9 @@ from app.platform.extensions import (
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.filtering import (
     build_feature_queryables_response,
-    compile_feature_cql2,
+    compile_feature_cql2_ast,
     feature_queryable_columns,
+    parse_feature_cql2,
 )
 from app.standards.ogc.schemas import (
     ConformanceResponse,
@@ -510,6 +512,16 @@ async def get_collection_queryables(
         if _q_cold_result is not None:
             return _q_cold_result
 
+    # fix(#1614 codex r2): get_column_info returns [] for a MISSING table as
+    # well as for an attribute-less one. A missing table (partial ingest /
+    # eviction race) must stay the same retryable 503 the /items path
+    # reports, not publish an empty queryables document as authoritative.
+    if not await feature_table_exists(db, dataset.table_name):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Dataset table is temporarily unavailable",
+        )
+
     queryables = feature_queryable_columns(
         await get_feature_queryable_columns(db, dataset.table_name),
         dataset.geometry_type,
@@ -737,13 +749,23 @@ async def get_collection_items(
     cql2_where: str | None = None
     cql2_params: dict = {}
     if filter_expr is not None:
+        # Ordering is deliberate: a parse failure is the caller's bug (400,
+        # no database access); then fix(#1614 codex r2) — a missing table
+        # yields an empty live schema, and compiling against it would 400
+        # every attribute filter as an unknown property, so table
+        # availability stays the retryable 503; schema-dependent validation
+        # runs last.
+        filter_ast = parse_feature_cql2(filter_expr, filter_lang)
+        if not await feature_table_exists(db, dataset.table_name):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is temporarily unavailable",
+            )
         queryables = feature_queryable_columns(
             await get_feature_queryable_columns(db, dataset.table_name),
             dataset.geometry_type,
         )
-        cql2_where, cql2_params = compile_feature_cql2(
-            filter_expr, filter_lang, queryables
-        )
+        cql2_where, cql2_params = compile_feature_cql2_ast(filter_ast, queryables)
 
     try:
         # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from

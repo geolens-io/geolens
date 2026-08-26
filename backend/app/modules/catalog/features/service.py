@@ -186,6 +186,28 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     )
 
 
+async def feature_table_exists(db: AsyncSession, table_name: str) -> bool:
+    """Whether the tenant-schema data table currently exists.
+
+    fix(#1614 codex r2): ``get_column_info`` returns [] both for a table with
+    zero attribute columns and for a MISSING table (partial ingest, eviction).
+    Queryables/filter callers must distinguish the two — an empty schema is
+    authoritative only when the table is really there; a missing table is the
+    same retryable 503 the feature query paths report.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
+    result = await db.execute(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM information_schema.tables "
+            "WHERE table_schema = :schema AND table_name = :tn)"
+        ).bindparams(schema=schema, tn=table_name)
+    )
+    return bool(result.scalar_one())
+
+
 async def get_feature_queryable_columns(
     db: AsyncSession, table_name: str
 ) -> list[dict]:

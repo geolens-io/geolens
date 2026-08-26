@@ -365,6 +365,12 @@ def _normalize_cql2_json(node):
         return [_normalize_cql2_json(n) for n in node]
     if not isinstance(node, dict):
         return node
+    if "type" in node and "coordinates" in node:
+        # fix(#1614 codex r2): a GeoJSON geometry may carry the optional
+        # ``bbox`` member; it is metadata, not a BBox literal — rewriting it
+        # would silently replace the shape with its bounding rectangle. Same
+        # precedence as pygeofilter's own walker (geometry before bbox).
+        return node
     bbox = node.get("bbox")
     if (
         isinstance(bbox, list)
@@ -586,12 +592,39 @@ def _validate_feature_filter_node(node, queryables: dict[str, str], errors: list
         errors.append(f"unsupported expression: {type(node).__name__}")
 
 
+def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
+    """Length-cap, parse, and shim-rewrite a feature-collection filter.
+
+    Split from compilation (fix(#1614 codex r2) follow-up) so the router can
+    order its checks precisely: a parse failure is the caller's bug and 400s
+    with no database access at all; table availability (503) is checked next;
+    only then does schema-dependent validation/compilation run.
+    """
+    if len(filter_expr) > MAX_FEATURE_FILTER_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(f"filter exceeds the {MAX_FEATURE_FILTER_LENGTH}-character limit"),
+        )
+    ast_root = parse_cql2_filter(filter_expr, filter_lang)
+    return _rewrite_text_bbox_literals(ast_root)
+
+
 def compile_feature_cql2(
     filter_expr: str,
     filter_lang: str,
     queryables: dict[str, str],
 ) -> tuple[str, dict]:
-    """Compile a CQL2 filter into a (sql_fragment, bind_params) pair.
+    """Parse + compile in one step (kept for callers that need no ordering)."""
+    return compile_feature_cql2_ast(
+        parse_feature_cql2(filter_expr, filter_lang), queryables
+    )
+
+
+def compile_feature_cql2_ast(
+    ast_root: Any,
+    queryables: dict[str, str],
+) -> tuple[str, dict]:
+    """Compile a parsed CQL2 AST into a (sql_fragment, bind_params) pair.
 
     The fragment references only unqualified, live-schema-vetted column names
     (bare ``sqlalchemy.column()`` — a table-qualified column would not resolve
@@ -599,23 +632,13 @@ def compile_feature_cql2(
     as a ``:cql2_N``-prefixed bind parameter, so it can be appended verbatim
     to get_features()'s WHERE clauses inside ``text()``.
 
-    Raises HTTPException(400) on any invalid, unsupported, or type-mismatched
-    filter.
+    Raises HTTPException(400) on any unsupported or type-mismatched filter.
     """
     from geoalchemy2 import Geometry
     from pygeofilter.backends.sqlalchemy import to_filter
     from sqlalchemy import column as sa_column
     from sqlalchemy import types as sa_types
     from sqlalchemy.dialects import postgresql
-
-    if len(filter_expr) > MAX_FEATURE_FILTER_LENGTH:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(f"filter exceeds the {MAX_FEATURE_FILTER_LENGTH}-character limit"),
-        )
-
-    ast_root = parse_cql2_filter(filter_expr, filter_lang)
-    ast_root = _rewrite_text_bbox_literals(ast_root)
 
     errors: list[str] = []
     _validate_feature_filter_node(ast_root, queryables, errors)

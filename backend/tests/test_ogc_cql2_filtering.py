@@ -271,23 +271,29 @@ async def test_search_datasets_unsupported_filter_lang_returns_400(client: Async
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "filter_value,detail_fragment",
+    "filter_value,expected_status,detail_fragment",
     [
-        pytest.param("name='x'", "non-filterable", id="unknown-property"),
-        pytest.param("!!!INVALID!!!", "Invalid CQL2", id="malformed"),
-        pytest.param("", "Invalid CQL2", id="empty-string"),
+        pytest.param("name='x'", 503, "temporarily unavailable", id="no-table-503"),
+        pytest.param("!!!INVALID!!!", 400, "Invalid CQL2", id="malformed"),
+        pytest.param("", 400, "Invalid CQL2", id="empty-string"),
     ],
 )
-async def test_feature_items_filter_validation_400(
-    client: AsyncClient, test_db_session, filter_value: str, detail_fragment: str
+async def test_feature_items_filter_check_ordering(
+    client: AsyncClient,
+    test_db_session,
+    filter_value: str,
+    expected_status: int,
+    detail_fragment: str,
 ):
     """feat(#1614) replaced the fix(#315) presence-based rejection.
 
     ``filter`` on per-dataset feature collections is now parsed and validated
-    server-side. These inputs still 400, but each for its real reason: this
-    dataset has no backing table, so ``name`` is not among its live-schema
-    queryables, and the other two never parse. The full server-side filtering
-    surface is covered in test_ogc_features_filter.py.
+    server-side, with a deliberate check order: a parse failure is the
+    caller's bug and 400s with no database access, while a valid filter
+    against this dataset (which has no backing table) reports the same
+    retryable 503 as an unfiltered items request — never an unknown-property
+    400 derived from the missing table's empty schema (codex r2). The full
+    filtering surface is covered in test_ogc_features_filter.py.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -300,7 +306,7 @@ async def test_feature_items_filter_validation_400(
         f"/collections/{dataset.id}/items",
         params={"filter": filter_value},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == expected_status
     data = resp.json()
     assert detail_fragment in data["detail"]
 

@@ -627,12 +627,47 @@ async def test_incomparable_property_pair_is_400_not_500(
 async def test_missing_table_with_filter_keeps_503(
     client: AsyncClient, missing_table_dataset: Dataset
 ):
-    """undefined_table (42P01) stays the retryable 503, filter or not."""
-    resp = await client.get(
-        _items_url(missing_table_dataset),
-        params={"filter": "S_INTERSECTS(geometry, POINT(0 0))"},
-    )
+    """A missing table stays the retryable 503, whatever the filter shape.
+
+    fix(#1614 codex r2): an attribute filter must not be misreported as an
+    unknown-property 400 just because the missing table has an empty live
+    schema, and /queryables must not publish that empty schema as a 200.
+    """
+    for params in (
+        {"filter": "S_INTERSECTS(geometry, POINT(0 0))"},
+        {"filter": "name = 'x'"},
+    ):
+        resp = await client.get(_items_url(missing_table_dataset), params=params)
+        assert resp.status_code == 503, (params, resp.text)
+
+    resp = await client.get(f"/collections/{missing_table_dataset.id}/queryables")
     assert resp.status_code == 503
+
+
+@pytest.mark.anyio
+async def test_geojson_geometry_with_bbox_member_keeps_its_shape(
+    client: AsyncClient, filter_dataset: Dataset
+):
+    """fix(#1614 codex r2): GeoJSON's optional bbox member is metadata.
+
+    A triangle near (0,0) carrying a bbox that covers every feature must
+    match nothing — rewriting the geometry to its bounding rectangle would
+    match all five.
+    """
+    triangle = {
+        "type": "Polygon",
+        "coordinates": [[[0, 0], [1, 0], [0, 1], [0, 0]]],
+        "bbox": [-75, 40, -73, 41],
+    }
+    resp = await client.get(
+        _items_url(filter_dataset),
+        params={
+            "filter": _j("s_intersects", {"property": "geometry"}, triangle),
+            "filter-lang": "cql2-json",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberMatched"] == 0
 
 
 @pytest.mark.anyio
