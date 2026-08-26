@@ -76,7 +76,7 @@ def _is_unopenable_source_stderr(stderr_text: str) -> bool:
 _VECTOR_FORMAT_LABELS: dict[str, str] = {
     ".gpkg": "GeoPackage (.gpkg)",
     ".shp": "Shapefile (.shp)",
-    ".zip": "zipped Shapefile (.zip)",
+    ".zip": "zipped Shapefile or File Geodatabase (.zip)",
     ".geojson": "GeoJSON (.geojson)",
     ".json": "GeoJSON (.json)",
     ".csv": "CSV (.csv)",

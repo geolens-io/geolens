@@ -1,12 +1,15 @@
 """Upload file validation: magic bytes, zip safety, size limits.
 
 Validates uploaded files beyond extension checks:
-- Content-type verification via magic byte detection (puremagic)
+- Content-type verification via magic byte detection (puremagic), plus
+  direct header sniffs for formats puremagic has no signature for (Parquet,
+  FlatGeobuf)
 - ZIP archive safety (compression ratio, nested archives, decompressed size)
 - File size enforcement against configured limits
 - VRT XML sniff + path-traversal guard on `<SourceFilename>` body (IA-P1-03)
 """
 
+import codecs
 import re
 import struct
 import zipfile
@@ -35,6 +38,12 @@ EXTENSION_CONTENT_MAP: dict[str, set[str]] = {
     ".tiff": {".tif", ".tiff"},
     ".xlsx": {".xlsx", ".zip", ".docx"},  # OOXML shares ZIP container
     ".xls": {".xls", ".doc"},  # Old BIFF format
+    # KML is XML; puremagic reports `.xml` for the usual `<?xml` prologue and
+    # nothing for a bare `<kml>` root, which the XML fallback below covers.
+    ".kml": {".xml", ".kml"},
+    # A KMZ is a zipped KML. puremagic reads the zip container and reports
+    # `.docx` for it, the same OOXML confusion `.xlsx` already carries.
+    ".kmz": {".kmz", ".zip", ".docx"},
 }
 
 # Maximum uploaded VRT XML size. User-provided VRTs are control-plane XML, not
@@ -48,12 +57,38 @@ _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
 # is the standard truncation signal (the footer holds all file metadata).
 _PARQUET_MAGIC = b"PAR1"
 
+# FlatGeobuf's 8-byte magic is "fgb" + a major-version byte + "fgb" + a patch
+# byte. Only the two literals are checked: pinning the version bytes would
+# reject a file written by a newer FlatGeobuf that GDAL still reads fine.
+_FGB_MAGIC_WORD = b"fgb"
+_FGB_MAGIC_SIZE = 8
+
+# XML byte-order marks, widest first: BOM_UTF32_LE begins with BOM_UTF16_LE,
+# so checking UTF-16 first would read a UTF-32 document as UTF-16.
+_XML_BOMS: tuple[tuple[bytes, str], ...] = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF8, "utf-8"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
+
+# XML 1.0 Appendix F: with no BOM, a UTF-16/32 document is recognised from how
+# the opening `<` is padded. Same assumption the spec makes — that the document
+# begins with the `<`, not with whitespace.
+_UNMARKED_WIDE_XML_PREFIXES = (
+    b"\x00\x00\x00<",
+    b"<\x00\x00\x00",
+    b"\x00<",
+    b"<\x00",
+)
+
 # ZIP bomb thresholds
 MAX_COMPRESSION_RATIO = 500
 MAX_DECOMPRESSED_BYTES = 2 * 1024 * 1024 * 1024  # 2 GB
 MAX_ARCHIVE_ENTRIES = 10_000
 MAX_CENTRAL_DIRECTORY_BYTES = 32 * 1024 * 1024
-ZIP_CONTAINER_EXTENSIONS = frozenset({".zip", ".xlsx"})
+ZIP_CONTAINER_EXTENSIONS = frozenset({".zip", ".xlsx", ".kmz"})
 
 _EOCD_SIGNATURE = b"PK\x05\x06"
 _ZIP64_EOCD_SIGNATURE = b"PK\x06\x06"
@@ -358,6 +393,51 @@ def validate_parquet_file(file_path: str) -> None:
         )
 
 
+def validate_flatgeobuf_file(file_path: str) -> None:
+    """Validate the 8-byte magic header of a ``.fgb`` upload.
+
+    puremagic has no FlatGeobuf signature (it raises ``PureError`` on one), so
+    without this check every ``.fgb`` would fall through the unknown-extension
+    branch and reach GDAL unverified. Raises ValueError with a user-friendly
+    message.
+    """
+    with open(file_path, "rb") as f:
+        header = f.read(_FGB_MAGIC_SIZE)
+    if (
+        len(header) < _FGB_MAGIC_SIZE
+        or header[0:3] != _FGB_MAGIC_WORD
+        or header[4:7] != _FGB_MAGIC_WORD
+    ):
+        raise ValueError(
+            "File has .fgb extension but is not a valid FlatGeobuf file "
+            "(missing the FlatGeobuf magic bytes)."
+        )
+
+
+def _is_xml_like(header: bytes) -> bool:
+    """True when the header opens an XML/KML document.
+
+    A structural check rather than a magic signature: KML written without an
+    ``<?xml`` prologue is valid and common, and puremagic detects nothing for
+    it.
+
+    Encoding-aware because LIBKML reads UTF-16 KML (verified against the
+    worker's GDAL), and a UTF-16 document's interleaved NUL bytes make the
+    plain "no NULs" text check call it binary. The BOM decides the encoding
+    when there is one; XML 1.0 Appendix F's byte patterns decide when there
+    is not.
+    """
+    for bom, encoding in _XML_BOMS:
+        if header.startswith(bom):
+            decoded = header[len(bom) :].decode(encoding, "ignore")
+            return decoded.lstrip().startswith("<")
+    if header.startswith(_UNMARKED_WIDE_XML_PREFIXES):
+        return True
+    if not _is_text_content(header):
+        return False
+    return header.lstrip().startswith(b"<")
+
+
 def validate_file_content(file_path: str, filename: str) -> None:
     """Verify file content matches declared extension via magic bytes.
 
@@ -375,6 +455,11 @@ def validate_file_content(file_path: str, filename: str) -> None:
     # of relying on puremagic's header-only detection.
     if suffix == ".parquet":
         validate_parquet_file(file_path)
+        return
+
+    # FlatGeobuf has a fixed 8-byte header magic that puremagic does not know.
+    if suffix == ".fgb":
+        validate_flatgeobuf_file(file_path)
         return
 
     with open(file_path, "rb") as f:
@@ -400,6 +485,11 @@ def validate_file_content(file_path: str, filename: str) -> None:
     # Text-based formats may not be detected by puremagic.
     # Allow if content appears to be text (no null bytes).
     if suffix in (".geojson", ".json", ".csv") and _is_text_content(header):
+        return
+
+    # KML gets the narrower text rule: it must at least open a tag, so a plain
+    # text file renamed to .kml is still refused here rather than by GDAL.
+    if suffix == ".kml" and _is_xml_like(header):
         return
 
     logger.warning(

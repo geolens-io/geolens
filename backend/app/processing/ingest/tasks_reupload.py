@@ -33,6 +33,7 @@ from app.platform.refresh.service import (
     record_refresh_failure,
     record_refresh_success,
 )
+from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     _append_job_warning,
     _append_mercator_clip_warning,
@@ -324,8 +325,7 @@ async def reupload_file(
 
         # 7. Compute file hash (moved up — must be outside any session)
         file_hash = await asyncio.to_thread(sha256_file, file_path)
-        suffix = Path(file_path).suffix.lower().lstrip(".")
-        source_format = "shapefile" if suffix == "zip" else suffix
+        source_format = await asyncio.to_thread(derive_source_format, file_path)
 
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session): re-load job + dataset, run staging
@@ -361,7 +361,9 @@ async def reupload_file(
                 _append_job_warning(job, make_reserved_rename_warning(reserved_renames))
 
             # 4b. Shapefile-only: detect DBF 10-char truncation collisions.
-            if file_path.lower().endswith(".zip"):
+            #     Keyed on the derived format, not the .zip suffix — a File
+            #     Geodatabase arrives in a .zip too and has no DBF to truncate.
+            if source_format == "shapefile":
                 from app.processing.ingest.metadata import (
                     detect_dbf_truncation_collisions,
                 )

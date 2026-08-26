@@ -857,17 +857,10 @@ async def request_presigned_reupload(
     try:
         allowed_list = await get_allowed_extensions_list(db)
     except Exception:  # broad: persistent_config lookup must not crash reupload UI; fall back to safe default list
-        allowed_list = [
-            ".zip",
-            ".gpkg",
-            ".geojson",
-            ".json",
-            ".csv",
-            ".tif",
-            ".tiff",
-            ".xlsx",
-            ".xls",
-        ]
+        # fix(#1682 codex r3): the configured default, not a frozen literal —
+        # see _fallback_allowed_extensions in processing/ingest/router.py for
+        # why a narrower fallback is not a safer one.
+        allowed_list = list(settings.allowed_extensions_list)
     get_catalog_port().validate_file_extension(request.filename, allowed_list)
 
     # Reject files exceeding configured size limit at request time

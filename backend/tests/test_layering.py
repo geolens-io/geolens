@@ -2619,7 +2619,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # concurrently with the responses={403:...} addition above; recounted
     # after merge rather than picking either side's number. Cap 1550 ->
     # 1543, exact.
-    "backend/app/processing/ingest/router.py": 1543,
+    # fix(#1682 codex r3): +4 — the DB-failure fallback for allowed upload
+    # extensions became a function reading settings.allowed_extensions_list
+    # instead of an eight-entry literal that had drifted two formats behind.
+    # Most of the growth is the docstring recording why a narrower fallback is
+    # not a safer one. Cap 1543 -> 1547, exact.
+    "backend/app/processing/ingest/router.py": 1547,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2769,7 +2774,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # advertised page size returned SOME rows per page while the offset
     # skipped records, so positive growth alone could swap a truncated
     # copy. Cap 2211 -> 2308, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2308,
+    # fix(#1682 codex r1): +3 — the DBF field-name-truncation warning in the
+    # shared reupload helper is keyed on the derived source_format instead of
+    # the .zip suffix, plus the import and the comment saying why (a File
+    # Geodatabase arrives in a .zip and has no DBF). Cap 2308 -> 2311, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2311,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -2822,7 +2831,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # origin-contact stamp when the probe's request begins — the probe is
     # the first outbound contact and can die before any subprocess spawns.
     # Cap 1156 -> 1245, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1245,
+    # feat(tier-1 vector import) + fix(#1682 codex r1): +2 — the source_format
+    # derivation moved to the shared ingest/source_format.py (one import line),
+    # and the DBF-truncation guard gained the comment recording that it is
+    # keyed on the derived format, not the .zip suffix. Cap 1245 -> 1247, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1247,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3260,7 +3273,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead of swallowing it, mirroring the re-raise convention already used
     # by the other three CancelledError checks in this file. Cap 1149 -> 1151,
     # exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1151,
+    # fix(#1682 codex r3): -7 — the presigned-reupload DB-failure fallback
+    # dropped its nine-entry literal for settings.allowed_extensions_list, so
+    # the two upload doors cannot answer differently. Ratchet DOWN in the same
+    # commit, per the no-headroom rule. Cap 1151 -> 1144, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1144,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -3341,7 +3358,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead of GDAL's raw driver-enumeration stderr. Cap 1090 -> 1093, exact.
     # fix(#1675): -10 — the inline paged loop moved to tasks_common's shared
     # run_paged_arcgis_service_fetch. Cap 1093 -> 1083, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1083,
+    # feat(tier-1 vector import): +2 — source_format is resolved once, before
+    # step 3b instead of after it, because the DBF field-name-truncation
+    # warning is Shapefile-only and a File Geodatabase now arrives in a .zip
+    # too. The derivation itself moved out to ingest/source_format.py, shared
+    # with the reupload path. Cap 1083 -> 1085, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1085,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

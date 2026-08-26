@@ -75,11 +75,16 @@ class TestValidateFileContent:
             validate_file_content(str(f), "test.geojson")
 
     def test_unknown_extension_skips_validation(self, tmp_path: Path):
-        """Extensions not in EXTENSION_CONTENT_MAP skip magic-byte validation."""
-        f = tmp_path / "data.fgb"
-        f.write_bytes(b"fgb\x03fgb\x01" + b"\x00" * 100)
+        """Extensions not in EXTENSION_CONTENT_MAP skip magic-byte validation.
+
+        ``.fgb`` used to be the example here; it has its own header sniff now
+        (see test_ingest_tier1_formats.py), so this needs an extension that
+        really is unknown.
+        """
+        f = tmp_path / "data.mysteryformat"
+        f.write_bytes(b"\x01\x02\x03\x04" + b"\x00" * 100)
         # Should NOT raise -- unknown extensions pass through
-        validate_file_content(str(f), "data.fgb")
+        validate_file_content(str(f), "data.mysteryformat")
 
 
 # ---------------------------------------------------------------------------

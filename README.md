@@ -121,7 +121,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 ### Data ingestion and export
 
 - **Five source modes:** Uploaded and Created data are managed locally; Register Table serves an existing table in GeoLens's own PostGIS database in place; Service imports are one-shot local copies; STAC datasets keep a live reference to the remote asset
-- **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
+- **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, zipped File Geodatabase, CSV, XLSX
 - **Raster:** GeoTIFF and Cloud-Optimized GeoTIFF (COG) with automatic conversion
 - **Mosaics:** VRT-based raster mosaics from multiple source files
 - **Export:** GeoJSON, Shapefile, GeoPackage, CSV, with CRS reprojection

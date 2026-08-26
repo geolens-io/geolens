@@ -8,6 +8,20 @@ and releases use semantic versioning.
 ## [Unreleased]
 ### Added
 
+- **Four more upload formats: FlatGeobuf, KML, KMZ, and zipped File
+  Geodatabase.** The GDAL build in the worker has read these all along — they
+  were simply never on the accepted-extensions list, so an upload was refused
+  at the door. `.fgb` uploads store `source_format = 'fgb'` (a new value in
+  the `chk_datasets_source_format` constraint); `.kmz` is recorded as `kml`,
+  one format in two containers; and a `.zip` is now recorded as `fgdb` rather
+  than `shapefile` when it carries a `.gdb` directory, which also stops the
+  Shapefile DBF field-name-truncation warning from firing on a File
+  Geodatabase that has no DBF. Replace-in-place accepts the same four.
+  Upload-time content checks came along: FlatGeobuf's 8-byte magic is
+  verified directly (puremagic has no signature for it), a KMZ goes through
+  the same zip-bomb checks as any other archive, and a `.kml` must at least
+  open an XML tag.
+
 - **A failed upload now leaves a trace, and a way to report it.** UploadForm
   calls the presign, PUT, direct-upload POST, preview/detection, commit, and
   commit-fan-out endpoints directly from a plain try/catch instead of through
@@ -40,6 +54,16 @@ and releases use semantic versioning.
   so banner content still cannot inject markup.
 
 ### Fixed
+
+- **A database hiccup no longer narrows which file types you can upload.**
+  Both upload doors tolerate a failed settings lookup by falling back to a
+  built-in extension list, and that list was frozen at the formats available
+  when it was written. GeoParquet has been missing from it since GeoParquet
+  import shipped, so during exactly the transient failure the fallback exists
+  to survive, a `.parquet` upload was refused for a reason no operator had
+  configured. Both fallbacks now read the configured default. A narrower list
+  was never the safer one: the extension check gates nothing by itself, since
+  content validation, the size limit, and the storage quota all still run.
 
 - **The API contract now describes what the server actually accepts and
   returns.** Three things in the generated OpenAPI schema described FastAPI's

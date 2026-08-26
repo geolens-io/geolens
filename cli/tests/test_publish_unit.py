@@ -35,6 +35,9 @@ class TestGuessMime:
             ("e.tiff", "image/tiff"),
             ("f.zip", "application/zip"),
             ("g.csv", "text/csv"),
+            ("h.kml", "application/vnd.google-earth.kml+xml"),
+            ("i.kmz", "application/vnd.google-earth.kmz"),
+            ("j.fgb", "application/vnd.flatgeobuf"),
         ],
     )
     def test_known_extensions(self, name: str, expected: str) -> None:

@@ -69,6 +69,23 @@ class TestClassification:
         assert items["config.json"].format == "unsupported"
         assert items["config.json"].ingest is False
 
+    @pytest.mark.parametrize(
+        "name,expected",
+        [
+            ("points.fgb", "flatgeobuf"),
+            ("tour.kml", "kml"),
+            ("tour.kmz", "kmz"),
+        ],
+    )
+    def test_single_file_vector_primaries(
+        self, tmp_path, name: str, expected: str
+    ) -> None:
+        """Tier-1 formats classify on extension alone — no sidecars, no peek."""
+        (tmp_path / name).write_bytes(b"\x00")
+        items = {i.path.name: i for i in _scan.walk(tmp_path)}
+        assert items[name].format == expected
+        assert items[name].ingest is True
+
 
 class TestShapefileGrouping:
     def test_complete_shapefile_yields_one_row(self, sample_tree) -> None:

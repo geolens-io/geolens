@@ -383,11 +383,15 @@ class Dataset(Base):
         CheckConstraint(
             # fix(#541): 'parquet' for GeoParquet ingest; 'json'/'xlsx'/'xls'
             # are accepted upload suffixes that were missing from the list.
-            # Migration 0027_source_format_parquet is the source of truth.
+            # 'fgb' arrived with Tier-1 vector import; 'kml' and 'fgdb' were
+            # already listed and are now reachable (a .kmz normalizes to
+            # 'kml', a zipped .gdb to 'fgdb' — see ingest/source_format.py).
+            # Migration 0053_source_format_fgb is the source of truth.
             "source_format IS NULL OR source_format IN ("
             "'geojson', 'shapefile', 'shp', 'gpkg', 'csv', 'kml', 'gml', "
             "'wfs', 'arcgis_featureserver', 'fgdb', 'created', 'geotiff', "
-            "'ogcapi_features', 'stac', 'parquet', 'json', 'xlsx', 'xls')",
+            "'ogcapi_features', 'stac', 'parquet', 'json', 'xlsx', 'xls', "
+            "'fgb')",
             name="chk_datasets_source_format",
         ),
         CheckConstraint(
