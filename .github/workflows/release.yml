@@ -339,7 +339,18 @@ jobs:
                   ;;
                 *)
                   # Never echo the response wholesale; it echoes the request.
-                  DETAIL=$(jq -r '.detail // .error // empty' newsletter-response.json 2>/dev/null | head -c 200)
+                  #
+                  # `|| true` because this must not become the thing that stops
+                  # the failure being REPORTED. A transport failure leaves no
+                  # response file at all (curl -o writes nothing), and a proxy
+                  # can return a non-JSON error body; either way jq exits
+                  # non-zero. This step runs under GitHub's default `bash -e`,
+                  # where the pipeline's status is `head`'s and that is
+                  # survivable — but adding `shell: bash` anywhere above turns
+                  # on `pipefail` and the step would then die here, before the
+                  # warning, the summary line and `failed=1`. Not a dependency
+                  # to leave implicit (#1673 codex P2).
+                  DETAIL=$(jq -r '.detail // .error // empty' newsletter-response.json 2>/dev/null | head -c 200 || true)
                   echo "::warning title=Newsletter draft failed::Could not draft the Buttondown release-notes email for ${TAG} (HTTP ${CODE}). ${DETAIL} The release itself published fine; draft it by hand per the release runbook."
                   summary "newsletter: FAILED for ${TAG} (HTTP ${CODE})"
                   failed=1
