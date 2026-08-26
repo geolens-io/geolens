@@ -151,7 +151,7 @@ function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
             ? t('rail.registerNote', { defaultValue: 'No data copied · tiles generated directly from your tables' })
             : isStac
               ? t('rail.stacNote', { defaultValue: 'STAC metadata is discovered first, then selected assets are imported' })
-              : t('rail.serviceNote', { defaultValue: 'Service tokens are used during import only and are not persisted' })}
+              : t('rail.serviceNote', { defaultValue: 'Service tokens are used for this import and are never stored with the dataset' })}
         </p>
       </div>
 

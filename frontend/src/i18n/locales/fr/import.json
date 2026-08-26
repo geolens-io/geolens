@@ -487,7 +487,7 @@
     "serviceDesc": "Connectez un WFS distant, ArcGIS FeatureServer ou OGC API Features. GeoLens importe le calque dans le catalogue pour le tuilage et les requêtes.",
     "registerNote": "Aucune donnée copiée · tuiles générées directement depuis vos tables",
     "stacNote": "Les métadonnées STAC sont découvertes d'abord, puis les ressources sélectionnées importées",
-    "serviceNote": "Les jetons de service ne sont utilisés que lors de l'importation et ne sont pas conservés",
+    "serviceNote": "Les jetons de service sont utilisés pour cette importation et ne sont jamais conservés avec le jeu de données",
     "comparedToUpload": "Comparé au chargement",
     "compareRegister": "Le chargement ingère depuis un fichier. L'enregistrement pointe vers une table existante — pas de duplication, mais la table doit rester dans votre base de données.",
     "compareStac": "Le chargement ingère des fichiers locaux. Les importations STAC découvrent d'abord les ressources distantes, puis préparent les éléments sélectionnés pour le catalogue.",

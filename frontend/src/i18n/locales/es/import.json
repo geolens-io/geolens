@@ -487,7 +487,7 @@
     "serviceDesc": "Conecta un WFS remoto, ArcGIS FeatureServer u OGC API Features. GeoLens importa la capa al catálogo para teselado y consultas.",
     "registerNote": "Sin copia de datos · tiles generados directamente desde tus tablas",
     "stacNote": "Los metadatos STAC se descubren primero, luego se importan los assets seleccionados",
-    "serviceNote": "Los tokens de servicio solo se usan durante la importación y no se conservan",
+    "serviceNote": "Los tokens de servicio se usan para esta importación y nunca se guardan con el conjunto de datos",
     "comparedToUpload": "Comparado con la carga",
     "compareRegister": "La carga ingesta desde un archivo. Registrar apunta a una tabla existente — sin duplicación, pero la tabla debe permanecer en tu base de datos.",
     "compareStac": "La carga ingesta archivos locales. Las importaciones STAC descubren activos remotos primero, luego preparan los elementos seleccionados para el catálogo.",

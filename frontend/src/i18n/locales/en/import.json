@@ -239,7 +239,7 @@
     "serviceDesc": "Connect a remote WFS, ArcGIS FeatureServer, or OGC API Features service. GeoLens imports the layer into the catalog for tiling and querying.",
     "registerNote": "No data copied · tiles generated directly from your tables",
     "stacNote": "STAC metadata is discovered first, then selected assets are imported",
-    "serviceNote": "Service tokens are used during import only and are not persisted",
+    "serviceNote": "Service tokens are used for this import and are never stored with the dataset",
     "comparedToUpload": "Compared to Upload",
     "compareRegister": "Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.",
     "compareStac": "Upload ingests local files. STAC imports discover remote assets first, then stages selected items for catalog use.",

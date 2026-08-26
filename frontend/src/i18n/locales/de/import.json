@@ -487,7 +487,7 @@
     "serviceDesc": "Einen Remote-WFS, ArcGIS FeatureServer oder OGC API Features Service verbinden. GeoLens importiert die Ebene in den Katalog zur Kachelung und Abfrage.",
     "registerNote": "Keine Daten kopiert · Kacheln direkt aus Ihren Tabellen generiert",
     "stacNote": "STAC-Metadaten werden zuerst ermittelt, dann ausgewählte Assets importiert",
-    "serviceNote": "Service-Tokens werden nur beim Import verwendet und nicht gespeichert",
+    "serviceNote": "Service-Tokens werden für diesen Import verwendet und niemals mit dem Datensatz gespeichert",
     "comparedToUpload": "Im Vergleich zum Upload",
     "compareRegister": "Upload nimmt aus einer Datei auf. Registrieren zeigt auf eine vorhandene Tabelle — keine Duplizierung, aber die Tabelle muss in Ihrer Datenbank bleiben.",
     "compareStac": "Upload nimmt lokale Dateien auf. STAC-Import erkennt zuerst Remote-Assets und stellt ausgewählte Elemente dann für den Katalog bereit.",

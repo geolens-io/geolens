@@ -889,49 +889,39 @@ async def ingest_service(
                 and feature_count is not None
                 and feature_count > page_size
             ):
-                imported_rows = 0
-                append = False
-                for offset in range(0, feature_count, page_size):
-                    _src, _layer = port.build_gdal_source(
-                        service_type_raw,
-                        source_url,
-                        layer_name,
-                        layer_id,
-                        token=token,
-                        order_field=pagination_order_field,
-                        result_limit=page_size,
-                        result_offset=offset,
-                    )
-                    await run_ogr2ogr_service(
-                        _src,
-                        _layer,
-                        staging_table_name,
-                        db_conn_str,
-                        service_type,
-                        token=token,
-                        is_non_spatial=is_non_spatial,
-                        append=append,
-                        schema=_current_tenant_schema(),
-                    )
-                    next_imported_rows = await _count_service_import_rows(
-                        staging_table_name
-                    )
-                    if next_imported_rows <= imported_rows:
-                        from app.processing.ingest.ogr import IngestionError
-
-                        raise IngestionError(
-                            "ArcGIS service import made no row-count progress "
-                            f"at offset {offset}; upstream pagination may be "
-                            "unsupported or returned an empty page."
-                        )
-                    imported_rows = next_imported_rows
+                # fix(#1675): the guarded loop moved to tasks_common so the
+                # refresh executor pages the same way; per-page progress
+                # publishing stays an import-path concern via on_page.
+                async def _publish_page_progress(
+                    imported_rows: int, total: int
+                ) -> None:
                     await _write_service_import_progress(
                         job_uuid,
                         attempt_uuid,
                         imported_rows=imported_rows,
-                        feature_count=feature_count,
+                        feature_count=total,
                     )
-                    append = True
+
+                from app.processing.ingest.tasks_common import (
+                    run_paged_arcgis_service_fetch,
+                )
+
+                await run_paged_arcgis_service_fetch(
+                    service_type_raw=service_type_raw,
+                    service_type=service_type,
+                    source_url=source_url,
+                    layer_name=layer_name,
+                    layer_id=layer_id,
+                    token=token,
+                    staging_table=staging_table_name,
+                    db_conn_str=db_conn_str,
+                    schema=_current_tenant_schema(),
+                    feature_count=feature_count,
+                    page_size=page_size,
+                    order_field=pagination_order_field,
+                    is_non_spatial=is_non_spatial,
+                    on_page=_publish_page_progress,
+                )
                 return
 
             _src, _layer = port.build_gdal_source(
