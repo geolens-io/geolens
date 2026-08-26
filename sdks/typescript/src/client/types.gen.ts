@@ -5971,6 +5971,22 @@ export type MapResponse = {
 };
 
 /**
+ * MapSpriteEntry
+ *
+ * One entry of the MapLibre array-form ``sprite`` ({id, url}).
+ */
+export type MapSpriteEntry = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Url
+     */
+    url: string;
+};
+
+/**
  * MapStyleImportRequest
  *
  * Typed request body for POST /maps/import — API-01 / M-05.
@@ -6034,8 +6050,10 @@ export type MapStyleImportRequest = {
     } | null;
     /**
      * Sprite
+     *
+     * MapLibre sprite: base URL string or array of {id, url} entries (the array form is what GeoLens style exports emit)
      */
-    sprite?: string | null;
+    sprite?: string | Array<MapSpriteEntry> | null;
     /**
      * Glyphs
      */
@@ -23452,10 +23470,14 @@ export type ExportMapStyleEndpointMapsMapIdStyleJsonGetError = ExportMapStyleEnd
 
 export type ExportMapStyleEndpointMapsMapIdStyleJsonGetResponses = {
     /**
-     * Successful Response
+     * MapLibre style document (https://maplibre.org/maplibre-style-spec/)
      */
-    200: unknown;
+    200: {
+        [key: string]: unknown;
+    };
 };
+
+export type ExportMapStyleEndpointMapsMapIdStyleJsonGetResponse = ExportMapStyleEndpointMapsMapIdStyleJsonGetResponses[keyof ExportMapStyleEndpointMapsMapIdStyleJsonGetResponses];
 
 export type GetThumbnailMapsMapIdThumbnailGetData = {
     body?: never;
