@@ -20,6 +20,7 @@ unadvertised until it worked:
 import json
 import uuid
 from datetime import datetime
+from urllib.parse import urlparse
 
 import pytest
 from httpx import AsyncClient
@@ -909,7 +910,11 @@ async def test_filter_still_rejected_without_value_types(
 async def test_qgis_344_request_sequence_end_to_end(
     client: AsyncClient, filter_dataset: Dataset
 ):
-    # 1. Landing page: QGIS follows rel=conformance from here.
+    # 1. Landing page: QGIS follows rel=conformance from here. Fetch the next
+    # leg via the *discovered* href's path (fix(#1680 codex r1): a hard-coded
+    # "/conformance" request would still land on the right route even if
+    # PUBLIC_API_URL produced a wrong scheme/host/prefix, silently defeating
+    # the whole point of replaying advertised links).
     landing = await client.get("/")
     assert landing.status_code == 200
     conformance_href = next(
@@ -920,7 +925,7 @@ async def test_qgis_344_request_sequence_end_to_end(
     # 2. Conformance: gates mServerSupportsFilterCql2Text (base push-down) AND
     # mServerSupportsBasicSpatialFunctions (spatial predicate push-down), per
     # qgis/QGIS#62156 (see test_ogc_discovery.py for the full URI-by-URI pin).
-    conformance = await client.get("/conformance")
+    conformance = await client.get(urlparse(conformance_href).path)
     assert conformance.status_code == 200
     conforms_to = set(conformance.json()["conformsTo"])
     required = {
@@ -942,8 +947,9 @@ async def test_qgis_344_request_sequence_end_to_end(
     )
     assert queryables_href.endswith(f"/collections/{filter_dataset.id}/queryables")
 
-    # 4. Queryables: QGIS builds its field list + geometry queryable from this.
-    queryables = await client.get(f"/collections/{filter_dataset.id}/queryables")
+    # 4. Queryables: QGIS builds its field list + geometry queryable from
+    # this -- again via the discovered href's path, not a re-typed one.
+    queryables = await client.get(urlparse(queryables_href).path)
     assert queryables.status_code == 200
     props = queryables.json()["properties"]
     assert "geometry" in props
