@@ -7833,19 +7833,6 @@
         "title": "GeoJSONGeometryCollection",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "HealthResponse": {
         "properties": {
           "status": {
@@ -17830,46 +17817,6 @@
           }
         },
         "title": "UserUpdate",
-        "type": "object"
-      },
-      "ValidationError": {
-        "properties": {
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
         "type": "object"
       },
       "ValidationIssue": {
@@ -28403,16 +28350,6 @@
           },
           {
             "in": "query",
-            "name": "cql2_filter_lang",
-            "required": false,
-            "schema": {
-              "default": "cql2-text",
-              "title": "Cql2 Filter Lang",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
             "name": "datetime",
             "required": false,
             "schema": {
@@ -28484,28 +28421,41 @@
               ],
               "title": "Collection Id"
             }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
+          },
+          {
+            "description": "Filter by keywords",
+            "in": "query",
+            "name": "keywords",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
                   },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Keywords"
-              }
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by keywords",
+              "title": "Keywords"
+            }
+          },
+          {
+            "description": "Filter language: cql2-text or cql2-json",
+            "in": "query",
+            "name": "filter-lang",
+            "required": false,
+            "schema": {
+              "default": "cql2-text",
+              "description": "Filter language: cql2-text or cql2-json",
+              "title": "Filter-Lang",
+              "type": "string"
             }
           }
-        },
+        ],
         "responses": {
           "200": {
             "content": {
@@ -33998,13 +33948,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -50927,6 +50877,7 @@
         "operationId": "search_datasets_endpoint_search_datasets__get",
         "parameters": [
           {
+            "description": "Full-text search query",
             "in": "query",
             "name": "q",
             "required": false,
@@ -50940,10 +50891,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Full-text search query",
               "title": "Q"
             }
           },
           {
+            "description": "Bounding box: minx,miny,maxx,maxy",
             "in": "query",
             "name": "bbox",
             "required": false,
@@ -50956,10 +50909,33 @@
                   "type": "null"
                 }
               ],
+              "description": "Bounding box: minx,miny,maxx,maxy",
               "title": "Bbox"
             }
           },
           {
+            "description": "Filter by keywords",
+            "in": "query",
+            "name": "keywords",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Filter by keywords",
+              "title": "Keywords"
+            }
+          },
+          {
+            "description": "Filter by geometry type",
             "in": "query",
             "name": "geometry_type",
             "required": false,
@@ -50972,10 +50948,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter by geometry type",
               "title": "Geometry Type"
             }
           },
           {
+            "description": "Filter by SRID",
             "in": "query",
             "name": "srid",
             "required": false,
@@ -50988,10 +50966,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter by SRID",
               "title": "Srid"
             }
           },
           {
+            "description": "Filter by source organization",
             "in": "query",
             "name": "source_organization",
             "required": false,
@@ -51004,10 +50984,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter by source organization",
               "title": "Source Organization"
             }
           },
           {
+            "description": "Filter by record type (vector_dataset, raster_dataset)",
             "in": "query",
             "name": "record_type",
             "required": false,
@@ -51020,10 +51002,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter by record type (vector_dataset, raster_dataset)",
               "title": "Record Type"
             }
           },
           {
+            "description": "Filter created_at >=",
             "in": "query",
             "name": "date_from",
             "required": false,
@@ -51037,10 +51021,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter created_at >=",
               "title": "Date From"
             }
           },
           {
+            "description": "Filter created_at <=",
             "in": "query",
             "name": "date_to",
             "required": false,
@@ -51054,10 +51040,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter created_at <=",
               "title": "Date To"
             }
           },
           {
+            "description": "Filter data_vintage_start >=",
             "in": "query",
             "name": "vintage_start",
             "required": false,
@@ -51071,10 +51059,12 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter data_vintage_start >=",
               "title": "Vintage Start"
             }
           },
           {
+            "description": "Filter data_vintage_end <=",
             "in": "query",
             "name": "vintage_end",
             "required": false,
@@ -51088,20 +51078,24 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter data_vintage_end <=",
               "title": "Vintage End"
             }
           },
           {
+            "description": "Sort: relevance, date_added, name, last_updated",
             "in": "query",
             "name": "sort_by",
             "required": false,
             "schema": {
               "default": "relevance",
+              "description": "Sort: relevance, date_added, name, last_updated",
               "title": "Sort By",
               "type": "string"
             }
           },
           {
+            "description": "Sort direction override",
             "in": "query",
             "name": "sort_desc",
             "required": false,
@@ -51114,32 +51108,38 @@
                   "type": "null"
                 }
               ],
+              "description": "Sort direction override",
               "title": "Sort Desc"
             }
           },
           {
+            "description": "Pagination offset",
             "in": "query",
             "name": "offset",
             "required": false,
             "schema": {
               "default": 0,
+              "description": "Pagination offset",
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
             }
           },
           {
+            "description": "Page size. Values above the maximum (200) are clamped to it rather than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C).",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 10,
+              "description": "Page size. Values above the maximum (200) are clamped to it rather than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C).",
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
           },
           {
+            "description": "CQL2 filter expression",
             "in": "query",
             "name": "filter",
             "required": false,
@@ -51153,20 +51153,24 @@
                   "type": "null"
                 }
               ],
+              "description": "CQL2 filter expression",
               "title": "Filter"
             }
           },
           {
+            "description": "Filter language: cql2-text or cql2-json",
             "in": "query",
-            "name": "cql2_filter_lang",
+            "name": "filter-lang",
             "required": false,
             "schema": {
               "default": "cql2-text",
-              "title": "Cql2 Filter Lang",
+              "description": "Filter language: cql2-text or cql2-json",
+              "title": "Filter-Lang",
               "type": "string"
             }
           },
           {
+            "description": "OGC datetime interval: instant, start/end, ../end, start/..",
             "in": "query",
             "name": "datetime",
             "required": false,
@@ -51179,25 +51183,30 @@
                   "type": "null"
                 }
               ],
+              "description": "OGC datetime interval: instant, start/end, ../end, start/..",
               "title": "Datetime"
             }
           },
           {
+            "description": "Exclude synthetic/test datasets",
             "in": "query",
             "name": "exclude_synthetic",
             "required": false,
             "schema": {
               "default": true,
+              "description": "Exclude synthetic/test datasets",
               "title": "Exclude Synthetic",
               "type": "boolean"
             }
           },
           {
+            "description": "Spatial predicate: intersects or within",
             "in": "query",
             "name": "spatial_predicate",
             "required": false,
             "schema": {
               "default": "intersects",
+              "description": "Spatial predicate: intersects or within",
               "enum": [
                 "intersects",
                 "within"
@@ -51207,6 +51216,7 @@
             }
           },
           {
+            "description": "GeoJSON geometry for spatial filter",
             "in": "query",
             "name": "geometry",
             "required": false,
@@ -51220,10 +51230,12 @@
                   "type": "null"
                 }
               ],
+              "description": "GeoJSON geometry for spatial filter",
               "title": "Geometry"
             }
           },
           {
+            "description": "Filter by collection membership",
             "in": "query",
             "name": "collection_id",
             "required": false,
@@ -51237,30 +51249,11 @@
                   "type": "null"
                 }
               ],
+              "description": "Filter by collection membership",
               "title": "Collection Id"
             }
           }
         ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "anyOf": [
-                  {
-                    "items": {
-                      "type": "string"
-                    },
-                    "type": "array"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "title": "Keywords"
-              }
-            }
-          }
-        },
         "responses": {
           "200": {
             "content": {
@@ -51294,13 +51287,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -51585,13 +51578,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -51693,13 +51686,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -51783,13 +51776,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -51880,13 +51873,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {
@@ -51982,13 +51975,13 @@
           },
           "422": {
             "content": {
-              "application/json": {
+              "application/problem+json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ProblemDetail"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Validation error"
           },
           "429": {
             "content": {

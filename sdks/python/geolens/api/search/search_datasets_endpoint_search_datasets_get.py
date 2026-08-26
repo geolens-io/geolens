@@ -7,7 +7,6 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response, UNSET
 from ... import errors
 
-from ...models.http_validation_error import HTTPValidationError
 from ...models.ogc_feature_collection_response import OGCFeatureCollectionResponse
 from ...models.problem_detail import ProblemDetail
 from ...models.search_datasets_endpoint_search_datasets_get_spatial_predicate import (
@@ -20,9 +19,9 @@ import datetime
 
 def _get_kwargs(
     *,
-    body: list[str] | None | Unset = UNSET,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
     geometry_type: None | str | Unset = UNSET,
     srid: int | None | Unset = UNSET,
     source_organization: None | str | Unset = UNSET,
@@ -36,7 +35,7 @@ def _get_kwargs(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
+    filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate
@@ -44,7 +43,6 @@ def _get_kwargs(
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
 
     params: dict[str, Any] = {}
 
@@ -61,6 +59,16 @@ def _get_kwargs(
     else:
         json_bbox = bbox
     params["bbox"] = json_bbox
+
+    json_keywords: list[str] | None | Unset
+    if isinstance(keywords, Unset):
+        json_keywords = UNSET
+    elif isinstance(keywords, list):
+        json_keywords = keywords
+
+    else:
+        json_keywords = keywords
+    params["keywords"] = json_keywords
 
     json_geometry_type: None | str | Unset
     if isinstance(geometry_type, Unset):
@@ -146,7 +154,7 @@ def _get_kwargs(
         json_filter_ = filter_
     params["filter"] = json_filter_
 
-    params["cql2_filter_lang"] = cql2_filter_lang
+    params["filter-lang"] = filter_lang
 
     json_datetime_: None | str | Unset
     if isinstance(datetime_, Unset):
@@ -187,21 +195,12 @@ def _get_kwargs(
         "params": params,
     }
 
-    if isinstance(body, list):
-        _kwargs["json"] = body
-
-    elif not isinstance(body, Unset):
-        _kwargs["json"] = body
-
-    headers["Content-Type"] = "application/json"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail | None:
+) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     if response.status_code == 200:
         response_200 = OGCFeatureCollectionResponse.from_dict(response.json())
 
@@ -218,7 +217,7 @@ def _parse_response(
         return response_401
 
     if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+        response_422 = ProblemDetail.from_dict(response.json())
 
         return response_422
 
@@ -245,7 +244,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]:
+) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -257,9 +256,9 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
     geometry_type: None | str | Unset = UNSET,
     srid: int | None | Unset = UNSET,
     source_organization: None | str | Unset = UNSET,
@@ -273,55 +272,58 @@ def sync_detailed(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
+    filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]:
+) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
 
     Args:
-        q (None | str | Unset):
-        bbox (None | str | Unset):
-        geometry_type (None | str | Unset):
-        srid (int | None | Unset):
-        source_organization (None | str | Unset):
-        record_type (None | str | Unset):
-        date_from (datetime.date | None | Unset):
-        date_to (datetime.date | None | Unset):
-        vintage_start (datetime.date | None | Unset):
-        vintage_end (datetime.date | None | Unset):
-        sort_by (str | Unset):  Default: 'relevance'.
-        sort_desc (bool | None | Unset):
-        offset (int | Unset):  Default: 0.
-        limit (int | Unset):  Default: 10.
-        filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
-        datetime_ (None | str | Unset):
-        exclude_synthetic (bool | Unset):  Default: True.
+        q (None | str | Unset): Full-text search query
+        bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
+        keywords (list[str] | None | Unset): Filter by keywords
+        geometry_type (None | str | Unset): Filter by geometry type
+        srid (int | None | Unset): Filter by SRID
+        source_organization (None | str | Unset): Filter by source organization
+        record_type (None | str | Unset): Filter by record type (vector_dataset, raster_dataset)
+        date_from (datetime.date | None | Unset): Filter created_at >=
+        date_to (datetime.date | None | Unset): Filter created_at <=
+        vintage_start (datetime.date | None | Unset): Filter data_vintage_start >=
+        vintage_end (datetime.date | None | Unset): Filter data_vintage_end <=
+        sort_by (str | Unset): Sort: relevance, date_added, name, last_updated Default:
+            'relevance'.
+        sort_desc (bool | None | Unset): Sort direction override
+        offset (int | Unset): Pagination offset Default: 0.
+        limit (int | Unset): Page size. Values above the maximum (200) are clamped to it rather
+            than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C). Default: 10.
+        filter_ (None | str | Unset): CQL2 filter expression
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
+        datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
+            start/..
+        exclude_synthetic (bool | Unset): Exclude synthetic/test datasets Default: True.
         spatial_predicate (SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate | Unset):
-            Default: 'intersects'.
-        geometry (None | str | Unset):
-        collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+            Spatial predicate: intersects or within Default: 'intersects'.
+        geometry (None | str | Unset): GeoJSON geometry for spatial filter
+        collection_id (None | Unset | UUID): Filter by collection membership
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]
+        Response[OGCFeatureCollectionResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
-        body=body,
         q=q,
         bbox=bbox,
+        keywords=keywords,
         geometry_type=geometry_type,
         srid=srid,
         source_organization=source_organization,
@@ -335,7 +337,7 @@ def sync_detailed(
         offset=offset,
         limit=limit,
         filter_=filter_,
-        cql2_filter_lang=cql2_filter_lang,
+        filter_lang=filter_lang,
         datetime_=datetime_,
         exclude_synthetic=exclude_synthetic,
         spatial_predicate=spatial_predicate,
@@ -353,9 +355,9 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
     geometry_type: None | str | Unset = UNSET,
     srid: int | None | Unset = UNSET,
     source_organization: None | str | Unset = UNSET,
@@ -369,56 +371,59 @@ def sync(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
+    filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail | None:
+) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
 
     Args:
-        q (None | str | Unset):
-        bbox (None | str | Unset):
-        geometry_type (None | str | Unset):
-        srid (int | None | Unset):
-        source_organization (None | str | Unset):
-        record_type (None | str | Unset):
-        date_from (datetime.date | None | Unset):
-        date_to (datetime.date | None | Unset):
-        vintage_start (datetime.date | None | Unset):
-        vintage_end (datetime.date | None | Unset):
-        sort_by (str | Unset):  Default: 'relevance'.
-        sort_desc (bool | None | Unset):
-        offset (int | Unset):  Default: 0.
-        limit (int | Unset):  Default: 10.
-        filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
-        datetime_ (None | str | Unset):
-        exclude_synthetic (bool | Unset):  Default: True.
+        q (None | str | Unset): Full-text search query
+        bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
+        keywords (list[str] | None | Unset): Filter by keywords
+        geometry_type (None | str | Unset): Filter by geometry type
+        srid (int | None | Unset): Filter by SRID
+        source_organization (None | str | Unset): Filter by source organization
+        record_type (None | str | Unset): Filter by record type (vector_dataset, raster_dataset)
+        date_from (datetime.date | None | Unset): Filter created_at >=
+        date_to (datetime.date | None | Unset): Filter created_at <=
+        vintage_start (datetime.date | None | Unset): Filter data_vintage_start >=
+        vintage_end (datetime.date | None | Unset): Filter data_vintage_end <=
+        sort_by (str | Unset): Sort: relevance, date_added, name, last_updated Default:
+            'relevance'.
+        sort_desc (bool | None | Unset): Sort direction override
+        offset (int | Unset): Pagination offset Default: 0.
+        limit (int | Unset): Page size. Values above the maximum (200) are clamped to it rather
+            than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C). Default: 10.
+        filter_ (None | str | Unset): CQL2 filter expression
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
+        datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
+            start/..
+        exclude_synthetic (bool | Unset): Exclude synthetic/test datasets Default: True.
         spatial_predicate (SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate | Unset):
-            Default: 'intersects'.
-        geometry (None | str | Unset):
-        collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+            Spatial predicate: intersects or within Default: 'intersects'.
+        geometry (None | str | Unset): GeoJSON geometry for spatial filter
+        collection_id (None | Unset | UUID): Filter by collection membership
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail
+        OGCFeatureCollectionResponse | ProblemDetail
     """
 
     return sync_detailed(
         client=client,
-        body=body,
         q=q,
         bbox=bbox,
+        keywords=keywords,
         geometry_type=geometry_type,
         srid=srid,
         source_organization=source_organization,
@@ -432,7 +437,7 @@ def sync(
         offset=offset,
         limit=limit,
         filter_=filter_,
-        cql2_filter_lang=cql2_filter_lang,
+        filter_lang=filter_lang,
         datetime_=datetime_,
         exclude_synthetic=exclude_synthetic,
         spatial_predicate=spatial_predicate,
@@ -444,9 +449,9 @@ def sync(
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
     geometry_type: None | str | Unset = UNSET,
     srid: int | None | Unset = UNSET,
     source_organization: None | str | Unset = UNSET,
@@ -460,55 +465,58 @@ async def asyncio_detailed(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
+    filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]:
+) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
 
     Args:
-        q (None | str | Unset):
-        bbox (None | str | Unset):
-        geometry_type (None | str | Unset):
-        srid (int | None | Unset):
-        source_organization (None | str | Unset):
-        record_type (None | str | Unset):
-        date_from (datetime.date | None | Unset):
-        date_to (datetime.date | None | Unset):
-        vintage_start (datetime.date | None | Unset):
-        vintage_end (datetime.date | None | Unset):
-        sort_by (str | Unset):  Default: 'relevance'.
-        sort_desc (bool | None | Unset):
-        offset (int | Unset):  Default: 0.
-        limit (int | Unset):  Default: 10.
-        filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
-        datetime_ (None | str | Unset):
-        exclude_synthetic (bool | Unset):  Default: True.
+        q (None | str | Unset): Full-text search query
+        bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
+        keywords (list[str] | None | Unset): Filter by keywords
+        geometry_type (None | str | Unset): Filter by geometry type
+        srid (int | None | Unset): Filter by SRID
+        source_organization (None | str | Unset): Filter by source organization
+        record_type (None | str | Unset): Filter by record type (vector_dataset, raster_dataset)
+        date_from (datetime.date | None | Unset): Filter created_at >=
+        date_to (datetime.date | None | Unset): Filter created_at <=
+        vintage_start (datetime.date | None | Unset): Filter data_vintage_start >=
+        vintage_end (datetime.date | None | Unset): Filter data_vintage_end <=
+        sort_by (str | Unset): Sort: relevance, date_added, name, last_updated Default:
+            'relevance'.
+        sort_desc (bool | None | Unset): Sort direction override
+        offset (int | Unset): Pagination offset Default: 0.
+        limit (int | Unset): Page size. Values above the maximum (200) are clamped to it rather
+            than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C). Default: 10.
+        filter_ (None | str | Unset): CQL2 filter expression
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
+        datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
+            start/..
+        exclude_synthetic (bool | Unset): Exclude synthetic/test datasets Default: True.
         spatial_predicate (SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate | Unset):
-            Default: 'intersects'.
-        geometry (None | str | Unset):
-        collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+            Spatial predicate: intersects or within Default: 'intersects'.
+        geometry (None | str | Unset): GeoJSON geometry for spatial filter
+        collection_id (None | Unset | UUID): Filter by collection membership
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail]
+        Response[OGCFeatureCollectionResponse | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
-        body=body,
         q=q,
         bbox=bbox,
+        keywords=keywords,
         geometry_type=geometry_type,
         srid=srid,
         source_organization=source_organization,
@@ -522,7 +530,7 @@ async def asyncio_detailed(
         offset=offset,
         limit=limit,
         filter_=filter_,
-        cql2_filter_lang=cql2_filter_lang,
+        filter_lang=filter_lang,
         datetime_=datetime_,
         exclude_synthetic=exclude_synthetic,
         spatial_predicate=spatial_predicate,
@@ -538,9 +546,9 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     q: None | str | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
     geometry_type: None | str | Unset = UNSET,
     srid: int | None | Unset = UNSET,
     source_organization: None | str | Unset = UNSET,
@@ -554,57 +562,60 @@ async def asyncio(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
+    filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
-) -> HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail | None:
+) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     """Search Datasets Endpoint
 
      Search datasets with text, spatial, and faceted filters.
 
     Args:
-        q (None | str | Unset):
-        bbox (None | str | Unset):
-        geometry_type (None | str | Unset):
-        srid (int | None | Unset):
-        source_organization (None | str | Unset):
-        record_type (None | str | Unset):
-        date_from (datetime.date | None | Unset):
-        date_to (datetime.date | None | Unset):
-        vintage_start (datetime.date | None | Unset):
-        vintage_end (datetime.date | None | Unset):
-        sort_by (str | Unset):  Default: 'relevance'.
-        sort_desc (bool | None | Unset):
-        offset (int | Unset):  Default: 0.
-        limit (int | Unset):  Default: 10.
-        filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
-        datetime_ (None | str | Unset):
-        exclude_synthetic (bool | Unset):  Default: True.
+        q (None | str | Unset): Full-text search query
+        bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
+        keywords (list[str] | None | Unset): Filter by keywords
+        geometry_type (None | str | Unset): Filter by geometry type
+        srid (int | None | Unset): Filter by SRID
+        source_organization (None | str | Unset): Filter by source organization
+        record_type (None | str | Unset): Filter by record type (vector_dataset, raster_dataset)
+        date_from (datetime.date | None | Unset): Filter created_at >=
+        date_to (datetime.date | None | Unset): Filter created_at <=
+        vintage_start (datetime.date | None | Unset): Filter data_vintage_start >=
+        vintage_end (datetime.date | None | Unset): Filter data_vintage_end <=
+        sort_by (str | Unset): Sort: relevance, date_added, name, last_updated Default:
+            'relevance'.
+        sort_desc (bool | None | Unset): Sort direction override
+        offset (int | Unset): Pagination offset Default: 0.
+        limit (int | Unset): Page size. Values above the maximum (200) are clamped to it rather
+            than rejected, per OGC API Features Core /req/core/fc-limit-response-1(C). Default: 10.
+        filter_ (None | str | Unset): CQL2 filter expression
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
+        datetime_ (None | str | Unset): OGC datetime interval: instant, start/end, ../end,
+            start/..
+        exclude_synthetic (bool | Unset): Exclude synthetic/test datasets Default: True.
         spatial_predicate (SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate | Unset):
-            Default: 'intersects'.
-        geometry (None | str | Unset):
-        collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+            Spatial predicate: intersects or within Default: 'intersects'.
+        geometry (None | str | Unset): GeoJSON geometry for spatial filter
+        collection_id (None | Unset | UUID): Filter by collection membership
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        HTTPValidationError | OGCFeatureCollectionResponse | ProblemDetail
+        OGCFeatureCollectionResponse | ProblemDetail
     """
 
     return (
         await asyncio_detailed(
             client=client,
-            body=body,
             q=q,
             bbox=bbox,
+            keywords=keywords,
             geometry_type=geometry_type,
             srid=srid,
             source_organization=source_organization,
@@ -618,7 +629,7 @@ async def asyncio(
             offset=offset,
             limit=limit,
             filter_=filter_,
-            cql2_filter_lang=cql2_filter_lang,
+            filter_lang=filter_lang,
             datetime_=datetime_,
             exclude_synthetic=exclude_synthetic,
             spatial_predicate=spatial_predicate,

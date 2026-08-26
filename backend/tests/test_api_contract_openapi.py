@@ -542,3 +542,87 @@ def test_inline_json_schema_rejects_recursive_model() -> None:
 
     with pytest.raises(ValueError, match="recursive"):
         inline_json_schema(Node)
+
+
+# ---------------------------------------------------------------------------
+# fix(#1666): the contract must describe what the app returns and accepts, not
+# FastAPI's defaults where the app overrides them at runtime.
+# ---------------------------------------------------------------------------
+
+_SEARCH_OPERATIONS = ("/search/datasets/", "/collections/datasets/items")
+
+
+def test_validation_errors_publish_the_runtime_problem_detail_body() -> None:
+    """Every 422 is served as RFC 7807, so none may declare HTTPValidationError.
+
+    The app-wide ``RequestValidationError`` handler answers
+    ``application/problem+json`` with a ``ProblemDetail`` whose ``detail`` is a
+    flattened string. FastAPI's stock ``HTTPValidationError`` describes neither
+    that media type nor that shape, and generated clients inherit both.
+    """
+    schema = _openapi()
+    offenders = []
+    for path, path_item in schema["paths"].items():
+        for method, operation in path_item.items():
+            if not isinstance(operation, dict):
+                continue
+            response = operation.get("responses", {}).get("422")
+            if response is None:
+                continue
+            content = response.get("content", {})
+            if list(content) != ["application/problem+json"]:
+                offenders.append((method, path, list(content)))
+            elif content["application/problem+json"]["schema"] != {
+                "$ref": "#/components/schemas/ProblemDetail"
+            }:
+                offenders.append((method, path, "wrong schema"))
+    assert not offenders, f"422 responses not matching the runtime body: {offenders}"
+
+    schemas = schema["components"]["schemas"]
+    for orphan in ("HTTPValidationError", "ValidationError"):
+        assert orphan not in schemas, (
+            f"{orphan} is still published but no response can return it."
+        )
+
+
+def test_search_operations_declare_keywords_as_a_query_parameter() -> None:
+    """`keywords` is a query parameter on both search GETs, never a request body.
+
+    A `list[str]` field on a `Depends()`-bound Pydantic model is read by FastAPI
+    as an `application/json` body — on a GET. A generated client sends it as a
+    body and silently receives unfiltered results.
+    """
+    schema = _openapi()
+    for path in _SEARCH_OPERATIONS:
+        operation = schema["paths"][path]["get"]
+        assert "requestBody" not in operation, (
+            f"{path} declares a request body on a GET: {operation.get('requestBody')}"
+        )
+        parameters = {p["name"]: p for p in operation["parameters"]}
+        assert "keywords" in parameters, f"{path} does not declare keywords"
+        assert parameters["keywords"]["in"] == "query"
+        assert parameters["keywords"]["schema"]["anyOf"][0] == {
+            "items": {"type": "string"},
+            "type": "array",
+        }
+
+
+def test_search_operations_declare_filter_lang_under_its_wire_name() -> None:
+    """`filter-lang` is published under the name the handler actually reads.
+
+    Pydantic's synthesized `__init__` cannot name a parameter `filter-lang`, so
+    a `Depends()`-bound model falls back to the field name and advertises
+    `cql2_filter_lang`. A client generated from that sends a parameter the
+    handler never reads, and the filter language is silently ignored.
+    """
+    schema = _openapi()
+    for path in _SEARCH_OPERATIONS:
+        parameters = {p["name"] for p in schema["paths"][path]["get"]["parameters"]}
+        assert "filter-lang" in parameters, f"{path} does not declare filter-lang"
+        assert "cql2_filter_lang" not in parameters, (
+            f"{path} publishes the field name instead of the wire name."
+        )
+        assert "params" not in parameters, (
+            f"{path} collapsed its query model into a single scalar — see "
+            "_repair_depends_bound_query_model."
+        )

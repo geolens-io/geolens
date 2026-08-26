@@ -4,7 +4,7 @@ import asyncio
 import uuid
 from dataclasses import replace
 from datetime import datetime, timezone
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlencode
 
 import structlog
@@ -410,6 +410,37 @@ async def _handle_search(
 # ---------------------------------------------------------------------------
 
 search_router = APIRouter(prefix="/search", tags=["Search"])
+
+
+_SUPPORTED_FILTER_LANGS = ("cql2-text", "cql2-json")
+
+
+def _checked_filter_lang(params: SearchQueryParams) -> SearchQueryParams:
+    """Refuse an unsupported ``filter-lang``, shared by both search handlers.
+
+    fix(#1666): ``filter-lang`` now binds through the model's validation alias,
+    so this is a validation rather than the binding workaround it replaced. The
+    field stays a bare ``str`` deliberately — tightening it to a ``Literal``
+    would route the refusal through ``RequestValidationError``, which answers
+    422 on ``/search/datasets/``, and both handlers contract to 400 here.
+
+    An explicitly empty ``?filter-lang=`` keeps its long-standing treatment as
+    "not supplied" rather than becoming a newly-rejected request; the previous
+    raw-query-string read skipped its check on any falsy value.
+    """
+    if not params.cql2_filter_lang:
+        return params.model_copy(update={"cql2_filter_lang": "cql2-text"})
+    if params.cql2_filter_lang not in _SUPPORTED_FILTER_LANGS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"Unsupported filter-lang: {params.cql2_filter_lang}. "
+                "Use cql2-text or cql2-json."
+            ),
+        )
+    return params
+
+
 search_router.include_router(saved_search_router)
 
 
@@ -520,25 +551,12 @@ async def search_facets_endpoint(
 async def search_datasets_endpoint(
     request: Request,
     response: Response,
-    params: SearchQueryParams = Depends(),
+    params: Annotated[SearchQueryParams, Query()],
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
-    # Read keywords from raw query string (list[str] may not bind via Depends).
-    raw_keywords = request.query_params.getlist("keywords")
-    if raw_keywords and not params.keywords:
-        params = params.model_copy(update={"keywords": raw_keywords})
-    # Validate the raw hyphenated "filter-lang" (not bound by Pydantic Depends);
-    # mirrors collection_items so a bogus value 400s instead of being ignored.
-    raw_filter_lang = request.query_params.get("filter-lang")
-    if raw_filter_lang:
-        if raw_filter_lang not in ("cql2-text", "cql2-json"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Unsupported filter-lang: {raw_filter_lang}. Use cql2-text or cql2-json.",
-            )
-        params = params.model_copy(update={"cql2_filter_lang": raw_filter_lang})
+    params = _checked_filter_lang(params)
     result = await _handle_search(db, user, request, params)
     for name, value in standard_response_headers(
         list(result.links or []),
@@ -1048,6 +1066,12 @@ async def get_sortables(
 )
 async def collection_items(
     request: Request,
+    # NOT the ``Annotated[SearchQueryParams, Query()]`` form used by
+    # ``search_datasets_endpoint``. FastAPI expands a query-parameter model only
+    # when it is the operation's ONLY query-parameter source; alongside the five
+    # OGC parameters below it collapses to a single scalar named ``params``,
+    # which is worse than the defect #1666 reports. The published contract for
+    # this operation is corrected in ``_repair_depends_bound_query_model``.
     params: SearchQueryParams = Depends(),
     type_param: list[str] = Query(
         default_factory=list,
@@ -1132,29 +1156,20 @@ async def collection_items(
         overrides["sort_by"] = parsed[0]
         overrides["sort_desc"] = parsed[1]
 
-    # Read keywords from raw query string (list[str] may not bind via Depends).
+    # `keywords` and the hyphenated `filter-lang` do not bind through a Pydantic
+    # `Depends()` model — pydantic's synthesized `__init__` cannot name a
+    # parameter `filter-lang`, and a `list[str]` field is read as a body. Both
+    # are read from the raw query string here, which is what actually makes them
+    # work on this route. (`filter` binds fine; its alias is a valid identifier.)
     raw_keywords = request.query_params.getlist("keywords")
     if raw_keywords and not params.keywords:
         overrides["keywords"] = raw_keywords
-
-    # Read OGC CQL2 filter params from raw query string (hyphenated
-    # "filter-lang" is not resolved by Pydantic model Depends binding).
-    raw_filter = request.query_params.get("filter")
     raw_filter_lang = request.query_params.get("filter-lang")
-    if raw_filter and not params.cql2_filter:
-        overrides["cql2_filter"] = raw_filter
     if raw_filter_lang:
-        if raw_filter_lang not in ("cql2-text", "cql2-json"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=(
-                    f"Unsupported filter-lang: {raw_filter_lang}. "
-                    "Use cql2-text or cql2-json."
-                ),
-            )
         overrides["cql2_filter_lang"] = raw_filter_lang
 
     effective_params = params.model_copy(update=overrides) if overrides else params
+    effective_params = _checked_filter_lang(effective_params)
 
     pagination_params: dict[str, str | list[str]] = {}
     for parameter in ("type", "ids", "externalIds", "externalId"):

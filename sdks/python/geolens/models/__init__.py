@@ -315,7 +315,6 @@ from .get_single_feature_datasets_dataset_id_features_gid_get_geo_json_feature_p
 )
 from .health_response import HealthResponse
 from .health_response_providers import HealthResponseProviders
-from .http_validation_error import HTTPValidationError
 from .import_configuration_config_ops_import_post_mode import (
     ImportConfigurationConfigOpsImportPostMode,
 )
@@ -714,8 +713,6 @@ from .user_response import UserResponse
 from .user_response_status import UserResponseStatus
 from .user_update import UserUpdate
 from .user_update_status_type_0 import UserUpdateStatusType0
-from .validation_error import ValidationError
-from .validation_error_context import ValidationErrorContext
 from .validation_issue import ValidationIssue
 from .validation_issue_severity import ValidationIssueSeverity
 from .validation_result_response import ValidationResultResponse
@@ -986,7 +983,6 @@ __all__ = (
     "GetSingleFeatureDatasetsDatasetIdFeaturesGidGetGeoJSONFeatureProperties",
     "HealthResponse",
     "HealthResponseProviders",
-    "HTTPValidationError",
     "ImportConfigurationConfigOpsImportPostMode",
     "ImportResult",
     "InfrastructureConfig",
@@ -1273,8 +1269,6 @@ __all__ = (
     "UserResponseStatus",
     "UserUpdate",
     "UserUpdateStatusType0",
-    "ValidationError",
-    "ValidationErrorContext",
     "ValidationIssue",
     "ValidationIssueSeverity",
     "ValidationResultResponse",

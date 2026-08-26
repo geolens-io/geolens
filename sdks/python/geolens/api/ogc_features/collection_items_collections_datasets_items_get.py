@@ -19,7 +19,6 @@ import datetime
 
 def _get_kwargs(
     *,
-    body: list[str] | None | Unset = UNSET,
     type_: list[str] | Unset = UNSET,
     ids: list[str] | Unset = UNSET,
     external_ids: list[str] | Unset = UNSET,
@@ -40,15 +39,15 @@ def _get_kwargs(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
 ) -> dict[str, Any]:
-    headers: dict[str, Any] = {}
 
     params: dict[str, Any] = {}
 
@@ -182,8 +181,6 @@ def _get_kwargs(
         json_filter_ = filter_
     params["filter"] = json_filter_
 
-    params["cql2_filter_lang"] = cql2_filter_lang
-
     json_datetime_: None | str | Unset
     if isinstance(datetime_, Unset):
         json_datetime_ = UNSET
@@ -215,6 +212,18 @@ def _get_kwargs(
         json_collection_id = collection_id
     params["collection_id"] = json_collection_id
 
+    json_keywords: list[str] | None | Unset
+    if isinstance(keywords, Unset):
+        json_keywords = UNSET
+    elif isinstance(keywords, list):
+        json_keywords = keywords
+
+    else:
+        json_keywords = keywords
+    params["keywords"] = json_keywords
+
+    params["filter-lang"] = filter_lang
+
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
     _kwargs: dict[str, Any] = {
@@ -223,15 +232,6 @@ def _get_kwargs(
         "params": params,
     }
 
-    if isinstance(body, list):
-        _kwargs["json"] = body
-
-    elif not isinstance(body, Unset):
-        _kwargs["json"] = body
-
-    headers["Content-Type"] = "application/json"
-
-    _kwargs["headers"] = headers
     return _kwargs
 
 
@@ -293,7 +293,6 @@ def _build_response(
 def sync_detailed(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     type_: list[str] | Unset = UNSET,
     ids: list[str] | Unset = UNSET,
     external_ids: list[str] | Unset = UNSET,
@@ -314,13 +313,14 @@ def sync_detailed(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
 ) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     """Collection Items
 
@@ -350,14 +350,14 @@ def sync_detailed(
         offset (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 10.
         filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
         datetime_ (None | str | Unset):
         exclude_synthetic (bool | Unset):  Default: True.
         spatial_predicate (CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate | Unset):
             Default: 'intersects'.
         geometry (None | str | Unset):
         collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+        keywords (list[str] | None | Unset): Filter by keywords
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -368,7 +368,6 @@ def sync_detailed(
     """
 
     kwargs = _get_kwargs(
-        body=body,
         type_=type_,
         ids=ids,
         external_ids=external_ids,
@@ -389,12 +388,13 @@ def sync_detailed(
         offset=offset,
         limit=limit,
         filter_=filter_,
-        cql2_filter_lang=cql2_filter_lang,
         datetime_=datetime_,
         exclude_synthetic=exclude_synthetic,
         spatial_predicate=spatial_predicate,
         geometry=geometry,
         collection_id=collection_id,
+        keywords=keywords,
+        filter_lang=filter_lang,
     )
 
     response = client.get_httpx_client().request(
@@ -407,7 +407,6 @@ def sync_detailed(
 def sync(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     type_: list[str] | Unset = UNSET,
     ids: list[str] | Unset = UNSET,
     external_ids: list[str] | Unset = UNSET,
@@ -428,13 +427,14 @@ def sync(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
 ) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     """Collection Items
 
@@ -464,14 +464,14 @@ def sync(
         offset (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 10.
         filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
         datetime_ (None | str | Unset):
         exclude_synthetic (bool | Unset):  Default: True.
         spatial_predicate (CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate | Unset):
             Default: 'intersects'.
         geometry (None | str | Unset):
         collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+        keywords (list[str] | None | Unset): Filter by keywords
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -483,7 +483,6 @@ def sync(
 
     return sync_detailed(
         client=client,
-        body=body,
         type_=type_,
         ids=ids,
         external_ids=external_ids,
@@ -504,19 +503,19 @@ def sync(
         offset=offset,
         limit=limit,
         filter_=filter_,
-        cql2_filter_lang=cql2_filter_lang,
         datetime_=datetime_,
         exclude_synthetic=exclude_synthetic,
         spatial_predicate=spatial_predicate,
         geometry=geometry,
         collection_id=collection_id,
+        keywords=keywords,
+        filter_lang=filter_lang,
     ).parsed
 
 
 async def asyncio_detailed(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     type_: list[str] | Unset = UNSET,
     ids: list[str] | Unset = UNSET,
     external_ids: list[str] | Unset = UNSET,
@@ -537,13 +536,14 @@ async def asyncio_detailed(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
 ) -> Response[OGCFeatureCollectionResponse | ProblemDetail]:
     """Collection Items
 
@@ -573,14 +573,14 @@ async def asyncio_detailed(
         offset (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 10.
         filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
         datetime_ (None | str | Unset):
         exclude_synthetic (bool | Unset):  Default: True.
         spatial_predicate (CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate | Unset):
             Default: 'intersects'.
         geometry (None | str | Unset):
         collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+        keywords (list[str] | None | Unset): Filter by keywords
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -591,7 +591,6 @@ async def asyncio_detailed(
     """
 
     kwargs = _get_kwargs(
-        body=body,
         type_=type_,
         ids=ids,
         external_ids=external_ids,
@@ -612,12 +611,13 @@ async def asyncio_detailed(
         offset=offset,
         limit=limit,
         filter_=filter_,
-        cql2_filter_lang=cql2_filter_lang,
         datetime_=datetime_,
         exclude_synthetic=exclude_synthetic,
         spatial_predicate=spatial_predicate,
         geometry=geometry,
         collection_id=collection_id,
+        keywords=keywords,
+        filter_lang=filter_lang,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -628,7 +628,6 @@ async def asyncio_detailed(
 async def asyncio(
     *,
     client: AuthenticatedClient,
-    body: list[str] | None | Unset = UNSET,
     type_: list[str] | Unset = UNSET,
     ids: list[str] | Unset = UNSET,
     external_ids: list[str] | Unset = UNSET,
@@ -649,13 +648,14 @@ async def asyncio(
     offset: int | Unset = 0,
     limit: int | Unset = 10,
     filter_: None | str | Unset = UNSET,
-    cql2_filter_lang: str | Unset = "cql2-text",
     datetime_: None | str | Unset = UNSET,
     exclude_synthetic: bool | Unset = True,
     spatial_predicate: CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate
     | Unset = "intersects",
     geometry: None | str | Unset = UNSET,
     collection_id: None | Unset | UUID = UNSET,
+    keywords: list[str] | None | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
 ) -> OGCFeatureCollectionResponse | ProblemDetail | None:
     """Collection Items
 
@@ -685,14 +685,14 @@ async def asyncio(
         offset (int | Unset):  Default: 0.
         limit (int | Unset):  Default: 10.
         filter_ (None | str | Unset):
-        cql2_filter_lang (str | Unset):  Default: 'cql2-text'.
         datetime_ (None | str | Unset):
         exclude_synthetic (bool | Unset):  Default: True.
         spatial_predicate (CollectionItemsCollectionsDatasetsItemsGetSpatialPredicate | Unset):
             Default: 'intersects'.
         geometry (None | str | Unset):
         collection_id (None | Unset | UUID):
-        body (list[str] | None | Unset):
+        keywords (list[str] | None | Unset): Filter by keywords
+        filter_lang (str | Unset): Filter language: cql2-text or cql2-json Default: 'cql2-text'.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -705,7 +705,6 @@ async def asyncio(
     return (
         await asyncio_detailed(
             client=client,
-            body=body,
             type_=type_,
             ids=ids,
             external_ids=external_ids,
@@ -726,11 +725,12 @@ async def asyncio(
             offset=offset,
             limit=limit,
             filter_=filter_,
-            cql2_filter_lang=cql2_filter_lang,
             datetime_=datetime_,
             exclude_synthetic=exclude_synthetic,
             spatial_predicate=spatial_predicate,
             geometry=geometry,
             collection_id=collection_id,
+            keywords=keywords,
+            filter_lang=filter_lang,
         )
     ).parsed

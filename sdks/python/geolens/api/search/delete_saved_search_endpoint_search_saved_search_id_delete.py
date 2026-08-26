@@ -8,7 +8,6 @@ from ...client import AuthenticatedClient, Client
 from ...types import Response
 from ... import errors
 
-from ...models.http_validation_error import HTTPValidationError
 from ...models.problem_detail import ProblemDetail
 from uuid import UUID
 
@@ -29,7 +28,7 @@ def _get_kwargs(
 
 def _parse_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Any | HTTPValidationError | ProblemDetail | None:
+) -> Any | ProblemDetail | None:
     if response.status_code == 204:
         response_204 = cast(Any, None)
         return response_204
@@ -40,7 +39,7 @@ def _parse_response(
         return response_404
 
     if response.status_code == 422:
-        response_422 = HTTPValidationError.from_dict(response.json())
+        response_422 = ProblemDetail.from_dict(response.json())
 
         return response_422
 
@@ -67,7 +66,7 @@ def _parse_response(
 
 def _build_response(
     *, client: AuthenticatedClient | Client, response: httpx.Response
-) -> Response[Any | HTTPValidationError | ProblemDetail]:
+) -> Response[Any | ProblemDetail]:
     return Response(
         status_code=HTTPStatus(response.status_code),
         content=response.content,
@@ -80,7 +79,7 @@ def sync_detailed(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | HTTPValidationError | ProblemDetail]:
+) -> Response[Any | ProblemDetail]:
     """Delete Saved Search Endpoint
 
      Delete a saved search.
@@ -93,7 +92,7 @@ def sync_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError | ProblemDetail]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -111,7 +110,7 @@ def sync(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | HTTPValidationError | ProblemDetail | None:
+) -> Any | ProblemDetail | None:
     """Delete Saved Search Endpoint
 
      Delete a saved search.
@@ -124,7 +123,7 @@ def sync(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError | ProblemDetail
+        Any | ProblemDetail
     """
 
     return sync_detailed(
@@ -137,7 +136,7 @@ async def asyncio_detailed(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Response[Any | HTTPValidationError | ProblemDetail]:
+) -> Response[Any | ProblemDetail]:
     """Delete Saved Search Endpoint
 
      Delete a saved search.
@@ -150,7 +149,7 @@ async def asyncio_detailed(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Response[Any | HTTPValidationError | ProblemDetail]
+        Response[Any | ProblemDetail]
     """
 
     kwargs = _get_kwargs(
@@ -166,7 +165,7 @@ async def asyncio(
     search_id: UUID,
     *,
     client: AuthenticatedClient,
-) -> Any | HTTPValidationError | ProblemDetail | None:
+) -> Any | ProblemDetail | None:
     """Delete Saved Search Endpoint
 
      Delete a saved search.
@@ -179,7 +178,7 @@ async def asyncio(
         httpx.TimeoutException: If the request takes longer than Client.timeout.
 
     Returns:
-        Any | HTTPValidationError | ProblemDetail
+        Any | ProblemDetail
     """
 
     return (

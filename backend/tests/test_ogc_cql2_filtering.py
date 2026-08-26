@@ -471,3 +471,76 @@ async def test_cql2_filter_respects_visibility(
     titles2 = [f["properties"]["title"] for f in data2["features"]]
     assert public_name in titles2
     assert private_name in titles2
+
+
+# ---------------------------------------------------------------------------
+# fix(#1666): keywords and filter-lang over the wire, on both search routes.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+async def test_repeated_keywords_filter_as_a_query_parameter(
+    client: AsyncClient, test_db_session, path: str
+):
+    """Repeated ?keywords= narrows results on both search routes.
+
+    The contract used to declare `keywords` as a GET request body, so a
+    generated client sent it as one and silently got everything back. This
+    pins the wire form the handlers actually read.
+    """
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    unique = uuid.uuid4().hex[:8]
+    # `keywords` filters RecordKeyword rows, not theme_category.
+    await create_dataset(
+        session,
+        created_by=admin_id,
+        name=f"kw-hit-{unique}",
+        description="keyword wire-form fixture",
+        visibility="public",
+        keywords=[f"theme{unique}"],
+    )
+    await _create_dataset(session, created_by=admin_id, name=f"kw-miss-{unique}")
+    await session.commit()
+
+    hit = await client.get(path, params={"keywords": f"theme{unique}", "limit": 100})
+    assert hit.status_code == 200
+    miss = await client.get(path, params={"keywords": f"absent{unique}", "limit": 100})
+    assert miss.status_code == 200
+
+    assert hit.json()["numberMatched"] >= 1
+    assert miss.json()["numberMatched"] == 0, (
+        "keywords was ignored — it is being read from somewhere other than the "
+        "query string."
+    )
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("path", ["/search/datasets/", "/collections/datasets/items"])
+async def test_empty_filter_lang_is_treated_as_not_supplied(
+    client: AsyncClient, path: str
+):
+    """`?filter-lang=` keeps defaulting to cql2-text rather than 400ing.
+
+    fix(#1666) moved the check off the raw query string and onto the bound
+    value. The raw read skipped its check on any falsy value, so preserving
+    that means an explicitly empty parameter is still "not supplied".
+    """
+    resp = await client.get(path, params={"filter": "srid=4326", "filter-lang": ""})
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.anyio
+async def test_validation_failure_returns_the_declared_problem_body(
+    client: AsyncClient,
+):
+    """A validation failure answers problem+json, as the contract now declares."""
+    resp = await client.get("/search/datasets/", params={"limit": "notanumber"})
+    assert resp.status_code == 422
+    assert resp.headers["content-type"].startswith("application/problem+json")
+    body = resp.json()
+    assert set(body) >= {"title", "status", "detail"}
+    assert isinstance(body["detail"], str), (
+        "detail is a flattened string, not FastAPI's error array."
+    )
