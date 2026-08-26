@@ -751,6 +751,60 @@ def test_antimeridian_bbox_compiles_to_a_split_multipolygon():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize(
+    "bbox_args,expected_matched",
+    [
+        pytest.param("-74.0, 40.7, -74.0, 40.7", 1, id="point-envelope"),
+        pytest.param("-74.005, 40.7, -73.985, 40.7", 1, id="line-envelope"),
+    ],
+)
+async def test_degenerate_bbox_envelopes_evaluate(
+    client: AsyncClient, filter_dataset: Dataset, bbox_args: str, expected_matched: int
+):
+    """fix(#1614 codex r4): equal bounds are a legal point/line envelope."""
+    resp = await client.get(
+        _items_url(filter_dataset),
+        params={"filter": f"S_INTERSECTS(geometry, BBOX({bbox_args}))"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberMatched"] == expected_matched
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "params,fragment",
+    [
+        pytest.param(
+            {"filter": "S_INTERSECTS(geometry, BBOX(0, 10, 1, -10))"},
+            "miny",
+            id="inverted-latitude",
+        ),
+        pytest.param(
+            {"filter": "S_INTERSECTS(geometry, BBOX(170, 40, -170, 40))"},
+            "degenerate antimeridian",
+            id="degenerate-crossing",
+        ),
+        pytest.param(
+            {
+                "filter": '{"op":"s_intersects","args":[{"property":"geometry"},'
+                '{"bbox":[NaN,0,1,1]}]}',
+                "filter-lang": "cql2-json",
+            },
+            "finite",
+            id="nan-json",
+        ),
+    ],
+)
+async def test_invalid_bbox_bounds_rejected(
+    client: AsyncClient, filter_dataset: Dataset, params: dict, fragment: str
+):
+    """fix(#1614 codex r4): NaN and inverted bounds 400 like parse_bbox()."""
+    resp = await client.get(_items_url(filter_dataset), params=params)
+    assert resp.status_code == 400, resp.text
+    assert fragment in resp.json()["detail"]
+
+
+@pytest.mark.anyio
 async def test_legacy_bbox_predicate_with_crs_rejected(
     client: AsyncClient, filter_dataset: Dataset
 ):

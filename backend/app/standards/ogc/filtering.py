@@ -18,6 +18,7 @@
 """
 
 import json
+import math
 import re
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -339,14 +340,48 @@ def _bbox_geometry(minx, miny, maxx, maxy) -> dict:
     (same convention as the ``bbox=`` parameter). A single planar rectangle
     would invert it into nearly the whole globe, so split at the dateline
     into a MultiPolygon — mirroring what get_features() does for ``bbox=``.
+
+    fix(#1614 codex r4), mirroring ``parse_bbox()``: non-finite coordinates
+    (JSON's NaN parses in Python) and inverted latitude bounds are rejected
+    rather than built into a silently wrong geometry, and legal degenerate
+    boxes (equal bounds — a line or point envelope) become the geometry of
+    the right dimension instead of a zero-area ring PostGIS may reject.
     """
+    for v in (minx, miny, maxx, maxy):
+        if not math.isfinite(v):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="BBox coordinates must be finite numbers",
+            )
+    if miny > maxy:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="BBox miny must be less than or equal to maxy",
+        )
     if minx > maxx:
+        if miny == maxy or minx == 180 or maxx == -180:
+            # A crossing box with a zero-dimension half would need mixed
+            # geometry types; an equivalent non-crossing box expresses it.
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "degenerate antimeridian-crossing BBox is not supported; "
+                    "use a non-crossing box or two filters"
+                ),
+            )
         return {
             "type": "MultiPolygon",
             "coordinates": [
                 _bbox_ring(minx, miny, 180, maxy),
                 _bbox_ring(-180, miny, maxx, maxy),
             ],
+        }
+    if minx == maxx and miny == maxy:
+        return {"type": "Point", "coordinates": [minx, miny]}
+    if minx == maxx or miny == maxy:
+        return {
+            "type": "LineString",
+            "coordinates": [[minx, miny], [maxx, maxy]],
         }
     return {"type": "Polygon", "coordinates": _bbox_ring(minx, miny, maxx, maxy)}
 
