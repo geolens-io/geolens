@@ -1187,6 +1187,7 @@ class TestPostgisRefreshExecution:
             ("download", "shp"),
             ("download", "parquet"),
             ("download", "csv"),
+            ("download", "fgb"),
             ("ogc_features", "geojson"),
             ("vector_tiles", "pbf"),
         }

@@ -1675,7 +1675,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # exposes the storage layout). One is_publishable_url guard plus the
         # comment saying why this profile drops the row instead of replacing it
         # — build_assets already advertises raster access here. Cap 519 -> 524.
-        "backend/app/modules/catalog/search/service_records.py": 524,
+        # feat(#1681): +1 — FlatGeobuf joined _FORMAT_MEDIA alongside every
+        # other export format. Cap 524 -> 525, exact.
+        "backend/app/modules/catalog/search/service_records.py": 525,
         # fix(#448): +~40 LOC — query-embedding hot-path deadline (asyncio.wait_for
         # wrapper) + the gated/approximated vector-only match COUNT in
         # _run_rrf_merge (perf audit 2026-07-10 §2d). Cap 350 → 390
@@ -3886,7 +3888,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # worth more than the six lines. Cap at the exact size; the module is
     # otherwise a stable set of CRUD helpers over the record's related tables
     # and is not where new domains should land.
-    "backend/app/modules/catalog/records/service.py": 1007,
+    # feat(#1681): +10 — the FlatGeobuf export format joined
+    # `_DISTRIBUTION_TEMPLATES` (a download row, matching every other export
+    # format already in that table) plus a docstring update to the row count
+    # it now generates.
+    "backend/app/modules/catalog/records/service.py": 1017,
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross

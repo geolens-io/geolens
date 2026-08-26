@@ -1,9 +1,10 @@
 from typing import Literal, cast
 
-ExportFormat = Literal["csv", "geojson", "gpkg", "parquet", "shp"]
+ExportFormat = Literal["csv", "fgb", "geojson", "gpkg", "parquet", "shp"]
 
 EXPORT_FORMAT_VALUES: set[ExportFormat] = {
     "csv",
+    "fgb",
     "geojson",
     "gpkg",
     "parquet",

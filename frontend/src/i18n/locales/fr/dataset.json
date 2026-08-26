@@ -194,6 +194,7 @@
     "shp": "Shapefile",
     "csv": "CSV",
     "parquet": "GeoParquet",
+    "fgb": "FlatGeobuf",
     "duckdbHint": "Interroger avec DuckDB",
     "button": "Exporter",
     "failed": "Échec de l'exportation",

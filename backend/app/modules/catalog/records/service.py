@@ -613,6 +613,15 @@ _DISTRIBUTION_TEMPLATES = [
         False,
     ),
     (
+        "download",
+        "fgb",
+        "/datasets/{dataset_id}/export?format=fgb",
+        "FlatGeobuf Download",
+        "HTTP",
+        "application/vnd.flatgeobuf",
+        False,
+    ),
+    (
         "ogc_features",
         "geojson",
         "/collections/{dataset_id}/items",
@@ -692,8 +701,9 @@ async def generate_distributions(
 ) -> list[RecordDistribution]:
     """Generate standard distribution records for a dataset.
 
-    For spatial datasets (geometry_type is not None): creates 7 distribution rows
-    (5 download formats incl. GeoParquet + OGC features + vector tiles).
+    For spatial datasets (geometry_type is not None): creates 8 distribution rows
+    (6 download formats incl. GeoParquet and FlatGeobuf + OGC features + vector
+    tiles).
     For non-spatial datasets (geometry_type is None): creates only csv download
     + OGC features (2 rows).
 

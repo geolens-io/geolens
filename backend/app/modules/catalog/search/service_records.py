@@ -40,6 +40,7 @@ _FORMAT_MEDIA = {
     "shp": "application/x-shapefile",
     "csv": "text/csv",
     "parquet": "application/vnd.apache.parquet",
+    "fgb": "application/vnd.flatgeobuf",
 }
 
 _RASTER_FORMAT_MEDIA = {

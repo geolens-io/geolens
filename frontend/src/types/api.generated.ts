@@ -2098,9 +2098,9 @@ export interface paths {
          * Export Dataset Endpoint
          * @description Export a dataset as a downloadable file.
          *
-         *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
-         *     formats. Optional CRS reprojection, spatial filtering, and attribute
-         *     filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+         *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
+         *     FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
+         *     attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
          */
         get: operations["export_dataset_endpoint_datasets__dataset_id__export_get"];
         put?: never;
@@ -8383,7 +8383,7 @@ export interface components {
          * ExportFormat
          * @enum {string}
          */
-        ExportFormat: "gpkg" | "geojson" | "shp" | "csv" | "parquet";
+        ExportFormat: "gpkg" | "geojson" | "shp" | "csv" | "parquet" | "fgb";
         /**
          * FacetCountResponse
          * @description Multi-group facet counts for the search sidebar.
