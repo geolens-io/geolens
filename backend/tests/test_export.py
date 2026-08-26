@@ -520,6 +520,40 @@ class TestExportFormats:
         assert resp.status_code == 200
         assert "text/csv" in resp.headers["content-type"]
 
+    @pytest.mark.anyio
+    async def test_export_format_fgb(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Request with format=fgb returns 200 with the FlatGeobuf Content-Type."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(test_db_session, created_by=admin_id, name="FgbDS")
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "fgb"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert "vnd.flatgeobuf" in resp.headers["content-type"]
+
+    @pytest.mark.anyio
+    async def test_export_non_spatial_dataset_fgb_returns_400(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """FlatGeobuf is a spatial-only format, like gpkg/geojson/shp/parquet."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NonSpatialFgbDS",
+            geometry_type=None,
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "fgb"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # Audit tests

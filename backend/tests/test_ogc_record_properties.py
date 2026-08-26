@@ -99,12 +99,13 @@ async def test_record_has_formats_list(client: AsyncClient, test_db_session):
     assert "formats" in props
     formats = props["formats"]
     assert isinstance(formats, list)
-    assert len(formats) == 5
+    assert len(formats) == 6
     assert "application/geopackage+sqlite3" in formats
     assert "application/geo+json" in formats
     assert "application/x-shapefile" in formats
     assert "text/csv" in formats
     assert "application/vnd.apache.parquet" in formats
+    assert "application/vnd.flatgeobuf" in formats
 
 
 # ---------------------------------------------------------------------------
@@ -509,7 +510,7 @@ async def test_vector_record_formats_includes_shapefile(
     props = resp.json()["properties"]
     formats = props["formats"]
     assert "application/x-shapefile" in formats
-    assert len(formats) == 5
+    assert len(formats) == 6
 
 
 @pytest.mark.anyio

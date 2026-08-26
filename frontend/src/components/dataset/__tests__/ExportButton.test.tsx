@@ -1,6 +1,7 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ExportButton } from '../ExportButton';
+import { downloadExport } from '@/api/datasets';
 
 vi.mock('@/api/datasets', () => ({
   downloadExport: vi.fn(),
@@ -17,16 +18,23 @@ beforeAll(() => {
 });
 
 describe('ExportButton', () => {
-  it('renders all 5 format options by default', async () => {
+  it('renders all 6 format options by default', async () => {
     const user = userEvent.setup();
     render(<ExportButton datasetId="ds-1" datasetName="test" />);
 
     await user.click(screen.getByRole('combobox'));
     const options = await screen.findAllByRole('option');
-    expect(options).toHaveLength(5);
+    expect(options).toHaveLength(6);
     const labels = options.map((o) => o.textContent);
     expect(labels).toEqual(
-      expect.arrayContaining(['GeoPackage', 'GeoJSON', 'Shapefile', 'CSV', 'GeoParquet']),
+      expect.arrayContaining([
+        'GeoPackage',
+        'GeoJSON',
+        'Shapefile',
+        'CSV',
+        'GeoParquet',
+        'FlatGeobuf',
+      ]),
     );
   });
 
@@ -51,6 +59,17 @@ describe('ExportButton', () => {
     // Path separator -> _, single quote doubled -> valid DuckDB string literal
     // that matches the browser-saved filename.
     expect(screen.getByText(/Bob''s Roads_2026\.parquet/)).toBeInTheDocument();
+  });
+
+  it('downloads FlatGeobuf with a .fgb extension', async () => {
+    const user = userEvent.setup();
+    render(<ExportButton datasetId="ds-1" datasetName="rivers" />);
+
+    await user.click(screen.getByRole('combobox'));
+    await user.click(await screen.findByRole('option', { name: 'FlatGeobuf' }));
+    await user.click(screen.getByRole('button', { name: /export/i }));
+
+    expect(downloadExport).toHaveBeenCalledWith('ds-1', 'fgb', 'rivers.fgb');
   });
 
   it('limits table datasets to CSV export', async () => {

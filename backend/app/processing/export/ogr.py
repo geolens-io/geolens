@@ -49,6 +49,19 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "ext": ".csv",
         "media": "text/csv",
     },
+    # FlatGeobuf has no IANA registration. `application/vnd.flatgeobuf` is the
+    # vendor-prefixed type the format's own maintainers proposed
+    # (flatgeobuf/flatgeobuf#112) after an OGC standardization attempt stalled,
+    # and it is the same vendor-prefix pattern this table already uses for
+    # GeoParquet (PARQUET_MEDIA_TYPE below) for the identical reason. It is a
+    # single file like GeoJSON/GPKG/CSV, not multi-file like Shapefile, so it
+    # must NOT be added to the `format_key == "shp"` zip special-casing in
+    # service.py.
+    "fgb": {
+        "driver": "FlatGeobuf",
+        "ext": ".fgb",
+        "media": "application/vnd.flatgeobuf",
+    },
 }
 
 

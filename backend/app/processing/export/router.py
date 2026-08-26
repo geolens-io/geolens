@@ -328,9 +328,9 @@ async def export_dataset_endpoint(
 ) -> Response:
     """Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
-    formats. Optional CRS reprojection, spatial filtering, and attribute
-    filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
+    FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
+    attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
     """
     port = get_processing_port()
     data_schema = tenant_data_schema(current_tenant_var.get())
@@ -436,6 +436,7 @@ async def export_dataset_endpoint(
         "geojson",
         "shp",
         "parquet",
+        "fgb",
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

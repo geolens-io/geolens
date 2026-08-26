@@ -25,6 +25,7 @@ const EXPORT_FORMATS = [
   { value: 'shp', labelKey: 'export.shp', ext: 'zip' },
   { value: 'csv', labelKey: 'export.csv', ext: 'csv' },
   { value: 'parquet', labelKey: 'export.parquet', ext: 'parquet' },
+  { value: 'fgb', labelKey: 'export.fgb', ext: 'fgb' },
 ] as const;
 
 const CSV_ONLY = EXPORT_FORMATS.filter((f) => f.value === 'csv');

@@ -9,3 +9,4 @@ class ExportFormat(StrEnum):
     shp = "shp"
     csv = "csv"
     parquet = "parquet"
+    fgb = "fgb"

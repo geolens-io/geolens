@@ -147,9 +147,9 @@ def sync_detailed(
 
      Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
-    formats. Optional CRS reprojection, spatial filtering, and attribute
-    filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
+    FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
+    attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
 
     Args:
         dataset_id (UUID):
@@ -194,9 +194,9 @@ def sync(
 
      Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
-    formats. Optional CRS reprojection, spatial filtering, and attribute
-    filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
+    FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
+    attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
 
     Args:
         dataset_id (UUID):
@@ -236,9 +236,9 @@ async def asyncio_detailed(
 
      Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
-    formats. Optional CRS reprojection, spatial filtering, and attribute
-    filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
+    FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
+    attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
 
     Args:
         dataset_id (UUID):
@@ -281,9 +281,9 @@ async def asyncio(
 
      Export a dataset as a downloadable file.
 
-    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, and GeoParquet
-    formats. Optional CRS reprojection, spatial filtering, and attribute
-    filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+    Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
+    FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
+    attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
 
     Args:
         dataset_id (UUID):
