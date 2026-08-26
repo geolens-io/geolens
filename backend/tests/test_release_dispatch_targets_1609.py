@@ -31,7 +31,9 @@ REPO_ROOT = pathlib.Path(__file__).parent.parent.parent
 RELEASE_YML = REPO_ROOT / ".github" / "workflows" / "release.yml"
 CI_YML = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
-STEP_NAME_MARKER = "Notify the site"
+# fix(#1673): tracks the step name, which changed when the Buttondown
+# newsletter joined the site and examples dispatches as a third target.
+STEP_NAME_MARKER = "Notify downstream"
 
 SITE_DISPATCH_API = "repos/geolens-io/getgeolens.com/dispatches"
 EXAMPLES_DISPATCH_API = "repos/geolens-io/geolens-examples/dispatches"
@@ -40,9 +42,13 @@ EXAMPLES_DISPATCH_API = "repos/geolens-io/geolens-examples/dispatches"
 def _dispatch_step() -> dict[str, Any]:
     """The single step in release.yml that sends the release dispatches.
 
-    Matched on a prefix of its name rather than the whole string, so renaming
-    it to cover a new target does not silently stop this test from finding it
-    (an assertion that cannot locate its subject passes vacuously).
+    Matched on a prefix of its name rather than the whole string. That is not
+    rename-proof — fix(#1673) renamed the step past the old ``"Notify the
+    site"`` marker and this had to move with it — but the ``== 1`` assertion
+    below is what makes that safe: a marker that no longer matches fails
+    loudly here instead of letting every assertion in this file pass
+    vacuously against a step it could not find. Renaming the step means
+    updating this marker in the same commit.
     """
     workflow: dict[str, Any] = yaml.safe_load(RELEASE_YML.read_text(encoding="utf-8"))
 
