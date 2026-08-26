@@ -187,6 +187,33 @@ async def test_refresh_no_progress_page_fails_the_run(
 
 
 @pytest.mark.anyio
+async def test_partially_populated_pages_fail_the_run(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """fix(#1675 codex r2): a server that caps responses below its advertised
+    page size returns SOME rows per page, so the offset skips records while
+    the count keeps growing — positive growth must not be enough."""
+    from app.processing.ingest.ogr import IngestionError
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await _arcgis_dataset(test_db_session, created_by=admin_id)
+
+    async def _fake_page_info(source_url, layer_id, token):
+        return 4500, 1000, True, "FID"
+
+    monkeypatch.setattr(tasks_vector, "_fetch_arcgis_import_page_info", _fake_page_info)
+
+    calls: list[dict] = []
+    task_kwargs = await _dispatch_refresh(client, admin_auth_header, dataset.id)
+    with pytest.raises(IngestionError, match="400 rows where 1000 were expected"):
+        await _execute_with_fake(task_kwargs, _fake_ogr2ogr(calls, lambda i: 400))
+
+    assert len(calls) == 1, calls  # fails on the very first short page
+    runs = await _runs_ordered(test_db_session, dataset.id)
+    assert [r.status for r in runs] == ["failed"]
+
+
+@pytest.mark.anyio
 async def test_probe_failure_still_stamps_origin_contact(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ):

@@ -893,11 +893,27 @@ async def run_paged_arcgis_service_fetch(
                 _text(f"SELECT COUNT(*) FROM {_qtable(staging_table, schema=schema)}")
             )
             next_imported_rows = int(result.scalar_one())
-        if next_imported_rows <= imported_rows:
+        grew = next_imported_rows - imported_rows
+        if grew <= 0:
             raise ogr.IngestionError(
                 "ArcGIS service import made no row-count progress "
                 f"at offset {offset}; upstream pagination may be "
                 "unsupported or returned an empty page."
+            )
+        expected = min(page_size, feature_count - offset)
+        if grew != expected:
+            # fix(#1675 codex r2): a server that returns SOME rows but fewer
+            # than the requested page while the offset still advances by
+            # page_size would silently skip records — positive growth is not
+            # enough, the growth must be exact or a truncated copy swaps in
+            # cleanly. A mid-fetch source mutation trips this too, which is
+            # the safe direction: fail and retry against fresh counts.
+            raise ogr.IngestionError(
+                f"ArcGIS page at offset {offset} returned {grew} rows where "
+                f"{expected} were expected; the server may cap responses "
+                "below its advertised page size or the source changed "
+                "mid-fetch. Refusing to continue with a potentially "
+                "incomplete copy."
             )
         imported_rows = next_imported_rows
         if on_page is not None:

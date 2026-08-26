@@ -2753,8 +2753,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # fix(#1675): +81 — run_paged_arcgis_service_fetch, the guarded
     # resultOffset paging loop extracted from tasks_vector so the refresh
     # executor pages large ArcGIS layers with the same no-progress guard
-    # instead of trusting GDAL driver paging. Cap 2211 -> 2292, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2292,
+    # instead of trusting GDAL driver paging. Then +16 (codex r2): the
+    # growth check became exact — a server capping responses below its
+    # advertised page size returned SOME rows per page while the offset
+    # skipped records, so positive growth alone could swap a truncated
+    # copy. Cap 2211 -> 2308, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2308,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
