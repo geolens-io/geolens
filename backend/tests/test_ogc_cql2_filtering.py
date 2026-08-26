@@ -265,33 +265,29 @@ async def test_search_datasets_unsupported_filter_lang_returns_400(client: Async
 
 
 # ---------------------------------------------------------------------------
-# fix(#315): feature collections reject filter (do not silently ignore)
+# feat(#1614): feature collections validate filter (rejection replaced fix(#315))
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
-    "filter_value",
+    "filter_value,detail_fragment",
     [
-        pytest.param("name='x'", id="valid-cql2-text"),
-        pytest.param("!!!INVALID!!!", id="malformed"),
-        pytest.param("", id="empty-string"),
+        pytest.param("name='x'", "non-filterable", id="unknown-property"),
+        pytest.param("!!!INVALID!!!", "Invalid CQL2", id="malformed"),
+        pytest.param("", "Invalid CQL2", id="empty-string"),
     ],
 )
-async def test_feature_items_rejects_filter_400(
-    client: AsyncClient, test_db_session, filter_value: str
+async def test_feature_items_filter_validation_400(
+    client: AsyncClient, test_db_session, filter_value: str, detail_fragment: str
 ):
-    """(#315) ANY ``filter`` param on a per-dataset FEATURE collection returns 400.
+    """feat(#1614) replaced the fix(#315) presence-based rejection.
 
-    CQL2 filtering is only implemented on the datasets (records) collection. On
-    feature collections the filter was previously dropped (200); it must now be
-    explicitly rejected.
-
-    This reject is *presence-based*: the handler rejects on the mere presence of
-    a ``filter`` query param, BEFORE any parse, so the contract holds regardless
-    of whether the value is valid CQL2, malformed, or empty. The parametrize
-    cases make that explicit -- there is intentionally no parse-level validation
-    on this path (use the datasets collection for catalog-level CQL2).
+    ``filter`` on per-dataset feature collections is now parsed and validated
+    server-side. These inputs still 400, but each for its real reason: this
+    dataset has no backing table, so ``name`` is not among its live-schema
+    queryables, and the other two never parse. The full server-side filtering
+    surface is covered in test_ogc_features_filter.py.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
@@ -306,7 +302,7 @@ async def test_feature_items_rejects_filter_400(
     )
     assert resp.status_code == 400
     data = resp.json()
-    assert "filter is not supported" in data["detail"].lower()
+    assert detail_fragment in data["detail"]
 
 
 # ---------------------------------------------------------------------------

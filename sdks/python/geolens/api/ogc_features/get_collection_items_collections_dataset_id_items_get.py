@@ -26,6 +26,9 @@ def _get_kwargs(
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
     include_geometry: bool | Unset = True,
+    filter_: None | str | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
+    filter_crs: None | str | Unset = UNSET,
 ) -> dict[str, Any]:
 
     params: dict[str, Any] = {}
@@ -63,6 +66,22 @@ def _get_kwargs(
     params["f"] = json_f
 
     params["include_geometry"] = include_geometry
+
+    json_filter_: None | str | Unset
+    if isinstance(filter_, Unset):
+        json_filter_ = UNSET
+    else:
+        json_filter_ = filter_
+    params["filter"] = json_filter_
+
+    params["filter-lang"] = filter_lang
+
+    json_filter_crs: None | str | Unset
+    if isinstance(filter_crs, Unset):
+        json_filter_crs = UNSET
+    else:
+        json_filter_crs = filter_crs
+    params["filter-crs"] = json_filter_crs
 
     params = {k: v for k, v in params.items() if v is not UNSET and v is not None}
 
@@ -152,6 +171,9 @@ def sync_detailed(
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
     include_geometry: bool | Unset = True,
+    filter_: None | str | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
+    filter_crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | ProblemDetail
@@ -184,6 +206,13 @@ def sync_detailed(
         f (None | str | Unset):
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
+        filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
+            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
+            and property filters by AND.
+        filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
+            'cql2-text'.
+        filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -202,6 +231,9 @@ def sync_detailed(
         datetime_=datetime_,
         f=f,
         include_geometry=include_geometry,
+        filter_=filter_,
+        filter_lang=filter_lang,
+        filter_crs=filter_crs,
     )
 
     response = client.get_httpx_client().request(
@@ -222,6 +254,9 @@ def sync(
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
     include_geometry: bool | Unset = True,
+    filter_: None | str | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
+    filter_crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | ProblemDetail
@@ -255,6 +290,13 @@ def sync(
         f (None | str | Unset):
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
+        filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
+            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
+            and property filters by AND.
+        filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
+            'cql2-text'.
+        filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -274,6 +316,9 @@ def sync(
         datetime_=datetime_,
         f=f,
         include_geometry=include_geometry,
+        filter_=filter_,
+        filter_lang=filter_lang,
+        filter_crs=filter_crs,
     ).parsed
 
 
@@ -288,6 +333,9 @@ async def asyncio_detailed(
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
     include_geometry: bool | Unset = True,
+    filter_: None | str | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
+    filter_crs: None | str | Unset = UNSET,
 ) -> Response[
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | ProblemDetail
@@ -320,6 +368,13 @@ async def asyncio_detailed(
         f (None | str | Unset):
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
+        filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
+            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
+            and property filters by AND.
+        filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
+            'cql2-text'.
+        filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -338,6 +393,9 @@ async def asyncio_detailed(
         datetime_=datetime_,
         f=f,
         include_geometry=include_geometry,
+        filter_=filter_,
+        filter_lang=filter_lang,
+        filter_crs=filter_crs,
     )
 
     response = await client.get_async_httpx_client().request(**kwargs)
@@ -356,6 +414,9 @@ async def asyncio(
     datetime_: None | str | Unset = UNSET,
     f: None | str | Unset = UNSET,
     include_geometry: bool | Unset = True,
+    filter_: None | str | Unset = UNSET,
+    filter_lang: str | Unset = "cql2-text",
+    filter_crs: None | str | Unset = UNSET,
 ) -> (
     GetCollectionItemsCollectionsDatasetIdItemsGetOGCFeatureItemsResponse
     | ProblemDetail
@@ -389,6 +450,13 @@ async def asyncio(
         f (None | str | Unset):
         include_geometry (bool | Unset): Include geometry in response. Set to false for attribute-
             only queries. Default: True.
+        filter_ (None | str | Unset): CQL2 filter expression evaluated server-side against this
+            collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox
+            and property filters by AND.
+        filter_lang (str | Unset): Filter language: cql2-text (default) or cql2-json. Default:
+            'cql2-text'.
+        filter_crs (None | str | Unset): CRS of filter geometries. Only CRS84
+            (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.
 
     Raises:
         errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
@@ -409,5 +477,8 @@ async def asyncio(
             datetime_=datetime_,
             f=f,
             include_geometry=include_geometry,
+            filter_=filter_,
+            filter_lang=filter_lang,
+            filter_crs=filter_crs,
         )
     ).parsed

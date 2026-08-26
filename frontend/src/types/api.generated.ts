@@ -1457,6 +1457,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/collections/{dataset_id}/queryables": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Collection Queryables
+         * @description Queryable properties for one feature collection (OGC Features Part 3).
+         *
+         *     feat(#1614): derived from the live table schema (never the stored
+         *     column_info snapshot) so the advertised set always matches what `filter=`
+         *     on /items validates against. `additionalProperties: false` is what makes
+         *     rejecting filters on unlisted properties spec-conformant.
+         */
+        get: operations["get_collection_queryables_collections__dataset_id__queryables_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/config-ops/dry-run/": {
         parameters: {
             query?: never;
@@ -20380,6 +20405,12 @@ export interface operations {
                 f?: string | null;
                 /** @description Include geometry in response. Set to false for attribute-only queries. */
                 include_geometry?: boolean;
+                /** @description CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND. */
+                filter?: string | null;
+                /** @description Filter language: cql2-text (default) or cql2-json. */
+                "filter-lang"?: string;
+                /** @description CRS of filter geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported. */
+                "filter-crs"?: string | null;
             };
             header?: never;
             path: {
@@ -20591,6 +20622,86 @@ export interface operations {
                             title?: string | null;
                         }[];
                     };
+                    "application/json": unknown;
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthenticated — a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own — a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    get_collection_queryables_collections__dataset_id__queryables_get: {
+        parameters: {
+            query?: {
+                f?: string | null;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": unknown;
                 };
             };

@@ -186,6 +186,19 @@ async def live_property_columns(db: AsyncSession, table_name: str) -> str:
     )
 
 
+async def get_feature_queryable_columns(
+    db: AsyncSession, table_name: str
+) -> list[dict]:
+    """Live column name/type rows for Part 3 queryables and CQL2 filtering.
+
+    fix(#1614): same live-schema authority rule as ``live_property_columns`` —
+    the filterable set must match the table the SQL runs against, not the
+    stored ``Dataset.column_info`` snapshot. The catalog port resolves the
+    tenant schema itself when none is passed.
+    """
+    return await get_catalog_port().get_column_info(db, table_name)
+
+
 async def _projected_row_source(
     db: AsyncSession, table_name: str, *, with_geometry: bool
 ) -> str:
@@ -218,6 +231,8 @@ async def get_features(
     include_geometry: bool = True,
     cached_feature_count: int | None = None,
     after_gid: int | None = None,
+    cql2_where: str | None = None,
+    cql2_params: dict | None = None,
 ) -> tuple[list[dict], int]:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
@@ -228,6 +243,13 @@ async def get_features(
     ``OFFSET 999000`` deep-paging cost. The ``offset`` parameter remains
     supported as a legacy fallback for clients that have not migrated to
     cursor pagination.
+
+    fix(#1614): ``cql2_where``/``cql2_params`` carry a pre-compiled CQL2
+    fragment from ``app.standards.ogc.filtering.compile_feature_cql2`` — the
+    only sanctioned producer: it restricts identifiers to live-schema columns
+    and passes every value as a ``:cql2_N`` bind (collision-free with the
+    binds built here). It joins ``where_clauses`` so the data query, count
+    query, and cached-count bypass all compose exactly like ``bbox``.
     """
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
@@ -274,6 +296,10 @@ async def get_features(
                 param_name = f"prop_{col}"
                 where_clauses.append(f'"{col}" = :{param_name}')
                 bind_values[param_name] = val
+
+    if cql2_where:
+        where_clauses.append(cql2_where)
+        bind_values.update(cql2_params or {})
 
     # H-24: keyset cursor pagination — `gid > :after_gid` short-circuits the
     # OFFSET cost path entirely. Both pagination styles use the same `gid`

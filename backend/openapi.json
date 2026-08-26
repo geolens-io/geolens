@@ -29167,6 +29167,54 @@
               "title": "Include Geometry",
               "type": "boolean"
             }
+          },
+          {
+            "description": "CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND.",
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "CQL2 filter expression evaluated server-side against this collection's queryables document (feat(#1614), OGC Features Part 3). Combines with bbox and property filters by AND.",
+              "title": "Filter"
+            }
+          },
+          {
+            "description": "Filter language: cql2-text (default) or cql2-json.",
+            "in": "query",
+            "name": "filter-lang",
+            "required": false,
+            "schema": {
+              "default": "cql2-text",
+              "description": "Filter language: cql2-text (default) or cql2-json.",
+              "title": "Filter-Lang",
+              "type": "string"
+            }
+          },
+          {
+            "description": "CRS of filter geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.",
+            "in": "query",
+            "name": "filter-crs",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "CRS of filter geometries. Only CRS84 (http://www.opengis.net/def/crs/OGC/1.3/CRS84) is supported.",
+              "title": "Filter-Crs"
+            }
           }
         ],
         "responses": {
@@ -29607,6 +29655,135 @@
           }
         ],
         "summary": "Get Collection Item Feature",
+        "tags": [
+          "OGC Features"
+        ]
+      }
+    },
+    "/collections/{dataset_id}/queryables": {
+      "get": {
+        "description": "Queryable properties for one feature collection (OGC Features Part 3).\n\nfeat(#1614): derived from the live table schema (never the stored\ncolumn_info snapshot) so the advertised set always matches what `filter=`\non /items validates against. `additionalProperties: false` is what makes\nrejecting filters on unlisted properties spec-conformant.",
+        "operationId": "get_collection_queryables_collections__dataset_id__queryables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "dataset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Dataset Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "f",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "F"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthenticated \u2014 a credential was supplied and could not be resolved (expired, revoked, or malformed). Sending no credential at all is not an error on these operations; they answer anonymously with the public subset. Neither is sending an unresolvable credential alongside a capability that authorizes the request on its own \u2014 a valid X-Embed-Token or a valid signed tile template (sig, exp, scope). Those are served and the unrelated credential is ignored."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {},
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Get Collection Queryables",
         "tags": [
           "OGC Features"
         ]
