@@ -627,6 +627,11 @@ async def test_invalid_filters_return_400(
             '{"bbox":[' + "9" * 401 + ",0,1,1]}]}",
             id="huge-int-bbox",
         ),
+        pytest.param(
+            '{"op":"s_intersects","args":[{"property":"geometry"},'
+            '{"type":"Point","coordinates":[NaN,0]}]}',
+            id="nan-geometry-coordinate",
+        ),
     ],
 )
 async def test_non_finite_and_oversized_literals_rejected(
@@ -680,6 +685,30 @@ async def test_incomparable_property_pair_is_400_not_500(
     )
     assert resp.status_code == 400
     assert "not evaluable" in resp.json()["detail"]
+
+
+@pytest.mark.anyio
+async def test_schema_introspection_outage_is_503(
+    client: AsyncClient, filter_dataset: Dataset, monkeypatch
+):
+    """fix(#1614 codex r6): a transient database failure during the
+    existence/live-schema lookups classifies like the feature query's 503,
+    not a 500."""
+    from sqlalchemy.exc import OperationalError
+
+    import app.standards.ogc.router as ogc_router
+
+    async def _boom(db, table_name):
+        raise OperationalError("SELECT 1", {}, Exception("connection dropped"))
+
+    monkeypatch.setattr(ogc_router, "feature_table_exists", _boom)
+    resp = await client.get(
+        _items_url(filter_dataset), params={"filter": "name = 'Alpha'"}
+    )
+    assert resp.status_code == 503
+
+    resp = await client.get(f"/collections/{filter_dataset.id}/queryables")
+    assert resp.status_code == 503
 
 
 @pytest.mark.anyio

@@ -539,14 +539,23 @@ async def get_collection_queryables(
     # well as for an attribute-less one. A missing table (partial ingest /
     # eviction race) must stay the same retryable 503 the /items path
     # reports, not publish an empty queryables document as authoritative.
-    if not await feature_table_exists(db, dataset.table_name):
+    # fix(#1614 codex r6): schema-introspection database errors are
+    # operational — same 503 classification as the items path.
+    try:
+        if not await feature_table_exists(db, dataset.table_name):
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Dataset table is temporarily unavailable",
+            )
+        live_columns = await get_feature_queryable_columns(db, dataset.table_name)
+    except (ProgrammingError, OperationalError):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dataset table is temporarily unavailable",
         )
 
     queryables = feature_queryable_columns(
-        await get_feature_queryable_columns(db, dataset.table_name),
+        live_columns,
         dataset.geometry_type,
     )
     return JSONResponse(
@@ -780,13 +789,23 @@ async def get_collection_items(
         # availability stays the retryable 503; schema-dependent validation
         # runs last.
         filter_ast = parse_feature_cql2(filter_expr, filter_lang)
-        if not await feature_table_exists(db, dataset.table_name):
+        # fix(#1614 codex r6): the schema-introspection queries carry no
+        # caller input, so any database error here is operational — classify
+        # it exactly like the feature query's 503, not a 500.
+        try:
+            if not await feature_table_exists(db, dataset.table_name):
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Dataset table is temporarily unavailable",
+                )
+            live_columns = await get_feature_queryable_columns(db, dataset.table_name)
+        except (ProgrammingError, OperationalError):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="Dataset table is temporarily unavailable",
             )
         queryables = feature_queryable_columns(
-            await get_feature_queryable_columns(db, dataset.table_name),
+            live_columns,
             dataset.geometry_type,
         )
         cql2_where, cql2_binds = compile_feature_cql2_ast(filter_ast, queryables)

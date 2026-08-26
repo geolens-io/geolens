@@ -331,6 +331,27 @@ def _is_finite_number(value) -> bool:
         return False
 
 
+def _finite_coords(obj) -> bool:
+    if isinstance(obj, (list, tuple)):
+        return all(_finite_coords(o) for o in obj)
+    return _is_finite_number(obj)
+
+
+def _finite_geojson(geom) -> bool:
+    """True when every coordinate in a GeoJSON geometry dict is finite.
+
+    fix(#1614 codex r6): the JSON normalizer returns geometry dicts verbatim,
+    so a Point with a NaN coordinate slipped past the finiteness rule and
+    compiled to a degenerate geometry that silently matched nothing.
+    """
+    if not isinstance(geom, dict):
+        return False
+    for sub in geom.get("geometries", []):
+        if not _finite_geojson(sub):
+            return False
+    return _finite_coords(geom.get("coordinates", []))
+
+
 def _bbox_ring(minx, miny, maxx, maxy) -> list:
     return [
         [
@@ -614,6 +635,10 @@ def _validate_spatial_predicate(node, queryables: dict[str, str], errors: list[s
         errors.append(
             "spatial predicates need a geometry literal (WKT, BBOX or GeoJSON)"
         )
+    elif isinstance(literal_side, pgf_values.Geometry) and not _finite_geojson(
+        literal_side.geometry
+    ):
+        errors.append("geometry literal coordinates must be finite numbers")
 
 
 def _validate_feature_filter_node(node, queryables: dict[str, str], errors: list[str]):
