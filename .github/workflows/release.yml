@@ -180,7 +180,16 @@ jobs:
       # to one version across a dozen files, and otherwise hears about a
       # release only from a weekly ci/check-pins.py line that warns and
       # passes. On this event it opens a "bump the pins and re-sweep" issue.
-      - name: Notify the site and the examples repo of the release
+      #
+      # The third target is the Buttondown newsletter. It lives here rather
+      # than in its own step so it inherits this one's latest-release guard
+      # and reporting: a stale tag must not draft a newsletter for a version
+      # that is no longer current, and that check is subtle enough that a
+      # second copy of it would drift. The runbook's step 11 recorded the
+      # reason it kept being missed — "nothing triggers it and nothing checks
+      # it" — which is both halves of what this step already does for the
+      # other two.
+      - name: Notify downstream targets of the release
         # Only GA tags (no `-` suffix) dispatch — same shape as the
         # IS_PRERELEASE case pattern in "Create release" above. A prerelease
         # never becomes the "latest" release the site's install one-liner and
@@ -212,6 +221,9 @@ jobs:
           DEFAULT_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SITE_DISPATCH_TOKEN: ${{ secrets.SITE_DISPATCH_TOKEN }}
           EXAMPLES_DISPATCH_TOKEN: ${{ secrets.EXAMPLES_DISPATCH_TOKEN }}
+          # Buttondown API key (Buttondown -> Settings -> Programming). Absent
+          # = skipped with a ::notice::, like the dispatch tokens above.
+          BUTTONDOWN_API_KEY: ${{ secrets.BUTTONDOWN_API_KEY }}
         # The release is already published by this point in the job. A failed
         # dispatch must never fail the release on a downstream repo's account —
         # worst case, the site's own nightly release-drift check catches the
@@ -282,6 +294,58 @@ jobs:
             echo "::warning title=Examples dispatch failed::Could not notify geolens-io/geolens-examples of release ${TAG}. The GeoLens release itself published fine; the examples repo's weekly ci/check-pins.py run will still warn that the demo has moved past its pins."
             summary "examples: FAILED for ${TAG} (see the warning above)"
             failed=1
+          fi
+
+          # Draft the release-notes newsletter. DRAFT on purpose: this removes
+          # the "remember it exists" problem, which is the one that actually
+          # bit, without putting unreviewed copy in front of subscribers.
+          if [ -z "$BUTTONDOWN_API_KEY" ]; then
+            echo "::notice title=Newsletter not drafted::BUTTONDOWN_API_KEY is not configured, so no release-notes email was drafted for ${TAG}. Add it as a repository secret (Buttondown -> Settings -> Programming) to enable this."
+            summary "newsletter: skipped (no BUTTONDOWN_API_KEY)"
+          else
+            SUBJECT="GeoLens ${TAG}"
+            # A re-run of this workflow must not leave a second draft. The API's
+            # `subject` filter is a CONTAINS match, so compare exactly rather
+            # than trusting that a match is THE match.
+            EXISTING=$(curl -sS --max-time 30 -G "https://api.buttondown.com/v1/emails" \
+              --data-urlencode "subject=${SUBJECT}" \
+              -H "Authorization: Token ${BUTTONDOWN_API_KEY}" 2>/dev/null \
+              | jq -r --arg s "$SUBJECT" '[.results[]? | select(.subject == $s)] | length' 2>/dev/null || true)
+            # An unreadable check falls through to creating one. A duplicate
+            # DRAFT is cheap and visible; a missing newsletter is the failure
+            # this whole target exists to prevent.
+            if [ "${EXISTING:-0}" != "0" ] && [ -n "${EXISTING}" ]; then
+              echo "::notice title=Newsletter already drafted::A Buttondown email titled \"${SUBJECT}\" already exists, so this run did not create another."
+              summary "newsletter: already drafted for ${TAG}"
+            else
+              # release-notes.md is the curated CHANGELOG section this job
+              # already built for the GitHub Release body.
+              {
+                cat release-notes.md
+                printf '\n[Release notes on GitHub](https://github.com/%s/releases/tag/%s)\n' "${GITHUB_REPOSITORY}" "${TAG}"
+              } > newsletter.md
+              # --rawfile, not string interpolation: the body is arbitrary
+              # markdown with quotes, backticks and newlines in it.
+              jq -n --arg subject "$SUBJECT" --rawfile body newsletter.md \
+                '{subject: $subject, body: $body, status: "draft"}' > newsletter.json
+              CODE=$(curl -sS --max-time 30 -o newsletter-response.json -w '%{http_code}' \
+                -X POST "https://api.buttondown.com/v1/emails" \
+                -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
+                -H "Content-Type: application/json" \
+                --data-binary @newsletter.json || echo 000)
+              case "$CODE" in
+                2*)
+                  summary "newsletter: drafted \"${SUBJECT}\" in Buttondown — review and send"
+                  ;;
+                *)
+                  # Never echo the response wholesale; it echoes the request.
+                  DETAIL=$(jq -r '.detail // .error // empty' newsletter-response.json 2>/dev/null | head -c 200)
+                  echo "::warning title=Newsletter draft failed::Could not draft the Buttondown release-notes email for ${TAG} (HTTP ${CODE}). ${DETAIL} The release itself published fine; draft it by hand per the release runbook."
+                  summary "newsletter: FAILED for ${TAG} (HTTP ${CODE})"
+                  failed=1
+                  ;;
+              esac
+            fi
           fi
 
           exit "$failed"
