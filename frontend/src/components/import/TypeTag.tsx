@@ -77,6 +77,8 @@ export function kindFromExtension(ext: string): DataKind {
   if (['.tif', '.tiff', '.cog', '.nc', '.vrt'].includes(e)) return 'raster';
   // .parquet is vector: GeoParquet carries geometry; plain tabular parquet
   // degrades to a joinable table at import like a geometry-less CSV.
+  // .fgb/.kml/.kmz fall through to vector for the same reason .gpkg does:
+  // every one of them is a geometry-carrying format.
   if (['.csv', '.xlsx', '.xls'].includes(e)) return 'table';
   return 'vector';
 }

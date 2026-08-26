@@ -20,6 +20,7 @@ from app.platform.jobs.heartbeat import (
     stop_ingest_job_heartbeat,
 )
 from app.processing.ingest.metadata import _qtable
+from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
     IngestContext,
     reap_downloaded_staging_source,
@@ -473,6 +474,14 @@ async def ingest_file(
             original_filename=source_filename,
         )
 
+        # Determine the stored source format. A zip is a Shapefile bundle
+        # unless it holds a .gdb, and .kmz collapses to kml — see
+        # ingest/source_format.py for both. Resolved out here, not inside the
+        # phase-2 session, because the zip case reads the archive's central
+        # directory: same placement as the reupload path, which computes it
+        # right after its own file hash for the same reason.
+        source_format = await asyncio.to_thread(derive_source_format, file_path)
+
         # ----------------------------------------------------------------- #
         # Phase 2 (short-lived session via _job_phase_session — REMED-03 /
         # P2-05): post-ogr2ogr finalization. Re-load the job in a fresh
@@ -518,7 +527,7 @@ async def ingest_file(
 
             # 3b. Shapefile-only: detect DBF 10-char truncation collisions using
             #     the source column list from ogrinfo (stored in info["columns"]).
-            if file_path.lower().endswith(".zip"):
+            if source_format == "shapefile":
                 from app.processing.ingest.metadata import (
                     detect_dbf_truncation_collisions,
                 )
@@ -554,13 +563,6 @@ async def ingest_file(
                 if override_geom_type is not None:
                     has_geometry = True
                     geometry_type = override_geom_type
-
-            # 4. Determine source format from file extension
-            suffix = Path(file_path).suffix.lower()
-            # Strip leading dot for format name; handle .zip -> look inside filename
-            source_format = suffix.lstrip(".")
-            if source_format == "zip":
-                source_format = "shapefile"
 
             # ogr2ogr writes only to an attempt-owned physical table. Acquire
             # the job row under the attempt predicate before publishing it;

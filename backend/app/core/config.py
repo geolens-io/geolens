@@ -391,7 +391,7 @@ class Settings(BaseSettings):
     # has stored an override keep their stored list and must add new
     # extensions (e.g. .parquet) themselves in Admin → Storage.
     upload_allowed_extensions: str = (
-        ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet"
+        ".zip,.gpkg,.geojson,.json,.csv,.tif,.tiff,.xlsx,.xls,.parquet,.fgb,.kml,.kmz"
     )
     # fix(second-opinion review on #1236 review r3): capped at S3's own
     # single-PUT hard limit (5GiB). Belt-and-suspenders — the invariant that

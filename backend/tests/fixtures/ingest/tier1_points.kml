@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document id="root_doc">
+    <Schema id="basic_attrs.schema">
+      <SimpleField name="population" type="int"/>
+      <SimpleField name="area_km2" type="float"/>
+      <SimpleField name="is_capital" type="int"/>
+      <SimpleField name="founded" type="string"/>
+    </Schema>
+    <Document id="basic_attrs">
+      <name>basic_attrs</name>
+      <Placemark id="basic_attrs.1">
+        <name>Paris</name>
+        <ExtendedData>
+          <SchemaData schemaUrl="#basic_attrs.schema">
+            <SimpleData name="population">2161000</SimpleData>
+            <SimpleData name="area_km2">105.4</SimpleData>
+            <SimpleData name="is_capital">1</SimpleData>
+            <SimpleData name="founded">0987/01/01</SimpleData>
+          </SchemaData>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            2.3522,48.8566,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark id="basic_attrs.2">
+        <name>London</name>
+        <ExtendedData>
+          <SchemaData schemaUrl="#basic_attrs.schema">
+            <SimpleData name="population">8982000</SimpleData>
+            <SimpleData name="area_km2">1572</SimpleData>
+            <SimpleData name="is_capital">1</SimpleData>
+            <SimpleData name="founded">1943/01/01</SimpleData>
+          </SchemaData>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            -0.1278,51.5074,0
+          </coordinates>
+        </Point>
+      </Placemark>
+      <Placemark id="basic_attrs.3">
+        <name>Berlin</name>
+        <ExtendedData>
+          <SchemaData schemaUrl="#basic_attrs.schema">
+            <SimpleData name="population">3677000</SimpleData>
+            <SimpleData name="area_km2">891.7</SimpleData>
+            <SimpleData name="is_capital">1</SimpleData>
+            <SimpleData name="founded">1237/01/01</SimpleData>
+          </SchemaData>
+        </ExtendedData>
+        <Point>
+          <coordinates>
+            13.405,52.52,0
+          </coordinates>
+        </Point>
+      </Placemark>
+    </Document>
+  </Document>
+</kml>

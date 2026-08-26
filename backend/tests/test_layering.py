@@ -3341,7 +3341,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead of GDAL's raw driver-enumeration stderr. Cap 1090 -> 1093, exact.
     # fix(#1675): -10 — the inline paged loop moved to tasks_common's shared
     # run_paged_arcgis_service_fetch. Cap 1093 -> 1083, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1083,
+    # feat(tier-1 vector import): +2 — source_format is resolved once, before
+    # step 3b instead of after it, because the DBF field-name-truncation
+    # warning is Shapefile-only and a File Geodatabase now arrives in a .zip
+    # too. The derivation itself moved out to ingest/source_format.py, shared
+    # with the reupload path. Cap 1083 -> 1085, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1085,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

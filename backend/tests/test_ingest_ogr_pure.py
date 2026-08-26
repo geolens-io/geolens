@@ -1034,9 +1034,10 @@ class TestFriendlyOpenFailureMessage:
         assert "Shapefile (.shp)" in msg
         assert "parcels.shp" in msg
 
-    def test_zip_extension_names_zipped_shapefile(self):
+    def test_zip_extension_names_both_zip_formats(self):
+        """A .zip is a Shapefile bundle or a File Geodatabase; name both."""
         msg = _friendly_open_failure_message("export.zip")
-        assert "zipped Shapefile (.zip)" in msg
+        assert "zipped Shapefile or File Geodatabase (.zip)" in msg
 
     def test_unknown_extension_falls_back_to_generic_phrasing(self):
         msg = _friendly_open_failure_message("data.mysteryformat")

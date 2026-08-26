@@ -12,6 +12,44 @@ exercise the column-preservation guarantees in the ingest pipeline.
 | `unicode_attrs.geojson` | 2 Point features with non-ASCII property names (`Nom`, `Größe`, `Área`). Exercises SQL-quoted identifier handling in `get_sample_values`. |
 | `mixed_types.csv` | 3 rows with bool/date/int/float columns plus `lat`/`lon` (consumed as geometry by ogr2ogr's X/Y_POSSIBLE_NAMES). |
 | `dbf_collision.zip` | Zipped shapefile whose DBF has two field names that share the same first-10-char prefix (`population_2020`, `population_2021` → both truncate to `population`). |
+| `tier1_points.fgb` | `basic_attrs.geojson` as FlatGeobuf. Real driver output, so the 8-byte `fgb` magic is the genuine article rather than a hand-written header. |
+| `tier1_points.kml` | `basic_attrs.geojson` as LIBKML-written KML. |
+| `tier1_points.kmz` | The same features as KMZ — a zip whose members are `doc.kml` plus `layers/basic_attrs.kml`. |
+| `tier1_points_gdb.zip` | The same features as an OpenFileGDB `.gdb` directory, zipped. Exercises the zip-holds-a-`.gdb` branch that distinguishes `fgdb` from `shapefile`. |
+
+## Regenerating the Tier-1 format fixtures
+
+All four derive from `basic_attrs.geojson` via the GDAL in the worker image
+(3.10.3). Run from the repo root with the image already built:
+
+```bash
+docker run --rm -v "$PWD/backend/tests/fixtures/ingest:/work" \
+  --entrypoint sh geolens-worker -c '
+cd /work
+ogr2ogr -f FlatGeobuf tier1_points.fgb basic_attrs.geojson
+ogr2ogr -f LIBKML tier1_points.kml basic_attrs.geojson
+ogr2ogr -f LIBKML tier1_points.kmz basic_attrs.geojson
+ogr2ogr -f OpenFileGDB tier1_points.gdb basic_attrs.geojson
+python - <<PY
+import os, zipfile
+with zipfile.ZipFile("tier1_points_gdb.zip", "w", zipfile.ZIP_DEFLATED) as z:
+    for root, _dirs, files in sorted(os.walk("tier1_points.gdb")):
+        for f in sorted(files):
+            p = os.path.join(root, f)
+            zi = zipfile.ZipInfo(p, date_time=(1980, 1, 1, 0, 0, 0))
+            zi.compress_type = zipfile.ZIP_DEFLATED
+            zi.external_attr = 0o644 << 16
+            with open(p, "rb") as fh:
+                z.writestr(zi, fh.read())
+PY
+rm -rf tier1_points.gdb
+'
+```
+
+The zip is written entry-by-entry with a pinned timestamp so a regeneration
+produces the same bytes; `ogr2ogr` writing the `.gdb` itself does not, so the
+zip's *contents* will differ between GDAL versions even though its framing
+will not.
 
 ## Regenerating dbf_collision.zip
 

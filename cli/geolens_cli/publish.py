@@ -94,6 +94,11 @@ _MIME_BY_EXT: dict[str, str] = {
     ".tiff": "image/tiff",
     ".csv": "text/csv",
     ".zip": "application/zip",
+    # KML/KMZ are IANA-registered; FlatGeobuf has no registered type, so the
+    # vendor tree name the FlatGeobuf project uses stands in.
+    ".kml": "application/vnd.google-earth.kml+xml",
+    ".kmz": "application/vnd.google-earth.kmz",
+    ".fgb": "application/vnd.flatgeobuf",
 }
 
 

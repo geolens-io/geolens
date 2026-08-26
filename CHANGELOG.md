@@ -8,6 +8,20 @@ and releases use semantic versioning.
 ## [Unreleased]
 ### Added
 
+- **Four more upload formats: FlatGeobuf, KML, KMZ, and zipped File
+  Geodatabase.** The GDAL build in the worker has read these all along — they
+  were simply never on the accepted-extensions list, so an upload was refused
+  at the door. `.fgb` uploads store `source_format = 'fgb'` (a new value in
+  the `chk_datasets_source_format` constraint); `.kmz` is recorded as `kml`,
+  one format in two containers; and a `.zip` is now recorded as `fgdb` rather
+  than `shapefile` when it carries a `.gdb` directory, which also stops the
+  Shapefile DBF field-name-truncation warning from firing on a File
+  Geodatabase that has no DBF. Replace-in-place accepts the same four.
+  Upload-time content checks came along: FlatGeobuf's 8-byte magic is
+  verified directly (puremagic has no signature for it), a KMZ goes through
+  the same zip-bomb checks as any other archive, and a `.kml` must at least
+  open an XML tag.
+
 - **A failed upload now leaves a trace, and a way to report it.** UploadForm
   calls the presign, PUT, direct-upload POST, preview/detection, commit, and
   commit-fan-out endpoints directly from a plain try/catch instead of through

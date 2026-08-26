@@ -24,23 +24,33 @@ describe('buildAcceptMap', () => {
     });
   });
 
+  // .fgb was the stand-in for "unknown" here until Tier-1 import gave it a
+  // real media type; .topojson and .gml are still unmapped.
   it('falls back to application/octet-stream for unknown extensions', () => {
-    const result = buildAcceptMap(['.topojson', '.fgb']);
+    const result = buildAcceptMap(['.topojson', '.gml']);
     expect(result).toEqual({
-      'application/octet-stream': ['.topojson', '.fgb'],
+      'application/octet-stream': ['.topojson', '.gml'],
     });
   });
 
   it('handles mixed known and unknown extensions', () => {
-    const result = buildAcceptMap(['.zip', '.fgb']);
+    const result = buildAcceptMap(['.zip', '.topojson']);
     expect(result['application/zip']).toEqual(['.zip']);
-    expect(result['application/octet-stream']).toEqual(['.fgb']);
+    expect(result['application/octet-stream']).toEqual(['.topojson']);
   });
 
   it('maps .parquet to the Apache Parquet media type', () => {
     expect(buildAcceptMap(['.parquet'])).toEqual({
       'application/vnd.apache.parquet': ['.parquet'],
     });
+  });
+
+  it.each([
+    ['.fgb', 'application/vnd.flatgeobuf'],
+    ['.kml', 'application/vnd.google-earth.kml+xml'],
+    ['.kmz', 'application/vnd.google-earth.kmz'],
+  ])('maps %s to its own media type', (ext, mime) => {
+    expect(buildAcceptMap([ext])).toEqual({ [mime]: [ext] });
   });
 
   it('returns empty object for empty input', () => {

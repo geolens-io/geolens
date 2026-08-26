@@ -9,6 +9,11 @@ const EXT_MIME_MAP: Record<string, string> = {
   '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   '.xls': 'application/vnd.ms-excel',
   '.parquet': 'application/vnd.apache.parquet',
+  // KML and KMZ are IANA-registered. FlatGeobuf has no registered media type;
+  // this is the vendor-tree name the FlatGeobuf project uses.
+  '.kml': 'application/vnd.google-earth.kml+xml',
+  '.kmz': 'application/vnd.google-earth.kmz',
+  '.fgb': 'application/vnd.flatgeobuf',
 };
 
 /** Convert extension list to react-dropzone accept map. Unknown extensions use application/octet-stream. */

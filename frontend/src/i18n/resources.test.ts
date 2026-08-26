@@ -65,6 +65,7 @@ const IDENTICAL_ACROSS_LOCALES = new Set([
   // Product and standards names
   'common:enums.sourceFormat.arcgisFeatureServer', // ArcGIS FeatureServer
   'common:enums.sourceFormat.ogcapiFeatures', // OGC API Features
+  'common:enums.sourceFormat.fgdb', // File Geodatabase (Esri product name)
   'dataset:overview.ogcApiFeatures', // OGC API Features
   'common:adminNav.saml', // SAML SSO
   'admin:saml.title', // SAML SSO

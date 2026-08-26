@@ -14,7 +14,8 @@ CLI MVP intentionally excludes those per D-15:
 - .xls/.xlsx: not geospatial primaries
 - .zip: shapefile bundles handled via sidecar grouping on extracted .shp
 If a future server release adds new vector/raster primaries, mirror them
-here as well.
+here as well. FlatGeobuf, KML, and KMZ were mirrored that way; a zipped
+File Geodatabase was not, because it arrives as .zip.
 """
 from __future__ import annotations
 
@@ -22,8 +23,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Optional
 
-VECTOR_EXTS = {".geojson", ".gpkg", ".shp"}
+VECTOR_EXTS = {".geojson", ".gpkg", ".shp", ".fgb", ".kml", ".kmz"}
 RASTER_EXTS = {".tif", ".tiff"}
+# Single-file vector primaries that classify on extension alone: no sidecars
+# to group, no content peek to disambiguate. `_classify_group` maps each to
+# the label below.
+SINGLE_FILE_VECTOR_FORMATS = {
+    ".fgb": "flatgeobuf",
+    ".kml": "kml",
+    ".kmz": "kmz",
+}
 SHAPEFILE_REQUIRED_SIDECARS = {".dbf", ".shx"}
 # .prj is recommended-but-optional per gdal/ogr semantics — its absence
 # does not block ingest (the server defaults to EPSG:4326 if missing) but
@@ -172,6 +181,10 @@ def _classify_group(
             yield ScanItem(path=path, format="geojson", ingest=True)
         elif ext == ".gpkg":
             yield ScanItem(path=path, format="geopackage", ingest=True)
+        elif ext in SINGLE_FILE_VECTOR_FORMATS:
+            yield ScanItem(
+                path=path, format=SINGLE_FILE_VECTOR_FORMATS[ext], ingest=True
+            )
         elif ext in RASTER_EXTS:
             yield ScanItem(path=path, format="cog-candidate", ingest=True)
         elif ext == ".json":
