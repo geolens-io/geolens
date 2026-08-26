@@ -964,14 +964,44 @@ async def test_qgis_344_request_sequence_end_to_end(
     }
     assert required <= conforms_to
 
-    # 3. Collection metadata, reached via the landing page's rel=data
-    # (collections) link -- the dataset id itself is the one thing a real
-    # QGIS user supplies (by picking it from the browsable collections list,
-    # which this single-dataset fixture can't exercise meaningfully; the
-    # origin+path validation above and below is what actually matters here).
-    collection = await client.get(
-        f"{_same_origin_path(data_href, origin)}/{filter_dataset.id}"
+    # 3. Collections list, reached via the landing page's rel=data link (the
+    # ONE hand-known value left is *which* collection id to pick, matching
+    # how a QGIS user browses the list and clicks a layer -- every href that
+    # gets followed, including paging, comes from a response, never from
+    # re-deriving it from the id). Other tests in this shared-DB file leave
+    # their fixture datasets' catalog rows behind (only the backing table is
+    # dropped), so the target collection is not guaranteed to be on page one
+    # -- follow rel=next like a real client paging a large catalog would.
+    target_id = str(filter_dataset.id)
+    collections_href = data_href
+    collection_entry = None
+    for _ in range(50):  # generous bound; a real catalog would still terminate
+        collections = await client.get(_same_origin_path(collections_href, origin))
+        assert collections.status_code == 200
+        payload = collections.json()
+        collection_entry = next(
+            (e for e in payload["collections"] if e["id"] == target_id), None
+        )
+        if collection_entry is not None:
+            break
+        next_href = next(
+            (link["href"] for link in payload["links"] if link["rel"] == "next"),
+            None,
+        )
+        assert next_href is not None, (
+            f"collection {target_id} not found in /collections and no "
+            "rel=next page remains"
+        )
+        collections_href = next_href
+    assert collection_entry is not None
+    collection_self_href = next(
+        link["href"] for link in collection_entry["links"] if link["rel"] == "self"
     )
+    assert collection_self_href.endswith(f"/collections/{filter_dataset.id}")
+
+    # 4. Collection metadata, reached via the collections-list entry's own
+    # rel=self link discovered above.
+    collection = await client.get(_same_origin_path(collection_self_href, origin))
     assert collection.status_code == 200
     collection_links = collection.json()["links"]
     queryables_href = next(
@@ -985,7 +1015,7 @@ async def test_qgis_344_request_sequence_end_to_end(
     )
     assert items_href.endswith(f"/collections/{filter_dataset.id}/items")
 
-    # 4. Queryables: QGIS builds its field list + geometry queryable from
+    # 5. Queryables: QGIS builds its field list + geometry queryable from
     # this -- again via the discovered href, not a re-typed path.
     queryables = await client.get(_same_origin_path(queryables_href, origin))
     assert queryables.status_code == 200
@@ -993,7 +1023,7 @@ async def test_qgis_344_request_sequence_end_to_end(
     assert "geometry" in props
     assert "name" in props
 
-    # 5. Items with a pushed-down spatial predicate, exactly as QGIS's
+    # 6. Items with a pushed-down spatial predicate, exactly as QGIS's
     # QgsOapifCql2TextExpressionCompiler emits it for a map-canvas-extent
     # request (S_INTERSECTS + a BBOX() literal), cql2-text encoded. Issued
     # against the discovered items_href, not a re-typed path.
