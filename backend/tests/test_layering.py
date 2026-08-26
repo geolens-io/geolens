@@ -2200,7 +2200,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     empty-tile Cache-Control (#430 V-03). NOTE: `_check_cold_rehydrate` is pinned to
 #     this module by the overlay's 1214-05 static AST proof, so the tile_seams.py split
 #     must update the overlay in lockstep.
-#   api/main.py 1635 -> 1740. fix(#1666): +105 for three OpenAPI post-processing
+#   api/main.py 1635 -> 1750. fix(#1666): +115 for three OpenAPI post-processing
 #     passes, joining the four already here. `_normalize_validation_error_contract`
 #     replaces FastAPI's `HTTPValidationError` at every 422 with the problem+json
 #     `ProblemDetail` the app-wide handler actually returns, and
@@ -2212,7 +2212,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 #     and the `filter-lang` alias, which pydantic cannot name), copying them from
 #     the sibling operation that declares the same model correctly rather than
 #     restating them. Most of the addition is the rationale for why that route
-#     cannot use the query-parameter-model form the other one now does.
+#     cannot use the query-parameter-model form the other one now does. The last
+#     13 are the codex P2 round: the reference scan excludes only the candidate,
+#     never both models, so a retained `HTTPValidationError` cannot take the
+#     `ValidationError` it points at down with it.
 #   search/router.py 1468 -> 1483. fix(#1666): +15. `search_datasets_endpoint`
 #     moved to `Annotated[SearchQueryParams, Query()]`, which binds `keywords`
 #     and `filter-lang` natively and retired its raw-query-string reads; the
@@ -2444,7 +2447,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # route registers. The other two widen the production CORS warning, which
     # told an operator only standards reads were open to any browser origin.
     # Cap 1628 -> 1635, exact.
-    "backend/app/api/main.py": 1740,
+    "backend/app/api/main.py": 1750,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative

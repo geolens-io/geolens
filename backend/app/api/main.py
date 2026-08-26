@@ -1504,14 +1504,24 @@ def _drop_unreferenced_validation_models(schema: dict) -> None:
     ``HTTPValidationError`` in an explicit ``responses=`` block, and removing a
     component that is still referenced leaves a dangling ``$ref`` that breaks
     SDK generation instead of tidying it.
+
+    fix(#1666 codex P2): the search excludes only the candidate, never both
+    targets. ``HTTPValidationError`` holds the sole ``$ref`` to
+    ``ValidationError``, so hiding it while deciding ``ValidationError`` reads
+    the container's own reference as absent — and a run where an operation kept
+    ``HTTPValidationError`` alive would then delete the schema it points at.
+
+    Order matters with it: the container is considered before the leaf, so
+    dropping the container in the first pass makes the leaf unreferenced in the
+    second and both go. Reversed, the leaf would be held alive by a container
+    that is itself about to be removed.
     """
     schemas = schema.get("components", {}).get("schemas", {})
-    targets = ("HTTPValidationError", "ValidationError")
-    for name in targets:
+    for name in ("HTTPValidationError", "ValidationError"):
         others = json.dumps(
             {
                 **{k: v for k, v in schema.items() if k != "components"},
-                "schemas": {k: v for k, v in schemas.items() if k not in targets},
+                "schemas": {k: v for k, v in schemas.items() if k != name},
             }
         )
         if f"#/components/schemas/{name}" not in others:

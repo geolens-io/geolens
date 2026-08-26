@@ -626,3 +626,73 @@ def test_search_operations_declare_filter_lang_under_its_wire_name() -> None:
             f"{path} collapsed its query model into a single scalar — see "
             "_repair_depends_bound_query_model."
         )
+
+
+def test_retained_validation_model_keeps_the_schema_it_references() -> None:
+    """fix(#1666 codex P2): never delete a schema a retained one still points at.
+
+    `HTTPValidationError` holds the only `$ref` to `ValidationError`. If an
+    operation keeps the container alive, the leaf has to stay too — dropping it
+    publishes a dangling `$ref`, which breaks SDK generation rather than tidying
+    anything. Not reachable from the live app today, because no operation names
+    `HTTPValidationError` explicitly; that is exactly why it needs a direct test.
+    """
+    from app.api.main import _drop_unreferenced_validation_models
+
+    referenced = {
+        "paths": {
+            "/x": {
+                "get": {
+                    "responses": {
+                        "422": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/"
+                                        "HTTPValidationError"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "HTTPValidationError": {
+                    "properties": {
+                        "detail": {
+                            "items": {"$ref": "#/components/schemas/ValidationError"}
+                        }
+                    }
+                },
+                "ValidationError": {"type": "object"},
+            }
+        },
+    }
+    _drop_unreferenced_validation_models(referenced)
+    assert set(referenced["components"]["schemas"]) == {
+        "HTTPValidationError",
+        "ValidationError",
+    }, "the leaf was dropped while its container survived — dangling $ref"
+
+    # The other direction still has to work, or the pass does nothing.
+    unreferenced = {
+        "paths": {"/x": {"get": {"responses": {"200": {}}}}},
+        "components": {
+            "schemas": {
+                "HTTPValidationError": {
+                    "properties": {
+                        "detail": {
+                            "items": {"$ref": "#/components/schemas/ValidationError"}
+                        }
+                    }
+                },
+                "ValidationError": {"type": "object"},
+                "Kept": {"type": "object"},
+            }
+        },
+    }
+    _drop_unreferenced_validation_models(unreferenced)
+    assert set(unreferenced["components"]["schemas"]) == {"Kept"}
