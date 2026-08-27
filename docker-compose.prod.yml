@@ -262,13 +262,19 @@ services:
     # UVICORN_MAX_REQUESTS requests and the uvicorn supervisor respawns it, so
     # slow memory growth can't ride one worker into the cgroup OOM killer.
     # Unset/empty disables; the value must be a positive integer.
+    # fix(#1687): the supervisor only exists when --workers >= 2. With
+    # UVICORN_WORKERS=1 uvicorn serves in-process, so hitting the limit exits
+    # the WHOLE process and the container restart policy turns each recycle
+    # into a short public outage (observed on the demo VM as unexplained
+    # twice-daily api restarts at ~10k background requests). The flag is
+    # therefore applied only when a supervisor is present to absorb it.
     command: >
       sh -c "uv run --no-dev uvicorn app.api.main:app
       --host 0.0.0.0 --port 8000
       --workers $${UVICORN_WORKERS:-2}
       --timeout-keep-alive $${UVICORN_TIMEOUT_KEEP_ALIVE:-5}
       --timeout-graceful-shutdown $${UVICORN_TIMEOUT_GRACEFUL_SHUTDOWN:-30}
-      $${UVICORN_MAX_REQUESTS:+--limit-max-requests $${UVICORN_MAX_REQUESTS}}
+      $$(if [ \"$${UVICORN_WORKERS:-2}\" -gt 1 ] && [ -n \"$${UVICORN_MAX_REQUESTS}\" ]; then printf %s \"--limit-max-requests $${UVICORN_MAX_REQUESTS}\"; fi)
       --proxy-headers --forwarded-allow-ips='*'"
     user: "0:0"
     init: true
