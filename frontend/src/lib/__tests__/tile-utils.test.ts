@@ -271,6 +271,29 @@ describe('buildTileTransformRequest', () => {
     });
   });
 
+  // fix(#1688 follow-up): transformRequest runs before MapLibre's protocol
+  // dispatch, so a pmtiles:// URL must pass through byte-identical or the
+  // registered protocol handler never sees it.
+  it('passes pmtiles:// URLs through unchanged with no headers', () => {
+    useAuthStore.setState({ token: 'tok-123' });
+    const transform = buildTileTransformRequest();
+    const url = 'pmtiles://https://tiles.example.com/world.pmtiles';
+    expect(transform(url)).toEqual({ url });
+  });
+
+  it('passes pmtiles:// URLs through unchanged on the embed surface (no X-Embed-Token)', () => {
+    const transform = buildTileTransformRequest({ embedToken: 'embed-tok' });
+    const url = 'pmtiles://https://tiles.example.com/world.pmtiles';
+    expect(transform(url)).toEqual({ url });
+  });
+
+  it('leaves protocol-relative URLs alone rather than double-slashing the origin', () => {
+    const transform = buildTileTransformRequest();
+    expect(transform('//tiles.example.com/1/2/3.png')).toEqual({
+      url: '//tiles.example.com/1/2/3.png',
+    });
+  });
+
   it('attaches the Bearer header to first-party raster tiles when signed in (#819 regression class)', () => {
     useAuthStore.setState({ token: 'jwt-abc' });
     const transform = buildTileTransformRequest();
