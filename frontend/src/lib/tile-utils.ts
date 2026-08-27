@@ -76,7 +76,13 @@ export function buildTileTransformRequest(
   options: TileTransformRequestOptions = {},
 ): (url: string) => { url: string; headers?: Record<string, string> } {
   return (url: string) => {
-    const absUrl = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+    // fix(#1688 follow-up): absolutify ONLY site-relative paths. The old
+    // `startsWith('http')` predicate origin-prefixed every other scheme, and
+    // transformRequest runs BEFORE MapLibre's custom-protocol dispatch, so a
+    // `pmtiles://…` basemap source became `http://<origin>pmtiles://…` and
+    // never reached the registered pmtiles protocol handler.
+    const absUrl =
+      url.startsWith('/') && !url.startsWith('//') ? `${window.location.origin}${url}` : url;
     const tileConfig = options.getTileConfig?.() ?? null;
     const headers: Record<string, string> = {};
     if (options.embedToken && !isThirdPartyTileUrl(url, tileConfig)) {
