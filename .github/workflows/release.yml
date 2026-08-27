@@ -307,16 +307,36 @@ jobs:
             # A re-run of this workflow must not leave a second draft. The API's
             # `subject` filter is a CONTAINS match, so compare exactly rather
             # than trusting that a match is THE match.
-            EXISTING=$(curl -sS --max-time 30 -G "https://api.buttondown.com/v1/emails" \
+            # fix(#1697 codex r2 P1): a JSON error body (401/429/5xx) makes
+            # `.results[]?` empty and a blind jq would print a clean 0 —
+            # require a 2xx AND an actual results array before trusting the
+            # count. Anything else becomes the non-numeric "unreadable",
+            # which the LOOKUP_OK guard below treats as a failed lookup.
+            LOOKUP_CODE=$(curl -sS --max-time 30 -o newsletter-lookup.json -w '%{http_code}' \
+              -G "https://api.buttondown.com/v1/emails" \
               --data-urlencode "subject=${SUBJECT}" \
-              -H "Authorization: Token ${BUTTONDOWN_API_KEY}" 2>/dev/null \
-              | jq -r --arg s "$SUBJECT" '[.results[]? | select(.subject == $s)] | length' 2>/dev/null || true)
-            # An unreadable check falls through to creating one. A duplicate
-            # DRAFT is cheap and visible; a missing newsletter is the failure
-            # this whole target exists to prevent.
-            if [ "${EXISTING:-0}" != "0" ] && [ -n "${EXISTING}" ]; then
-              echo "::notice title=Newsletter already drafted::A Buttondown email titled \"${SUBJECT}\" already exists, so this run did not create another."
-              summary "newsletter: already drafted for ${TAG}"
+              -H "Authorization: Token ${BUTTONDOWN_API_KEY}" 2>/dev/null || echo 000)
+            case "$LOOKUP_CODE" in
+              2*)
+                EXISTING=$(jq -r --arg s "$SUBJECT" \
+                  'if (.results|type) == "array" then ([.results[] | select(.subject == $s)] | length | tostring) else "unreadable" end' \
+                  newsletter-lookup.json 2>/dev/null || echo unreadable)
+                ;;
+              *) EXISTING="unreadable" ;;
+            esac
+            # An unreadable check still falls through to creating one — a
+            # missing newsletter is the failure this whole target exists to
+            # prevent — but it must never fall through to a SCHEDULED one: a
+            # duplicate draft is cheap and visible, a duplicate send reaches
+            # subscribers twice. LOOKUP_OK gates the auto-send below
+            # (fix(#1697 codex P1)).
+            case "${EXISTING}" in
+              ''|*[!0-9]*) LOOKUP_OK=0 ;;
+              *) LOOKUP_OK=1 ;;
+            esac
+            if [ "$LOOKUP_OK" = "1" ] && [ "${EXISTING}" != "0" ]; then
+              echo "::notice title=Newsletter already exists::A Buttondown email titled \"${SUBJECT}\" already exists (draft, scheduled, or sent), so this run did not create another."
+              summary "newsletter: already exists for ${TAG}"
             else
               # release-notes.md is the curated CHANGELOG section this job
               # already built for the GitHub Release body.
@@ -324,10 +344,34 @@ jobs:
                 cat release-notes.md
                 printf '\n[Release notes on GitHub](https://github.com/%s/releases/tag/%s)\n' "${GITHUB_REPOSITORY}" "${TAG}"
               } > newsletter.md
+              # Curated notes are safe to send unreviewed; commit-subject
+              # fallback notes (the '> **Note**' banner above) are not — those
+              # stay a draft for a human rewrite, never a scheduled send.
+              if grep -qF '> **Note**' newsletter.md; then
+                NEWSLETTER_STATUS="draft"
+                PUBLISH_DATE=""
+              elif [ "$LOOKUP_OK" = "0" ]; then
+                # The duplicate check did not return a readable count, so an
+                # already-scheduled email cannot be ruled out. Create a draft
+                # (harmless if duplicated) instead of a second auto-send.
+                echo "::warning title=Newsletter drafted, not scheduled::The Buttondown duplicate check was unreadable, so the ${TAG} notes were left as a draft instead of a scheduled send. Review and send (or delete) it by hand."
+                NEWSLETTER_STATUS="draft"
+                PUBLISH_DATE=""
+              else
+                # Scheduled-with-veto: the email sends itself at publish_date
+                # unless someone cancels or edits it in Buttondown first. The
+                # window exists so bad copy can be caught; the schedule exists
+                # so a forgotten email still goes out (missed on v1.15.0 and
+                # v1.15.1 when this was a bare draft).
+                NEWSLETTER_STATUS="scheduled"
+                PUBLISH_DATE=$(date -u -d "+24 hours" +%Y-%m-%dT%H:%M:%SZ)
+              fi
               # --rawfile, not string interpolation: the body is arbitrary
               # markdown with quotes, backticks and newlines in it.
               jq -n --arg subject "$SUBJECT" --rawfile body newsletter.md \
-                '{subject: $subject, body: $body, status: "draft"}' > newsletter.json
+                --arg status "$NEWSLETTER_STATUS" --arg pd "$PUBLISH_DATE" \
+                '{subject: $subject, body: $body, status: $status}
+                 + (if $pd != "" then {publish_date: $pd} else {} end)' > newsletter.json
               CODE=$(curl -sS --max-time 30 -o newsletter-response.json -w '%{http_code}' \
                 -X POST "https://api.buttondown.com/v1/emails" \
                 -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
@@ -335,7 +379,106 @@ jobs:
                 --data-binary @newsletter.json || echo 000)
               case "$CODE" in
                 2*)
-                  summary "newsletter: drafted \"${SUBJECT}\" in Buttondown — review and send"
+                  if [ "$NEWSLETTER_STATUS" = "scheduled" ]; then
+                    # Two runs can pass the pre-create lookup in the same
+                    # window, and an Actions concurrency group is NOT a safe
+                    # queue here (one pending run per group — a third run
+                    # replaces the pending one and could cancel a tag's whole
+                    # Release run). Reconcile instead: if this subject now has
+                    # anything other than exactly one copy, demote OUR email
+                    # back to a draft — a duplicate draft is cheap, a
+                    # duplicate send is not (fix(#1697 codex r2 P1)).
+                    OUR_ID=$(jq -r '.id // empty' newsletter-response.json 2>/dev/null || true)
+                    RECHECK_CODE=$(curl -sS --max-time 30 -o newsletter-recheck.json -w '%{http_code}' \
+                      -G "https://api.buttondown.com/v1/emails" \
+                      --data-urlencode "subject=${SUBJECT}" \
+                      -H "Authorization: Token ${BUTTONDOWN_API_KEY}" 2>/dev/null || echo 000)
+                    # Count only SCHEDULED copies (a draft with this subject
+                    # is not a competing send), and elect a deterministic
+                    # winner: the lexicographically-first id keeps its
+                    # schedule, every other run demotes its own copy. Two
+                    # racing runs applying the same rule converge on exactly
+                    # one scheduled email instead of both demoting themselves
+                    # to zero (fix(#1697 codex r3 P2)).
+                    RECHECK_IDS="unreadable"
+                    case "$RECHECK_CODE" in
+                      2*)
+                        RECHECK_IDS=$(jq -r --arg s "$SUBJECT" \
+                          'if (.results|type) == "array" then ([.results[] | select(.subject == $s and (.status == "scheduled" or .status == "about_to_send")) | .id] | sort | join(" ")) else "unreadable" end' \
+                          newsletter-recheck.json 2>/dev/null || echo unreadable)
+                        ;;
+                    esac
+                    RECHECK_COUNT="unreadable"
+                    WINNER_ID=""
+                    if [ "$RECHECK_IDS" != "unreadable" ]; then
+                      RECHECK_COUNT=$(printf '%s' "$RECHECK_IDS" | wc -w | tr -d ' ')
+                      WINNER_ID="${RECHECK_IDS%% *}"
+                    fi
+                    if [ "$RECHECK_COUNT" = "1" ]; then
+                      summary "newsletter: scheduled \"${SUBJECT}\" for ${PUBLISH_DATE} — cancel or edit in Buttondown before then"
+                    elif [ "$RECHECK_COUNT" != "unreadable" ] && [ "$RECHECK_COUNT" -gt 1 ]; then
+                      # Whoever OBSERVES duplicates demotes EVERY losing copy,
+                      # its own included — a staggered run can create, recheck
+                      # alone, and exit before a second run's copy appears, so
+                      # a winner that only trusts losers to demote themselves
+                      # can leave two sends standing (fix(#1697 codex r4 P1)).
+                      # PATCHes are idempotent, so two observers demoting the
+                      # same losers is harmless.
+                      DEMOTE_FAILED=0
+                      for LOSER_ID in $RECHECK_IDS; do
+                        [ "$LOSER_ID" = "$WINNER_ID" ] && continue
+                        DEMOTE_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+                          -X PATCH "https://api.buttondown.com/v1/emails/${LOSER_ID}" \
+                          -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
+                          -H "Content-Type: application/json" \
+                          --data-binary '{"status": "draft"}' 2>/dev/null || echo 000)
+                        case "$DEMOTE_CODE" in
+                          2*) : ;;
+                          *) DEMOTE_FAILED=1 ;;
+                        esac
+                      done
+                      if [ "$DEMOTE_FAILED" != "0" ]; then
+                        echo "::warning title=Newsletter needs attention::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies and demoting at least one losing copy failed. Open Buttondown and make sure exactly one copy sends before ${PUBLISH_DATE}."
+                        summary "newsletter: ${RECHECK_COUNT} scheduled copies, demote incomplete — fix in Buttondown before ${PUBLISH_DATE}"
+                        failed=1
+                      elif [ "$OUR_ID" = "$WINNER_ID" ]; then
+                        echo "::warning title=Duplicate scheduled newsletters resolved::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies; the losing copies were demoted to drafts and this run's copy stays scheduled. Verify in Buttondown before ${PUBLISH_DATE}."
+                        summary "newsletter: scheduled (demoted the duplicate copies) — verify in Buttondown before ${PUBLISH_DATE}"
+                      else
+                        echo "::warning title=Newsletter demoted to draft::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies; this run's copy lost the election and was demoted along with any other losers, and the winning copy stays scheduled. Verify in Buttondown before ${PUBLISH_DATE}."
+                        summary "newsletter: demoted to draft (another copy stays scheduled) — verify in Buttondown before ${PUBLISH_DATE}"
+                      fi
+                    elif [ -n "$OUR_ID" ]; then
+                      # Unreadable recheck, or a count of 0: an already-
+                      # scheduled duplicate cannot be ruled out, so demote our
+                      # own copy — a duplicate draft is cheap, a duplicate
+                      # send is not.
+                      DEMOTE_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+                        -X PATCH "https://api.buttondown.com/v1/emails/${OUR_ID}" \
+                        -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
+                        -H "Content-Type: application/json" \
+                        --data-binary '{"status": "draft"}' 2>/dev/null || echo 000)
+                      case "$DEMOTE_CODE" in
+                        2*)
+                          echo "::warning title=Newsletter demoted to draft::The post-create recheck for \"${SUBJECT}\" was inconclusive (${RECHECK_COUNT}), so this run's email was demoted to a draft. Check Buttondown: send or delete the right copy."
+                          summary "newsletter: demoted to draft (recheck inconclusive: ${RECHECK_COUNT}) — resolve in Buttondown"
+                          ;;
+                        *)
+                          echo "::warning title=Newsletter needs attention::The post-create recheck for \"${SUBJECT}\" was inconclusive (${RECHECK_COUNT}) and demoting this run's scheduled email failed (HTTP ${DEMOTE_CODE}). Open Buttondown and make sure exactly one copy sends before ${PUBLISH_DATE}."
+                          summary "newsletter: SCHEDULED but recheck inconclusive and demote failed — fix in Buttondown before ${PUBLISH_DATE}"
+                          failed=1
+                          ;;
+                      esac
+                    else
+                      echo "::warning title=Newsletter needs attention::The post-create recheck for \"${SUBJECT}\" was inconclusive (${RECHECK_COUNT}) and the created email's id was unreadable. Open Buttondown and make sure exactly one copy sends before ${PUBLISH_DATE}."
+                      summary "newsletter: scheduled but unverifiable — check Buttondown before ${PUBLISH_DATE}"
+                      failed=1
+                    fi
+                  elif [ "$LOOKUP_OK" = "0" ]; then
+                    summary "newsletter: drafted \"${SUBJECT}\" (duplicate check unreadable) — review and send by hand"
+                  else
+                    summary "newsletter: drafted \"${SUBJECT}\" (fallback notes) — rewrite and send by hand"
+                  fi
                   ;;
                 *)
                   # Never echo the response wholesale; it echoes the request.
