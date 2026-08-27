@@ -442,6 +442,7 @@ async def export_dataset(
     bbox: list[float] | None = None,
     where: str | None = None,
     column_info: list[dict] | None = None,
+    pmtiles_maxzoom: int | None = None,
 ) -> tuple[str, str, str]:
     """Export a dataset table to a file.
 
@@ -500,6 +501,7 @@ async def export_dataset(
                 bbox=bbox,
                 where=where,
                 format_key=format_key,
+                pmtiles_maxzoom=pmtiles_maxzoom,
             )
 
             # Zip all export.* files. fix(#435): DEFLATE of a multi-GB shapefile

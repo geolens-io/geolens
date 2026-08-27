@@ -29,7 +29,11 @@ from app.platform.http.ranges import (
 )
 from app.platform.storage import get_storage
 from app.processing.export import artifact_cache, artifact_response
-from app.processing.export.ogr import ExportError, bbox_where_sql
+from app.processing.export.ogr import (
+    ExportError,
+    bbox_where_sql,
+    pmtiles_maxzoom_for_extent,
+)
 from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import (
     export_dataset,
@@ -331,7 +335,7 @@ async def export_dataset_endpoint(
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
     filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
+    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
     """
     port = get_processing_port()
     data_schema = tenant_data_schema(current_tenant_var.get())
@@ -758,6 +762,33 @@ async def export_dataset_endpoint(
                 plan=parquet_plan,
             )
         else:
+            pmtiles_maxzoom = None
+            if format == ExportFormat.pmtiles:
+                # fix(#1686 codex r1): the PMTiles writer materializes the
+                # whole pyramid eagerly (unlike the on-demand tile endpoint),
+                # so MAXZOOM is budgeted from the dataset extent, narrowed by
+                # the request bbox when one is given. An antimeridian
+                # (west>east) bbox skips the narrowing — the full extent only
+                # over-caps, never under-caps.
+                from geoalchemy2.shape import to_shape
+
+                bounds: tuple[float, float, float, float] | None = None
+                ext = dataset.record.spatial_extent
+                if ext is not None:
+                    bounds = to_shape(ext).bounds
+                if (
+                    bounds is not None
+                    and bbox_parsed
+                    and bbox_parsed[0] <= bbox_parsed[2]
+                ):
+                    bounds = (
+                        max(bounds[0], bbox_parsed[0]),
+                        max(bounds[1], bbox_parsed[1]),
+                        min(bounds[2], bbox_parsed[2]),
+                        min(bounds[3], bbox_parsed[3]),
+                    )
+                pmtiles_maxzoom = pmtiles_maxzoom_for_extent(bounds)
+
             file_path, filename, media_type = await export_dataset(
                 dataset.table_name,
                 dataset.record.title,
@@ -772,6 +803,7 @@ async def export_dataset_endpoint(
                 bbox=bbox_parsed if dataset.geometry_type is not None else None,
                 where=where,
                 column_info=dataset.column_info,
+                pmtiles_maxzoom=pmtiles_maxzoom,
             )
     except ValueError as e:
         raise HTTPException(

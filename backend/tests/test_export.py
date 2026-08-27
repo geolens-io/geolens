@@ -88,6 +88,7 @@ def mock_export_service(monkeypatch):
         target_srs=None,
         bbox=None,
         where=None,
+        pmtiles_maxzoom=None,
         column_info=None,
     ):
         # Replicate the real format validation
@@ -1100,3 +1101,48 @@ class TestExportWhereColonLiteral:
             headers=admin_auth_header,
         )
         assert resp.status_code == 413
+
+
+class TestPmtilesMaxzoomForExtent:
+    """fix(#1686 codex r1): the PMTiles writer materializes the whole pyramid,
+    so MAXZOOM is budgeted from extent instead of fixed at 14."""
+
+    def test_world_extent_caps_at_z8(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        assert pmtiles_maxzoom_for_extent((-180.0, -85.0, 180.0, 85.0)) == 8
+
+    def test_unknown_extent_assumes_world(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        assert pmtiles_maxzoom_for_extent(None) == 8
+
+    def test_city_extent_reaches_ceiling(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        # ~NYC: a quarter-degree box
+        assert pmtiles_maxzoom_for_extent((-74.1, 40.6, -73.85, 40.85)) == 14
+
+    def test_degenerate_point_extent_reaches_ceiling(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        assert pmtiles_maxzoom_for_extent((-73.9, 40.7, -73.9, 40.7)) == 14
+
+    def test_continental_extent_lands_between(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        # ~CONUS: capped below the ceiling, above the world floor
+        z = pmtiles_maxzoom_for_extent((-125.0, 24.0, -66.0, 49.0))
+        assert 8 < z < 14
+
+    def test_monotonic_wider_extent_never_deeper(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        boxes = [
+            (-74.1, 40.6, -73.85, 40.85),
+            (-79.0, 38.0, -71.0, 45.0),
+            (-125.0, 24.0, -66.0, 49.0),
+            (-180.0, -85.0, 180.0, 85.0),
+        ]
+        zooms = [pmtiles_maxzoom_for_extent(b) for b in boxes]
+        assert zooms == sorted(zooms, reverse=True)
