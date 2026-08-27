@@ -1047,7 +1047,7 @@ async def test_dcat_raster_does_not_advertise_the_cog_download_url(
 ):
     """DCAT does not advertise ``/download/cog`` as a raster distribution URL.
 
-    fix(anon-raster-download): a public+published raster (this fixture's
+    fix(#1693): a public+published raster (this fixture's
     shape) is now directly downloadable by an anonymous caller with no
     minted token, matching ``/export``'s anonymous-access contract. But a
     private/restricted/unpublished raster still is not, and DCAT's feed has

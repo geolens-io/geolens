@@ -97,6 +97,33 @@ async def test_anon_cog_download_public_published_allowed(
     assert resp.headers.get("content-type") == "image/tiff"
 
 
+async def test_anon_cog_download_with_empty_token_param_is_401(
+    client: AsyncClient,
+    test_db_session,
+):
+    """fix(#1693 codex r1): a bare ``?token=`` (empty value) must 401, not
+    fall through to the anonymous branch as if no token were supplied at
+    all — even for a public+published raster where the anonymous branch
+    would otherwise return 200. An empty value is a PRESENT, malformed
+    credential, not an ABSENT one.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _raster_dataset_with_bytes(
+        test_db_session,
+        visibility="public",
+        record_status="published",
+        created_by=admin_id,
+    )
+
+    resp = await client.get(f"/datasets/{ds.id}/download/cog?token=")
+
+    assert resp.status_code == 401, (
+        f"Expected 401 for an empty ?token= on a public+published raster "
+        f"(a malformed credential must not be treated as no credential), "
+        f"got {resp.status_code}: {resp.text}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Deny matrix
 # ---------------------------------------------------------------------------

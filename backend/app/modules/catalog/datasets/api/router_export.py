@@ -800,8 +800,18 @@ async def _resolve_download_user(
         return user
 
     # Fallback: download-scoped JWT in ?token= query param (browser <a href> downloads)
+    #
+    # fix(#1693 codex r1): check presence (`is not None`), not truthiness. A
+    # URL with a bare `?token=` (empty value) is a PRESENT-but-malformed
+    # credential — jwt.decode("") raises DecodeError ("Not enough segments"),
+    # a PyJWTError caught below and turned into 401 — not an ABSENT one. The
+    # `if qt:` this replaces treated "" the same as "no ?token= at all" and
+    # fell all the way through to the anonymous return None below it, which
+    # would hide a client's broken token propagation behind a silent
+    # anonymous success on a public dataset instead of the 401 that every
+    # other malformed-token case in this block raises.
     qt = request.query_params.get("token")
-    if qt:
+    if qt is not None:
         # WR-04 (Phase 1071 review): no audience claim is verified here because
         # the mint endpoint (auth/router.py) does not emit an `aud` claim in
         # download-token payloads. If a future change adds `aud` to minted tokens
@@ -945,9 +955,9 @@ async def download_cog(
     # anonymous request with no auth signal at all (no header, no ?token=),
     # not only for the KNOWN-01 no-sub token case the docstring above
     # describes — see `_resolve_download_user`. That case is new
-    # (fix(anon-raster-download)): a public+published raster's COG used to
-    # 401 an anonymous caller unconditionally before reaching this function,
-    # which the docstring never had to mention because it never happened.
+    # (fix(#1693): a public+published raster's COG used to 401 an anonymous
+    # caller unconditionally before reaching this function, which the
+    # docstring never had to mention because it never happened).
     # It's a comment rather than a docstring addition for the same
     # openapi.json/SDK/CLI churn reason.
     from slugify import slugify
