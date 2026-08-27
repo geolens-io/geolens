@@ -92,8 +92,21 @@ vi.mock('maplibre-gl', () => {
     // "setWorkerUrl is not a function".
     setWorkerUrl: vi.fn(),
     getWorkerUrl: vi.fn(() => ''),
+    // feat(pmtiles): same module also registers the `pmtiles://` protocol at
+    // module scope via `addProtocol`.
+    addProtocol: vi.fn(),
+    removeProtocol: vi.fn(),
   }
 })
+
+// Mock pmtiles (imported by `@/lib/maplibre-worker` for protocol registration;
+// its real constructor has no browser-API dependency, but stubbing keeps map
+// surface tests hermetic and avoids instantiating a real Protocol per test).
+vi.mock('pmtiles', () => ({
+  Protocol: vi.fn(function MockProtocol(this: { tile: () => void }) {
+    this.tile = vi.fn()
+  }),
+}))
 
 // Mock @vis.gl/react-maplibre (React components wrapping maplibre-gl)
 vi.mock('@vis.gl/react-maplibre', () => ({
