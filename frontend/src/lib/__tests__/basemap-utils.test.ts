@@ -10,6 +10,7 @@ import {
   hasVisibleBasemapStyle,
   applyBasemapConfigToStyle,
   isKnownMissingRemoteStyleImage,
+  isPmtilesArchiveUrl,
   makeStyleImageMissingResolver,
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
@@ -82,6 +83,87 @@ describe('toMaplibreStyle', () => {
     const url = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
     const result = toMaplibreStyle(url) as StyleSpecification;
     expect(result.glyphs).toBeDefined();
+  });
+});
+
+describe('isPmtilesArchiveUrl', () => {
+  it('matches a bare https .pmtiles archive URL', () => {
+    expect(isPmtilesArchiveUrl('https://example.com/world.pmtiles')).toBe(true);
+  });
+
+  it('matches a bare http .pmtiles archive URL', () => {
+    expect(isPmtilesArchiveUrl('http://internal.example.com/world.pmtiles')).toBe(true);
+  });
+
+  it('matches a pmtiles://-prefixed archive URL', () => {
+    expect(isPmtilesArchiveUrl('pmtiles://https://example.com/world.pmtiles')).toBe(true);
+  });
+
+  it('matches an archive URL with a query string', () => {
+    expect(isPmtilesArchiveUrl('https://example.com/world.pmtiles?token=abc')).toBe(true);
+  });
+
+  it('is case-insensitive on the .pmtiles extension', () => {
+    expect(isPmtilesArchiveUrl('https://example.com/world.PMTiles')).toBe(true);
+  });
+
+  it('does not match a style JSON URL', () => {
+    expect(isPmtilesArchiveUrl('https://example.com/style.json')).toBe(false);
+  });
+
+  it('does not match a /styles/ URL', () => {
+    expect(isPmtilesArchiveUrl('https://tiles.openfreemap.org/styles/bright')).toBe(false);
+  });
+
+  it('does not match an XYZ template URL', () => {
+    expect(isPmtilesArchiveUrl('https://tile.openstreetmap.org/{z}/{x}/{y}.png')).toBe(false);
+  });
+
+  it('does not match a wrong-extension archive URL', () => {
+    expect(isPmtilesArchiveUrl('https://example.com/world.mbtiles')).toBe(false);
+  });
+});
+
+describe('toMaplibreStyle pmtiles archives', () => {
+  it('wraps a bare .pmtiles archive URL in a raster StyleSpecification using `url` (not `tiles`)', () => {
+    const url = 'https://example.com/world.pmtiles';
+    const result = toMaplibreStyle(url) as StyleSpecification;
+    expect(result.version).toBe(8);
+    expect(result.sources.basemap).toEqual({
+      type: 'raster',
+      url: 'pmtiles://https://example.com/world.pmtiles',
+      tileSize: 256,
+    });
+    expect(result.layers[1]).toMatchObject({
+      id: 'basemap-tiles',
+      type: 'raster',
+      source: 'basemap',
+    });
+  });
+
+  it('leaves an already pmtiles://-prefixed archive URL untouched', () => {
+    const url = 'pmtiles://https://example.com/world.pmtiles';
+    const result = toMaplibreStyle(url) as StyleSpecification;
+    expect((result.sources.basemap as Record<string, unknown>).url).toBe(url);
+  });
+
+  it('includes attribution on the pmtiles raster source when provided', () => {
+    const url = 'https://example.com/world.pmtiles';
+    const attribution = '© Example';
+    const result = toMaplibreStyle(url, attribution) as StyleSpecification;
+    expect((result.sources.basemap as Record<string, unknown>).attribution).toBe(attribution);
+  });
+
+
+  it('classifies a pmtiles archive hosted under a /styles/ path as an archive, not a style URL (#1688 round 4)', () => {
+    const url = 'https://host.example.com/styles/world.pmtiles';
+    const result = toMaplibreStyle(url) as StyleSpecification;
+    expect(typeof result).not.toBe('string');
+    expect(result.sources.basemap).toEqual({
+      type: 'raster',
+      url: 'pmtiles://https://host.example.com/styles/world.pmtiles',
+      tileSize: 256,
+    });
   });
 });
 

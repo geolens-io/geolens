@@ -10,6 +10,7 @@ import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import { getPlugins } from '@/components/map-plugins';
+import { isPmtilesArchiveUrl } from '@/lib/basemap-utils';
 import type { SettingItem, BasemapEntry } from '@/api/settings';
 
 interface MapDefaultsValue {
@@ -28,11 +29,44 @@ interface TabProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
+// Client-side mirror of BasemapEntry.validate_tile_url
+// (backend/app/modules/settings/schemas.py) -- kept in sync so this "Add"
+// gate never rejects a URL shape the backend would accept.
 function isValidTileUrl(url: string): boolean {
   const basePath = url.split('?')[0].replace(/\/+$/, '');
   if (basePath.endsWith('.json')) return true;
   if (url.includes('/styles/')) return true;
-  return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
+  if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) return true;
+  return isPmtilesArchiveUrl(url);
+}
+
+// codex review (#1688 P1): a bare PMTiles archive is only renderable as a
+// basemap when it's raster -- toMaplibreStyle wraps it as a single raster
+// layer, and a vector archive has no layer/paint styling to render sensibly
+// (see basemap-utils.ts). Vector vs raster can only be told apart by reading
+// the archive's own header (a small ranged HTTP request), not from the URL
+// shape, so this checks it at the one point a human types in a NEW archive
+// URL, before it's saved as a basemap.
+//
+// `pmtiles` is dynamically imported rather than statically imported here (or
+// in the widely-shared basemap-utils.ts) so it stays out of every bundle that
+// merely imports this admin tab -- it loads only when an archive URL is
+// actually being added.
+//
+// Fails OPEN on a read error (CORS, network, unsupported archive): MapLibre's
+// own registered pmtiles:// protocol will attempt the identical fetch at
+// render time regardless, so a failed check here does not change what
+// eventually happens on the map -- it only means this admission gate could
+// not pre-empt it.
+async function isVectorPmtilesArchive(url: string): Promise<boolean> {
+  try {
+    const { PMTiles } = await import('pmtiles');
+    const archiveUrl = url.startsWith('pmtiles://') ? url.slice('pmtiles://'.length) : url;
+    const header = await new PMTiles(archiveUrl).getHeader();
+    return header.tileType === 1; // TileType.Mvt
+  } catch {
+    return false;
+  }
 }
 
 interface PluginTogglesProps {
@@ -108,6 +142,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
   const [newAttribution, setNewAttribution] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [urlError, setUrlError] = useState('');
+  const [checkingPmtilesUrl, setCheckingPmtilesUrl] = useState(false);
 
   const basemaps = values.basemaps as BasemapEntry[];
   const mapDefaults = values.map_defaults as MapDefaultsValue;
@@ -123,17 +158,39 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
     setters.basemaps(basemaps.filter((b) => b.id !== id));
   }
 
-  function handleAdd() {
+  async function handleAdd() {
     setUrlError('');
     if (!newName.trim() || !newUrl.trim()) return;
-    if (!isValidTileUrl(newUrl.trim())) {
+    const trimmedUrl = newUrl.trim();
+    if (!isValidTileUrl(trimmedUrl)) {
       setUrlError(t('settings.basemaps.urlError'));
       return;
+    }
+    if (isPmtilesArchiveUrl(trimmedUrl)) {
+      setCheckingPmtilesUrl(true);
+      // codex review (#1688 P1 round 2, P2 round 3): probe with the API key
+      // already substituted (mirroring router_public.py's Python
+      // `url.replace("{api_key}", key_value)`, which replaces every
+      // occurrence) -- without this, an authenticated archive's header
+      // request hits a literal `{api_key}` placeholder, 401s/404s, fails
+      // open, and the check never actually inspects the archive that gets
+      // served once the key is substituted server-side. `replaceAll` (not
+      // `replace`) so a URL with the placeholder more than once is fully
+      // substituted, matching Python's all-occurrences default.
+      const probeUrl = newApiKey.trim()
+        ? trimmedUrl.replaceAll('{api_key}', newApiKey.trim())
+        : trimmedUrl;
+      const isVector = await isVectorPmtilesArchive(probeUrl);
+      setCheckingPmtilesUrl(false);
+      if (isVector) {
+        setUrlError(t('settings.basemaps.pmtilesVectorError'));
+        return;
+      }
     }
     const entry: BasemapEntry = {
       id: `custom-${Date.now()}`,
       label: newName.trim(),
-      url: newUrl.trim(),
+      url: trimmedUrl,
       enabled: true,
       is_preset: false,
       ...(newAttribution.trim() ? { attribution: newAttribution.trim() } : {}),
@@ -267,8 +324,8 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
                 />
                 <p className="text-xs text-muted-foreground">{t('settings.basemaps.apiKeyHelp', 'Use {api_key} in the tile URL as a placeholder. The key is interpolated server-side.')}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleAdd}>
-                {t('settings.basemaps.add')}
+              <Button variant="outline" size="sm" onClick={handleAdd} disabled={checkingPmtilesUrl}>
+                {checkingPmtilesUrl ? t('settings.basemaps.checkingUrl', 'Checking…') : t('settings.basemaps.add')}
               </Button>
             </div>
           )}

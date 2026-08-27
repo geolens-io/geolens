@@ -50,6 +50,7 @@
     "i18next": "^26.4.0",
     "lucide-react": "^1.33.0",
     "maplibre-gl": "^6.5.0",
+    "pmtiles": "^4.5.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-colorful": "^5.8.0",

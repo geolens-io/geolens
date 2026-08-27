@@ -92,8 +92,29 @@ vi.mock('maplibre-gl', () => {
     // "setWorkerUrl is not a function".
     setWorkerUrl: vi.fn(),
     getWorkerUrl: vi.fn(() => ''),
+    // feat(pmtiles): same module also registers the `pmtiles://` protocol at
+    // module scope via `addProtocol`.
+    addProtocol: vi.fn(),
+    removeProtocol: vi.fn(),
   }
 })
+
+// Mock pmtiles (imported by `@/lib/maplibre-worker` for protocol registration,
+// and dynamically imported by SettingsMapTab to read an archive's header
+// before accepting it as a bare-URL basemap). Real constructors have no
+// browser-API dependency, but stubbing keeps tests hermetic and avoids a real
+// network fetch. `PMTiles.getHeader()` defaults to a raster tileType (Png) so
+// existing pmtiles-archive tests aren't rejected by default; individual tests
+// override it via `vi.mocked(PMTiles).mockImplementationOnce(...)` for the
+// vector-archive-rejection case.
+vi.mock('pmtiles', () => ({
+  Protocol: vi.fn(function MockProtocol(this: { tile: () => void }) {
+    this.tile = vi.fn()
+  }),
+  PMTiles: vi.fn(function MockPMTiles(this: { getHeader: () => Promise<{ tileType: number }> }) {
+    this.getHeader = vi.fn().mockResolvedValue({ tileType: 2 }) // TileType.Png (raster)
+  }),
+}))
 
 // Mock @vis.gl/react-maplibre (React components wrapping maplibre-gl)
 vi.mock('@vis.gl/react-maplibre', () => ({

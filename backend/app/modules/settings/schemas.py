@@ -23,7 +23,11 @@ class BasemapEntry(BaseModel):
     )
     url: str = Field(
         max_length=2000,
-        description="Style JSON URL (ending in .json), /styles/ path, or tile URL with {z}/{x}/{y} placeholders.",
+        description=(
+            "Style JSON URL (ending in .json), /styles/ path, tile URL with "
+            "{z}/{x}/{y} placeholders, or a PMTiles archive URL "
+            "(https://....pmtiles, optionally pmtiles://-prefixed)."
+        ),
     )
     enabled: bool = Field(
         default=True, description="Whether the basemap is selectable in the picker."
@@ -45,7 +49,8 @@ class BasemapEntry(BaseModel):
     @field_validator("url")
     @classmethod
     def validate_tile_url(cls, v: str) -> str:
-        """Allow style JSON URLs (.json), /styles/ paths, or tile URLs with {z}/{x}/{y} placeholders."""
+        """Allow style JSON URLs (.json), /styles/ paths, tile URLs with
+        {z}/{x}/{y} placeholders, or a PMTiles archive URL."""
         # Strip query string for path-based checks
         base_path = v.split("?")[0].rstrip("/")
         if base_path.endswith(".json"):
@@ -56,8 +61,23 @@ class BasemapEntry(BaseModel):
         # (e.g. https://tiles.openfreemap.org/styles/bright)
         if "/styles/" in v:
             return v
+        # feat(pmtiles): a single static PMTiles archive, addressed directly
+        # (no style JSON, no tile server) -- either bare (https://....pmtiles)
+        # or explicitly scheme-prefixed (pmtiles://https://....pmtiles) the way
+        # MapLibre's `pmtiles://` protocol and our frontend basemap builder
+        # (frontend/src/lib/basemap-utils.ts) both expect it. The inner URL
+        # must still be a well-formed http(s) URL -- this does not loosen
+        # acceptance for any other shape.
+        inner = v.removeprefix("pmtiles://")
+        inner_base_path = inner.split("?")[0].rstrip("/")
+        if inner_base_path.lower().endswith(".pmtiles"):
+            parsed = urlsplit(inner)
+            if parsed.scheme in ("http", "https") and parsed.netloc:
+                return v
         raise ValueError(
-            "Tile URL must end with .json (style), contain /styles/, or contain {z}, {x}, {y} placeholders"
+            "Tile URL must end with .json (style), contain /styles/, contain "
+            "{z}, {x}, {y} placeholders, or be a PMTiles archive URL "
+            "(https://....pmtiles, optionally pmtiles://-prefixed)"
         )
 
 

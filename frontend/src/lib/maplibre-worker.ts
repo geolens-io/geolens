@@ -1,5 +1,6 @@
-import { setWorkerUrl } from 'maplibre-gl';
+import { addProtocol, setWorkerUrl } from 'maplibre-gl';
 import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
+import { Protocol as PmtilesProtocol } from 'pmtiles';
 
 /**
  * feat(#846): point maplibre-gl v6 at its worker file.
@@ -30,3 +31,17 @@ import maplibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&ur
  * which imports just `Popup`) do not need it.
  */
 setWorkerUrl(maplibreWorkerUrl);
+
+/**
+ * feat(pmtiles): register the `pmtiles://` protocol so basemaps and style
+ * layers can point at a single static PMTiles archive with no tile server.
+ *
+ * Registered here (not `main.tsx`) for the same reason as `setWorkerUrl`
+ * above: this module only loads as a side effect of the lazy map-vendor
+ * chunk, and an eager import from the app entry would pull that ~295 kB
+ * chunk into every route. `addProtocol` is safe to call more than once (it
+ * just replaces the handler for the scheme), and because this is an ES
+ * module its top-level code runs once regardless of how many surfaces
+ * import it, so registration is naturally idempotent.
+ */
+addProtocol('pmtiles', new PmtilesProtocol().tile);
