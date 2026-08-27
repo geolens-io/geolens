@@ -350,3 +350,51 @@ describe('UploadForm — multi-layer fan-out via commitFanOut (GPKG-03 Phase 105
     expect(screen.getByText('0 succeeded, 2 failed.')).toBeInTheDocument();
   });
 });
+
+// ---------------------------------------------------------------------------
+// import-multilayer-ux (PR #1685): "Import All with Defaults" must thread the
+// layer selected in the review picker into the default-import path too — the
+// bulk commit previously always omitted layer_name, so the backend fell back
+// to the first layer regardless of what the review row showed as selected.
+// ---------------------------------------------------------------------------
+
+describe('UploadForm — "Import All with Defaults" threads the selected layer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('passes layer_name for a multi-layer entry', async () => {
+    mockCommitImport.mockResolvedValue({} as never);
+
+    await driveToReview(makeMultiLayerPreview(2));
+
+    await act(async () => {
+      screen.getByTestId('commit-all').click();
+    });
+
+    await waitFor(() => {
+      expect(mockCommitImport).toHaveBeenCalledTimes(1);
+    });
+
+    const [jobId, request] = mockCommitImport.mock.calls[0];
+    expect(jobId).toBe('job-1');
+    expect(request).toMatchObject({ layer_name: 'layer_a' });
+  });
+
+  it('omits layer_name for a single-layer entry', async () => {
+    mockCommitImport.mockResolvedValue({} as never);
+
+    await driveToReview(makeSingleLayerPreview());
+
+    await act(async () => {
+      screen.getByTestId('commit-all').click();
+    });
+
+    await waitFor(() => {
+      expect(mockCommitImport).toHaveBeenCalledTimes(1);
+    });
+
+    const [, request] = mockCommitImport.mock.calls[0];
+    expect(request).not.toHaveProperty('layer_name');
+  });
+});

@@ -318,7 +318,13 @@ export function UploadForm({ onPhaseChange }: UploadFormProps) {
             stripExtension(
               entry.previewData?.source_filename ?? entry.fileName,
             ) || 'Untitled';
-          await commitImport(entry.jobId!, { title: name });
+          // fix(#1685): multi-layer files must carry the layer selected in the
+          // review picker into the default-import path too — omitting it left
+          // the backend defaulting to the first layer regardless of what the
+          // user picked, silently importing a different layer than shown.
+          const fp = entry.previewData && isFilePreview(entry.previewData) ? entry.previewData : null;
+          const layerName = fp?.layers && fp.layers.length > 1 ? fp.layer_name : undefined;
+          await commitImport(entry.jobId!, layerName ? { title: name, layer_name: layerName } : { title: name });
           updateEntry(entry.id, {
             status: 'tracking',
             submittedTitle: name,
