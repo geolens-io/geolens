@@ -232,6 +232,45 @@ class TestManifestApplyHelpers:
         assert derive_source_filename(remote) == "tile-001.tif"
         assert derive_source_extension(remote) == ".tif"
 
+    @pytest.mark.parametrize(
+        ("uri", "expected_filename", "expected_extension"),
+        [
+            ("./data/trails.fgb", "trails.fgb", ".fgb"),
+            ("./data/poi.kml", "poi.kml", ".kml"),
+            ("./data/poi.kmz", "poi.kmz", ".kmz"),
+            ("./data/parcels.zip", "parcels.zip", ".zip"),
+        ],
+    )
+    def test_source_filename_and_extension_derivation_tier1_formats(
+        self, uri: str, expected_filename: str, expected_extension: str
+    ):
+        """fix(#1683): FlatGeobuf, KML, KMZ, and zipped-FileGDB manifest
+        sources derive the same filename/extension as any other vector
+        source — the tier-1 upload formats added in #1682."""
+        source = ManifestSource(type="vector", uri=uri)
+
+        assert derive_source_filename(source) == expected_filename
+        assert derive_source_extension(source) == expected_extension
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        "uri",
+        ["./data/trails.fgb", "./data/poi.kml", "./data/poi.kmz"],
+    )
+    async def test_classify_manifest_source_accepts_tier1_vector_formats(
+        self, uri: str
+    ):
+        """fix(#1683): these formats used to be rejected by
+        `MANIFEST_SOURCE_EXTENSIONS` before ever reaching ingest, even
+        though the upload door has accepted the identical bytes since
+        #1682."""
+        source = ManifestSource(type="vector", uri=uri)
+
+        prepared = await classify_manifest_source(source)
+
+        assert prepared.kind == "local"
+        assert prepared.extension == Path(uri).suffix.lower()
+
     async def test_manifest_job_metadata_redacts_remote_credentials(self):
         dataset = _request(
             _manifest_dataset(

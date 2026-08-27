@@ -1,0 +1,21 @@
+manifest_version: "1"
+catalog:
+  title: Points of interest catalog
+  organization: Tourism Board
+datasets:
+  - key: poi
+    title: Points of interest
+    description: KML export of tourism points of interest.
+    sources:
+      - type: vector
+        uri: ./data/poi.kml
+        format: kml
+    metadata:
+      tags:
+        - tourism
+      organization: Tourism Board
+      crs: EPSG:4326
+      license: CC-BY-4.0
+      attribution: Tourism Board
+    publication:
+      intent: ready
