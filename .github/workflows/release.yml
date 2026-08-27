@@ -20,6 +20,14 @@ on:
 permissions:
   contents: write
 
+# Serialize whole runs: the newsletter step reads-then-creates on Buttondown,
+# and with a scheduled (auto-sending) email an interleaved second run could
+# schedule a duplicate send. Queue, never cancel — every tag's run must
+# still happen (fix(#1697 codex P1)).
+concurrency:
+  group: release-notify
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Create GitHub Release
@@ -311,10 +319,17 @@ jobs:
               --data-urlencode "subject=${SUBJECT}" \
               -H "Authorization: Token ${BUTTONDOWN_API_KEY}" 2>/dev/null \
               | jq -r --arg s "$SUBJECT" '[.results[]? | select(.subject == $s)] | length' 2>/dev/null || true)
-            # An unreadable check falls through to creating one. A duplicate
-            # DRAFT is cheap and visible; a missing newsletter is the failure
-            # this whole target exists to prevent.
-            if [ "${EXISTING:-0}" != "0" ] && [ -n "${EXISTING}" ]; then
+            # An unreadable check still falls through to creating one — a
+            # missing newsletter is the failure this whole target exists to
+            # prevent — but it must never fall through to a SCHEDULED one: a
+            # duplicate draft is cheap and visible, a duplicate send reaches
+            # subscribers twice. LOOKUP_OK gates the auto-send below
+            # (fix(#1697 codex P1)).
+            case "${EXISTING}" in
+              ''|*[!0-9]*) LOOKUP_OK=0 ;;
+              *) LOOKUP_OK=1 ;;
+            esac
+            if [ "$LOOKUP_OK" = "1" ] && [ "${EXISTING}" != "0" ]; then
               echo "::notice title=Newsletter already exists::A Buttondown email titled \"${SUBJECT}\" already exists (draft, scheduled, or sent), so this run did not create another."
               summary "newsletter: already exists for ${TAG}"
             else
@@ -328,6 +343,13 @@ jobs:
               # fallback notes (the '> **Note**' banner above) are not — those
               # stay a draft for a human rewrite, never a scheduled send.
               if grep -qF '> **Note**' newsletter.md; then
+                NEWSLETTER_STATUS="draft"
+                PUBLISH_DATE=""
+              elif [ "$LOOKUP_OK" = "0" ]; then
+                # The duplicate check did not return a readable count, so an
+                # already-scheduled email cannot be ruled out. Create a draft
+                # (harmless if duplicated) instead of a second auto-send.
+                echo "::warning title=Newsletter drafted, not scheduled::The Buttondown duplicate check was unreadable, so the ${TAG} notes were left as a draft instead of a scheduled send. Review and send (or delete) it by hand."
                 NEWSLETTER_STATUS="draft"
                 PUBLISH_DATE=""
               else
@@ -354,6 +376,8 @@ jobs:
                 2*)
                   if [ "$NEWSLETTER_STATUS" = "scheduled" ]; then
                     summary "newsletter: scheduled \"${SUBJECT}\" for ${PUBLISH_DATE} — cancel or edit in Buttondown before then"
+                  elif [ "$LOOKUP_OK" = "0" ]; then
+                    summary "newsletter: drafted \"${SUBJECT}\" (duplicate check unreadable) — review and send by hand"
                   else
                     summary "newsletter: drafted \"${SUBJECT}\" (fallback notes) — rewrite and send by hand"
                   fi
