@@ -766,27 +766,21 @@ async def export_dataset_endpoint(
             if format == ExportFormat.pmtiles:
                 # fix(#1686 codex r1): the PMTiles writer materializes the
                 # whole pyramid eagerly (unlike the on-demand tile endpoint),
-                # so MAXZOOM is budgeted from the dataset extent, narrowed by
-                # the request bbox when one is given. An antimeridian
-                # (west>east) bbox skips the narrowing — the full extent only
-                # over-caps, never under-caps.
+                # so MAXZOOM is budgeted from the dataset extent.
+                # fix(#1686 codex r3): the request bbox must NOT narrow this
+                # budget — -spat SELECTS whole features without clipping
+                # (ogr.py), so a tiny bbox over a world-spanning polygon still
+                # renders tiles across the polygon's full extent. The dataset
+                # extent bounds every selectable feature, so it is the sound
+                # ceiling; a per-request ST_Extent of the selected rows is the
+                # upgrade path if city slices of world datasets need deeper
+                # zooms than this yields.
                 from geoalchemy2.shape import to_shape
 
                 bounds: tuple[float, float, float, float] | None = None
                 ext = dataset.record.spatial_extent
                 if ext is not None:
                     bounds = to_shape(ext).bounds
-                if (
-                    bounds is not None
-                    and bbox_parsed
-                    and bbox_parsed[0] <= bbox_parsed[2]
-                ):
-                    bounds = (
-                        max(bounds[0], bbox_parsed[0]),
-                        max(bounds[1], bbox_parsed[1]),
-                        min(bounds[2], bbox_parsed[2]),
-                        min(bounds[3], bbox_parsed[3]),
-                    )
                 pmtiles_maxzoom = pmtiles_maxzoom_for_extent(bounds)
 
             file_path, filename, media_type = await export_dataset(
