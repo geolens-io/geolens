@@ -2101,7 +2101,7 @@ export interface paths {
          *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
          *     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
          *     filtering, and attribute filtering. GeoParquet is always emitted in
-         *     EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
+         *     EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
          */
         get: operations["export_dataset_endpoint_datasets__dataset_id__export_get"];
         put?: never;
