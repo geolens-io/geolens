@@ -168,14 +168,17 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
     }
     if (isPmtilesArchiveUrl(trimmedUrl)) {
       setCheckingPmtilesUrl(true);
-      // codex review (#1688 P1 round 2): probe with the API key already
-      // substituted (mirroring router_public.py's `url.replace("{api_key}",
-      // key_value)`) -- without this, an authenticated archive's header
-      // request hits the literal `{api_key}` placeholder, 401s/404s, fails
+      // codex review (#1688 P1 round 2, P2 round 3): probe with the API key
+      // already substituted (mirroring router_public.py's Python
+      // `url.replace("{api_key}", key_value)`, which replaces every
+      // occurrence) -- without this, an authenticated archive's header
+      // request hits a literal `{api_key}` placeholder, 401s/404s, fails
       // open, and the check never actually inspects the archive that gets
-      // served once the key is substituted server-side.
+      // served once the key is substituted server-side. `replaceAll` (not
+      // `replace`) so a URL with the placeholder more than once is fully
+      // substituted, matching Python's all-occurrences default.
       const probeUrl = newApiKey.trim()
-        ? trimmedUrl.replace('{api_key}', newApiKey.trim())
+        ? trimmedUrl.replaceAll('{api_key}', newApiKey.trim())
         : trimmedUrl;
       const isVector = await isVectorPmtilesArchive(probeUrl);
       setCheckingPmtilesUrl(false);

@@ -112,6 +112,27 @@ describe('SettingsMapTab custom basemap URL validation', () => {
     expect(probedUrl).toBe('https://example.com/secret-key/world.pmtiles');
   });
 
+  it('substitutes every occurrence of the API key placeholder before probing', async () => {
+    vi.mocked(PMTiles).mockImplementationOnce(function (this: { getHeader: () => Promise<{ tileType: number }> }) {
+      this.getHeader = vi.fn().mockResolvedValue({ tileType: 2 }); // raster
+    } as unknown as typeof PMTiles);
+
+    const user = userEvent.setup();
+    renderMapTab();
+    await user.type(screen.getByLabelText(/name/i), 'Double placeholder');
+    await user.type(
+      screen.getByLabelText(/tile url/i),
+      escapeUserEventBraces('https://example.com/{api_key}/tiles/{api_key}/world.pmtiles'),
+    );
+    await user.type(screen.getByLabelText(/api key/i), 'secret-key');
+    await user.click(screen.getByRole('button', { name: /add/i }));
+
+    await screen.findByText('https://example.com/{api_key}/tiles/{api_key}/world.pmtiles');
+    const calls = vi.mocked(PMTiles).mock.calls;
+    const probedUrl = calls[calls.length - 1]?.[0];
+    expect(probedUrl).toBe('https://example.com/secret-key/tiles/secret-key/world.pmtiles');
+  });
+
   it('still rejects an unrecognized URL shape', async () => {
     renderMapTab();
     await addBasemap('Bad', 'https://example.com/not-a-recognized-shape');
