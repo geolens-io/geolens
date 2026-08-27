@@ -6,7 +6,25 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and releases use semantic versioning.
 
 ## [Unreleased]
+
+## [1.16.0] - 2026-08-27
+
 ### Added
+
+
+- **Server-side CQL2 filtering on feature collections.** OGC API Features
+  clients can now send `filter=` (with `filter-lang=cql2-text` or
+  `cql2-json`) on `/collections/{id}/items` and the server evaluates it in
+  SQL, ANDed with `bbox` and the property-filter extension. Until now a
+  spec-driven client had to download every feature and filter locally. Each
+  collection also gains a `/queryables` endpoint derived from the live
+  database schema, published with `additionalProperties: false`, so the
+  advertised property set always matches what filter validation accepts.
+  The conformance document now declares Part 3 queryables/filter plus CQL2
+  advanced comparison and basic spatial functions, which is exactly the set
+  QGIS 3.44+ checks before pushing its filter expressions to the server
+  instead of filtering client-side; a regression test pins that set so it
+  cannot silently regress (#1674, #1680).
 
 - **Four more upload formats: FlatGeobuf, KML, KMZ, and zipped File
   Geodatabase.** The GDAL build in the worker has read these all along — they
@@ -21,6 +39,36 @@ and releases use semantic versioning.
   verified directly (puremagic has no signature for it), a KMZ goes through
   the same zip-bomb checks as any other archive, and a `.kml` must at least
   open an XML tag.
+
+- **PMTiles export.** Any vector dataset can be exported as a single
+  PMTiles archive of MVT tiles and hosted from a static file server or
+  object store, with no tile server involved. The tile pyramid's depth
+  adapts to the dataset's extent (a citywide dataset gets street-level
+  zoom 14, a global one stops at zoom 8) so archives stay a sensible size.
+  The format appears everywhere other exports do: the export menu, DCAT
+  distributions, and STAC/OGC assets, with existing datasets backfilled
+  (#1686).
+
+- **FlatGeobuf export.** The export menu, DCAT distributions, and STAC/OGC
+  assets gain `fgb` alongside GeoPackage, GeoJSON, Shapefile, CSV, and
+  GeoParquet, with a backfill for existing spatial datasets. Served as
+  `application/vnd.flatgeobuf`, the vendor type the format's maintainers
+  proposed (#1681).
+
+- **PMTiles basemaps.** A basemap URL can now be a PMTiles archive, either
+  `pmtiles://https://...` or a bare `https://....pmtiles`, such as a
+  protomaps world build or a GeoLens PMTiles export. The admin settings
+  form probes the archive header before saving and rejects a vector
+  archive that has no style to render it with. Together with PMTiles
+  export this closes the offline loop: export a dataset, drop the file
+  behind any static host, and point a basemap at it, no tile server and
+  no API key (#1688).
+
+- **The CLI manifest accepts the new vector formats.** `geolens apply`
+  manifests can now declare FlatGeobuf, KML, KMZ, and zipped File
+  Geodatabase sources, the same four formats the upload doors accepted in
+  this release, so scripted and version-controlled ingest is not weaker
+  than the browser path (#1694).
 
 - **A failed upload now leaves a trace, and a way to report it.** UploadForm
   calls the presign, PUT, direct-upload POST, preview/detection, commit, and
@@ -52,6 +100,29 @@ and releases use semantic versioning.
   could only be retyped. Matched `https://` URLs now render as anchors
   (new tab, `rel="noopener noreferrer"`); everything else stays escaped text,
   so banner content still cannot inject markup.
+
+
+- **Multi-layer files say what they contain.** A File Geodatabase or
+  GeoPackage holds layers, not sheets; the import review now uses the
+  right word for each container, shows an "N layers" badge, and "Import
+  all" respects the layer selection instead of ignoring it (#1685).
+
+### Security
+
+
+- **Service tokens are leased, not stored, at every import door.** The
+  refresh door has handed ArcGIS service tokens to the worker through a
+  one-use Valkey lease since 1.13; the first-import and reupload doors
+  still wrote the raw token into durable job-queue arguments, where a
+  failed or queued job held it in plaintext until the retention purge,
+  while the import UI promised tokens are "never stored". All three doors
+  now behave the same way, keyed on what the install has: with a
+  credential store configured the token is stashed under a one-use
+  reference the worker consumes; if the stash fails the request is
+  refused with a 503 rather than silently downgraded; and an install with
+  no store configured keeps the previous durable-argument behavior, now
+  logged. This also fixes a latent bug where an import with no run rows
+  would lose its lease after 900 seconds (#1689).
 
 ### Fixed
 
@@ -101,6 +172,57 @@ and releases use semantic versioning.
   message still reaches structured logs at error level, and a failure raised
   by anything other than the open call itself keeps its real message
   unchanged.
+
+
+- **Refreshing a large ArcGIS layer pages like importing one.** Refresh
+  performed a single unpaged fetch and trusted the server's paging
+  metadata, exactly what the import path's guarded loop exists to
+  distrust (servers that misreport pagination support, sparse object IDs,
+  transfer limits). A short result could then swap in cleanly as a
+  silently truncated dataset. Refresh now runs the same guarded
+  `resultOffset` loop as import, and a connectivity probe failure now
+  stamps `last_checked_at` so a failing source is visibly stale rather
+  than frozen at its last success (#1678).
+
+- **Exported map styles import back.** `GET /maps/{id}/style.json` emits
+  `sprite` in MapLibre's array form, but import only accepted a string,
+  so a style document GeoLens itself produced failed re-import with a
+  422. Import accepts both forms now, a test pins the full
+  export-import round trip, and the export operation's previously empty
+  response schema now names the MapLibre Style Specification and the one
+  guarantee beyond it (#1679).
+
+- **A broken migration overlay now fails the migration run.** When an
+  installed edition overlay's migration provider failed to load,
+  `alembic upgrade heads` logged an error, skipped that overlay's entire
+  revision chain, and exited 0, so a deployment pipeline gating on the
+  exit code reported a partial schema as a successful migration. Both
+  failure classes now raise; a Community install without overlays is
+  unaffected (#1668).
+
+- **Single-worker installs no longer restart on a request quota.**
+  uvicorn's `--limit-max-requests` is a rolling worker recycle only when
+  the multiprocess supervisor exists; with `UVICORN_WORKERS=1` (the
+  documented small-VM tuning) hitting the limit exited the whole process,
+  which surfaced as a clean unexplained container restart and a ~17
+  second outage roughly every 13 hours under ordinary monitoring
+  traffic. The flag is now applied only when there are at least two
+  workers (#1687).
+
+- **Container logs are bounded.** The production compose file pinned no
+  log rotation, so a long-lived container's json-file log grew without
+  limit. Every service now caps logs at three 50 MB files. Existing
+  deployments pick this up on the next `docker compose up -d` after
+  pulling the change; a plain restart is not enough (#1690).
+
+- **Anonymous downloads work for public rasters, not just vectors.** A
+  public, published vector dataset could be exported anonymously, but the
+  COG download for an equally public raster answered 401 unless the
+  caller first minted a download token, which broke "open this raster in
+  QGIS" for exactly the datasets meant to be showcased. The route's
+  access checks were already correct; the dependency above them refused
+  anonymous requests before those checks ran. Anonymous requests now
+  reach the same public-visibility gate the vector path uses (#1693).
 
 ## [1.15.1] - 2026-08-24
 
@@ -2675,7 +2797,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.15.1...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/geolens-io/geolens/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/geolens-io/geolens/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/geolens-io/geolens/compare/v1.14.2...v1.15.0
 [1.14.2]: https://github.com/geolens-io/geolens/compare/v1.14.1...v1.14.2
