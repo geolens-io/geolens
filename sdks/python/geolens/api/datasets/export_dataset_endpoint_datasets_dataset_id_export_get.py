@@ -150,7 +150,7 @@ def sync_detailed(
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
     filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
+    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
@@ -198,7 +198,7 @@ def sync(
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
     filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
+    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
@@ -241,7 +241,7 @@ async def asyncio_detailed(
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
     filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
+    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
@@ -287,7 +287,7 @@ async def asyncio(
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
     filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles is always rendered at zoom levels 0-14.
+    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
