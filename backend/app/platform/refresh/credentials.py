@@ -41,10 +41,39 @@ there is no store. The refresh endpoint refuses a token-bearing request up
 front in that case, which is a clear error at the door instead of a confusing
 failure an hour later in a worker.
 
-Deliberately NOT wired into the existing re-upload commit door, which still
-passes its token as a task argument. Doing both would have made a protected
-re-upload stop working on every install without Valkey — a live regression
-traded for a latent one. See the #1220 PR body for the disposition.
+### Three doors, one mechanism, three states
+
+#1220 wired the refresh door only. The first-import and re-upload-commit
+doors kept passing their token as a task argument, because refusing a
+credentialed request without Valkey would have stopped protected imports
+working on every stock install — a live regression traded for a latent one.
+
+feat(#1676) closes the gap without paying that regression, by keying the
+decision on what the install HAS rather than on which door the request came
+through:
+
+- **state 1, store configured and reachable** — stash, dispatch the
+  reference, claim once in the worker. Nothing durable, at every door.
+- **state 2, store configured but the stash fails** — 503
+  ``credential_store_unavailable``, identical at every door. An operator who
+  opted into a store is told it is broken rather than silently downgraded to
+  the durable argument they thought they had stopped using.
+- **state 3, no store configured at all** — the token rides in the task
+  argument, as it always has at the two pre-existing doors. The refresh door
+  refuses here instead, and keeps refusing: token-bearing refresh has never
+  worked without a store, so nothing regresses by leaving it that way.
+
+State 3 is the one asymmetry and it is deliberate. The alternative — one
+uniform refusal — reads tidier and breaks protected import on the default
+install, which is the trade #1220 already declined once.
+
+:func:`resolve_dispatch_credential` decides all three for the two doors that
+can reach state 3, so neither of them can drift from the other or from this
+text. The refresh door does not call it: it answers state 3 with an explicit
+refusal in its own handler, before it writes anything, and then reaches
+states 1 and 2 through :func:`stash_service_credential` — which is the only
+other call this helper makes. Two spellings of the same two calls, because
+the third state genuinely differs there.
 """
 
 from __future__ import annotations
@@ -104,8 +133,8 @@ class CredentialStoreUnavailable(RuntimeError):
     """No shared credential store is configured.
 
     Raised at the API door, before anything is written, so the caller gets a
-    503 naming the missing configuration rather than a refresh that dispatches
-    and then fails in a worker for reasons nothing surfaces.
+    503 naming the missing configuration rather than a dispatch that fails in
+    a worker an hour later for reasons nothing surfaces.
     """
 
 
@@ -114,9 +143,11 @@ class CredentialExpiredError(RuntimeError):
 
     Both cases are the same fact from the worker's side — there is no
     credential to fetch — and both are permanent for this attempt, because a
-    single-use secret is gone the moment it is read. The worker turns this
-    into the ``credential_expired`` run error code so the history row says
-    "supply a token and try again" rather than blaming the origin.
+    single-use secret is gone the moment it is read. The refresh worker turns
+    this into the ``credential_expired`` run error code so the history row
+    says "supply a token and try again" rather than blaming the origin; the
+    import worker has no run row and carries the same sentence as its
+    ``error_message``.
     """
 
 
@@ -176,12 +207,12 @@ class RedisCredentialBackend:
                 "refresh_credential_store_write_failed", error_type=type(exc).__name__
             )
             raise CredentialStoreUnavailable(
-                "The credential store could not be reached, so this refresh "
+                "The credential store could not be reached, so this request "
                 "cannot be started with a token."
             ) from exc
         if not stored:
             raise CredentialStoreUnavailable(
-                "Could not stash the service credential for this refresh."
+                "Could not stash the service credential for this request."
             )
 
     async def take(self, key: str) -> str | None:
@@ -192,7 +223,7 @@ class RedisCredentialBackend:
                 "refresh_credential_store_read_failed", error_type=type(exc).__name__
             )
             raise CredentialStoreUnavailable(
-                "The credential store could not be reached, so this refresh "
+                "The credential store could not be reached, so this job "
                 "could not retrieve its token."
             ) from exc
 
@@ -245,9 +276,9 @@ def get_credential_backend() -> CredentialBackend:
         return _backend
     if not settings.redis_url:
         raise CredentialStoreUnavailable(
-            "Refreshing a protected service requires a shared credential "
-            "store. Set REDIS_URL to a Valkey/Redis instance reachable by "
-            "both the API and the worker."
+            "Handing a service token to the worker requires a shared "
+            "credential store. Set REDIS_URL to a Valkey/Redis instance "
+            "reachable by both the API and the worker."
         )
     _backend = RedisCredentialBackend(settings.redis_url)
     _backend_url = settings.redis_url
@@ -305,7 +336,7 @@ async def claim_service_credential(ref: str) -> str:
     """
     if not _REF_PATTERN.match(ref or ""):
         raise CredentialExpiredError(
-            "The service credential for this refresh is no longer available."
+            "The service credential for this job is no longer available."
         )
     try:
         secret = await get_credential_backend().take(_KEY_PREFIX + ref)
@@ -317,15 +348,83 @@ async def claim_service_credential(ref: str) -> str:
         # key. Log the class, surface the fixed sentence.
         logger.warning("refresh_credential_claim_failed", error_type=type(exc).__name__)
         raise CredentialStoreUnavailable(
-            "The credential store could not be reached, so this refresh could "
+            "The credential store could not be reached, so this job could "
             "not retrieve its token."
         ) from exc
     if secret is None:
         raise CredentialExpiredError(
-            "The service credential for this refresh was already used or has "
-            "expired. Start the refresh again with a fresh token."
+            "The service credential for this job was already used or has "
+            "expired. Start again with a fresh token."
         )
     return secret
+
+
+async def resolve_worker_credential(
+    token: str | None, credential_ref: str | None
+) -> str | None:
+    """The credential this attempt will fetch with, redeeming a ref if given.
+
+    feat(#1220), shared with the import door by feat(#1676). Called inside the
+    task's handled region and after the attempt check, so a single-use
+    credential is only ever consumed for an attempt that is actually going to
+    run. A ref that names nothing raises :class:`CredentialExpiredError` —
+    deliberately NOT a fall-through to an unauthenticated fetch, which would
+    reach the origin, collect a 401, and report a protected service as broken.
+
+    The ref wins over a directly-passed token when both are somehow set: the
+    door that sends a ref is the door that promised nothing durable, and
+    honouring the durable value instead would quietly undo that promise. In
+    practice the pair is mutually exclusive by construction — see
+    :func:`resolve_dispatch_credential`, which is the only thing that fills
+    either — so this is the tie-break for a rolling deploy, not a routine
+    branch.
+
+    Lives here rather than in either task module because both
+    ``reupload_service`` and ``ingest_service`` need it and neither may import
+    the other: ``tasks_reupload`` already reaches into ``tasks_vector`` at
+    call time, so a top-level edge back would close a cycle.
+    """
+    if credential_ref:
+        return await claim_service_credential(credential_ref)
+    return token
+
+
+async def resolve_dispatch_credential(
+    token: str | None, *, door: str
+) -> tuple[str | None, str | None]:
+    """Decide how *token* reaches the worker. Returns ``(token, ref)``.
+
+    feat(#1676). The single decision point for the three states in this
+    module's docstring, so the three doors cannot answer it three ways:
+
+    - no token at all           -> ``(None, None)``; nothing to protect.
+    - store configured          -> ``(None, ref)``; the secret is stashed and
+                                   only the reference is returned, so nothing
+                                   durable can carry it. A store that is
+                                   configured but unreachable raises
+                                   :class:`CredentialStoreUnavailable` from
+                                   the stash, which every caller turns into
+                                   the same 503.
+    - no store configured       -> ``(token, None)``; the pre-existing durable
+                                   argument, unchanged.
+
+    Exactly one element of the pair is ever set, which is what lets
+    :func:`resolve_worker_credential` treat "both" as an impossibility rather
+    than a case.
+
+    The fallback is logged rather than silent. It is the one branch where the
+    stored shape of a request differs from what the UI copy leads with, and an
+    operator asking "is this install actually leasing?" should be able to
+    answer it from logs instead of from settings archaeology. The log line
+    carries the DOOR, never the token and never the reference — a reference is
+    harmless after its claim but not before it, and log sinks outlive TTLs.
+    """
+    if not token:
+        return None, None
+    if not credential_store_available():
+        logger.info("service_credential_durable_fallback", door=door)
+        return token, None
+    return None, await stash_service_credential(token)
 
 
 async def discard_service_credential(ref: str | None) -> None:
@@ -392,15 +491,36 @@ async def discard_service_credential(ref: str | None) -> None:
 #
 # Correlated on `args->>'job_id'`, the correlation every task in this codebase
 # passes and the one both refresh sweeps already use.
+#
+# feat(#1676): the run join is a LEFT join, and the run-liveness stop has a
+# fallback. The INNER join was correct while only the refresh door leased,
+# because that door writes a `dataset_refresh_runs` row on the way in — and so
+# does the re-upload commit door, which is why that one inherits renewal for
+# free. The FIRST-IMPORT door writes no run at all. Left as an inner join it
+# would have matched nothing for an import, silently dropping renewal for the
+# one door with no run row: a protected import queued behind a long ingest
+# would have expired at the TTL and failed `credential_expired` where today it
+# simply waits. That is a regression the lease itself would have introduced,
+# and no test of the refresh path could have seen it.
+#
+# The fallback stop is `ingest_jobs.status`, which is the same question the
+# run's status answers on the other branch — is this dispatch still going to
+# be worked? — asked of the row that exists for a run-less job. It keeps the
+# self-terminating property intact for the same reason the run branch has it:
+# `EXPIRE` cannot resurrect, so once the worker's GETDEL has removed the key
+# every later renewal is a no-op regardless of what any status column says.
 _RENEWABLE_CREDENTIALS_SQL = text(
     """
     SELECT DISTINCT pj.args->>'credential_ref' AS credential_ref
     FROM catalog.procrastinate_jobs pj
     JOIN catalog.ingest_jobs j ON pj.args->>'job_id' = j.id::text
-    JOIN catalog.dataset_refresh_runs r ON r.ingest_job_id = j.id
+    LEFT JOIN catalog.dataset_refresh_runs r ON r.ingest_job_id = j.id
     WHERE pj.status IN ('todo', 'doing')
       AND pj.args->>'credential_ref' IS NOT NULL
-      AND r.status IN ('pending', 'running')
+      AND (
+          r.status IN ('pending', 'running')
+          OR (r.id IS NULL AND j.status IN ('pending', 'running'))
+      )
       AND (
           CAST(:tenant_id AS uuid) IS NULL
           OR j.tenant_id = CAST(:tenant_id AS uuid)
@@ -416,6 +536,14 @@ async def renew_queued_refresh_credentials(
 
     Returns how many were renewed. Driven by the API's existing stale-job
     sweeper, once per :data:`CREDENTIAL_RENEWAL_INTERVAL_SECONDS`.
+
+    feat(#1676): the ``refresh`` in the name is historical. Since the import
+    and re-upload-commit doors lease too, this covers every leased dispatch —
+    see the query's own note on why a run-less import needed the join
+    widened. The name is kept because it is the spelling
+    ``test_service_refresh_1220`` and the lifespan structural assertions
+    already pin, and renaming it would churn a dozen call sites to say the
+    same thing the docstring says.
 
     This is what makes a short TTL correct rather than optimistic: the
     credential's lifetime becomes the real queue wait instead of a number

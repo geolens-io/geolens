@@ -46,6 +46,11 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import IngestJob
+from app.platform.refresh.credentials import (
+    CredentialStoreUnavailable,
+    discard_service_credential,
+    resolve_dispatch_credential,
+)
 from app.platform.refresh.service import (
     DatasetBusyError,
     create_pending_run,
@@ -590,6 +595,7 @@ async def _dispatch_reupload_task(
     record_type: str,
     user_id: uuid.UUID,
     token: str | None,
+    credential_ref: str | None,
     is_service_refresh: bool,
     rollback,
 ) -> None:
@@ -604,6 +610,11 @@ async def _dispatch_reupload_task(
 
     Extracted from ``reupload_commit`` when the raster branch (#1221) pushed
     that handler past the McCabe gate.
+
+    feat(#1676): ``token`` and ``credential_ref`` are the two shapes a service
+    credential can arrive in, and exactly one of them is ever set — the caller
+    gets the pair from ``resolve_dispatch_credential``. Both are forwarded
+    verbatim; deciding between them is the worker's job, not this one's.
     """
     if is_service_refresh:
         source_url = job.source_url
@@ -618,6 +629,7 @@ async def _dispatch_reupload_task(
                 source_layer=job.source_layer or "",
                 user_id=str(user_id),
                 token=token,
+                credential_ref=credential_ref,
             )
 
         await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
@@ -780,6 +792,38 @@ async def reupload_commit(
             },
         ) from exc
 
+    # feat(#1676): staged before the commit, exactly as the refresh door
+    # stages its own, so a configured-but-unreachable store rolls the whole
+    # request back — no committed job, no reserved run, nothing for the sweep
+    # to unwind — rather than leaving a dispatch that can never authenticate.
+    # The reverse order strands the credential instead, which is why the TTL
+    # exists and why nothing depends on the discard below actually running.
+    #
+    # An install with NO store configured takes the third branch and keeps the
+    # durable argument this door has always sent. Refusing there would break
+    # protected re-upload on every stock install, which is the trade #1220
+    # declined; see platform/refresh/credentials for the full contract.
+    credential_ref: str | None = None
+    token: str | None = request.token
+    if is_service_refresh:
+        try:
+            token, credential_ref = await resolve_dispatch_credential(
+                request.token, door="reupload_commit"
+            )
+        except CredentialStoreUnavailable as exc:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "credential_store_unavailable",
+                    "message": (
+                        "Could not stage the service credential for this "
+                        "re-upload. Check that the credential store is "
+                        "reachable and try again."
+                    ),
+                },
+            ) from exc
+
     await db.commit()
 
     # Each defer_async path is wrapped in the shared orphan guard
@@ -790,7 +834,7 @@ async def reupload_commit(
     # outcome is already known here, and an hour of `pending` for a dispatch
     # that provably failed is the silent-failure shape this table exists to
     # remove.
-    rollback = make_refresh_run_failed_rollback(
+    inner_rollback = make_refresh_run_failed_rollback(
         make_ingest_job_failed_rollback(
             job, message_prefix="Failed to queue reupload task"
         ),
@@ -798,13 +842,19 @@ async def reupload_commit(
         ingest_job_id=job.id,
     )
 
+    async def rollback(defer_exc: BaseException) -> None:
+        await inner_rollback(defer_exc)
+        # The worker will never come for it, and the run is already terminal.
+        await discard_service_credential(credential_ref)
+
     await _dispatch_reupload_task(
         db,
         job=job,
         dataset_id=dataset_id,
         record_type=dataset.record.record_type,
         user_id=user.id,
-        token=request.token,
+        token=token,
+        credential_ref=credential_ref,
         is_service_refresh=is_service_refresh,
         rollback=rollback,
     )

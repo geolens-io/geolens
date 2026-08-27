@@ -26,7 +26,7 @@ from app.platform.jobs.models import owned_presigned_staging_key
 from app.platform.refresh.credentials import (
     CredentialExpiredError,
     CredentialStoreUnavailable,
-    claim_service_credential,
+    resolve_worker_credential,
 )
 from app.platform.refresh.service import (
     claim_run_for_job,
@@ -671,21 +671,14 @@ async def _resolve_service_token(
 ) -> str | None:
     """The credential this attempt will fetch with, redeeming a ref if given.
 
-    feat(#1220). Called inside the task's handled region and after the attempt
-    check, so a single-use credential is only ever consumed for an attempt
-    that is actually going to run. A ref that names nothing raises
-    ``CredentialExpiredError``, which the task's failure handler records as
-    ``credential_expired`` — deliberately NOT a fall-through to an
-    unauthenticated fetch, which would reach the origin, collect a 401, and
-    report a protected service as broken.
-
-    The ref wins over a directly-passed token when both are somehow set: the
-    door that sends a ref is the door that promised nothing durable, and
-    honouring the durable value instead would quietly undo that promise.
+    feat(#1220). fix(#1676) moved the body to
+    ``platform.refresh.credentials.resolve_worker_credential`` so
+    ``ingest_service`` redeems the same way without either task module
+    importing the other. The rules and the reasoning live there; this stays as
+    the name this task and its tests already reach for, and as the anchor for
+    the ``credential_expired`` mapping above.
     """
-    if credential_ref:
-        return await claim_service_credential(credential_ref)
-    return token
+    return await resolve_worker_credential(token, credential_ref)
 
 
 async def _fetch_service_layer_with_paging_guard(
@@ -798,14 +791,16 @@ async def reupload_service(
 ) -> None:
     """Background task: replace dataset data from a remote service source.
 
-    Two doors dispatch this task and they hand over a credential differently.
-    The re-upload commit door passes ``token`` directly, which is a durable
-    task argument; the one-request refresh door (#1220) passes
-    ``credential_ref``, a single-use reference redeemed once here for a secret
-    that never touched a committed row. Both are optional and at most one is
-    ever set — the reference wins if both somehow are, because the door that
-    sends one is the door that promised nothing durable. Neither is required:
-    a public service needs no credential at all.
+    Two doors dispatch this task, and since feat(#1676) they hand a credential
+    over the same way: ``credential_ref``, a single-use reference redeemed
+    once here for a secret that never touched a committed row — the
+    one-request refresh door since #1220, the re-upload commit door since
+    #1676. ``token`` is the surviving durable argument, and after #1676 only
+    an install with no shared credential store configured at all still
+    produces one (state 3 in ``platform/refresh/credentials``). Both are
+    optional and at most one is ever set — the reference wins if both somehow
+    are, because the door that sends one is the door that promised nothing
+    durable. Neither is required: a public service needs no credential at all.
 
     Session lifecycle (gh #100 followup): the AsyncSession is split into two
     short-lived blocks so it is NOT held open across ``run_ogr2ogr_service``

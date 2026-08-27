@@ -1125,10 +1125,17 @@ async def queue_ingest_job(
 
     Raises ``HTTPException 400`` when the job has no file_path and no
     source_url so the route handler surfaces a clear error.
-    Raises ``HTTPException 503`` when Procrastinate is unreachable.
+    Raises ``HTTPException 503`` when Procrastinate is unreachable, or when a
+    configured credential store cannot be reached to stage a service token
+    (feat(#1676) — see ``resolve_dispatch_credential``).
     """
     import os
 
+    from app.platform.refresh.credentials import (
+        CredentialStoreUnavailable,
+        discard_service_credential,
+        resolve_dispatch_credential,
+    )
     from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
     from app.processing.ingest.tasks import ingest_file, ingest_raster, ingest_service
 
@@ -1137,6 +1144,39 @@ async def queue_ingest_job(
         # a local so mypy preserves the ``str`` narrowing inside the
         # nested closure (the attribute access reverts to ``str | None``).
         source_url = job.source_url
+        job_failed = make_ingest_job_failed_rollback(job)
+
+        # feat(#1676): the import door's half of the lease. On an install with
+        # a shared credential store this returns (None, ref) and the secret
+        # never becomes a task argument; without one it returns the token
+        # unchanged, which is what this door has always dispatched. The whole
+        # decision — including which of those two an install gets — is
+        # resolve_dispatch_credential's, so this door cannot drift from the
+        # re-upload one.
+        credential_ref: str | None = None
+        try:
+            token, credential_ref = await resolve_dispatch_credential(
+                token, door="import"
+            )
+        except CredentialStoreUnavailable as exc:
+            # The job row is already committed by the time this runs
+            # (commit_import commits before dispatching), so a bare raise
+            # would strand it pending until the stale sweep. Finalize it the
+            # way the orphan guard would have, then answer with the 503 the
+            # refresh door gives for the same condition.
+            await job_failed(exc)
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "credential_store_unavailable",
+                    "message": (
+                        "Could not stage the service credential for this "
+                        "import. Check that the credential store is "
+                        "reachable and try again."
+                    ),
+                },
+            ) from exc
 
         async def _defer_service() -> None:
             await defer_async_with_tenant(
@@ -1147,11 +1187,19 @@ async def queue_ingest_job(
                 source_layer=job.source_layer or "",
                 user_id=user_id,
                 token=token,
+                credential_ref=credential_ref,
             )
+
+        async def _rollback_service(defer_exc: BaseException) -> None:
+            await job_failed(defer_exc)
+            # The worker will never come for it. Best-effort; the TTL is the
+            # real guarantee, and this only shortens a window we already know
+            # nothing will use.
+            await discard_service_credential(credential_ref)
 
         await defer_with_orphan_guard(
             _defer_service,
-            rollback=make_ingest_job_failed_rollback(job),
+            rollback=_rollback_service,
             db=db,
         )
         return
