@@ -1039,18 +1039,22 @@ async def test_dcat_raster_advertises_the_tile_template(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("record_type", ["raster_dataset", "vrt_dataset"])
-async def test_dcat_raster_does_not_advertise_the_token_gated_cog_download(
+async def test_dcat_raster_does_not_advertise_the_cog_download_url(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     record_type: str,
 ):
-    """``/download/cog`` 401s an anonymous caller, and this feed serves those.
+    """DCAT does not advertise ``/download/cog`` as a raster distribution URL.
 
-    Reaching it needs a download-scoped token minted by a separate POST to
-    ``/auth/download-token/{id}``, which no generic DCAT client will make, so
-    advertising it — as ``downloadURL`` in two of the three profiles — would
-    publish a link that fails for the feed's audience.
+    fix(#1693): a public+published raster (this fixture's
+    shape) is now directly downloadable by an anonymous caller with no
+    minted token, matching ``/export``'s anonymous-access contract. But a
+    private/restricted/unpublished raster still is not, and DCAT's feed has
+    no per-caller way to express that distinction in a single accessURL —
+    advertising the download link unconditionally would still publish one
+    that 404s for a generic DCAT client crawling a catalog that also lists
+    non-public datasets.
     """
     session = test_db_session
     admin_id = await get_user_id(session, "admin")
