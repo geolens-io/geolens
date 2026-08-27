@@ -150,6 +150,13 @@ x-hardened-base: &hardened-base
 # default driver grows without limit for the life of the container (observed
 # on the demo VM: a four-week-old container already held a 36M log). 50m x 3
 # keeps ~150M of recent log per service, enough for incident forensics.
+# The driver is pinned deliberately: a stock install (daemon default
+# json-file, no options) is the audience this protects, and omitting the
+# driver would fail container create wherever the daemon default is not
+# json-file, because the options below are json-file-specific. Operators who
+# centralize logs at the daemon level (journald/fluentd/awslogs) should
+# override `logging:` per service in a compose override file with their
+# driver; that override replaces this block wholesale.
 x-bounded-logs: &bounded-logs
   driver: json-file
   options:
