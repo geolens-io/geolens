@@ -146,6 +146,16 @@ x-hardened-base: &hardened-base
     - SETUID
   read_only: true
 
+# fix(#1690): bound every container's json-file log — with no options the
+# default driver grows without limit for the life of the container (observed
+# on the demo VM: a four-week-old container already held a 36M log). 50m x 3
+# keeps ~150M of recent log per service, enough for incident forensics.
+x-bounded-logs: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "50m"
+    max-file: "3"
+
 # Registry + owner for the published images. Override REGISTRY/IMAGE_OWNER only
 # for a fork or a mirror; defaults point at the canonical GHCR namespace.
 x-image-base: &image-registry ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}
@@ -155,6 +165,7 @@ x-image-base: &image-registry ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}
 # ==============================================================================
 services:
   db:
+    logging: *bounded-logs
     # PostGIS 17 + pgvector, built locally from ./db — a thin layer on the
     # OFFICIAL postgis/postgis image (the source maintainer) plus the pgvector
     # apt package. No single upstream image bundles both PostGIS and pgvector,
@@ -214,6 +225,7 @@ services:
       - SETUID
 
   migrate:
+    logging: *bounded-logs
     # One-shot alembic upgrade, runs from the baked api image (alembic/ +
     # alembic.ini are COPYed into /app — Dockerfile backend-base).
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
@@ -248,6 +260,7 @@ services:
         condition: service_healthy
 
   api:
+    logging: *bounded-logs
     image: ${REGISTRY:-ghcr.io}/${IMAGE_OWNER:-geolens-io}/geolens-api:${GEOLENS_VERSION:-latest}
     # GAP-003: override the baked image CMD to add --proxy-headers so uvicorn
     # populates request.client from X-Forwarded-For / X-Real-IP sent by the
@@ -341,6 +354,7 @@ services:
         condition: service_completed_successfully
 
   worker:
+    logging: *bounded-logs
     # The worker is the SAME image as api — identical backend-base; the published
     # geolens-worker image differs only in its baked ENTRYPOINT/CMD/HEALTHCHECK.
     # Run it from the PUBLIC geolens-api image with those three overridden (the
@@ -407,6 +421,7 @@ services:
         condition: service_completed_successfully
 
   titiler:
+    logging: *bounded-logs
     # Third-party image — identical to docker-compose.yml.
     # 2.2.1 per the 2026-08 reassessment (#1190); see the note there.
     image: ghcr.io/developmentseed/titiler:2.2.1
@@ -519,6 +534,7 @@ services:
         condition: service_healthy
 
   frontend:
+    logging: *bounded-logs
     # Published nginx image: serves the built SPA on :8080 and proxies /api ->
     # api:8000 and /raster-tiles/* -> the api raster proxy internally (see
     # frontend/nginx.conf). No build, no bind-mounts, no Vite.
@@ -570,6 +586,7 @@ services:
         condition: service_healthy
 
   backup:
+    logging: *bounded-logs
     # Backup runs by default — no --profile flag needed (BKP-01).
     # Pulls the published multi-arch geolens-backup image from GHCR;
     # no local build required on the operator host.
