@@ -670,6 +670,7 @@ services:
 
   # --- cloud-dev profile: local S3 + cache (identical to docker-compose.yml) ---
   minio:
+    logging: *bounded-logs
     image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     profiles: ["cloud-dev"]
     # INST-01 + Codex P1 (true fail-closed, parse-safe) — mirrors the
@@ -726,6 +727,7 @@ services:
       start_period: 5s
 
   minio-setup:
+    logging: *bounded-logs
     image: quay.io/minio/mc:RELEASE.2025-08-13T08-35-41Z@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
     profiles: ["cloud-dev"]
     # BUG-015 (Phase 1184): same fix as docker-compose.yml — mounted script
@@ -747,6 +749,7 @@ services:
     entrypoint: ["/bin/sh", "/usr/local/bin/minio-setup.sh"]
 
   valkey:
+    logging: *bounded-logs
     image: valkey/valkey:8.1.7-alpine
     profiles: ["cloud-dev"]
     security_opt:
