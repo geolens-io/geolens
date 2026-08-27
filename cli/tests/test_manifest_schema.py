@@ -83,6 +83,9 @@ def test_valid_manifest_fixtures_pass() -> None:
         "raster-cog-storage.yaml",
         "vector-relative.yaml",
         "vector-url.yaml",
+        "vector-fgb.yaml",
+        "vector-kml.yaml",
+        "vector-kmz.yaml",
     }
     for path in valid_fixtures:
         assert validate_manifest(load_manifest(path)) == [], path.name
@@ -170,6 +173,12 @@ def test_manifest_v1_dataset_batch_is_bounded() -> None:
         ("vector", "./rasters/tile.tif"),
         ("raster_cog", "./data/roads.geojson"),
         ("raster_cog", "./rasters/mosaic.vrt"),
+        # fix(#1683): the tier-1 formats added to the vector allowlist are
+        # still vector-only — asserting the mismatch keeps the manifest
+        # door symmetric with the pre-existing formats above.
+        ("raster_cog", "./data/trails.fgb"),
+        ("raster_cog", "./data/poi.kml"),
+        ("raster_cog", "./data/poi.kmz"),
     ],
 )
 def test_manifest_source_type_requires_matching_extension(
@@ -179,6 +188,26 @@ def test_manifest_source_type_requires_matching_extension(
     document["datasets"][0]["sources"][0].update({"type": source_type, "uri": uri})
 
     assert ("$.datasets[0].sources[0].uri", "pattern") in _error_pairs(document)
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "./data/trails.fgb",
+        "./data/poi.kml",
+        "https://data.example.com/poi-archive.kmz",
+        "./data/parcels.zip",
+    ],
+)
+def test_manifest_accepts_tier1_vector_extensions(uri: str) -> None:
+    """fix(#1683): the manifest door now accepts the same four tier-1
+    vector formats the upload/reupload doors accepted as of #1682
+    (FlatGeobuf, KML, KMZ, and a zipped File Geodatabase — the last one
+    already matched `.zip`)."""
+    document = _minimal_manifest()
+    document["datasets"][0]["sources"][0]["uri"] = uri
+
+    assert validate_manifest(document) == []
 
 
 def test_unknown_top_level_fields_are_rejected() -> None:

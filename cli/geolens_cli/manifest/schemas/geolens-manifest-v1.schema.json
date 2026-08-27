@@ -122,7 +122,7 @@
           "then": {
             "properties": {
               "uri": {
-                "pattern": "(?i)\\.(?:zip|gpkg|geojson|json|csv|xlsx|xls)(?:[?#].*)?$"
+                "pattern": "(?i)\\.(?:zip|gpkg|geojson|json|csv|xlsx|xls|fgb|kml|kmz)(?:[?#].*)?$"
               }
             }
           }
@@ -145,7 +145,7 @@
         "type": {
           "type": "string",
           "enum": ["vector", "raster_cog"],
-          "description": "Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff."
+          "description": "Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, xls, fgb, kml, or kmz; raster_cog sources require tif or tiff."
         },
         "uri": {
           "type": "string",

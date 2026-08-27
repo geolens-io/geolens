@@ -9076,7 +9076,7 @@ export interface components {
         ManifestSource: {
             /**
              * Type
-             * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, or xls; raster_cog sources require tif or tiff.
+             * @description Source modality. Vector sources require zip, gpkg, geojson, json, csv, xlsx, xls, fgb, kml, or kmz; raster_cog sources require tif or tiff.
              * @enum {string}
              */
             type: "vector" | "raster_cog";

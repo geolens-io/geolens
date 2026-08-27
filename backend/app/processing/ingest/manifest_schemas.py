@@ -63,9 +63,27 @@ ManifestBbox = Annotated[
     Field(min_length=4, max_length=4, description="WGS84 bbox hint."),
 ]
 
+# fix(#1683): the upload/reupload doors accept four more tier-1 vector
+# formats as of #1682 (FlatGeobuf, KML, KMZ, and a zipped File Geodatabase),
+# but that PR deliberately deferred extending the manifest door to them —
+# an earlier fgb-only version of this allowlist was dropped from #1681 for
+# being asymmetric with the other three. `.zip` already covers a zipped
+# File Geodatabase (the shapefile-vs-fgdb disambiguation happens downstream
+# in `source_format.py`, keyed off content, not the manifest schema).
 MANIFEST_SOURCE_EXTENSIONS: dict[str, frozenset[str]] = {
     "vector": frozenset(
-        {".zip", ".gpkg", ".geojson", ".json", ".csv", ".xlsx", ".xls"}
+        {
+            ".zip",
+            ".gpkg",
+            ".geojson",
+            ".json",
+            ".csv",
+            ".xlsx",
+            ".xls",
+            ".fgb",
+            ".kml",
+            ".kmz",
+        }
     ),
     "raster_cog": frozenset({".tif", ".tiff"}),
 }
@@ -95,7 +113,8 @@ class ManifestSource(_ManifestBaseModel):
     type: Literal["vector", "raster_cog"] = Field(
         description=(
             "Source modality. Vector sources require zip, gpkg, geojson, json, "
-            "csv, xlsx, or xls; raster_cog sources require tif or tiff."
+            "csv, xlsx, xls, fgb, kml, or kmz; raster_cog sources require tif "
+            "or tiff."
         )
     )
     uri: ManifestSourceUri

@@ -1,0 +1,22 @@
+manifest_version: "1"
+catalog:
+  title: Trail network catalog
+  organization: Parks Department
+datasets:
+  - key: trails
+    title: Trail centerlines
+    description: FlatGeobuf export of the trail network.
+    sources:
+      - type: vector
+        uri: ./data/trails.fgb
+        format: flatgeobuf
+    metadata:
+      tags:
+        - recreation
+        - trails
+      organization: Parks Department
+      crs: EPSG:4326
+      license: CC-BY-4.0
+      attribution: Parks Department
+    publication:
+      intent: draft

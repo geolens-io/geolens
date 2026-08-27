@@ -86,11 +86,33 @@ class TestManifestApplySchemas:
         assert "vrt" in str(exc.value)
 
     @pytest.mark.parametrize(
+        "extension",
+        [".fgb", ".kml", ".kmz", ".zip"],
+    )
+    def test_accepts_tier1_vector_extensions(self, extension: str):
+        """fix(#1683): manifest sources now accept the same four tier-1
+        vector formats the upload/reupload doors accepted as of #1682
+        (FlatGeobuf, KML, KMZ, and a zipped File Geodatabase — the last one
+        already matched the pre-existing `.zip` entry)."""
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["uri"] = f"./data/roads{extension}"
+        del payload["datasets"][0]["sources"][0]["format"]
+
+        request = ManifestApplyRequest.model_validate(payload)
+
+        assert request.datasets[0].sources[0].uri == f"./data/roads{extension}"
+
+    @pytest.mark.parametrize(
         ("source_type", "uri", "expected"),
         [
             ("vector", "./rasters/tile.tif", "requires one of"),
             ("raster_cog", "./data/roads.geojson", "requires one of"),
             ("raster_cog", "./rasters/mosaic.vrt", "Standalone VRT"),
+            # fix(#1683): the new tier-1 vector formats are vector-only —
+            # keep the mismatch check symmetric with the pre-existing ones.
+            ("raster_cog", "./data/roads.fgb", "requires one of"),
+            ("raster_cog", "./data/roads.kml", "requires one of"),
+            ("raster_cog", "./data/roads.kmz", "requires one of"),
         ],
     )
     def test_rejects_source_type_extension_mismatch(
