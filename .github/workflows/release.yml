@@ -416,10 +416,43 @@ jobs:
                     fi
                     if [ "$RECHECK_COUNT" = "1" ]; then
                       summary "newsletter: scheduled \"${SUBJECT}\" for ${PUBLISH_DATE} — cancel or edit in Buttondown before then"
-                    elif [ "$RECHECK_COUNT" != "unreadable" ] && [ "$RECHECK_COUNT" -gt 1 ] && [ -n "$OUR_ID" ] && [ "$OUR_ID" = "$WINNER_ID" ]; then
-                      echo "::warning title=Duplicate scheduled newsletters::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies. This run's copy won the election and stays scheduled; the other run demotes its own. Verify exactly one copy remains scheduled in Buttondown before ${PUBLISH_DATE}."
-                      summary "newsletter: scheduled (won election among ${RECHECK_COUNT} copies) — verify in Buttondown before ${PUBLISH_DATE}"
+                    elif [ "$RECHECK_COUNT" != "unreadable" ] && [ "$RECHECK_COUNT" -gt 1 ]; then
+                      # Whoever OBSERVES duplicates demotes EVERY losing copy,
+                      # its own included — a staggered run can create, recheck
+                      # alone, and exit before a second run's copy appears, so
+                      # a winner that only trusts losers to demote themselves
+                      # can leave two sends standing (fix(#1697 codex r4 P1)).
+                      # PATCHes are idempotent, so two observers demoting the
+                      # same losers is harmless.
+                      DEMOTE_FAILED=0
+                      for LOSER_ID in $RECHECK_IDS; do
+                        [ "$LOSER_ID" = "$WINNER_ID" ] && continue
+                        DEMOTE_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
+                          -X PATCH "https://api.buttondown.com/v1/emails/${LOSER_ID}" \
+                          -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
+                          -H "Content-Type: application/json" \
+                          --data-binary '{"status": "draft"}' 2>/dev/null || echo 000)
+                        case "$DEMOTE_CODE" in
+                          2*) : ;;
+                          *) DEMOTE_FAILED=1 ;;
+                        esac
+                      done
+                      if [ "$DEMOTE_FAILED" != "0" ]; then
+                        echo "::warning title=Newsletter needs attention::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies and demoting at least one losing copy failed. Open Buttondown and make sure exactly one copy sends before ${PUBLISH_DATE}."
+                        summary "newsletter: ${RECHECK_COUNT} scheduled copies, demote incomplete — fix in Buttondown before ${PUBLISH_DATE}"
+                        failed=1
+                      elif [ "$OUR_ID" = "$WINNER_ID" ]; then
+                        echo "::warning title=Duplicate scheduled newsletters resolved::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies; the losing copies were demoted to drafts and this run's copy stays scheduled. Verify in Buttondown before ${PUBLISH_DATE}."
+                        summary "newsletter: scheduled (demoted the duplicate copies) — verify in Buttondown before ${PUBLISH_DATE}"
+                      else
+                        echo "::warning title=Newsletter demoted to draft::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies; this run's copy lost the election and was demoted along with any other losers, and the winning copy stays scheduled. Verify in Buttondown before ${PUBLISH_DATE}."
+                        summary "newsletter: demoted to draft (another copy stays scheduled) — verify in Buttondown before ${PUBLISH_DATE}"
+                      fi
                     elif [ -n "$OUR_ID" ]; then
+                      # Unreadable recheck, or a count of 0: an already-
+                      # scheduled duplicate cannot be ruled out, so demote our
+                      # own copy — a duplicate draft is cheap, a duplicate
+                      # send is not.
                       DEMOTE_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
                         -X PATCH "https://api.buttondown.com/v1/emails/${OUR_ID}" \
                         -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
@@ -427,12 +460,12 @@ jobs:
                         --data-binary '{"status": "draft"}' 2>/dev/null || echo 000)
                       case "$DEMOTE_CODE" in
                         2*)
-                          echo "::warning title=Newsletter demoted to draft::The post-create recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} copies, so this run's email was demoted to a draft. Check Buttondown: send or delete the right copy."
-                          summary "newsletter: demoted to draft (recheck: ${RECHECK_COUNT} copies) — resolve in Buttondown"
+                          echo "::warning title=Newsletter demoted to draft::The post-create recheck for \"${SUBJECT}\" was inconclusive (${RECHECK_COUNT}), so this run's email was demoted to a draft. Check Buttondown: send or delete the right copy."
+                          summary "newsletter: demoted to draft (recheck inconclusive: ${RECHECK_COUNT}) — resolve in Buttondown"
                           ;;
                         *)
-                          echo "::warning title=Newsletter needs attention::The post-create recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} copies and demoting this run's scheduled email failed (HTTP ${DEMOTE_CODE}). Open Buttondown and make sure exactly one copy sends before ${PUBLISH_DATE}."
-                          summary "newsletter: SCHEDULED but recheck found ${RECHECK_COUNT} copies and demote failed — fix in Buttondown before ${PUBLISH_DATE}"
+                          echo "::warning title=Newsletter needs attention::The post-create recheck for \"${SUBJECT}\" was inconclusive (${RECHECK_COUNT}) and demoting this run's scheduled email failed (HTTP ${DEMOTE_CODE}). Open Buttondown and make sure exactly one copy sends before ${PUBLISH_DATE}."
+                          summary "newsletter: SCHEDULED but recheck inconclusive and demote failed — fix in Buttondown before ${PUBLISH_DATE}"
                           failed=1
                           ;;
                       esac
