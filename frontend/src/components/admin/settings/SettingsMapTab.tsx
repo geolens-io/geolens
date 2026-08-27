@@ -168,7 +168,16 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
     }
     if (isPmtilesArchiveUrl(trimmedUrl)) {
       setCheckingPmtilesUrl(true);
-      const isVector = await isVectorPmtilesArchive(trimmedUrl);
+      // codex review (#1688 P1 round 2): probe with the API key already
+      // substituted (mirroring router_public.py's `url.replace("{api_key}",
+      // key_value)`) -- without this, an authenticated archive's header
+      // request hits the literal `{api_key}` placeholder, 401s/404s, fails
+      // open, and the check never actually inspects the archive that gets
+      // served once the key is substituted server-side.
+      const probeUrl = newApiKey.trim()
+        ? trimmedUrl.replace('{api_key}', newApiKey.trim())
+        : trimmedUrl;
+      const isVector = await isVectorPmtilesArchive(probeUrl);
       setCheckingPmtilesUrl(false);
       if (isVector) {
         setUrlError(t('settings.basemaps.pmtilesVectorError'));

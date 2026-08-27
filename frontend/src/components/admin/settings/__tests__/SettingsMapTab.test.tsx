@@ -87,6 +87,31 @@ describe('SettingsMapTab custom basemap URL validation', () => {
     expect(screen.queryByText(/vector tiles/i)).not.toBeInTheDocument();
   });
 
+  it('probes an authenticated archive URL with the API key substituted, not the literal placeholder', async () => {
+    vi.mocked(PMTiles).mockImplementationOnce(function (this: { getHeader: () => Promise<{ tileType: number }> }) {
+      this.getHeader = vi.fn().mockResolvedValue({ tileType: 1 }); // vector -- only reachable via the substituted URL
+    } as unknown as typeof PMTiles);
+
+    const user = userEvent.setup();
+    renderMapTab();
+    await user.type(screen.getByLabelText(/name/i), 'Authenticated PMTiles');
+    await user.type(
+      screen.getByLabelText(/tile url/i),
+      escapeUserEventBraces('https://example.com/{api_key}/world.pmtiles'),
+    );
+    await user.type(screen.getByLabelText(/api key/i), 'secret-key');
+    await user.click(screen.getByRole('button', { name: /add/i }));
+
+    // The mocked header (tileType: 1, vector) is only returned regardless of
+    // which URL PMTiles was constructed with, so the meaningful assertion is
+    // on the constructor call argument itself: it must be the substituted
+    // URL, never the literal `{api_key}` placeholder.
+    expect(await screen.findByText(/vector tiles/i)).toBeInTheDocument();
+    const calls = vi.mocked(PMTiles).mock.calls;
+    const probedUrl = calls[calls.length - 1]?.[0];
+    expect(probedUrl).toBe('https://example.com/secret-key/world.pmtiles');
+  });
+
   it('still rejects an unrecognized URL shape', async () => {
     renderMapTab();
     await addBasemap('Bad', 'https://example.com/not-a-recognized-shape');
