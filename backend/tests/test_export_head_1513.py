@@ -63,6 +63,7 @@ def mock_export_service(monkeypatch):
         target_srs=None,
         bbox=None,
         where=None,
+        pmtiles_maxzoom=None,
         column_info=None,
     ):
         calls.append(format_key)

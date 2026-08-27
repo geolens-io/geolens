@@ -384,6 +384,7 @@ class TestNonSpatialBboxIsDropped:
             target_srs=None,
             bbox=None,
             where=None,
+            pmtiles_maxzoom=None,
             column_info=None,
         ):
             seen["bbox"] = bbox
