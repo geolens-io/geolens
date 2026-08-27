@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import text
 
 from app.core.db.tenant_session import tenant_task
+from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.dataset_origin import service_layer_identity
 from app.platform.jobs.heartbeat import (
     attempt_scoped_staging_table,
@@ -746,9 +747,18 @@ async def ingest_service(
     user_id: str,
     attempt_id: str | None = None,
     token: str | None = None,
+    credential_ref: str | None = None,
     **kwargs,
 ) -> None:
     """Background task: import a remote service layer via ogr2ogr.
+
+    feat(#1676): the import door hands its service credential over the same
+    one-use channel the refresh door has used since #1220. ``credential_ref``
+    is a reference redeemed exactly once below; ``token`` is the durable task
+    argument, which after #1676 only an install with no shared credential
+    store configured still produces. At most one is ever set — see
+    ``resolve_worker_credential`` for the tie-break and
+    ``resolve_dispatch_credential`` for which state produces which.
 
     Full pipeline:
     1. Update job status to running
@@ -773,6 +783,7 @@ async def ingest_service(
     from app.processing.ingest.ogr import build_pg_conn_str, run_ogr2ogr_service
     from app.processing.ingest.service import generate_table_name
     from app.platform.jobs.models import IngestJob
+    from app.platform.refresh.credentials import resolve_worker_credential
 
     # IA-P0-03 defense-in-depth: revalidate source_url at fetch time.
     # The route-level check at commit_import covers the preview→commit
@@ -847,6 +858,20 @@ async def ingest_service(
                     "collision_warning": collision_warning,
                 }
                 await session.commit()
+
+        # feat(#1676): redeem the one-use credential, AFTER phase 1 rather
+        # than before it. Two reasons, and the second is the load-bearing one:
+        # a single-use secret must only be spent on an attempt that is really
+        # going to run, and phase 1 is where `claim_job_attempt_and_start_
+        # heartbeat` decides that (it returns None for a superseded attempt,
+        # and this task returns without ever touching the credential). The
+        # second: the failure write at the bottom of this task is fenced on
+        # `status == 'running'`, and phase 1 is what sets that — claiming
+        # before it would leave a `credential_expired` failure unrecorded and
+        # the job pending until the stale sweep. Placed outside the phase-1
+        # session so the store round trip does not run with a DB session held
+        # open.
+        token = await resolve_worker_credential(token, credential_ref)
 
         # ----------------------------------------------------------------- #
         # ogr2ogr subprocess — NO session open. Holding a session open
@@ -1049,6 +1074,13 @@ async def ingest_service(
             )
 
     except Exception as exc:  # broad: PostGIS/DB ingest can fail at any step; mark job failed and re-raise
+        # feat(#1676): this task now HOLDS the claimed secret as a value, so it
+        # gets the same exact-value scrub `reupload_service` does. The pattern
+        # layers (run_ogr2ogr_service, redact_url_credentials) cover the token
+        # nobody holds by matching URL shapes; this covers the one this attempt
+        # holds, in whatever shape an origin echoes it back. Mutated in place
+        # so the class survives for the bare re-raise the queue records.
+        scrub_secret_from_exception(exc, token)
         structlog.get_logger().exception(
             "Ingest task failed",
             job_id=job_id,

@@ -2839,7 +2839,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # derivation moved to the shared ingest/source_format.py (one import line),
     # and the DBF-truncation guard gained the comment recording that it is
     # keyed on the derived format, not the .zip suffix. Cap 1245 -> 1247, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1247,
+    # feat(#1676): -5 — `_resolve_service_token`'s body moved out to
+    # platform/refresh/credentials.resolve_worker_credential so `ingest_service`
+    # can redeem the same way. Neither task module may import the other
+    # (tasks_reupload already reaches into tasks_vector at call time, so a
+    # top-level edge back would close a cycle), which is what put the shared
+    # copy in platform/. Ratchet DOWN in the same commit, per the no-headroom
+    # rule. Cap 1247 -> 1242, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1242,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3281,7 +3288,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # dropped its nine-entry literal for settings.allowed_extensions_list, so
     # the two upload doors cannot answer differently. Ratchet DOWN in the same
     # commit, per the no-headroom rule. Cap 1151 -> 1144, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1144,
+    # feat(#1676): +50 — the re-upload commit door leases its service token
+    # through the same one-use Valkey handoff the refresh door has used since
+    # #1220, instead of dispatching it as a durable task argument. Most of the
+    # lines are the staging block and its 503, placed before the commit for the
+    # reason the refresh door places its own there (a store failure rolls the
+    # whole request back rather than stranding a dispatch that can never
+    # authenticate), plus the comment recording why a storeless install falls
+    # back here and is refused at the refresh door. The rest is the discard
+    # wrapper on the defer rollback and the extra dispatch argument.
+    # Cap 1144 -> 1194, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1194,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -3367,7 +3384,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # warning is Shapefile-only and a File Geodatabase now arrives in a .zip
     # too. The derivation itself moved out to ingest/source_format.py, shared
     # with the reupload path. Cap 1083 -> 1085, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1085,
+    # feat(#1676): +32 — `ingest_service` accepts a `credential_ref` and
+    # redeems it once. Nearly all of it is two comments: why the claim sits
+    # AFTER phase 1 (the failure write below is fenced on `status == 'running'`,
+    # which phase 1 is what sets, so claiming earlier would leave a
+    # `credential_expired` failure unrecorded and the job pending until the
+    # stale sweep), and why the failure handler now scrubs the claimed secret
+    # by exact value the way `reupload_service` does — this task holds the
+    # value now, and the pattern layers only match tokens shaped like URLs.
+    # Cap 1085 -> 1117, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1117,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
@@ -3456,7 +3482,24 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # analysis materialize path handing over one it just CTAS'd, and delete now
     # drops only the second; the caller is the only place that knows which.
     # Cap 1199 -> 1211, exact.
-    "backend/app/processing/ingest/service.py": 1211,
+    # feat(#1676): +48 — `queue_ingest_job`'s service branch leases the token
+    # rather than dispatching it. The 503 branch is the bulk: unlike the two
+    # doors that stage before their commit, this runs after `commit_import` has
+    # already committed the job, so an unreachable store has to finalize the
+    # job row itself before raising or it strands a pending row until the stale
+    # sweep. The rest is the discard on the defer rollback and the comment
+    # saying the state-1/state-3 choice is not this door's to make.
+    # Cap 1211 -> 1259, exact.
+    # fix(#1689 codex r1): +25 — the rolling-deploy skew note. A worker from
+    # the previous generation takes `credential_ref` through `**kwargs` and
+    # discards it, and the review asked for a versioned task name to gate that.
+    # The comment records why the gate is the worse option (Procrastinate fails
+    # its own job on TaskNotFound but nothing writes the ingest_jobs row, so the
+    # user sees a hang instead of a retryable failure) and why the window is
+    # narrower here than at the refresh door, where #1220 accepted the same
+    # trade. Written down so the next review lands on the decision rather than
+    # re-deriving it. Cap 1259 -> 1284, exact.
+    "backend/app/processing/ingest/service.py": 1284,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

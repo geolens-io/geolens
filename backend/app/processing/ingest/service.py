@@ -1125,10 +1125,17 @@ async def queue_ingest_job(
 
     Raises ``HTTPException 400`` when the job has no file_path and no
     source_url so the route handler surfaces a clear error.
-    Raises ``HTTPException 503`` when Procrastinate is unreachable.
+    Raises ``HTTPException 503`` when Procrastinate is unreachable, or when a
+    configured credential store cannot be reached to stage a service token
+    (feat(#1676) — see ``resolve_dispatch_credential``).
     """
     import os
 
+    from app.platform.refresh.credentials import (
+        CredentialStoreUnavailable,
+        discard_service_credential,
+        resolve_dispatch_credential,
+    )
     from app.processing.ingest.constants import PRIORITY_QUEUE_THRESHOLD_BYTES
     from app.processing.ingest.tasks import ingest_file, ingest_raster, ingest_service
 
@@ -1137,6 +1144,39 @@ async def queue_ingest_job(
         # a local so mypy preserves the ``str`` narrowing inside the
         # nested closure (the attribute access reverts to ``str | None``).
         source_url = job.source_url
+        job_failed = make_ingest_job_failed_rollback(job)
+
+        # feat(#1676): the import door's half of the lease. On an install with
+        # a shared credential store this returns (None, ref) and the secret
+        # never becomes a task argument; without one it returns the token
+        # unchanged, which is what this door has always dispatched. The whole
+        # decision — including which of those two an install gets — is
+        # resolve_dispatch_credential's, so this door cannot drift from the
+        # re-upload one.
+        credential_ref: str | None = None
+        try:
+            token, credential_ref = await resolve_dispatch_credential(
+                token, door="import"
+            )
+        except CredentialStoreUnavailable as exc:
+            # The job row is already committed by the time this runs
+            # (commit_import commits before dispatching), so a bare raise
+            # would strand it pending until the stale sweep. Finalize it the
+            # way the orphan guard would have, then answer with the 503 the
+            # refresh door gives for the same condition.
+            await job_failed(exc)
+            await db.commit()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "credential_store_unavailable",
+                    "message": (
+                        "Could not stage the service credential for this "
+                        "import. Check that the credential store is "
+                        "reachable and try again."
+                    ),
+                },
+            ) from exc
 
         async def _defer_service() -> None:
             await defer_async_with_tenant(
@@ -1147,11 +1187,44 @@ async def queue_ingest_job(
                 source_layer=job.source_layer or "",
                 user_id=user_id,
                 token=token,
+                # fix(#1689 codex r1) — ROLLING-DEPLOY SKEW, accepted, and
+                # accepted the way #1220 accepted the identical question at
+                # the refresh door (router_refresh.py carries the long form).
+                # A worker from the previous generation takes `credential_ref`
+                # through `**kwargs` and discards it, fetches unauthenticated,
+                # collects the origin's 401, and fails the job blaming the
+                # origin.
+                #
+                # The gate that would close it is a task name old workers do
+                # not register, and it is the WORSE option for the reason
+                # #1220 wrote down: Procrastinate marks its OWN job failed on
+                # TaskNotFound, but nothing then writes the ingest_jobs row,
+                # so it sits `pending` in the user's job list until the
+                # stale-job sweep. A hang reads worse than a failure you can
+                # retry, and the retry succeeds because by then the window has
+                # closed.
+                #
+                # The window is narrower here than at the refresh door. A
+                # storeless install dispatches no reference at all (state 3),
+                # so the default deployment has no skew; only an install with
+                # REDIS_URL set, mid-rollout, on a token-bearing import is
+                # exposed, and single-node compose deploys never overlap
+                # generations. Nothing is stranded either: the old worker
+                # fails the job, `ingest_jobs.status` leaves ('pending',
+                # 'running'), renewal stops, and the credential dies by TTL.
+                credential_ref=credential_ref,
             )
+
+        async def _rollback_service(defer_exc: BaseException) -> None:
+            await job_failed(defer_exc)
+            # The worker will never come for it. Best-effort; the TTL is the
+            # real guarantee, and this only shortens a window we already know
+            # nothing will use.
+            await discard_service_credential(credential_ref)
 
         await defer_with_orphan_guard(
             _defer_service,
-            rollback=make_ingest_job_failed_rollback(job),
+            rollback=_rollback_service,
             db=db,
         )
         return
