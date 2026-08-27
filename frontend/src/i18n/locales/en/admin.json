@@ -548,6 +548,8 @@
       "apiKeyPlaceholder": "Optional — required if URL contains {api_key}",
       "apiKeyHelp": "Use {api_key} in the tile URL as a placeholder. The key is interpolated server-side.",
       "urlError": "URL must contain {z}/{x}/{y} placeholders, end with .json, contain /styles/, or point to a PMTiles archive (.pmtiles)",
+      "pmtilesVectorError": "This PMTiles archive contains vector tiles, which need a style to render. Publish a style JSON that references it with pmtiles://<url> instead of adding the archive directly.",
+      "checkingUrl": "Checking…",
       "removeBasemap": "Remove basemap",
       "add": "Add",
       "saved": "Basemaps saved",

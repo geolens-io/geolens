@@ -99,12 +99,20 @@ vi.mock('maplibre-gl', () => {
   }
 })
 
-// Mock pmtiles (imported by `@/lib/maplibre-worker` for protocol registration;
-// its real constructor has no browser-API dependency, but stubbing keeps map
-// surface tests hermetic and avoids instantiating a real Protocol per test).
+// Mock pmtiles (imported by `@/lib/maplibre-worker` for protocol registration,
+// and dynamically imported by SettingsMapTab to read an archive's header
+// before accepting it as a bare-URL basemap). Real constructors have no
+// browser-API dependency, but stubbing keeps tests hermetic and avoids a real
+// network fetch. `PMTiles.getHeader()` defaults to a raster tileType (Png) so
+// existing pmtiles-archive tests aren't rejected by default; individual tests
+// override it via `vi.mocked(PMTiles).mockImplementationOnce(...)` for the
+// vector-archive-rejection case.
 vi.mock('pmtiles', () => ({
   Protocol: vi.fn(function MockProtocol(this: { tile: () => void }) {
     this.tile = vi.fn()
+  }),
+  PMTiles: vi.fn(function MockPMTiles(this: { getHeader: () => Promise<{ tileType: number }> }) {
+    this.getHeader = vi.fn().mockResolvedValue({ tileType: 2 }) // TileType.Png (raster)
   }),
 }))
 

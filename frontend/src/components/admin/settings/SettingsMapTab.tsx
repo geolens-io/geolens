@@ -40,6 +40,35 @@ function isValidTileUrl(url: string): boolean {
   return isPmtilesArchiveUrl(url);
 }
 
+// codex review (#1688 P1): a bare PMTiles archive is only renderable as a
+// basemap when it's raster -- toMaplibreStyle wraps it as a single raster
+// layer, and a vector archive has no layer/paint styling to render sensibly
+// (see basemap-utils.ts). Vector vs raster can only be told apart by reading
+// the archive's own header (a small ranged HTTP request), not from the URL
+// shape, so this checks it at the one point a human types in a NEW archive
+// URL, before it's saved as a basemap.
+//
+// `pmtiles` is dynamically imported rather than statically imported here (or
+// in the widely-shared basemap-utils.ts) so it stays out of every bundle that
+// merely imports this admin tab -- it loads only when an archive URL is
+// actually being added.
+//
+// Fails OPEN on a read error (CORS, network, unsupported archive): MapLibre's
+// own registered pmtiles:// protocol will attempt the identical fetch at
+// render time regardless, so a failed check here does not change what
+// eventually happens on the map -- it only means this admission gate could
+// not pre-empt it.
+async function isVectorPmtilesArchive(url: string): Promise<boolean> {
+  try {
+    const { PMTiles } = await import('pmtiles');
+    const archiveUrl = url.startsWith('pmtiles://') ? url.slice('pmtiles://'.length) : url;
+    const header = await new PMTiles(archiveUrl).getHeader();
+    return header.tileType === 1; // TileType.Mvt
+  } catch {
+    return false;
+  }
+}
+
 interface PluginTogglesProps {
   settings: SettingItem[];
   enabledPlugins: string[];
@@ -113,6 +142,7 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
   const [newAttribution, setNewAttribution] = useState('');
   const [newApiKey, setNewApiKey] = useState('');
   const [urlError, setUrlError] = useState('');
+  const [checkingPmtilesUrl, setCheckingPmtilesUrl] = useState(false);
 
   const basemaps = values.basemaps as BasemapEntry[];
   const mapDefaults = values.map_defaults as MapDefaultsValue;
@@ -128,17 +158,27 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
     setters.basemaps(basemaps.filter((b) => b.id !== id));
   }
 
-  function handleAdd() {
+  async function handleAdd() {
     setUrlError('');
     if (!newName.trim() || !newUrl.trim()) return;
-    if (!isValidTileUrl(newUrl.trim())) {
+    const trimmedUrl = newUrl.trim();
+    if (!isValidTileUrl(trimmedUrl)) {
       setUrlError(t('settings.basemaps.urlError'));
       return;
+    }
+    if (isPmtilesArchiveUrl(trimmedUrl)) {
+      setCheckingPmtilesUrl(true);
+      const isVector = await isVectorPmtilesArchive(trimmedUrl);
+      setCheckingPmtilesUrl(false);
+      if (isVector) {
+        setUrlError(t('settings.basemaps.pmtilesVectorError'));
+        return;
+      }
     }
     const entry: BasemapEntry = {
       id: `custom-${Date.now()}`,
       label: newName.trim(),
-      url: newUrl.trim(),
+      url: trimmedUrl,
       enabled: true,
       is_preset: false,
       ...(newAttribution.trim() ? { attribution: newAttribution.trim() } : {}),
@@ -272,8 +312,8 @@ export function SettingsMapTab({ settings, envOnly, onSave, onReset, isSaving, s
                 />
                 <p className="text-xs text-muted-foreground">{t('settings.basemaps.apiKeyHelp', 'Use {api_key} in the tile URL as a placeholder. The key is interpolated server-side.')}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={handleAdd}>
-                {t('settings.basemaps.add')}
+              <Button variant="outline" size="sm" onClick={handleAdd} disabled={checkingPmtilesUrl}>
+                {checkingPmtilesUrl ? t('settings.basemaps.checkingUrl', 'Checking…') : t('settings.basemaps.add')}
               </Button>
             </div>
           )}

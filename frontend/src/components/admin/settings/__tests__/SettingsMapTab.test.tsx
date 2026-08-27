@@ -1,5 +1,6 @@
 import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
+import { PMTiles } from 'pmtiles';
 import { SettingsMapTab } from '../SettingsMapTab';
 import type { SettingItem } from '@/api/settings';
 
@@ -9,6 +10,12 @@ import type { SettingItem } from '@/api/settings';
  * It gates the "Add" button before a request ever reaches the API, so a
  * self-hoster typing a PMTiles archive URL must not be blocked here even
  * though the backend would accept it.
+ *
+ * codex review (#1688 P1): a bare PMTiles archive is only renderable as a
+ * basemap when it's raster (see basemap-utils.ts). `handleAdd` reads the
+ * archive header via `pmtiles`'s `PMTiles` class (mocked globally in
+ * src/test/setup.ts, defaulting to a raster tileType) before accepting a
+ * bare archive URL, and rejects a vector one with a clear error.
  */
 // userEvent.type() reads `{` as the start of a special-key sequence (e.g.
 // `{enter}`), so a literal `{` must be escaped as `{{` (a lone `}` types
@@ -40,20 +47,44 @@ function renderMapTab(overrides: Partial<Parameters<typeof SettingsMapTab>[0]> =
 }
 
 describe('SettingsMapTab custom basemap URL validation', () => {
-  it('accepts a bare https .pmtiles archive URL', async () => {
+  it('accepts a bare https .pmtiles archive URL (raster header)', async () => {
     renderMapTab();
     await addBasemap('World PMTiles', 'https://example.com/world.pmtiles');
 
-    expect(screen.getByText('https://example.com/world.pmtiles')).toBeInTheDocument();
+    expect(await screen.findByText('https://example.com/world.pmtiles')).toBeInTheDocument();
     expect(screen.queryByText(/must contain/i)).not.toBeInTheDocument();
   });
 
-  it('accepts a pmtiles://-prefixed archive URL', async () => {
+  it('accepts a pmtiles://-prefixed archive URL (raster header)', async () => {
     renderMapTab();
     await addBasemap('World PMTiles', 'pmtiles://https://example.com/world.pmtiles');
 
-    expect(screen.getByText('pmtiles://https://example.com/world.pmtiles')).toBeInTheDocument();
+    expect(await screen.findByText('pmtiles://https://example.com/world.pmtiles')).toBeInTheDocument();
     expect(screen.queryByText(/must contain/i)).not.toBeInTheDocument();
+  });
+
+  it('rejects a bare vector PMTiles archive with a clear error instead of adding it', async () => {
+    vi.mocked(PMTiles).mockImplementationOnce(function (this: { getHeader: () => Promise<{ tileType: number }> }) {
+      this.getHeader = vi.fn().mockResolvedValue({ tileType: 1 }); // TileType.Mvt (vector)
+    } as unknown as typeof PMTiles);
+
+    renderMapTab();
+    await addBasemap('Vector PMTiles', 'https://example.com/vector.pmtiles');
+
+    expect(await screen.findByText(/vector tiles/i)).toBeInTheDocument();
+    expect(screen.queryByText('https://example.com/vector.pmtiles')).not.toBeInTheDocument();
+  });
+
+  it('accepts a bare archive when the header read fails (fails open)', async () => {
+    vi.mocked(PMTiles).mockImplementationOnce(function (this: { getHeader: () => Promise<{ tileType: number }> }) {
+      this.getHeader = vi.fn().mockRejectedValue(new Error('network error'));
+    } as unknown as typeof PMTiles);
+
+    renderMapTab();
+    await addBasemap('Unreachable header', 'https://example.com/unreachable.pmtiles');
+
+    expect(await screen.findByText('https://example.com/unreachable.pmtiles')).toBeInTheDocument();
+    expect(screen.queryByText(/vector tiles/i)).not.toBeInTheDocument();
   });
 
   it('still rejects an unrecognized URL shape', async () => {

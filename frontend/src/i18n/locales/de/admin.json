@@ -492,6 +492,8 @@
       "namePlaceholder": "Meine Basiskarte",
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png oder .pmtiles-Archiv",
       "urlError": "URL muss {z}/{x}/{y}-Platzhalter enthalten, mit .json enden, oder auf ein PMTiles-Archiv (.pmtiles) verweisen",
+      "pmtilesVectorError": "Dieses PMTiles-Archiv enthält Vektor-Kacheln, die einen Stil zum Rendern benötigen. Veröffentlichen Sie stattdessen ein Style-JSON, das mit pmtiles://<url> darauf verweist, anstatt das Archiv direkt hinzuzufügen.",
+      "checkingUrl": "Wird geprüft…",
       "removeBasemap": "Basiskarte entfernen",
       "add": "Hinzufügen",
       "attributionLabel": "Quellenangabe",

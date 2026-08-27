@@ -492,6 +492,8 @@
       "namePlaceholder": "Mi mapa base personalizado",
       "tileUrlPlaceholder": "https://tiles.example.com/{z}/{x}/{y}.png o archivo .pmtiles",
       "urlError": "La URL debe contener los marcadores {z}/{x}/{y}, terminar con .json, o apuntar a un archivo PMTiles (.pmtiles)",
+      "pmtilesVectorError": "Este archivo PMTiles contiene teselas vectoriales, que necesitan un estilo para renderizarse. Publique un JSON de estilo que lo referencie con pmtiles://<url> en lugar de agregar el archivo directamente.",
+      "checkingUrl": "Comprobando…",
       "removeBasemap": "Eliminar mapa base",
       "add": "Agregar",
       "attributionLabel": "Atribución",
