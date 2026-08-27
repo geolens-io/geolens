@@ -393,16 +393,32 @@ jobs:
                       -G "https://api.buttondown.com/v1/emails" \
                       --data-urlencode "subject=${SUBJECT}" \
                       -H "Authorization: Token ${BUTTONDOWN_API_KEY}" 2>/dev/null || echo 000)
-                    RECHECK_COUNT="unreadable"
+                    # Count only SCHEDULED copies (a draft with this subject
+                    # is not a competing send), and elect a deterministic
+                    # winner: the lexicographically-first id keeps its
+                    # schedule, every other run demotes its own copy. Two
+                    # racing runs applying the same rule converge on exactly
+                    # one scheduled email instead of both demoting themselves
+                    # to zero (fix(#1697 codex r3 P2)).
+                    RECHECK_IDS="unreadable"
                     case "$RECHECK_CODE" in
                       2*)
-                        RECHECK_COUNT=$(jq -r --arg s "$SUBJECT" \
-                          'if (.results|type) == "array" then ([.results[] | select(.subject == $s)] | length | tostring) else "unreadable" end' \
+                        RECHECK_IDS=$(jq -r --arg s "$SUBJECT" \
+                          'if (.results|type) == "array" then ([.results[] | select(.subject == $s and (.status == "scheduled" or .status == "about_to_send")) | .id] | sort | join(" ")) else "unreadable" end' \
                           newsletter-recheck.json 2>/dev/null || echo unreadable)
                         ;;
                     esac
+                    RECHECK_COUNT="unreadable"
+                    WINNER_ID=""
+                    if [ "$RECHECK_IDS" != "unreadable" ]; then
+                      RECHECK_COUNT=$(printf '%s' "$RECHECK_IDS" | wc -w | tr -d ' ')
+                      WINNER_ID="${RECHECK_IDS%% *}"
+                    fi
                     if [ "$RECHECK_COUNT" = "1" ]; then
                       summary "newsletter: scheduled \"${SUBJECT}\" for ${PUBLISH_DATE} — cancel or edit in Buttondown before then"
+                    elif [ "$RECHECK_COUNT" != "unreadable" ] && [ "$RECHECK_COUNT" -gt 1 ] && [ -n "$OUR_ID" ] && [ "$OUR_ID" = "$WINNER_ID" ]; then
+                      echo "::warning title=Duplicate scheduled newsletters::The recheck for \"${SUBJECT}\" found ${RECHECK_COUNT} scheduled copies. This run's copy won the election and stays scheduled; the other run demotes its own. Verify exactly one copy remains scheduled in Buttondown before ${PUBLISH_DATE}."
+                      summary "newsletter: scheduled (won election among ${RECHECK_COUNT} copies) — verify in Buttondown before ${PUBLISH_DATE}"
                     elif [ -n "$OUR_ID" ]; then
                       DEMOTE_CODE=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' \
                         -X PATCH "https://api.buttondown.com/v1/emails/${OUR_ID}" \
