@@ -525,6 +525,10 @@ async def export_dataset(
             bbox=bbox,
             where=where,
             format_key=format_key,
+            # fix(#1686 codex r2): pmtiles is a single-file format, so THIS
+            # call is the one that must carry the extent-budgeted cap — the
+            # shp branch above can never be pmtiles.
+            pmtiles_maxzoom=pmtiles_maxzoom,
         )
         if format_key == "gpkg":
             # fix(#1532 review r12): off the event loop, like every other

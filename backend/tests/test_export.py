@@ -1146,3 +1146,37 @@ class TestPmtilesMaxzoomForExtent:
         ]
         zooms = [pmtiles_maxzoom_for_extent(b) for b in boxes]
         assert zooms == sorted(zooms, reverse=True)
+
+
+class TestPmtilesMaxzoomPropagation:
+    """fix(#1686 codex r2): the cap is only real if it reaches the pmtiles
+    ogr2ogr invocation — the router's computation was once silently dropped
+    because the kwarg was threaded through the wrong service branch."""
+
+    @pytest.mark.anyio
+    async def test_export_dataset_forwards_cap_to_pmtiles_invocation(
+        self, monkeypatch, tmp_path
+    ):
+        from app.processing.export import service as export_service
+
+        seen: dict = {}
+
+        async def _capture(*args, **kwargs):
+            seen.update(kwargs)
+            # produce the output file the caller expects to exist
+            open(kwargs.get("_out", args[1]), "wb").close()
+
+        monkeypatch.setattr(export_service, "run_ogr2ogr_export", _capture)
+        monkeypatch.setattr(
+            export_service.settings, "upload_staging_dir", str(tmp_path)
+        )
+
+        await export_service.export_dataset(
+            "some_table",
+            "Some Dataset",
+            "pmtiles",
+            schema="data",
+            pmtiles_maxzoom=11,
+        )
+        assert seen.get("pmtiles_maxzoom") == 11
+        assert seen.get("format_key") == "pmtiles"
