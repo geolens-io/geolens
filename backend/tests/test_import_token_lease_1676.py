@@ -370,6 +370,10 @@ class TestImportDoor:
 
         assert resp.status_code == 503, resp.text
         ref = task.defer_async.call_args.kwargs["credential_ref"]
+        # Asserted before the claim: claim_service_credential(None) raises the
+        # same CredentialExpiredError from its shape guard, so without this the
+        # test passes just as happily on a door that leased nothing at all.
+        assert ref
         with pytest.raises(creds.CredentialExpiredError):
             await creds.claim_service_credential(ref)
 
