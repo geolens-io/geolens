@@ -2201,9 +2201,10 @@ export const downloadCogDatasetsDatasetIdDownloadCogGet = <ThrowOnError extends 
  *
  * Export a dataset as a downloadable file.
  *
- * Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet, and
- * FlatGeobuf formats. Optional CRS reprojection, spatial filtering, and
- * attribute filtering. GeoParquet is always emitted in EPSG:4326 (OGC:CRS84).
+ * Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
+ * FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
+ * filtering, and attribute filtering. GeoParquet is always emitted in
+ * EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
  */
 export const exportDatasetEndpointDatasetsDatasetIdExportGet = <ThrowOnError extends boolean = false>(options: Options<ExportDatasetEndpointDatasetsDatasetIdExportGetData, ThrowOnError>): RequestResult<ExportDatasetEndpointDatasetsDatasetIdExportGetResponses, ExportDatasetEndpointDatasetsDatasetIdExportGetErrors, ThrowOnError> => (options.client ?? client).get<ExportDatasetEndpointDatasetsDatasetIdExportGetResponses, ExportDatasetEndpointDatasetsDatasetIdExportGetErrors, ThrowOnError>({
     security: [

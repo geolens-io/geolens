@@ -738,7 +738,7 @@ class TestDistributions:
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ):
-        """Dataset created via service gets 8 auto-generated distributions."""
+        """Dataset created via service gets 9 auto-generated distributions."""
         admin_id = await get_user_id(test_db_session, "admin")
         ds = await _create_dataset_with_distributions(
             test_db_session, created_by=admin_id
@@ -748,7 +748,7 @@ class TestDistributions:
         )
         assert resp.status_code == 200
         data = resp.json()
-        assert data["total"] == 8
+        assert data["total"] == 9
 
         # All auto_generated
         for d in data["distributions"]:
@@ -1048,7 +1048,7 @@ class TestDistributions:
             geometry_type="MultiPolygon",
         )
         await test_db_session.commit()
-        assert len(created1) == 8
+        assert len(created1) == 9
 
         # Second generation (idempotent)
         created2 = await generate_distributions(
@@ -1061,11 +1061,11 @@ class TestDistributions:
         await test_db_session.commit()
         assert len(created2) == 0  # No new rows
 
-        # Still only 8 total
+        # Still only 9 total
         resp = await client.get(
             f"/records/{ds.record_id}/distributions/", headers=admin_auth_header
         )
-        assert resp.json()["total"] == 8
+        assert resp.json()["total"] == 9
 
     async def test_distribution_lifecycle_modes(
         self,
@@ -1093,11 +1093,11 @@ class TestDistributions:
         assert manual_resp.status_code == 201
         manual_id = manual_resp.json()["id"]
 
-        # Total: 8 system + 1 manual = 9
+        # Total: 9 system + 1 manual = 10
         list_resp = await client.get(
             f"/records/{ds.record_id}/distributions/", headers=admin_auth_header
         )
-        assert list_resp.json()["total"] == 9
+        assert list_resp.json()["total"] == 10
 
         # System distributions are immutable
         auto_dist = next(
@@ -1223,7 +1223,7 @@ class TestCascadeDelete:
         pre_result = await test_db_session.execute(
             select(RecordDistribution).where(RecordDistribution.record_id == record_id)
         )
-        assert len(pre_result.all()) == 8
+        assert len(pre_result.all()) == 9
 
         await client.request(
             "DELETE",
@@ -1322,7 +1322,7 @@ class TestMigrationData:
             )
         )
         download_dists = result.scalars().all()
-        assert len(download_dists) == 6
+        assert len(download_dists) == 7
 
         for d in download_dists:
             assert dataset_id_str in d.url, (

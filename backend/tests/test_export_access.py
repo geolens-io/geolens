@@ -54,6 +54,7 @@ def mock_export_service(monkeypatch):
         target_srs=None,
         bbox=None,
         where=None,
+        pmtiles_maxzoom=None,
         column_info=None,
     ):
         if format_key not in FORMAT_MAP:

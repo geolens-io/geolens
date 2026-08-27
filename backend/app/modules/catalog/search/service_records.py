@@ -41,6 +41,7 @@ _FORMAT_MEDIA = {
     "csv": "text/csv",
     "parquet": "application/vnd.apache.parquet",
     "fgb": "application/vnd.flatgeobuf",
+    "pmtiles": "application/vnd.pmtiles",
 }
 
 _RASTER_FORMAT_MEDIA = {

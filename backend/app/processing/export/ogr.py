@@ -1,6 +1,7 @@
 """Async ogr2ogr export subprocess wrapper for PostGIS-to-file conversion."""
 
 import asyncio
+import math
 import os
 
 # fix(#909): build_pg_conn_str is deliberately NOT imported at module scope.
@@ -62,7 +63,65 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "ext": ".fgb",
         "media": "application/vnd.flatgeobuf",
     },
+    # PMTiles has no IANA registration either; `application/vnd.pmtiles` is
+    # the vendor-prefixed type the protomaps tooling itself uses. Single
+    # file, like fgb/gpkg/geojson/csv — no zip special-casing.
+    "pmtiles": {
+        "driver": "PMTiles",
+        "ext": ".pmtiles",
+        "media": "application/vnd.pmtiles",
+    },
 }
+
+# The PMTiles driver's dataset creation options default to
+# MAXZOOM=5, far too coarse for anything but a world overview. MINZOOM is
+# fixed at 0; MAXZOOM is capped per export by extent — see
+# pmtiles_maxzoom_for_extent. The ceiling of 14 matches the vector-tile
+# pyramid's own top zoom (catalog/records/service.py's vector_tiles
+# distribution and the map builder's default source config).
+_PMTILES_MINZOOM = "0"
+_PMTILES_MAXZOOM_CEILING = 14
+# fix(#1686 codex r1): unlike the live tile endpoint, which renders tiles on
+# demand, the PMTiles writer materializes EVERY tile in MINZOOM..MAXZOOM that
+# intersects the data, so tile count is extent-driven and a wide-extent
+# polygon layer at a fixed z14 could demand up to 4**14 tiles — staging-disk
+# exhaustion the feature-count cap cannot see. Budget the deepest zoom's
+# tile count instead: 4**8 caps a world-extent layer at z8 while a
+# city-extent layer still reaches z14.
+_PMTILES_TILE_BUDGET = 65_536
+
+
+def _mercator_y(lat: float) -> float:
+    """Normalized Web-Mercator y in [0, 1] (0 at the north clamp)."""
+    lat = max(min(lat, 85.05112878), -85.05112878)
+    s = math.sin(math.radians(lat))
+    y = 0.5 - math.log((1 + s) / (1 - s)) / (4 * math.pi)
+    return min(max(y, 0.0), 1.0)
+
+
+def pmtiles_maxzoom_for_extent(
+    extent: tuple[float, float, float, float] | None,
+) -> int:
+    """Deepest zoom whose materialized tile count stays within budget.
+
+    ``extent`` is a WGS84 (minx, miny, maxx, maxy) bounds tuple. ``None`` —
+    an unknown extent — assumes the whole world, the conservative direction.
+    An antimeridian-crossing extent read via shapely ``bounds`` reports the
+    long way around, which over-caps but never under-caps.
+    """
+    if extent is None:
+        xspan, yspan = 1.0, 1.0
+    else:
+        minx, miny, maxx, maxy = extent
+        xspan = min(max((maxx - minx) / 360.0, 0.0), 1.0)
+        yspan = min(max(_mercator_y(miny) - _mercator_y(maxy), 0.0), 1.0)
+
+    for z in range(_PMTILES_MAXZOOM_CEILING, 0, -1):
+        cols = max(1, math.ceil(xspan * (1 << z)))
+        rows = max(1, math.ceil(yspan * (1 << z)))
+        if cols * rows <= _PMTILES_TILE_BUDGET:
+            return z
+    return 0
 
 
 def bbox_where_sql(bbox: list[float], *, literal: bool = False) -> str:
@@ -109,6 +168,7 @@ async def run_ogr2ogr_export(
     bbox: list[float] | None = None,
     where: str | None = None,
     format_key: str = "",
+    pmtiles_maxzoom: int | None = None,
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -176,6 +236,27 @@ async def run_ogr2ogr_export(
 
     if format_key == "csv":
         cmd.extend(["-lco", "GEOMETRY=AS_WKT"])
+
+    if format_key == "pmtiles":
+        # The driver defaults MAXZOOM to 5; every attribute
+        # column already comes through by default (no -select), and the
+        # layer name is left to ogr2ogr's own default (the source table
+        # name) rather than an explicit -nln, matching every other format
+        # here. A caller that computed no extent-aware cap gets the
+        # world-extent one — the conservative direction (fix(#1686 codex r1)).
+        maxzoom = (
+            pmtiles_maxzoom
+            if pmtiles_maxzoom is not None
+            else pmtiles_maxzoom_for_extent(None)
+        )
+        cmd.extend(
+            [
+                "-dsco",
+                f"MINZOOM={_PMTILES_MINZOOM}",
+                "-dsco",
+                f"MAXZOOM={min(max(maxzoom, 0), _PMTILES_MAXZOOM_CEILING)}",
+            ]
+        )
 
     # fix(#430 BA-06): bound the export subprocess wall-clock with a kill-on-timeout
     # (mirrors the ingest path) so a slow/large table can't hold an API worker;

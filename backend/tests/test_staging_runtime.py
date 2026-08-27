@@ -81,6 +81,7 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
         bbox: list[float] | None = None,
         where: str | None = None,
         format_key: str = "",
+        pmtiles_maxzoom: int | None = None,
     ) -> None:
         # Simulate successful export by creating the output file.
         Path(output_path).write_text("export-data", encoding="utf-8")

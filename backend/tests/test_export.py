@@ -88,6 +88,7 @@ def mock_export_service(monkeypatch):
         target_srs=None,
         bbox=None,
         where=None,
+        pmtiles_maxzoom=None,
         column_info=None,
     ):
         # Replicate the real format validation
@@ -553,6 +554,75 @@ class TestExportFormats:
             headers=admin_auth_header,
         )
         assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_export_format_pmtiles(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Request with format=pmtiles returns 200 with the PMTiles Content-Type."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="PmtilesDS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert "vnd.pmtiles" in resp.headers["content-type"]
+
+    @pytest.mark.anyio
+    async def test_export_non_spatial_dataset_pmtiles_returns_400(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """PMTiles is a spatial-only format, like gpkg/geojson/shp/parquet/fgb."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="NonSpatialPmtilesDS",
+            geometry_type=None,
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+    @pytest.mark.anyio
+    async def test_export_pmtiles_rejects_non_3857_target_crs(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """PMTiles always tiles in Web Mercator; a conflicting target_crs is a 400."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="PmtilesCrsDS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles", "target_crs": "EPSG:4326"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "3857" in resp.json()["detail"]
+
+    @pytest.mark.anyio
+    async def test_export_pmtiles_allows_explicit_3857_target_crs(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The one target_crs value that matches what PMTiles actually emits."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name="PmtilesCrsOkDS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": "pmtiles", "target_crs": "EPSG:3857"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
 
 
 # ---------------------------------------------------------------------------
@@ -1031,3 +1101,82 @@ class TestExportWhereColonLiteral:
             headers=admin_auth_header,
         )
         assert resp.status_code == 413
+
+
+class TestPmtilesMaxzoomForExtent:
+    """fix(#1686 codex r1): the PMTiles writer materializes the whole pyramid,
+    so MAXZOOM is budgeted from extent instead of fixed at 14."""
+
+    def test_world_extent_caps_at_z8(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        assert pmtiles_maxzoom_for_extent((-180.0, -85.0, 180.0, 85.0)) == 8
+
+    def test_unknown_extent_assumes_world(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        assert pmtiles_maxzoom_for_extent(None) == 8
+
+    def test_city_extent_reaches_ceiling(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        # ~NYC: a quarter-degree box
+        assert pmtiles_maxzoom_for_extent((-74.1, 40.6, -73.85, 40.85)) == 14
+
+    def test_degenerate_point_extent_reaches_ceiling(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        assert pmtiles_maxzoom_for_extent((-73.9, 40.7, -73.9, 40.7)) == 14
+
+    def test_continental_extent_lands_between(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        # ~CONUS: capped below the ceiling, above the world floor
+        z = pmtiles_maxzoom_for_extent((-125.0, 24.0, -66.0, 49.0))
+        assert 8 < z < 14
+
+    def test_monotonic_wider_extent_never_deeper(self):
+        from app.processing.export.ogr import pmtiles_maxzoom_for_extent
+
+        boxes = [
+            (-74.1, 40.6, -73.85, 40.85),
+            (-79.0, 38.0, -71.0, 45.0),
+            (-125.0, 24.0, -66.0, 49.0),
+            (-180.0, -85.0, 180.0, 85.0),
+        ]
+        zooms = [pmtiles_maxzoom_for_extent(b) for b in boxes]
+        assert zooms == sorted(zooms, reverse=True)
+
+
+class TestPmtilesMaxzoomPropagation:
+    """fix(#1686 codex r2): the cap is only real if it reaches the pmtiles
+    ogr2ogr invocation — the router's computation was once silently dropped
+    because the kwarg was threaded through the wrong service branch."""
+
+    @pytest.mark.anyio
+    async def test_export_dataset_forwards_cap_to_pmtiles_invocation(
+        self, monkeypatch, tmp_path
+    ):
+        from app.processing.export import service as export_service
+
+        seen: dict = {}
+
+        async def _capture(*args, **kwargs):
+            seen.update(kwargs)
+            # produce the output file the caller expects to exist
+            open(kwargs.get("_out", args[1]), "wb").close()
+
+        monkeypatch.setattr(export_service, "run_ogr2ogr_export", _capture)
+        monkeypatch.setattr(
+            export_service.settings, "upload_staging_dir", str(tmp_path)
+        )
+
+        await export_service.export_dataset(
+            "some_table",
+            "Some Dataset",
+            "pmtiles",
+            schema="data",
+            pmtiles_maxzoom=11,
+        )
+        assert seen.get("pmtiles_maxzoom") == 11
+        assert seen.get("format_key") == "pmtiles"

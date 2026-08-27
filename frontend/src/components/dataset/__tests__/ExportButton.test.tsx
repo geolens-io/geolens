@@ -18,13 +18,13 @@ beforeAll(() => {
 });
 
 describe('ExportButton', () => {
-  it('renders all 6 format options by default', async () => {
+  it('renders all 7 format options by default', async () => {
     const user = userEvent.setup();
     render(<ExportButton datasetId="ds-1" datasetName="test" />);
 
     await user.click(screen.getByRole('combobox'));
     const options = await screen.findAllByRole('option');
-    expect(options).toHaveLength(6);
+    expect(options).toHaveLength(7);
     const labels = options.map((o) => o.textContent);
     expect(labels).toEqual(
       expect.arrayContaining([
@@ -34,6 +34,7 @@ describe('ExportButton', () => {
         'CSV',
         'GeoParquet',
         'FlatGeobuf',
+        'PMTiles',
       ]),
     );
   });
@@ -70,6 +71,17 @@ describe('ExportButton', () => {
     await user.click(screen.getByRole('button', { name: /export/i }));
 
     expect(downloadExport).toHaveBeenCalledWith('ds-1', 'fgb', 'rivers.fgb');
+  });
+
+  it('downloads PMTiles with a .pmtiles extension', async () => {
+    const user = userEvent.setup();
+    render(<ExportButton datasetId="ds-1" datasetName="rivers" />);
+
+    await user.click(screen.getByRole('combobox'));
+    await user.click(await screen.findByRole('option', { name: 'PMTiles' }));
+    await user.click(screen.getByRole('button', { name: /export/i }));
+
+    expect(downloadExport).toHaveBeenCalledWith('ds-1', 'pmtiles', 'rivers.pmtiles');
   });
 
   it('limits table datasets to CSV export', async () => {

@@ -89,6 +89,7 @@ class Conversions:
         target_srs=None,
         bbox=None,
         where=None,
+        pmtiles_maxzoom=None,
         column_info=None,
     ):
         self.count += 1
