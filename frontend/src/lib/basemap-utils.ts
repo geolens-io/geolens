@@ -192,10 +192,36 @@ const LEGACY_KEY_MAP: Record<string, string> = {
   'carto-dark-matter': 'openfreemap-dark',
 };
 
+// feat(pmtiles): a bare archive URL, with or without the `pmtiles://` scheme
+// prefix the settings validator also accepts (backend/app/modules/settings/schemas.py).
+const PMTILES_ARCHIVE_RE = /^(?:pmtiles:\/\/)?https?:\/\/\S+\.pmtiles(?:\?\S*)?$/i;
+
+/**
+ * Whether `url` is a bare PMTiles archive URL (optionally `pmtiles://`-prefixed),
+ * as opposed to a style JSON that merely references PMTiles sources internally.
+ */
+export function isPmtilesArchiveUrl(url: string): boolean {
+  return PMTILES_ARCHIVE_RE.test(url);
+}
+
+/** Prefix a PMTiles archive URL with the `pmtiles://` scheme MapLibre's registered protocol expects, if not already present. */
+function toPmtilesProtocolUrl(url: string): string {
+  return url.startsWith('pmtiles://') ? url : `pmtiles://${url}`;
+}
+
 /**
  * Convert a basemap URL to a MapLibre style.
  * - If the URL ends with `.json`, it's already a GL style JSON URL -- return as-is.
- *   (GL style JSON basemaps carry their own attribution in the style spec.)
+ *   (GL style JSON basemaps carry their own attribution in the style spec. This
+ *   also covers a style whose sources reference `pmtiles://` URLs -- once the
+ *   protocol is registered (`@/lib/maplibre-worker`), MapLibre resolves those
+ *   sources itself.)
+ * - If the URL is a bare PMTiles archive (`pmtiles://...` or a plain
+ *   `https://....pmtiles`), wrap it in a single-layer raster StyleSpecification
+ *   whose source uses the `pmtiles://` protocol. Only raster archives are
+ *   supported this way -- a bare vector archive has no styling information
+ *   (layer names, paint) to render sensibly, so a vector PMTiles basemap must
+ *   be configured via a style JSON that references it instead.
  * - Otherwise (XYZ raster tile URL), wrap it in an inline StyleSpecification.
  *   If attribution is provided, it is set on the raster source so that
  *   MapLibre's AttributionControl displays it.
@@ -224,12 +250,19 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
   if (urlPath.endsWith('.json') || url.includes('/styles/')) {
     return url;
   }
+  const isPmtilesArchive = isPmtilesArchiveUrl(url);
   return {
     version: 8 as const,
     sources: {
       basemap: {
         type: 'raster' as const,
-        tiles: [url],
+        // A PMTiles archive is addressed by `url` (MapLibre fetches it as a
+        // TileJSON-like resource, which the registered `pmtiles://` protocol
+        // synthesizes from the archive header) rather than `tiles` (a raw XYZ
+        // template array).
+        ...(isPmtilesArchive
+          ? { url: toPmtilesProtocolUrl(url) }
+          : { tiles: [url] }),
         tileSize: 256,
         ...(attribution ? { attribution } : {}),
       },

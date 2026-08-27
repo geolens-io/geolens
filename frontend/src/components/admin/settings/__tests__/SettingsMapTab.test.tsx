@@ -1,0 +1,74 @@
+import { render, screen } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
+import { SettingsMapTab } from '../SettingsMapTab';
+import type { SettingItem } from '@/api/settings';
+
+/**
+ * feat(pmtiles): `isValidTileUrl` in SettingsMapTab.tsx is the client-side
+ * mirror of the backend's `validate_tile_url` (backend/app/modules/settings/schemas.py).
+ * It gates the "Add" button before a request ever reaches the API, so a
+ * self-hoster typing a PMTiles archive URL must not be blocked here even
+ * though the backend would accept it.
+ */
+// userEvent.type() reads `{` as the start of a special-key sequence (e.g.
+// `{enter}`), so a literal `{` must be escaped as `{{` (a lone `}` types
+// literally and needs no escaping).
+function escapeUserEventBraces(text: string): string {
+  return text.replace(/\{/g, '{{');
+}
+
+async function addBasemap(name: string, url: string) {
+  const user = userEvent.setup();
+  await user.type(screen.getByLabelText(/name/i), name);
+  await user.type(screen.getByLabelText(/tile url/i), escapeUserEventBraces(url));
+  await user.click(screen.getByRole('button', { name: /add/i }));
+  return user;
+}
+
+function renderMapTab(overrides: Partial<Parameters<typeof SettingsMapTab>[0]> = {}) {
+  const settings: SettingItem[] = [];
+  return render(
+    <SettingsMapTab
+      settings={settings}
+      envOnly={false}
+      onSave={vi.fn()}
+      onReset={vi.fn()}
+      isSaving={false}
+      {...overrides}
+    />,
+  );
+}
+
+describe('SettingsMapTab custom basemap URL validation', () => {
+  it('accepts a bare https .pmtiles archive URL', async () => {
+    renderMapTab();
+    await addBasemap('World PMTiles', 'https://example.com/world.pmtiles');
+
+    expect(screen.getByText('https://example.com/world.pmtiles')).toBeInTheDocument();
+    expect(screen.queryByText(/must contain/i)).not.toBeInTheDocument();
+  });
+
+  it('accepts a pmtiles://-prefixed archive URL', async () => {
+    renderMapTab();
+    await addBasemap('World PMTiles', 'pmtiles://https://example.com/world.pmtiles');
+
+    expect(screen.getByText('pmtiles://https://example.com/world.pmtiles')).toBeInTheDocument();
+    expect(screen.queryByText(/must contain/i)).not.toBeInTheDocument();
+  });
+
+  it('still rejects an unrecognized URL shape', async () => {
+    renderMapTab();
+    await addBasemap('Bad', 'https://example.com/not-a-recognized-shape');
+
+    expect(screen.queryByText('https://example.com/not-a-recognized-shape')).not.toBeInTheDocument();
+    expect(screen.getByText(/must contain/i)).toBeInTheDocument();
+  });
+
+  it('still accepts an XYZ template URL (pre-existing behavior)', async () => {
+    renderMapTab();
+    await addBasemap('XYZ', 'https://tiles.example.com/{z}/{x}/{y}.png');
+
+    expect(screen.getByText('https://tiles.example.com/{z}/{x}/{y}.png')).toBeInTheDocument();
+    expect(screen.queryByText(/must contain/i)).not.toBeInTheDocument();
+  });
+});

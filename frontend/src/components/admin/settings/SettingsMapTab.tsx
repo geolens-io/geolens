@@ -10,6 +10,7 @@ import { SettingSourceBadge } from './SettingSourceBadge';
 import { findSetting } from './utils';
 import { useSettingsForm } from './useSettingsForm';
 import { getPlugins } from '@/components/map-plugins';
+import { isPmtilesArchiveUrl } from '@/lib/basemap-utils';
 import type { SettingItem, BasemapEntry } from '@/api/settings';
 
 interface MapDefaultsValue {
@@ -28,11 +29,15 @@ interface TabProps {
   onDirtyChange?: (dirty: boolean) => void;
 }
 
+// Client-side mirror of BasemapEntry.validate_tile_url
+// (backend/app/modules/settings/schemas.py) -- kept in sync so this "Add"
+// gate never rejects a URL shape the backend would accept.
 function isValidTileUrl(url: string): boolean {
   const basePath = url.split('?')[0].replace(/\/+$/, '');
   if (basePath.endsWith('.json')) return true;
   if (url.includes('/styles/')) return true;
-  return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
+  if (url.includes('{z}') && url.includes('{x}') && url.includes('{y}')) return true;
+  return isPmtilesArchiveUrl(url);
 }
 
 interface PluginTogglesProps {
