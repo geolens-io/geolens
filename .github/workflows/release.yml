@@ -315,8 +315,8 @@ jobs:
             # DRAFT is cheap and visible; a missing newsletter is the failure
             # this whole target exists to prevent.
             if [ "${EXISTING:-0}" != "0" ] && [ -n "${EXISTING}" ]; then
-              echo "::notice title=Newsletter already drafted::A Buttondown email titled \"${SUBJECT}\" already exists, so this run did not create another."
-              summary "newsletter: already drafted for ${TAG}"
+              echo "::notice title=Newsletter already exists::A Buttondown email titled \"${SUBJECT}\" already exists (draft, scheduled, or sent), so this run did not create another."
+              summary "newsletter: already exists for ${TAG}"
             else
               # release-notes.md is the curated CHANGELOG section this job
               # already built for the GitHub Release body.
@@ -324,10 +324,27 @@ jobs:
                 cat release-notes.md
                 printf '\n[Release notes on GitHub](https://github.com/%s/releases/tag/%s)\n' "${GITHUB_REPOSITORY}" "${TAG}"
               } > newsletter.md
+              # Curated notes are safe to send unreviewed; commit-subject
+              # fallback notes (the '> **Note**' banner above) are not — those
+              # stay a draft for a human rewrite, never a scheduled send.
+              if grep -qF '> **Note**' newsletter.md; then
+                NEWSLETTER_STATUS="draft"
+                PUBLISH_DATE=""
+              else
+                # Scheduled-with-veto: the email sends itself at publish_date
+                # unless someone cancels or edits it in Buttondown first. The
+                # window exists so bad copy can be caught; the schedule exists
+                # so a forgotten email still goes out (missed on v1.15.0 and
+                # v1.15.1 when this was a bare draft).
+                NEWSLETTER_STATUS="scheduled"
+                PUBLISH_DATE=$(date -u -d "+24 hours" +%Y-%m-%dT%H:%M:%SZ)
+              fi
               # --rawfile, not string interpolation: the body is arbitrary
               # markdown with quotes, backticks and newlines in it.
               jq -n --arg subject "$SUBJECT" --rawfile body newsletter.md \
-                '{subject: $subject, body: $body, status: "draft"}' > newsletter.json
+                --arg status "$NEWSLETTER_STATUS" --arg pd "$PUBLISH_DATE" \
+                '{subject: $subject, body: $body, status: $status}
+                 + (if $pd != "" then {publish_date: $pd} else {} end)' > newsletter.json
               CODE=$(curl -sS --max-time 30 -o newsletter-response.json -w '%{http_code}' \
                 -X POST "https://api.buttondown.com/v1/emails" \
                 -H "Authorization: Token ${BUTTONDOWN_API_KEY}" \
@@ -335,7 +352,11 @@ jobs:
                 --data-binary @newsletter.json || echo 000)
               case "$CODE" in
                 2*)
-                  summary "newsletter: drafted \"${SUBJECT}\" in Buttondown — review and send"
+                  if [ "$NEWSLETTER_STATUS" = "scheduled" ]; then
+                    summary "newsletter: scheduled \"${SUBJECT}\" for ${PUBLISH_DATE} — cancel or edit in Buttondown before then"
+                  else
+                    summary "newsletter: drafted \"${SUBJECT}\" (fallback notes) — rewrite and send by hand"
+                  fi
                   ;;
                 *)
                   # Never echo the response wholesale; it echoes the request.
