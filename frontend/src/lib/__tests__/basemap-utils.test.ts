@@ -154,10 +154,16 @@ describe('toMaplibreStyle pmtiles archives', () => {
     expect((result.sources.basemap as Record<string, unknown>).attribution).toBe(attribution);
   });
 
-  it('does not set `tiles` on a pmtiles archive source', () => {
-    const url = 'https://example.com/world.pmtiles';
+
+  it('classifies a pmtiles archive hosted under a /styles/ path as an archive, not a style URL (#1688 round 4)', () => {
+    const url = 'https://host.example.com/styles/world.pmtiles';
     const result = toMaplibreStyle(url) as StyleSpecification;
-    expect((result.sources.basemap as Record<string, unknown>).tiles).toBeUndefined();
+    expect(typeof result).not.toBe('string');
+    expect(result.sources.basemap).toEqual({
+      type: 'raster',
+      url: 'pmtiles://https://host.example.com/styles/world.pmtiles',
+      tileSize: 256,
+    });
   });
 });
 

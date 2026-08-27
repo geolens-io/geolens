@@ -247,10 +247,23 @@ export function toMaplibreStyle(url: string, attribution?: string): string | Sty
     };
   }
   const urlPath = url.split('?')[0];
-  if (urlPath.endsWith('.json') || url.includes('/styles/')) {
+  // codex review (#1688 P1 round 4): classify a PMTiles archive BEFORE the
+  // generic `/styles/` substring heuristic. `/styles/` is not a MapLibre
+  // protocol marker, just a common convention for style-JSON hosting paths
+  // (e.g. https://tiles.openfreemap.org/styles/bright) -- a raster archive
+  // could coincidentally be hosted under a path containing that same
+  // substring (e.g. https://host/styles/world.pmtiles), and if that check
+  // ran first it would hand MapLibre the raw archive URL expecting a style
+  // JSON document, which fails to parse (the response is binary PMTiles
+  // data, not JSON). `.json` stays first since a PMTiles archive can never
+  // end in `.json`, so no such ambiguity exists there.
+  if (urlPath.endsWith('.json')) {
     return url;
   }
   const isPmtilesArchive = isPmtilesArchiveUrl(url);
+  if (!isPmtilesArchive && url.includes('/styles/')) {
+    return url;
+  }
   return {
     version: 8 as const,
     sources: {
