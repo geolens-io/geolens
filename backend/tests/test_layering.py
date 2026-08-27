@@ -4051,7 +4051,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the export download can evaluate the same preconditions against the same
     # kind of strong ETag. Everything seven review rounds settled travelled with
     # them; only the home changed. Cap 1686 -> 1490, exact.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1490,
+    # fix(anon-raster-download): +48. _resolve_download_user's no-auth-signal
+    # case now returns None instead of an unconditional 401 (mirroring
+    # get_optional_user, what /export's dependency already does), so
+    # download_cog's existing check_dataset_access_or_anonymous +
+    # public-visibility gate — previously unreachable for a plain anonymous
+    # GET — actually runs. download_cog's authenticated branch also now
+    # routes its capability check through get_permission_extension() instead
+    # of inlining the matrix lookup, matching export_dataset_endpoint. The
+    # docstring (published OpenAPI description) is left untouched to avoid
+    # openapi.json/SDK/CLI churn; the new None case is explained in a plain
+    # comment instead, same as the file already does for the HEAD/GET
+    # docstring split above it. Cap 1490 -> 1538, exact.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1538,
     # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
     # export artifact cache: everything is in the key (stamp, size, digest,
     # nonce), freshness and reclamation read one publication bound that is a

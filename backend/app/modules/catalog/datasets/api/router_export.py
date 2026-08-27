@@ -60,7 +60,7 @@ from app.core.dependencies import get_db
 from app.core.db.tenant_session import current_tenant_var
 from app.core.tenancy import is_multi_tenant
 from app.core.public_urls import get_public_urls
-from app.platform.extensions import get_catalog_port
+from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.platform.http.ranges import (
     RANGE_UNSATISFIABLE,
     if_match_passes,
@@ -778,9 +778,23 @@ async def _resolve_download_user(
     downstream consumer (``download_cog``) is responsible for enforcing
     public visibility when user is None.
 
-    401 is reserved for: no auth signal at all (no header AND no token),
-    invalid token bytes, wrong typ, wrong scope, expired token, or a
-    sub-bearing token whose user no longer exists / is inactive.
+    No auth signal at all (no header AND no ``?token=``) also returns
+    ``None`` rather than raising 401: mirrors ``get_optional_user``, which is
+    what ``/datasets/{id}/export`` (``processing/export/router.py``) depends
+    on directly. Before this, a plain anonymous GET here — no Authorization
+    header, no minted token — hit the unconditional 401 below regardless of
+    the dataset's visibility, so a public+published raster's COG could not be
+    opened directly in QGIS/GDAL the way its tiles and vector export already
+    can; only a caller that first minted a download token could get through.
+    ``download_cog`` runs the same ``check_dataset_access_or_anonymous`` +
+    public-visibility gate the export route runs, so this closes that
+    asymmetry without loosening anything: a private/restricted/unpublished
+    dataset still denies (404, to hide existence) once ``download_cog``
+    applies that gate.
+
+    401 is reserved for an auth signal that is actually invalid: bad token
+    bytes, wrong typ, wrong scope, expired token, or a sub-bearing token
+    whose user no longer exists / is inactive.
     """
     if user is not None:
         return user
@@ -853,18 +867,27 @@ async def _resolve_download_user(
                 found = result.scalar_one_or_none()
                 if found and found.is_active and found.status == "active":
                     return found
-            # Sub-bearing token whose user disappeared or is inactive — 401
-            # (fall through to the unconditional 401 below).
+            # Sub-bearing token whose user disappeared or is inactive — 401.
+            # This IS an invalid auth signal (a token was presented and its
+            # sub claim does not resolve to a usable user), unlike the
+            # no-token case below, so it stays a hard 401 rather than falling
+            # through to anonymous.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required",
+            )
         else:
             # KNOWN-01: no-sub anonymous download token. Token is valid
             # (typ/scope/exp all passed); return None and let download_cog
             # enforce public-visibility as defense-in-depth.
             return None
 
-    raise HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Authentication required",
-    )
+    # No Authorization header, no API key, no ?token= at all: no auth signal
+    # to reject. Return None so download_cog's own
+    # check_dataset_access_or_anonymous + public-visibility gate decides
+    # access, the same way the export route's get_optional_user dependency
+    # lets export_dataset_endpoint decide.
+    return None
 
 
 # fix(#1528): HEAD alongside GET. FastAPI's APIRoute does not add it the way
@@ -917,6 +940,16 @@ async def download_cog(
     # docstring moves openapi.json and churns both SDKs and the CLI for prose
     # about an operation the schema does not carry, so it lives on the branch
     # itself instead.
+    #
+    # Same reasoning for what follows: `user` may ALSO be None for a plain
+    # anonymous request with no auth signal at all (no header, no ?token=),
+    # not only for the KNOWN-01 no-sub token case the docstring above
+    # describes — see `_resolve_download_user`. That case is new
+    # (fix(anon-raster-download)): a public+published raster's COG used to
+    # 401 an anonymous caller unconditionally before reaching this function,
+    # which the docstring never had to mention because it never happened.
+    # It's a comment rather than a docstring addition for the same
+    # openapi.json/SDK/CLI churn reason.
     from slugify import slugify
 
     from app.modules.auth.permissions import get_effective_permissions
@@ -930,13 +963,15 @@ async def download_cog(
         )
 
     # 2. Visibility + permission check (branches on authenticated vs anonymous).
+    # Mirrors export_dataset_endpoint's gate (processing/export/router.py)
+    # exactly: anonymous covers both a plain unauthenticated GET (no header,
+    # no ?token=) and a mint-issued no-sub token, since _resolve_download_user
+    # returns None for both.
     if user is None:
-        # Anonymous download via mint-issued no-sub token. The mint endpoint at
-        # POST /auth/download-token/{id} already enforced
-        # check_dataset_access_or_anonymous(); the token's typ/scope/exp checks
-        # in _resolve_download_user are the auth gate. Still require public
-        # visibility here as defense-in-depth (a tampered/replayed token
-        # cannot grant access to a private dataset).
+        # Anonymous download: enforce public+published gate via the anon-aware
+        # helper (raises 404 to hide existence on denial), then a
+        # defense-in-depth guard requiring public visibility — a tampered or
+        # replayed download token cannot grant access to a private dataset.
         await check_dataset_access_or_anonymous(db, dataset, dataset_id, user)
         if dataset.record.visibility != "public":
             raise HTTPException(
@@ -944,11 +979,24 @@ async def download_cog(
                 detail="Anonymous download requires public dataset",
             )
     else:
-        # Authenticated path: full RBAC visibility check + export permission.
+        # Authenticated path: full RBAC visibility check + export capability.
         await check_dataset_access(db, dataset, dataset_id, user)
         user_roles = await get_user_roles(db, user)
         matrix = await get_effective_permissions(db)
-        if not any(matrix.get(role, {}).get("export", False) for role in user_roles):
+        # Route through the permission extension point (same call
+        # export_dataset_endpoint makes) rather than inlining the per-role
+        # matrix check, so a deployment that registers a custom
+        # PermissionExtension applies its policy here too.
+        # DefaultPermissionExtension.check_permission reduces to the same
+        # any(matrix...) check, so OSS behavior is unchanged.
+        granted = await get_permission_extension().check_permission(
+            db,
+            user,
+            "export",
+            user_roles=user_roles,
+            permission_matrix=matrix,
+        )
+        if not granted:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Missing permission: export",
