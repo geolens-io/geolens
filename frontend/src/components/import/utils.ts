@@ -43,6 +43,16 @@ export function fileExt(fileName: string): string {
   return dotIdx >= 0 ? fileName.slice(dotIdx).toLowerCase() : '';
 }
 
+/**
+ * True for spreadsheet sources (multi-sheet workbooks). The multi-layer picker
+ * calls the item a "Sheet" only for these; every other multi-layer container
+ * (GeoPackage, zipped File Geodatabase, etc.) uses "Layer" vocabulary instead —
+ * an ArcGIS user importing a .gdb does not expect spreadsheet terms.
+ */
+export function isSpreadsheetExt(ext: string): boolean {
+  return ext === '.xlsx' || ext === '.xls';
+}
+
 /** Derive display kind from a FileEntry (preview-aware, falls back to extension) */
 export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName'>): DataKind {
   if (entry.previewData) {

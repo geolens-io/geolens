@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { ImportMetadataForm } from './ImportMetadataForm';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
-import { isRasterPreview, isFilePreview, fileExt, kindFromEntry } from './utils';
+import { isRasterPreview, isFilePreview, fileExt, kindFromEntry, isSpreadsheetExt } from './utils';
 import { getGeometryTypeLabel } from '@/i18n/labels';
 import { formatNumber } from '@/lib/format';
 import { useReportDialog } from '@/lib/report';
@@ -214,8 +214,8 @@ export function BulkReviewList({
   const { t } = useTranslation('import');
   const [expandedId, setExpandedId] = useState<string | null>(entries[0]?.id ?? null);
 
-  const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount } = useMemo(() => {
-    let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0;
+  const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount, hasMultiLayerFile } = useMemo(() => {
+    let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0, multiLayer = false;
     for (const e of entries) {
       if (e.status === 'preview') {
         ready++;
@@ -225,8 +225,16 @@ export function BulkReviewList({
       if (isRasterPreview(e.previewData)) { ras++; }
       else if ((e.previewData as FilePreviewResponse).geometry_type) { vec++; }
       else { tab++; }
+      if (isFilePreview(e.previewData) && (e.previewData.layers?.length ?? 0) > 1) multiLayer = true;
     }
-    return { readyCount: ready, rasterReadyCount: rasterReady, vectorCount: vec, rasterCount: ras, tableCount: tab };
+    return {
+      readyCount: ready,
+      rasterReadyCount: rasterReady,
+      vectorCount: vec,
+      rasterCount: ras,
+      tableCount: tab,
+      hasMultiLayerFile: multiLayer,
+    };
   }, [entries]);
 
   function formatCrs(crs: number | null | undefined, fallback: string) {
@@ -303,6 +311,9 @@ export function BulkReviewList({
         {entries.map((entry) => {
           const ext = fileExt(entry.fileName);
           const kind = kindFromEntry(entry);
+          const layerCount = entry.previewData && isFilePreview(entry.previewData)
+            ? entry.previewData.layers?.length ?? 0
+            : 0;
           const isExpanded = expandedId === entry.id;
           const canExpand = entry.status === 'preview' || entry.status === 'committing' || entry.status === 'commit-failed';
 
@@ -347,6 +358,20 @@ export function BulkReviewList({
                         {t('bulk.committed')}
                       </Badge>
                     )}
+                    {/* Hint the container has more than one layer without needing to
+                        expand the row — "Import All with Defaults" only imports the
+                        currently selected layer, so this is the only signal a user
+                        gets before that silently drops the rest. */}
+                    {layerCount > 1 && (
+                      <Badge
+                        variant="outline"
+                        className="text-2xs"
+                        data-testid={`layer-count-badge-${entry.id}`}
+                      >
+                        <Layers className="size-3" />
+                        {t('bulk.layerCount', { count: layerCount, value: formatNumber(layerCount) })}
+                      </Badge>
+                    )}
                   </div>
                   {entry.previewData && (
                     <p className="mt-0.5 font-mono text-mini text-muted-foreground">
@@ -370,12 +395,18 @@ export function BulkReviewList({
               {/* Expanded content */}
               {isExpanded && canExpand && entry.previewData && (
                 <div className="px-4 pb-4">
-                  {/* Sheet selector for multi-layer files */}
+                  {/* Layer/sheet selector for multi-layer files. Spreadsheet
+                      workbooks (.xlsx/.xls) keep "Sheet" vocabulary; every other
+                      multi-layer container (GeoPackage, zipped FileGDB, ...) uses
+                      "Layer" — an ArcGIS user importing a .gdb doesn't expect
+                      spreadsheet terms. */}
                   {isFilePreview(entry.previewData) &&
                     entry.previewData.layers &&
                     entry.previewData.layers.length > 1 && (
                       <div className="mb-3 space-y-1">
-                        <Label htmlFor={`sheet-${entry.id}`}>{t('bulk.sheetLabel')}</Label>
+                        <Label htmlFor={`sheet-${entry.id}`}>
+                          {t(isSpreadsheetExt(ext) ? 'bulk.sheetLabel' : 'bulk.layerLabel')}
+                        </Label>
                         {/* fix(#438): DS-08 — native <select> → themed ui/select. */}
                         <Select
                           value={entry.previewData.layer_name}
@@ -463,7 +494,7 @@ export function BulkReviewList({
             })}
           </p>
           <p className="font-mono text-mini text-muted-foreground tracking-wide">
-            {t('review.actionHint')}
+            {t(hasMultiLayerFile ? 'review.actionHintMultiLayer' : 'review.actionHint')}
           </p>
         </div>
         <div className="flex gap-2">
