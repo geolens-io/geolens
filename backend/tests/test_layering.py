@@ -3490,7 +3490,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # sweep. The rest is the discard on the defer rollback and the comment
     # saying the state-1/state-3 choice is not this door's to make.
     # Cap 1211 -> 1259, exact.
-    "backend/app/processing/ingest/service.py": 1259,
+    # fix(#1689 codex r1): +25 — the rolling-deploy skew note. A worker from
+    # the previous generation takes `credential_ref` through `**kwargs` and
+    # discards it, and the review asked for a versioned task name to gate that.
+    # The comment records why the gate is the worse option (Procrastinate fails
+    # its own job on TaskNotFound but nothing writes the ingest_jobs row, so the
+    # user sees a hang instead of a retryable failure) and why the window is
+    # narrower here than at the refresh door, where #1220 accepted the same
+    # trade. Written down so the next review lands on the decision rather than
+    # re-deriving it. Cap 1259 -> 1284, exact.
+    "backend/app/processing/ingest/service.py": 1284,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

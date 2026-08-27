@@ -1187,6 +1187,31 @@ async def queue_ingest_job(
                 source_layer=job.source_layer or "",
                 user_id=user_id,
                 token=token,
+                # fix(#1689 codex r1) — ROLLING-DEPLOY SKEW, accepted, and
+                # accepted the way #1220 accepted the identical question at
+                # the refresh door (router_refresh.py carries the long form).
+                # A worker from the previous generation takes `credential_ref`
+                # through `**kwargs` and discards it, fetches unauthenticated,
+                # collects the origin's 401, and fails the job blaming the
+                # origin.
+                #
+                # The gate that would close it is a task name old workers do
+                # not register, and it is the WORSE option for the reason
+                # #1220 wrote down: Procrastinate marks its OWN job failed on
+                # TaskNotFound, but nothing then writes the ingest_jobs row,
+                # so it sits `pending` in the user's job list until the
+                # stale-job sweep. A hang reads worse than a failure you can
+                # retry, and the retry succeeds because by then the window has
+                # closed.
+                #
+                # The window is narrower here than at the refresh door. A
+                # storeless install dispatches no reference at all (state 3),
+                # so the default deployment has no skew; only an install with
+                # REDIS_URL set, mid-rollout, on a token-bearing import is
+                # exposed, and single-node compose deploys never overlap
+                # generations. Nothing is stranded either: the old worker
+                # fails the job, `ingest_jobs.status` leaves ('pending',
+                # 'running'), renewal stops, and the credential dies by TTL.
                 credential_ref=credential_ref,
             )
 
