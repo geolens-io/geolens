@@ -22,6 +22,9 @@ vi.mock('react-i18next', () => ({
       if (key === 'bulk.ingestAllLayers' && opts?.count != null) {
         return `Ingest all ${opts.count} layers as separate datasets`;
       }
+      if (key === 'bulk.layerCount' && opts?.value != null) {
+        return `${opts.value} layers`;
+      }
       if (typeof opts?.defaultValue === 'string') return opts.defaultValue;
       return key;
     },
@@ -187,5 +190,134 @@ describe('BulkReviewList — multi-layer "Ingest all layers" button (GPKG-03)', 
 
     expect(onIngestAllLayers).toHaveBeenCalledOnce();
     expect(onIngestAllLayers).toHaveBeenCalledWith('entry-1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// import-multilayer-ux: "Layer" vs "Sheet" vocabulary + layer-count badge
+// ---------------------------------------------------------------------------
+
+describe('BulkReviewList — layer label uses container-appropriate vocabulary', () => {
+  it('labels the picker "bulk.layerLabel" for a multi-layer GeoPackage', () => {
+    const entry = makeMultiLayerEntry(); // fileName: 'test.gpkg'
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.getByText('bulk.layerLabel')).toBeInTheDocument();
+    expect(screen.queryByText('bulk.sheetLabel')).not.toBeInTheDocument();
+  });
+
+  it('labels the picker "bulk.layerLabel" for a multi-layer zipped FileGDB', () => {
+    const entry = makeMultiLayerEntry({ fileName: 'parcels.gdb.zip' });
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.getByText('bulk.layerLabel')).toBeInTheDocument();
+    expect(screen.queryByText('bulk.sheetLabel')).not.toBeInTheDocument();
+  });
+
+  it('keeps the picker labeled "bulk.sheetLabel" for a multi-sheet spreadsheet', () => {
+    const entry = makeMultiLayerEntry({ fileName: 'budget.xlsx' });
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.getByText('bulk.sheetLabel')).toBeInTheDocument();
+    expect(screen.queryByText('bulk.layerLabel')).not.toBeInTheDocument();
+  });
+});
+
+describe('BulkReviewList — layer-count badge on the collapsed card', () => {
+  it('shows a layer-count badge when the preview has more than one layer', () => {
+    const entry = makeMultiLayerEntry();
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    const badge = screen.getByTestId('layer-count-badge-entry-1');
+    expect(badge).toBeInTheDocument();
+    expect(badge.textContent).toMatch(/2 layers/);
+  });
+
+  it('does NOT show a layer-count badge for single-layer entries', () => {
+    const entry = makeSingleLayerEntry();
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.queryByTestId(/layer-count-badge-/)).not.toBeInTheDocument();
+  });
+});
+
+describe('BulkReviewList — default-import hint acknowledges multi-layer files', () => {
+  it('shows the multi-layer hint when a staged file has more than one layer', () => {
+    const entry = makeMultiLayerEntry();
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.getByText('review.actionHintMultiLayer')).toBeInTheDocument();
+    expect(screen.queryByText('review.actionHint')).not.toBeInTheDocument();
+  });
+
+  it('shows the plain hint when no staged file has more than one layer', () => {
+    const entry = makeSingleLayerEntry();
+
+    render(
+      <BulkReviewList
+        entries={[entry]}
+        onCommitSingle={noopCommitSingle}
+        onCommitAll={noopCommitAll}
+        onRemove={noopRemove}
+        isCommitting={false}
+      />,
+    );
+
+    expect(screen.getByText('review.actionHint')).toBeInTheDocument();
+    expect(screen.queryByText('review.actionHintMultiLayer')).not.toBeInTheDocument();
   });
 });
