@@ -85,6 +85,8 @@ const IDENTICAL_ACROSS_LOCALES = new Set([
   'admin:settings.network.corsAllowedOriginsPlaceholder', // https://example.com, ...
   'builder:popup.expressionPlaceholder', // {city}, {state}
   'dataset:schema.columnNamePlaceholder', // column_name
+  'import:urlImport.placeholder', // https://data.source.coop/…/buildings.parquet
+  'import:urlImport.filenamePlaceholder', // buildings.parquet
 ]);
 
 const translatedLngs = supportedLngs.filter((lng) => lng !== fallbackLng);

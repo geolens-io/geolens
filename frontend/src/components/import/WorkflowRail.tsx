@@ -5,7 +5,7 @@ import { TypeTag } from './TypeTag';
 import type { DataKind } from './TypeTag';
 import type { BatchPhase } from '@/types/api';
 
-type Mode = 'upload' | 'register' | 'service' | 'stac';
+type Mode = 'upload' | 'url' | 'register' | 'service' | 'stac';
 
 interface WorkflowRailProps {
   mode: Mode;
@@ -37,7 +37,7 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
     },
   ];
 
-  if (mode === 'register' || mode === 'service' || mode === 'stac') {
+  if (mode === 'url' || mode === 'register' || mode === 'service' || mode === 'stac') {
     return <NonUploadRail mode={mode} />;
   }
 
@@ -119,10 +119,41 @@ export function WorkflowRail({ mode, phase }: WorkflowRailProps) {
   );
 }
 
-function NonUploadRail({ mode }: { mode: 'register' | 'service' | 'stac' }) {
+function NonUploadRail({ mode }: { mode: 'url' | 'register' | 'service' | 'stac' }) {
   const { t } = useTranslation('import');
   const isRegister = mode === 'register';
   const isStac = mode === 'stac';
+  const isUrl = mode === 'url';
+
+  // feat(#1705): URL import gets its own rail copy — it copies data in like
+  // Upload (unlike Register/Service, which point at live sources).
+  if (isUrl) {
+    return (
+      <aside
+        aria-label={t('rail.asideLabel', { defaultValue: 'Import workflow' })}
+        className="sticky top-28 flex flex-col gap-4"
+      >
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="eyebrow mb-2">{t('rail.urlHint')}</p>
+          <p className="mb-2.5 text-xs text-muted-foreground leading-relaxed">
+            {t('rail.urlDesc')}
+          </p>
+          <p className="font-mono text-mini text-muted-foreground tracking-wide">
+            {t('rail.urlNote')}
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-border bg-card p-4">
+          <p className="eyebrow mb-2">
+            {t('rail.comparedToUpload', { defaultValue: 'Compared to Upload' })}
+          </p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            {t('rail.compareUrl')}
+          </p>
+        </div>
+      </aside>
+    );
+  }
 
   return (
     // Same label as the upload-mode aside above — they are alternative

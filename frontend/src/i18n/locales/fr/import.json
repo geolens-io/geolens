@@ -3,6 +3,7 @@
   "tabs": {
     "label": "Sources d’importation",
     "upload": "Télécharger un fichier",
+    "url": "URL de fichier",
     "register": "Enregistrer une table",
     "service": "URL de service",
     "stac": "Catalogue STAC"
@@ -201,6 +202,23 @@
     "unknownDataset": "Jeu de données inconnu",
     "alreadyRegistered": "Déjà enregistré : \"{{title}}\"",
     "viewExisting": "Voir l'existant"
+  },
+  "urlImport": {
+    "label": "URL de fichier — récupérée côté serveur",
+    "placeholder": "https://data.source.coop/…/buildings.parquet",
+    "fetch": "Récupérer →",
+    "fetching": "Téléchargement du fichier...",
+    "loadingPreview": "Analyse du fichier...",
+    "filenameLabel": "Nom de fichier (facultatif)",
+    "filenamePlaceholder": "buildings.parquet",
+    "filenameHelpText": "Nécessaire uniquement lorsque le chemin de l'URL ne se termine pas par le nom du fichier, par exemple un lien de téléchargement identifié par un id.",
+    "supported": "Liens directs vers :",
+    "fetchFailed": "Échec de la récupération du fichier depuis cette URL",
+    "previewFailed": "Échec de l'analyse du fichier téléchargé",
+    "commitFailed": "Échec du lancement de l'importation",
+    "importStarted": "Importation lancée",
+    "startOver": "Recommencer",
+    "layerLabel": "Couche"
   },
   "register": {
     "helpText": "Cataloguez des tables PostGIS existantes de votre base de données en tant que jeux de données dans GeoLens. Utilisez cette option lorsque vous avez des données géographiques déjà dans la base de données qui n'ont pas été importées via GeoLens. Les tables sélectionnées seront ajoutées au catalogue avec détection automatique des métadonnées.",
@@ -496,7 +514,11 @@
     "compareRegister": "Le chargement ingère depuis un fichier. L'enregistrement pointe vers une table existante — pas de duplication, mais la table doit rester dans votre base de données.",
     "compareStac": "Le chargement ingère des fichiers locaux. Les importations STAC découvrent d'abord les ressources distantes, puis préparent les éléments sélectionnés pour le catalogue.",
     "compareService": "Le chargement ingère depuis un fichier. L'URL de service récupère depuis une API distante et importe les données dans GeoLens pour le tuilage et les requêtes locaux.",
-    "asideLabel": "Processus d’importation"
+    "asideLabel": "Processus d’importation",
+    "urlHint": "Importation depuis une URL de fichier",
+    "urlDesc": "GeoLens télécharge le fichier côté serveur vers la zone de préparation, puis exécute le même processus de détection et d'importation qu'un chargement.",
+    "urlNote": "L'URL est validée et limitée en taille avant le téléchargement · les données sont copiées dans GeoLens",
+    "compareUrl": "Le chargement envoie un fichier depuis votre machine. URL de fichier le récupère sur le web : même vérification, même résultat, sans téléchargement local."
   },
   "status": {
     "uploading": "Téléversement",

@@ -145,6 +145,28 @@ export async function uploadFile(
   return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
 }
 
+/**
+ * feat(#1705): the URL variant of upload. The backend fetches the file
+ * server-side (SSRF-validated, size-capped) into staging; the returned job
+ * then flows through the same preview → commit pipeline as a direct upload.
+ */
+export async function uploadFromUrl(
+  url: string,
+  filename?: string,
+): Promise<UploadResponse> {
+  try {
+    return await apiFetch<UploadResponse>('/ingest/upload/url', {
+      method: 'POST',
+      body: JSON.stringify({ url, ...(filename && { filename }) }),
+    });
+  } catch (err) {
+    // Direct call from UrlImportForm's try/catch (not a TanStack mutation),
+    // so report here — metadata only, same reasoning as uploadFile above.
+    reportApiCallFailure('/ingest/upload/url', err);
+    throw err;
+  }
+}
+
 export async function getJobStatus(
   jobId: string,
 ): Promise<JobStatusResponse> {
