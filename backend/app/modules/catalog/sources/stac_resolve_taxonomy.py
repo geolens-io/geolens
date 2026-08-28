@@ -57,6 +57,13 @@ class StacResolution:
     collection_id: str | None = None
     asset_href: str | None = None
     asset_key: str | None = None
+    # feat(#1692): the bound asset's declared media type, read from the same
+    # document the href came from. It repairs the served `dataset_assets`
+    # row's media_type on every successful refresh — the import echoes the
+    # value search captured, and a dataset imported before either existed
+    # learns it the first time it refreshes. Bounded by storable_media_type
+    # at the gate, so it always fits the column it is written into.
+    asset_media_type: str | None = None
     # fix(#1266 review round 5): the moved object's OWN structural metadata.
     # A moved asset is not the same asset — a re-tiled scene can change its
     # band count, dtype, nodata and the statistics every rescale is computed

@@ -474,6 +474,137 @@ class TestStacImport:
         assert detail.json()["last_checked_at"] is None
         assert detail.json()["source_health"] == "unknown"
 
+    async def test_import_persists_the_origin_asset_for_generic_clients(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_stac_ssrf,
+    ):
+        """feat(#1692): the served STAC item carries a readable COG href.
+
+        Before this, a by-reference import stored no ``dataset_assets`` row,
+        so the item GeoLens re-published exposed exactly one asset — the
+        internal ``raster_tiles`` XYZ template, which renders only in
+        GeoLens's own frontend. A generic STAC client (stac-browser, the
+        QGIS STAC plugin) could discover the item but had no pixel data to
+        read. The import now persists the origin item's primary data asset,
+        and the item endpoint serves it verbatim beside the tiles template,
+        roled ``data`` against the template's ``visual``.
+        """
+        from sqlalchemy import select
+
+        from app.processing.raster.models import DatasetAsset
+
+        cog_href = f"https://example.com/data/origin-{uuid.uuid4().hex[:8]}.tif"
+        cog_type = "image/tiff; application=geotiff; profile=cloud-optimized"
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"origin-asset-{uuid.uuid4().hex[:8]}",
+                        "collection": "dem-collection",
+                        "title": "Origin Asset Import",
+                        "data_asset_href": cog_href,
+                        "data_asset_type": cog_type,
+                        "data_asset_key": "data",
+                        "bbox": [-1, -1, 1, 1],
+                        "keywords": [],
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["created"] == 1
+        dataset_id = resp.json()["results"][0]["dataset_id"]
+
+        # The stored row: the origin COG, roled as the data asset.
+        row = (
+            await test_db_session.execute(
+                select(DatasetAsset).where(
+                    DatasetAsset.dataset_id == uuid.UUID(dataset_id),
+                    DatasetAsset.key == "data",
+                )
+            )
+        ).scalar_one()
+        assert row.href == cog_href
+        assert row.media_type == cog_type
+        assert row.roles == ["data"]
+
+        # The served item, read the way a generic client reads it. The
+        # remote href passes through resolve_asset_url untouched — it is
+        # not managed storage, so neither presigning nor the GAP-031 proxy
+        # refusal applies — and it sits BESIDE the tiles template, each
+        # roled as what it is.
+        item = await client.get(f"/stac/items/{dataset_id}", headers=admin_auth_header)
+        assert item.status_code == 200, item.text
+        assets = item.json()["assets"]
+        assert assets["data"]["href"] == cog_href
+        assert assets["data"]["type"] == cog_type
+        assert assets["data"]["roles"] == ["data"]
+        assert assets["raster_tiles"]["roles"] == ["visual"]
+
+        # And the dataset detail's stac_assets mirror — the surface the
+        # issue observed as null on a by-reference Sentinel-2 dataset.
+        detail = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+        assert detail.status_code == 200
+        assert detail.json()["stac_assets"]["data"]["href"] == cog_href
+
+    async def test_import_without_a_declared_type_still_persists_the_href(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        mock_stac_ssrf,
+    ):
+        """feat(#1692): the type echo is optional, like the other echoes.
+
+        An older client — or an item whose asset declares no ``type`` —
+        still imports, and still gets the pass-through asset; the row simply
+        carries no media type until the first refresh reads one off the live
+        item document.
+        """
+        from sqlalchemy import select
+
+        from app.processing.raster.models import DatasetAsset
+
+        cog_href = f"https://example.com/data/untyped-{uuid.uuid4().hex[:8]}.tif"
+        resp = await client.post(
+            "/services/stac/import",
+            json={
+                "url": "https://stac.example.com/v1",
+                "items": [
+                    {
+                        "id": f"untyped-{uuid.uuid4().hex[:8]}",
+                        "title": "Untyped Origin Asset",
+                        "data_asset_href": cog_href,
+                        "keywords": [],
+                    }
+                ],
+                "visibility": "private",
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["created"] == 1
+        dataset_id = resp.json()["results"][0]["dataset_id"]
+
+        row = (
+            await test_db_session.execute(
+                select(DatasetAsset).where(
+                    DatasetAsset.dataset_id == uuid.UUID(dataset_id),
+                    DatasetAsset.key == "data",
+                )
+            )
+        ).scalar_one()
+        assert row.href == cog_href
+        assert row.media_type is None
+        assert row.roles == ["data"]
+
     async def test_import_with_cog_info_stamps_the_contact(
         self,
         client: AsyncClient,

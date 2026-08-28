@@ -24,6 +24,7 @@ class StacImportItem:
         collection (None | str | Unset): Parent collection ID.
         item_href (None | str | Unset): The item's own canonical URL, echoed from search results.
         data_asset_key (None | str | Unset): The asset key on the item, echoed from search results.
+        data_asset_type (None | str | Unset): Media type of the data asset, echoed from search results.
         bbox (list[float] | None | Unset): Item bounding box.
         epsg (int | None | Unset): EPSG code.
         datetime_start (None | str | Unset): Temporal start.
@@ -37,6 +38,7 @@ class StacImportItem:
     collection: None | str | Unset = UNSET
     item_href: None | str | Unset = UNSET
     data_asset_key: None | str | Unset = UNSET
+    data_asset_type: None | str | Unset = UNSET
     bbox: list[float] | None | Unset = UNSET
     epsg: int | None | Unset = UNSET
     datetime_start: None | str | Unset = UNSET
@@ -68,6 +70,12 @@ class StacImportItem:
             data_asset_key = UNSET
         else:
             data_asset_key = self.data_asset_key
+
+        data_asset_type: None | str | Unset
+        if isinstance(self.data_asset_type, Unset):
+            data_asset_type = UNSET
+        else:
+            data_asset_type = self.data_asset_type
 
         bbox: list[float] | None | Unset
         if isinstance(self.bbox, Unset):
@@ -115,6 +123,8 @@ class StacImportItem:
             field_dict["item_href"] = item_href
         if data_asset_key is not UNSET:
             field_dict["data_asset_key"] = data_asset_key
+        if data_asset_type is not UNSET:
+            field_dict["data_asset_type"] = data_asset_type
         if bbox is not UNSET:
             field_dict["bbox"] = bbox
         if epsg is not UNSET:
@@ -163,6 +173,15 @@ class StacImportItem:
             return cast(None | str | Unset, data)
 
         data_asset_key = _parse_data_asset_key(d.pop("data_asset_key", UNSET))
+
+        def _parse_data_asset_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        data_asset_type = _parse_data_asset_type(d.pop("data_asset_type", UNSET))
 
         def _parse_bbox(data: object) -> list[float] | None | Unset:
             if data is None:
@@ -217,6 +236,7 @@ class StacImportItem:
             collection=collection,
             item_href=item_href,
             data_asset_key=data_asset_key,
+            data_asset_type=data_asset_type,
             bbox=bbox,
             epsg=epsg,
             datetime_start=datetime_start,

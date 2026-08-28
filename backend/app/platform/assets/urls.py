@@ -1,6 +1,7 @@
 """Asset URL resolution with security-aware routing.
 
 Rules:
+  - Absolute http(s) hrefs (by-reference origin assets, #1692): passed through
   - Published thumbnails: public URL (no auth, cacheable)
   - S3 + published data assets: presigned URL (time-limited)
   - Local storage: no unauthenticated proxy URL emitted (GAP-031)
@@ -50,6 +51,19 @@ def resolve_asset_url(
         (e.g. local-storage paths that would collide with the SPA /assets/
         nginx location — GAP-031).
     """
+    # feat(#1692): a by-reference origin asset (STAC import) stores the
+    # publisher's absolute http(s) URL as its href. That URL is already
+    # public in the origin catalog — it is not managed storage, so neither
+    # the presign branch nor the GAP-031 proxy refusal below applies, and
+    # both would mishandle it (the presign path would strip it into a
+    # nonsense storage key; the refusal would drop the one asset a generic
+    # STAC client can actually read). Checked FIRST and passed through
+    # untouched. Managed ingest writes storage-relative keys or s3:// URIs
+    # (see _build_dataset_asset_rows), so only origin pass-through rows
+    # match this shape.
+    if href.startswith(("http://", "https://")):
+        return href
+
     # S3 + published data assets: signed URL (always safe — signed by provider)
     is_published = record_status == "published"
     if is_published and storage_backend == "s3" and storage_provider is not None:

@@ -2047,6 +2047,7 @@ export interface StacImportItem {
   title: string;
   data_asset_href: string;
   data_asset_key: string | null;
+  data_asset_type: string | null;
   item_href: string | null;
   bbox: number[] | null;
   epsg: number | null;

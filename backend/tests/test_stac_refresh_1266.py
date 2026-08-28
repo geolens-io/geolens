@@ -48,7 +48,7 @@ from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import tasks_stac_refresh
 from app.processing.ingest.tasks_stac_refresh import refresh_stac
-from app.processing.raster.models import RasterAsset
+from app.processing.raster.models import DatasetAsset, RasterAsset
 from tests.factories import create_dataset as _create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -394,6 +394,20 @@ async def _run_for(dataset_id: uuid.UUID) -> DatasetRefreshRun | None:
                 )
             )
         ).scalar_one_or_none()
+
+
+async def _origin_asset_rows(dataset_id: uuid.UUID) -> list[DatasetAsset]:
+    """Every served ``dataset_assets`` row for the dataset (feat #1692)."""
+    async with _fresh_session() as session:
+        return list(
+            (
+                await session.execute(
+                    select(DatasetAsset).where(DatasetAsset.dataset_id == dataset_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -2875,6 +2889,120 @@ class TestWorker:
         assert finished.claimed_at is not None
         # No data moved, so there is no new version of it to point at.
         assert finished.dataset_version_id is None
+
+
+class TestOriginAssetRepair:
+    """feat(#1692): the refresh repairs the served origin asset.
+
+    The import persists the origin item's primary data asset as a
+    ``dataset_assets`` row, which is what puts a COG href a generic STAC
+    client can read on the items GeoLens serves. The refresh upserts that
+    same row on every success — for a dataset imported before the row
+    existed, that upsert IS the backfill.
+    """
+
+    async def test_a_refresh_backfills_the_served_origin_asset(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """A pre-#1692 dataset gains the row from an UNCHANGED answer.
+
+        ``_stac_dataset`` writes no ``dataset_assets`` row — the exact shape
+        every by-reference dataset had before the import started persisting
+        one — so a refresh that moved nothing must still create it, or the
+        backfill story only covers datasets whose asset happens to move.
+        """
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        assert await _origin_asset_rows(dataset.id) == []
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        rows = await _origin_asset_rows(dataset.id)
+        assert len(rows) == 1
+        assert rows[0].key == "data"
+        assert rows[0].href == _ASSET
+        # From the item document's asset entry, not invented locally.
+        assert rows[0].media_type == "image/tiff"
+        assert rows[0].roles == ["data"]
+
+        # Idempotent: a second refresh rewrites the row it already wrote.
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+        rows = await _origin_asset_rows(dataset.id)
+        assert len(rows) == 1
+        assert rows[0].href == _ASSET
+
+    async def test_a_moved_asset_moves_the_served_row_with_it(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """The row the import wrote follows the publisher's move — href AND
+        media type, both read from the live item document."""
+        install, _ = stac_transport
+        install(
+            {
+                _ITEM: (
+                    200,
+                    _item_doc(
+                        assets={
+                            "data": {
+                                "href": _MOVED_ASSET,
+                                "roles": ["data"],
+                                "type": (
+                                    "image/tiff; application=geotiff; "
+                                    "profile=cloud-optimized"
+                                ),
+                            }
+                        }
+                    ),
+                ),
+                _MOVED_ASSET: (206, None),
+            }
+        )
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        # The row as the import writes it, pointing at the pre-move href.
+        test_db_session.add(
+            DatasetAsset(
+                dataset_id=dataset.id,
+                key="data",
+                href=_ASSET,
+                media_type="image/tiff",
+                roles=["data"],
+            )
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        rows = await _origin_asset_rows(dataset.id)
+        assert len(rows) == 1
+        assert rows[0].href == _MOVED_ASSET
+        assert rows[0].media_type == (
+            "image/tiff; application=geotiff; profile=cloud-optimized"
+        )
+        assert rows[0].roles == ["data"]
+
+    async def test_a_failed_refresh_repairs_no_asset_row(
+        self, client, admin_auth_header, test_db_session, stac_transport
+    ) -> None:
+        """Invariant 10 extends to the served row: a refresh that resolved
+        nothing backfills nothing."""
+        install, _ = stac_transport
+        # Everything 404s: the item is gone and the search finds nothing.
+        install({})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        with pytest.raises(Exception):
+            await _execute(test_db_session, payload)
+
+        assert (await _run_for(dataset.id)).status == "failed"
+        assert await _origin_asset_rows(dataset.id) == []
 
 
 # ---------------------------------------------------------------------------

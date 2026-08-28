@@ -22,6 +22,7 @@ from app.modules.catalog.sources.adapters.stac import (
     self_link_href,
     storable_asset_key,
     storable_href,
+    storable_media_type,
 )
 from app.modules.catalog.sources.cog_info import fetch_cog_info, reconcile_epsg
 from app.modules.catalog.sources.origin_probe import (
@@ -355,6 +356,10 @@ async def _resolve_from_item(
         # simply not carried, and the asset is still resolved — identity was
         # already settled above, and the href match will find it again.
         asset_key=storable_asset_key(key),
+        # feat(#1692): from the same document as the href — the refresh
+        # writes it onto the served `dataset_assets` row, so what GeoLens
+        # re-advertises is what the publisher currently declares.
+        asset_media_type=storable_media_type(describing["assets"][key].get("type")),
         asset_metadata=metadata,
         # fix(#1334 review): reconciled here, once, where both facts are in
         # hand — `reconcile_epsg({}, declared_epsg)` for an unmoved asset

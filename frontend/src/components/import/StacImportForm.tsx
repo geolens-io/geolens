@@ -163,6 +163,9 @@ export function StacImportForm() {
         // same asset afterwards, so a refresh follows the move instead of
         // re-running the priority list and possibly binding another band.
         data_asset_key: i.data_asset_key,
+        // feat(#1692): echo the asset's declared media type so the persisted
+        // origin asset re-advertises it on the STAC items GeoLens serves.
+        data_asset_type: i.data_asset_type,
         // feat(#1222): echo the item's own href back so the dataset's origin
         // can point at the item, not only its asset. The health probe needs
         // both to tell "the file is gone" from "the publisher withdrew it".
