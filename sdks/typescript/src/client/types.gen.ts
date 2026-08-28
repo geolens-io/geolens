@@ -10488,6 +10488,30 @@ export type UploadResponse = {
 };
 
 /**
+ * UrlUploadRequest
+ *
+ * Request body for the URL variant of upload (feat #1705).
+ *
+ * The server fetches the file itself (SSRF-validated, size-capped) and
+ * stages it exactly like a direct upload — preview and commit take over
+ * unchanged.
+ */
+export type UrlUploadRequest = {
+    /**
+     * Url
+     *
+     * HTTP(S) URL of the file to import. The server validates the URL against SSRF, downloads it with the configured size cap, and stages it like a direct upload.
+     */
+    url: string;
+    /**
+     * Filename
+     *
+     * Filename override for URLs whose path does not end in the actual file name (e.g. download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.
+     */
+    filename?: string | null;
+};
+
+/**
  * UserCreate
  */
 export type UserCreate = {
@@ -20846,6 +20870,71 @@ export type CompletePresignedUploadIngestUploadPresignedJobIdCompletePostRespons
 };
 
 export type CompletePresignedUploadIngestUploadPresignedJobIdCompletePostResponse = CompletePresignedUploadIngestUploadPresignedJobIdCompletePostResponses[keyof CompletePresignedUploadIngestUploadPresignedJobIdCompletePostResponses];
+
+export type UploadFromUrlIngestUploadUrlPostData = {
+    body: UrlUploadRequest;
+    path?: never;
+    query?: never;
+    url: '/ingest/upload/url';
+};
+
+export type UploadFromUrlIngestUploadUrlPostErrors = {
+    /**
+     * Bad request — invalid payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks write access
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Payload too large
+     */
+    413: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type UploadFromUrlIngestUploadUrlPostError = UploadFromUrlIngestUploadUrlPostErrors[keyof UploadFromUrlIngestUploadUrlPostErrors];
+
+export type UploadFromUrlIngestUploadUrlPostResponses = {
+    /**
+     * Successful Response
+     */
+    201: UploadResponse;
+};
+
+export type UploadFromUrlIngestUploadUrlPostResponse = UploadFromUrlIngestUploadUrlPostResponses[keyof UploadFromUrlIngestUploadUrlPostResponses];
 
 export type CreateVrtIngestVrtCreatePostData = {
     body: VrtCreateRequest;
