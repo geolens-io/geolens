@@ -33,6 +33,46 @@
 # still verifies the registries once they exist, same as always. Manual
 # dispatch is unaffected and still runs all four jobs.
 #
+# One more wrinkle: "Release" firing is necessary but not sufficient proof
+# that a release exists. release.yml's own workflow_run trigger listens on
+# `types: [completed]`, which fires on FAILURE too, and it gates the actual
+# release-creation job only at the JOB level
+# (`conclusion == 'success' && startsWith(head_branch, 'v')`) — a run whose
+# sole job SKIPPED (a failed Prod Compose Smoke, or a manual smoke of
+# `latest`/a branch) still CONCLUDES 'success' as a *workflow*, because an
+# all-skipped run is reported as successful. Left unguarded, that hollow
+# Release run would still trigger this workflow, VERIFY_VERSION would still
+# resolve to 'latest', and "Verify GHCR images"/"Verify GitHub Release" would
+# pass against the PREVIOUS release — a misleading green sitting right after
+# a failed or irrelevant smoke. Each of those two jobs' first step guards
+# against this by querying the triggering run's own jobs and confirming
+# "Create GitHub Release" actually concluded success; on a hollow run it logs
+# an `::notice::` and skips the real check WITHOUT failing the job — the
+# smoke failure is already the loud red signal, and this workflow going red
+# too would only be noise.
+#
+# (Considered switching Release's trigger to `release: types: [published]`
+# instead of workflow_run, which would sidestep the hollow-run problem
+# entirely and hand us the real tag via github.event.release.tag_name instead
+# of 'latest'. Ruled out: release.yml creates/edits the release using the
+# default `secrets.GITHUB_TOKEN` in every `gh release`/`gh api` call, and
+# GitHub does not fire downstream workflow triggers off events created by the
+# default GITHUB_TOKEN — that's the trigger-loop guard, and it would make a
+# `release: published` trigger here simply never fire. Revisit if release.yml
+# ever switches that step to a PAT or GitHub App token.)
+#
+# A related trap the naive fallback would have hit: 'latest' only ever means
+# the newest GA. publish.yml never re-tags GHCR `:latest` for a `-rc`/
+# prerelease suffix, and GitHub's own "latest release" concept explicitly
+# skips prereleases too — so a Release-triggered run for a *prerelease* tag
+# (this pipeline supports them end to end: Prod Compose Smoke, Release, and
+# publish.yml's tag matching all explicitly handle `-rc`/prerelease suffixes)
+# would otherwise silently re-verify the PREVIOUS GA instead of what was just
+# published, passing green without checking anything new. The same guard
+# step that checks for a hollow run also resolves the exact tag from
+# head_sha (reliable even though head_branch isn't — see above) and hands it
+# to the real check in place of 'latest'.
+#
 # Manual usage:
 #   gh workflow run verify-published.yml -f version=vX.Y.Z
 # Omit version (or pass 'latest') to verify whatever each registry calls latest.
@@ -72,6 +112,10 @@ on:
 
 permissions:
   contents: read
+  # Lets the hollow-Release guard in verify-ghcr/verify-github-release list
+  # the triggering Release run's jobs (GET .../actions/runs/{id}/jobs) to
+  # confirm "Create GitHub Release" actually ran and succeeded.
+  actions: read
 
 # Collapse the publish-completion triggers (and any manual run) for the same
 # version into the same group. cancel-in-progress stays FALSE (fix #829): with
@@ -88,8 +132,10 @@ permissions:
 # workflow_run-triggered run, since the triggered workflow's file is always
 # read from the default branch. Such a run lands in a fixed
 # `verify-published-main` group instead of the tag's group; VERIFY_VERSION
-# below falls back to 'latest' for it, which is correct because Release has,
-# by construction, just finished creating the newest release.
+# below falls back to 'latest' for it. `latest` is only a LAST-RESORT
+# fallback for the two Release-gated jobs though — each resolves the exact
+# tag itself from head_sha (see their guard step) precisely because 'latest'
+# would silently under-verify a prerelease. See that step's comment.
 concurrency:
   group: verify-published-${{ inputs.version || github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: false
@@ -97,12 +143,17 @@ concurrency:
 env:
   # Manual dispatch → the version input. workflow_run after a tag-triggered
   # publish (Publish SDKs/CLI/MCP) → head_branch is the tag (e.g. v1.2.4),
-  # used only when it looks like a version tag. workflow_run after Release
-  # always falls through to 'latest' below: Release is itself
-  # workflow_run-triggered, so its own head_branch is reported as the default
-  # branch ("main"), never the tag — and 'latest' is right anyway, since
-  # Release only fires once it has already created the newest release. A
-  # non-tag publish (e.g. dispatched from a branch) also falls back to 'latest'.
+  # used only when it looks like a version tag — exact for both a GA and a
+  # prerelease tag, since Publish SDKs/CLI/MCP are themselves `push: tags`
+  # triggered. workflow_run after Release always falls through to 'latest'
+  # below: Release is itself workflow_run-triggered, so its own head_branch
+  # is reported as the default branch ("main"), never the tag. verify-ghcr
+  # and verify-github-release don't actually rely on that 'latest' fallback
+  # in practice — their guard step resolves the exact tag from head_sha and
+  # overrides it — but VERIFY_VERSION still needs a sane default here for
+  # workflow_dispatch and for the (defensive, expected-rare) case where that
+  # resolution itself fails. A non-tag publish (e.g. dispatched from a
+  # branch) also falls back to 'latest'.
   VERIFY_VERSION: ${{ inputs.version || (startsWith(github.event.workflow_run.head_branch, 'v') && github.event.workflow_run.head_branch) || 'latest' }}
   # Bounded retry to absorb registry/CDN propagation lag after a publish.
   # 20 × 15s ≈ 5 min ceiling per check.
@@ -219,14 +270,73 @@ jobs:
     # artifact that ONLY a completed Release guarantees is pullable, so an
     # auto-trigger runs only for a successful Release completion — never for
     # a publish, which says nothing about whether the images have landed. See
-    # verify-python's comment for the github.event.workflow.name rationale.
+    # verify-python's comment for the github.event.workflow.name rationale,
+    # and the "hollow Release run" note at the top of this file for why the
+    # guard step below exists.
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name == 'Release') }}
     name: Verify GHCR images
     runs-on: ubuntu-latest
     steps:
-      - name: docker pull published GHCR images
+      - name: Guard against a hollow Release run
+        id: release_guard
+        if: ${{ github.event_name == 'workflow_run' }}
         env:
-          VERSION: ${{ env.VERIFY_VERSION }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # See the "hollow Release run" note at the top of this file. A
+          # workflow_run trigger only tells us Release CONCLUDED success as a
+          # workflow — not that its "Create GitHub Release" job actually ran,
+          # since an all-skipped run also concludes success. Confirm the real
+          # job ran before trusting anything about this trigger.
+          #
+          # The `gh api` call is wrapped in an `if` (rather than a bare
+          # `CONCLUSION=$(...)` assignment) so a transient API error can't
+          # kill this step under `bash -e` — that would turn a network blip
+          # into a NEW red check, the opposite of this guard's job. On a
+          # query failure this falls through to "not hollow" (run the real
+          # check below), which is exactly this workflow's behavior before
+          # this guard existed, not a new failure mode.
+          if CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
+            --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
+            if [ "${CONCLUSION}" = "success" ]; then
+              # Resolve the exact tag this run released rather than trusting
+              # VERIFY_VERSION=latest: `latest` only ever tracks the newest
+              # GA release/image — publish.yml never re-tags GHCR :latest for
+              # a `-rc`/prerelease suffix (its `type=raw,value=latest` gate),
+              # and GitHub's own "latest release" concept explicitly skips
+              # prereleases. Left as 'latest', a Release-triggered run for a
+              # *prerelease* tag would silently pass by re-verifying the
+              # PREVIOUS GA instead of what this run just published.
+              # head_sha is reliable here even though head_branch isn't (see
+              # the header note) — it's the exact tagged commit. Filtered to
+              # semver-shaped names for the same reason release.yml's own
+              # "Assert semver-shaped tag" step is: a 4-digit GSD milestone
+              # tag could in principle share a commit with a real release.
+              TAG=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+                --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -1) || true
+              if [ -n "${TAG}" ]; then
+                echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
+              else
+                echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
+              fi
+              echo "hollow=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "::notice::triggering Release run created no release; nothing to verify (Create GitHub Release job conclusion: '${CONCLUSION:-absent}')"
+              echo "hollow=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::warning::could not query the triggering Release run's jobs (gh api failed: ${CONCLUSION}); proceeding with verification as if not hollow"
+            echo "hollow=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: docker pull published GHCR images
+        if: ${{ steps.release_guard.outputs.hollow != 'true' }}
+        env:
+          VERSION: ${{ steps.release_guard.outputs.resolved_version || env.VERIFY_VERSION }}
           OWNER: ${{ github.repository_owner }}
         run: |
           if [ "${VERSION}" = "latest" ]; then
@@ -260,15 +370,74 @@ jobs:
 
   verify-github-release:
     # Same routing as verify-ghcr — Release-only (or manual dispatch); see
-    # verify-python's comment for the github.event.workflow.name rationale.
+    # verify-python's comment for the github.event.workflow.name rationale,
+    # and the "hollow Release run" note at the top of this file for why the
+    # guard step below exists.
     if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name == 'Release') }}
     name: Verify GitHub Release
     runs-on: ubuntu-latest
     steps:
-      - name: Check release exists
+      - name: Guard against a hollow Release run
+        id: release_guard
+        if: ${{ github.event_name == 'workflow_run' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ env.VERIFY_VERSION }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          # See the "hollow Release run" note at the top of this file. A
+          # workflow_run trigger only tells us Release CONCLUDED success as a
+          # workflow — not that its "Create GitHub Release" job actually ran,
+          # since an all-skipped run also concludes success. Confirm the real
+          # job ran before trusting anything about this trigger.
+          #
+          # The `gh api` call is wrapped in an `if` (rather than a bare
+          # `CONCLUSION=$(...)` assignment) so a transient API error can't
+          # kill this step under `bash -e` — that would turn a network blip
+          # into a NEW red check, the opposite of this guard's job. On a
+          # query failure this falls through to "not hollow" (run the real
+          # check below), which is exactly this workflow's behavior before
+          # this guard existed, not a new failure mode.
+          if CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
+            --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
+            if [ "${CONCLUSION}" = "success" ]; then
+              # Resolve the exact tag this run released rather than trusting
+              # VERIFY_VERSION=latest: `latest` only ever tracks the newest
+              # GA release/image — publish.yml never re-tags GHCR :latest for
+              # a `-rc`/prerelease suffix (its `type=raw,value=latest` gate),
+              # and GitHub's own "latest release" concept explicitly skips
+              # prereleases. Left as 'latest', a Release-triggered run for a
+              # *prerelease* tag would silently pass by re-verifying the
+              # PREVIOUS GA instead of what this run just published.
+              # head_sha is reliable here even though head_branch isn't (see
+              # the header note) — it's the exact tagged commit. Filtered to
+              # semver-shaped names for the same reason release.yml's own
+              # "Assert semver-shaped tag" step is: a 4-digit GSD milestone
+              # tag could in principle share a commit with a real release.
+              TAG=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+                --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -1) || true
+              if [ -n "${TAG}" ]; then
+                echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
+              else
+                echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
+              fi
+              echo "hollow=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "::notice::triggering Release run created no release; nothing to verify (Create GitHub Release job conclusion: '${CONCLUSION:-absent}')"
+              echo "hollow=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "::warning::could not query the triggering Release run's jobs (gh api failed: ${CONCLUSION}); proceeding with verification as if not hollow"
+            echo "hollow=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check release exists
+        if: ${{ steps.release_guard.outputs.hollow != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_guard.outputs.resolved_version || env.VERIFY_VERSION }}
           REPOSITORY: ${{ github.repository }}
         run: |
           if [ "${VERSION}" = "latest" ]; then
