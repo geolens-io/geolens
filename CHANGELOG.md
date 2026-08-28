@@ -34,6 +34,15 @@ and releases use semantic versioning.
 
 ### Fixed
 
+- **PMTiles basemaps render again.** The shared tile request transform
+  absolutified every URL that did not start with `http`, and MapLibre runs
+  `transformRequest` before its custom-protocol dispatch, so a `pmtiles://`
+  basemap source became `http://<origin>pmtiles://...` and never reached the
+  protocol handler — every PMTiles basemap added in 1.16.0 failed to render
+  with a "Failed to construct Request" error. Only site-relative paths are
+  absolutified now; scheme-carrying and protocol-relative URLs pass through
+  untouched (#1696).
+
 - **Browsers can consume public exports cross-origin.** The export and COG
   download routes now answer CORS preflights and carry Access-Control
   headers: anonymous requests get the wildcard treatment with the range and
