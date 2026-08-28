@@ -122,7 +122,7 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 - **Vecteur :** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, File Geodatabase zippée, CSV, XLSX
 - **Raster :** GeoTIFF et Cloud-Optimized GeoTIFF (COG) avec conversion automatique
 - **Mosaïques :** mosaïques raster basées sur VRT à partir de plusieurs fichiers sources
-- **Exportation :** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet et FlatGeobuf, avec reprojection du CRS ; PMTiles pour une archive de tuiles autonome, servie par un hébergement statique acceptant les requêtes de plage (range)
+- **Exportation :** GeoJSON, Shapefile, GeoPackage, CSV et FlatGeobuf, avec reprojection du CRS ; GeoParquet (toujours en EPSG:4326) ; PMTiles pour une archive de tuiles autonome, servie par un hébergement statique acceptant les requêtes de plage (range)
 - **État de la source :** origine, horodatages de dernière actualisation et de dernière vérification, fraîcheur fondée sur la fréquence, et contrôles d’état à la demande pour les origines Service et STAC
 - Suivi de provenance et édition des métadonnées
 

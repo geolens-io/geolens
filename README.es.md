@@ -122,7 +122,7 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 - **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, File Geodatabase comprimida (zip), CSV, XLSX
 - **Ráster:** GeoTIFF y Cloud-Optimized GeoTIFF (COG) con conversión automática
 - **Mosaicos:** mosaicos ráster basados en VRT a partir de varios archivos fuente
-- **Exportación:** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet y FlatGeobuf, con reproyección del CRS; PMTiles como archivo de teselas autocontenido para hosts estáticos que admitan solicitudes de rango
+- **Exportación:** GeoJSON, Shapefile, GeoPackage, CSV y FlatGeobuf, con reproyección del CRS; GeoParquet (siempre en EPSG:4326); PMTiles como archivo de teselas autocontenido para hosts estáticos que admitan solicitudes de rango
 - **Estado de la fuente:** origen, marcas de tiempo de última actualización y comprobación, vigencia basada en la frecuencia y comprobaciones de salud bajo demanda para orígenes de tipo Servicio y STAC
 - Seguimiento de procedencia y edición de metadatos
 

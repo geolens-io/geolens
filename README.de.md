@@ -122,7 +122,7 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 - **Vektor:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, gezippte File Geodatabase, CSV, XLSX
 - **Raster:** GeoTIFF und Cloud-Optimized GeoTIFF (COG) mit automatischer Konvertierung
 - **Mosaike:** VRT-basierte Rastermosaike aus mehreren Quelldateien
-- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet und FlatGeobuf mit CRS-Reprojektion; PMTiles als eigenständiges Kachelarchiv für statische Hosts mit Unterstützung für Range-Anfragen
+- **Export:** GeoJSON, Shapefile, GeoPackage, CSV und FlatGeobuf mit CRS-Reprojektion; GeoParquet (immer EPSG:4326); PMTiles als eigenständiges Kachelarchiv für statische Hosts mit Unterstützung für Range-Anfragen
 - **Quellstatus:** Herkunft, Zeitstempel der letzten Aktualisierung und Prüfung, rhythmusbasierte Quellenaktualität und bedarfsgesteuerte Zustandsprüfungen für Service- und STAC-Quellen
 - Herkunftsverfolgung und Metadatenbearbeitung
 

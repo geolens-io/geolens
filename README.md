@@ -126,7 +126,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, zipped File Geodatabase, CSV, XLSX
 - **Raster:** GeoTIFF and Cloud-Optimized GeoTIFF (COG) with automatic conversion
 - **Mosaics:** VRT-based raster mosaics from multiple source files
-- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet, and FlatGeobuf with CRS reprojection; PMTiles as a self-contained tile archive for static hosts that support range requests
+- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, and FlatGeobuf with CRS reprojection; GeoParquet (always EPSG:4326); PMTiles as a self-contained tile archive for static hosts that support range requests
 - **Source state:** origin and last-refreshed/last-checked timestamps, cadence-based source freshness, and on-demand health checks for Service and STAC origins
 - Provenance tracking and metadata editing
 
