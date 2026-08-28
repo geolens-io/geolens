@@ -28,7 +28,10 @@ from app.modules.auth.dependencies import (
     get_optional_user,
     require_permission,
 )
-from app.modules.catalog.authorization import get_user_roles
+from app.modules.catalog.authorization import (
+    check_public_visibility_allowed,
+    get_user_roles,
+)
 from app.core.dependencies import get_db
 from app.modules.catalog.maps.schemas import (
     BulkDeleteLayersRequest,
@@ -460,6 +463,12 @@ async def update_map_endpoint(
             # embed tokens, which previously survived (only the share token was
             # flipped) and kept serving tiles for a now-private map until expiry.
             await revoke_embed_tokens_by_map(db, map_id)
+
+    # feat(#1691): a non-admin may not move a map TO public when the
+    # restrict_public_visibility instance setting is on. MapVisibility is a
+    # str Enum, so the gate's == "public" comparison works on it directly;
+    # None (visibility untouched) passes through.
+    await check_public_visibility_allowed(db, user, body.visibility)
 
     # Hard block: prevent publishing maps with non-public datasets
     if body.visibility == MapVisibility.public:

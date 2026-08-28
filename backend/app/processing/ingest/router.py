@@ -902,6 +902,14 @@ async def commit_import(
     # layer_name, which reaches the worker's ogr2ogr argv (see layer_guard).
     validate_commit_layer_name(job, getattr(commit, "layer_name", None))
 
+    # feat(#1691): a non-admin may not commit a public dataset when the
+    # restrict_public_visibility instance setting is on. Local import:
+    # processing/ must not import app.modules.catalog.* at module level
+    # (PROCESS-02/04 layering invariant).
+    from app.modules.catalog.authorization import check_public_visibility_allowed
+
+    await check_public_visibility_allowed(db, user, commit.visibility)
+
     # Extract token only for service commits (ServiceCommitRequest is the
     # only subclass with a token field). AUTH-04: never persisted.
     token = getattr(commit, "token", None)
@@ -980,6 +988,15 @@ async def commit_fan_out(
             detail=f"Job already processed (status='{job.status}')",
         )
 
+    # feat(#1691): fan-out jobs inherit the parent job's user_metadata, so a
+    # visibility seeded there (defense-in-depth — the request schema itself
+    # has no visibility field) goes through the same admin gate as a commit.
+    from app.modules.catalog.authorization import check_public_visibility_allowed
+
+    await check_public_visibility_allowed(
+        db, user, (job.user_metadata or {}).get("visibility")
+    )
+
     # Validate all requested layer_names appear in the job's all_layers preview.
     # fix(#823): normalisation extracted to layer_guard.known_layer_names,
     # shared with the single-layer commit endpoint's new validation.
@@ -1036,6 +1053,12 @@ async def register_table(
     Verifies the table exists, extracts metadata, and creates a
     catalog entry.
     """
+    # feat(#1691): a non-admin may not register a public dataset when the
+    # restrict_public_visibility instance setting is on.
+    from app.modules.catalog.authorization import check_public_visibility_allowed
+
+    await check_public_visibility_allowed(db, user, request.visibility)
+
     try:
         dataset = await register_existing_table(db, request, user)
         await db.commit()
@@ -1109,6 +1132,14 @@ async def bulk_register_tables(
     """
     from app.core.db import async_session
 
+    # feat(#1691): gate ONCE for the whole batch — any item requesting public
+    # visibility puts the request through the shared admin check before any
+    # table is registered (403, not a per-item error, so nothing partial runs).
+    from app.modules.catalog.authorization import check_public_visibility_allowed
+
+    if any(item.visibility == "public" for item in request.tables):
+        await check_public_visibility_allowed(db, user, "public")
+
     async def _register_one(
         table_req: BulkRegisterItem,
     ) -> BulkRegisterResult:
@@ -1158,6 +1189,12 @@ async def create_vrt(
     Returns a job_id for polling. Validation + queuing logic lives in
     ``ingest.service.create_vrt_job`` (K5 extraction).
     """
+    # feat(#1691): a non-admin may not create a public VRT dataset when the
+    # restrict_public_visibility instance setting is on.
+    from app.modules.catalog.authorization import check_public_visibility_allowed
+
+    await check_public_visibility_allowed(db, user, request.visibility)
+
     from app.processing.ingest.service import create_vrt_job
 
     job = await create_vrt_job(db, request, user)

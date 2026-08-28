@@ -460,6 +460,8 @@
       "requireMetadataDescription": "Wenn aktiviert, müssen Datensätze vollständige Metadaten haben, bevor sie veröffentlicht werden können.",
       "enableDatasetEditing": "Datensatzbearbeitung aktivieren",
       "enableDatasetEditingDescription": "Geometrie-Zeichnung und Attributbearbeitung auf Datensatz-Detailseiten erlauben. Wenn deaktiviert, sind Datensätze schreibgeschützt.",
+      "restrictPublicVisibility": "Öffentliche Sichtbarkeit auf Administratoren beschränken",
+      "restrictPublicVisibilityDescription": "Wenn aktiviert, können nur Administratoren Datensätze und Karten auf öffentlich stellen. Nicht-Administratoren behalten alle engeren Sichtbarkeitsstufen.",
       "bannerEnabled": "Site-Banner aktivieren",
       "bannerEnabledDescription": "Das Ankündigungsbanner allen Besuchern anzeigen. Der Banner-Text unten muss ebenfalls gesetzt sein.",
       "bannerText": "Site-Banner-Text",

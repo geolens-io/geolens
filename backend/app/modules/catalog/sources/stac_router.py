@@ -22,6 +22,7 @@ from app.core.url_redaction import has_url_credentials, redact_url_credentials
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.core.identity import Identity
 from app.modules.auth.dependencies import require_permission
+from app.modules.catalog.authorization import check_public_visibility_allowed
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     Record,
@@ -453,6 +454,10 @@ async def stac_import(
     remote COG asset URL. Titiler serves the tiles directly from the
     remote source — no file download required.
     """
+    # feat(#1691): a non-admin may not create public datasets when the
+    # restrict_public_visibility instance setting is on.
+    await check_public_visibility_allowed(db, user, request.visibility)
+
     results: list[StacImportResult] = []
     safe_url = redact_url_credentials(request.url)
     created = 0

@@ -12,7 +12,7 @@ import {
   useUpdateEmbedToken,
 } from '@/components/builder/hooks/use-embed-tokens';
 import { useEdition } from '@/hooks/use-edition';
-import { useTileConfig } from '@/hooks/use-settings';
+import { useCanSetPublicVisibility, useTileConfig } from '@/hooks/use-settings';
 import {
   useCreateShareToken,
   useMapShareToken,
@@ -46,6 +46,7 @@ vi.mock('@/hooks/use-maps', () => ({
 // tests that care drive a DIFFERENT hostname, which is the whole point.
 vi.mock('@/hooks/use-settings', () => ({
   useTileConfig: vi.fn(),
+  useCanSetPublicVisibility: vi.fn(),
 }));
 
 vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
@@ -56,6 +57,7 @@ vi.mock('@/components/builder/hooks/use-embed-tokens', () => ({
 }));
 
 const mockedUseTileConfig = vi.mocked(useTileConfig);
+const mockedUseCanSetPublicVisibility = vi.mocked(useCanSetPublicVisibility);
 const mockedUseEdition = vi.mocked(useEdition);
 const mockedCheckMapVisibility = vi.mocked(checkMapVisibility);
 const mockedUsePublishMap = vi.mocked(usePublishMap);
@@ -99,6 +101,7 @@ function setup({
   layers,
   publishMapFn = vi.fn().mockResolvedValue({}),
   publicAppUrl = window.location.origin,
+  canSetPublic = true,
   forceActiveEmbedToken = false,
   lockOriginsAfterCreate = null,
 }: {
@@ -121,6 +124,9 @@ function setup({
   publishMapFn?: (...args: any[]) => any;
   /** The deployment's configured PUBLIC_APP_URL. null = unconfigured. */
   publicAppUrl?: string | null;
+  /** feat(#1691): useCanSetPublicVisibility() — false when the instance
+   *  restricts public visibility to admins and the user is not one. */
+  canSetPublic?: boolean;
   /** Return an active embed token even when the share link is created at
    *  runtime — the domain-locked branch needs both. */
   forceActiveEmbedToken?: boolean;
@@ -148,6 +154,8 @@ function setup({
       is_active: true,
     };
   });
+
+  mockedUseCanSetPublicVisibility.mockReturnValue(canSetPublic);
 
   mockedUseTileConfig.mockReturnValue({
     data: {
@@ -1271,6 +1279,21 @@ describe('fix(#778) public-boundary visibility confirmation', () => {
     });
     expect(publishMapFn).toHaveBeenCalledWith({ id: 'map-1', visibility: 'internal' });
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  // feat(#1691): the restrict_public_visibility instance setting caps
+  // non-admins at non-public. The server enforces it with a 403; the panel
+  // disables the choice and swaps its description for the admin-only note.
+  it('disables the Public choice when the instance restricts public to admins', () => {
+    setup({ visibility: 'private', hasShareToken: false, canSetPublic: false });
+
+    const publicRadio = screen.getByRole('radio', {
+      name: /only administrators can make content public/i,
+    });
+    expect(publicRadio).toBeDisabled();
+    // The other choices stay usable.
+    expect(screen.getByRole('radio', { name: /only you/i })).toBeEnabled();
+    expect(screen.getByRole('radio', { name: /all team members/i })).toBeEnabled();
   });
 });
 

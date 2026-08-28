@@ -27,6 +27,7 @@ from app.modules.catalog.authorization import (
     can_view_dataset_provenance,
     check_dataset_access_or_anonymous,
     check_dataset_write_access,
+    check_public_visibility_allowed,
     get_user_roles,
     visible_lineage_summary,
 )
@@ -332,6 +333,11 @@ async def update_dataset_metadata(
             detail="Dataset not found",
         )
     user_roles = await check_dataset_write_access(db, dataset, dataset_id, user)
+    # feat(#1691): a non-admin may not move a dataset TO public when the
+    # restrict_public_visibility instance setting is on.
+    await check_public_visibility_allowed(
+        db, user, meta.visibility, user_roles=user_roles
+    )
 
     # fix(#458 E-48): capture the pre-update value so a PATCH that echoes the
     # same tile_columns doesn't roll the tile version / purge the tile cache.

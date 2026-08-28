@@ -65,6 +65,8 @@ export async function getEnabledPlugins(): Promise<string[] | null> {
 export interface FeatureFlags {
   enable_dataset_editing: boolean;
   require_metadata_for_publish: boolean;
+  // feat(#1691): when true, only admins may set `visibility: public`.
+  restrict_public_visibility: boolean;
 }
 
 export async function getFeatureFlags(): Promise<FeatureFlags> {

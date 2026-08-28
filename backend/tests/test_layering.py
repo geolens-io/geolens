@@ -2167,7 +2167,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     # against the shape rule and drops (+ logs) an unsafe one instead of
     # serving it as a login-page <a href>; a stored value can predate the
     # check or bypass PersistentConfig.set()'s validation entirely.
-    "backend/app/modules/settings/router_public.py": 175,
+    # feat(#1691): +2 — restrict_public_visibility rides the public
+    # feature-flags bundle so the UI can hide the Public option for
+    # non-admins. Cap 175 -> 177.
+    "backend/app/modules/settings/router_public.py": 177,
 }
 
 
@@ -2628,7 +2631,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # instead of an eight-entry literal that had drifted two formats behind.
     # Most of the growth is the docstring recording why a narrower fallback is
     # not a safer one. Cap 1543 -> 1547, exact.
-    "backend/app/processing/ingest/router.py": 1547,
+    # feat(#1691): +37 — the check_public_visibility_allowed gate at the five
+    # visibility-writing handlers (commit, fan-out, register, bulk register,
+    # VRT create), each a local import (PROCESS-02/04) plus one call and the
+    # comment saying which surface it closes. Cap 1547 -> 1584, exact.
+    "backend/app/processing/ingest/router.py": 1584,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3115,7 +3122,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # PRIV-1: +11 — a PRIVACY_URL PersistentConfig on the "general" tab (not
     # "branding", which ENTERPRISE_ONLY_TABS gates) for the login/register
     # privacy-policy link. Cap 1018 -> 1029, exact.
-    "backend/app/core/persistent_config.py": 1029,
+    # feat(#1691): +13 — the RESTRICT_PUBLIC_VISIBILITY flag (admins-only
+    # `visibility: public`) plus the comment pointing at its shared gate in
+    # catalog/authorization.py. Cap 1029 -> 1042, exact.
+    "backend/app/core/persistent_config.py": 1042,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with
@@ -3756,7 +3766,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `responses={403: FORBIDDEN_RESPONSE}` overrides; get_map_history_endpoint
     # keeps the router's write-flavored default since it genuinely requires
     # edit_metadata + ownership. Cap 1425 -> 1460, exact.
-    "backend/app/modules/catalog/maps/router.py": 1460,
+    # feat(#1691): +9 — the check_public_visibility_allowed gate on the map
+    # update route (a non-admin may not move a map TO public when
+    # restrict_public_visibility is on). Cap 1460 -> 1469, exact.
+    "backend/app/modules/catalog/maps/router.py": 1469,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

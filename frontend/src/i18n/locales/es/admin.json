@@ -460,6 +460,8 @@
       "requireMetadataDescription": "Cuando está habilitado, los conjuntos de datos deben tener metadatos completos antes de poder publicarse.",
       "enableDatasetEditing": "Habilitar edición de conjuntos de datos",
       "enableDatasetEditingDescription": "Permitir dibujo de geometría y edición de atributos en las páginas de detalle de conjuntos de datos. Cuando está deshabilitado, los conjuntos de datos son de solo lectura.",
+      "restrictPublicVisibility": "Restringir la visibilidad pública a administradores",
+      "restrictPublicVisibilityDescription": "Cuando está activado, solo los administradores pueden hacer públicos los conjuntos de datos y los mapas. Los usuarios sin permisos de administrador conservan todos los niveles de visibilidad más restringidos.",
       "bannerEnabled": "Activar banner del sitio",
       "bannerEnabledDescription": "Mostrar el banner de aviso a todos los visitantes. El texto del banner de abajo también debe estar configurado.",
       "bannerText": "Texto del banner del sitio",

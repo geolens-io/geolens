@@ -66,7 +66,7 @@ const MIRRORS: MirrorShape[] = [
   {
     schema: 'FeatureFlagsResponse',
     source: 'settings.ts FeatureFlags',
-    required: ['enable_dataset_editing', 'require_metadata_for_publish'],
+    required: ['enable_dataset_editing', 'require_metadata_for_publish', 'restrict_public_visibility'],
     optional: [],
   },
   {

@@ -4508,6 +4508,10 @@ export type FeatureFlagsResponse = {
      * Require Metadata For Publish
      */
     require_metadata_for_publish?: boolean;
+    /**
+     * Restrict Public Visibility
+     */
+    restrict_public_visibility?: boolean;
 };
 
 /**

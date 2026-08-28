@@ -19,16 +19,20 @@ class FeatureFlagsResponse:
     Attributes:
         enable_dataset_editing (bool | Unset):  Default: False.
         require_metadata_for_publish (bool | Unset):  Default: False.
+        restrict_public_visibility (bool | Unset):  Default: False.
     """
 
     enable_dataset_editing: bool | Unset = False
     require_metadata_for_publish: bool | Unset = False
+    restrict_public_visibility: bool | Unset = False
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         enable_dataset_editing = self.enable_dataset_editing
 
         require_metadata_for_publish = self.require_metadata_for_publish
+
+        restrict_public_visibility = self.restrict_public_visibility
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -37,6 +41,8 @@ class FeatureFlagsResponse:
             field_dict["enable_dataset_editing"] = enable_dataset_editing
         if require_metadata_for_publish is not UNSET:
             field_dict["require_metadata_for_publish"] = require_metadata_for_publish
+        if restrict_public_visibility is not UNSET:
+            field_dict["restrict_public_visibility"] = restrict_public_visibility
 
         return field_dict
 
@@ -47,9 +53,12 @@ class FeatureFlagsResponse:
 
         require_metadata_for_publish = d.pop("require_metadata_for_publish", UNSET)
 
+        restrict_public_visibility = d.pop("restrict_public_visibility", UNSET)
+
         feature_flags_response = cls(
             enable_dataset_editing=enable_dataset_editing,
             require_metadata_for_publish=require_metadata_for_publish,
+            restrict_public_visibility=restrict_public_visibility,
         )
 
         feature_flags_response.additional_properties = d

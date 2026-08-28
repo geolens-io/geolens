@@ -8538,6 +8538,11 @@ export interface components {
              * @default false
              */
             require_metadata_for_publish: boolean;
+            /**
+             * Restrict Public Visibility
+             * @default false
+             */
+            restrict_public_visibility: boolean;
         };
         /**
          * FeatureReplace

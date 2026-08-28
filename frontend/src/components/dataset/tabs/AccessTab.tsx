@@ -5,6 +5,7 @@ import { Copy, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
+import { useCanSetPublicVisibility } from '@/hooks/use-settings';
 import { listKeywords } from '@/api/records';
 import type { DatasetResponse, DatasetVisibility } from '@/types/api';
 import {
@@ -254,6 +255,10 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
   const { t } = useTranslation('dataset');
   const { endpoints, publicApiBaseUrl } = useDatasetAccessEndpoints(dataset);
   const updateDataset = useUpdateDataset();
+  // feat(#1691): the restrict_public_visibility instance setting caps
+  // non-admins at non-public; the server enforces it with a 403, this only
+  // disables the affordance.
+  const canSetPublic = useCanSetPublicVisibility();
   const isLegacyVisibility = !SELECTABLE_VISIBILITIES.includes(
     dataset.visibility as (typeof SELECTABLE_VISIBILITIES)[number],
   );
@@ -425,7 +430,11 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
                     </SelectItem>
                   )}
                   {SELECTABLE_VISIBILITIES.map((value) => (
-                    <SelectItem key={value} value={value}>
+                    <SelectItem
+                      key={value}
+                      value={value}
+                      disabled={value === 'public' && !canSetPublic}
+                    >
                       {getVisibilityLabel(t, value)}
                     </SelectItem>
                   ))}
@@ -446,6 +455,11 @@ export function AccessTab({ dataset, canEdit = false }: AccessTabProps) {
           <p className="text-xs text-muted-foreground mt-2">
             {t('metadataEdit.visibilityHelp')}
           </p>
+          {canEdit && !canSetPublic && (
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('common:visibilityPublicAdminOnly')}
+            </p>
+          )}
         </CardContent>
       </Card>
 

@@ -22,7 +22,7 @@ import {
 import { formatDate } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { useEdition } from '@/hooks/use-edition';
-import { useTileConfig } from '@/hooks/use-settings';
+import { useCanSetPublicVisibility, useTileConfig } from '@/hooks/use-settings';
 import {
   Dialog,
   DialogContent,
@@ -946,6 +946,10 @@ export function ShareDialog({
   const { t } = useTranslation('builder');
   const { isEnterprise } = useEdition();
   const publishMap = usePublishMap();
+  // feat(#1691): the restrict_public_visibility instance setting caps
+  // non-admins at non-public; the server enforces it with a 403, this only
+  // disables the Public choice.
+  const canSetPublic = useCanSetPublicVisibility();
 
   // fix(#1548 review r3/r4/r5): three origins live here, and the question that
   // picks between them is WHO OPENS THE URL — not whether it is "a share".
@@ -1234,6 +1238,9 @@ export function ShareDialog({
               {VISIBILITY_OPTIONS.map((opt) => {
                 const Icon = opt.icon;
                 const isActive = visibility === opt.value;
+                // feat(#1691): a non-admin cannot move a map TO public while
+                // the instance restricts public visibility to admins.
+                const publicBlocked = opt.value === 'public' && !canSetPublic;
                 return (
                   <button
                     key={opt.value}
@@ -1245,14 +1252,19 @@ export function ShareDialog({
                       isActive
                         ? 'ring-2 ring-ring border-primary bg-primary/5'
                         : 'border-border hover:border-muted-foreground/30 hover:bg-accent/50',
+                      publicBlocked && 'cursor-not-allowed opacity-60',
                     )}
                     onClick={() => handleVisibilitySelect(opt.value)}
-                    disabled={publishMap.isPending}
+                    disabled={publishMap.isPending || publicBlocked}
                   >
                     <Icon className={cn('h-4 w-4 mt-0.5 shrink-0', opt.iconClass)} />
                     <div className="min-w-0">
                       <p className="text-sm font-semibold">{t(opt.titleKey)}</p>
-                      <p className="text-xs text-muted-foreground">{t(opt.descKey)}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {publicBlocked
+                          ? t('common:visibilityPublicAdminOnly')
+                          : t(opt.descKey)}
+                      </p>
                     </div>
                   </button>
                 );

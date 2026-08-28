@@ -7661,6 +7661,11 @@
             "default": false,
             "title": "Require Metadata For Publish",
             "type": "boolean"
+          },
+          "restrict_public_visibility": {
+            "default": false,
+            "title": "Restrict Public Visibility",
+            "type": "boolean"
           }
         },
         "title": "FeatureFlagsResponse",

@@ -1,6 +1,7 @@
 import { useRef, useMemo, useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
+import { useCanSetPublicVisibility } from '@/hooks/use-settings';
 import { Loader2 } from 'lucide-react';
 import type { CommitImportRequest, RasterPreviewResponse } from '@/types/api';
 import { Button } from '@/components/ui/button';
@@ -61,6 +62,12 @@ export function ImportMetadataForm({
   detectedGeometryColumns,
 }: ImportMetadataFormProps) {
   const { t } = useTranslation('import');
+  // feat(#1691): hide the Public option when the restrict_public_visibility
+  // instance setting caps non-admins at non-public (server enforces via 403).
+  const canSetPublic = useCanSetPublicVisibility();
+  const visibilityOptions = canSetPublic
+    ? VISIBILITY_OPTIONS
+    : VISIBILITY_OPTIONS.filter((opt) => opt.value !== 'public');
   const [name, setName] = useState(stripExtension(defaultName));
   const [description, setDescription] = useState('');
   const [visibility, setVisibility] = useState('private');
@@ -196,7 +203,7 @@ export function ImportMetadataForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {VISIBILITY_OPTIONS.map((opt) => (
+                {visibilityOptions.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
                     {t(opt.labelKey)}
                   </SelectItem>

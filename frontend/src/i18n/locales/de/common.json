@@ -637,5 +637,6 @@
   "copied": "Kopiert",
   "mapViewerGate": {
     "accessCheckFailed": "Ihr Zugriff auf diese Karte konnte nicht geprüft werden. Versuchen Sie es erneut."
-  }
+  },
+  "visibilityPublicAdminOnly": "Nur Administratoren können Inhalte auf dieser Instanz öffentlich machen."
 }
