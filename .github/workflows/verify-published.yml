@@ -311,10 +311,20 @@ jobs:
               # *prerelease* tag would silently pass by re-verifying the
               # PREVIOUS GA instead of what this run just published.
               # head_sha is reliable here even though head_branch isn't (see
-              # the header note) — it's the exact tagged commit. Filtered to
-              # semver-shaped names for the same reason release.yml's own
-              # "Assert semver-shaped tag" step is: a 4-digit GSD milestone
-              # tag could in principle share a commit with a real release.
+              # the header note) — it's the exact tagged commit, inherited
+              # through the workflow_run chain (Prod Compose Smoke -> Release
+              # -> here); only head_branch gets reset to the default branch.
+              # This is not a theory: the v1.14.1 Release run (created
+              # 2026-08-20T00:24:04Z) reports head_sha 1eb456346..., exactly
+              # `git rev-parse v1.14.1` — even though main's actual tip at
+              # that instant had already moved one commit past it, to
+              # 1e4a3ef4e... (#1615). If head_sha tracked the default
+              # branch's current tip the way head_branch does, this run
+              # would report 1e4a3ef4e; it reports the older tag commit
+              # instead. Filtered to semver-shaped names for the same reason
+              # release.yml's own "Assert semver-shaped tag" step is: a
+              # 4-digit GSD milestone tag could in principle share a commit
+              # with a real release.
               TAG=$(gh api "repos/${REPOSITORY}/tags" --paginate \
                 --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
                 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -1) || true
@@ -411,10 +421,20 @@ jobs:
               # *prerelease* tag would silently pass by re-verifying the
               # PREVIOUS GA instead of what this run just published.
               # head_sha is reliable here even though head_branch isn't (see
-              # the header note) — it's the exact tagged commit. Filtered to
-              # semver-shaped names for the same reason release.yml's own
-              # "Assert semver-shaped tag" step is: a 4-digit GSD milestone
-              # tag could in principle share a commit with a real release.
+              # the header note) — it's the exact tagged commit, inherited
+              # through the workflow_run chain (Prod Compose Smoke -> Release
+              # -> here); only head_branch gets reset to the default branch.
+              # This is not a theory: the v1.14.1 Release run (created
+              # 2026-08-20T00:24:04Z) reports head_sha 1eb456346..., exactly
+              # `git rev-parse v1.14.1` — even though main's actual tip at
+              # that instant had already moved one commit past it, to
+              # 1e4a3ef4e... (#1615). If head_sha tracked the default
+              # branch's current tip the way head_branch does, this run
+              # would report 1e4a3ef4e; it reports the older tag commit
+              # instead. Filtered to semver-shaped names for the same reason
+              # release.yml's own "Assert semver-shaped tag" step is: a
+              # 4-digit GSD milestone tag could in principle share a commit
+              # with a real release.
               TAG=$(gh api "repos/${REPOSITORY}/tags" --paginate \
                 --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
                 | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -1) || true
