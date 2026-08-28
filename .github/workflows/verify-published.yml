@@ -1,10 +1,24 @@
 # Clean-machine smoke verification of published GeoLens packages.
 #
-# Runs automatically after the gated SDK/CLI publishes complete (workflow_run,
-# below), and can be run manually any time. Jobs run inside fresh Docker images
-# (python:3.13-slim, node:22-slim) — no repo context, no runner pollution; mimics
-# what a downstream user gets. Each check polls with a bounded retry to absorb
+# Runs automatically after the gated SDK/CLI publishes complete AND after the
+# Release workflow creates the GitHub Release (workflow_run, below), and can be
+# run manually any time. Jobs run inside fresh Docker images (python:3.13-slim,
+# node:22-slim) — no repo context, no runner pollution; mimics what a
+# downstream user gets. Each check polls with a bounded retry to absorb
 # registry/CDN propagation lag.
+#
+# The "Verify GitHub Release" and "Verify GHCR images" jobs used to race the
+# Release workflow: this workflow triggered only off the package publishes
+# (Publish SDKs/CLI/MCP), which pause for a human approval click and finish on
+# their own schedule, independent of the "Prod Compose Smoke" -> "Release"
+# chain that actually creates the GitHub Release. On v1.16.0 the approvals
+# landed while the ~40-minute compose-boot-and-E2E smoke was still running:
+# both checks burned their full 5-minute retry window twice in a row and went
+# red roughly 2 minutes before Release actually finished, needing a manual
+# rerun every time. Triggering off "Release" too closes this by construction —
+# Release only fires after Prod Compose Smoke has already pulled the GHCR
+# images and the release job has already created the release, so a
+# Release-triggered run of this workflow can never lose that race.
 #
 # Manual usage:
 #   gh workflow run verify-published.yml -f version=vX.Y.Z
@@ -13,7 +27,8 @@
 # This intentionally does NOT trigger on `push: tags`. On a tag push the GHCR
 # images are still building and the PyPI/npm publishes are still waiting on the
 # `publish` environment's approval gate, so a tag-triggered run would always
-# race/expire. Triggering after the publishes finish is the correct ordering.
+# race/expire. Triggering after the publishes finish (or after Release
+# finishes) is the correct ordering.
 # See docs.getgeolens.com for the release runbook.
 name: Verify Published Packages
 
@@ -25,11 +40,18 @@ on:
         required: false
         type: string
         default: 'latest'
-  # Auto-run after a gated publish completes. The publish workflows finish at
-  # different times; the concurrency group below queues duplicate triggers for
-  # the same version behind the in-flight verify (never cancelling it).
+  # Auto-run after a gated publish completes, and after Release creates the
+  # GitHub Release. These four upstream workflows finish at different times —
+  # the publishes wait on a human approval click, Release waits on the
+  # ~40-minute Prod Compose Smoke — so the concurrency group below queues
+  # duplicate triggers for the same version behind the in-flight verify
+  # (never cancelling it). A Release-triggered run lands in its own
+  # `verify-published-main` group (see VERIFY_VERSION below) and runs
+  # independently of the per-version group; that's fine; it exists
+  # specifically to catch the GHCR/Release checks a publish-triggered run can
+  # miss while Prod Compose Smoke is still boot-testing the tag.
   workflow_run:
-    workflows: ["Publish SDKs", "Publish CLI", "Publish MCP Server"]
+    workflows: ["Publish SDKs", "Publish CLI", "Publish MCP Server", "Release"]
     types: [completed]
 
 permissions:
@@ -44,14 +66,27 @@ permissions:
 # newest pending run per group), so an in-flight verify always finishes.
 # Verifying two different versions concurrently is fine — the group is
 # per-version.
+#
+# A run triggered by Release's completion reports its OWN head_branch as the
+# default branch ("main"), not the tag — that's how GitHub represents any
+# workflow_run-triggered run, since the triggered workflow's file is always
+# read from the default branch. Such a run lands in a fixed
+# `verify-published-main` group instead of the tag's group; VERIFY_VERSION
+# below falls back to 'latest' for it, which is correct because Release has,
+# by construction, just finished creating the newest release.
 concurrency:
   group: verify-published-${{ inputs.version || github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: false
 
 env:
-  # Manual dispatch → the version input. workflow_run after a tag publish →
-  # head_branch is the tag (e.g. v1.2.4), used only when it looks like a version
-  # tag; a non-tag publish (e.g. dispatched from a branch) falls back to 'latest'.
+  # Manual dispatch → the version input. workflow_run after a tag-triggered
+  # publish (Publish SDKs/CLI/MCP) → head_branch is the tag (e.g. v1.2.4),
+  # used only when it looks like a version tag. workflow_run after Release
+  # always falls through to 'latest' below: Release is itself
+  # workflow_run-triggered, so its own head_branch is reported as the default
+  # branch ("main"), never the tag — and 'latest' is right anyway, since
+  # Release only fires once it has already created the newest release. A
+  # non-tag publish (e.g. dispatched from a branch) also falls back to 'latest'.
   VERIFY_VERSION: ${{ inputs.version || (startsWith(github.event.workflow_run.head_branch, 'v') && github.event.workflow_run.head_branch) || 'latest' }}
   # Bounded retry to absorb registry/CDN propagation lag after a publish.
   # 20 × 15s ≈ 5 min ceiling per check.
