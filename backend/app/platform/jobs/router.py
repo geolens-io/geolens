@@ -42,6 +42,7 @@ from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objec
 from app.platform.jobs.sweep import (
     ABANDONED_UPLOAD_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     JOB_TIMEOUT_SECONDS,
+    _READY_WORTHY_SQL,
     audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
     STALE_PENDING_UNBOUND_MESSAGE,  # noqa: F401 -- re-exported, see __all__
@@ -806,6 +807,97 @@ def _is_lock_timeout(exc: DBAPIError) -> bool:
     return getattr(exc.orig, "sqlstate", None) == "55P03"
 
 
+# The three VRT regeneration dispatch sites (regenerate_vrt_endpoint,
+# add_vrt_source, remove_vrt_source) all create their IngestJob with this
+# source_filename literal, and nothing else does.
+_VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
+
+
+async def _reconcile_cancelled_vrt_regeneration(
+    db: AsyncSession, dataset_id: uuid.UUID, now: datetime
+) -> None:
+    """Release the VRT state a cancelled ``vrt_regenerate`` job would strand.
+
+    fix(#1709 review P1): VRT dispatch commits a ``pending`` VrtGeneration
+    and flips the RasterAsset to ``regenerating`` BEFORE deferring the job,
+    and that asset status is exactly what 409-blocks every later
+    regenerate/add-source/remove-source call. The worker unwinds it only on
+    its ``except Exception`` path — a task the cancel beat to the claim exits
+    without ever reaching it, and a delivered abort raises CancelledError, a
+    BaseException that handler never sees — so without this, a cancelled
+    regeneration stays blocked until ``sweep_stale_vrt_assets``'s
+    JOB_TIMEOUT_SECONDS cutoff.
+
+    Runs inside the cancel transaction, after the job CAS won, entirely as
+    guarded conditional updates, so the fence-wins discipline holds:
+
+    - The generation flips to ``failed`` only from ``pending``/``running``.
+      (The ``vrt_generations`` CHECK constraint has no ``cancelled`` literal
+      and this feature ships no migration; ``failed`` with a user-cancel
+      message is the same convention the stale sweep writes.) A terminal row
+      means another actor finished first, and nothing here is touched.
+    - The asset restore reuses the sweep's ``_READY_WORTHY_SQL`` branches:
+      ``ready`` only when the published composition provably still matches
+      the catalog's and the prior real attempt did not fail, else ``failed``.
+      Either branch clears ``current_generation_id``, so the 409 block lifts
+      immediately instead of an hour later.
+    - A worker that publishes cannot lose to this: its publish transaction
+      carries the fenced job-complete update, so it either committed before
+      the cancel's job CAS (the cancel then 409s and never reaches here) or
+      rolls back at the fence. Its failure handler's writes are the same
+      terminal values keyed to the same pointer, so late arrival on either
+      side degrades to a zero-row no-op, never a clobber.
+    """
+    # Deferred by design: platform -> processing imports stay function-local
+    # (D-17), mirroring the worker/task_app imports elsewhere in this module.
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    pointer = await db.scalar(
+        select(RasterAsset.current_generation_id).where(
+            RasterAsset.dataset_id == dataset_id,
+            RasterAsset.status == "regenerating",
+        )
+    )
+    if pointer is None:
+        # Nothing in flight: already published, already reconciled, or the
+        # dispatch's orphan-guard rollback restored the asset itself.
+        return
+    generation_cas = await db.execute(
+        update(VrtGeneration)
+        .where(
+            VrtGeneration.id == pointer,
+            VrtGeneration.status.in_(("pending", "running")),
+        )
+        .values(
+            status="failed",
+            completed_at=now,
+            error_message="Cancelled by user",
+        )
+        .returning(VrtGeneration.id)
+    )
+    if generation_cas.scalar_one_or_none() is None:
+        # The pointed-at generation is already terminal — another actor's
+        # record stands, and the asset is that actor's to reconcile.
+        return
+    asset_predicate = (
+        RasterAsset.dataset_id == dataset_id,
+        RasterAsset.status == "regenerating",
+        RasterAsset.current_generation_id == pointer,
+    )
+    restored = await db.execute(
+        update(RasterAsset)
+        .where(*asset_predicate, text(_READY_WORTHY_SQL))
+        .values(status="ready", current_generation_id=None)
+        .returning(RasterAsset.dataset_id)
+    )
+    if restored.scalar_one_or_none() is None:
+        await db.execute(
+            update(RasterAsset)
+            .where(*asset_predicate, text(f"NOT ({_READY_WORTHY_SQL})"))
+            .values(status="failed", current_generation_id=None)
+        )
+
+
 @router.post(
     "/{job_id}/cancel",
     response_model=JobCancelResponse,
@@ -941,6 +1033,13 @@ async def cancel_job(
         )
 
     run_id = await cancel_active_run_for_job(db, job.id)
+    if (
+        job.source_filename == _VRT_REGENERATE_JOB_FILENAME
+        and job.dataset_id is not None
+    ):
+        # fix(#1709 review P1): same transaction as the job CAS, so the VRT
+        # state this job stranded and the job's terminal status land together.
+        await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
     await audit_emit(
         db,
         AuditEvent(
@@ -966,11 +1065,23 @@ async def cancel_job(
     await db.commit()
 
     # Post-commit, best-effort: ask Procrastinate to cancel a todo row or
-    # abort a doing one. A failure here is logged, not surfaced — the fences
-    # above make the eventual delivery a no-op either way, the worker just
-    # runs to its finalize and dies at the fence instead of stopping early.
-    queue_rows = await db.execute(_LIVE_QUEUE_ROWS_SQL, {"job_id": str(job.id)})
-    for queue_job_id in queue_rows.scalars():
+    # abort a doing one. A failure ANYWHERE past the commit — the row lookup
+    # included (fix(#1709 review P2): a dropped connection here used to 500 a
+    # request whose cancel was already durable) — is logged, not surfaced:
+    # the fences above make the eventual delivery a no-op either way, the
+    # worker just runs to its finalize and dies at the fence instead of
+    # stopping early.
+    try:
+        queue_rows = await db.execute(_LIVE_QUEUE_ROWS_SQL, {"job_id": str(job.id)})
+        queue_job_ids = list(queue_rows.scalars())
+    except Exception:  # broad: post-commit lookup is acceleration, never the guarantee
+        log.warning(
+            "job_cancel_queue_lookup_failed",
+            job_id=str(job.id),
+            exc_info=True,
+        )
+        queue_job_ids = []
+    for queue_job_id in queue_job_ids:
         try:
             # Deferred: the API process holds this connector open for its
             # whole lifespan (app/api/main.py lifespan).

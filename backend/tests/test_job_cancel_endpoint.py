@@ -200,6 +200,35 @@ class TestCancelEndpoint:
         assert len(run_events) == 1
         assert run_events[0].details["error_code"] == USER_CANCELLED_ERROR_CODE
 
+    async def test_queue_lookup_failure_does_not_mask_a_committed_cancel(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1709 review P2): the post-commit queue lookup is best-effort.
+
+        By the time it runs, the cancel is durably committed — a lookup
+        failure (connection drop, queue table unavailable) must be logged
+        and swallowed, not surfaced as a 500 the UI reads as a failed
+        cancel. Simulated by pointing the lookup SQL at a missing table.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+
+        monkeypatch.setattr(
+            "app.platform.jobs.router._LIVE_QUEUE_ROWS_SQL",
+            sa.text("SELECT id FROM catalog.no_such_table_cancel_p2"),
+        )
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["status"] == "cancelled"
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+
     async def test_second_cancel_is_idempotent(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
