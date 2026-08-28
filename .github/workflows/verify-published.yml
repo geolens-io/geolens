@@ -15,10 +15,23 @@
 # landed while the ~40-minute compose-boot-and-E2E smoke was still running:
 # both checks burned their full 5-minute retry window twice in a row and went
 # red roughly 2 minutes before Release actually finished, needing a manual
-# rerun every time. Triggering off "Release" too closes this by construction —
-# Release only fires after Prod Compose Smoke has already pulled the GHCR
-# images and the release job has already created the release, so a
-# Release-triggered run of this workflow can never lose that race.
+# rerun every time.
+#
+# Adding "Release" as a trigger alone would only add a green run alongside the
+# still-guaranteed-red publish-triggered ones — the approval click routinely
+# lands well inside the ~40-minute smoke, so those two jobs would still poll
+# for an artifact their own trigger can never produce. Each job's `if:` (see
+# `jobs:` below) fixes that by also restricting it to the one trigger source
+# that can actually satisfy it: a publish-triggered auto-run skips "Verify
+# GHCR images"/"Verify GitHub Release" entirely, and a Release-triggered
+# auto-run skips the two package-registry jobs. Release only fires after Prod
+# Compose Smoke has already pulled the GHCR images and the release job has
+# already created the release; the three publishes are the only source of the
+# PyPI/npm packages the other two jobs check. So the failure mode is
+# structurally impossible in both directions — including a slow publish
+# approval that lands AFTER Release, since the eventual publish-triggered run
+# still verifies the registries once they exist, same as always. Manual
+# dispatch is unaffected and still runs all four jobs.
 #
 # Manual usage:
 #   gh workflow run verify-published.yml -f version=vX.Y.Z
@@ -47,9 +60,12 @@ on:
   # duplicate triggers for the same version behind the in-flight verify
   # (never cancelling it). A Release-triggered run lands in its own
   # `verify-published-main` group (see VERIFY_VERSION below) and runs
-  # independently of the per-version group; that's fine; it exists
-  # specifically to catch the GHCR/Release checks a publish-triggered run can
-  # miss while Prod Compose Smoke is still boot-testing the tag.
+  # independently of the per-version group; that's fine. Each job's `if:`
+  # (in `jobs:` below) additionally restricts it to the one trigger source
+  # that can actually satisfy it, so a publish-triggered run only exercises
+  # the two package-registry jobs and a Release-triggered run only exercises
+  # "Verify GHCR images"/"Verify GitHub Release" — neither pair ever polls
+  # for an artifact its own trigger hasn't produced.
   workflow_run:
     workflows: ["Publish SDKs", "Publish CLI", "Publish MCP Server", "Release"]
     types: [completed]
@@ -95,8 +111,21 @@ env:
 
 jobs:
   verify-python:
-    # Manual dispatch always runs; an auto-trigger only runs if the publish succeeded.
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # Manual dispatch always runs. An auto-trigger runs only for a successful
+    # PUBLISH completion (Publish SDKs/CLI/MCP) — never for Release — since
+    # only the publishes produce the PyPI package this job verifies; a
+    # Release-triggered run couldn't tell us anything new here.
+    #
+    # Uses github.event.workflow.name (the triggering run's static Workflow
+    # resource, i.e. the workflow's `name:`) rather than
+    # github.event.workflow_run.name: GitHub repoints the latter to the run's
+    # `run-name`/display title once the run has completed
+    # (actions/runner#4141), so it stops equalling the workflow's declared
+    # name the moment anyone adds a `run-name:` to one of these four upstream
+    # workflows. None of them set one today, but `workflow.name` is immune to
+    # that regardless, so prefer it here rather than relying on it staying
+    # that way.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name != 'Release') }}
     name: Verify Python packages on python:3.13-slim
     runs-on: ubuntu-latest
     steps:
@@ -144,7 +173,10 @@ jobs:
           done
 
   verify-typescript:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # Same routing as verify-python — npm is populated by the publishes, not
+    # by Release. See verify-python's comment for the github.event.workflow.name
+    # (vs .workflow_run.name) rationale.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name != 'Release') }}
     name: Verify TypeScript package on node:22-slim
     runs-on: ubuntu-latest
     steps:
@@ -183,7 +215,12 @@ jobs:
           done
 
   verify-ghcr:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # Mirror image of verify-python: this job only exists to confirm an
+    # artifact that ONLY a completed Release guarantees is pullable, so an
+    # auto-trigger runs only for a successful Release completion — never for
+    # a publish, which says nothing about whether the images have landed. See
+    # verify-python's comment for the github.event.workflow.name rationale.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name == 'Release') }}
     name: Verify GHCR images
     runs-on: ubuntu-latest
     steps:
@@ -222,7 +259,9 @@ jobs:
           done
 
   verify-github-release:
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    # Same routing as verify-ghcr — Release-only (or manual dispatch); see
+    # verify-python's comment for the github.event.workflow.name rationale.
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow.name == 'Release') }}
     name: Verify GitHub Release
     runs-on: ubuntu-latest
     steps:
