@@ -30,10 +30,13 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 </p>
 
 > [!NOTE]
-> **Versión inicial.** GeoLens se desarrolla y mantiene activamente y se ha publicado
-> recientemente como código abierto. La distribución autohospedada es joven y
-> algunas funciones y APIs aún pueden cambiar.
-> [Abre una incidencia](https://github.com/geolens-io/geolens/issues) si encuentras algún problema.
+> **Estabilidad de la API.** Las superficies estándar (OGC API Features/Records,
+> STAC y los endpoints de teselas) siguen sus especificaciones y son seguras
+> para construir sobre ellas. La API REST propia de GeoLens aún puede cambiar
+> entre versiones menores: los cambios de contrato se listan en el
+> [CHANGELOG](CHANGELOG.md) y los cambios incompatibles mantienen la forma
+> anterior funcionando al menos una versión menor más. ¿Encuentras algún
+> problema? [Abre una incidencia](https://github.com/geolens-io/geolens/issues).
 
 ## Documentación
 
@@ -67,8 +70,8 @@ GeoLens sustituye ese flujo de trabajo:
 
 - **Un solo centro de datos:** sube archivos, crea datasets, registra tablas que ya estén en la base de datos de GeoLens, importa instantáneas de servicios de entidades o referencia recursos STAC remotos; después consulta y previsualiza todo en conjunto
 - **Estado de la fuente, sin conjeturas:** consulta cómo llegó cada dataset al catálogo, cuándo se actualizó o comprobó por última vez, si su última actualización está al día, pendiente, atrasada o es desconocida respecto a la frecuencia declarada, y si el origen remoto de tipo Servicio o STAC sigue accesible
-- **Funciona con tus herramientas:** OGC API Features/Records, STAC API 1.0 y URLs directas de teselas para QGIS, ArcGIS y MapLibre
-- **Sin dependencia de proveedor:** tu catálogo y las copias que administra GeoLens permanecen en la infraestructura que controlas y salen mediante formatos abiertos. Los datasets vectoriales se exportan a GeoPackage, GeoJSON, Shapefile, CSV o GeoParquet; los ráster se descargan como GeoTIFF optimizado para la nube (COG); y cualquier cliente OGC API lee el catálogo directamente
+- **Funciona con tus herramientas:** OGC API Features/Records con filtrado CQL2 en el servidor, STAC API 1.0 y URLs directas de teselas para QGIS, ArcGIS y MapLibre
+- **Sin dependencia de proveedor:** tu catálogo y las copias que administra GeoLens permanecen en la infraestructura que controlas y salen mediante formatos abiertos. Los datasets vectoriales se exportan a GeoPackage, GeoJSON, Shapefile, CSV, GeoParquet, FlatGeobuf o PMTiles; los ráster se descargan como GeoTIFF optimizado para la nube (COG); y cualquier cliente OGC API lee el catálogo directamente
 - **Búsqueda semántica y espacial:** coincidencia difusa con pg_trgm desde el primer momento; añade un proveedor de embeddings y activa la búsqueda semántica para clasificar conjuntos de datos por significado (pgvector)
 - **Constructor de mapas integrado:** compón mapas multicapa, aplica estilos y compártelos mediante un enlace público o un iframe incrustable
 - **Asistencia de IA (opcional):** conversa con tus mapas, genera descripciones automáticamente y busca con lenguaje natural. Aporta un endpoint compatible con OpenAI o una clave de Anthropic, o prescinde por completo de esta función
@@ -116,10 +119,10 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 ### Ingesta y exportación de datos
 
 - **Cinco modos de fuente:** los datos Subidos y Creados se administran localmente; Registrar tabla sirve en el sitio una tabla existente de la propia base de datos PostGIS de GeoLens; las importaciones de Servicios son copias locales puntuales; los datasets STAC mantienen una referencia activa al recurso remoto
-- **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
+- **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, File Geodatabase comprimida (zip), CSV, XLSX
 - **Ráster:** GeoTIFF y Cloud-Optimized GeoTIFF (COG) con conversión automática
 - **Mosaicos:** mosaicos ráster basados en VRT a partir de varios archivos fuente
-- **Exportación:** GeoJSON, Shapefile, GeoPackage y CSV, con reproyección del CRS
+- **Exportación:** GeoJSON, Shapefile, GeoPackage, CSV y FlatGeobuf, con reproyección del CRS; GeoParquet (siempre en EPSG:4326); PMTiles como archivo de teselas autocontenido para hosts estáticos que admitan solicitudes de rango
 - **Estado de la fuente:** origen, marcas de tiempo de última actualización y comprobación, vigencia basada en la frecuencia y comprobaciones de salud bajo demanda para orígenes de tipo Servicio y STAC
 - Seguimiento de procedencia y edición de metadatos
 
@@ -132,10 +135,11 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 
 ### Estándares e interoperabilidad
 
-- OGC API - Features y OGC API - Records; endpoint de catálogo STAC API 1.0; catálogos JSON-LD DCAT 3, DCAT-US 3.0 y GeoDCAT-AP
+- OGC API - Features (con filtrado CQL2 en el servidor y `/queryables` por colección) y OGC API - Records; endpoint de catálogo STAC API 1.0; catálogos JSON-LD DCAT 3, DCAT-US 3.0 y GeoDCAT-AP
 - URLs directas de teselas y claves de API por usuario para QGIS, ArcGIS, MapLibre y cualquier cliente OGC
 - Las teselas vectoriales omiten columnas de atributos por debajo del zoom 10 para mantener pequeñas las teselas de zoom bajo; añade el parámetro de consulta `cols=<column>,<column>` a una URL de tesela para incluir columnas concretas en todos los niveles de zoom (los nombres se validan contra las columnas del conjunto y se descartan los desconocidos)
 - JWT + OAuth 2.0/OIDC y RBAC con permisos por conjunto de datos
+- Interfaz en inglés, español, francés y alemán
 
 <details>
 <summary>Seguridad</summary>
@@ -146,7 +150,6 @@ Cada ejemplo anterior tiene una guía completa en la [documentación](https://do
 - Control de acceso basado en roles (RBAC) con permisos por conjunto de datos
 - El registro de autoservicio está desactivado por defecto; cuando se activa con verificación SMTP, la entrega del correo de registro es uniforme para solicitudes nuevas y coincidentes
 - Registro de auditoría para todas las acciones administrativas
-- Internacionalización: inglés, español, francés y alemán
 
 </details>
 
@@ -224,7 +227,7 @@ docker compose ps
 
 Notas del primer arranque: la instalación en una línea **descarga** imágenes precompiladas y tarda alrededor de un minuto (solo se compila localmente la pequeña capa de base de datos PostGIS + pgvector). Clonar y ejecutar `bash scripts/install.sh` **compila** cada imagen desde el código fuente: 5-10 minutos la primera vez (GDAL + extensiones de Postgres + bundle del frontend); los arranques posteriores se estabilizan en unos 60 segundos en ambos casos. Si los puertos 5434/8001/8080 están ocupados, cambia `DB_PORT`, `API_PORT` o `FRONTEND_PORT` en `.env`. Para conflictos de puertos, arranques bloqueados, falta de memoria y advertencias de migración, consulta la [guía de resolución de problemas](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-Para despliegues de producción, consulta la [guía de instalación](https://docs.getgeolens.com/guides/quickstart/install/). Hay un [chart de Helm](https://github.com/geolens-io/geolens-deployments) mantenido por la comunidad en el repositorio independiente [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments).
+Para despliegues de producción, consulta la [guía de instalación](https://docs.getgeolens.com/guides/quickstart/install/). Un chart de Helm vive en el repositorio independiente [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments).
 
 ### Verificar el instalador
 
@@ -315,7 +318,7 @@ flowchart TB
 
 | Componente | Tecnología |
 |-----------|-----------|
-| Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
+| Frontend | React 19, Vite, MapLibre GL v6, TanStack Query, Tailwind CSS |
 | API backend | FastAPI (Python), GDAL/ogr2ogr, Procrastinate (cola de tareas) |
 | Teselas ráster | Titiler (servidor de teselas COG) |
 | Almacenamiento de objetos | MinIO (compatible con S3, desarrollo local) o cualquier proveedor S3 |
@@ -353,7 +356,7 @@ La API y el worker exportan métricas Prometheus de serie (tasa/latencia/errores
 | [Guía de administración](https://docs.getgeolens.com/guides/admin/) | Gestión de usuarios, conjuntos de datos y estado del sistema |
 | [Autohospedaje en AWS, GCP o DigitalOcean](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Guías para bases de datos, almacenamiento de objetos y caché administrados |
 | [CLI y manifiestos](https://docs.getgeolens.com/guides/cli/) | Publica archivos y gestiona catálogos con la CLI `geolens` |
-| [Referencia de la API](https://docs.getgeolens.com/guides/api/) | Referencia generada en docs.getgeolens.com; Swagger UI interactiva en `/api/docs` durante la ejecución |
+| [Referencia de la API](https://docs.getgeolens.com/guides/api/) | Referencia generada en docs.getgeolens.com; en modo de desarrollo la instancia también sirve Swagger UI en `/api/docs` (deshabilitada en producción) |
 | [Ejemplos de manifiestos](examples/manifests/) | Plantillas `geolens.yaml` adaptables: public-cog (COG remoto), url-source, s3-source, publication-states |
 | [Ejemplos de clientes](https://github.com/geolens-io/geolens-examples) | Ejemplos ejecutables de navegador, QGIS, DuckDB, SDK, CLI, incrustación, Python y MCP; los de solo lectura se verifican en CI contra la demo pública ([galería](https://geolens-io.github.io/geolens-examples/)) |
 
@@ -368,7 +371,7 @@ La API y el worker exportan métricas Prometheus de serie (tasa/latencia/errores
 - Una única instancia PostgreSQL, sin alta disponibilidad ni agrupación integradas.
 - GeoLens está diseñado para una organización por despliegue autohospedado.
 - La representación del terreno presupone que las unidades del DEM son metros; los conjuntos con otras unidades verticales pueden aparecer exagerados.
-- La distribución autohospedada es joven y algunas funciones y APIs aún pueden cambiar (consulta la nota de versión inicial anterior).
+- La API REST propia de GeoLens aún puede cambiar entre versiones menores (consulta la nota de estabilidad de la API anterior).
 
 ## Licencia
 
