@@ -7,6 +7,62 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.16.1] - 2026-08-28
+
+### Added
+
+- **Instance setting to restrict public visibility to admins.** A new
+  `restrict_public_visibility` setting (default off, General tab): when
+  enabled, non-admin users can still create and edit content, but any request
+  to mark a dataset, map, or import `public` is refused with a clear 403.
+  Enforcement runs server-side through one shared gate at every
+  visibility-writing surface — dataset metadata, map save, STAC import,
+  ingest commit and fan-out, register, VRT create, and manifest apply — and a
+  structural test walks the route table so a new visibility-accepting handler
+  cannot ship ungated. The UI hides or disables the Public option for
+  non-admins with a note. Existing public content is untouched. Built for
+  open-SSO instances such as the public demo, where anonymous-facing search
+  facets otherwise accumulate whatever visitors mark public (#1691, #1704).
+
+- **STAC items now advertise their origin assets.** A dataset imported by
+  reference from a remote STAC catalog stores the source item's data asset
+  (the COG href) and serves it on GeoLens's own STAC items beside the tile
+  asset, clearly roled `data` vs `visual`, so generic clients — stac-browser,
+  the QGIS STAC plugin, rio-viz — can actually read pixels from items GeoLens
+  republishes. A successful refresh repairs existing by-reference datasets
+  idempotently, which doubles as the backfill (#1692, #1703).
+
+### Fixed
+
+- **PMTiles basemaps render again.** The shared tile request transform
+  absolutified every URL that did not start with `http`, and MapLibre runs
+  `transformRequest` before its custom-protocol dispatch, so a `pmtiles://`
+  basemap source became `http://<origin>pmtiles://...` and never reached the
+  protocol handler — every PMTiles basemap added in 1.16.0 failed to render
+  with a "Failed to construct Request" error. Only site-relative paths are
+  absolutified now; scheme-carrying and protocol-relative URLs pass through
+  untouched (#1696).
+
+- **Browsers can consume public exports cross-origin.** The export and COG
+  download routes now answer CORS preflights and carry Access-Control
+  headers: anonymous requests get the wildcard treatment with the range and
+  conditional request headers allowed and `Content-Range`, `Accept-Ranges`,
+  `Content-Length`, `ETag`, and `Content-Disposition` exposed, while origins
+  listed in `CORS_ALLOWED_ORIGINS` keep the API middleware's explicit-origin
+  credentialed policy untouched — the API stays authoritative and the edge
+  only fills the anonymous gap. A browser page on another origin can now
+  point the pmtiles protocol or DuckDB-WASM straight at a live export URL
+  (#1698, #1701).
+
+- **Exported map images derive attribution from MapLibre's live state.** The
+  credit band in saved thumbnails and share images now reads the renderer's
+  own used/usedForTerrain flags rather than approximating them from
+  visibility and zoom, falling back to the previous model when those
+  internals are unreachable. Deduplication and joining now match the
+  on-screen control, and embedded object/embed/iframe/video markup in
+  attribution HTML gets the same accessible-text treatment as images
+  (#1553, #1702).
+
 ## [1.16.0] - 2026-08-27
 
 ### Added
@@ -2797,7 +2853,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.16.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.16.1...HEAD
+[1.16.1]: https://github.com/geolens-io/geolens/compare/v1.16.0...v1.16.1
 [1.16.0]: https://github.com/geolens-io/geolens/compare/v1.15.1...v1.16.0
 [1.15.1]: https://github.com/geolens-io/geolens/compare/v1.15.0...v1.15.1
 [1.15.0]: https://github.com/geolens-io/geolens/compare/v1.14.2...v1.15.0
