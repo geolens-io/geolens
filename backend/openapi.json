@@ -8012,6 +8012,45 @@
         "title": "InfrastructureResponse",
         "type": "object"
       },
+      "JobCancelResponse": {
+        "description": "Outcome of ``POST /jobs/{id}/cancel`` (#1677).\n\n``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when\nthe job had one bound (refreshes and reuploads do; plain imports don't).\n``already`` is True when the job was cancelled before this request \u2014 the\nrepeat is idempotent and nothing was written.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "const": "cancelled",
+            "title": "Status",
+            "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "already": {
+            "default": false,
+            "title": "Already",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "run_id"
+        ],
+        "title": "JobCancelResponse",
+        "type": "object"
+      },
       "JobStatusResponse": {
         "properties": {
           "id": {
@@ -42866,6 +42905,150 @@
           }
         ],
         "summary": "Get Job Status",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Cancel a pending or running ingest job (imports, refreshes, and every\nother IngestJob-shaped run \u2014 feat(#1677)).\n\nThe DB compare-and-swap here is the correctness mechanism: the job row\n(fenced on the attempt id read pre-CAS) and its bound refresh run flip to\n``cancelled`` and COMMIT before anything touches the queue. A worker that\nnever hears the abort still cannot install data afterwards, because every\nfinalize site runs its fenced job update inside the swap transaction and\n``require_ingest_job_update`` raises on the cancelled row, rolling the\nswap back. The Procrastinate ``abort=True`` request afterwards is\nbest-effort acceleration only.\n\nAuthorization: the job's creator, a holder of the cross-user job\ncapability (same arm view/retry use), or \u2014 wider than retry, on purpose \u2014\nanyone with write access to the job's dataset, so a dataset's owner can\nalways unblock their own dataset from a run someone else started.",
+        "operationId": "cancel_job_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobCancelResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Cancel Job",
         "tags": [
           "Admin"
         ]

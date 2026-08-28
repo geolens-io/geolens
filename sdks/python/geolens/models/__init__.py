@@ -335,6 +335,7 @@ from .infrastructure_config import InfrastructureConfig
 from .infrastructure_response import InfrastructureResponse
 from .infrastructure_response_health import InfrastructureResponseHealth
 from .infrastructure_response_oidc_providers import InfrastructureResponseOidcProviders
+from .job_cancel_response import JobCancelResponse
 from .job_status_response import JobStatusResponse
 from .job_status_response_current_step_type_0 import JobStatusResponseCurrentStepType0
 from .job_status_response_status import JobStatusResponseStatus
@@ -1006,6 +1007,7 @@ __all__ = (
     "InfrastructureResponse",
     "InfrastructureResponseHealth",
     "InfrastructureResponseOidcProviders",
+    "JobCancelResponse",
     "JobStatusResponse",
     "JobStatusResponseCurrentStepType0",
     "JobStatusResponseStatus",

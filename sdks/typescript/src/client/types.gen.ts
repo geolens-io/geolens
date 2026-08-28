@@ -4785,6 +4785,35 @@ export type InfrastructureResponse = {
 };
 
 /**
+ * JobCancelResponse
+ *
+ * Outcome of ``POST /jobs/{id}/cancel`` (#1677).
+ *
+ * ``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when
+ * the job had one bound (refreshes and reuploads do; plain imports don't).
+ * ``already`` is True when the job was cancelled before this request — the
+ * repeat is idempotent and nothing was written.
+ */
+export type JobCancelResponse = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Status
+     */
+    status: 'cancelled';
+    /**
+     * Run Id
+     */
+    run_id: string | null;
+    /**
+     * Already
+     */
+    already?: boolean;
+};
+
+/**
  * JobStatusResponse
  */
 export type JobStatusResponse = {
@@ -21173,6 +21202,68 @@ export type GetJobStatusJobsJobIdGetResponses = {
 };
 
 export type GetJobStatusJobsJobIdGetResponse = GetJobStatusJobsJobIdGetResponses[keyof GetJobStatusJobsJobIdGetResponses];
+
+export type CancelJobJobsJobIdCancelPostData = {
+    body?: never;
+    path: {
+        /**
+         * Job Id
+         */
+        job_id: string;
+    };
+    query?: never;
+    url: '/jobs/{job_id}/cancel';
+};
+
+export type CancelJobJobsJobIdCancelPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type CancelJobJobsJobIdCancelPostError = CancelJobJobsJobIdCancelPostErrors[keyof CancelJobJobsJobIdCancelPostErrors];
+
+export type CancelJobJobsJobIdCancelPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: JobCancelResponse;
+};
+
+export type CancelJobJobsJobIdCancelPostResponse = CancelJobJobsJobIdCancelPostResponses[keyof CancelJobJobsJobIdCancelPostResponses];
 
 export type RetryJobJobsJobIdRetryPostData = {
     body?: never;

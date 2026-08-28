@@ -3247,6 +3247,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Job
+         * @description Cancel a pending or running ingest job (imports, refreshes, and every
+         *     other IngestJob-shaped run — feat(#1677)).
+         *
+         *     The DB compare-and-swap here is the correctness mechanism: the job row
+         *     (fenced on the attempt id read pre-CAS) and its bound refresh run flip to
+         *     ``cancelled`` and COMMIT before anything touches the queue. A worker that
+         *     never hears the abort still cannot install data afterwards, because every
+         *     finalize site runs its fenced job update inside the swap transaction and
+         *     ``require_ingest_job_update`` raises on the cancelled row, rolling the
+         *     swap back. The Procrastinate ``abort=True`` request afterwards is
+         *     best-effort acceleration only.
+         *
+         *     Authorization: the job's creator, a holder of the cross-user job
+         *     capability (same arm view/retry use), or — wider than retry, on purpose —
+         *     anyone with write access to the job's dataset, so a dataset's owner can
+         *     always unblock their own dataset from a run someone else started.
+         */
+        post: operations["cancel_job_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/jobs/{job_id}/retry": {
         parameters: {
             query?: never;
@@ -8757,6 +8792,34 @@ export interface components {
             oidc_providers: {
                 [key: string]: components["schemas"]["ProviderHealth"];
             };
+        };
+        /**
+         * JobCancelResponse
+         * @description Outcome of ``POST /jobs/{id}/cancel`` (#1677).
+         *
+         *     ``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when
+         *     the job had one bound (refreshes and reuploads do; plain imports don't).
+         *     ``already`` is True when the job was cancelled before this request — the
+         *     repeat is idempotent and nothing was written.
+         */
+        JobCancelResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Status
+             * @constant
+             */
+            status: "cancelled";
+            /** Run Id */
+            run_id: string | null;
+            /**
+             * Already
+             * @default false
+             */
+            already: boolean;
         };
         /** JobStatusResponse */
         JobStatusResponse: {
@@ -29583,6 +29646,111 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    cancel_job_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["JobCancelResponse"];
+                };
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
