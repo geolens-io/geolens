@@ -30,9 +30,13 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 </p>
 
 > [!NOTE]
-> **Version initiale.** GeoLens est activement développé et maintenu, et vient
-> d’être publié en open source. La distribution auto-hébergée est jeune et
-> certaines fonctions et APIs peuvent encore évoluer. [Ouvrez un ticket](https://github.com/geolens-io/geolens/issues) en cas de difficulté.
+> **Stabilité de l’API.** Les surfaces standard (OGC API Features/Records,
+> STAC et les points de terminaison de tuiles) suivent leurs spécifications et
+> sont sûres pour vos intégrations. L’API REST propre à GeoLens peut encore
+> changer entre versions mineures : les changements de contrat sont listés dans
+> le [CHANGELOG](CHANGELOG.md), et les changements incompatibles conservent
+> l’ancienne forme fonctionnelle pendant au moins une version mineure
+> supplémentaire. Une difficulté ? [Ouvrez un ticket](https://github.com/geolens-io/geolens/issues).
 
 ## Documentation
 
@@ -66,8 +70,8 @@ GeoLens remplace ce processus :
 
 - **Une plateforme de données unique :** chargez des fichiers, créez des jeux de données, enregistrez des tables déjà présentes dans la base GeoLens, importez des instantanés de services d’entités ou référencez des ressources STAC distantes, puis recherchez et prévisualisez le tout au même endroit
 - **L’état des sources, sans conjectures :** voyez comment chaque jeu est arrivé dans le catalogue, quand il a été actualisé ou vérifié pour la dernière fois, si cette actualisation est récente, à effectuer, en retard ou indéterminée par rapport à la fréquence déclarée, et si une origine Service ou STAC distante reste accessible
-- **Compatible avec vos outils :** OGC API Features/Records, STAC API 1.0 et URLs directes de tuiles pour QGIS, ArcGIS et MapLibre
-- **Sans verrouillage :** votre catalogue et les copies gérées par GeoLens restent sur l’infrastructure que vous contrôlez et en sortent via des formats ouverts. Les jeux de données vectoriels s’exportent en GeoPackage, GeoJSON, Shapefile, CSV ou GeoParquet ; les rasters se téléchargent en GeoTIFF optimisé pour le cloud (COG) ; et n’importe quel client OGC API lit le catalogue directement
+- **Compatible avec vos outils :** OGC API Features/Records avec filtrage CQL2 côté serveur, STAC API 1.0 et URLs directes de tuiles pour QGIS, ArcGIS et MapLibre
+- **Sans verrouillage :** votre catalogue et les copies gérées par GeoLens restent sur l’infrastructure que vous contrôlez et en sortent via des formats ouverts. Les jeux de données vectoriels s’exportent en GeoPackage, GeoJSON, Shapefile, CSV, GeoParquet, FlatGeobuf ou PMTiles ; les rasters se téléchargent en GeoTIFF optimisé pour le cloud (COG) ; et n’importe quel client OGC API lit le catalogue directement
 - **Recherche sémantique et spatiale :** correspondance approximative pg_trgm prête à l’emploi ; ajoutez un fournisseur d’embeddings et activez la recherche sémantique pour classer les jeux de données par sens (pgvector)
 - **Générateur de cartes intégré :** composez des cartes multicouches, stylisez-les et partagez-les par lien public ou iframe intégrable
 - **Assistance IA (facultative) :** dialogue avec les cartes, génération automatique de descriptions et recherche en langage naturel. Utilisez un point de terminaison compatible OpenAI ou une clé Anthropic, ou ignorez entièrement cette fonction
@@ -115,10 +119,10 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 ### Ingestion et exportation des données
 
 - **Cinq modes de source :** les données Chargées et Créées sont gérées localement ; Enregistrer une table expose sur place une table existante de la base PostGIS de GeoLens ; les importations de Services sont des copies locales ponctuelles ; les jeux STAC conservent une référence active vers la ressource distante
-- **Vecteur :** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
+- **Vecteur :** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, File Geodatabase zippée, CSV, XLSX
 - **Raster :** GeoTIFF et Cloud-Optimized GeoTIFF (COG) avec conversion automatique
 - **Mosaïques :** mosaïques raster basées sur VRT à partir de plusieurs fichiers sources
-- **Exportation :** GeoJSON, Shapefile, GeoPackage, CSV, avec reprojection du CRS
+- **Exportation :** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet et FlatGeobuf, avec reprojection du CRS ; PMTiles pour une archive de tuiles autonome, servie par un hébergement statique acceptant les requêtes de plage (range)
 - **État de la source :** origine, horodatages de dernière actualisation et de dernière vérification, fraîcheur fondée sur la fréquence, et contrôles d’état à la demande pour les origines Service et STAC
 - Suivi de provenance et édition des métadonnées
 
@@ -131,10 +135,11 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 
 ### Normes et interopérabilité
 
-- OGC API - Features et OGC API - Records ; point de terminaison de catalogue STAC API 1.0 ; catalogues JSON-LD DCAT 3, DCAT-US 3.0 et GeoDCAT-AP
+- OGC API - Features (avec filtrage CQL2 côté serveur et `/queryables` par collection) et OGC API - Records ; point de terminaison de catalogue STAC API 1.0 ; catalogues JSON-LD DCAT 3, DCAT-US 3.0 et GeoDCAT-AP
 - URLs directes de tuiles et clés d’API par utilisateur pour QGIS, ArcGIS, MapLibre et tout client OGC
 - Les tuiles vectorielles omettent les colonnes d’attributs en dessous du zoom 10 afin de limiter leur taille ; ajoutez le paramètre `cols=<column>,<column>` à leur URL pour inclure certaines colonnes à chaque zoom (les noms sont validés par rapport aux colonnes du jeu et les noms inconnus sont ignorés)
 - JWT + OAuth 2.0/OIDC, RBAC avec permissions par jeu de données
+- Interface en anglais, espagnol, français et allemand
 
 <details>
 <summary>Sécurité</summary>
@@ -145,7 +150,6 @@ Chaque exemple ci-dessus dispose d’un guide complet dans la [documentation](ht
 - Contrôle d’accès par rôles (RBAC) avec permissions par jeu de données
 - L’inscription en libre-service est désactivée par défaut ; lorsqu’elle est activée avec vérification SMTP, l’envoi du courriel d’inscription est uniforme pour les demandes nouvelles ou déjà existantes
 - Journal d’audit de toutes les actions administratives
-- Internationalisation : anglais, espagnol, français, allemand
 
 </details>
 
@@ -223,7 +227,7 @@ docker compose ps
 
 Au premier démarrage, l’installation en une ligne **télécharge** les images précompilées et prend environ une minute (seule la petite couche PostGIS + pgvector est construite localement). Cloner puis exécuter `bash scripts/install.sh` **construit** toutes les images depuis les sources : 5 à 10 minutes la première fois (GDAL + extensions Postgres + bundle frontend) ; les démarrages suivants prennent environ 60 secondes dans les deux cas. Si les ports 5434/8001/8080 sont occupés, modifiez `DB_PORT`, `API_PORT` ou `FRONTEND_PORT` dans `.env`. Pour les conflits de ports, blocages, manques de mémoire et avertissements de migration, consultez le [guide de dépannage](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-Pour un déploiement en production, consultez le [guide d’installation](https://docs.getgeolens.com/guides/quickstart/install/). Un [chart Helm](https://github.com/geolens-io/geolens-deployments) maintenu par la communauté se trouve dans le dépôt distinct [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments).
+Pour un déploiement en production, consultez le [guide d’installation](https://docs.getgeolens.com/guides/quickstart/install/). Un chart Helm se trouve dans le dépôt distinct [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments).
 
 ### Vérifier l’installateur
 
@@ -314,7 +318,7 @@ flowchart TB
 
 | Composant | Technologie |
 |-----------|-----------|
-| Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
+| Frontend | React 19, Vite, MapLibre GL v6, TanStack Query, Tailwind CSS |
 | API backend | FastAPI (Python), GDAL/ogr2ogr, Procrastinate (file de tâches) |
 | Tuiles raster | Titiler (serveur de tuiles COG) |
 | Stockage objet | MinIO (compatible S3, développement local) ou tout fournisseur S3 |
@@ -352,7 +356,7 @@ L’API et le worker exportent nativement des métriques Prometheus (taux/latenc
 | [Guide d’administration](https://docs.getgeolens.com/guides/admin/) | Gestion des utilisateurs, jeux de données et santé du système |
 | [Auto-hébergement sur AWS, GCP ou DigitalOcean](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Guides de déploiement de base, stockage objet et cache gérés |
 | [CLI et manifestes](https://docs.getgeolens.com/guides/cli/) | Publication de fichiers et gestion des catalogues avec la CLI `geolens` |
-| [Référence API](https://docs.getgeolens.com/guides/api/) | Référence générée sur docs.getgeolens.com ; Swagger UI interactive sur `/api/docs` à l’exécution |
+| [Référence API](https://docs.getgeolens.com/guides/api/) | Référence générée sur docs.getgeolens.com ; en mode développement l’instance sert aussi Swagger UI sur `/api/docs` (désactivée en production) |
 | [Exemples de manifestes](examples/manifests/) | Modèles `geolens.yaml` : public-cog (COG distant), url-source, s3-source, publication-states |
 | [Exemples clients](https://github.com/geolens-io/geolens-examples) | Exemples exécutables navigateur, QGIS, DuckDB, SDK, CLI, intégration, Python et MCP ; ceux en lecture seule sont vérifiés par la CI sur la démo publique ([galerie](https://geolens-io.github.io/geolens-examples/)) |
 
@@ -367,7 +371,7 @@ L’API et le worker exportent nativement des métriques Prometheus (taux/latenc
 - Une instance PostgreSQL unique, sans haute disponibilité ni clustering intégrés.
 - GeoLens est conçu pour une organisation par déploiement auto-hébergé.
 - Le rendu du terrain suppose que les unités du DEM sont des mètres ; d’autres unités verticales peuvent produire un relief exagéré.
-- La distribution auto-hébergée est jeune et certaines fonctions et APIs peuvent encore évoluer (voir la note de version initiale ci-dessus).
+- L’API REST propre à GeoLens peut encore changer entre versions mineures (voir la note de stabilité de l’API ci-dessus).
 
 ## Licence
 

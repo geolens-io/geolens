@@ -30,9 +30,13 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 </p>
 
 > [!NOTE]
-> **Frühe Version.** GeoLens wird aktiv entwickelt und gepflegt und wurde erst
-> kürzlich als Open Source veröffentlicht. Die selbst gehostete Distribution ist
-> jung und manche Funktionen und APIs können sich noch ändern. [Erstellen Sie ein Issue](https://github.com/geolens-io/geolens/issues), wenn Probleme auftreten.
+> **API-Stabilität.** Die Standardschnittstellen (OGC API Features/Records,
+> STAC und die Kachel-Endpunkte) folgen ihren Spezifikationen und sind eine
+> sichere Basis für Integrationen. GeoLens’ eigene REST-API kann sich zwischen
+> Minor-Versionen noch ändern: Vertragsänderungen stehen im
+> [CHANGELOG](CHANGELOG.md), und inkompatible Änderungen halten die alte Form
+> mindestens eine weitere Minor-Version funktionsfähig. Probleme?
+> [Erstellen Sie ein Issue](https://github.com/geolens-io/geolens/issues).
 
 ## Dokumentation
 
@@ -66,8 +70,8 @@ GeoLens ersetzt diesen Ablauf:
 
 - **Ein Geodaten-Hub:** Laden Sie Dateien hoch, erstellen Sie Datensätze, registrieren Sie Tabellen, die bereits in GeoLens’ Datenbank liegen, importieren Sie Snapshots von Feature-Diensten oder referenzieren Sie entfernte STAC-Assets – anschließend durchsuchen Sie alles gemeinsam und zeigen es in der Vorschau an
 - **Quellstatus statt Rätselraten:** Sehen Sie, wie jeder Datensatz in den Katalog gelangt ist, wann er zuletzt aktualisiert oder geprüft wurde, ob seine letzte Aktualisierung gemessen am angegebenen Rhythmus aktuell, fällig, überfällig oder unbekannt ist und ob eine entfernte Service- oder STAC-Quelle noch erreichbar ist
-- **Funktioniert mit Ihren Werkzeugen:** OGC API Features/Records, STAC API 1.0 und direkte Kachel-URLs für QGIS, ArcGIS und MapLibre
-- **Kein Lock-in:** Ihr Katalog und die von GeoLens verwalteten Kopien bleiben auf der Infrastruktur, die Sie kontrollieren, und verlassen sie über offene Formate. Vektordatensätze werden als GeoPackage, GeoJSON, Shapefile, CSV oder GeoParquet exportiert; Raster werden als Cloud-optimiertes GeoTIFF (COG) heruntergeladen; und jeder OGC-API-Client liest den Katalog direkt
+- **Funktioniert mit Ihren Werkzeugen:** OGC API Features/Records mit serverseitiger CQL2-Filterung, STAC API 1.0 und direkte Kachel-URLs für QGIS, ArcGIS und MapLibre
+- **Kein Lock-in:** Ihr Katalog und die von GeoLens verwalteten Kopien bleiben auf der Infrastruktur, die Sie kontrollieren, und verlassen sie über offene Formate. Vektordatensätze werden als GeoPackage, GeoJSON, Shapefile, CSV, GeoParquet, FlatGeobuf oder PMTiles exportiert; Raster werden als Cloud-optimiertes GeoTIFF (COG) heruntergeladen; und jeder OGC-API-Client liest den Katalog direkt
 - **Semantische und räumliche Suche:** sofort einsatzbereiter unscharfer Abgleich mit pg_trgm; mit Embedding-Anbieter und aktivierter semantischer Suche werden Datensätze nach Bedeutung geordnet (pgvector)
 - **Integrierter Karteneditor:** mehrschichtige Karten zusammenstellen, gestalten und über öffentlichen Link oder einbettbares iframe teilen
 - **KI-Unterstützung (optional):** mit Karten chatten, Beschreibungen automatisch erzeugen und in natürlicher Sprache suchen. Verwenden Sie einen OpenAI-kompatiblen Endpunkt oder Anthropic-Schlüssel – oder verzichten Sie vollständig darauf
@@ -115,10 +119,10 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 ### Datenimport und -export
 
 - **Fünf Quellmodi:** Hochgeladene und Erstellte Daten werden lokal verwaltet; Tabelle registrieren stellt eine vorhandene Tabelle in GeoLens’ eigener PostGIS-Datenbank direkt bereit; Service-Importe sind einmalige lokale Kopien; STAC-Datensätze behalten eine Live-Referenz auf das entfernte Asset
-- **Vektor:** Shapefile, GeoPackage, GeoJSON, GeoParquet, CSV, XLSX
+- **Vektor:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, gezippte File Geodatabase, CSV, XLSX
 - **Raster:** GeoTIFF und Cloud-Optimized GeoTIFF (COG) mit automatischer Konvertierung
 - **Mosaike:** VRT-basierte Rastermosaike aus mehreren Quelldateien
-- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, mit CRS-Reprojektion
+- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet und FlatGeobuf mit CRS-Reprojektion; PMTiles als eigenständiges Kachelarchiv für statische Hosts mit Unterstützung für Range-Anfragen
 - **Quellstatus:** Herkunft, Zeitstempel der letzten Aktualisierung und Prüfung, rhythmusbasierte Quellenaktualität und bedarfsgesteuerte Zustandsprüfungen für Service- und STAC-Quellen
 - Herkunftsverfolgung und Metadatenbearbeitung
 
@@ -131,10 +135,11 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 
 ### Standards und Interoperabilität
 
-- OGC API - Features und OGC API - Records; STAC API 1.0-Katalogendpunkt; JSON-LD-Kataloge nach DCAT 3, DCAT-US 3.0 und GeoDCAT-AP
+- OGC API - Features (mit serverseitiger CQL2-Filterung und `/queryables` je Collection) und OGC API - Records; STAC API 1.0-Katalogendpunkt; JSON-LD-Kataloge nach DCAT 3, DCAT-US 3.0 und GeoDCAT-AP
 - Direkte Kachel-URLs und benutzerspezifische API-Schlüssel für QGIS, ArcGIS, MapLibre und jeden OGC-Client
 - Vektorkacheln lassen unter Zoomstufe 10 Attributspalten weg, damit Kacheln klein bleiben; fügen Sie `cols=<column>,<column>` an die URL an, um bestimmte Spalten bei jeder Zoomstufe einzuschließen (Namen werden mit den Datensatzspalten abgeglichen, unbekannte verworfen)
 - JWT + OAuth 2.0/OIDC, RBAC mit datensatzbezogenen Berechtigungen
+- Oberfläche auf Englisch, Spanisch, Französisch und Deutsch
 
 <details>
 <summary>Sicherheit</summary>
@@ -145,7 +150,6 @@ Für jedes Beispiel gibt es eine vollständige Anleitung in der [Dokumentation](
 - Rollenbasierte Zugriffskontrolle (RBAC) mit datensatzbezogenen Berechtigungen
 - Selbstregistrierung ist standardmäßig deaktiviert; wird sie mit SMTP-Prüfung aktiviert, erfolgt der Versand für neue und bereits vorhandene Anmeldungen einheitlich
 - Auditprotokollierung aller administrativen Aktionen
-- Internationalisierung: Englisch, Spanisch, Französisch, Deutsch
 
 </details>
 
@@ -223,7 +227,7 @@ docker compose ps
 
 Beim ersten Start **lädt** die Einzeileninstallation vorgefertigte Images und ist nach etwa einer Minute bereit (nur die kleine PostGIS- + pgvector-Datenbankschicht wird lokal gebaut). Klonen und `bash scripts/install.sh` **baut** alle Images aus dem Quellcode: beim ersten Mal 5–10 Minuten (GDAL + Postgres-Erweiterungen + Frontend-Bundle); weitere Starts benötigen in beiden Fällen etwa 60 Sekunden. Sind 5434/8001/8080 belegt, ändern Sie `DB_PORT`, `API_PORT` oder `FRONTEND_PORT` in `.env`. Hinweise zu Portkonflikten, blockierten Starts, Speichermangel und Migrationswarnungen enthält die [Fehlerbehebungsanleitung](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-Für die Produktion siehe [Installationsanleitung](https://docs.getgeolens.com/guides/quickstart/install/). Ein von der Community gepflegtes [Helm-Chart](https://github.com/geolens-io/geolens-deployments) liegt im separaten Repository [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments).
+Für die Produktion siehe [Installationsanleitung](https://docs.getgeolens.com/guides/quickstart/install/). Ein Helm-Chart liegt im separaten Repository [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments).
 
 ### Installer überprüfen
 
@@ -314,7 +318,7 @@ flowchart TB
 
 | Komponente | Technologie |
 |-----------|-----------|
-| Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
+| Frontend | React 19, Vite, MapLibre GL v6, TanStack Query, Tailwind CSS |
 | Backend-API | FastAPI (Python), GDAL/ogr2ogr, Procrastinate (Aufgabenwarteschlange) |
 | Rasterkacheln | Titiler (COG-Kachelserver) |
 | Objektspeicher | MinIO (S3-kompatibel, lokale Entwicklung) oder beliebiger S3-Anbieter |
@@ -352,7 +356,7 @@ API und Worker exportieren sofort Prometheus-Metriken (HTTP-Rate/Latenz/Fehler, 
 | [Administrationsanleitung](https://docs.getgeolens.com/guides/admin/) | Benutzer, Datensätze und Systemzustand verwalten |
 | [Selbsthosting auf AWS, GCP oder DigitalOcean](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Anleitungen für verwaltete Datenbank, Objektspeicher und Cache |
 | [CLI & Manifeste](https://docs.getgeolens.com/guides/cli/) | Dateien veröffentlichen und Kataloge mit `geolens` verwalten |
-| [API-Referenz](https://docs.getgeolens.com/guides/api/) | Automatisch erzeugte Referenz; interaktive Swagger UI unter `/api/docs` zur Laufzeit |
+| [API-Referenz](https://docs.getgeolens.com/guides/api/) | Automatisch erzeugte Referenz; im Entwicklungsmodus dient die Instanz zusätzlich Swagger UI unter `/api/docs` (in Produktion deaktiviert) |
 | [Manifestbeispiele](examples/manifests/) | Anpassbare `geolens.yaml`-Vorlagen: public-cog (entferntes COG), url-source, s3-source, publication-states |
 | [Client-Beispiele](https://github.com/geolens-io/geolens-examples) | Lauffähige Browser-, QGIS-, DuckDB-, SDK-, CLI-, Embed-, Python- und MCP-Beispiele; die rein lesenden werden in der CI gegen die öffentliche Demo geprüft ([Galerie](https://geolens-io.github.io/geolens-examples/)) |
 
@@ -367,7 +371,7 @@ API und Worker exportieren sofort Prometheus-Metriken (HTTP-Rate/Latenz/Fehler, 
 - Einzelne PostgreSQL-Instanz ohne integrierte Hochverfügbarkeit oder Clusterbildung.
 - GeoLens ist für eine Organisation pro selbst gehosteter Bereitstellung ausgelegt.
 - Geländedarstellung setzt DEM-Einheiten in Metern voraus; andere vertikale Einheiten können überhöht erscheinen.
-- Die selbst gehostete Distribution ist jung; manche Funktionen und APIs können sich noch ändern (siehe Hinweis zur frühen Version).
+- GeoLens’ eigene REST-API kann sich zwischen Minor-Versionen noch ändern (siehe Hinweis zur API-Stabilität oben).
 
 ## Lizenz
 

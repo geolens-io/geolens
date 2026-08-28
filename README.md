@@ -30,10 +30,12 @@ curl -fsSL https://getgeolens.com/install.sh | sh
 </p>
 
 > [!NOTE]
-> **Early release.** GeoLens is actively developed and maintained, and newly
-> open-sourced. The self-hosted distribution is young and some features and APIs
-> may still change. Please
-> [open an issue](https://github.com/geolens-io/geolens/issues) if you hit a rough edge.
+> **API stability.** The standards surfaces (OGC API Features/Records, STAC,
+> and the tile endpoints) track their specifications and are safe to build
+> against. GeoLens's own REST API can still change between minor releases:
+> contract changes are listed in the [CHANGELOG](CHANGELOG.md), and breaking
+> ones keep the old form working for at least one more minor release. Hit a
+> rough edge? [Open an issue](https://github.com/geolens-io/geolens/issues).
 
 ## Documentation
 
@@ -67,8 +69,8 @@ GeoLens replaces that workflow:
 
 - **One data hub:** upload files, create datasets, register tables already in GeoLens's database, import feature-service snapshots, or reference remote STAC assets — then search and preview them together
 - **Source state, not guesswork:** see how each dataset entered the catalog, when it was last refreshed or checked, how its last refresh compares with its declared cadence (fresh, due, overdue, or unknown), and whether a remote Service or STAC origin is still reachable
-- **Works with your tools:** OGC API Features/Records, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
-- **No lock-in:** your catalog and the copies GeoLens manages stay on infrastructure you control and leave through open formats. Vector datasets export to GeoPackage, GeoJSON, Shapefile, CSV, or GeoParquet; rasters download as Cloud-Optimized GeoTIFF; and any OGC API client reads the catalog directly
+- **Works with your tools:** OGC API Features/Records with server-side CQL2 filtering, STAC API 1.0, direct tile URLs for QGIS, ArcGIS, and MapLibre
+- **No lock-in:** your catalog and the copies GeoLens manages stay on infrastructure you control and leave through open formats. Vector datasets export to GeoPackage, GeoJSON, Shapefile, CSV, GeoParquet, FlatGeobuf, or PMTiles; rasters download as Cloud-Optimized GeoTIFF; and any OGC API client reads the catalog directly
 - **Semantic and spatial search:** pg_trgm fuzzy matching out of the box; add an embedding provider and enable semantic search to rank datasets by meaning (pgvector)
 - **Built-in map builder:** compose multi-layer maps, style them, and share via public link or embeddable iframe
 - **AI-assisted (optional):** chat with your maps, auto-generate descriptions, search by natural language. Bring an OpenAI-compatible endpoint or Anthropic key, or skip it entirely
@@ -124,7 +126,7 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - **Vector:** Shapefile, GeoPackage, GeoJSON, GeoParquet, FlatGeobuf, KML/KMZ, zipped File Geodatabase, CSV, XLSX
 - **Raster:** GeoTIFF and Cloud-Optimized GeoTIFF (COG) with automatic conversion
 - **Mosaics:** VRT-based raster mosaics from multiple source files
-- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, with CRS reprojection
+- **Export:** GeoJSON, Shapefile, GeoPackage, CSV, GeoParquet, and FlatGeobuf with CRS reprojection; PMTiles as a self-contained tile archive for static hosts that support range requests
 - **Source state:** origin and last-refreshed/last-checked timestamps, cadence-based source freshness, and on-demand health checks for Service and STAC origins
 - Provenance tracking and metadata editing
 
@@ -137,10 +139,11 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 
 ### Standards and interop
 
-- OGC API - Features and OGC API - Records; STAC API 1.0 catalog endpoint
+- OGC API - Features (with server-side CQL2 filtering and per-collection `/queryables`) and OGC API - Records; STAC API 1.0 catalog endpoint; JSON-LD catalogs for DCAT 3, DCAT-US 3.0, and GeoDCAT-AP
 - Direct tile URLs and per-user API keys for QGIS, ArcGIS, MapLibre, and any OGC client
 - Vector tiles omit attribute columns below zoom 10 to keep low-zoom tiles small; add the `cols=<column>,<column>` query parameter to a tile URL to opt specific columns in at every zoom (names are validated against the dataset's columns, unknown names are dropped)
 - JWT + OAuth 2.0/OIDC, RBAC with per-dataset permissions
+- Interface in English, Spanish, French, and German
 
 <details>
 <summary>Security</summary>
@@ -152,7 +155,6 @@ Each example above has a full guide in the [docs](https://docs.getgeolens.com/gu
 - Self-serve registration is off by default; when enabled with SMTP verification,
   registration email delivery is uniform for new and colliding submissions
 - Audit logging for all administrative actions
-- Internationalization: English, Spanish, French, German
 
 </details>
 
@@ -253,7 +255,7 @@ already taken, change `DB_PORT`, `API_PORT`,
 or `FRONTEND_PORT` in `.env`. For port conflicts, stuck startups, out-of-memory,
 and migration warnings, see the [Troubleshooting guide](https://docs.getgeolens.com/guides/quickstart/install/#troubleshooting).
 
-For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A community-maintained Kubernetes [Helm chart](https://github.com/geolens-io/geolens-deployments) lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo.
+For production deployment, see the [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/). A Kubernetes Helm chart lives in the separate [`geolens-deployments`](https://github.com/geolens-io/geolens-deployments) repo.
 
 ### Verify the installer
 
@@ -359,7 +361,7 @@ flowchart TB
 
 | Component | Technology |
 |-----------|-----------|
-| Frontend | React 19, Vite, MapLibre GL v5, TanStack Query, Tailwind CSS |
+| Frontend | React 19, Vite, MapLibre GL v6, TanStack Query, Tailwind CSS |
 | Backend API | FastAPI (Python), GDAL/ogr2ogr, Procrastinate (task queue) |
 | Raster Tiles | Titiler (COG tile server) |
 | Object Storage | MinIO (S3-compatible, local dev) or any S3 provider |
@@ -415,7 +417,7 @@ see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
 | [Admin Guide](https://docs.getgeolens.com/guides/admin/) | User management, datasets, system health |
 | [Self-host on AWS, GCP, or DigitalOcean](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/) | Managed database, object storage, and cache deployment guides |
 | [CLI & Manifests](https://docs.getgeolens.com/guides/cli/) | Publish files and manage catalogs with the `geolens` CLI |
-| [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; interactive Swagger UI at `/api/docs` when running |
+| [API Reference](https://docs.getgeolens.com/guides/api/) | Auto-generated reference at docs.getgeolens.com; development-mode stacks also serve Swagger UI at `/api/docs` (disabled in production) |
 | [Manifest examples](examples/manifests/) | Template `geolens.yaml` manifests to adapt: public-cog (remote COG), url-source, s3-source, publication-states |
 | [Client examples](https://github.com/geolens-io/geolens-examples) | Runnable browser, QGIS, DuckDB, SDK, CLI, embed, Python, and MCP examples; the read-only ones are verified against the live demo in CI ([gallery](https://geolens-io.github.io/geolens-examples/)) |
 
@@ -430,7 +432,7 @@ see [RUNBOOK.md §4](RUNBOOK.md#4-monitoring) for the setup steps.
 - Single PostgreSQL instance, with no built-in high availability or clustering.
 - GeoLens is designed for one organization per self-hosted deployment.
 - Terrain rendering assumes DEM units are in meters; datasets in other vertical units may render exaggerated.
-- The self-hosted distribution is young and some features and APIs may still change (see the Early release note above).
+- GeoLens's own REST API may still change between minor releases (see the API stability note above).
 
 ## License
 
