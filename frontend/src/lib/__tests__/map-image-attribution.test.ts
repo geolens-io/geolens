@@ -455,6 +455,74 @@ describe('readRenderedAttribution', () => {
     expect(readRenderedAttribution(sourcesMap('   ', '\n\t'))).toEqual([]);
   });
 
+  /* feat(#1553 candidate 4): <object>, <embed>, <iframe> and <video> render
+   * perfectly visibly in the on-screen control — MapLibre's sanitizer strips
+   * only <script>, on* handlers and javascript:/data: URLs — and none of them
+   * derives DOM text. They take the same treatment as an unnamed <img>:
+   * accessible alternatives first, then the host-derived placeholder. */
+
+  it('names an unnamed object logo by its host, like an image', () => {
+    expect(
+      readRenderedAttribution(sourcesMap('<object data="https://assets.acme.com/logo.svg"></object>')),
+    ).toEqual(['(image credit: assets.acme.com)']);
+  });
+
+  it('names embed, iframe and video credits the same way', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap(
+          '<embed src="https://a.example.com/logo.svg">',
+          '<iframe src="https://b.example.com/badge"></iframe>',
+          '<video poster="https://c.example.com/still.jpg"></video>',
+        ),
+      ),
+    ).toEqual([
+      '(image credit: a.example.com)',
+      '(image credit: b.example.com)',
+      '(image credit: c.example.com)',
+    ]);
+  });
+
+  it('lets an embed\'s accessible alternative outrank its host placeholder', () => {
+    // The generic-element rule already reads aria-label/title on these; the
+    // placeholder is only for an embed nothing names.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<object data="https://assets.acme.com/logo.svg" aria-label="© Acme 2026"></object>'),
+      ),
+    ).toEqual(['© Acme 2026']);
+  });
+
+  it('lets object fallback content, which is DOM text, win over the placeholder', () => {
+    expect(
+      readRenderedAttribution(
+        sourcesMap('<object data="https://assets.acme.com/logo.svg">© Acme Provider</object>'),
+      ),
+    ).toEqual(['© Acme Provider']);
+  });
+
+  it('keeps text around an unnamed embed rather than replacing or dropping it', () => {
+    // The inline mirror of the <img> rule: the embed is on screen beside the
+    // text, so the derivation says so.
+    expect(
+      readRenderedAttribution(
+        sourcesMap('© Provider <embed src="https://cdn.acme.com/logo.svg">'),
+      ),
+    ).toEqual(['© Provider (image credit: cdn.acme.com)']);
+  });
+
+  it('falls back to the bare placeholder for an embed with no usable URL', () => {
+    // data: URIs are what MapLibre's sanitizer strips anyway, so a host is
+    // never derived from one.
+    expect(
+      readRenderedAttribution(sourcesMap('<object data="data:image/svg+xml,<svg/>"></object>')),
+    ).toEqual(['(image credit)']);
+    // <video> tries src first, then poster.
+    expect(
+      readRenderedAttribution(sourcesMap('<video src="blob:whatever"></video>')),
+    ).toEqual(['(image credit)']);
+  });
+
   /* fix(#1541 codex P1): "no `used` gating — over-crediting is the safe
    * direction" was true while the band could grow without limit. Once the
    * outputs gained a capacity limit and a prefix fit, an unused credit stopped
@@ -621,6 +689,147 @@ describe('readRenderedAttribution', () => {
     expect(credits).toEqual(['© Shown', '© Also Shown']);
   });
 
+  it('counts a filter-excluded source as shown, exactly as the control does', () => {
+    // feat(#1553 candidate 2), settled by parity rather than by evaluation:
+    // MapLibre sets `used` from `!layer.isHidden(zoom)` alone (verified in the
+    // 6.5.0 source), so a layer whose filter matches no feature still puts its
+    // source's credit in the on-screen control. Matching the control means
+    // counting it shown here too; evaluating filters ourselves would OPEN a
+    // divergence, not close one.
+    const credits = readRenderedAttribution({
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: {
+          filtered: { attribution: '© Filtered But Credited' },
+          plain: { attribution: '© Plain' },
+        },
+        layers: [
+          { id: 'l0', source: 'filtered', layout: {}, filter: ['==', ['get', 'kind'], 'nothing-has-this'] },
+          { id: 'l1', source: 'plain', layout: {} },
+        ],
+      }),
+    });
+    expect(credits).toEqual(['© Filtered But Credited', '© Plain']);
+  });
+
+  /* feat(#1553 candidate 1): the priority set reads MapLibre's OWN live
+   * `used`/`usedForTerrain` flags — the exact state the on-screen control
+   * renders from (`map.style.tileManagers` in 6.5.0) — whenever the map
+   * exposes them, so the partition cannot drift from the control. The modeled
+   * signals below survive only as the fallback for a partial map, or for the
+   * next time MapLibre renames the internal collection (it already went
+   * `sourceCaches` → `tileManagers` once). */
+
+  function liveFlagMap(
+    sources: Record<string, string>,
+    managers: Record<string, { used?: boolean; usedForTerrain?: boolean }> | 'absent',
+    layers?: { source: string; hidden?: boolean }[],
+  ) {
+    const layerDefs: { source: string; hidden?: boolean }[] =
+      layers ?? Object.keys(sources).map((source) => ({ source }));
+    return {
+      ...mapWithControl(null),
+      getStyle: () => ({
+        sources: Object.fromEntries(
+          Object.entries(sources).map(([id, attribution]) => [id, { attribution }]),
+        ),
+        layers: layerDefs.map(({ source, hidden }, i) => ({
+          id: `layer-${i}`,
+          source,
+          layout: hidden ? { visibility: 'none' } : {},
+        })),
+      }),
+      ...(managers === 'absent' ? {} : { style: { tileManagers: managers } }),
+    };
+  }
+
+  it('reads the live used flags in preference to the modeled signals', () => {
+    // Both layers are visible and in range, so the model would call both
+    // shown. MapLibre itself says one is unused — its judgement wins, and the
+    // unused credit is ordered back, never dropped.
+    const credits = readRenderedAttribution(
+      liveFlagMap(
+        { idle: '© Live-Unused Provider', busy: '© Live-Used Provider' },
+        { idle: { used: false }, busy: { used: true } },
+      ),
+    );
+    expect(credits).toEqual(['© Live-Used Provider', '© Live-Unused Provider']);
+  });
+
+  it('counts a live usedForTerrain source as shown, as the control does', () => {
+    // Terrain through the flag itself, with no layer reference and no
+    // getTerrain on the mock: exactly what the control reads.
+    const credits = readRenderedAttribution(
+      liveFlagMap(
+        { dem: '© swisstopo swissALTI3D', hiddenSrc: '© Hidden Provider' },
+        { dem: { usedForTerrain: true }, hiddenSrc: { used: false } },
+        [{ source: 'hiddenSrc' }],
+      ),
+    );
+    expect(credits).toEqual(['© swisstopo swissALTI3D', '© Hidden Provider']);
+  });
+
+  it('lets a live used flag overrule a hidden layer', () => {
+    // Live REPLACES the model rather than intersecting with it: whatever made
+    // MapLibre count the source used (another layer, terrain, a state the
+    // model cannot see), the control credits it, so the image leads with it.
+    const credits = readRenderedAttribution(
+      liveFlagMap(
+        { contested: '© Contested Provider', plain: '© Plain Provider' },
+        { contested: { used: true }, plain: { used: false } },
+        [{ source: 'contested', hidden: true }, { source: 'plain' }],
+      ),
+    );
+    expect(credits).toEqual(['© Contested Provider', '© Plain Provider']);
+  });
+
+  it('falls back to the modeled signals when the live collection is absent', () => {
+    // No `style` at all (every partial mock the builder suites pass) …
+    const modelOnly = readRenderedAttribution(
+      liveFlagMap({ a: '© Shown', b: '© Hidden' }, 'absent', [
+        { source: 'a' },
+        { source: 'b', hidden: true },
+      ]),
+    );
+    expect(modelOnly).toEqual(['© Shown', '© Hidden']);
+    // … and a style whose collection is missing or reshaped (the rename risk:
+    // `sourceCaches` → `tileManagers` has already happened once).
+    for (const style of [{}, { tileManagers: null }, { tileManagers: 'renamed-away' }]) {
+      const credits = readRenderedAttribution({
+        ...liveFlagMap({ a: '© Shown', b: '© Hidden' }, 'absent', [
+          { source: 'a' },
+          { source: 'b', hidden: true },
+        ]),
+        style,
+      });
+      expect(credits, `style shape: ${JSON.stringify(style)}`).toEqual(['© Shown', '© Hidden']);
+    }
+  });
+
+  it('treats an empty live collection as a live answer, not a fallback', () => {
+    // Sources are declared but none is instantiated, so the control shows
+    // nothing. Everything goes to the hidden group in style order — still
+    // credited while there is room, per the ordering-not-filtering rule. The
+    // model would instead have promoted `visible` ahead of `declared-first`.
+    const credits = readRenderedAttribution(
+      liveFlagMap(
+        { hiddenByLayer: '© Declared First', visible: '© Visible By Layer' },
+        {},
+        [{ source: 'hiddenByLayer', hidden: true }, { source: 'visible' }],
+      ),
+    );
+    expect(credits).toEqual(['© Declared First', '© Visible By Layer']);
+  });
+
+  it('ignores a manager entry that is not an object', () => {
+    const credits = readRenderedAttribution({
+      ...mapWithControl(null),
+      getStyle: () => ({ sources: { a: { attribution: '© Provider' } } }),
+      style: { tileManagers: { a: null } },
+    });
+    expect(credits).toEqual(['© Provider']);
+  });
+
   /* fix(#1541 codex P2 round 8): MapLibre's AttributionControl drops an entry
    * another entry contains whole, so `© Acme` beside `© Acme — CC BY 4.0`
    * showed once on screen and twice in the image. Asymmetric failure: source
@@ -663,6 +872,21 @@ describe('readRenderedAttribution', () => {
     // Strictly-longer containment, so equal strings cannot suppress each
     // other; the exact dedupe owns that case and keeps one.
     expect(readRenderedAttribution(sourcesMap('© Same', '© Same'))).toEqual(['© Same']);
+  });
+
+  it('collapses raw-distinct credits whose rendered text is identical', () => {
+    // chore(#1553 candidate 3): the one DELIBERATE divergence from the
+    // control's dedupe, which compares raw HTML and renders `© OSM | © OSM`
+    // for two anchors differing only in href. Text is what the image renders,
+    // so text-identical credits are visual duplicates here and keep one line.
+    expect(
+      readRenderedAttribution(
+        sourcesMap(
+          '<a href="https://www.openstreetmap.org/copyright">© OSM</a>',
+          '<a href="https://osm.org/copyright">© OSM</a>',
+        ),
+      ),
+    ).toEqual(['© OSM']);
   });
 
   it('suppresses a chain of containments down to the fullest statement', () => {
