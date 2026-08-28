@@ -343,6 +343,10 @@ jobs:
               {
                 cat release-notes.md
                 printf '\n[Release notes on GitHub](https://github.com/%s/releases/tag/%s)\n' "${GITHUB_REPOSITORY}" "${TAG}"
+                # Buttondown renders this only on the web/archive page, never
+                # in the copies subscribers receive; it also clears the
+                # "consider adding a subscribe form" pre-send warning.
+                printf '\n{{ subscribe_form }}\n'
               } > newsletter.md
               # Curated notes are safe to send unreviewed; commit-subject
               # fallback notes (the '> **Note**' banner above) are not — those
