@@ -46,10 +46,14 @@ _CHUNK_SIZE = 65536
 # so buffer up to 4 MiB between writes.
 _WRITE_BUFFER_BYTES = 4 * 1024 * 1024
 
-# Longest filename we stage from a URL. Filesystem name components cap at
-# 255 bytes and the staging layout prepends "{job_id}_" (37 chars), so trim
-# the stem — never the suffix, which the extension allowlist keys on.
-_MAX_FILENAME_CHARS = 160
+# Longest filename we stage, measured in ENCODED UTF-8 BYTES — filesystems
+# cap name components in bytes (NAME_MAX 255), not characters, so a
+# character-count cap admits multibyte names four times too long
+# (#1708 codex P2). Budget arithmetic for every downstream construction:
+# local staging prepends "{job_id}_" (37 bytes) and resolve_file_path's
+# mkstemp builds "{job_id}_<8 random>_{name}" (46 bytes), so 160 keeps the
+# worst component at 206 bytes, well under the limit.
+_MAX_FILENAME_BYTES = 160
 
 
 class UrlFetchError(ValueError):
@@ -60,6 +64,27 @@ class UrlFetchTooLargeError(UrlFetchError):
     """The remote file exceeds the configured maximum upload size."""
 
 
+def clamp_filename_bytes(name: str) -> str:
+    """Trim the STEM so the whole name fits ``_MAX_FILENAME_BYTES`` of UTF-8.
+
+    fix(#1708 codex P2): clamps by encoded byte length, never splitting a
+    codepoint, and keeps the suffix — the extension allowlist keys on it, so
+    the clamp must not manufacture or destroy an extension. Both name
+    sources (URL basename and the request's ``filename`` override) go
+    through here before any path is built from them.
+    """
+    if len(name.encode("utf-8")) <= _MAX_FILENAME_BYTES:
+        return name
+    suffix = Path(name).suffix
+    budget = _MAX_FILENAME_BYTES - len(suffix.encode("utf-8"))
+    if budget <= 0:
+        # Pathological "suffix" longer than the whole budget: byte-truncate
+        # the raw name; the extension allowlist refuses whatever remains.
+        return name.encode("utf-8")[:_MAX_FILENAME_BYTES].decode("utf-8", "ignore")
+    stem = name[: len(name) - len(suffix)] if suffix else name
+    return stem.encode("utf-8")[:budget].decode("utf-8", "ignore") + suffix
+
+
 def filename_from_url(url: str) -> str:
     """Derive a staging filename from the URL path's percent-decoded basename.
 
@@ -67,11 +92,7 @@ def filename_from_url(url: str) -> str:
     or ``https://host/download?id=3``) — the router then requires an explicit
     ``filename`` in the request body instead of guessing.
     """
-    name = Path(unquote(urlparse(url).path or "")).name
-    if len(name) <= _MAX_FILENAME_CHARS:
-        return name
-    suffix = Path(name).suffix
-    return name[: _MAX_FILENAME_CHARS - len(suffix)] + suffix
+    return clamp_filename_bytes(Path(unquote(urlparse(url).path or "")).name)
 
 
 def _size_cap_error(max_size_bytes: int) -> UrlFetchTooLargeError:
@@ -102,11 +123,13 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
     deadline = time.monotonic() + FETCH_MAX_SECONDS
     # Synchronous open, mirroring save_upload_file: no cancellation point
     # between acquiring the descriptor and owning it.
+    # codeql[py/path-injection] fix(#1708): dest's caller-influenced component is basename-stripped and byte-clamped (clamp_filename_bytes), rooted under upload_staging_dir
     f = open(dest, "wb")
     try:
         try:
             try:
                 async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
+                    # codeql[py/full-ssrf] fix(#1708): Rule 2 posture — validate_url_for_ssrf gates the URL at submission, and make_safe_client's transport re-resolves, validates, and pins the IP at connect time plus revalidates every redirect hop
                     async with client.stream("GET", url) as response:
                         if response.status_code >= 400:
                             raise UrlFetchError(
@@ -152,6 +175,7 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
     except BaseException:
         # Partial or refused download: remove the file before propagating.
         # Ordering matters — the descriptor was drained and closed above.
+        # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
         dest.unlink(missing_ok=True)
         raise
     return total
@@ -163,6 +187,7 @@ __all__ = [
     "SSRFError",
     "UrlFetchError",
     "UrlFetchTooLargeError",
+    "clamp_filename_bytes",
     "fetch_url_to_path",
     "filename_from_url",
 ]

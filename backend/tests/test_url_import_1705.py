@@ -12,6 +12,7 @@ Covers the Rule 2 posture end to end without touching the network:
   'pending', the file on local staging, and the raster stamp for .tif.
 """
 
+import inspect
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -25,7 +26,7 @@ from app.core.config import settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.platform.jobs.models import IngestJob
 from app.platform.security import SSRFError, _revalidate_redirect
-from app.processing.ingest.url_fetch import filename_from_url
+from app.processing.ingest.url_fetch import clamp_filename_bytes, filename_from_url
 
 GEOJSON = b'{"type":"FeatureCollection","features":[]}'
 
@@ -60,7 +61,10 @@ def _install_transport(monkeypatch, handler, *, validate=None):
     def factory(timeout=None, **_kwargs) -> httpx.AsyncClient:
         async def _handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
-            return handler(request)
+            result = handler(request)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
 
         return httpx.AsyncClient(
             transport=httpx.MockTransport(_handle),
@@ -216,8 +220,29 @@ class TestUrlImportFilename:
         assert filename_from_url("https://h") == ""
         # Over-long names are trimmed at the stem, never the suffix.
         long = filename_from_url(f"https://h/{'a' * 400}.geojson")
-        assert len(long) <= 160
+        assert len(long.encode("utf-8")) <= 160
         assert long.endswith(".geojson")
+
+    def test_clamp_filename_bytes_shapes(self):
+        """fix(#1708 codex P2): the clamp counts encoded BYTES, not chars."""
+        # Under the cap: untouched.
+        assert clamp_filename_bytes("roads.geojson") == "roads.geojson"
+        # ASCII at the schema max (255 chars): stem trimmed, suffix kept.
+        ascii_long = clamp_filename_bytes("a" * 247 + ".geojson")
+        assert len(ascii_long.encode("utf-8")) <= 160
+        assert ascii_long.endswith(".geojson")
+        # Multibyte: short in CHARACTERS but far over 255 bytes with the
+        # 37-byte job-id prefix — the character-count bug's exact shape.
+        cjk = clamp_filename_bytes("京" * 80 + ".geojson")
+        assert len(cjk.encode("utf-8")) <= 160
+        assert cjk.endswith(".geojson")
+        # No split codepoint: the result must round-trip UTF-8 exactly.
+        assert cjk.encode("utf-8").decode("utf-8") == cjk
+        # 4-byte codepoints too.
+        emoji = clamp_filename_bytes("🌍" * 70 + ".parquet")
+        assert len(emoji.encode("utf-8")) <= 160
+        assert emoji.endswith(".parquet")
+        assert emoji.encode("utf-8").decode("utf-8") == emoji
 
 
 # ---------------------------------------------------------------------------
@@ -433,3 +458,137 @@ class TestUrlImportFetch:
         # The blocked hop was never fetched.
         assert all(r.url.host != "169.254.169.254" for r in recorded)
         assert _staged_files() == []
+
+    async def test_job_row_committed_before_fetch_releases_connection(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+    ):
+        """fix(#1708 codex P1): the transaction ends before the fetch awaits.
+
+        The transport handler runs in the middle of the fetch. It opens its
+        OWN session (a separate pool connection) and looks for the job row:
+        visible there means the request's transaction was committed — and
+        with it the request's pool connection released — before the remote
+        download started. Before the fix the row was only flushed, so an
+        independent session could not see it.
+        """
+        seen: dict[str, bool] = {}
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            import app.core.db as db_module
+
+            async with db_module.async_session() as s:
+                result = await s.execute(
+                    select(IngestJob).where(
+                        IngestJob.source_filename == "visible.geojson"
+                    )
+                )
+                row = result.scalar_one_or_none()
+            seen["committed_mid_fetch"] = row is not None
+            seen["pending_mid_fetch"] = row is not None and row.status == "pending"
+            seen["no_file_mid_fetch"] = row is not None and not row.file_path
+            return httpx.Response(200, content=GEOJSON)
+
+        _install_transport(monkeypatch, handler)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/visible.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        assert seen == {
+            "committed_mid_fetch": True,
+            "pending_mid_fetch": True,
+            # Mid-fetch the row has no file_path yet, which is exactly the
+            # state preview and commit already refuse with a 400.
+            "no_file_mid_fetch": True,
+        }
+
+    async def test_failed_fetch_stamps_the_committed_job_failed(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex P1): the pre-fetch commit means a failed fetch can
+        no longer roll the job row away — it must be stamped 'failed' with the
+        refusal instead of sitting 'pending' until the stale reaper."""
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(404, content=b"nope")
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/stamped.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "stamped.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+        assert "404" in (job.error_message or "")
+
+    async def test_ascii_255_char_override_is_clamped_and_staged(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex P2): a 255-char ASCII override used to build a
+        292-byte staging component (37-byte job-id prefix + name) and die in
+        open() with ENAMETOOLONG as a 500."""
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        override = "a" * 247 + ".geojson"  # 255 chars, the schema max
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={
+                "url": "https://files.example.test/download?id=1",
+                "filename": override,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        staged = Path(job.file_path)
+        assert staged.exists()
+        assert staged.name.endswith(".geojson")
+        # Whole component (prefix + clamped name) stays under NAME_MAX.
+        assert len(staged.name.encode("utf-8")) <= 255
+
+    async def test_multibyte_override_is_clamped_by_bytes_and_staged(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex P2): 88 CHARACTERS but 285 bytes with the prefix —
+        short enough for the schema and any character-count cap, over
+        NAME_MAX in bytes."""
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        override = "京" * 80 + ".geojson"
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={
+                "url": "https://files.example.test/download?id=2",
+                "filename": override,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        staged = Path(job.file_path)
+        assert staged.exists()
+        assert staged.name.endswith(".geojson")
+        assert len(staged.name.encode("utf-8")) <= 255
+        # The clamp never splits a codepoint.
+        assert staged.name.encode("utf-8").decode("utf-8") == staged.name

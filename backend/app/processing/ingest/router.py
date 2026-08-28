@@ -95,6 +95,7 @@ from app.processing.ingest.service import (
 from app.processing.ingest.url_fetch import (
     UrlFetchError,
     UrlFetchTooLargeError,
+    clamp_filename_bytes,
     fetch_url_to_path,
     filename_from_url,
 )
@@ -709,8 +710,13 @@ async def upload_from_url(
     from app.platform.security import SSRFError, validate_url_for_ssrf
 
     safe_url = redact_url_credentials(body.url)
+    # fix(#1708 codex P2): both name sources go through the byte clamp. The
+    # schema admits 255 CHARACTERS, but filesystems cap name components in
+    # BYTES (NAME_MAX 255), and staging prepends a 37-byte job-id prefix — an
+    # unclamped long-ASCII or multibyte override made open() ENAMETOOLONG and
+    # the endpoint answer 500 for an otherwise accepted request.
     filename = (
-        safe_upload_basename(body.filename)
+        clamp_filename_bytes(safe_upload_basename(body.filename))
         if body.filename
         else filename_from_url(body.url)
     )
@@ -753,6 +759,20 @@ async def upload_from_url(
         await check_upload_quota(db, user.id, 0, request)
 
         job = await create_ingest_job(db, filename, "", user.id)
+        # fix(#1708 codex P1): COMMIT before awaiting the fetch. The session
+        # autobegins on its first query and holds a checked-out pool
+        # connection until the transaction ends, so leaving it open across a
+        # download that may legitimately run for minutes (FETCH_MAX_SECONDS)
+        # let pool_size + max_overflow (10 + 3) trickling URL imports starve
+        # every DB-backed request in the API. Committing here persists the
+        # job row and returns the connection; every later query checks out a
+        # fresh one. Consequences, each handled below: the row now survives
+        # a failed fetch (stamped 'failed' in the cleanup path instead of
+        # vanishing with a rollback), and the byte-quota check must re-run
+        # after the download since the world may have moved while we fetched.
+        # Mid-fetch the job is 'pending' with an empty file_path, which both
+        # preview and commit already refuse (400) — no new reachable state.
+        await db.commit()
 
         staging_dir = Path(settings.upload_staging_dir)
         staging_dir.mkdir(parents=True, exist_ok=True)
@@ -801,6 +821,7 @@ async def upload_from_url(
 
             if settings.storage_provider == "s3":
                 s3_key = f"staging/{job.id}/{filename}"
+                # codeql[py/path-injection] fix(#1708): the component is basename-stripped (safe_upload_basename/filename_from_url) and byte-clamped, rooted under upload_staging_dir
                 fh = open(local_dest, "rb")
                 try:
                     await _await_provider_call_draining(
@@ -814,18 +835,37 @@ async def upload_from_url(
 
             _stamp_raster_metadata(job, filename)
             await db.commit()
-        except BaseException:
-            # Until the commit above, this request exclusively owns the
-            # staged bytes (the local file and, if the put ran, the S3
-            # object) — the rolled-back transaction is the only retention
-            # record, so both must go before the exception propagates.
+        except BaseException as exc:
+            # Until the file_path commit above, this request exclusively owns
+            # the staged bytes (the local file and, if the put ran, the S3
+            # object) — nothing else references them, so both must go before
+            # the exception propagates.
             if s3_key is not None:
                 await _cleanup_saved_upload(s3_key, str(job.id))
+            # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
             local_dest.unlink(missing_ok=True)
+            # fix(#1708 codex P1): the job row was committed before the fetch,
+            # so a rollback no longer removes it. Stamp it failed with the
+            # refusal so status polling shows why, instead of leaving a bare
+            # 'pending' row for the stale reaper. Best-effort: never mask the
+            # original error, and a cancelled request may refuse the awaits —
+            # then the reaper's hour is the fallback it already was.
+            try:
+                await db.rollback()
+                job.status = "failed"
+                job.error_message = (
+                    str(exc.detail)
+                    if isinstance(exc, HTTPException)
+                    else "URL import failed"
+                )
+                await db.commit()
+            except BaseException:
+                logger.warning("url_import_fail_stamp_skipped", job_id=str(job.id))
             raise
         if s3_key is not None:
             # S3 is the staging store; the local copy served content
             # validation and has no further reader.
+            # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
             local_dest.unlink(missing_ok=True)
 
         logger.info(

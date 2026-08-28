@@ -2659,7 +2659,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # measured off the MERGED file rather than taken from either lane (the
     # two lanes' import-region edits overlap, so the deltas do not simply
     # add). Cap 1617 -> 1808, exact.
-    "backend/app/processing/ingest/router.py": 1808,
+    # fix(#1708 codex P1/P2): +40 — the pre-fetch commit that releases the
+    # pool connection for the download's lifetime (plus the failed-fetch
+    # stamping that replaces the rollback it gave up), the byte-clamp on the
+    # override filename, and the codeql[py/path-injection] markers at the
+    # staging open/unlink sites. Cap 1775 -> 1815, exact.
+    "backend/app/processing/ingest/router.py": 1848,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
