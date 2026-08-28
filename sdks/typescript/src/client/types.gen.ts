@@ -9446,6 +9446,12 @@ export type StacImportItem = {
      */
     data_asset_key?: string | null;
     /**
+     * Data Asset Type
+     *
+     * Media type of the data asset, echoed from search results.
+     */
+    data_asset_type?: string | null;
+    /**
      * Bbox
      *
      * Item bounding box.

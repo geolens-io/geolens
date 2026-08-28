@@ -12188,6 +12188,11 @@ export interface components {
              */
             data_asset_key?: string | null;
             /**
+             * Data Asset Type
+             * @description Media type of the data asset, echoed from search results.
+             */
+            data_asset_type?: string | null;
+            /**
              * Bbox
              * @description Item bounding box.
              */

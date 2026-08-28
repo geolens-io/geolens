@@ -114,3 +114,84 @@ class TestGap031NoProxyUrl:
 def _no_assets_path(url: str | None) -> bool:
     """Return True when the URL does not contain '/assets/'."""
     return url is None or "/assets/" not in url
+
+
+class TestRemoteHrefPassThrough:
+    """feat(#1692): a by-reference origin href is served verbatim.
+
+    A STAC import persists the publisher's absolute http(s) COG URL as a
+    ``dataset_assets`` href. That URL is already public in the origin
+    catalog — it is not managed storage, so neither the presign branch nor
+    the GAP-031 refusal applies, on any backend and at any record status.
+    """
+
+    def test_https_href_passes_through_on_local_storage(self):
+        href = "https://cogs.example.com/scenes/scene-1.tif"
+        assert (
+            resolve_asset_url(
+                href,
+                storage_backend="local",
+                record_status="published",
+                roles=["data"],
+                public_api_url=PUBLIC_API_URL,
+            )
+            == href
+        )
+
+    def test_https_href_is_not_presigned_on_s3_storage(self):
+        """The presign branch must never mangle a remote URL into a storage
+        key — the pass-through is checked first."""
+        from unittest.mock import MagicMock
+
+        mock_provider = MagicMock()
+        href = "https://cogs.example.com/scenes/scene-1.tif"
+        result = resolve_asset_url(
+            href,
+            storage_backend="s3",
+            record_status="published",
+            roles=["data"],
+            public_api_url=PUBLIC_API_URL,
+            storage_provider=mock_provider,
+        )
+        assert result == href
+        mock_provider.generate_presigned_get_url.assert_not_called()
+
+    def test_https_href_survives_a_non_published_status(self):
+        """Status gates protect GeoLens-held bytes; a third-party public URL
+        holds none. The item endpoint's visibility filter is what gates who
+        sees the record at all."""
+        href = "http://cogs.example.com/scenes/scene-1.tif"
+        assert (
+            resolve_asset_url(
+                href,
+                storage_backend="local",
+                record_status="draft",
+                roles=["data"],
+                public_api_url=PUBLIC_API_URL,
+            )
+            == href
+        )
+
+    def test_storage_relative_keys_still_take_the_managed_paths(self):
+        """The pass-through matches only absolute http(s) hrefs — an s3://
+        URI or a storage-relative key behaves exactly as before."""
+        assert (
+            resolve_asset_url(
+                "uploads/a.tif",
+                storage_backend="local",
+                record_status="published",
+                roles=["data"],
+                public_api_url=PUBLIC_API_URL,
+            )
+            is None
+        )
+        assert (
+            resolve_asset_url(
+                "s3://bucket/uploads/a.tif",
+                storage_backend="local",
+                record_status="published",
+                roles=["data"],
+                public_api_url=PUBLIC_API_URL,
+            )
+            is None
+        )

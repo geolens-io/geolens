@@ -15949,6 +15949,19 @@
             "description": "The asset key on the item, echoed from search results.",
             "title": "Data Asset Key"
           },
+          "data_asset_type": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Media type of the data asset, echoed from search results.",
+            "title": "Data Asset Type"
+          },
           "bbox": {
             "anyOf": [
               {

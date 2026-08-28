@@ -32,6 +32,7 @@ from app.platform.dataset_origin import set_dataset_origin
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.sources.adapters.stac import (
     MAX_ASSET_KEY_CHARS,
+    MAX_ASSET_MEDIA_TYPE_CHARS,
     connect_stac_api,
     list_stac_collections,
     search_stac_items,
@@ -241,6 +242,17 @@ class StacImportItem(BaseModel):
         default=None,
         max_length=MAX_ASSET_KEY_CHARS,
         description="The asset key on the item, echoed from search results.",
+    )
+    # feat(#1692): the asset's declared media type, echoed from search so the
+    # persisted origin asset can re-advertise it to generic STAC clients.
+    # Optional for the same reason the two echoes above are — an older client
+    # (or an item that declares no type) still imports, and the first refresh
+    # repairs the value from the live item document. Search bounds it at
+    # capture (storable_media_type), so an echo always fits.
+    data_asset_type: str | None = Field(
+        default=None,
+        max_length=MAX_ASSET_MEDIA_TYPE_CHARS,
+        description="Media type of the data asset, echoed from search results.",
     )
     bbox: list[float] | None = Field(default=None, description="Item bounding box.")
     epsg: int | None = Field(default=None, description="EPSG code.")
@@ -670,6 +682,29 @@ async def stac_import(
                     **pixel_geometry,
                 )
                 db.add(raster_asset)
+
+                # feat(#1692): persist the origin item's primary data asset
+                # as a `dataset_assets` row, so the STAC items GeoLens serves
+                # carry the source COG href alongside the internal
+                # `raster_tiles` template. The tiles template renders only in
+                # GeoLens's own frontend; this row is what lets a generic
+                # STAC client (stac-browser, the QGIS STAC plugin, rio-viz)
+                # actually read pixels from an item we re-publish. Roled
+                # `data` — the tiles asset is the `visual` one — and served
+                # verbatim by resolve_asset_url's absolute-http(s)
+                # pass-through, since the href is already public in the
+                # origin catalog. The STAC refresh task upserts this same row
+                # (`_upsert_origin_data_asset`), which is what backfills
+                # datasets imported before it existed.
+                db.add(
+                    get_catalog_port().dataset_asset_orm_class()(
+                        dataset_id=dataset.id,
+                        key="data",
+                        href=item.data_asset_href,
+                        media_type=item.data_asset_type,
+                        roles=["data"],
+                    )
+                )
 
                 for kw in item.keywords:
                     db.add(

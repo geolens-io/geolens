@@ -405,6 +405,61 @@ async def _repoint_remote_asset(
     )
 
 
+async def _upsert_origin_data_asset(
+    session: Any,
+    dataset_uuid: uuid.UUID,
+    *,
+    href: str,
+    media_type: str | None,
+) -> None:
+    """Make the served ``dataset_assets`` row describe the resolved asset.
+
+    feat(#1692). The STAC import persists the origin item's primary data
+    asset as a ``dataset_assets`` row keyed ``data``, which is what puts a
+    readable COG href on the STAC items GeoLens serves (the ``raster_tiles``
+    template renders only in GeoLens's own frontend). This is the refresh's
+    half of that contract, and it runs on EVERY successful resolution, moved
+    or not — an upsert against an unchanged answer is a no-op, and against a
+    dataset imported before the row existed it IS the backfill: one refresh
+    and the dataset serves the asset every generic client needs.
+
+    ON CONFLICT against ``uq_dataset_assets_key``, the same statement shape
+    the raster-replace tail uses (``_upsert_stac_and_distribution_rows``) —
+    and that tail is also why this write is safe against a replaced dataset:
+    a #1290 replace flips ``source_format`` off ``stac``, so the binding
+    guard in phase 3 discards this task's answer before it could overwrite
+    the replacement's managed row.
+
+    Lives inside the success block on purpose (invariant 10): a refresh that
+    resolved nothing repairs nothing.
+    """
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from app.processing.raster.models import DatasetAsset
+
+    stmt = pg_insert(DatasetAsset).values(
+        dataset_id=dataset_uuid,
+        key="data",
+        href=href,
+        media_type=media_type,
+        roles=["data"],
+    )
+    await session.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_dataset_assets_key",
+            # href, media_type and roles describe the resolved asset and move
+            # with it; size_bytes is deliberately absent — this task measures
+            # nothing, and listing it would overwrite a stored value with
+            # NULL.
+            set_={
+                "href": stmt.excluded.href,
+                "media_type": stmt.excluded.media_type,
+                "roles": stmt.excluded.roles,
+            },
+        )
+    )
+
+
 @task_app.task(queue="ingest", retry=0)
 @tenant_task
 async def refresh_stac(
@@ -624,6 +679,17 @@ async def refresh_stac(
                 # still carrying the OLD version keeps the pre-refresh href
                 # until that entry expires (60s), bounded and self-healing.
                 dataset.bump_tile_cache_version()
+
+            # feat(#1692): unconditional on purpose — not gated on `moved` or
+            # `rebound`. For an unchanged answer it rewrites the row with the
+            # values it already has; for a dataset imported before the row
+            # existed it is the backfill. See _upsert_origin_data_asset.
+            await _upsert_origin_data_asset(
+                session,
+                dataset_uuid,
+                href=resolution.asset_href,
+                media_type=resolution.asset_media_type,
+            )
 
             # AFTER the rebind, never before: `set_dataset_origin` clears the
             # probe state on every write, because a binding write is the

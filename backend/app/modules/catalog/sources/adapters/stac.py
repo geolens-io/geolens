@@ -54,6 +54,28 @@ def projection_epsg(properties: dict[str, Any]) -> int | None:
 # keys were tracked; the refresh then falls back to matching on the href.
 MAX_ASSET_KEY_CHARS = 255
 
+# feat(#1692): the longest asset media type GeoLens will carry — the width of
+# ``DatasetAsset.media_type`` (String(100)), where an imported item's declared
+# type is persisted so the STAC items GeoLens serves can re-advertise it.
+# Same capture-side bound and for the same reason as MAX_ASSET_KEY_CHARS
+# above: search surfacing a type the import model would reject turns one
+# unusual item into a 422 for the whole batch. Registered media types are
+# nowhere near this long; an item whose type is longer simply imports
+# without one.
+MAX_ASSET_MEDIA_TYPE_CHARS = 100
+
+
+def storable_media_type(media_type: str | None) -> str | None:
+    """The asset's declared media type if it fits the column, else None.
+
+    feat(#1692): applied at capture (search) and again where the refresh
+    reads a re-fetched item, so every writer of ``DatasetAsset.media_type``
+    carries the same bound the column enforces.
+    """
+    if not isinstance(media_type, str) or len(media_type) > MAX_ASSET_MEDIA_TYPE_CHARS:
+        return None
+    return media_type
+
 
 def storable_asset_key(key: str | None) -> str | None:
     """The asset key if it is short enough to carry, else None.
@@ -372,7 +394,12 @@ async def search_stac_items(
                 "gsd": props.get("gsd"),
                 "cloud_cover": props.get("eo:cloud_cover"),
                 "data_asset_href": data_asset.get("href") if data_asset else None,
-                "data_asset_type": data_asset.get("type") if data_asset else None,
+                # feat(#1692): bounded at capture like the key below, so the
+                # echoed value always fits the import model and the
+                # DatasetAsset.media_type column it is persisted into.
+                "data_asset_type": storable_media_type(
+                    data_asset.get("type") if data_asset else None
+                ),
                 # feat(#1266): the durable half of the asset's identity. The
                 # href is what moves; this is what still names the same asset
                 # afterwards, so a refresh can follow the move instead of
