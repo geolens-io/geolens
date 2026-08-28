@@ -98,12 +98,12 @@ on:
   # the publishes wait on a human approval click, Release waits on the
   # ~40-minute Prod Compose Smoke — so the concurrency group below queues
   # duplicate triggers for the same version behind the in-flight verify
-  # (never cancelling it). A Release-triggered run lands in its own
-  # `verify-published-main` group (see VERIFY_VERSION below) and runs
-  # independently of the per-version group; that's fine. Each job's `if:`
-  # (in `jobs:` below) additionally restricts it to the one trigger source
-  # that can actually satisfy it, so a publish-triggered run only exercises
-  # the two package-registry jobs and a Release-triggered run only exercises
+  # (never cancelling it). A Release-triggered run gets its own per-commit
+  # group (see the concurrency block below), separate from the per-tag group
+  # publish-triggered runs use. Each job's `if:` (in `jobs:` below)
+  # additionally restricts it to the one trigger source that can actually
+  # satisfy it, so a publish-triggered run only exercises the two
+  # package-registry jobs and a Release-triggered run only exercises
   # "Verify GHCR images"/"Verify GitHub Release" — neither pair ever polls
   # for an artifact its own trigger hasn't produced.
   workflow_run:
@@ -130,14 +130,32 @@ permissions:
 # A run triggered by Release's completion reports its OWN head_branch as the
 # default branch ("main"), not the tag — that's how GitHub represents any
 # workflow_run-triggered run, since the triggered workflow's file is always
-# read from the default branch. Such a run lands in a fixed
-# `verify-published-main` group instead of the tag's group; VERIFY_VERSION
-# below falls back to 'latest' for it. `latest` is only a LAST-RESORT
-# fallback for the two Release-gated jobs though — each resolves the exact
-# tag itself from head_sha (see their guard step) precisely because 'latest'
-# would silently under-verify a prerelease. See that step's comment.
+# read from the default branch. Grouping those runs by head_branch alone (as
+# an earlier version of this file did) would put EVERY release's
+# Release-triggered run in one shared `verify-published-main` group — and
+# because GitHub keeps only the newest PENDING run per group, an overlapping
+# Release completion for a DIFFERENT tag (including a hollow one from a
+# failed/manual smoke, which the guard step below makes harmless to run but
+# which still occupies a concurrency slot) could evict a still-pending
+# verification for an unrelated release, leaving its GHCR/Release checks
+# never run. So a Release-triggered run's group key instead uses
+# `github.event.workflow_run.head_sha` — proven elsewhere in this file to be
+# the exact tagged commit even on a Release-triggered run, unlike
+# head_branch — giving each release (or each distinct commit a hollow run
+# happens to be about) its own group: duplicate Release completions for the
+# SAME tag still dedupe/queue together as intended, and completions for
+# DIFFERENT tags can no longer evict one another. Publish-triggered runs are
+# untouched: `github.event.workflow.name == 'Release'` is false for them, so
+# the `&&` short-circuits to that same falsy value and the `||` chain falls
+# through to head_branch exactly as before — the three publishes for one tag
+# still land in one `verify-published-vX.Y.Z` group. VERIFY_VERSION below
+# still falls back to 'latest' for a Release-triggered run needing it, but
+# that's only a LAST-RESORT fallback for the two Release-gated jobs: each
+# resolves the exact tag itself from head_sha (see their guard step)
+# precisely because 'latest' would silently under-verify a prerelease. See
+# that step's comment.
 concurrency:
-  group: verify-published-${{ inputs.version || github.event.workflow_run.head_branch || github.run_id }}
+  group: verify-published-${{ inputs.version || (github.event.workflow.name == 'Release' && github.event.workflow_run.head_sha) || github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: false
 
 env:
