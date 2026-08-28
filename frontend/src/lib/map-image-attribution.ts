@@ -64,6 +64,12 @@ export interface AttributionMapLike {
   /** The current zoom, against which a layer's zoom range is judged. Also
    *  public, also only used to order; see `shownSourceIds`. */
   getZoom?: () => number | undefined;
+  /** feat(#1553): MapLibre's live style object, reached ONLY to read the same
+   *  `used`/`usedForTerrain` flags the on-screen AttributionControl renders
+   *  from. Typed `unknown` because the shape is internal and has been renamed
+   *  under us once already; `liveUsedSourceIds` reads it defensively and the
+   *  modeled approximation stays as the fallback. */
+  style?: unknown;
 }
 
 function attributionFont(fontPx: number): string {
@@ -142,24 +148,52 @@ function textAlternative(el: Element): string | null {
   return null;
 }
 
-/** A name for an image that offers no alternative at all. Its host, where it
+/** Replaced elements that, like an image, display external content identified
+ *  only by a URL, mapped to the attribute carrying that URL.
+ *
+ *  feat(#1553 candidate 4): MapLibre's control sanitizer strips only <script>,
+ *  `on*` handlers and javascript:/data: URLs, so every one of these renders
+ *  perfectly visibly in the on-screen control — and none of them derives DOM
+ *  text, so a provider crediting itself with `<object data="logo.svg">` used to
+ *  contribute nothing inline and reach the image only through the source-level
+ *  floor, or not at all when text stood beside it. They now take the same
+ *  treatment as an unnamed <img>: the accessible alternatives first (the
+ *  generic-element rule already checks those), then the host-derived
+ *  placeholder. <img> keeps its own branch because `alt=""` is a decorative
+ *  opt-out these elements do not have. Elements that embed nothing external
+ *  (an empty <span>, a bare <canvas>) are deliberately absent: markup with no
+ *  URL names nothing, and the source-level floor still counts a credit made
+ *  only of them. */
+const EMBED_URL_ATTRS: Record<string, readonly string[]> = {
+  OBJECT: ['data'],
+  EMBED: ['src'],
+  IFRAME: ['src'],
+  VIDEO: ['src', 'poster'],
+};
+
+/** A name for an embed that offers no alternative at all. Its host, where it
  *  has one: that is the only provider-identifying text such a credit carries,
  *  and it also keeps two distinct unnamed logos from deduping into one. Two
  *  hostless ones (a data: URI) still collapse — they are indistinguishable in
  *  text, which is the residual of a credit that ships no words. */
-function unnamedImageCredit(el: Element): string {
-  const src = el.getAttribute('src');
-  if (src) {
+function unnamedEmbedCredit(el: Element, urlAttrs: readonly string[]): string {
+  for (const attr of urlAttrs) {
+    const src = el.getAttribute(attr);
+    if (!src) continue;
     try {
       const url = new URL(src, window.location.href);
       if (url.protocol === 'http:' || url.protocol === 'https:') {
         return i18n.t('builder:export.imageCreditFrom', { host: url.hostname });
       }
     } catch {
-      // Unparseable src: fall through to the bare placeholder.
+      // Unparseable URL: try the next attribute, then the bare placeholder.
     }
   }
   return i18n.t('builder:export.imageCredit');
+}
+
+function unnamedImageCredit(el: Element): string {
+  return unnamedEmbedCredit(el, ['src']);
 }
 
 /** Walk `node`, collecting text and text alternatives with break sentinels at
@@ -192,8 +226,18 @@ function collectCreditText(node: Node): string {
   for (const child of Array.from(el.childNodes)) inner += collectCreditText(child);
   // An element that contributes no text of its own falls back to its own
   // alternative. Checked AFTER the children so a labelled wrapper around real
-  // text does not credit the same provider twice.
-  if (!inner.split(BREAK).join('').trim()) inner = textAlternative(el) ?? inner;
+  // text does not credit the same provider twice — and so <object>/<iframe>
+  // fallback content, which IS DOM text, wins over the placeholder.
+  if (!inner.split(BREAK).join('').trim()) {
+    const alternative = textAlternative(el);
+    const urlAttrs = EMBED_URL_ATTRS[tag];
+    if (alternative) inner = alternative;
+    // feat(#1553 candidate 4): an unnamed URL-bearing embed is displaying
+    // something we cannot name, exactly like an unnamed <img>. Placeholder,
+    // not silence — mirroring the image rule keeps the two forms a provider
+    // actually ships (img and object/embed logos) from diverging.
+    else if (urlAttrs) inner = unnamedEmbedCredit(el, urlAttrs);
+  }
   return BLOCK_CREDIT_TAGS.has(tag) ? `${BREAK}${inner}${BREAK}` : inner;
 }
 
@@ -337,17 +381,21 @@ function dedupe(entries: string[]): string[] {
  * running), so the reader sees credits the screen does not.
  *
  * Ordering rather than filtering, deliberately: a source hidden at capture time
- * can still be part of what the map is OF, and `used` is a live-render concept
- * a headless export cannot always reproduce. Everything is still credited when
+ * can still be part of what the map is OF. Everything is still credited when
  * there is room — the over-crediting property is intact — and what the marker
  * elides first is now the hidden sources, which is the correct thing to lose.
+ * The on-screen control filters (an unused source's credit simply is not
+ * there), so a bounded export with room to spare renders a SUPERSET of the
+ * control's line. That is the one deliberate, decided divergence (#1541
+ * review) and it errs in the licensing-safe direction.
  *
- * `shownSourceIds` is an explicit approximation of `used`/`usedForTerrain` from
- * public signals — layer visibility, layer zoom range, terrain — with the gaps
- * it does not model named in its own comment rather than left to be discovered.
- * Every one of them errs toward calling a source shown, which costs nothing:
- * the answer only ORDERS the list, so a source it gets wrong is mis-sorted,
- * never dropped.
+ * feat(#1553): `shownSourceIds` now reads MapLibre's live `used` /
+ * `usedForTerrain` flags — the control's own input — whenever the map exposes
+ * them, and falls back to the documented approximation (layer visibility, zoom
+ * range, terrain) only when it does not. See its comment for the two tiers and
+ * their gaps. Every gap errs toward calling a source shown, which costs
+ * nothing: the answer only ORDERS the list, so a source it gets wrong is
+ * mis-sorted, never dropped.
  *
  * One cost of preferring (1), accepted:
  *
@@ -388,6 +436,21 @@ interface AttributionStyle {
  * this list is ordered shown-first and by style order within that, which is
  * load-bearing (see `readRenderedAttribution`).
  *
+ * chore(#1553 candidate 3): re-verified line-by-line against the installed
+ * maplibre-gl 6.5.0 (`_updateAttributions`): exact-duplicate skip at
+ * collection, whitespace-only filter, length sort, then drop any entry a
+ * LATER — post-sort, longer — entry `includes`. Two rules line up exactly:
+ * strictly-longer containment (after the sort and the exact dedupe, an
+ * equal-length distinct entry can never contain another) and the ` | ` join.
+ * One divergence is deliberate and stays: the control compares RAW HTML
+ * strings, this module compares DERIVED TEXT. Text is what the image renders,
+ * so two anchors differing only in `href` — which the control shows twice —
+ * are indistinguishable visual duplicates here and collapse to one; and
+ * raw-level containment that normalization breaks (`©  Acme` beside
+ * `© Acme Data`) still suppresses at the text level. Both directions only ever
+ * REMOVE a line whose text another line carries whole, so no credit text is
+ * lost either way.
+ *
  * STRICTLY longer, and WITHIN ONE PRIORITY GROUP ONLY. Strictly longer so two
  * equal strings cannot suppress each other into nothing — `dedupe` owns that
  * case. Within one group because a hidden credit suppressing a shown one would
@@ -405,20 +468,36 @@ function suppressContainedCredits(entries: string[]): string[] {
 }
 
 /**
- * Source ids that are rendering. AN APPROXIMATION OF MAPLIBRE'S `used` /
- * `usedForTerrain`, computed from public signals, and stated as one so the next
- * gap in it is a known limit rather than a bug report.
+ * Source ids that are rendering, in TWO TIERS: MapLibre's own live
+ * `used`/`usedForTerrain` flags where they are reachable (feat(#1553)), and
+ * the modeled approximation of them where they are not.
  *
- * The live flags are NOT reachable as public API. They live on the internal
- * per-source cache reached through `map.style`, and the collection holding them
- * is `Style.tileManagers` in maplibre-gl 5.24 where it was `sourceCaches`
- * before — an internal name that has already been renamed once under us. So
- * this recomputes them from what `getStyle()`, `getZoom()` and `getTerrain()`
- * expose.
+ * TIER 1 — the live flags (`liveUsedSourceIds`). The on-screen
+ * AttributionControl renders exactly the sources for which
+ * `map.style.tileManagers[id].used || .usedForTerrain` holds (maplibre-gl
+ * 6.5.0, src/ui/control/attribution_control.ts `_updateAttributions`), and
+ * `map.style` IS reachable from the live Map instance both capture paths
+ * already hold — the export is canvas-composited, not headless. Reading the
+ * control's own input removes the approximation class of drift outright: the
+ * partition cannot disagree with the control, including when MapLibre next
+ * changes what counts as used. The one residual is timing — the flags are
+ * recomputed per rendered frame, and both captures run inside a render
+ * callback, so they are at most one frame old, strictly fresher than a model.
  *
- * WHAT IT MODELS, which is MapLibre's own definition of the flag — "at least
- * one of its layers becomes visible in style sense (inside the layer's zoom
- * range and with layout.visibility set to 'visible')", and in the source
+ * The collection is internal, though, typed on `Style` but not API, and it has
+ * been renamed once already — `sourceCaches` until maplibre-gl 5.24,
+ * `tileManagers` since. So it is read defensively: an unreachable collection
+ * (absent, renamed again, not an object) falls back to tier 2 rather than
+ * degrading to an everything-hidden answer, which is why null and an empty
+ * live collection are distinguished.
+ *
+ * TIER 2 — the approximation, kept as the fallback for a partial map (the
+ * builder suites' mocks) and for the next rename. It recomputes the flag from
+ * what `getStyle()`, `getZoom()` and `getTerrain()` expose.
+ *
+ * WHAT TIER 2 MODELS, which is MapLibre's own definition of the flag — "at
+ * least one of its layers becomes visible in style sense (inside the layer's
+ * zoom range and with layout.visibility set to 'visible')", and in the source
  * `!layer.isHidden(zoom) && layer.source && tileManagers[layer.source].used =
  * true`, where `isHidden` is `zoom < minzoom || zoom >= maxzoom || visibility
  * === 'none'`:
@@ -435,23 +514,52 @@ function suppressContainedCredits(entries: string[]): string[] {
  *     that only `usedForTerrain` counts, so layer references alone put a credit
  *     for plainly visible 3D relief in the hidden group.
  *
- * WHAT IT DOES NOT MODEL. Neither does `used` — these make a source render
- * nothing while MapLibre still counts it used, so reading the live flag would
- * not close them either:
+ * WHAT NEITHER TIER MODELS — and neither does the CONTROL, verified against
+ * the 6.5.0 source: `used` is set from `!layer.isHidden(zoom)` alone, so these
+ * make a source render nothing while the on-screen control still credits it:
  *
- *   - a layer `filter` that matches no feature
+ *   - a layer `filter` that matches no feature (#1553 candidate 2: the control
+ *     counts such a source used and shows its credit, so PARITY with the
+ *     control means counting it shown here too — evaluating filters ourselves
+ *     would open a divergence, not close one)
  *   - zero opacity, or paint that renders invisibly
  *   - tiles that are empty, absent, or outside the viewport
  *
- * And two that are ours alone:
+ * And two that are tier 2's alone:
  *
  *   - anything not in the serialized style, since `getStyle()` is the input
  *   - timing: MapLibre recomputes per frame, this reads once at capture
  *
- * Every one of those errs toward calling a source SHOWN, which is the safe way
- * to be wrong: the answer only ORDERS the credit list, so a source it misjudges
- * is mis-sorted, never dropped.
+ * Every gap errs toward calling a source SHOWN, which is the safe way to be
+ * wrong: the answer only ORDERS the credit list, so a source it misjudges is
+ * mis-sorted, never dropped.
  */
+interface LiveTileManagerLike {
+  used?: unknown;
+  usedForTerrain?: unknown;
+}
+
+/**
+ * feat(#1553): the ids MapLibre itself counts used, read from the live flags
+ * the on-screen control renders from, or null when the internal collection is
+ * not reachable. The truthiness test mirrors the control's own
+ * (`tileManager.used || tileManager.usedForTerrain`).
+ */
+function liveUsedSourceIds(map: AttributionMapLike): Set<string> | null {
+  const style = map.style as
+    | { tileManagers?: Record<string, LiveTileManagerLike | null | undefined> | null }
+    | null
+    | undefined;
+  const managers = style?.tileManagers;
+  if (!managers || typeof managers !== 'object') return null;
+  const used = new Set<string>();
+  for (const id of Object.keys(managers)) {
+    const manager = managers[id];
+    if (manager && (manager.used || manager.usedForTerrain)) used.add(id);
+  }
+  return used;
+}
+
 function layerHiddenAtZoom(
   layer: { minzoom?: unknown; maxzoom?: unknown },
   zoom: number | undefined,
@@ -469,6 +577,12 @@ function shownSourceIds(
   map: AttributionMapLike,
   style: AttributionStyle | null | undefined,
 ): Set<string> {
+  // feat(#1553): the live flags first — this is the state the on-screen
+  // control renders from, so the partition cannot drift from it. The model
+  // below is the fallback for a map that does not expose them.
+  const live = liveUsedSourceIds(map);
+  if (live) return live;
+
   const shown = new Set<string>();
   const terrainSource = map.getTerrain?.()?.source;
   if (typeof terrainSource === 'string') shown.add(terrainSource);
