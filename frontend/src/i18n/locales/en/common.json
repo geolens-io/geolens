@@ -637,5 +637,6 @@
   "copied": "Copied",
   "mapViewerGate": {
     "accessCheckFailed": "We could not check your access to this map. Try again."
-  }
+  },
+  "visibilityPublicAdminOnly": "Only administrators can make content public on this instance."
 }

@@ -188,6 +188,9 @@ class FeatureFlagsResponse(BaseModel):
 
     enable_dataset_editing: bool = False
     require_metadata_for_publish: bool = False
+    # feat(#1691): when true, only admins may set `visibility: public`; the
+    # frontend uses it to hide/disable the Public option for non-admins.
+    restrict_public_visibility: bool = False
 
 
 class SettingsAllResponse(BaseModel):

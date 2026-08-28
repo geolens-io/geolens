@@ -22,6 +22,7 @@ interface TabProps {
 const FIELDS = [
   { key: 'require_metadata_for_publish', defaultValue: false },
   { key: 'enable_dataset_editing', defaultValue: false },
+  { key: 'restrict_public_visibility', defaultValue: false },
   { key: 'banner_enabled', defaultValue: false },
   { key: 'banner_text', defaultValue: '' },
   { key: 'banner_color', defaultValue: 'warning' },
@@ -66,6 +67,22 @@ export function SettingsGeneralTab({ settings, envOnly, onSave, onReset, isSavin
           id="enable-dataset-editing-toggle"
           checked={values.enable_dataset_editing as boolean}
           onCheckedChange={setters.enable_dataset_editing}
+          disabled={envOnly}
+        />
+      </div>
+
+      <div className="flex items-center justify-between max-w-md">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <Label htmlFor="restrict-public-visibility-toggle">{t('settings.general.restrictPublicVisibility')}</Label>
+            <SettingSourceBadge source={findSetting(settings, 'restrict_public_visibility')?.source ?? 'default'} settingKey="restrict_public_visibility" onReset={onReset} />
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.general.restrictPublicVisibilityDescription')}</p>
+        </div>
+        <Switch
+          id="restrict-public-visibility-toggle"
+          checked={values.restrict_public_visibility as boolean}
+          onCheckedChange={setters.restrict_public_visibility}
           disabled={envOnly}
         />
       </div>

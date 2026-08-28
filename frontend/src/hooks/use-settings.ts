@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { useAuthStore } from '@/stores/auth-store';
 import { formatMutationError } from '@/lib/error-map';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
@@ -66,6 +67,20 @@ export function useFeatureFlags() {
     staleTime: 60_000,
     gcTime: 30 * 60_000,
   });
+}
+
+/**
+ * feat(#1691): whether the current user may set `visibility: public`.
+ *
+ * False only when the `restrict_public_visibility` instance setting is on
+ * AND the user is not an admin. The server enforces the rule with a 403 at
+ * every visibility-writing mutation — this hook only drives UI affordances
+ * (hiding/disabling the Public option).
+ */
+export function useCanSetPublicVisibility(): boolean {
+  const { data: featureFlags } = useFeatureFlags();
+  const isAdmin = useAuthStore((s) => s.isAdmin());
+  return isAdmin || !(featureFlags?.restrict_public_visibility ?? false);
 }
 
 // --- Unified admin hooks ---

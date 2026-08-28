@@ -563,6 +563,19 @@ ENABLE_DATASET_EDITING = PersistentConfig[bool](
     label="Enable Dataset Editing",
 )
 
+# feat(#1691): when ON, only admins may set `visibility: public` on datasets and
+# maps. Default OFF so private self-hosted installs keep current behavior. The
+# server-side gate is `check_public_visibility_allowed` in
+# `modules/catalog/authorization.py`; existing public content is untouched
+# (the gate fires only on a mutation that REQUESTS public).
+RESTRICT_PUBLIC_VISIBILITY = PersistentConfig[bool](
+    key="restrict_public_visibility",
+    type_=bool,
+    env_default=False,
+    tab="general",
+    label="Restrict Public Visibility to Admins",
+)
+
 # FRONT-01 (Phase 1223): landing-first flag.  Default OFF so existing
 # self-hosters see no change.  When ON, the frontend root guard redirects
 # unauthenticated visitors from "/" to "/login" (the marketing landing page)

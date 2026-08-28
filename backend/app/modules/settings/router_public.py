@@ -17,6 +17,7 @@ from app.core.persistent_config import (
     MAP_DEFAULTS,
     PRIVACY_URL,
     REQUIRE_METADATA_FOR_PUBLISH,
+    RESTRICT_PUBLIC_VISIBILITY,
     get_cached_basemap_proxy_rate_limit,
 )
 from app.platform.ratelimit import limiter
@@ -70,6 +71,7 @@ async def get_feature_flags(
     return FeatureFlagsResponse(
         enable_dataset_editing=await ENABLE_DATASET_EDITING.get(db),
         require_metadata_for_publish=await REQUIRE_METADATA_FOR_PUBLISH.get(db),
+        restrict_public_visibility=await RESTRICT_PUBLIC_VISIBILITY.get(db),
     )
 
 

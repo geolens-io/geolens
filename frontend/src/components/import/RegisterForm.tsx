@@ -3,6 +3,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useNavigate, Link } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { useCanSetPublicVisibility } from '@/hooks/use-settings';
 import { useDiscoverTables, useBulkRegister, useDatasetCountHint } from '@/components/import/hooks/use-ingest';
 import { queryKeys } from '@/lib/query-keys';
 import type { BulkRegisterResult, DiscoveredTable } from '@/types/api';
@@ -262,6 +263,9 @@ function TableDetail({
   isPending: boolean;
 }) {
   const { t } = useTranslation('import');
+  // feat(#1691): hide the Public option when the restrict_public_visibility
+  // instance setting caps non-admins at non-public (server enforces via 403).
+  const canSetPublic = useCanSetPublicVisibility();
 
   return (
     <>
@@ -302,7 +306,9 @@ function TableDetail({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="private">{t('register.visibilityPrivate')}</SelectItem>
-            <SelectItem value="public">{t('register.visibilityPublic')}</SelectItem>
+            {canSetPublic && (
+              <SelectItem value="public">{t('register.visibilityPublic')}</SelectItem>
+            )}
           </SelectContent>
         </Select>
         <Button onClick={onRegister} disabled={isPending}>

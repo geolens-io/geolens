@@ -4,7 +4,7 @@ import {
   useSetPrimaryDistribution,
 } from '@/components/dataset/hooks/use-records';
 import { useUpdateDataset } from '@/components/dataset/hooks/use-dataset';
-import { useTileConfig } from '@/hooks/use-settings';
+import { useCanSetPublicVisibility, useTileConfig } from '@/hooks/use-settings';
 import { listKeywords } from '@/api/records';
 import { toast } from 'sonner';
 import { AccessTab } from '../tabs/AccessTab';
@@ -26,6 +26,7 @@ vi.mock('@/api/records', () => ({
 
 vi.mock('@/hooks/use-settings', () => ({
   useTileConfig: vi.fn(),
+  useCanSetPublicVisibility: vi.fn(),
 }));
 
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
@@ -39,6 +40,7 @@ vi.mock('sonner', () => ({
 const mockUseDistributions = vi.mocked(useDistributions);
 const mockUseSetPrimaryDistribution = vi.mocked(useSetPrimaryDistribution);
 const mockUseTileConfig = vi.mocked(useTileConfig);
+const mockUseCanSetPublic = vi.mocked(useCanSetPublicVisibility);
 const mockUseUpdateDataset = vi.mocked(useUpdateDataset);
 const mockListKeywords = vi.mocked(listKeywords);
 const mutate = vi.fn();
@@ -93,6 +95,7 @@ function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse 
 
 describe('AccessTab', () => {
   beforeEach(() => {
+    mockUseCanSetPublic.mockReturnValue(true);
     mockUseDistributions.mockReturnValue({
       data: {
         distributions: [
@@ -229,6 +232,38 @@ describe('AccessTab', () => {
       openVisibilitySelect();
 
       expect(screen.queryByRole('option', { name: 'Restricted' })).not.toBeInTheDocument();
+    });
+
+    // feat(#1691): the restrict_public_visibility instance setting caps
+    // non-admins at non-public. The server enforces it with a 403; this
+    // control disables the Public move and explains why.
+    it('disables the Public move when the instance restricts public to admins', async () => {
+      mockUseCanSetPublic.mockReturnValue(false);
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+      expect(
+        screen.getByText('Only administrators can make content public on this instance.'),
+      ).toBeInTheDocument();
+
+      openVisibilitySelect();
+      const publicOption = screen.getByRole('option', { name: 'Public' });
+      expect(publicOption).toHaveAttribute('aria-disabled', 'true');
+
+      fireEvent.click(publicOption);
+      expect(mutate).not.toHaveBeenCalled();
+    });
+
+    it('keeps the Public move and hides the admin-only note when allowed', () => {
+      render(<AccessTab dataset={makeDataset({ visibility: 'private' })} canEdit />);
+
+      expect(
+        screen.queryByText('Only administrators can make content public on this instance.'),
+      ).not.toBeInTheDocument();
+
+      openVisibilitySelect();
+      expect(
+        screen.getByRole('option', { name: 'Public' }),
+      ).not.toHaveAttribute('aria-disabled', 'true');
     });
 
     // fix(#930): `internal` joined the ladder once its permission branches

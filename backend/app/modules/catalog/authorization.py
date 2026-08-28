@@ -536,3 +536,50 @@ async def require_dataset_editing_enabled(db: AsyncSession) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Dataset editing is disabled by the administrator.",
         )
+
+
+async def check_public_visibility_allowed(
+    db: AsyncSession,
+    user: Identity,
+    visibility: str | None,
+    *,
+    user_roles: set[str] | None = None,
+) -> set[str] | None:
+    """Enforce the `restrict_public_visibility` instance setting (#1691).
+
+    The ONE shared gate for every mutation that accepts a `visibility` value:
+    dataset metadata PATCH, ingest commit/fan-out/register/bulk-register/VRT
+    create, STAC import, manifest apply, and map update. When the setting is
+    ON, a non-admin requesting `public` gets a 403; every other visibility
+    value passes through untouched. Existing public content is unaffected —
+    the gate fires only on a mutation that REQUESTS public.
+
+    Pass ``user_roles`` when the caller already resolved them (e.g. after
+    ``check_dataset_write_access``) to avoid a second lookup. Returns the
+    resolved roles when a lookup happened (or the caller-provided set), so
+    callers can reuse them downstream; returns ``None`` untouched when the
+    fast paths made a role lookup unnecessary.
+    """
+    if visibility != "public":
+        return user_roles
+
+    # Local import mirrors the other persistent_config call sites in this
+    # module (require_dataset_editing_enabled) and avoids any import cycle.
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+
+    if not await RESTRICT_PUBLIC_VISIBILITY.get(db):
+        return user_roles
+
+    if user_roles is None:
+        user_roles = await get_user_roles(db, user)
+    if "admin" in user_roles:
+        return user_roles
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "Public visibility is restricted to administrators on this "
+            "instance. Choose a narrower visibility or ask an admin to "
+            "make this content public."
+        ),
+    )

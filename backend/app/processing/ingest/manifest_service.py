@@ -40,6 +40,7 @@ from app.processing.ingest.manifest_sources import (
     classify_manifest_source,
     manifest_dataset_fingerprint,
     manifest_job_metadata,
+    publication_to_catalog_fields,
     validate_publication_intent,
 )
 from app.processing.ingest.service import queue_ingest_job, validate_file_extension
@@ -483,6 +484,18 @@ async def _classify_dataset(
     # before any staging, download, or queue work — and before the dry_run
     # early return, which is the branch operators use to validate a manifest.
     validate_publication_intent(dataset.publication)
+    # feat(#1691): the publication intent maps to a catalog visibility
+    # (publication_to_catalog_fields); an intent resolving to public goes
+    # through the same admin gate as every API mutation that accepts a
+    # visibility. Raises 403 for a non-admin when the
+    # restrict_public_visibility instance setting is on — surfaced as this
+    # entry's error by apply_manifest's per-entry isolation, and checked
+    # before staging so dry_run reports it too. Local import: processing/
+    # must not import app.modules.catalog.* at module level (PROCESS-02/04).
+    from app.modules.catalog.authorization import check_public_visibility_allowed
+
+    intent_visibility, _ = publication_to_catalog_fields(dataset.publication)
+    await check_public_visibility_allowed(db, user, intent_visibility)
     prepared = await classify_manifest_source(dataset.sources[0])
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
