@@ -830,6 +830,9 @@
       "tokenPlaceholder": "Nécessaire uniquement pour une source protégée",
       "tokenHint": "Utilisé une seule fois pour cette actualisation et jamais stocké.",
       "confirm": "Démarrer l'actualisation",
+      "cancel": "Annuler",
+      "cancelling": "Annulation...",
+      "cancelFailed": "Échec de l'annulation de l'actualisation",
       "toastAccepted": "Actualisation démarrée (exécution {{runId}}).",
       "errors": {
         "unknown": "L'actualisation a échoué. Réessayez."

@@ -2,6 +2,7 @@
   "title": "Administration",
   "errors": {
     "retryJobFailed": "Échec de la relance de la tâche",
+    "cancelJobFailed": "Échec de l'annulation de la tâche",
     "createUserFailed": "Échec de la création de l'utilisateur",
     "updateUserFailed": "Échec de la mise à jour de l'utilisateur",
     "deleteUserFailed": "Échec de la suppression de l'utilisateur",
@@ -194,6 +195,8 @@
     },
     "retry": "Réessayer",
     "retrying": "Nouvelle tentative...",
+    "cancel": "Annuler",
+    "cancelling": "Annulation...",
     "hideDetails": "Masquer les détails de {{name}}",
     "showDetails": "Afficher les détails de {{name}}"
   },

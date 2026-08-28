@@ -14,7 +14,8 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_client_ip, get_db
@@ -31,6 +32,7 @@ from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
+    JobCancelResponse,
     JobStatusResponse,
     MercatorClipWarning,
     ReservedRenameWarning,
@@ -783,6 +785,207 @@ async def retry_job(
         status="pending",
         message="Job re-queued for ingestion",
     )
+
+
+# Statuses the cancel endpoint reports as "too late" (409). `cancelled` is
+# handled separately as the idempotent repeat, and everything else is active.
+_CANCEL_TERMINAL_STATUSES = ("complete", "failed", "fanned_out")
+
+# SQL to find the live Procrastinate row(s) for one ingest job — the same
+# args->>'job_id' correlation the sweeps use (`no_live_procrastinate_job` in
+# sweep.py, `_ABANDONED_RUN_SQL` in refresh/service.py). At most one row is
+# live in practice; a retried job's old row is terminal and excluded here.
+_LIVE_QUEUE_ROWS_SQL = text(
+    "SELECT id FROM catalog.procrastinate_jobs"
+    " WHERE args->>'job_id' = :job_id AND status IN ('todo', 'doing')"
+)
+
+
+def _is_lock_timeout(exc: DBAPIError) -> bool:
+    """True when the wrapped driver error is PostgreSQL 55P03 (lock timeout)."""
+    return getattr(exc.orig, "sqlstate", None) == "55P03"
+
+
+@router.post(
+    "/{job_id}/cancel",
+    response_model=JobCancelResponse,
+    responses={409: CONFLICT_RESPONSE},
+)
+async def cancel_job(
+    job_id: uuid.UUID,
+    request: Request,
+    user: Identity = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobCancelResponse:
+    """Cancel a pending or running ingest job (imports, refreshes, and every
+    other IngestJob-shaped run — feat(#1677)).
+
+    The DB compare-and-swap here is the correctness mechanism: the job row
+    (fenced on the attempt id read pre-CAS) and its bound refresh run flip to
+    ``cancelled`` and COMMIT before anything touches the queue. A worker that
+    never hears the abort still cannot install data afterwards, because every
+    finalize site runs its fenced job update inside the swap transaction and
+    ``require_ingest_job_update`` raises on the cancelled row, rolling the
+    swap back. The Procrastinate ``abort=True`` request afterwards is
+    best-effort acceleration only.
+
+    Authorization: the job's creator, a holder of the cross-user job
+    capability (same arm view/retry use), or — wider than retry, on purpose —
+    anyone with write access to the job's dataset, so a dataset's owner can
+    always unblock their own dataset from a run someone else started.
+    """
+    # Deferred by design to preserve the platform -> modules layer boundary.
+    from app.modules.audit.service import AuditEvent, audit_emit
+    from app.platform.refresh.service import cancel_active_run_for_job
+
+    result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    # Arm 1: owners always retain access. Arm 2: the effective cross-user
+    # capability policy (same as view/retry). Arm 3: dataset write access —
+    # `check_dataset_write_access` raises 404 (not visible) or 403 (visible,
+    # not owner/admin); both mean "this arm does not grant", and the generic
+    # 403 below avoids leaking dataset visibility through a cancel probe.
+    allowed = job.created_by == user.id or await _can_access_another_users_job(
+        request, db, user, job
+    )
+    if not allowed and job.dataset_id is not None:
+        from app.modules.catalog.authorization import check_dataset_write_access
+        from app.modules.catalog.datasets.domain.service import get_dataset
+
+        dataset = await get_dataset(db, job.dataset_id)
+        try:
+            await check_dataset_write_access(db, dataset, job.dataset_id, user)
+            allowed = True
+        except HTTPException:
+            allowed = False
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to cancel this job",
+        )
+
+    if job.status == "cancelled":
+        return JobCancelResponse(
+            id=job.id, status="cancelled", run_id=None, already=True
+        )
+    if job.status in _CANCEL_TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "job_already_finished", "status": job.status},
+        )
+
+    # One transaction: fenced job CAS + run CAS + audit, then commit. The
+    # attempt-id predicate mirrors retry_job's own CAS — a stale cancel aimed
+    # at attempt N can never kill a retried attempt N+1. The 2s lock_timeout
+    # keeps this request from blocking behind a finalize transaction, which
+    # holds the row lock from its fenced heartbeat through the swap to commit.
+    previous_attempt_id = job.attempt_id
+    now = datetime.now(timezone.utc)
+    attempt_predicate = (
+        IngestJob.attempt_id == previous_attempt_id
+        if previous_attempt_id is not None
+        else IngestJob.attempt_id.is_(None)
+    )
+    try:
+        await db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        cancel_result = await db.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job.id,
+                IngestJob.status.in_(("pending", "running")),
+                attempt_predicate,
+            )
+            .values(
+                status="cancelled",
+                error_message="Cancelled by user",
+                completed_at=now,
+            )
+        )
+    except DBAPIError as exc:
+        if not _is_lock_timeout(exc):
+            raise
+        await db.rollback()
+        # The finalize transaction owns the row; nothing was written. The
+        # client may retry and will then get `job_already_finished`.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "job_finishing"},
+        ) from exc
+
+    if not cancel_result.rowcount:
+        # Another actor moved the row between the read and the CAS. Report
+        # what it became; nothing was written.
+        await db.rollback()
+        await db.refresh(job)
+        if job.status == "cancelled":
+            return JobCancelResponse(
+                id=job.id, status="cancelled", run_id=None, already=True
+            )
+        code = (
+            "job_already_finished"
+            if job.status in _CANCEL_TERMINAL_STATUSES
+            # Still active under a different attempt id: retried concurrently.
+            # A cancel aimed at the old attempt must not kill the new one.
+            else "job_conflict"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": code, "status": job.status},
+        )
+
+    run_id = await cancel_active_run_for_job(db, job.id)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="job.cancel",
+            resource_type="ingest_job",
+            resource_id=job.id,
+            details={
+                "job_owner_id": (
+                    str(job.created_by) if job.created_by is not None else None
+                ),
+                "attempt_id": (
+                    str(previous_attempt_id)
+                    if previous_attempt_id is not None
+                    else None
+                ),
+                "run_id": str(run_id) if run_id is not None else None,
+                "cross_user": job.created_by != user.id,
+            },
+            ip_address=get_client_ip(request),
+        ),
+    )
+    await db.commit()
+
+    # Post-commit, best-effort: ask Procrastinate to cancel a todo row or
+    # abort a doing one. A failure here is logged, not surfaced — the fences
+    # above make the eventual delivery a no-op either way, the worker just
+    # runs to its finalize and dies at the fence instead of stopping early.
+    queue_rows = await db.execute(_LIVE_QUEUE_ROWS_SQL, {"job_id": str(job.id)})
+    for queue_job_id in queue_rows.scalars():
+        try:
+            # Deferred: the API process holds this connector open for its
+            # whole lifespan (app/api/main.py lifespan).
+            from app.processing.ingest.tasks import task_app
+
+            await task_app.job_manager.cancel_job_by_id_async(queue_job_id, abort=True)
+        except Exception:  # broad: queue abort is acceleration, never the guarantee
+            log.warning(
+                "job_cancel_queue_abort_failed",
+                job_id=str(job.id),
+                queue_job_id=queue_job_id,
+                exc_info=True,
+            )
+
+    return JobCancelResponse(id=job.id, status="cancelled", run_id=run_id)
 
 
 __all__ = [

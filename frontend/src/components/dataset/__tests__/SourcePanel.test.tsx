@@ -1,5 +1,10 @@
 import { render, screen } from '@/test/test-utils';
-import { useDatasetRefreshRuns, useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
+import userEvent from '@testing-library/user-event';
+import {
+  useCancelRefreshJob,
+  useDatasetRefreshRuns,
+  useDatasetVersions,
+} from '@/components/dataset/hooks/use-dataset';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { useAuthStore } from '@/stores/auth-store';
 import { SourcePanel } from '../SourcePanel';
@@ -8,6 +13,7 @@ import type { DatasetRefreshRunResponse, DatasetResponse, VrtSourceHealth } from
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetVersions: vi.fn(),
   useDatasetRefreshRuns: vi.fn(),
+  useCancelRefreshJob: vi.fn(),
 }));
 
 vi.mock('@/components/import/hooks/use-vrt', () => ({
@@ -111,7 +117,63 @@ beforeEach(() => {
     isLoading: false,
     isError: false,
   } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+  vi.mocked(useCancelRefreshJob).mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  } as unknown as ReturnType<typeof useCancelRefreshJob>);
 });
+
+// feat(#1677): one active (running) run alongside a terminal one, for the
+// cancel-affordance tests below.
+function mockActiveAndTerminalRuns() {
+  vi.mocked(useDatasetRefreshRuns).mockReturnValue({
+    data: {
+      runs: [
+        {
+          id: 'run-active',
+          dataset_id: 'dataset-1',
+          dataset_version_id: null,
+          ingest_job_id: 'job-active',
+          origin_kind: 'service',
+          trigger: 'manual',
+          status: 'running',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-05T00:00:00Z',
+          claimed_at: '2026-08-05T00:00:01Z',
+          finished_at: null,
+          feature_count_before: 1200,
+          feature_count_after: null,
+          schema_diff: null,
+          error_code: null,
+          error_message: null,
+        },
+        {
+          id: 'run-done',
+          dataset_id: 'dataset-1',
+          dataset_version_id: 'version-2',
+          ingest_job_id: 'job-done',
+          origin_kind: 'service',
+          trigger: 'api',
+          status: 'succeeded',
+          triggered_by: 'user-1',
+          triggered_by_username: 'jdoe',
+          started_at: '2026-08-04T00:00:00Z',
+          claimed_at: '2026-08-04T00:00:01Z',
+          finished_at: '2026-08-04T00:01:00Z',
+          feature_count_before: 1100,
+          feature_count_after: 1200,
+          schema_diff: null,
+          error_code: null,
+          error_message: null,
+        },
+      ],
+      total: 2,
+    } satisfies { runs: DatasetRefreshRunResponse[]; total: number },
+    isLoading: false,
+    isError: false,
+  } as unknown as ReturnType<typeof useDatasetRefreshRuns>);
+}
 
 describe('SourcePanel', () => {
   it('renders source state, pointer details, history, and the optional action seam', () => {
@@ -203,6 +265,51 @@ describe('SourcePanel', () => {
     render(<SourcePanel dataset={makeDataset()} />);
 
     expect(screen.getByText('No refresh runs yet.')).toBeInTheDocument();
+  });
+
+  // feat(#1677): the one-click cancel affordance on the active run row.
+  it('offers cancel only on the active run, for a manager, and fires the mutation', async () => {
+    mockActiveAndTerminalRuns();
+    const mutate = vi.fn();
+    vi.mocked(useCancelRefreshJob).mockReturnValue({
+      mutate,
+      isPending: false,
+    } as unknown as ReturnType<typeof useCancelRefreshJob>);
+    const user = userEvent.setup();
+
+    render(<SourcePanel dataset={makeDataset()} canEdit />);
+
+    // Exactly one Cancel button: the running row's, not the succeeded row's.
+    const cancelButtons = screen.getAllByRole('button', { name: 'Cancel' });
+    expect(cancelButtons).toHaveLength(1);
+
+    await user.click(cancelButtons[0]);
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate.mock.calls[0][0]).toEqual({
+      jobId: 'job-active',
+      datasetId: 'dataset-1',
+    });
+  });
+
+  it('hides cancel from readers without the manage signal', () => {
+    mockActiveAndTerminalRuns();
+
+    render(<SourcePanel dataset={makeDataset()} />);
+
+    expect(screen.getByText('Running')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
+  });
+
+  it('disables cancel while the mutation is pending', () => {
+    mockActiveAndTerminalRuns();
+    vi.mocked(useCancelRefreshJob).mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    } as unknown as ReturnType<typeof useCancelRefreshJob>);
+
+    render(<SourcePanel dataset={makeDataset()} canEdit />);
+
+    expect(screen.getByRole('button', { name: 'Cancelling...' })).toBeDisabled();
   });
 
   it('does not reconstruct the initial source from current fields after a reupload', () => {

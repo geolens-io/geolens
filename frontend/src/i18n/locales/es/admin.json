@@ -2,6 +2,7 @@
   "title": "Administración",
   "errors": {
     "retryJobFailed": "Error al reintentar la tarea",
+    "cancelJobFailed": "Error al cancelar la tarea",
     "createUserFailed": "Error al crear usuario",
     "updateUserFailed": "Error al actualizar usuario",
     "deleteUserFailed": "Error al eliminar usuario",
@@ -194,6 +195,8 @@
     },
     "retry": "Reintentar",
     "retrying": "Reintentando...",
+    "cancel": "Cancelar",
+    "cancelling": "Cancelando...",
     "hideDetails": "Ocultar detalles de {{name}}",
     "showDetails": "Mostrar detalles de {{name}}"
   },

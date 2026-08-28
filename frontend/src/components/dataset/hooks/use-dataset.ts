@@ -20,6 +20,7 @@ import {
   updateAttribute,
   validateDataset,
 } from '@/api/datasets';
+import { cancelJob } from '@/api/ingest';
 import type {
   CreateDatasetRequest,
   DatasetUpdateRequest,
@@ -209,6 +210,21 @@ export function useRefreshDataset() {
     // The dispatched run belongs in history immediately (status "pending"),
     // and dataset-detail health/freshness change once the worker finishes —
     // both queries are cheap enough to just invalidate rather than patch.
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });
+    },
+  });
+}
+
+// feat(#1677): one-click cancel for the active refresh run, keyed on the
+// run's ingest_job_id. Invalidates exactly what dispatch invalidates: the
+// cancelled run belongs in history immediately, and dataset health/freshness
+// may change once the row is terminal.
+export function useCancelRefreshJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ jobId }: { jobId: string; datasetId: string }) => cancelJob(jobId),
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.refreshRunsPrefix(variables.datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(variables.datasetId) });

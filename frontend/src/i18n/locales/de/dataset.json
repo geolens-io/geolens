@@ -830,6 +830,9 @@
       "tokenPlaceholder": "Nur für eine geschützte Quelle erforderlich",
       "tokenHint": "Wird einmalig für diese Aktualisierung verwendet und nie gespeichert.",
       "confirm": "Aktualisierung starten",
+      "cancel": "Abbrechen",
+      "cancelling": "Wird abgebrochen...",
+      "cancelFailed": "Aktualisierung konnte nicht abgebrochen werden",
       "toastAccepted": "Aktualisierung gestartet (Lauf {{runId}}).",
       "errors": {
         "unknown": "Aktualisierung fehlgeschlagen. Versuchen Sie es erneut."

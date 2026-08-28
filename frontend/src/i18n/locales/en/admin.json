@@ -2,6 +2,7 @@
   "title": "Administration",
   "errors": {
     "retryJobFailed": "Failed to retry job",
+    "cancelJobFailed": "Failed to cancel job",
     "createUserFailed": "Failed to create user",
     "updateUserFailed": "Failed to update user",
     "deleteUserFailed": "Failed to delete user",
@@ -195,7 +196,9 @@
       "userMetadata": "User Metadata"
     },
     "retry": "Retry",
-    "retrying": "Retrying..."
+    "retrying": "Retrying...",
+    "cancel": "Cancel",
+    "cancelling": "Cancelling..."
   },
   "audit": {
     "title": "Audit Logs",

@@ -830,6 +830,9 @@
       "tokenPlaceholder": "Solo necesario para una fuente protegida",
       "tokenHint": "Se usa una sola vez para esta actualización y nunca se almacena.",
       "confirm": "Iniciar actualización",
+      "cancel": "Cancelar",
+      "cancelling": "Cancelando...",
+      "cancelFailed": "Error al cancelar la actualización",
       "toastAccepted": "Actualización iniciada (ejecución {{runId}}).",
       "errors": {
         "unknown": "La actualización falló. Inténtalo de nuevo."

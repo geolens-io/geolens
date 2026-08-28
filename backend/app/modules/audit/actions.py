@@ -58,6 +58,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "feature.insert",
         "feature.replace",
         "feature.update",
+        # feat(#1677): user-requested cancel of a pending/running ingest job
+        # (imports, refreshes, analysis, embedding backfill — uniform scope).
+        # Emitted by the cancel endpoint in platform/jobs/router.py.
+        "job.cancel",
         "job.cleanup_stale",
         "job.retry",
         "layer.add_column",
@@ -98,6 +102,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         # `abandoned` is the stale-run sweep's bookkeeping correction and is
         # deliberately not spelled `failed`.
         "refresh.abandoned",
+        # feat(#1677): the explicit-cancel counterpart to `abandoned` — a
+        # person asked in-flight work to stop, vs. the sweep's bookkeeping
+        # correction for a task proven gone.
+        "refresh.cancelled",
         "refresh.dispatch",
         "refresh.failed",
         "refresh.succeeded",

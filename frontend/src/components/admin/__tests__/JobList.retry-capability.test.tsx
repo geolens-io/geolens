@@ -2,9 +2,10 @@ import { render, screen } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { JobList } from '../JobList';
 
-const { mockUseAdminJobs, mockRetry } = vi.hoisted(() => ({
+const { mockUseAdminJobs, mockRetry, mockCancel } = vi.hoisted(() => ({
   mockUseAdminJobs: vi.fn(),
   mockRetry: vi.fn(),
+  mockCancel: vi.fn(),
 }));
 
 vi.mock('@/hooks/use-admin', () => ({
@@ -12,6 +13,10 @@ vi.mock('@/hooks/use-admin', () => ({
   useUserNames: () => ({ data: [] }),
   useRetryAdminJob: () => ({
     mutate: mockRetry,
+    isPending: false,
+  }),
+  useCancelAdminJob: () => ({
+    mutate: mockCancel,
     isPending: false,
   }),
 }));
@@ -78,6 +83,50 @@ describe('JobList retry capability', () => {
     await user.click(screen.getByRole('button', { name: 'Retry' }));
 
     expect(mockRetry).toHaveBeenCalledWith('job-1');
+  });
+
+  // feat(#1677): one-click cancel on active rows, Retry parity.
+  it('offers cancel on a running job and fires the mutation', async () => {
+    mockUseAdminJobs.mockReturnValue({
+      data: {
+        jobs: [
+          failedJob({
+            status: 'running',
+            error_message: null,
+            can_retry: false,
+            completed_at: null,
+          }),
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const user = userEvent.setup();
+
+    render(<JobList />);
+    await user.click(screen.getByTestId('job-details-toggle'));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(mockCancel).toHaveBeenCalledWith('job-1');
+    // Retry stays a failed-row affordance.
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+
+  it('does not offer cancel on a terminal job', async () => {
+    mockUseAdminJobs.mockReturnValue({
+      data: { jobs: [failedJob()], total: 1 },
+      isLoading: false,
+      error: null,
+      refetch: vi.fn(),
+    });
+    const user = userEvent.setup();
+
+    render(<JobList />);
+    await user.click(screen.getByTestId('job-details-toggle'));
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
   });
 
   it('uses a level-two card heading and the shared card action slot', () => {

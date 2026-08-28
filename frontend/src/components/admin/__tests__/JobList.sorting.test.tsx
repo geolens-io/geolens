@@ -15,6 +15,7 @@ vi.mock('@/hooks/use-admin', () => ({
   useAdminJobs: (...args: unknown[]) => mockUseAdminJobs(...args),
   useUserNames: () => ({ data: [] }),
   useRetryAdminJob: () => ({ mutate: vi.fn(), isPending: false }),
+  useCancelAdminJob: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 beforeAll(() => {

@@ -2,6 +2,7 @@
   "title": "Verwaltung",
   "errors": {
     "retryJobFailed": "Auftrag konnte nicht wiederholt werden",
+    "cancelJobFailed": "Auftrag konnte nicht abgebrochen werden",
     "createUserFailed": "Erstellen des Benutzers fehlgeschlagen",
     "updateUserFailed": "Aktualisieren des Benutzers fehlgeschlagen",
     "deleteUserFailed": "Löschen des Benutzers fehlgeschlagen",
@@ -194,6 +195,8 @@
     },
     "retry": "Wiederholen",
     "retrying": "Wird wiederholt...",
+    "cancel": "Abbrechen",
+    "cancelling": "Wird abgebrochen...",
     "hideDetails": "Details ausblenden für {{name}}",
     "showDetails": "Details anzeigen für {{name}}"
   },

@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState, type KeyboardEvent 
 import { useTranslation } from 'react-i18next';
 import { useLocation, useSearchParams } from 'react-router';
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useAdminJobs, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
+import { useAdminJobs, useCancelAdminJob, useRetryAdminJob, useUserNames } from '@/hooks/use-admin';
 import { formatDate } from '@/lib/format';
 import { paginationRange } from '@/lib/pagination';
 import { jobStatusColors } from '@/lib/status-colors';
@@ -174,6 +174,7 @@ export function JobList() {
 
   const { data: userNames } = useUserNames();
   const retryAdminJob = useRetryAdminJob();
+  const cancelAdminJob = useCancelAdminJob();
   const toggleRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const { totalPages, rangeStart, rangeEnd } = paginationRange(data?.total ?? 0, page, PAGE_SIZE);
@@ -466,6 +467,23 @@ export function JobList() {
                                   disabled={retryAdminJob.isPending}
                                 >
                                   {retryAdminJob.isPending ? t('jobs.retrying') : t('jobs.retry')}
+                                </Button>
+                              )}
+                              {/* feat(#1677): one-click cancel on active
+                                  rows, Retry parity — no confirm dialog;
+                                  the action is recoverable and data-safe
+                                  under the backend's no-swap fence. */}
+                              {(job.status === 'pending' || job.status === 'running') && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    cancelAdminJob.mutate(job.id);
+                                  }}
+                                  disabled={cancelAdminJob.isPending}
+                                >
+                                  {cancelAdminJob.isPending ? t('jobs.cancelling') : t('jobs.cancel')}
                                 </Button>
                               )}
                             </div>
