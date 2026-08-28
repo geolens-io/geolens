@@ -9,6 +9,36 @@ from pydantic import BaseModel, Field
 Visibility = Literal["private", "restricted", "internal", "public"]
 
 
+class UrlUploadRequest(BaseModel):
+    """Request body for the URL variant of upload (feat #1705).
+
+    The server fetches the file itself (SSRF-validated, size-capped) and
+    stages it exactly like a direct upload — preview and commit take over
+    unchanged.
+    """
+
+    url: str = Field(
+        min_length=1,
+        max_length=2000,
+        description=(
+            "HTTP(S) URL of the file to import. The server validates the URL "
+            "against SSRF, downloads it with the configured size cap, and "
+            "stages it like a direct upload."
+        ),
+    )
+    filename: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        description=(
+            "Filename override for URLs whose path does not end in the "
+            "actual file name (e.g. download links keyed by query id). "
+            "Must carry an allowed extension. Defaults to the URL path's "
+            "basename."
+        ),
+    )
+
+
 class UploadResponse(BaseModel):
     job_id: uuid.UUID = Field(
         description="Unique identifier for the ingestion job. Use this to poll status and to commit the upload."

@@ -69,6 +69,7 @@ from app.processing.ingest.schemas import (
     TableRegisterResponse,
     UploadConfigResponse,
     UploadResponse,
+    UrlUploadRequest,
     VectorCommitRequest,
     VrtAddSourceRequest,
     VrtCreateRequest,
@@ -87,8 +88,15 @@ from app.processing.ingest.service import (
     queue_ingest_job,
     register_existing_table,
     resolve_file_path,
+    safe_upload_basename,
     save_upload_file,
     validate_file_extension,
+)
+from app.processing.ingest.url_fetch import (
+    UrlFetchError,
+    UrlFetchTooLargeError,
+    fetch_url_to_path,
+    filename_from_url,
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
@@ -668,6 +676,189 @@ async def upload_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during upload",
+        )
+
+
+@router.post(
+    "/upload/url",
+    response_model=UploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+        502: BAD_GATEWAY_RESPONSE,
+    },
+)
+async def upload_from_url(
+    body: UrlUploadRequest,
+    request: Request,
+    user: Identity = Depends(require_permission("upload")),
+    db: AsyncSession = Depends(get_db),
+) -> UploadResponse:
+    """Import a geospatial file from an HTTP(S) URL for staging.
+
+    feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
+    source type. The server fetches the file itself and the staged bytes
+    enter the normal pipeline unchanged (preview → commit). Rule 2 posture:
+    ``validate_url_for_ssrf`` gates the URL at submission, the download runs
+    through ``make_safe_client()`` (connect-time IP pinning plus per-hop
+    redirect revalidation), the size cap is enforced while streaming, the
+    staged file passes the same extension allowlist and content sniff as a
+    direct upload, and GDAL only ever sees the staged local file.
+    """
+    from app.core.url_redaction import redact_url_credentials
+    from app.platform.security import SSRFError, validate_url_for_ssrf
+
+    safe_url = redact_url_credentials(body.url)
+    filename = (
+        safe_upload_basename(body.filename)
+        if body.filename
+        else filename_from_url(body.url)
+    )
+    if not filename or not Path(filename).suffix:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Could not determine a filename with an extension from the "
+                "URL path. Provide 'filename' explicitly."
+            ),
+        )
+    try:
+        allowed_list = await _get_allowed_extensions_safely(db)
+        _reject_standalone_vrt(filename)
+        validate_file_extension(filename, allowed_list)
+
+        max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
+        max_size_bytes = max_size_mb * 1024 * 1024
+
+        # Rule 2, submission gate: refuse private/link-local/reserved targets
+        # before any connection is attempted. The safe client re-validates at
+        # connect time and per redirect hop during the fetch below.
+        try:
+            await validate_url_for_ssrf(body.url)
+        except SSRFError as exc:
+            logger.warning(
+                "url_import_ssrf_blocked",
+                event_type="security",
+                url=safe_url,
+                reason=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+
+        # QUOTA-02: refuse at the dataset-count cap before staging anything.
+        # The byte half (QUOTA-01) runs again after the download with the
+        # real size — Content-Length may be absent or dishonest, so nothing
+        # is charged on the remote server's word.
+        await check_upload_quota(db, user.id, 0, request)
+
+        job = await create_ingest_job(db, filename, "", user.id)
+
+        staging_dir = Path(settings.upload_staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        local_dest = staging_dir / f"{job.id}_{filename}"
+
+        s3_key: str | None = None
+        try:
+            try:
+                actual_size = await fetch_url_to_path(
+                    body.url, local_dest, max_size_bytes
+                )
+            except UrlFetchTooLargeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail=str(exc),
+                ) from exc
+            except SSRFError as exc:
+                # A redirect hop or a rebinding DNS answer targeted a blocked
+                # address mid-fetch — same refusal as at submission.
+                logger.warning(
+                    "url_import_ssrf_blocked",
+                    event_type="security",
+                    url=safe_url,
+                    reason=str(exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
+            except UrlFetchError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=str(exc),
+                ) from exc
+
+            # QUOTA-01 with the byte count that actually landed on disk.
+            await check_upload_quota(db, user.id, actual_size, request)
+
+            # Same staged-file content sniff as a direct upload.
+            try:
+                validate_file_content(str(local_dest), filename)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=str(exc),
+                ) from exc
+
+            if settings.storage_provider == "s3":
+                s3_key = f"staging/{job.id}/{filename}"
+                fh = open(local_dest, "rb")
+                try:
+                    await _await_provider_call_draining(
+                        get_storage().put(resolve_current_storage_key(s3_key), fh)
+                    )
+                finally:
+                    await run_in_thread_draining(fh.close)
+                job.file_path = s3_key
+            else:
+                job.file_path = str(local_dest)
+
+            _stamp_raster_metadata(job, filename)
+            await db.commit()
+        except BaseException:
+            # Until the commit above, this request exclusively owns the
+            # staged bytes (the local file and, if the put ran, the S3
+            # object) — the rolled-back transaction is the only retention
+            # record, so both must go before the exception propagates.
+            if s3_key is not None:
+                await _cleanup_saved_upload(s3_key, str(job.id))
+            local_dest.unlink(missing_ok=True)
+            raise
+        if s3_key is not None:
+            # S3 is the staging store; the local copy served content
+            # validation and has no further reader.
+            local_dest.unlink(missing_ok=True)
+
+        logger.info(
+            "url_import_staged",
+            url=safe_url,
+            job_id=str(job.id),
+            filename=filename,
+            size_bytes=actual_size,
+        )
+        return UploadResponse(
+            job_id=job.id,
+            status="pending",
+            message="File downloaded and ready for preview",
+        )
+    # N4 (mirrors upload_file): HTTPException before the ValueError fallback,
+    # or every deliberate 4xx above is rewritten as a 400/500.
+    except HTTPException:
+        raise
+    except (IngestionError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except (
+        Exception
+    ):  # broad: fetch pipeline involves network, file I/O, S3, DB — any can throw
+        logger.exception(
+            "Unexpected error during URL import",
+            url=safe_url,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during URL import",
         )
 
 

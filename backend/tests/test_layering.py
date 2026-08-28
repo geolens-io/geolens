@@ -2648,7 +2648,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # post-loop shape left open. The lines are the claim call, its 409
     # rendering, and the comment carrying the two-serialization argument.
     # Cap 1600 -> 1617, exact.
-    "backend/app/processing/ingest/router.py": 1617,
+    # feat(#1705): +189 — upload_from_url, the URL variant of POST
+    # /ingest/upload. The handler lives here rather than a sibling module
+    # because the PROCESS-02/04 burndowns (auth.dependencies, quota.service)
+    # may only shrink; the fetch mechanics themselves are in url_fetch.py.
+    # The lines are the Rule 2 sequencing — SSRF gate, safe-client fetch,
+    # streamed size cap, staged-file sniff — plus the same cleanup-ownership
+    # comments the direct upload path carries. #1705 and #1709 both raised
+    # this cap from the same 1584 baseline in parallel, so the value is
+    # measured off the MERGED file rather than taken from either lane (the
+    # two lanes' import-region edits overlap, so the deltas do not simply
+    # add). Cap 1617 -> 1808, exact.
+    "backend/app/processing/ingest/router.py": 1808,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
