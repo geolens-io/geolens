@@ -399,19 +399,37 @@ jobs:
                 # the true global newest.
                 NEWEST_TAG=""
                 NEWEST_CREATED=""
+                LOOKUP_FAILED=""
                 while IFS= read -r CANDIDATE; do
                   [ -z "${CANDIDATE}" ] && continue
-                  # `|| continue` (not `|| true`): a lookup failure for one
-                  # candidate — e.g. its release hasn't propagated yet —
-                  # skips that candidate under bash -e instead of aborting
-                  # the whole loop.
-                  CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null) || continue
+                  # A candidate whose lookup fails is FLAGGED, never
+                  # silently skipped: selecting the newest among only the
+                  # tags that happened to resolve, while one candidate's
+                  # real status is unknown, is exactly the partial-data
+                  # selection this whole resolution exists to avoid (a
+                  # transient failure on the true-newest candidate would
+                  # verify its OLDER sibling green instead of falling back
+                  # loudly). One immediate retry first, since a transient
+                  # API hiccup shouldn't discard an otherwise-resolvable
+                  # selection over a single blip.
+                  if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                    if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                      LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
+                      continue
+                    fi
+                  fi
                   if [ -z "${NEWEST_CREATED}" ] || [ "${CREATED}" \> "${NEWEST_CREATED}" ]; then
                     NEWEST_CREATED="${CREATED}"
                     NEWEST_TAG="${CANDIDATE}"
                   fi
                 done <<< "${MATCHES}"
-                if [ -n "${NEWEST_TAG}" ]; then
+                if [ -n "${LOOKUP_FAILED}" ]; then
+                  # Discard the partial selection entirely rather than
+                  # trusting NEWEST_TAG computed from incomplete data —
+                  # even if it's set, one candidate's real created_at was
+                  # never confirmed, so the "newest" claim can't be trusted.
+                  echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); refusing to select from a partial result — falling back to VERIFY_VERSION=latest"
+                elif [ -n "${NEWEST_TAG}" ]; then
                   TAG="${NEWEST_TAG}"
                   echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
                   echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
@@ -577,19 +595,37 @@ jobs:
                 # the true global newest.
                 NEWEST_TAG=""
                 NEWEST_CREATED=""
+                LOOKUP_FAILED=""
                 while IFS= read -r CANDIDATE; do
                   [ -z "${CANDIDATE}" ] && continue
-                  # `|| continue` (not `|| true`): a lookup failure for one
-                  # candidate — e.g. its release hasn't propagated yet —
-                  # skips that candidate under bash -e instead of aborting
-                  # the whole loop.
-                  CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null) || continue
+                  # A candidate whose lookup fails is FLAGGED, never
+                  # silently skipped: selecting the newest among only the
+                  # tags that happened to resolve, while one candidate's
+                  # real status is unknown, is exactly the partial-data
+                  # selection this whole resolution exists to avoid (a
+                  # transient failure on the true-newest candidate would
+                  # verify its OLDER sibling green instead of falling back
+                  # loudly). One immediate retry first, since a transient
+                  # API hiccup shouldn't discard an otherwise-resolvable
+                  # selection over a single blip.
+                  if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                    if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                      LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
+                      continue
+                    fi
+                  fi
                   if [ -z "${NEWEST_CREATED}" ] || [ "${CREATED}" \> "${NEWEST_CREATED}" ]; then
                     NEWEST_CREATED="${CREATED}"
                     NEWEST_TAG="${CANDIDATE}"
                   fi
                 done <<< "${MATCHES}"
-                if [ -n "${NEWEST_TAG}" ]; then
+                if [ -n "${LOOKUP_FAILED}" ]; then
+                  # Discard the partial selection entirely rather than
+                  # trusting NEWEST_TAG computed from incomplete data —
+                  # even if it's set, one candidate's real created_at was
+                  # never confirmed, so the "newest" claim can't be trusted.
+                  echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); refusing to select from a partial result — falling back to VERIFY_VERSION=latest"
+                elif [ -n "${NEWEST_TAG}" ]; then
                   TAG="${NEWEST_TAG}"
                   echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
                   echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
