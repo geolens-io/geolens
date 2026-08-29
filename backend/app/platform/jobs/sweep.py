@@ -19,7 +19,18 @@ from pathlib import Path
 from typing import Literal, overload
 
 import structlog
-from sqlalchemy import and_, case, delete, func, not_, or_, select, text, update
+from sqlalchemy import (
+    DateTime,
+    and_,
+    case,
+    delete,
+    func,
+    not_,
+    or_,
+    select,
+    text,
+    update,
+)
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -144,9 +155,27 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     # logic turns the guard into a filter that excludes what it should catch.
     completion_key = func.coalesce(IngestJob.file_path, "").like("staging/%")
     cutoff_seconds = stale_pending_cutoff_seconds(completion_bound=completion_bound)
+    # fix(#1708 codex r6): pending age is measured from the last moment the
+    # flow declared the artifact STAGED, falling back to creation. A URL
+    # import spends up to FETCH_MAX_SECONDS downloading before its
+    # running->pending CAS, with created_at unchanged — measured from
+    # created_at, a local-mode staged import (absolute file_path, so the
+    # unbound half) arrived pre-aged: at the 61s floor of
+    # pending_job_timeout_seconds the very next sweep or get_job_status poll
+    # failed it while the user was mid-preview. `staged_at` is stamped by
+    # upload_from_url's completion CAS (always an isoformat timestamptz, the
+    # only writer); every other flow lacks the key and keeps aging from
+    # created_at exactly as before, so a genuinely abandoned pre-fetch row
+    # is not softened. The window RESTARTS at staging, it does not become an
+    # exemption — a staged row whose staged_at itself ages past the cutoff
+    # is reaped like any other.
+    age_basis = func.coalesce(
+        IngestJob.user_metadata.op("->>")("staged_at").cast(DateTime(timezone=True)),
+        IngestJob.created_at,
+    )
     return (
         IngestJob.status == "pending",
-        IngestJob.created_at < now - timedelta(seconds=cutoff_seconds),
+        age_basis < now - timedelta(seconds=cutoff_seconds),
         completion_key if completion_bound else not_(completion_key),
         no_live_procrastinate_job(),
     )

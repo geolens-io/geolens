@@ -998,7 +998,19 @@ async def upload_from_url(
                 .values(
                     status="pending",
                     file_path=staged_path,
-                    user_metadata=_raster_stamped_metadata(job_metadata, filename),
+                    # fix(#1708 codex r6): staged_at restarts the pending
+                    # review window. stale_pending_clauses measures pending
+                    # age from coalesce(staged_at, created_at), so the
+                    # download time (up to FETCH_MAX_SECONDS, which
+                    # created_at already paid for) no longer eats the review
+                    # window — at the 61s floor of pending_job_timeout the
+                    # sweep could otherwise reap this row the moment it was
+                    # staged. Always an isoformat timestamptz; the sweep
+                    # casts it, so only this flow may write the key.
+                    user_metadata={
+                        **(_raster_stamped_metadata(job_metadata, filename) or {}),
+                        "staged_at": datetime.now(timezone.utc).isoformat(),
+                    },
                 )
             )
             if cas.rowcount == 0:

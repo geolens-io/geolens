@@ -311,6 +311,9 @@ class TestUrlImportFetch:
         assert staged.read_bytes() == GEOJSON
         # No raster stamp for a vector file.
         assert (job.user_metadata or {}).get("file_type") is None
+        # fix(#1708 codex r6): staging completion restarts the pending
+        # review window; the stamp the sweep's coalesce reads must exist.
+        assert (job.user_metadata or {}).get("staged_at")
 
     async def test_filename_override_for_query_style_urls(
         self,
@@ -825,6 +828,71 @@ class TestUrlImportReaperInteraction:
         # or by the failure-path stamp (both CAS from 'running' only).
         assert job.status == "failed"
         assert job.error_message == "Stale: reaped by test"
+
+    async def test_staged_pending_row_gets_a_fresh_review_window(
+        self, client, test_db_session
+    ):
+        """fix(#1708 codex r6): the running lease covers the fetch, but the
+        completion CAS used to return the row to 'pending' with created_at
+        unchanged — at the 61s floor of pending_job_timeout_seconds the sweep
+        could reap the freshly staged local-mode import while the user was
+        mid-preview. Tested against the sweep's OWN clause set: pending age
+        is now measured from coalesce(staged_at, created_at). Three rows, all
+        with created_at backdated a day: a staged import with a fresh
+        staged_at keeps its window; one whose staged_at also aged out is
+        still reaped (a restart, not an exemption); a pre-fetch abandoned
+        twin without the key still ages from creation, unweakened."""
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import update as sa_update
+
+        from app.platform.jobs.sweep import stale_pending_clauses
+
+        now = datetime.now(timezone.utc)
+        day_ago = now - timedelta(days=1)
+        staged_fresh = IngestJob(
+            source_filename="freshwindow-a.geojson",
+            # Local-mode staging binds an ABSOLUTE path -> the unbound half,
+            # i.e. the short configurable cutoff (S3 mode binds 'staging/%'
+            # and already sat under the 24h backstop).
+            file_path="/tmp/urlimport/freshwindow-a.geojson",
+            status="pending",
+            user_metadata={"staged_at": now.isoformat()},
+        )
+        staged_stale = IngestJob(
+            source_filename="freshwindow-b.geojson",
+            file_path="/tmp/urlimport/freshwindow-b.geojson",
+            status="pending",
+            user_metadata={"staged_at": day_ago.isoformat()},
+        )
+        abandoned = IngestJob(
+            source_filename="freshwindow-c.geojson",
+            file_path="",
+            status="pending",
+        )
+        test_db_session.add_all([staged_fresh, staged_stale, abandoned])
+        await test_db_session.flush()
+        await test_db_session.execute(
+            sa_update(IngestJob)
+            .where(IngestJob.id.in_([staged_fresh.id, staged_stale.id, abandoned.id]))
+            .values(created_at=day_ago)
+        )
+
+        swept = (
+            (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(
+                        *stale_pending_clauses(now, completion_bound=False)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert staged_fresh.id not in swept  # full review window from staging
+        assert staged_stale.id in swept  # the window restarts, it doesn't exempt
+        assert abandoned.id in swept  # pre-fetch abandonment still ages from creation
+        await test_db_session.rollback()
 
 
 # ---------------------------------------------------------------------------

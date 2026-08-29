@@ -2685,7 +2685,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # never preempt the failure CAS (the stuck-running shape, not just the
     # NUL instance); the post-success unlink went best-effort for the same
     # reason. Cap 1928 -> 1973, exact.
-    "backend/app/processing/ingest/router.py": 2006,
+    # fix(#1708 codex r6): +12 — the completion CAS stamps
+    # user_metadata.staged_at so stale_pending_clauses restarts the pending
+    # review window at staging completion instead of letting the download
+    # time eat it. Cap 1973 -> 1985, exact.
+    "backend/app/processing/ingest/router.py": 2018,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3034,7 +3038,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # case, matching job.cancel and refresh.cancelled in the same
     # transaction), and the requester when a sweep settles it, since a lease
     # expiry is nobody's click. Cap 1752 -> 1763, exact.
-    "backend/app/platform/jobs/sweep.py": 1763,
+    # fix(#1708 codex r6): +29 — pending age in stale_pending_clauses is
+    # measured from coalesce(user_metadata.staged_at, created_at), so a URL
+    # import whose download consumed part of the configurable pending
+    # timeout gets its full review window back at staging completion, while
+    # every row without the key (all other flows) ages from created_at
+    # exactly as before. Mostly the comment recording why this is a restart
+    # and not an exemption. Cap 1653 -> 1682, exact.
+    "backend/app/platform/jobs/sweep.py": 1792,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
