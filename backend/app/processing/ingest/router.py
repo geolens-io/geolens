@@ -1010,6 +1010,27 @@ async def upload_from_url(
         await check_upload_quota(db, user.id, 0, request)
 
         job = await create_ingest_job(db, filename, "", user.id)
+        # Capture the scalars now (the flush inside create_ingest_job
+        # populated job.id) and never touch the ORM instance again: the
+        # failure path ROLLS BACK, and rollback expires every object in the
+        # session — a later `job.id` would then lazy-refresh synchronously
+        # and die with MissingGreenlet inside the exception handler, turning
+        # a clean 4xx into a 500.
+        job_id = job.id
+        job_metadata = job.user_metadata
+
+        # fix(#1708 codex r9): path setup runs BEFORE the running-commit.
+        # It has no dependency on the committed row (job_id came from the
+        # flush above), and a read-only staging parent used to raise here
+        # AFTER the commit but OUTSIDE the settlement guard — a 500 with the
+        # job stranded 'running' for the one-hour lease. Failing before the
+        # commit instead rolls the uncommitted row back entirely: no
+        # stranded row, nothing for a reaper to find.
+        staging_dir = Path(settings.upload_staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        local_dest = staging_dir / f"{job_id}_{filename}"
+        s3_key: str | None = None
+
         # fix(#1708 codex r2): the download runs under the RUNNING lease, not
         # as a bare 'pending' row. A committed 'pending' row with an empty
         # file_path and no live queue task matches every clause of
@@ -1039,19 +1060,12 @@ async def upload_from_url(
         # vanishing with a rollback), and the byte-quota check must re-run
         # after the download since the world may have moved while we fetched.
         await db.commit()
-        # Capture the scalars now and never touch the ORM instance again:
-        # the failure path below ROLLS BACK, and rollback expires every
-        # object in the session — a later `job.id` would then lazy-refresh
-        # synchronously and die with MissingGreenlet inside the exception
-        # handler, turning a clean 4xx into a 500.
-        job_id = job.id
-        job_metadata = job.user_metadata
-
-        staging_dir = Path(settings.upload_staging_dir)
-        staging_dir.mkdir(parents=True, exist_ok=True)
-        local_dest = staging_dir / f"{job_id}_{filename}"
-
-        s3_key: str | None = None
+        # INVARIANT (fix #1708 codex r9): nothing executable may sit between
+        # the running-commit above and the `try` below. Any statement here
+        # that can raise escapes the settlement guard and strands the
+        # committed row 'running' for the one-hour lease — path setup and
+        # scalar capture are hoisted ABOVE the commit for exactly that
+        # reason. Keep it that way.
         try:
             try:
                 actual_size = await fetch_url_to_path(

@@ -1257,3 +1257,52 @@ class TestUrlImportPutReaperOnCancel:
         release.set()
         await asyncio.sleep(0.05)
         cleanup.assert_awaited_once_with("staging/jid/late.geojson", "jid")
+
+
+# ---------------------------------------------------------------------------
+# Round-9 review finding (#1708): staging-path setup can never strand a
+# running row — it runs before the running-commit
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportStagingDirFailure:
+    async def test_unwritable_staging_parent_leaves_no_stranded_row(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        tmp_path,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r9): mkdir of upload_staging_dir used to run after
+        the running-commit but OUTSIDE the settlement guard — a read-only
+        parent meant a 500 with the job stranded 'running' for the one-hour
+        lease. Path setup is now hoisted ABOVE the commit, so the same
+        failure rolls the uncommitted row back entirely: an error response
+        and NO row at all, running or otherwise. (The SSRF gate is stubbed
+        so the unresolvable mock host reaches the path-setup step.)"""
+        import os
+
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
+        ro_parent = tmp_path / "ro-parent"
+        ro_parent.mkdir()
+        os.chmod(ro_parent, 0o500)  # read+execute, no write: mkdir below fails
+        try:
+            monkeypatch.setattr(
+                settings, "upload_staging_dir", str(ro_parent / "staging")
+            )
+            resp = await client.post(
+                "/ingest/upload/url",
+                json={"url": "https://files.example.test/roparent.geojson"},
+                headers=admin_auth_header,
+            )
+        finally:
+            os.chmod(ro_parent, 0o700)  # let pytest clean tmp_path up
+
+        assert resp.status_code == 500
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "roparent.geojson")
+        )
+        # No stranded 'running' row — no row at all: the failure preceded
+        # the commit, so the transaction rolled the INSERT back.
+        assert result.scalar_one_or_none() is None

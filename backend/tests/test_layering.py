@@ -2704,7 +2704,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # leaves the put task running — including the waiter itself being
     # cancelled mid-wait, which previously escaped before the timeout
     # branch installed it. Cap 2069 -> 2109, exact.
-    "backend/app/processing/ingest/router.py": 2142,
+    # fix(#1708 codex r9): +14 — staging-path setup hoisted ABOVE the
+    # running-commit (a read-only parent used to raise between the commit
+    # and the settlement guard, stranding a running row for the lease), and
+    # the INVARIANT comment at the seam: nothing executable may sit between
+    # the running-commit and the guarded try. Cap 2109 -> 2123, exact.
+    "backend/app/processing/ingest/router.py": 2156,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
