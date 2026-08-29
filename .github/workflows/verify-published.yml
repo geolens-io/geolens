@@ -362,8 +362,30 @@ jobs:
                     # is unknown, is the partial-data selection this
                     # resolution exists to avoid. One immediate retry first
                     # for a single transient blip.
-                    if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
-                      if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
+                    #
+                    # fix(#1707): HTTP 404 is a definitive CONFIRMED-ABSENT
+                    # answer for that one candidate, not an unconfirmed one —
+                    # the guard already proved THIS run's release job
+                    # succeeded, so a 404 on a sibling tag just means that
+                    # sibling has no release, exactly like a draft's
+                    # published_at=null below. No retry needed, and it must
+                    # not count toward LOOKUP_FAILED: otherwise a merely
+                    # unlucky OLDER sibling (e.g. one whose own smoke failed,
+                    # so it was never released) can mask a genuinely
+                    # verifiable newer one. Matched conservatively on gh's
+                    # literal `(HTTP 404)` error suffix; anything that
+                    # doesn't match falls through to the transient-failure
+                    # retry below, and an unclassifiable failure still ends
+                    # up UNCONFIRMED — 404 is the one carve-out, fail-closed
+                    # stays the default for everything else.
+                    if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>&1); then
+                      case "${PUBLISHED}" in
+                        *"(HTTP 404)"*) continue ;;
+                      esac
+                      if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>&1); then
+                        case "${PUBLISHED}" in
+                          *"(HTTP 404)"*) continue ;;
+                        esac
                         LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
                         continue
                       fi
@@ -569,8 +591,30 @@ jobs:
                     # is unknown, is the partial-data selection this
                     # resolution exists to avoid. One immediate retry first
                     # for a single transient blip.
-                    if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
-                      if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
+                    #
+                    # fix(#1707): HTTP 404 is a definitive CONFIRMED-ABSENT
+                    # answer for that one candidate, not an unconfirmed one —
+                    # the guard already proved THIS run's release job
+                    # succeeded, so a 404 on a sibling tag just means that
+                    # sibling has no release, exactly like a draft's
+                    # published_at=null below. No retry needed, and it must
+                    # not count toward LOOKUP_FAILED: otherwise a merely
+                    # unlucky OLDER sibling (e.g. one whose own smoke failed,
+                    # so it was never released) can mask a genuinely
+                    # verifiable newer one. Matched conservatively on gh's
+                    # literal `(HTTP 404)` error suffix; anything that
+                    # doesn't match falls through to the transient-failure
+                    # retry below, and an unclassifiable failure still ends
+                    # up UNCONFIRMED — 404 is the one carve-out, fail-closed
+                    # stays the default for everything else.
+                    if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>&1); then
+                      case "${PUBLISHED}" in
+                        *"(HTTP 404)"*) continue ;;
+                      esac
+                      if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>&1); then
+                        case "${PUBLISHED}" in
+                          *"(HTTP 404)"*) continue ;;
+                        esac
                         LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
                         continue
                       fi
