@@ -188,8 +188,13 @@ class TestUrlImportFilename:
         assert resp.status_code == 422
 
     async def test_disallowed_extension_rejected(
-        self, client: AsyncClient, admin_auth_header: dict
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
     ):
+        # fix(#1708 codex r4): the SSRF gate now runs BEFORE the allowlist
+        # check (so its unbounded DNS never overlaps a checked-out
+        # connection); stub it so this unresolvable mock host reaches the
+        # extension refusal it is testing.
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", AsyncMock())
         resp = await client.post(
             "/ingest/upload/url",
             json={"url": "https://files.example.test/notes.txt"},
@@ -197,6 +202,33 @@ class TestUrlImportFilename:
         )
         assert resp.status_code == 400
         assert "not allowed" in resp.json()["detail"]
+
+    async def test_ssrf_gate_runs_before_any_handler_db_work(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ):
+        """fix(#1708 codex r4): pins the reorder. The SSRF gate (with its
+        unbounded getaddrinfo) must run before the handler's first DB call,
+        so a DNS stall holds no pool connection. A refused URL must
+        therefore never reach the allowlist fetch — if someone reorders the
+        DB work back above the gate, the spy fires and this fails."""
+        gate = AsyncMock(
+            side_effect=SSRFError(
+                "URLs targeting private/internal networks are not allowed"
+            )
+        )
+        monkeypatch.setattr("app.platform.security.validate_url_for_ssrf", gate)
+        spy = AsyncMock(return_value=[".geojson"])
+        monkeypatch.setattr(
+            "app.processing.ingest.router._get_allowed_extensions_safely", spy
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/x.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        gate.assert_awaited_once()
+        spy.assert_not_awaited()
 
     async def test_standalone_vrt_rejected(
         self, client: AsyncClient, admin_auth_header: dict

@@ -2674,7 +2674,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # was an unhandled 500); _raster_stamped_metadata split out pure so the
     # CAS can persist the same stamp without dirtying the ORM row. Cap
     # 1815 -> 1908, exact.
-    "backend/app/processing/ingest/router.py": 1941,
+    # fix(#1708 codex r4): +20 — the SSRF gate moved above the handler's DB
+    # work AND the dependency-phase transaction is committed first, so the
+    # validator's unbounded getaddrinfo never overlaps a checked-out pool
+    # connection (auth deps query on the same request-cached session, so a
+    # reorder alone released nothing). Cap 1908 -> 1928, exact.
+    "backend/app/processing/ingest/router.py": 1961,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

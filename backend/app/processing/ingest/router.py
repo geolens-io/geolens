@@ -768,16 +768,30 @@ async def upload_from_url(
     safe_url = redact_url_credentials(body.url)
     try:
         filename = _url_import_filename(body)
-        allowed_list = await _get_allowed_extensions_safely(db)
         _reject_standalone_vrt(filename)
-        validate_file_extension(filename, allowed_list)
 
-        max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
-        max_size_bytes = max_size_mb * 1024 * 1024
+        # fix(#1708 codex r4): END the dependency-phase transaction before
+        # the DNS await. Reordering the handler's own DB calls below the SSRF
+        # gate is necessary but NOT sufficient: require_permission /
+        # get_current_user run queries on this same request-cached session,
+        # so the connection is already checked out under autobegin when the
+        # handler body starts. validate_url_for_ssrf's getaddrinfo has no
+        # bound of its own, so slow or stalling DNS across pool_size +
+        # max_overflow (10 + 3) concurrent imports could occupy the whole
+        # pool without any request ever reaching the pre-fetch commit. This
+        # commit ends the auth-phase transaction (reads, plus any auth-side
+        # write the pre-fetch commit would have committed moments later
+        # anyway) and releases the connection; the first DB call below
+        # checks out a fresh one. After this line, the only awaits that run
+        # while a connection is held are the DB calls between the allowlist
+        # fetch and the pre-fetch commit.
+        await db.commit()
 
         # Rule 2, submission gate: refuse private/link-local/reserved targets
-        # before any connection is attempted. The safe client re-validates at
-        # connect time and per redirect hop during the fetch below.
+        # before any connection is attempted — and before any handler DB
+        # work, so the unbounded DNS resolution never overlaps a checked-out
+        # connection (r4). The safe client re-validates at connect time and
+        # per redirect hop during the fetch below.
         try:
             await validate_url_for_ssrf(body.url)
         except SSRFError as exc:
@@ -790,6 +804,12 @@ async def upload_from_url(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
             ) from exc
+
+        allowed_list = await _get_allowed_extensions_safely(db)
+        validate_file_extension(filename, allowed_list)
+
+        max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
+        max_size_bytes = max_size_mb * 1024 * 1024
 
         # QUOTA-02: refuse at the dataset-count cap before staging anything.
         # The byte half (QUOTA-01) runs again after the download with the
