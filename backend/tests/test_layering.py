@@ -3314,7 +3314,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # back here and is refused at the refresh door. The rest is the discard
     # wrapper on the defer rollback and the extra dispatch argument.
     # Cap 1144 -> 1194, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1194,
+    # fix(#1709 review r4 P1): +50 — the commit fence in reupload_commit: a
+    # same-value CAS on the job's (pending, attempt_id) pair executed in the
+    # SAME transaction that flushes the DatasetRefreshRun, so a cancel that
+    # lands between the handler's pending read and its commit rolls the run
+    # back into a 409 instead of stranding a pending run bound to a
+    # cancelled job (which held uq_refresh_runs_one_active against every
+    # refresh until the stale-run sweep). Over half the lines are the
+    # comment recording both serializations and why the lock order cannot
+    # deadlock against the cancel endpoint. Cap 1194 -> 1244, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1244,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
