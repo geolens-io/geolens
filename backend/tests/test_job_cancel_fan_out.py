@@ -1,29 +1,32 @@
-"""Cancel racing POST /ingest/commit-fan-out/{job_id} (#1709 review r2 P1).
+"""Cancel racing POST /ingest/commit-fan-out/{job_id} (#1709 review r2 P1, r5 P1).
 
 The fan-out endpoint queues children (each committed and deferred inside
-``create_fan_out_jobs``) BEFORE the parent reaches its terminal status, and
-its finale used to be a blind ``job.status = "fanned_out"`` attribute write.
-``POST /jobs/{id}/cancel`` could therefore terminate a still-pending parent
-mid-loop and have that committed ``cancelled`` row silently overwritten
-while every child kept importing — a 200 cancel that still created every
-requested dataset.
+``create_fan_out_jobs``) and its finale used to be a blind
+``job.status = "fanned_out"`` write — a cancel that terminated a
+still-pending parent mid-loop was silently overwritten while every child
+kept importing. The round-2 fix fenced the transition and had the loser
+cancel its children, but that reconciliation ran only AFTER the dispatch
+loop and rightly refused to touch terminal rows — so a cancel committing
+mid-loop still let an already-deferred fast child claim and COMPLETE
+first, and a 200 cancel created that child's dataset anyway.
 
-The transitions are now mutually exclusive, same fence discipline as
-everywhere else in #1677:
+Round 5 makes the parent transition the MUTEX for the whole dispatch:
+``claim_fan_out_parent`` CASes ``pending -> fanned_out`` (fenced on the
+attempt id the endpoint observed) and COMMITS before the first child
+exists. Exactly two serializations remain:
 
-- Fan-out's pending→fanned_out transition is a CAS fenced on the status and
-  attempt id it observed when it admitted the request
-  (``finalize_fan_out_parent``). Losing it means a cancel landed mid-loop,
-  and the loser reconciles: the children it just queued are CAS-cancelled,
-  their queue rows best-effort aborted, and their per-layer results
-  rewritten to ``failed`` so the caller sees the true outcome.
-- Cancel loses cleanly to a committed fan-out: a ``fanned_out`` parent is
-  terminal, so the cancel 409s and the children are untouched — each child
-  is its own IngestJob, individually cancellable through the same endpoint
-  (uniform scope, per the ratified design).
-- The all-layers-failed branch no longer writes ``pending`` back to the
-  parent at all: that blind write could resurrect a row the cancel endpoint
-  had just terminated.
+- Cancel wins: the claim matches zero rows, the endpoint 409s, and ZERO
+  children were ever created. The round-2 loser-reconciliation block is
+  deleted — the window it compensated (children existing while the parent
+  CAS loses) is unreachable under this ordering.
+- Fan-out wins: the parent is terminal, every later cancel gets 409
+  ``job_already_finished``, and each child is its own individually
+  cancellable IngestJob (uniform scope, per the ratified design).
+
+The CR-02 all-failed contract survives as a fenced restore: when every
+layer fails to queue, ``restore_fan_out_parent_pending`` CASes
+``(fanned_out, attempt) -> pending`` so the user can retry without a
+re-upload — it can only undo the flip this request wrote.
 """
 
 from __future__ import annotations
@@ -36,7 +39,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
 from app.platform.jobs.models import IngestJob
-from app.processing.ingest.service import create_fan_out_jobs
+from app.processing.ingest.service import claim_fan_out_parent, create_fan_out_jobs
 from tests.factories import get_user_id
 
 pytestmark = pytest.mark.anyio
@@ -76,30 +79,6 @@ async def _make_pending_parent(session, *, layers: list[str]) -> IngestJob:
     return job
 
 
-def _cancelling_create_fan_out(flip_after_call: int = 1):
-    """Wrap the real create_fan_out_jobs: after call N, commit the exact
-    write the cancel endpoint's CAS performs on the parent — the mid-loop
-    interleaving, made deterministic."""
-    state = {"calls": 0}
-
-    async def _wrapped(original_job, layer, session):
-        result = await create_fan_out_jobs(original_job, layer, session)
-        state["calls"] += 1
-        if state["calls"] == flip_after_call:
-            await session.execute(
-                update(IngestJob)
-                .where(
-                    IngestJob.id == original_job.id,
-                    IngestJob.status == "pending",
-                )
-                .values(status="cancelled", error_message="Cancelled by user")
-            )
-            await session.commit()
-        return result
-
-    return _wrapped
-
-
 async def _children_of(session, parent_id) -> list[IngestJob]:
     rows = await session.execute(
         select(IngestJob).where(
@@ -111,20 +90,110 @@ async def _children_of(session, parent_id) -> list[IngestJob]:
     return list(rows.scalars())
 
 
-class TestFanOutLosesToCancel:
-    @pytest.mark.usefixtures("mock_defer_guard")
-    async def test_lost_final_cas_cancels_the_queued_children(
+def _cancel_cas_values() -> dict:
+    """The exact write the cancel endpoint's CAS performs."""
+    return {"status": "cancelled", "error_message": "Cancelled by user"}
+
+
+class TestCancelWinsBeforeTheFlip:
+    async def test_lost_claim_409s_with_zero_children(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """Cancel lands between the first and second child: the fan-out's
-        terminal CAS loses, the parent STAYS cancelled, and both children —
-        created before and after the cancel — end cancelled instead of
-        importing."""
+        """Cancel commits between the pending read and the pre-dispatch
+        claim: the claim loses, the endpoint 409s, and NO child was ever
+        created — the exact promise the round-2 post-loop shape could not
+        keep for fast children."""
+        from app.core.db import async_session
+
         job = await _make_pending_parent(test_db_session, layers=["buildings", "roads"])
+
+        async def _cancel_then_claim(session, parent_job, *, parent_attempt_id):
+            # The concurrent cancel, made deterministic: committed on its own
+            # connection before the claim evaluates.
+            async with async_session() as side_session:
+                await side_session.execute(
+                    update(IngestJob)
+                    .where(
+                        IngestJob.id == parent_job.id,
+                        IngestJob.status == "pending",
+                    )
+                    .values(**_cancel_cas_values())
+                )
+                await side_session.commit()
+            return await claim_fan_out_parent(
+                session, parent_job, parent_attempt_id=parent_attempt_id
+            )
+
+        with patch(
+            "app.processing.ingest.router.claim_fan_out_parent",
+            side_effect=_cancel_then_claim,
+        ):
+            resp = await client.post(
+                f"/ingest/commit-fan-out/{job.id}",
+                json={
+                    "layers": [
+                        {"layer_name": "buildings"},
+                        {"layer_name": "roads"},
+                    ]
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 409, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "job_conflict"
+        assert detail["status"] == "cancelled"
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert await _children_of(test_db_session, job.id) == []
+
+
+class TestFanOutWinsThenCancelIsRefused:
+    @pytest.mark.usefixtures("mock_defer_guard")
+    async def test_no_cancel_window_exists_during_dispatch(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The fast-child scenario, pinned. Mid-loop — after child 1 exists
+        and a fast worker has already COMPLETED it — the cancel endpoint's
+        exact CAS matches zero rows, because the parent went terminal
+        before any child existed. The completed child's dataset is
+        legitimate: the cancel was REFUSED, not silently violated."""
+        from app.core.db import async_session
+
+        job = await _make_pending_parent(test_db_session, layers=["buildings", "roads"])
+        observed: dict = {"cancel_rowcount": None, "fast_child": None}
+        calls = {"n": 0}
+
+        async def _fast_child_then_cancel_attempt(original_job, layer, session):
+            result = await create_fan_out_jobs(original_job, layer, session)
+            calls["n"] += 1
+            if calls["n"] == 1 and result.new_job_id is not None:
+                async with async_session() as side_session:
+                    # The fast worker: child 1 claims and completes.
+                    await side_session.execute(
+                        update(IngestJob)
+                        .where(IngestJob.id == result.new_job_id)
+                        .values(status="complete")
+                    )
+                    # The concurrent cancel's CAS against the parent: the
+                    # endpoint would only write on rowcount > 0.
+                    cancel_cas = await side_session.execute(
+                        update(IngestJob)
+                        .where(
+                            IngestJob.id == original_job.id,
+                            IngestJob.status.in_(("pending", "running")),
+                        )
+                        .values(**_cancel_cas_values())
+                    )
+                    await side_session.commit()
+                observed["cancel_rowcount"] = cancel_cas.rowcount
+                observed["fast_child"] = result.new_job_id
+            return result
 
         with patch(
             "app.processing.ingest.router.create_fan_out_jobs",
-            side_effect=_cancelling_create_fan_out(flip_after_call=1),
+            side_effect=_fast_child_then_cancel_attempt,
         ):
             resp = await client.post(
                 f"/ingest/commit-fan-out/{job.id}",
@@ -138,25 +207,39 @@ class TestFanOutLosesToCancel:
             )
 
         assert resp.status_code == 202, resp.text
-        results = resp.json()["results"]
-        assert [r["status"] for r in results] == ["failed", "failed"]
-        assert all("Cancelled" in (r["error"] or "") for r in results)
+        assert [r["status"] for r in resp.json()["results"]] == ["queued", "queued"]
+        # The mid-dispatch cancel found the parent already terminal.
+        assert observed["cancel_rowcount"] == 0
 
-        # The committed cancel was honored, not overwritten.
         await test_db_session.refresh(job)
-        assert job.status == "cancelled"
+        assert job.status == "fanned_out"
 
-        children = await _children_of(test_db_session, job.id)
-        assert len(children) == 2
-        assert {c.status for c in children} == {"cancelled"}
-        assert {c.error_message for c in children} == {"Cancelled by user"}
+        # A real cancel after the fact reports the honest outcome...
+        parent_cancel = await client.post(
+            f"/jobs/{job.id}/cancel", headers=admin_auth_header
+        )
+        assert parent_cancel.status_code == 409
+        assert parent_cancel.json()["detail"]["code"] == "job_already_finished"
+
+        # ...the fast child keeps its completed dataset, and the slow child
+        # remains individually cancellable (uniform scope).
+        children = {c.id: c for c in await _children_of(test_db_session, job.id)}
+        fast = children.pop(observed["fast_child"])
+        assert fast.status == "complete"
+        (slow,) = children.values()
+        slow_cancel = await client.post(
+            f"/jobs/{slow.id}/cancel", headers=admin_auth_header
+        )
+        assert slow_cancel.status_code == 200
+        await test_db_session.refresh(slow)
+        assert slow.status == "cancelled"
 
     @pytest.mark.usefixtures("mock_defer_guard")
     async def test_uncontested_fan_out_still_lands_terminal(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """No race: the CAS wins and the pre-existing contract holds —
-        parent fanned_out, children queued."""
+        """No race: the pre-existing contract holds — parent fanned_out
+        with completed_at, children queued."""
         job = await _make_pending_parent(test_db_session, layers=["buildings"])
 
         resp = await client.post(
@@ -175,26 +258,22 @@ class TestFanOutLosesToCancel:
         assert len(children) == 1
         assert children[0].status == "pending"
 
-    async def test_all_layers_failed_does_not_resurrect_a_cancelled_parent(
+
+class TestAllLayersFailed:
+    async def test_all_failed_restores_pending_for_retry(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
-        """queued_count == 0 branch: the old code blind-wrote 'pending' back
-        to the parent, which would overwrite a cancel that landed mid-loop.
-        The branch must leave the parent exactly as the winner wrote it."""
+        """CR-02 under the early flip: every defer fails, the fenced
+        restore puts the parent back to `pending` so the user can retry
+        without a re-upload — and a cancel afterwards works normally."""
         job = await _make_pending_parent(test_db_session, layers=["buildings"])
 
         async def _raise(fn, rollback=None, db=None):
             raise RuntimeError("queue down")
 
-        with (
-            patch(
-                "app.platform.jobs.defer_guard.defer_with_orphan_guard",
-                side_effect=_raise,
-            ),
-            patch(
-                "app.processing.ingest.router.create_fan_out_jobs",
-                side_effect=_cancelling_create_fan_out(flip_after_call=1),
-            ),
+        with patch(
+            "app.platform.jobs.defer_guard.defer_with_orphan_guard",
+            side_effect=_raise,
         ):
             resp = await client.post(
                 f"/ingest/commit-fan-out/{job.id}",
@@ -205,6 +284,12 @@ class TestFanOutLosesToCancel:
         assert resp.status_code == 202, resp.text
         assert resp.json()["results"][0]["status"] == "failed"
 
+        await test_db_session.refresh(job)
+        assert job.status == "pending"
+        assert job.completed_at is None
+
+        cancel = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert cancel.status_code == 200
         await test_db_session.refresh(job)
         assert job.status == "cancelled"
 

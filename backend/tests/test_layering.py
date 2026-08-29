@@ -2641,7 +2641,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # all-failed branch no longer writes 'pending' back. The lines are the
     # capture, the call, and the comments recording why the blind writes
     # could overwrite a committed cancel. Cap 1584 -> 1600, exact.
-    "backend/app/processing/ingest/router.py": 1600,
+    # fix(#1709 review r5 P1): +17 — the terminal transition moved BEFORE the
+    # dispatch loop (claim_fan_out_parent) so it is the mutex for the whole
+    # fan-out: a cancel either wins before any child exists or 409s against
+    # the terminal parent, closing the fast-child window the round-2
+    # post-loop shape left open. The lines are the claim call, its 409
+    # rendering, and the comment carrying the two-serialization argument.
+    # Cap 1600 -> 1617, exact.
+    "backend/app/processing/ingest/router.py": 1617,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3532,7 +3539,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a third of the lines are the docstring recording why the loser, not
     # the cancel endpoint, owns that reconciliation — only this side knows
     # the full child set. Cap 1284 -> 1417, exact.
-    "backend/app/processing/ingest/service.py": 1417,
+    # fix(#1709 review r5 P1): -41 — finalize_fan_out_parent's post-loop
+    # loser-reconciliation is DELETED, not kept as defense-in-depth: with
+    # the flip preceding every child (claim_fan_out_parent), the window it
+    # compensated — children existing while the parent CAS loses — is
+    # unreachable, and dead compensation code reads as a live invariant.
+    # Replaced by the smaller claim/restore pair, restore being the fenced
+    # CR-02 retry contract. Cap 1417 -> 1376, exact.
+    "backend/app/processing/ingest/service.py": 1376,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
