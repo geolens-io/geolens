@@ -32,12 +32,30 @@ from app.platform.security import SSRFError, make_safe_client
 # gap between bytes), so a steadily flowing large download is fine.
 FETCH_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 
+# The edge proxy's ceiling on any /api/ request: frontend/nginx.conf's
+# `location /api/` sets `proxy_read_timeout 600s`, and this endpoint sends
+# NOTHING until the fetch AND all post-work (content sniff, quota recheck,
+# S3 staging copy, final commit) have finished — so the whole synchronous
+# path has to fit inside that deadline or nginx severs the response before
+# the job id ever reaches the browser (#1708 codex r3). Documented here as a
+# constant so the budget arithmetic below is checkable; the structural fix
+# for imports that genuinely need longer is the async fetch job (#1710).
+EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
+
 # Wall-clock ceiling for one fetch. The per-chunk read timeout above cannot
 # bound TOTAL time: a server trickling one chunk every few seconds holds the
 # request coroutine open forever while staying inside every socket timeout.
-# 10 minutes admits a full 500 MB default-cap file at ~7 Mbps and turns a
-# slow-loris origin into a clean 502 instead of a leaked request.
-FETCH_MAX_SECONDS = 600
+#
+# Budgeted INSIDE the proxy deadline: 480s of fetch leaves ~120s for the
+# post-work, of which only the S3 staging copy scales with file size — a
+# 500 MB copy to same-network MinIO takes seconds, and even a conservative
+# 50 Mbps push to remote S3 is ~84s; the sniff reads header/footer bytes and
+# the quota recheck and commit are single-row queries. A download that
+# cannot finish in 480s could never have completed under the 600s edge
+# deadline anyway (500 MB at the old bound's ~7 Mbps floor is ~571s of
+# transfer alone, before any post-work) — the budget turns a mid-flight
+# severed connection into a prompt, clean 502 with the staged bytes removed.
+FETCH_MAX_SECONDS = 480
 
 _CHUNK_SIZE = 65536
 
@@ -182,6 +200,7 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
 
 
 __all__ = [
+    "EDGE_PROXY_READ_TIMEOUT_SECONDS",
     "FETCH_MAX_SECONDS",
     "FETCH_TIMEOUT",
     "SSRFError",

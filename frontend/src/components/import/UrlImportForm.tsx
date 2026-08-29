@@ -140,8 +140,8 @@ export function UrlImportForm() {
         </div>
         {step === 'fetching' && (
           // fix(#1708 codex r2): the request legitimately stays open for the
-          // whole server-side download (up to 10 minutes) — say so instead
-          // of looking hung.
+          // whole server-side download (bounded at 8 minutes, inside the
+          // edge proxy's deadline) — say so instead of looking hung.
           <p className="text-xs text-muted-foreground">
             {t('urlImport.fetchingHint')}
           </p>

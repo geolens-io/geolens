@@ -803,7 +803,7 @@ async def upload_from_url(
         # file_path and no live queue task matches every clause of
         # stale_pending_clauses, and pending_job_timeout_seconds may legally
         # be as low as 61s while the fetch is allowed FETCH_MAX_SECONDS
-        # (600s) — both the periodic sweep and the get_job_status poll (which
+        # (480s) — both the periodic sweep and the get_job_status poll (which
         # the frontend hits every 2s) could fail an in-progress fetch.
         # 'running' rows are judged by the running lease instead:
         # coalesce(heartbeat_at, started_at) against the fixed 3600s

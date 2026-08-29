@@ -648,6 +648,24 @@ class TestUrlImportReaperInteraction:
 
         assert FETCH_MAX_SECONDS + 300 < JOB_TIMEOUT_SECONDS
 
+    def test_fetch_deadline_fits_the_edge_proxy_budget(self):
+        """fix(#1708 codex r3): the endpoint sends nothing until fetch AND
+        post-work finish, and frontend/nginx.conf's `location /api/` severs
+        any response at proxy_read_timeout 600s. The fetch bound must leave
+        real post-work margin inside that deadline — 120s covers the only
+        size-scaled step (the S3 staging copy: seconds to same-network
+        MinIO, ~84s at a conservative 50 Mbps to remote S3 for a 500 MB
+        file) plus the header/footer sniff and single-row quota/commit
+        queries. EDGE_PROXY_READ_TIMEOUT_SECONDS documents the nginx value;
+        if the nginx budget ever changes, change the constant WITH it."""
+        from app.processing.ingest.url_fetch import (
+            EDGE_PROXY_READ_TIMEOUT_SECONDS,
+            FETCH_MAX_SECONDS,
+        )
+
+        assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
+        assert FETCH_MAX_SECONDS + 120 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+
     async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
         self, client, test_db_session
     ):
