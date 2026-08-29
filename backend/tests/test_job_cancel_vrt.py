@@ -28,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.platform.jobs.heartbeat import require_ingest_job_update
 from app.platform.jobs.models import IngestJob
@@ -222,6 +223,42 @@ async def test_cancel_blocked_by_publish_lock_leaves_worker_state_intact(
     assert retry.json()["detail"]["code"] == "job_already_finished"
     await test_db_session.refresh(generation)
     assert generation.status == "completed"
+
+
+async def test_reconciliation_lock_conflict_is_409_not_500(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """fix(#1709 review r2 P2): the whole cancel transaction shares the
+    lock-conflict handling, and for a VRT job its FIRST acquisition is the
+    RasterAsset row — the same lock the worker's publish transaction takes
+    first (tasks_vrt phase 2), so the old AB-BA inversion (worker:
+    asset->job vs cancel: job->asset) cannot form and a finalize holding the
+    asset surfaces as a retryable 409 job_finishing, never a 500."""
+    _vrt, asset, generation, job = await _seed_vrt_regeneration(
+        test_db_session, job_status="running", generation_status="running"
+    )
+
+    # Hold the asset row lock open across the cancel request, exactly where
+    # the publish transaction holds it (its first statement through commit).
+    await test_db_session.execute(
+        select(RasterAsset.dataset_id)
+        .where(RasterAsset.dataset_id == asset.dataset_id)
+        .with_for_update()
+    )
+
+    resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "job_finishing"
+
+    await test_db_session.rollback()
+    await test_db_session.refresh(job)
+    await test_db_session.refresh(generation)
+    await test_db_session.refresh(asset)
+    # Nothing was written on any of the three rows.
+    assert job.status == "running"
+    assert generation.status == "running"
+    assert asset.status == "regenerating"
+    assert asset.current_generation_id == generation.id
 
 
 class TestReconcileGuards:

@@ -2635,7 +2635,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # visibility-writing handlers (commit, fan-out, register, bulk register,
     # VRT create), each a local import (PROCESS-02/04) plus one call and the
     # comment saying which surface it closes. Cap 1547 -> 1584, exact.
-    "backend/app/processing/ingest/router.py": 1584,
+    # fix(#1709 review r2 P1): +16 — commit_fan_out's terminal transition is
+    # a fenced CAS via finalize_fan_out_parent instead of a blind attribute
+    # write, keyed on the attempt id captured with the pending check; the
+    # all-failed branch no longer writes 'pending' back. The lines are the
+    # capture, the call, and the comments recording why the blind writes
+    # could overwrite a committed cancel. Cap 1584 -> 1600, exact.
+    "backend/app/processing/ingest/router.py": 1600,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -3509,7 +3515,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # narrower here than at the refresh door, where #1220 accepted the same
     # trade. Written down so the next review lands on the decision rather than
     # re-deriving it. Cap 1259 -> 1284, exact.
-    "backend/app/processing/ingest/service.py": 1284,
+    # fix(#1709 review r2 P1): +133 — finalize_fan_out_parent: the fenced
+    # pending->fanned_out CAS, and the lost-CAS reconciliation that cancels
+    # the children this request queued (guarded status CAS, best-effort
+    # queue aborts, per-layer results rewritten to failed) so a cancel that
+    # beat the fan-out mid-loop cannot leave every child importing. Roughly
+    # a third of the lines are the docstring recording why the loser, not
+    # the cancel endpoint, owns that reconciliation — only this side knows
+    # the full child set. Cap 1284 -> 1417, exact.
+    "backend/app/processing/ingest/service.py": 1417,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

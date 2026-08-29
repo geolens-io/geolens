@@ -1103,6 +1103,139 @@ async def create_fan_out_jobs(
         )
 
 
+async def finalize_fan_out_parent(
+    session: AsyncSession,
+    job: IngestJob,
+    *,
+    parent_attempt_id: uuid.UUID | None,
+    results: list[Any],
+) -> list[Any]:
+    """CAS the parent to ``fanned_out``; on loss, cancel the queued children.
+
+    fix(#1709 review r2 P1): the fan-out endpoint queues children (each one
+    committed and deferred inside ``create_fan_out_jobs``) BEFORE the parent
+    reaches its terminal status, and the old ``job.status = "fanned_out"``
+    attribute write was blind — ``POST /jobs/{id}/cancel`` could terminate
+    the still-pending parent mid-loop and this endpoint would overwrite that
+    committed ``cancelled`` row while every child kept importing. The
+    transition is now the same fenced CAS the cancel endpoint uses (expected
+    ``pending`` + the attempt id read when this request validated the
+    parent), so exactly one of the two writers wins.
+
+    When this side loses, the only writer that can have moved a pending
+    parent is that cancel CAS (retry only offers ``failed`` rows), and
+    honoring it means the children this call just queued must not keep
+    importing: a guarded CAS flips each still-active child to ``cancelled``
+    (a child a worker already finalized keeps its terminal state), then
+    best-effort queue aborts accelerate the stop — the ingest
+    claim/finalize fences make eventual delivery a no-op regardless. The
+    returned results mark those layers ``failed`` so the caller sees the
+    true outcome instead of ``queued`` rows that will never produce
+    datasets.
+    """
+    from datetime import datetime, timezone
+
+    import structlog
+    from sqlalchemy import update as sa_update
+
+    from app.processing.ingest.schemas import FanOutLayerResult
+
+    now = datetime.now(timezone.utc)
+    attempt_predicate = (
+        IngestJob.attempt_id == parent_attempt_id
+        if parent_attempt_id is not None
+        else IngestJob.attempt_id.is_(None)
+    )
+    parent_cas = await session.execute(
+        sa_update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.status == "pending",
+            attempt_predicate,
+        )
+        .values(status="fanned_out", completed_at=now)
+    )
+    await session.commit()
+    if parent_cas.rowcount:
+        return results
+
+    child_ids = [r.new_job_id for r in results if r.status == "queued" and r.new_job_id]
+    cancelled_result = await session.execute(
+        sa_update(IngestJob)
+        .where(
+            IngestJob.id.in_(child_ids),
+            IngestJob.status.in_(("pending", "running")),
+        )
+        .values(
+            status="cancelled",
+            error_message="Cancelled by user",
+            completed_at=now,
+        )
+        .returning(IngestJob.id)
+    )
+    cancelled_ids = set(cancelled_result.scalars())
+    await session.commit()
+    structlog.get_logger().warning(
+        "fan_out_parent_lost_to_cancel",
+        parent_job_id=str(job.id),
+        children_cancelled=[str(i) for i in sorted(cancelled_ids, key=str)],
+    )
+
+    # Best-effort queue aborts, one child at a time — the same args->>
+    # correlation and log-and-continue discipline as the cancel endpoint's
+    # own post-commit block. Inlined SQL rather than importing the cancel
+    # router's private constant, matching how the sweeps each carry their
+    # own copy of this correlation.
+    for child_id in sorted(cancelled_ids, key=str):
+        try:
+            rows = await session.execute(
+                text(
+                    "SELECT id FROM catalog.procrastinate_jobs"
+                    " WHERE args->>'job_id' = :job_id"
+                    " AND status IN ('todo', 'doing')"
+                ),
+                {"job_id": str(child_id)},
+            )
+            queue_job_ids = list(rows.scalars())
+        except Exception:  # broad: queue abort is acceleration, never the guarantee
+            structlog.get_logger().warning(
+                "fan_out_child_queue_lookup_failed",
+                child_job_id=str(child_id),
+                exc_info=True,
+            )
+            continue
+        for queue_job_id in queue_job_ids:
+            try:
+                from app.processing.ingest.tasks import task_app
+
+                await task_app.job_manager.cancel_job_by_id_async(
+                    queue_job_id, abort=True
+                )
+            except Exception:  # broad: queue abort is acceleration, never the guarantee
+                structlog.get_logger().warning(
+                    "fan_out_child_queue_abort_failed",
+                    child_job_id=str(child_id),
+                    queue_job_id=queue_job_id,
+                    exc_info=True,
+                )
+
+    return [
+        FanOutLayerResult(
+            layer_name=r.layer_name,
+            new_job_id=r.new_job_id,
+            dataset_id=None,
+            status="failed",
+            error=(
+                "Cancelled: the source job was cancelled while this layer "
+                "was being queued."
+            ),
+        )
+        if r.new_job_id in cancelled_ids
+        else r
+        for r in results
+    ]
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,

@@ -802,9 +802,18 @@ _LIVE_QUEUE_ROWS_SQL = text(
 )
 
 
-def _is_lock_timeout(exc: DBAPIError) -> bool:
-    """True when the wrapped driver error is PostgreSQL 55P03 (lock timeout)."""
-    return getattr(exc.orig, "sqlstate", None) == "55P03"
+def _is_lock_conflict(exc: DBAPIError) -> bool:
+    """True for PostgreSQL 55P03 (lock timeout) or 40P01 (deadlock victim).
+
+    Both mean another transaction owns rows this cancel needs right now, and
+    both are safe to report as a retryable 409: nothing was written, and a
+    retry lands after the owner commits. 40P01 should be unreachable now that
+    the cancel takes its locks in the worker's own order (see the asset-first
+    acquisition in ``cancel_job`` — fix(#1709 review r2 P2)), but mapping it
+    costs one tuple member and turns a future ordering regression into a
+    clean conflict instead of a 500.
+    """
+    return getattr(exc.orig, "sqlstate", None) in ("55P03", "40P01")
 
 
 # The three VRT regeneration dispatch sites (regenerate_vrt_endpoint,
@@ -847,6 +856,12 @@ async def _reconcile_cancelled_vrt_regeneration(
       rolls back at the fence. Its failure handler's writes are the same
       terminal values keyed to the same pointer, so late arrival on either
       side degrades to a zero-row no-op, never a clobber.
+
+    Lock order (fix(#1709 review r2 P2)): the caller already holds the
+    RasterAsset row lock, taken as the cancel transaction's FIRST acquisition
+    to match the worker's publish order (asset FOR UPDATE -> generation ->
+    job). Everything here therefore locks rows the transaction is entitled
+    to reach without inverting that order.
     """
     # Deferred by design: platform -> processing imports stay function-local
     # (D-17), mirroring the worker/task_app imports elsewhere in this module.
@@ -898,6 +913,37 @@ async def _reconcile_cancelled_vrt_regeneration(
         )
 
 
+async def _may_cancel_job(
+    request: Request,
+    db: AsyncSession,
+    user: Identity,
+    job: IngestJob,
+) -> bool:
+    """The three authorization arms for cancel (#1677 design §3).
+
+    Arm 1: owners always retain access. Arm 2: the effective cross-user
+    capability policy (same as view/retry). Arm 3: dataset write access —
+    ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
+    not owner/admin); both mean "this arm does not grant", and the caller's
+    generic 403 avoids leaking dataset visibility through a cancel probe.
+    """
+    if job.created_by == user.id:
+        return True
+    if await _can_access_another_users_job(request, db, user, job):
+        return True
+    if job.dataset_id is None:
+        return False
+    from app.modules.catalog.authorization import check_dataset_write_access
+    from app.modules.catalog.datasets.domain.service import get_dataset
+
+    dataset = await get_dataset(db, job.dataset_id)
+    try:
+        await check_dataset_write_access(db, dataset, job.dataset_id, user)
+        return True
+    except HTTPException:
+        return False
+
+
 @router.post(
     "/{job_id}/cancel",
     response_model=JobCancelResponse,
@@ -939,25 +985,7 @@ async def cancel_job(
             detail="Job not found",
         )
 
-    # Arm 1: owners always retain access. Arm 2: the effective cross-user
-    # capability policy (same as view/retry). Arm 3: dataset write access —
-    # `check_dataset_write_access` raises 404 (not visible) or 403 (visible,
-    # not owner/admin); both mean "this arm does not grant", and the generic
-    # 403 below avoids leaking dataset visibility through a cancel probe.
-    allowed = job.created_by == user.id or await _can_access_another_users_job(
-        request, db, user, job
-    )
-    if not allowed and job.dataset_id is not None:
-        from app.modules.catalog.authorization import check_dataset_write_access
-        from app.modules.catalog.datasets.domain.service import get_dataset
-
-        dataset = await get_dataset(db, job.dataset_id)
-        try:
-            await check_dataset_write_access(db, dataset, job.dataset_id, user)
-            allowed = True
-        except HTTPException:
-            allowed = False
-    if not allowed:
+    if not await _may_cancel_job(request, db, user, job):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to cancel this job",
@@ -973,11 +1001,24 @@ async def cancel_job(
             detail={"code": "job_already_finished", "status": job.status},
         )
 
-    # One transaction: fenced job CAS + run CAS + audit, then commit. The
-    # attempt-id predicate mirrors retry_job's own CAS — a stale cancel aimed
-    # at attempt N can never kill a retried attempt N+1. The 2s lock_timeout
-    # keeps this request from blocking behind a finalize transaction, which
-    # holds the row lock from its fenced heartbeat through the swap to commit.
+    # One transaction: fenced job CAS + run CAS + VRT reconciliation + audit,
+    # then commit. The attempt-id predicate mirrors retry_job's own CAS — a
+    # stale cancel aimed at attempt N can never kill a retried attempt N+1.
+    # The 2s lock_timeout keeps this request from blocking behind a finalize
+    # transaction, which holds its row locks from its first fenced update
+    # through the swap to commit.
+    #
+    # fix(#1709 review r2 P2): the try covers the WHOLE transactional block,
+    # not just the job CAS — a lock conflict inside the VRT reconciliation
+    # used to escape as a 500 — and for a vrt_regenerate job the FIRST lock
+    # taken is the RasterAsset row, because that is the first lock the
+    # worker's publish transaction takes (tasks_vrt phase 2: asset FOR UPDATE
+    # -> generation flush -> fenced job update). Both transactions leading
+    # with the asset makes it the VRT mutex: whoever holds it runs alone, the
+    # other waits at its first acquisition holding nothing, and the AB-BA
+    # cycle (worker: asset->...->job vs the old cancel: job->...->asset)
+    # cannot form. Non-VRT jobs keep the job row as their first lock, which
+    # already matches every other worker's order (fenced heartbeat first).
     previous_attempt_id = job.attempt_id
     now = datetime.now(timezone.utc)
     attempt_predicate = (
@@ -985,8 +1026,22 @@ async def cancel_job(
         if previous_attempt_id is not None
         else IngestJob.attempt_id.is_(None)
     )
+    is_vrt_job = (
+        job.source_filename == _VRT_REGENERATE_JOB_FILENAME
+        and job.dataset_id is not None
+    )
     try:
         await db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        if is_vrt_job:
+            # Deferred by design: platform -> processing stays function-local
+            # (D-17).
+            from app.processing.raster.models import RasterAsset
+
+            await db.execute(
+                select(RasterAsset.dataset_id)
+                .where(RasterAsset.dataset_id == job.dataset_id)
+                .with_for_update()
+            )
         cancel_result = await db.execute(
             update(IngestJob)
             .where(
@@ -1000,68 +1055,68 @@ async def cancel_job(
                 completed_at=now,
             )
         )
+
+        if not cancel_result.rowcount:
+            # Another actor moved the row between the read and the CAS.
+            # Report what it became; nothing was written.
+            await db.rollback()
+            await db.refresh(job)
+            if job.status == "cancelled":
+                return JobCancelResponse(
+                    id=job.id, status="cancelled", run_id=None, already=True
+                )
+            code = (
+                "job_already_finished"
+                if job.status in _CANCEL_TERMINAL_STATUSES
+                # Still active under a different attempt id: retried
+                # concurrently. A cancel aimed at the old attempt must not
+                # kill the new one.
+                else "job_conflict"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": code, "status": job.status},
+            )
+
+        run_id = await cancel_active_run_for_job(db, job.id)
+        if is_vrt_job:
+            # fix(#1709 review P1): same transaction as the job CAS, so the
+            # VRT state this job stranded and the job's terminal status land
+            # together. The asset row lock above is already held.
+            await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="job.cancel",
+                resource_type="ingest_job",
+                resource_id=job.id,
+                details={
+                    "job_owner_id": (
+                        str(job.created_by) if job.created_by is not None else None
+                    ),
+                    "attempt_id": (
+                        str(previous_attempt_id)
+                        if previous_attempt_id is not None
+                        else None
+                    ),
+                    "run_id": str(run_id) if run_id is not None else None,
+                    "cross_user": job.created_by != user.id,
+                },
+                ip_address=get_client_ip(request),
+            ),
+        )
     except DBAPIError as exc:
-        if not _is_lock_timeout(exc):
+        if not _is_lock_conflict(exc):
             raise
         await db.rollback()
-        # The finalize transaction owns the row; nothing was written. The
-        # client may retry and will then get `job_already_finished`.
+        # A finalize transaction owns rows this cancel needs; nothing was
+        # written. The client may retry and will then get
+        # `job_already_finished`.
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={"code": "job_finishing"},
         ) from exc
-
-    if not cancel_result.rowcount:
-        # Another actor moved the row between the read and the CAS. Report
-        # what it became; nothing was written.
-        await db.rollback()
-        await db.refresh(job)
-        if job.status == "cancelled":
-            return JobCancelResponse(
-                id=job.id, status="cancelled", run_id=None, already=True
-            )
-        code = (
-            "job_already_finished"
-            if job.status in _CANCEL_TERMINAL_STATUSES
-            # Still active under a different attempt id: retried concurrently.
-            # A cancel aimed at the old attempt must not kill the new one.
-            else "job_conflict"
-        )
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={"code": code, "status": job.status},
-        )
-
-    run_id = await cancel_active_run_for_job(db, job.id)
-    if (
-        job.source_filename == _VRT_REGENERATE_JOB_FILENAME
-        and job.dataset_id is not None
-    ):
-        # fix(#1709 review P1): same transaction as the job CAS, so the VRT
-        # state this job stranded and the job's terminal status land together.
-        await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="job.cancel",
-            resource_type="ingest_job",
-            resource_id=job.id,
-            details={
-                "job_owner_id": (
-                    str(job.created_by) if job.created_by is not None else None
-                ),
-                "attempt_id": (
-                    str(previous_attempt_id)
-                    if previous_attempt_id is not None
-                    else None
-                ),
-                "run_id": str(run_id) if run_id is not None else None,
-                "cross_user": job.created_by != user.id,
-            },
-            ip_address=get_client_ip(request),
-        ),
-    )
     await db.commit()
 
     # Post-commit, best-effort: ask Procrastinate to cancel a todo row or

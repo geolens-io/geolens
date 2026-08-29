@@ -81,6 +81,7 @@ from app.processing.ingest.service import (
     create_fan_out_jobs,
     create_ingest_job,
     discover_unregistered_tables,
+    finalize_fan_out_parent,
     get_job_or_404,
     queue_ingest_job,
     register_existing_table,
@@ -987,6 +988,11 @@ async def commit_fan_out(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job already processed (status='{job.status}')",
         )
+    # fix(#1709 review r2 P1): the attempt id observed WITH the pending status
+    # above — the terminal CAS at the bottom is fenced on this pair, so a
+    # cancel (or any other writer) landing between here and there loses or
+    # wins cleanly instead of being overwritten.
+    parent_attempt_id = job.attempt_id
 
     # feat(#1691): fan-out jobs inherit the parent job's user_metadata, so a
     # visibility seeded there (defense-in-depth — the request schema itself
@@ -1026,14 +1032,24 @@ async def commit_fan_out(
     # CR-02 fix: only mark 'fanned_out' (terminal) when at least one layer was
     # successfully dispatched. If every layer failed (e.g. Procrastinate outage),
     # keep the job 'pending' so the user can retry without re-uploading the file.
+    #
+    # fix(#1709 review r2 P1): the terminal transition is a fenced CAS inside
+    # finalize_fan_out_parent, not a blind attribute write — POST
+    # /jobs/{id}/cancel can terminate the still-pending parent while children
+    # are being created (each layer commits and defers mid-loop), and the old
+    # `job.status = "fanned_out"` overwrote that committed cancel while every
+    # child kept importing. On a lost CAS the helper cancels the children this
+    # request just queued and rewrites their results. The all-failed branch
+    # now touches nothing: the parent is still 'pending' unless another actor
+    # moved it, and writing 'pending' back blindly could resurrect a row the
+    # cancel endpoint just terminated.
     queued_count = sum(1 for r in results if r.status == "queued")
     if queued_count > 0:
-        job.status = "fanned_out"
-        job.completed_at = datetime.now(timezone.utc)
+        results = await finalize_fan_out_parent(
+            db, job, parent_attempt_id=parent_attempt_id, results=results
+        )
     else:
-        # All dispatches failed — leave job 'pending' for retry.
-        job.status = "pending"
-    await db.commit()
+        await db.commit()
 
     return FanOutCommitResponse(fan_out_id=job.id, results=results)
 
