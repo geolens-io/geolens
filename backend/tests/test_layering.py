@@ -2975,7 +2975,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cancellations while `total_affected` includes them, and why the count
     # reaches the audit event but not the published response model.
     # Cap 1599 -> 1653, exact.
-    "backend/app/platform/jobs/sweep.py": 1653,
+    # fix(#1709 review r7 A): +82 — the childless-fanned_out reconciliation:
+    # the r5 early flip (the mutex that closed the fast-child cancel window)
+    # regressed the crash recoverability the old late transition got from the
+    # pending clause, so a parent that died between its flip commit and its
+    # first child commit stranded terminal forever. The clause settles such
+    # parents 'failed' (retry becomes available) behind a 5-minute grace and
+    # a retention-horizon bound; most of the lines are the comment proving
+    # childless-fanned_out is the crash signature and nothing else's, and why
+    # parents past the retention horizon belong to the purge instead.
+    # Cap 1653 -> 1735, exact.
+    "backend/app/platform/jobs/sweep.py": 1735,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

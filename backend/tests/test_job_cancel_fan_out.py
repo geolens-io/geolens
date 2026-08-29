@@ -345,3 +345,102 @@ class TestCancelLosesToFanOut:
         assert first.status_code == 200
         await test_db_session.refresh(children[0])
         assert children[0].status == "cancelled"
+
+
+class TestChildlessFannedOutSweep:
+    """fix(#1709 review r7 A): the crash window the r5 early flip opened —
+    death between the parent's fanned_out commit and the first child commit
+    leaves a terminal parent that retry (failed-only) and cancel (terminal
+    -> 409) both refuse. The stale sweep restores the self-healing the old
+    late transition got from the pending clause: a childless fanned_out
+    parent past the grace settles `failed` so retry becomes available."""
+
+    async def _seed_fanned_out(
+        self, session, *, age_seconds: int, with_child: bool = False
+    ) -> IngestJob:
+        from datetime import datetime, timedelta, timezone
+
+        admin_id = await get_user_id(session, "admin")
+        completed = datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+        parent = IngestJob(
+            source_filename="multi.gpkg",
+            file_path="/tmp/fake-multi.gpkg",
+            status="fanned_out",
+            attempt_id=uuid.uuid4(),
+            created_by=admin_id,
+            completed_at=completed,
+            user_metadata={"all_layers": ["a"], "file_type": "vector"},
+        )
+        session.add(parent)
+        await session.flush()
+        if with_child:
+            session.add(
+                IngestJob(
+                    source_filename="multi.gpkg",
+                    file_path="/tmp/fake-multi.gpkg",
+                    # A FAILED child on purpose: any child row at all proves
+                    # the dispatch ran, whatever became of the layer.
+                    status="failed",
+                    attempt_id=uuid.uuid4(),
+                    created_by=admin_id,
+                    completed_at=completed,
+                    user_metadata={
+                        "layer_name": "a",
+                        "fan_out_parent_id": str(parent.id),
+                    },
+                )
+            )
+        await session.commit()
+        await session.refresh(parent)
+        return parent
+
+    async def test_crashed_dispatch_settles_failed_and_retryable(self, test_db_session):
+        from app.platform.jobs.sweep import (
+            FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
+            fail_stale_jobs,
+        )
+
+        parent = await self._seed_fanned_out(test_db_session, age_seconds=600)
+
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(parent)
+        assert parent.status == "failed"
+        assert parent.error_message == FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE
+
+    async def test_grace_protects_a_dispatch_still_in_flight(self, test_db_session):
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        parent = await self._seed_fanned_out(test_db_session, age_seconds=10)
+
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(parent)
+        assert parent.status == "fanned_out"
+
+    async def test_any_child_row_proves_the_dispatch_ran(self, test_db_session):
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        parent = await self._seed_fanned_out(
+            test_db_session, age_seconds=600, with_child=True
+        )
+
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(parent)
+        assert parent.status == "fanned_out"
+
+    async def test_parents_past_retention_belong_to_the_purge(
+        self, test_db_session, monkeypatch
+    ):
+        """A legit old fan-out whose children were purged is indistinguishable
+        from the crash by child count — the retention bound keeps this clause
+        off it, and the purge itself deletes the row instead."""
+        from app.core.config import settings
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        monkeypatch.setattr(settings, "ingest_jobs_retention_days", 7)
+        parent = await self._seed_fanned_out(test_db_session, age_seconds=8 * 24 * 3600)
+        parent_id = parent.id
+
+        await fail_stale_jobs(test_db_session)
+        survivor = await test_db_session.get(IngestJob, parent_id)
+        # Deleted by retention — never relabeled `failed` by this clause.
+        assert survivor is None

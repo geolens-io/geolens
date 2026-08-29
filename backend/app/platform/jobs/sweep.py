@@ -44,6 +44,18 @@ log = structlog.get_logger()
 # from the other would only look like agreement.
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 
+# fix(#1709 review r7 A): grace before a childless `fanned_out` parent is
+# treated as a crashed dispatch. The flip->first-child gap is sub-second in
+# health (claim_fan_out_parent commits, then the first create_fan_out_jobs
+# commits), so one sweep cadence is generous, and a request still mid-flight
+# is never touched.
+FAN_OUT_CHILDLESS_GRACE_SECONDS = 300
+
+FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE = (
+    "Fan-out dispatch was interrupted before any layer was queued. "
+    "Retry the job, then commit the fan-out again."
+)
+
 
 # fix(#1235 review r4): the margin between the last moment a client may still
 # legitimately PUT and the moment its completion request has finished freezing,
@@ -1341,6 +1353,76 @@ async def fail_stale_jobs(
             user_metadata=user_metadata_,
             created_by=created_by_,
             error_code="never_started",
+        )
+
+    # fix(#1709 review r7 A): reconcile fan-out parents stranded by a crash
+    # between the pre-dispatch flip and the first child commit. Since the r5
+    # fix, `fanned_out` COMMITS before any child exists (the mutex that
+    # closed the fast-child cancel window) — which regressed the
+    # recoverability the old late transition got for free: the old crash
+    # left a `pending` parent this sweep's one-hour clause self-healed,
+    # while the new one left a terminal parent that retry (failed-only) and
+    # cancel (terminal -> 409) both refuse. Permanently stuck, zero
+    # children, staged file idle.
+    #
+    # A childless `fanned_out` parent is the crash signature and nothing
+    # else's: a layer's `queued` result requires its child row to have
+    # committed first (a failed defer still leaves the row, flipped `failed`
+    # by the orphan guard; a failure before the insert commits leaves no row
+    # AND no queued result), and an ALL-failed dispatch restores the parent
+    # to `pending` rather than leaving it `fanned_out`
+    # (restore_fan_out_parent_pending). Two bounds keep the signature exact:
+    #
+    # - the grace above: never touch a dispatch still in flight.
+    # - the retention horizon: a LEGIT old fan-out's children can be deleted
+    #   by the retention purge, after which "never existed" and "purged at
+    #   age" are indistinguishable — but the purge cutoff is
+    #   coalesce(completed_at, created_at) and every child postdates its
+    #   parent's flip, so a parent still INSIDE the horizon cannot have lost
+    #   children to it. Parents past the horizon are the purge's to delete,
+    #   not this clause's to relabel (the freak alignment — children crossing
+    #   the horizon seconds before an old-ordering parent — costs a `failed`
+    #   label the same purge erases seconds later). retention_days=0 keeps
+    #   every row forever, so no bound is needed.
+    #
+    # `failed`, not `cancelled`: nothing was asked to stop — a dispatch was
+    # interrupted — and `failed` is what makes /jobs/{id}/retry offer the
+    # parent again (retry flips it to `pending`; the fan-out is then
+    # committable again), which is the recoverability being restored.
+    #
+    # Not folded into StaleCleanupOutcome, same reasoning as the refresh-run
+    # sweep below: the dataclass is a published shape several callers
+    # reconstruct field by field, and the log line carries the ids.
+    childless_fanout_clauses = [
+        IngestJob.status == "fanned_out",
+        IngestJob.completed_at.is_not(None),
+        IngestJob.completed_at
+        < now - timedelta(seconds=FAN_OUT_CHILDLESS_GRACE_SECONDS),
+        text(
+            "NOT EXISTS (SELECT 1 FROM catalog.ingest_jobs c"
+            " WHERE c.user_metadata->>'fan_out_parent_id' = ingest_jobs.id::text)"
+        ),
+    ]
+    if settings.ingest_jobs_retention_days > 0:
+        childless_fanout_clauses.append(
+            IngestJob.completed_at
+            >= now - timedelta(days=settings.ingest_jobs_retention_days)
+        )
+    childless_fanout_result = await db.execute(
+        update(IngestJob)
+        .where(*childless_fanout_clauses)
+        .values(
+            status="failed",
+            error_message=FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
+            completed_at=now,
+        )
+        .returning(IngestJob.id)
+    )
+    childless_fanout_ids = list(childless_fanout_result.scalars())
+    if childless_fanout_ids:
+        log.warning(
+            "childless_fanned_out_parents_failed",
+            job_ids=[str(job_id_) for job_id_ in childless_fanout_ids],
         )
 
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.

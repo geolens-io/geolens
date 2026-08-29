@@ -436,6 +436,48 @@ class TestCancelAuthorization:
         assert job.status == "running"
 
 
+class TestAnalysisWorkerBookkeepingFence:
+    """fix(#1709 review r7 B): the analysis materialize is one CTAS awaited
+    on asyncpg under SET LOCAL statement_timeout — a DELIVERED abort lands
+    as asyncio cancellation at that await and kills the query server-side,
+    so the lost-abort overlap is bounded by the statement budget, not by a
+    cooperative check (none can exist inside one statement). What must hold
+    is the same fence contract as every other worker: the late worker\'s
+    bookkeeping loses to the committed cancel."""
+
+    async def test_cancel_bookkeeping_cannot_overwrite_a_user_cancel(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        from app.processing.analysis.tasks import _fail_cancelled_job
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            user_metadata={"analysis": {"operation": "buffer"}},
+        )
+        stale_attempt = job.attempt_id
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+
+        # The aborted worker\'s shielded settle arrives late: its fenced
+        # update expects (attempt, running) and must lose.
+        await _fail_cancelled_job(
+            test_db_session,
+            job_id=str(job.id),
+            attempt_id=stale_attempt,
+            schema="data",
+            out_table=None,
+            operation="buffer",
+        )
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert job.error_message == "Cancelled by user"
+
+
 class TestCancelMachinery:
     """The CAS pieces the endpoint composes, pinned individually."""
 
