@@ -7,71 +7,39 @@
 # downstream user gets. Each check polls with a bounded retry to absorb
 # registry/CDN propagation lag.
 #
-# The "Verify GitHub Release" and "Verify GHCR images" jobs used to race the
-# Release workflow: this workflow triggered only off the package publishes
-# (Publish SDKs/CLI/MCP), which pause for a human approval click and finish on
-# their own schedule, independent of the "Prod Compose Smoke" -> "Release"
-# chain that actually creates the GitHub Release. On v1.16.0 the approvals
-# landed while the ~40-minute compose-boot-and-E2E smoke was still running:
-# both checks burned their full 5-minute retry window twice in a row and went
-# red roughly 2 minutes before Release actually finished, needing a manual
-# rerun every time.
+# fix(#1707): each job's `if:` (see `jobs:` below) restricts it to the one
+# trigger source that can satisfy it — a publish-triggered run only checks
+# PyPI/npm, a Release-triggered run only checks GHCR/GitHub Release — so
+# neither pair polls for an artifact its own trigger can't produce. Release
+# only fires after Prod Compose Smoke has pulled the GHCR images and the
+# release job has created the release; the publishes are the only source of
+# the PyPI/npm packages the other two jobs check.
 #
-# Adding "Release" as a trigger alone would only add a green run alongside the
-# still-guaranteed-red publish-triggered ones — the approval click routinely
-# lands well inside the ~40-minute smoke, so those two jobs would still poll
-# for an artifact their own trigger can never produce. Each job's `if:` (see
-# `jobs:` below) fixes that by also restricting it to the one trigger source
-# that can actually satisfy it: a publish-triggered auto-run skips "Verify
-# GHCR images"/"Verify GitHub Release" entirely, and a Release-triggered
-# auto-run skips the two package-registry jobs. Release only fires after Prod
-# Compose Smoke has already pulled the GHCR images and the release job has
-# already created the release; the three publishes are the only source of the
-# PyPI/npm packages the other two jobs check. So the failure mode is
-# structurally impossible in both directions — including a slow publish
-# approval that lands AFTER Release, since the eventual publish-triggered run
-# still verifies the registries once they exist, same as always. Manual
-# dispatch is unaffected and still runs all four jobs.
-#
-# One more wrinkle: "Release" firing is necessary but not sufficient proof
-# that a release exists. release.yml's own workflow_run trigger listens on
-# `types: [completed]`, which fires on FAILURE too, and it gates the actual
-# release-creation job only at the JOB level
+# fix(#1707): "Release" firing is not sufficient proof a release exists.
+# release.yml's workflow_run trigger fires on FAILURE too (`types:
+# [completed]`), and gates the release-creation job only at the JOB level
 # (`conclusion == 'success' && startsWith(head_branch, 'v')`) — a run whose
-# sole job SKIPPED (a failed Prod Compose Smoke, or a manual smoke of
-# `latest`/a branch) still CONCLUDES 'success' as a *workflow*, because an
-# all-skipped run is reported as successful. Left unguarded, that hollow
-# Release run would still trigger this workflow, VERIFY_VERSION would still
-# resolve to 'latest', and "Verify GHCR images"/"Verify GitHub Release" would
-# pass against the PREVIOUS release — a misleading green sitting right after
-# a failed or irrelevant smoke. Each of those two jobs' first step guards
-# against this by querying the triggering run's own jobs and confirming
-# "Create GitHub Release" actually concluded success; on a hollow run it logs
-# an `::notice::` and skips the real check WITHOUT failing the job — the
-# smoke failure is already the loud red signal, and this workflow going red
-# too would only be noise.
+# sole job SKIPPED (failed Prod Compose Smoke, or a manual smoke of
+# `latest`/a branch) still CONCLUDES 'success' as a workflow. Each of
+# verify-ghcr/verify-github-release's guard step confirms "Create GitHub
+# Release" actually succeeded before trusting the trigger; on a hollow run it
+# logs an `::notice::` and skips the real check without failing the job.
 #
-# (Considered switching Release's trigger to `release: types: [published]`
-# instead of workflow_run, which would sidestep the hollow-run problem
-# entirely and hand us the real tag via github.event.release.tag_name instead
-# of 'latest'. Ruled out: release.yml creates/edits the release using the
-# default `secrets.GITHUB_TOKEN` in every `gh release`/`gh api` call, and
-# GitHub does not fire downstream workflow triggers off events created by the
-# default GITHUB_TOKEN — that's the trigger-loop guard, and it would make a
-# `release: published` trigger here simply never fire. Revisit if release.yml
-# ever switches that step to a PAT or GitHub App token.)
+# fix(#1707): considered `release: types: [published]` instead of
+# workflow_run, which would avoid the hollow-run problem and give the real
+# tag via github.event.release.tag_name directly. Ruled out: release.yml
+# creates/edits releases with the default `secrets.GITHUB_TOKEN`, and GitHub
+# does not fire workflow triggers off events created by that token, so this
+# trigger would never fire here. Revisit if release.yml switches that step
+# to a PAT or GitHub App token.
 #
-# A related trap the naive fallback would have hit: 'latest' only ever means
-# the newest GA. publish.yml never re-tags GHCR `:latest` for a `-rc`/
-# prerelease suffix, and GitHub's own "latest release" concept explicitly
-# skips prereleases too — so a Release-triggered run for a *prerelease* tag
-# (this pipeline supports them end to end: Prod Compose Smoke, Release, and
-# publish.yml's tag matching all explicitly handle `-rc`/prerelease suffixes)
-# would otherwise silently re-verify the PREVIOUS GA instead of what was just
-# published, passing green without checking anything new. The same guard
-# step that checks for a hollow run also resolves the exact tag from
-# head_sha (reliable even though head_branch isn't — see above) and hands it
-# to the real check in place of 'latest'.
+# fix(#1707): 'latest' only ever means the newest GA — publish.yml never
+# re-tags GHCR `:latest` for a `-rc`/prerelease suffix, and GitHub's own
+# "latest release" concept skips prereleases too. A Release-triggered run
+# for a prerelease tag (this pipeline supports them end to end) would
+# otherwise silently re-verify the previous GA. The guard step resolves the
+# exact tag from head_sha (reliable even though head_branch isn't — see
+# below) instead of relying on VERIFY_VERSION=latest.
 #
 # Manual usage:
 #   gh workflow run verify-published.yml -f version=vX.Y.Z
@@ -127,38 +95,23 @@ permissions:
 # Verifying two different versions concurrently is fine — the group is
 # per-version.
 #
-# A run triggered by Release's completion reports its OWN head_branch as the
-# default branch ("main"), not the tag — that's how GitHub represents any
-# workflow_run-triggered run, since the triggered workflow's file is always
-# read from the default branch. Grouping those runs by head_branch alone (as
-# an earlier version of this file did) would put EVERY release's
-# Release-triggered run in one shared `verify-published-main` group — and
-# because GitHub keeps only the newest PENDING run per group, an overlapping
-# Release completion for a DIFFERENT tag (including a hollow one from a
-# failed/manual smoke, which the guard step below makes harmless to run but
-# which still occupies a concurrency slot) could evict a still-pending
-# verification for an unrelated release, leaving its GHCR/Release checks
-# never run. So a Release-triggered run's group key instead uses
-# `github.event.workflow_run.head_sha` — proven elsewhere in this file to be
-# the exact tagged commit even on a Release-triggered run, unlike
-# head_branch — giving each release (or each distinct commit a hollow run
-# happens to be about) its own group: duplicate Release completions for the
-# SAME tag still dedupe/queue together as intended, and completions for
-# DIFFERENT tags can no longer evict one another. Publish-triggered runs are
-# untouched: `github.event.workflow.name == 'Release'` is false for them, so
-# the `&&` short-circuits to that same falsy value and the `||` chain falls
-# through to head_branch exactly as before — the three publishes for one tag
-# still land in one `verify-published-vX.Y.Z` group. VERIFY_VERSION below
-# still falls back to 'latest' for a Release-triggered run needing it, but
-# that's only a LAST-RESORT fallback for the two Release-gated jobs: each
-# resolves the exact tag itself from head_sha (see their guard step)
-# precisely because 'latest' would silently under-verify a prerelease. See
-# that step's comment.
+# fix(#1707): a run triggered by Release's completion reports its OWN
+# head_branch as the default branch ("main"), not the tag. Keying the group
+# on head_branch would put every Release-triggered run in one shared group,
+# where an overlapping completion for a DIFFERENT tag (including a hollow
+# one) could evict a still-pending verification for an unrelated release.
+# The group instead uses `github.event.workflow_run.head_sha` for a
+# Release-triggered run — the exact tagged commit even though head_branch
+# isn't (see the guard step's comment) — giving each release its own group:
+# same-tag duplicates still dedupe, different tags can't evict each other.
+# Publish-triggered runs are untouched: the `&&` is false for them, so the
+# `||` chain falls through to head_branch exactly as before.
 concurrency:
   group: verify-published-${{ inputs.version || (github.event.workflow.name == 'Release' && github.event.workflow_run.head_sha) || github.event.workflow_run.head_branch || github.run_id }}
   cancel-in-progress: false
 
 env:
+  # fix(#1707): resolution ladder for VERIFY_VERSION.
   # Manual dispatch → the version input. workflow_run after a tag-triggered
   # publish (Publish SDKs/CLI/MCP) → head_branch is the tag (e.g. v1.2.4),
   # used only when it looks like a version tag — exact for both a GA and a
@@ -180,6 +133,7 @@ env:
 
 jobs:
   verify-python:
+    # fix(#1707): routing rule for this job.
     # Manual dispatch always runs. An auto-trigger runs only for a successful
     # PUBLISH completion (Publish SDKs/CLI/MCP) — never for Release — since
     # only the publishes produce the PyPI package this job verifies; a
@@ -304,67 +258,48 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          # See the "hollow Release run" note at the top of this file. A
-          # workflow_run trigger only tells us Release CONCLUDED success as a
-          # workflow — not that its "Create GitHub Release" job actually ran,
-          # since an all-skipped run also concludes success. Confirm the real
-          # job ran before trusting anything about this trigger.
+          # fix(#1707): a workflow_run trigger only tells us Release CONCLUDED
+          # success as a workflow — not that its "Create GitHub Release" job
+          # actually ran, since an all-skipped run also concludes success.
+          # Confirm the real job ran before trusting anything about this
+          # trigger.
           #
-          # The `gh api` call is wrapped in an `if` (rather than a bare
-          # `CONCLUSION=$(...)` assignment) so a transient API error can't
-          # kill this step under `bash -e` — that would turn a network blip
-          # into a NEW red check, the opposite of this guard's job. It gets
-          # one immediate retry (the `||` below); if BOTH attempts fail,
-          # this now fails CLOSED into a loud skip (hollow=true + a
-          # distinct ::warning::), not a proceed-with-latest fallback. That
-          # fallback used to be described as "this workflow's behavior
-          # before this guard existed" — that reference point no longer
-          # applies; the guard IS the behavior now, and proceeding against
-          # unconfirmed data (VERIFY_VERSION=latest, with no idea whether
-          # the real release is a GA or a prerelease) is exactly the
-          # fail-open-on-unconfirmed-data class this file already fixed
-          # once, in the tag-resolution loop below.
+          # fix(#1707): the `gh api` call is wrapped in `if` (not a bare
+          # assignment) so a transient error can't kill this step under
+          # `bash -e`. One immediate retry (the `||` below); if both attempts
+          # fail, fail CLOSED into a loud skip (hollow=true + a distinct
+          # ::warning::) rather than proceeding against unconfirmed
+          # VERIFY_VERSION=latest.
           if CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
               --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1) \
             || CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
               --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
             if [ "${CONCLUSION}" = "success" ]; then
-              # Resolve the exact tag this run released rather than trusting
-              # VERIFY_VERSION=latest: `latest` only ever tracks the newest
-              # GA release/image — publish.yml never re-tags GHCR :latest for
-              # a `-rc`/prerelease suffix (its `type=raw,value=latest` gate),
-              # and GitHub's own "latest release" concept explicitly skips
-              # prereleases. Left as 'latest', a Release-triggered run for a
-              # *prerelease* tag would silently pass by re-verifying the
-              # PREVIOUS GA instead of what this run just published.
-              # head_sha is reliable here even though head_branch isn't (see
-              # the header note) — it's the exact tagged commit, inherited
-              # through the workflow_run chain (Prod Compose Smoke -> Release
-              # -> here); only head_branch gets reset to the default branch.
-              # This is not a theory: the v1.14.1 Release run (created
-              # 2026-08-20T00:24:04Z) reports head_sha 1eb456346..., exactly
-              # `git rev-parse v1.14.1` — even though main's actual tip at
-              # that instant had already moved one commit past it, to
-              # 1e4a3ef4e... (#1615). If head_sha tracked the default
-              # branch's current tip the way head_branch does, this run
-              # would report 1e4a3ef4e; it reports the older tag commit
-              # instead. Filtered to semver-shaped names for the same reason
+              # fix(#1707): resolve the exact tag from head_sha rather than
+              # trusting VERIFY_VERSION=latest — publish.yml never advances
+              # GHCR :latest for a `-rc` suffix and GitHub's "latest release"
+              # skips prereleases, so a prerelease-triggered run would
+              # otherwise re-verify the previous GA.
+              #
+              # fix(#1707): head_sha is reliable here even though head_branch
+              # isn't — head_branch resets to the default branch on any
+              # workflow_run-triggered run, but head_sha is inherited through
+              # the trigger chain. Confirmed against the v1.14.1 Release run
+              # (created 2026-08-20T00:24:04Z): its head_sha (1eb456346...)
+              # is exactly `git rev-parse v1.14.1`, even though main's tip at
+              # that instant had already advanced past it to 1e4a3ef4e...
+              # (#1615). Filtered to semver-shaped names for the same reason
               # release.yml's own "Assert semver-shaped tag" step is: a
-              # 4-digit GSD milestone tag could in principle share a commit
-              # with a real release.
-              # One rule, applied at every query in this branch:
-              # resolution CONFIRMED (a query succeeded and found exactly
-              # what's needed) -> use it. Resolution confirmed ABSENT
-              # (queries succeeded, legitimately zero/no-candidate result)
-              # -> VERIFY_VERSION=latest, the pre-existing best-effort
-              # fallback. Resolution UNCONFIRMED (any query failed even
-              # after one retry) -> the loud skip (hollow=true), never
-              # 'latest' and never a guess from partial data. The tags
-              # query below is retried and its OWN success/failure is
-              # tracked separately from "found zero matches", so an API
-              # failure can no longer masquerade as a legitimately-empty
-              # result and flow into the latest fallback the way `|| true`
-              # on the raw pipeline used to let it.
+              # 4-digit GSD milestone tag could share a commit with a real
+              # release.
+              # fix(#1707): resolution follows one rule everywhere in this
+              # branch — CONFIRMED (query succeeded, found what's needed) ->
+              # use it; ABSENT (query succeeded, legitimately empty) ->
+              # VERIFY_VERSION=latest; UNCONFIRMED (query failed even after
+              # one retry) -> the loud skip, never a guess from partial data.
+              # The tags query's own success/failure is tracked separately
+              # from "found zero matches" so a failed request can't
+              # masquerade as an empty result.
               UNCONFIRMED=false
               if ! RAW_TAGS=$(gh api "repos/${REPOSITORY}/tags" --paginate \
                   --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" 2>&1); then
@@ -377,111 +312,68 @@ jobs:
               if [ "${UNCONFIRMED}" != true ]; then
                 MATCHES=$(printf '%s\n' "${RAW_TAGS}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
                 MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
-                # A commit can carry MORE THAN ONE semver tag: promoting an
-                # unchanged release candidate straight to GA (no new commit)
-                # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
-                # `head -1` on the raw match list would arbitrarily pick
-                # whichever the tags API happened to list first — silently
-                # verifying the wrong one instead of failing loudly. Only
-                # trust the resolution outright when it's unambiguous
-                # (exactly one match). 0 matches is a CONFIRMED-ABSENT
-                # result (the tags query above already succeeded), so it
-                # falls back to VERIFY_VERSION=latest, the pre-existing
-                # best-effort semantics. More than one match is resolved
-                # deterministically below rather than assumed to be an
-                # RC->GA promotion — that assumption doesn't hold for every
-                # ambiguous case: re-cutting `v1.17.0-rc.1` as
-                # `v1.17.0-rc.2` on an unchanged commit also lands here, and
-                # 'latest' would then silently verify the PREVIOUS GA (a
-                # prerelease never advances 'latest').
+                # fix(#1707): a commit can carry more than one semver tag (an RC
+                # promoted unchanged to GA, or one prerelease re-cut as
+                # another, both tag the same commit). Trust the resolution
+                # outright only when unambiguous (exactly one match); 0
+                # matches is CONFIRMED-ABSENT (falls back to latest); more
+                # than one is resolved deterministically below, not assumed
+                # to be any one specific scenario.
                 if [ "${MATCH_COUNT}" -eq 1 ]; then
                   TAG="${MATCHES}"
                   echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
                 elif [ "${MATCH_COUNT}" -eq 0 ]; then
                   echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
                 else
-                  # Resolve deterministically via the releases API instead of
-                  # guessing from tag semantics: look up each matched tag's
-                  # release and take the one with the newest published_at.
+                  # fix(#1707): tie-break by published_at, not created_at. For a
+                  # release created against an already-tagged commit (exactly
+                  # this ambiguous case), GitHub sets created_at to the
+                  # target COMMIT's date, not the publish moment — confirmed
+                  # against this repo's own releases (v1.16.1, v1.16.0,
+                  # v1.15.1: created_at == tag commit date, published_at ==
+                  # the real gh-release-create moment). Two tags on one
+                  # commit would carry identical created_at, so that
+                  # comparison was never actually deterministic. published_at
+                  # is set once, at the true publish moment.
                   #
-                  # NOT created_at, which an earlier version of this branch
-                  # used: for a release created against an EXISTING tagged
-                  # commit (exactly this ambiguous case — the whole point is
-                  # that both matched tags share one commit), GitHub sets
-                  # created_at to the target COMMIT's date, not the moment
-                  # `gh release create` ran. This repo's own data proves it:
-                  # v1.16.1's release created_at (2026-08-28T18:07:09Z)
-                  # equals its tag commit's date exactly, while published_at
-                  # (18:48:48Z) is the real gh-release-create moment — same
-                  # pattern confirmed on v1.16.0 and v1.15.1. Two tags on the
-                  # SAME commit therefore carry IDENTICAL created_at values,
-                  # the strict `>` comparison below never fires for the
-                  # second one, and the loop silently kept whichever tag the
-                  # tags API happened to list first — not deterministic at
-                  # all for exactly the case this branch exists to handle.
-                  # published_at does not have this problem: it is set once,
-                  # at the actual publish moment, and differs between two
-                  # releases of the same commit exactly when one was
-                  # published later than the other.
+                  # fix(#1707): a manual rerun of an OLDER tag's Release run,
+                  # on a commit that has since gained a newer released
+                  # sibling, resolves to the newer sibling — `gh release
+                  # edit` (release.yml's rerun-onto-an-existing-release path)
+                  # changes neither timestamp. Not a miss: the older tag
+                  # already got its own correct verification cycle when it
+                  # was the newest match; re-checking one specific superseded
+                  # tag on demand is `workflow_dispatch -f version=vX.Y.Z`,
+                  # which bypasses this resolution.
                   #
-                  # In the ordinary case the newest-published release IS the
-                  # release this run's own trigger chain just created or
-                  # updated — true for both an RC->GA promotion (GA release
-                  # is newest) and an rc-recut (rc.2's release is newest) —
-                  # with no assumption about which case produced the
-                  # ambiguity.
-                  #
-                  # One exotic case where it picks a DIFFERENT matched tag:
-                  # a manual rerun of an OLDER tag's Release run, on a commit
-                  # that has since gained a newer released sibling. `gh
-                  # release edit` (release.yml's rerun-onto-an-existing-
-                  # release path) changes neither created_at nor
-                  # published_at, so the older tag's release stays older and
-                  # the newer sibling still wins here — this analysis
-                  # transfers unchanged from the created_at version. That's
-                  # fine, not a miss: the older tag already got its own
-                  # correct verification cycle when IT was the newest match,
-                  # and re-checking one specific superseded tag on demand is
-                  # what manual `workflow_dispatch -f version=vX.Y.Z` is for
-                  # (it bypasses this resolution entirely) — not a job for
-                  # the automatic trigger path.
-                  #
-                  # Looked up per-candidate (releases/tags/{tag}) rather than
-                  # listing+filtering the full releases collection: there are
-                  # only ever a couple of matched tags here, and
-                  # `gh api --paginate` applies --jq PER PAGE, so an aggregate
-                  # sort/max over the whole paginated list would silently
-                  # pick the wrong answer across a page boundary instead of
-                  # the true global newest.
+                  # fix(#1707): looked up per-candidate (releases/tags/{tag})
+                  # rather than listing+filtering the full releases
+                  # collection — gh api --paginate applies --jq PER PAGE, so
+                  # an aggregate sort/max over a paginated list would pick
+                  # the wrong answer across a page boundary.
                   NEWEST_TAG=""
                   NEWEST_PUBLISHED=""
                   LOOKUP_FAILED=""
                   while IFS= read -r CANDIDATE; do
                     [ -z "${CANDIDATE}" ] && continue
-                    # A candidate whose lookup fails is FLAGGED, never
-                    # silently skipped: selecting the newest among only the
-                    # tags that happened to resolve, while one candidate's
-                    # real status is unknown, is exactly the partial-data
-                    # selection this whole resolution exists to avoid (a
-                    # transient failure on the true-newest candidate would
-                    # verify its OLDER sibling green instead of falling back
-                    # loudly). One immediate retry first, since a transient
-                    # API hiccup shouldn't discard an otherwise-resolvable
-                    # selection over a single blip.
+                    # fix(#1707): a candidate whose lookup fails is flagged, never
+                    # silently skipped — selecting the newest among only the
+                    # tags that resolved, while one candidate's real status
+                    # is unknown, is the partial-data selection this
+                    # resolution exists to avoid. One immediate retry first
+                    # for a single transient blip.
                     if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
                       if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
                         LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
                         continue
                       fi
                     fi
-                    # A draft release has published_at=null (gh api prints
-                    # the literal string "null"); this pipeline never
-                    # creates drafts, so a null here means this candidate is
-                    # confirmed NOT to be the release this trigger chain
-                    # just published. Exclude it from the newest comparison
-                    # without treating the whole resolution as UNCONFIRMED —
-                    # the query itself succeeded, it just isn't a
-                    # candidate.
+                    # fix(#1707): a draft release has published_at=null (gh api
+                    # prints the literal string "null"); this pipeline never
+                    # creates drafts, so null means this candidate is
+                    # confirmed not to be the published release. Excluded
+                    # from the comparison without marking the whole
+                    # resolution UNCONFIRMED — the query itself succeeded.
                     if [ "${PUBLISHED}" = "null" ] || [ -z "${PUBLISHED}" ]; then
                       continue
                     fi
@@ -491,14 +383,10 @@ jobs:
                     fi
                   done <<< "${MATCHES}"
                   if [ -n "${LOOKUP_FAILED}" ]; then
-                    # UNCONFIRMED, not ABSENT: at least one candidate's real
+                    # fix(#1707): UNCONFIRMED, not ABSENT — one candidate's real
                     # published_at was never confirmed, so any "newest"
-                    # claim can't be trusted. Skip loudly (same as the
-                    # tags-query and outer-guard-query failure paths)
-                    # instead of falling back to 'latest' the way this
-                    # branch used to — that was the same
-                    # fail-open-on-unconfirmed-data class already fixed for
-                    # the other two queries in this file.
+                    # claim can't be trusted. Skip loudly rather than
+                    # falling back to latest.
                     echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
                     UNCONFIRMED=true
                   elif [ -n "${NEWEST_TAG}" ]; then
@@ -577,67 +465,48 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          # See the "hollow Release run" note at the top of this file. A
-          # workflow_run trigger only tells us Release CONCLUDED success as a
-          # workflow — not that its "Create GitHub Release" job actually ran,
-          # since an all-skipped run also concludes success. Confirm the real
-          # job ran before trusting anything about this trigger.
+          # fix(#1707): a workflow_run trigger only tells us Release CONCLUDED
+          # success as a workflow — not that its "Create GitHub Release" job
+          # actually ran, since an all-skipped run also concludes success.
+          # Confirm the real job ran before trusting anything about this
+          # trigger.
           #
-          # The `gh api` call is wrapped in an `if` (rather than a bare
-          # `CONCLUSION=$(...)` assignment) so a transient API error can't
-          # kill this step under `bash -e` — that would turn a network blip
-          # into a NEW red check, the opposite of this guard's job. It gets
-          # one immediate retry (the `||` below); if BOTH attempts fail,
-          # this now fails CLOSED into a loud skip (hollow=true + a
-          # distinct ::warning::), not a proceed-with-latest fallback. That
-          # fallback used to be described as "this workflow's behavior
-          # before this guard existed" — that reference point no longer
-          # applies; the guard IS the behavior now, and proceeding against
-          # unconfirmed data (VERIFY_VERSION=latest, with no idea whether
-          # the real release is a GA or a prerelease) is exactly the
-          # fail-open-on-unconfirmed-data class this file already fixed
-          # once, in the tag-resolution loop below.
+          # fix(#1707): the `gh api` call is wrapped in `if` (not a bare
+          # assignment) so a transient error can't kill this step under
+          # `bash -e`. One immediate retry (the `||` below); if both attempts
+          # fail, fail CLOSED into a loud skip (hollow=true + a distinct
+          # ::warning::) rather than proceeding against unconfirmed
+          # VERIFY_VERSION=latest.
           if CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
               --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1) \
             || CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
               --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
             if [ "${CONCLUSION}" = "success" ]; then
-              # Resolve the exact tag this run released rather than trusting
-              # VERIFY_VERSION=latest: `latest` only ever tracks the newest
-              # GA release/image — publish.yml never re-tags GHCR :latest for
-              # a `-rc`/prerelease suffix (its `type=raw,value=latest` gate),
-              # and GitHub's own "latest release" concept explicitly skips
-              # prereleases. Left as 'latest', a Release-triggered run for a
-              # *prerelease* tag would silently pass by re-verifying the
-              # PREVIOUS GA instead of what this run just published.
-              # head_sha is reliable here even though head_branch isn't (see
-              # the header note) — it's the exact tagged commit, inherited
-              # through the workflow_run chain (Prod Compose Smoke -> Release
-              # -> here); only head_branch gets reset to the default branch.
-              # This is not a theory: the v1.14.1 Release run (created
-              # 2026-08-20T00:24:04Z) reports head_sha 1eb456346..., exactly
-              # `git rev-parse v1.14.1` — even though main's actual tip at
-              # that instant had already moved one commit past it, to
-              # 1e4a3ef4e... (#1615). If head_sha tracked the default
-              # branch's current tip the way head_branch does, this run
-              # would report 1e4a3ef4e; it reports the older tag commit
-              # instead. Filtered to semver-shaped names for the same reason
+              # fix(#1707): resolve the exact tag from head_sha rather than
+              # trusting VERIFY_VERSION=latest — publish.yml never advances
+              # GHCR :latest for a `-rc` suffix and GitHub's "latest release"
+              # skips prereleases, so a prerelease-triggered run would
+              # otherwise re-verify the previous GA.
+              #
+              # fix(#1707): head_sha is reliable here even though head_branch
+              # isn't — head_branch resets to the default branch on any
+              # workflow_run-triggered run, but head_sha is inherited through
+              # the trigger chain. Confirmed against the v1.14.1 Release run
+              # (created 2026-08-20T00:24:04Z): its head_sha (1eb456346...)
+              # is exactly `git rev-parse v1.14.1`, even though main's tip at
+              # that instant had already advanced past it to 1e4a3ef4e...
+              # (#1615). Filtered to semver-shaped names for the same reason
               # release.yml's own "Assert semver-shaped tag" step is: a
-              # 4-digit GSD milestone tag could in principle share a commit
-              # with a real release.
-              # One rule, applied at every query in this branch:
-              # resolution CONFIRMED (a query succeeded and found exactly
-              # what's needed) -> use it. Resolution confirmed ABSENT
-              # (queries succeeded, legitimately zero/no-candidate result)
-              # -> VERIFY_VERSION=latest, the pre-existing best-effort
-              # fallback. Resolution UNCONFIRMED (any query failed even
-              # after one retry) -> the loud skip (hollow=true), never
-              # 'latest' and never a guess from partial data. The tags
-              # query below is retried and its OWN success/failure is
-              # tracked separately from "found zero matches", so an API
-              # failure can no longer masquerade as a legitimately-empty
-              # result and flow into the latest fallback the way `|| true`
-              # on the raw pipeline used to let it.
+              # 4-digit GSD milestone tag could share a commit with a real
+              # release.
+              # fix(#1707): resolution follows one rule everywhere in this
+              # branch — CONFIRMED (query succeeded, found what's needed) ->
+              # use it; ABSENT (query succeeded, legitimately empty) ->
+              # VERIFY_VERSION=latest; UNCONFIRMED (query failed even after
+              # one retry) -> the loud skip, never a guess from partial data.
+              # The tags query's own success/failure is tracked separately
+              # from "found zero matches" so a failed request can't
+              # masquerade as an empty result.
               UNCONFIRMED=false
               if ! RAW_TAGS=$(gh api "repos/${REPOSITORY}/tags" --paginate \
                   --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" 2>&1); then
@@ -650,111 +519,68 @@ jobs:
               if [ "${UNCONFIRMED}" != true ]; then
                 MATCHES=$(printf '%s\n' "${RAW_TAGS}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
                 MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
-                # A commit can carry MORE THAN ONE semver tag: promoting an
-                # unchanged release candidate straight to GA (no new commit)
-                # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
-                # `head -1` on the raw match list would arbitrarily pick
-                # whichever the tags API happened to list first — silently
-                # verifying the wrong one instead of failing loudly. Only
-                # trust the resolution outright when it's unambiguous
-                # (exactly one match). 0 matches is a CONFIRMED-ABSENT
-                # result (the tags query above already succeeded), so it
-                # falls back to VERIFY_VERSION=latest, the pre-existing
-                # best-effort semantics. More than one match is resolved
-                # deterministically below rather than assumed to be an
-                # RC->GA promotion — that assumption doesn't hold for every
-                # ambiguous case: re-cutting `v1.17.0-rc.1` as
-                # `v1.17.0-rc.2` on an unchanged commit also lands here, and
-                # 'latest' would then silently verify the PREVIOUS GA (a
-                # prerelease never advances 'latest').
+                # fix(#1707): a commit can carry more than one semver tag (an RC
+                # promoted unchanged to GA, or one prerelease re-cut as
+                # another, both tag the same commit). Trust the resolution
+                # outright only when unambiguous (exactly one match); 0
+                # matches is CONFIRMED-ABSENT (falls back to latest); more
+                # than one is resolved deterministically below, not assumed
+                # to be any one specific scenario.
                 if [ "${MATCH_COUNT}" -eq 1 ]; then
                   TAG="${MATCHES}"
                   echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
                 elif [ "${MATCH_COUNT}" -eq 0 ]; then
                   echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
                 else
-                  # Resolve deterministically via the releases API instead of
-                  # guessing from tag semantics: look up each matched tag's
-                  # release and take the one with the newest published_at.
+                  # fix(#1707): tie-break by published_at, not created_at. For a
+                  # release created against an already-tagged commit (exactly
+                  # this ambiguous case), GitHub sets created_at to the
+                  # target COMMIT's date, not the publish moment — confirmed
+                  # against this repo's own releases (v1.16.1, v1.16.0,
+                  # v1.15.1: created_at == tag commit date, published_at ==
+                  # the real gh-release-create moment). Two tags on one
+                  # commit would carry identical created_at, so that
+                  # comparison was never actually deterministic. published_at
+                  # is set once, at the true publish moment.
                   #
-                  # NOT created_at, which an earlier version of this branch
-                  # used: for a release created against an EXISTING tagged
-                  # commit (exactly this ambiguous case — the whole point is
-                  # that both matched tags share one commit), GitHub sets
-                  # created_at to the target COMMIT's date, not the moment
-                  # `gh release create` ran. This repo's own data proves it:
-                  # v1.16.1's release created_at (2026-08-28T18:07:09Z)
-                  # equals its tag commit's date exactly, while published_at
-                  # (18:48:48Z) is the real gh-release-create moment — same
-                  # pattern confirmed on v1.16.0 and v1.15.1. Two tags on the
-                  # SAME commit therefore carry IDENTICAL created_at values,
-                  # the strict `>` comparison below never fires for the
-                  # second one, and the loop silently kept whichever tag the
-                  # tags API happened to list first — not deterministic at
-                  # all for exactly the case this branch exists to handle.
-                  # published_at does not have this problem: it is set once,
-                  # at the actual publish moment, and differs between two
-                  # releases of the same commit exactly when one was
-                  # published later than the other.
+                  # fix(#1707): a manual rerun of an OLDER tag's Release run,
+                  # on a commit that has since gained a newer released
+                  # sibling, resolves to the newer sibling — `gh release
+                  # edit` (release.yml's rerun-onto-an-existing-release path)
+                  # changes neither timestamp. Not a miss: the older tag
+                  # already got its own correct verification cycle when it
+                  # was the newest match; re-checking one specific superseded
+                  # tag on demand is `workflow_dispatch -f version=vX.Y.Z`,
+                  # which bypasses this resolution.
                   #
-                  # In the ordinary case the newest-published release IS the
-                  # release this run's own trigger chain just created or
-                  # updated — true for both an RC->GA promotion (GA release
-                  # is newest) and an rc-recut (rc.2's release is newest) —
-                  # with no assumption about which case produced the
-                  # ambiguity.
-                  #
-                  # One exotic case where it picks a DIFFERENT matched tag:
-                  # a manual rerun of an OLDER tag's Release run, on a commit
-                  # that has since gained a newer released sibling. `gh
-                  # release edit` (release.yml's rerun-onto-an-existing-
-                  # release path) changes neither created_at nor
-                  # published_at, so the older tag's release stays older and
-                  # the newer sibling still wins here — this analysis
-                  # transfers unchanged from the created_at version. That's
-                  # fine, not a miss: the older tag already got its own
-                  # correct verification cycle when IT was the newest match,
-                  # and re-checking one specific superseded tag on demand is
-                  # what manual `workflow_dispatch -f version=vX.Y.Z` is for
-                  # (it bypasses this resolution entirely) — not a job for
-                  # the automatic trigger path.
-                  #
-                  # Looked up per-candidate (releases/tags/{tag}) rather than
-                  # listing+filtering the full releases collection: there are
-                  # only ever a couple of matched tags here, and
-                  # `gh api --paginate` applies --jq PER PAGE, so an aggregate
-                  # sort/max over the whole paginated list would silently
-                  # pick the wrong answer across a page boundary instead of
-                  # the true global newest.
+                  # fix(#1707): looked up per-candidate (releases/tags/{tag})
+                  # rather than listing+filtering the full releases
+                  # collection — gh api --paginate applies --jq PER PAGE, so
+                  # an aggregate sort/max over a paginated list would pick
+                  # the wrong answer across a page boundary.
                   NEWEST_TAG=""
                   NEWEST_PUBLISHED=""
                   LOOKUP_FAILED=""
                   while IFS= read -r CANDIDATE; do
                     [ -z "${CANDIDATE}" ] && continue
-                    # A candidate whose lookup fails is FLAGGED, never
-                    # silently skipped: selecting the newest among only the
-                    # tags that happened to resolve, while one candidate's
-                    # real status is unknown, is exactly the partial-data
-                    # selection this whole resolution exists to avoid (a
-                    # transient failure on the true-newest candidate would
-                    # verify its OLDER sibling green instead of falling back
-                    # loudly). One immediate retry first, since a transient
-                    # API hiccup shouldn't discard an otherwise-resolvable
-                    # selection over a single blip.
+                    # fix(#1707): a candidate whose lookup fails is flagged, never
+                    # silently skipped — selecting the newest among only the
+                    # tags that resolved, while one candidate's real status
+                    # is unknown, is the partial-data selection this
+                    # resolution exists to avoid. One immediate retry first
+                    # for a single transient blip.
                     if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
                       if ! PUBLISHED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.published_at' 2>/dev/null); then
                         LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
                         continue
                       fi
                     fi
-                    # A draft release has published_at=null (gh api prints
-                    # the literal string "null"); this pipeline never
-                    # creates drafts, so a null here means this candidate is
-                    # confirmed NOT to be the release this trigger chain
-                    # just published. Exclude it from the newest comparison
-                    # without treating the whole resolution as UNCONFIRMED —
-                    # the query itself succeeded, it just isn't a
-                    # candidate.
+                    # fix(#1707): a draft release has published_at=null (gh api
+                    # prints the literal string "null"); this pipeline never
+                    # creates drafts, so null means this candidate is
+                    # confirmed not to be the published release. Excluded
+                    # from the comparison without marking the whole
+                    # resolution UNCONFIRMED — the query itself succeeded.
                     if [ "${PUBLISHED}" = "null" ] || [ -z "${PUBLISHED}" ]; then
                       continue
                     fi
@@ -764,14 +590,10 @@ jobs:
                     fi
                   done <<< "${MATCHES}"
                   if [ -n "${LOOKUP_FAILED}" ]; then
-                    # UNCONFIRMED, not ABSENT: at least one candidate's real
+                    # fix(#1707): UNCONFIRMED, not ABSENT — one candidate's real
                     # published_at was never confirmed, so any "newest"
-                    # claim can't be trusted. Skip loudly (same as the
-                    # tags-query and outer-guard-query failure paths)
-                    # instead of falling back to 'latest' the way this
-                    # branch used to — that was the same
-                    # fail-open-on-unconfirmed-data class already fixed for
-                    # the other two queries in this file.
+                    # claim can't be trusted. Skip loudly rather than
+                    # falling back to latest.
                     echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
                     UNCONFIRMED=true
                   elif [ -n "${NEWEST_TAG}" ]; then
