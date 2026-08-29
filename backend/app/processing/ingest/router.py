@@ -574,10 +574,61 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     in hand and now derives the answer there. So the stamp costs no I/O and
     both upload endpoints can afford it.
     """
-    if not (filename or "").lower().endswith((".tif", ".tiff", ".vrt")):
-        return
+    job.user_metadata = _raster_stamped_metadata(job.user_metadata, filename)
 
-    job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+
+def _raster_stamped_metadata(
+    user_metadata: dict | None, filename: str | None
+) -> dict | None:
+    """Pure form of ``_stamp_raster_metadata``: the metadata that should be
+    persisted for ``filename``, without touching an ORM instance.
+
+    fix(#1708 codex r2): the URL-import path persists its final state through
+    a guarded compare-and-swap ``UPDATE`` rather than by dirtying the ORM
+    object (a dirtied object would flush a SECOND, unguarded UPDATE on
+    commit, silently bypassing the CAS). It still must apply the exact same
+    stamping policy, so the policy lives here and both forms share it.
+    """
+    if not (filename or "").lower().endswith((".tif", ".tiff", ".vrt")):
+        return user_metadata
+
+    return {**(user_metadata or {}), "file_type": "raster"}
+
+
+def _url_import_filename(body: UrlUploadRequest) -> str:
+    """The staging filename for a URL import, or the endpoint's 400/422.
+
+    fix(#1708 codex P2): both name sources go through the byte clamp. The
+    schema admits 255 CHARACTERS, but filesystems cap name components in
+    BYTES (NAME_MAX 255), and staging prepends a 37-byte job-id prefix — an
+    unclamped long-ASCII or multibyte override made open() ENAMETOOLONG and
+    the endpoint answer 500.
+
+    fix(#1708 codex r2): callers must invoke this INSIDE their guarded
+    block — urlparse raises ValueError on malformed authorities
+    ('http://[/x.geojson'), which used to escape as a 500 because the
+    derivation ran before the handler's try.
+    """
+    try:
+        filename = (
+            clamp_filename_bytes(safe_upload_basename(body.filename))
+            if body.filename
+            else filename_from_url(body.url)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid URL: {exc}",
+        ) from exc
+    if not filename or not Path(filename).suffix:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Could not determine a filename with an extension from the "
+                "URL path. Provide 'filename' explicitly."
+            ),
+        )
+    return filename
 
 
 @router.post(
@@ -706,29 +757,17 @@ async def upload_from_url(
     staged file passes the same extension allowlist and content sniff as a
     direct upload, and GDAL only ever sees the staged local file.
     """
+    from sqlalchemy import update as sa_update
+
     from app.core.url_redaction import redact_url_credentials
+    from app.platform.jobs.models import IngestJob
     from app.platform.security import SSRFError, validate_url_for_ssrf
 
+    # Exception-safe on malformed input by design (fix #1119) — safe to run
+    # before the guarded block below.
     safe_url = redact_url_credentials(body.url)
-    # fix(#1708 codex P2): both name sources go through the byte clamp. The
-    # schema admits 255 CHARACTERS, but filesystems cap name components in
-    # BYTES (NAME_MAX 255), and staging prepends a 37-byte job-id prefix — an
-    # unclamped long-ASCII or multibyte override made open() ENAMETOOLONG and
-    # the endpoint answer 500 for an otherwise accepted request.
-    filename = (
-        clamp_filename_bytes(safe_upload_basename(body.filename))
-        if body.filename
-        else filename_from_url(body.url)
-    )
-    if not filename or not Path(filename).suffix:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                "Could not determine a filename with an extension from the "
-                "URL path. Provide 'filename' explicitly."
-            ),
-        )
     try:
+        filename = _url_import_filename(body)
         allowed_list = await _get_allowed_extensions_safely(db)
         _reject_standalone_vrt(filename)
         validate_file_extension(filename, allowed_list)
@@ -759,6 +798,23 @@ async def upload_from_url(
         await check_upload_quota(db, user.id, 0, request)
 
         job = await create_ingest_job(db, filename, "", user.id)
+        # fix(#1708 codex r2): the download runs under the RUNNING lease, not
+        # as a bare 'pending' row. A committed 'pending' row with an empty
+        # file_path and no live queue task matches every clause of
+        # stale_pending_clauses, and pending_job_timeout_seconds may legally
+        # be as low as 61s while the fetch is allowed FETCH_MAX_SECONDS
+        # (600s) — both the periodic sweep and the get_job_status poll (which
+        # the frontend hits every 2s) could fail an in-progress fetch.
+        # 'running' rows are judged by the running lease instead:
+        # coalesce(heartbeat_at, started_at) against the fixed 3600s
+        # JOB_TIMEOUT_SECONDS, so one started_at stamp outlives the fetch's
+        # own hard deadline six times over with no periodic heartbeat needed
+        # ('running' is already in the status CHECK constraint — no
+        # migration). test_url_import_1705 pins FETCH_MAX_SECONDS under the
+        # lease. If the process dies mid-fetch, the running sweep reaps the
+        # row after an hour — the same recovery every worker task gets.
+        job.status = "running"
+        job.started_at = datetime.now(timezone.utc)
         # fix(#1708 codex P1): COMMIT before awaiting the fetch. The session
         # autobegins on its first query and holds a checked-out pool
         # connection until the transaction ends, so leaving it open across a
@@ -767,16 +823,21 @@ async def upload_from_url(
         # every DB-backed request in the API. Committing here persists the
         # job row and returns the connection; every later query checks out a
         # fresh one. Consequences, each handled below: the row now survives
-        # a failed fetch (stamped 'failed' in the cleanup path instead of
+        # a failed fetch (CAS-stamped 'failed' in the cleanup path instead of
         # vanishing with a rollback), and the byte-quota check must re-run
         # after the download since the world may have moved while we fetched.
-        # Mid-fetch the job is 'pending' with an empty file_path, which both
-        # preview and commit already refuse (400) — no new reachable state.
         await db.commit()
+        # Capture the scalars now and never touch the ORM instance again:
+        # the failure path below ROLLS BACK, and rollback expires every
+        # object in the session — a later `job.id` would then lazy-refresh
+        # synchronously and die with MissingGreenlet inside the exception
+        # handler, turning a clean 4xx into a 500.
+        job_id = job.id
+        job_metadata = job.user_metadata
 
         staging_dir = Path(settings.upload_staging_dir)
         staging_dir.mkdir(parents=True, exist_ok=True)
-        local_dest = staging_dir / f"{job.id}_{filename}"
+        local_dest = staging_dir / f"{job_id}_{filename}"
 
         s3_key: str | None = None
         try:
@@ -820,7 +881,7 @@ async def upload_from_url(
                 ) from exc
 
             if settings.storage_provider == "s3":
-                s3_key = f"staging/{job.id}/{filename}"
+                s3_key = f"staging/{job_id}/{filename}"
                 # codeql[py/path-injection] fix(#1708): the component is basename-stripped (safe_upload_basename/filename_from_url) and byte-clamped, rooted under upload_staging_dir
                 fh = open(local_dest, "rb")
                 try:
@@ -829,11 +890,34 @@ async def upload_from_url(
                     )
                 finally:
                     await run_in_thread_draining(fh.close)
-                job.file_path = s3_key
+                staged_path = s3_key
             else:
-                job.file_path = str(local_dest)
+                staged_path = str(local_dest)
 
-            _stamp_raster_metadata(job, filename)
+            # fix(#1708 codex r2): guarded CAS, running -> pending. Only the
+            # row this request parked in 'running' may proceed to the
+            # previewable state; a Core UPDATE (not dirtied ORM attributes,
+            # which would flush a second unguarded UPDATE) so an external
+            # flip — admin cancel, or a lease reap that would take an
+            # impossible >1h stall — matches zero rows and is SURFACED
+            # instead of silently part-updating a dead row.
+            cas = await db.execute(
+                sa_update(IngestJob)
+                .where(IngestJob.id == job_id, IngestJob.status == "running")
+                .values(
+                    status="pending",
+                    file_path=staged_path,
+                    user_metadata=_raster_stamped_metadata(job_metadata, filename),
+                )
+            )
+            if cas.rowcount == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "The import was cancelled or timed out while the "
+                        "file was downloading. Start a new import."
+                    ),
+                )
             await db.commit()
         except BaseException as exc:
             # Until the file_path commit above, this request exclusively owns
@@ -841,26 +925,35 @@ async def upload_from_url(
             # object) — nothing else references them, so both must go before
             # the exception propagates.
             if s3_key is not None:
-                await _cleanup_saved_upload(s3_key, str(job.id))
+                await _cleanup_saved_upload(s3_key, str(job_id))
             # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
             local_dest.unlink(missing_ok=True)
             # fix(#1708 codex P1): the job row was committed before the fetch,
             # so a rollback no longer removes it. Stamp it failed with the
-            # refusal so status polling shows why, instead of leaving a bare
-            # 'pending' row for the stale reaper. Best-effort: never mask the
-            # original error, and a cancelled request may refuse the awaits —
-            # then the reaper's hour is the fallback it already was.
+            # refusal so status polling shows why, instead of leaving it under
+            # the running lease for an hour. Guarded CAS from 'running' only
+            # (codex r2): zero rows means something external already settled
+            # the row — never overwrite that verdict. Best-effort: never mask
+            # the original error, and a cancelled request may refuse the
+            # awaits — then the running sweep's hour is the fallback.
             try:
                 await db.rollback()
-                job.status = "failed"
-                job.error_message = (
-                    str(exc.detail)
-                    if isinstance(exc, HTTPException)
-                    else "URL import failed"
+                await db.execute(
+                    sa_update(IngestJob)
+                    .where(IngestJob.id == job_id, IngestJob.status == "running")
+                    .values(
+                        status="failed",
+                        error_message=(
+                            str(exc.detail)
+                            if isinstance(exc, HTTPException)
+                            else "URL import failed"
+                        ),
+                        completed_at=datetime.now(timezone.utc),
+                    )
                 )
                 await db.commit()
             except BaseException:
-                logger.warning("url_import_fail_stamp_skipped", job_id=str(job.id))
+                logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
             raise
         if s3_key is not None:
             # S3 is the staging store; the local copy served content
@@ -871,12 +964,12 @@ async def upload_from_url(
         logger.info(
             "url_import_staged",
             url=safe_url,
-            job_id=str(job.id),
+            job_id=str(job_id),
             filename=filename,
             size_bytes=actual_size,
         )
         return UploadResponse(
-            job_id=job.id,
+            job_id=job_id,
             status="pending",
             message="File downloaded and ready for preview",
         )

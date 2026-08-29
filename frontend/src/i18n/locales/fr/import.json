@@ -208,6 +208,7 @@
     "placeholder": "https://data.source.coop/…/buildings.parquet",
     "fetch": "Récupérer →",
     "fetching": "Téléchargement du fichier...",
+    "fetchingHint": "Le téléchargement des fichiers volumineux peut prendre plusieurs minutes ; gardez cette page ouverte.",
     "loadingPreview": "Analyse du fichier...",
     "filenameLabel": "Nom de fichier (facultatif)",
     "filenamePlaceholder": "buildings.parquet",

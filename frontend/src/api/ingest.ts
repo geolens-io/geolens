@@ -145,6 +145,14 @@ export async function uploadFile(
   return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
 }
 
+// fix(#1708 codex r2): the backend holds this request open for the whole
+// server-side download, which its own wall clock allows to run 600s
+// (FETCH_MAX_SECONDS in backend/app/processing/ingest/url_fetch.py).
+// apiFetch's 30s default would abort any download longer than that, losing
+// the job id while the server keeps fetching. Backend bound plus margin for
+// connect/redirects/content-sniff/S3 hand-off.
+const URL_IMPORT_TIMEOUT_MS = 630_000;
+
 /**
  * feat(#1705): the URL variant of upload. The backend fetches the file
  * server-side (SSRF-validated, size-capped) into staging; the returned job
@@ -158,6 +166,7 @@ export async function uploadFromUrl(
     return await apiFetch<UploadResponse>('/ingest/upload/url', {
       method: 'POST',
       body: JSON.stringify({ url, ...(filename && { filename }) }),
+      timeoutMs: URL_IMPORT_TIMEOUT_MS,
     });
   } catch (err) {
     // Direct call from UrlImportForm's try/catch (not a TanStack mutation),

@@ -2664,7 +2664,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # stamping that replaces the rollback it gave up), the byte-clamp on the
     # override filename, and the codeql[py/path-injection] markers at the
     # staging open/unlink sites. Cap 1775 -> 1815, exact.
-    "backend/app/processing/ingest/router.py": 1848,
+    # fix(#1708 codex r2): +86 — the download now rides the RUNNING lease
+    # (status='running' + started_at before the pre-fetch commit) so the
+    # stale-pending sweep cannot fail an in-progress fetch at a legal 61s
+    # pending_job_timeout_seconds; both post-fetch transitions became
+    # guarded CAS UPDATEs from 'running' only, with the zero-row case
+    # surfaced as a 409; filename derivation moved into _url_import_filename
+    # inside the guarded path (urlparse ValueError on malformed authorities
+    # was an unhandled 500); _raster_stamped_metadata split out pure so the
+    # CAS can persist the same stamp without dirtying the ORM row. Cap
+    # 1815 -> 1908, exact.
+    "backend/app/processing/ingest/router.py": 1941,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

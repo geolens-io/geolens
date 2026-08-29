@@ -463,6 +463,7 @@ class TestUrlImportFetch:
         self,
         client: AsyncClient,
         admin_auth_header: dict,
+        test_db_session,
         monkeypatch,
     ):
         """fix(#1708 codex P1): the transaction ends before the fetch awaits.
@@ -487,7 +488,10 @@ class TestUrlImportFetch:
                 )
                 row = result.scalar_one_or_none()
             seen["committed_mid_fetch"] = row is not None
-            seen["pending_mid_fetch"] = row is not None and row.status == "pending"
+            # fix(#1708 codex r2): mid-fetch the row rides the RUNNING lease,
+            # which the stale-pending sweep's status clause excludes.
+            seen["running_mid_fetch"] = row is not None and row.status == "running"
+            seen["lease_stamped"] = row is not None and row.started_at is not None
             seen["no_file_mid_fetch"] = row is not None and not row.file_path
             return httpx.Response(200, content=GEOJSON)
 
@@ -500,11 +504,16 @@ class TestUrlImportFetch:
         assert resp.status_code == 201, resp.text
         assert seen == {
             "committed_mid_fetch": True,
-            "pending_mid_fetch": True,
+            "running_mid_fetch": True,
+            "lease_stamped": True,
             # Mid-fetch the row has no file_path yet, which is exactly the
             # state preview and commit already refuse with a 400.
             "no_file_mid_fetch": True,
         }
+        # And the finished job is previewable: back to 'pending', file bound.
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "pending"
+        assert job.file_path
 
     async def test_failed_fetch_stamps_the_committed_job_failed(
         self,
@@ -592,3 +601,177 @@ class TestUrlImportFetch:
         assert len(staged.name.encode("utf-8")) <= 255
         # The clamp never splits a codepoint.
         assert staged.name.encode("utf-8").decode("utf-8") == staged.name
+
+
+# ---------------------------------------------------------------------------
+# Round-2 review findings (#1708): malformed URLs, and the running lease
+# that keeps the stale-pending sweep off an in-progress fetch
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportMalformedUrl:
+    async def test_malformed_authority_is_400_not_500(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """fix(#1708 codex r2): urlparse raises ValueError on 'http://[/...';
+        derivation ran before the guarded block, so this exact payload 500ed."""
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "http://[/roads.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+        assert "Invalid" in resp.json()["detail"]
+
+    async def test_malformed_authority_with_override_is_400(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        """With an override the derivation skips urlparse, but the SSRF gate
+        hits it — its ValueError must land in the endpoint's 400 family too."""
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "http://[/x", "filename": "roads.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
+
+class TestUrlImportReaperInteraction:
+    def test_fetch_deadline_fits_the_running_lease(self):
+        """The design premise of riding the RUNNING lease with one started_at
+        stamp: the fetch's own hard wall-clock bound (plus generous margin for
+        connect/validation/S3 hand-off) must stay inside JOB_TIMEOUT_SECONDS,
+        or a legitimate fetch could be lease-reaped mid-download. If this
+        fails, the URL-import path needs periodic heartbeats instead."""
+        from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
+        from app.processing.ingest.url_fetch import FETCH_MAX_SECONDS
+
+        assert FETCH_MAX_SECONDS + 300 < JOB_TIMEOUT_SECONDS
+
+    async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
+        self, client, test_db_session
+    ):
+        """fix(#1708 codex r2): the sweep-exclusion claim, tested against the
+        sweep's OWN clause set rather than a paraphrase of it.
+
+        Two rows aged past any legal pending_job_timeout_seconds (backdated a
+        full day): one shaped exactly like a mid-fetch URL import ('running',
+        fresh started_at, empty file_path), one a bare abandoned 'pending'
+        row. stale_pending_clauses must select the pending twin — proving the
+        query bites — and must NOT select the mid-fetch row. The running
+        sweep's lease predicate must also exclude it while started_at is
+        fresh. (`client` is requested only to point app.core.db at the test
+        engine; the queries here use test_db_session directly.)
+        """
+        from datetime import datetime, timedelta, timezone
+
+        from sqlalchemy import update as sa_update
+
+        from app.platform.jobs.sweep import (
+            JOB_TIMEOUT_SECONDS,
+            stale_pending_clauses,
+        )
+
+        now = datetime.now(timezone.utc)
+        mid_fetch = IngestJob(
+            source_filename="sweepshape-a.geojson",
+            file_path="",
+            status="running",
+            started_at=now,
+        )
+        abandoned = IngestJob(
+            source_filename="sweepshape-b.geojson",
+            file_path="",
+            status="pending",
+        )
+        test_db_session.add_all([mid_fetch, abandoned])
+        await test_db_session.flush()
+        # created_at is server-stamped; backdate both past any legal cutoff.
+        await test_db_session.execute(
+            sa_update(IngestJob)
+            .where(IngestJob.id.in_([mid_fetch.id, abandoned.id]))
+            .values(created_at=now - timedelta(days=1))
+        )
+
+        swept = (
+            (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(
+                        *stale_pending_clauses(now, completion_bound=False)
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert abandoned.id in swept  # the clause set does bite...
+        assert mid_fetch.id not in swept  # ...but not on the running row
+
+        # The running sweep judges by the lease, and started_at is fresh.
+        from sqlalchemy import func as sa_func
+
+        running_swept = (
+            (
+                await test_db_session.execute(
+                    select(IngestJob.id).where(
+                        IngestJob.status == "running",
+                        sa_func.coalesce(IngestJob.heartbeat_at, IngestJob.started_at)
+                        < now - timedelta(seconds=JOB_TIMEOUT_SECONDS),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert mid_fetch.id not in running_swept
+        await test_db_session.rollback()
+
+    async def test_external_flip_mid_fetch_is_surfaced_not_part_updated(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r2): the post-fetch transition is a guarded CAS.
+
+        The transport handler plays the reaper: it flips the row to 'failed'
+        mid-download through an independent session. The completion's
+        running->pending CAS then matches zero rows, and the endpoint must
+        surface that (409), delete the staged bytes, and leave the external
+        verdict untouched rather than part-updating a dead row.
+        """
+        from sqlalchemy import update as sa_update
+
+        async def handler(request: httpx.Request) -> httpx.Response:
+            import app.core.db as db_module
+
+            async with db_module.async_session() as s:
+                await s.execute(
+                    sa_update(IngestJob)
+                    .where(IngestJob.source_filename == "flip.geojson")
+                    .values(
+                        status="failed",
+                        error_message="Stale: reaped by test",
+                    )
+                )
+                await s.commit()
+            return httpx.Response(200, content=GEOJSON)
+
+        _install_transport(monkeypatch, handler)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/flip.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 409
+        assert "cancelled or timed out" in resp.json()["detail"]
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "flip.geojson")
+        )
+        job = result.scalar_one()
+        # The external verdict survives — not overwritten by the completion
+        # or by the failure-path stamp (both CAS from 'running' only).
+        assert job.status == "failed"
+        assert job.error_message == "Stale: reaped by test"

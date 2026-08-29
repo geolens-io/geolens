@@ -133,9 +133,19 @@ export function UrlImportForm() {
     const loadingLabel =
       step === 'fetching' ? t('urlImport.fetching') : t('urlImport.loadingPreview');
     return (
-      <div className="flex items-center gap-3 rounded-xl border border-border bg-card px-5 py-8 justify-center">
-        <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-        <span className="text-sm text-muted-foreground">{loadingLabel}</span>
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card px-5 py-8">
+        <div className="flex items-center gap-3">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+          <span className="text-sm text-muted-foreground">{loadingLabel}</span>
+        </div>
+        {step === 'fetching' && (
+          // fix(#1708 codex r2): the request legitimately stays open for the
+          // whole server-side download (up to 10 minutes) — say so instead
+          // of looking hung.
+          <p className="text-xs text-muted-foreground">
+            {t('urlImport.fetchingHint')}
+          </p>
+        )}
       </div>
     );
   }
