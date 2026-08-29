@@ -343,13 +343,35 @@ jobs:
               # release.yml's own "Assert semver-shaped tag" step is: a
               # 4-digit GSD milestone tag could in principle share a commit
               # with a real release.
-              TAG=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+              MATCHES=$(gh api "repos/${REPOSITORY}/tags" --paginate \
                 --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -1) || true
-              if [ -n "${TAG}" ]; then
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
+              MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
+              # A commit can carry MORE THAN ONE semver tag: promoting an
+              # unchanged release candidate straight to GA (no new commit)
+              # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
+              # `head -1` on the raw match list would arbitrarily pick
+              # whichever the tags API happened to list first — silently
+              # verifying the wrong one instead of failing loudly. Only
+              # trust the resolution when it's unambiguous (exactly one
+              # match); 0 or >1 falls back to VERIFY_VERSION=latest, same as
+              # a failed resolution already did. That fallback is exactly
+              # right for the >1 case specifically: the only realistic way
+              # to get here is an RC->GA promotion, and this Release-
+              # triggered run fires immediately after `gh release create`
+              # made the GA the newest release, so 'latest' resolves to
+              # precisely the release that was just promoted, by
+              # construction — no guessing needed. The earlier RC-only
+              # verify (back when this commit had just the one prerelease
+              # tag) already resolved and checked the RC correctly, so nothing
+              # is lost by falling back here.
+              if [ "${MATCH_COUNT}" -eq 1 ]; then
+                TAG="${MATCHES}"
                 echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
-              else
+              elif [ "${MATCH_COUNT}" -eq 0 ]; then
                 echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
+              else
+                echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); ambiguous (expected from an RC promoted unchanged to GA) — falling back to VERIFY_VERSION=latest, which resolves to the GA release this run just created"
               fi
               echo "hollow=false" >> "$GITHUB_OUTPUT"
             else
@@ -453,13 +475,35 @@ jobs:
               # release.yml's own "Assert semver-shaped tag" step is: a
               # 4-digit GSD milestone tag could in principle share a commit
               # with a real release.
-              TAG=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+              MATCHES=$(gh api "repos/${REPOSITORY}/tags" --paginate \
                 --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' | head -1) || true
-              if [ -n "${TAG}" ]; then
+                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
+              MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
+              # A commit can carry MORE THAN ONE semver tag: promoting an
+              # unchanged release candidate straight to GA (no new commit)
+              # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
+              # `head -1` on the raw match list would arbitrarily pick
+              # whichever the tags API happened to list first — silently
+              # verifying the wrong one instead of failing loudly. Only
+              # trust the resolution when it's unambiguous (exactly one
+              # match); 0 or >1 falls back to VERIFY_VERSION=latest, same as
+              # a failed resolution already did. That fallback is exactly
+              # right for the >1 case specifically: the only realistic way
+              # to get here is an RC->GA promotion, and this Release-
+              # triggered run fires immediately after `gh release create`
+              # made the GA the newest release, so 'latest' resolves to
+              # precisely the release that was just promoted, by
+              # construction — no guessing needed. The earlier RC-only
+              # verify (back when this commit had just the one prerelease
+              # tag) already resolved and checked the RC correctly, so nothing
+              # is lost by falling back here.
+              if [ "${MATCH_COUNT}" -eq 1 ]; then
+                TAG="${MATCHES}"
                 echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
-              else
+              elif [ "${MATCH_COUNT}" -eq 0 ]; then
                 echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
+              else
+                echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); ambiguous (expected from an RC promoted unchanged to GA) — falling back to VERIFY_VERSION=latest, which resolves to the GA release this run just created"
               fi
               echo "hollow=false" >> "$GITHUB_OUTPUT"
             else
