@@ -94,6 +94,7 @@ from app.processing.ingest.service import (
     validate_file_extension,
 )
 from app.processing.ingest.url_fetch import (
+    PREFLIGHT_DNS_MAX_SECONDS,
     STAGE_TOTAL_BUDGET_SECONDS,
     UrlFetchError,
     UrlFetchTooLargeError,
@@ -662,7 +663,27 @@ async def _stage_put_bounded(
     if remaining <= 0:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
     put_task = asyncio.create_task(_put_staging_object(s3_key, local_dest))
-    _done, pending = await asyncio.wait({put_task}, timeout=remaining)
+    # fix(#1708 codex r8): the reaper must exist from the moment the put
+    # task can outlive this coroutine. asyncio.wait does not cancel the
+    # task when IT is cancelled, so a request cancelled mid-wait (forced
+    # worker shutdown) previously escaped before the timeout branch ever
+    # installed the callback — the settle path then deleted the key while
+    # the upload was still in flight, and its late-landing object had no
+    # deleter. No await sits between create_task and this try, so every
+    # exit that leaves the task running installs the reaper first.
+    try:
+        _done, pending = await asyncio.wait({put_task}, timeout=remaining)
+    except BaseException:
+        if put_task.done():
+            # Retrieve so a failed upload does not log "never retrieved";
+            # the settle path deletes the key either way.
+            put_task.exception()
+        else:
+            put_task.add_done_callback(_abandoned_put_reaper(s3_key, job_id))
+            logger.warning(
+                "url_import_stage_put_abandoned", job_id=job_id, s3_key=s3_key
+            )
+        raise
     if pending:
         put_task.add_done_callback(_abandoned_put_reaper(s3_key, job_id))
         logger.warning("url_import_stage_put_abandoned", job_id=job_id, s3_key=s3_key)
@@ -935,13 +956,36 @@ async def upload_from_url(
         # fetch and the pre-fetch commit.
         await db.commit()
 
+        # fix(#1708 codex r8): the joint stage budget starts HERE, ahead of
+        # the preflight DNS, so every long operation in the request — DNS,
+        # fetch, staging put — runs inside one clock that fits the proxy
+        # deadline. The DB blocks before and after are short single-row
+        # transactions living in the budget's slack.
+        stage_deadline = time.monotonic() + STAGE_TOTAL_BUDGET_SECONDS
+
         # Rule 2, submission gate: refuse private/link-local/reserved targets
         # before any connection is attempted — and before any handler DB
-        # work, so the unbounded DNS resolution never overlaps a checked-out
+        # work, so the DNS resolution never overlaps a checked-out
         # connection (r4). The safe client re-validates at connect time and
         # per redirect hop during the fetch below.
+        # fix(#1708 codex r8): bounded at the call site — getaddrinfo has no
+        # deadline of its own and this was the one long operation outside
+        # every clock. wait_for cancels the to_thread wrapper immediately;
+        # the abandoned resolver thread ends when the OS resolver gives up
+        # (the same accepted pattern as an abandoned staging put).
         try:
-            await validate_url_for_ssrf(body.url)
+            await asyncio.wait_for(
+                validate_url_for_ssrf(body.url),
+                timeout=PREFLIGHT_DNS_MAX_SECONDS,
+            )
+        except TimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "DNS resolution for this URL did not finish within "
+                    f"{PREFLIGHT_DNS_MAX_SECONDS} seconds."
+                ),
+            ) from exc
         except SSRFError as exc:
             logger.warning(
                 "url_import_ssrf_blocked",
@@ -1008,10 +1052,6 @@ async def upload_from_url(
         local_dest = staging_dir / f"{job_id}_{filename}"
 
         s3_key: str | None = None
-        # fix(#1708 codex r7): the joint budget for fetch + sniff + staging
-        # put, measured from here. The fetch's own 480s cap runs inside it;
-        # the S3 put gets whatever remains.
-        stage_deadline = time.monotonic() + STAGE_TOTAL_BUDGET_SECONDS
         try:
             try:
                 actual_size = await fetch_url_to_path(

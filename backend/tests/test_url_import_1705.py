@@ -14,6 +14,7 @@ Covers the Rule 2 posture end to end without touching the network:
 
 import asyncio
 import inspect
+import time
 import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock
@@ -707,6 +708,14 @@ class TestUrlImportReaperInteraction:
         # transactions; and the fetch bound runs inside the joint budget.
         assert STAGE_TOTAL_BUDGET_SECONDS + 60 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
         assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
+        # fix(#1708 codex r8): the preflight DNS bound joined the budget —
+        # it now starts the clock, so a max-length resolution must still
+        # leave the fetch its full cap inside the joint budget.
+        from app.processing.ingest.url_fetch import PREFLIGHT_DNS_MAX_SECONDS
+
+        assert (
+            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_BUDGET_SECONDS
+        )
 
     async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
         self, client, test_db_session
@@ -1165,3 +1174,86 @@ class TestUrlImportS3Staging:
         release.set()
         await asyncio.sleep(0.05)
         assert len(reaper_cleanup.await_args_list) == settle_calls + 1
+
+
+# ---------------------------------------------------------------------------
+# Round-8 review findings (#1708): the preflight DNS bound, and the reaper
+# existing from the moment the put task does
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportPreflightDnsBound:
+    async def test_stalled_preflight_dns_fails_inside_a_bound(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r8): the submission-time getaddrinfo was the one
+        long operation outside every deadline. A validator that never
+        returns must now fail cleanly at the (patched) preflight bound, name
+        DNS as the cause, and leave no job row — the gate runs before any
+        job exists."""
+        monkeypatch.setattr("app.processing.ingest.router.PREFLIGHT_DNS_MAX_SECONDS", 1)
+
+        async def stalled_resolve(url: str) -> None:
+            await asyncio.sleep(30)  # cancelled by wait_for at the bound
+
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", stalled_resolve
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/dnsstall.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        assert "DNS" in resp.json()["detail"]
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "dnsstall.geojson")
+        )
+        assert result.scalar_one_or_none() is None
+
+
+class TestUrlImportPutReaperOnCancel:
+    async def test_cancelled_wait_still_installs_the_reaper(self, monkeypatch):
+        """fix(#1708 codex r8): a request cancelled while the put wait is
+        pending (forced worker shutdown) used to escape before the timeout
+        branch installed the reaper — the settle path then deleted the key
+        mid-upload and the late-landing object had no deleter. Unit-level:
+        cancel the waiter while the put is in flight, let the put land late,
+        and the reaper must still re-delete the key."""
+        from app.processing.ingest import router as router_module
+
+        release = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow_put(s3_key: str, local_dest: Path) -> None:
+            started.set()
+            await release.wait()
+
+        monkeypatch.setattr(router_module, "_put_staging_object", slow_put)
+        cleanup = AsyncMock()
+        monkeypatch.setattr(router_module, "_cleanup_saved_upload", cleanup)
+
+        waiter = asyncio.create_task(
+            router_module._stage_put_bounded(
+                "staging/jid/late.geojson",
+                Path("/tmp/lane2-nonexistent"),
+                # A generous deadline: the failure mode under test is
+                # cancellation DURING the wait, not the timeout branch.
+                time.monotonic() + 30,
+                "jid",
+            )
+        )
+        await started.wait()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+        # The put is still running (asyncio.wait never cancels it) and no
+        # cleanup has run yet.
+        cleanup.assert_not_awaited()
+        release.set()
+        await asyncio.sleep(0.05)
+        cleanup.assert_awaited_once_with("staging/jid/late.geojson", "jid")

@@ -58,6 +58,20 @@ EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 # transactions and response serialization.
 STAGE_TOTAL_BUDGET_SECONDS = 540
 
+# Bound on the submission-time SSRF preflight (validate_url_for_ssrf's
+# getaddrinfo). fix(#1708 codex r8): it was the one long operation left
+# outside every deadline — it runs before the fetch, so stalled DNS could
+# blow the proxy budget pre-fetch and pile up executor resolver threads
+# under load. Bounded AT THE CALL SITE (platform/security.py is shared
+# surface and stays untouched — see the note on #1710): asyncio.wait_for
+# cancels the to_thread wrapper, which returns immediately while the
+# resolver thread runs on until the OS resolver gives up — the same
+# accepted abandonment pattern as the staging put, with the thread's
+# lifetime bounded by the OS resolver's own timeouts. 30s dwarfs any
+# healthy resolution and fits inside the stage budget with the full fetch
+# cap intact (30 + 480 <= 540, pinned by the budget test).
+PREFLIGHT_DNS_MAX_SECONDS = 30
+
 # Wall-clock ceiling for one fetch. The per-chunk read timeout above cannot
 # bound TOTAL time: a server trickling one chunk every few seconds holds the
 # request coroutine open forever while staying inside every socket timeout.
@@ -241,6 +255,7 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
 __all__ = [
     "EDGE_PROXY_READ_TIMEOUT_SECONDS",
     "FETCH_MAX_SECONDS",
+    "PREFLIGHT_DNS_MAX_SECONDS",
     "STAGE_TOTAL_BUDGET_SECONDS",
     "FETCH_TIMEOUT",
     "SSRFError",

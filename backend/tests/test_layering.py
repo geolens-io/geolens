@@ -2697,7 +2697,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # quota check moved below the put so the post-stage transaction holds a
     # connection only for quota reads + CAS + commit. Cap 1985 -> 2069,
     # exact.
-    "backend/app/processing/ingest/router.py": 2102,
+    # fix(#1708 codex r8): +40 — the stage clock now starts BEFORE the
+    # preflight SSRF DNS, which is bounded at the call site with wait_for
+    # (the one long operation still outside every deadline), and
+    # _stage_put_bounded installs the abandonment reaper on ANY exit that
+    # leaves the put task running — including the waiter itself being
+    # cancelled mid-wait, which previously escaped before the timeout
+    # branch installed it. Cap 2069 -> 2109, exact.
+    "backend/app/processing/ingest/router.py": 2142,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
