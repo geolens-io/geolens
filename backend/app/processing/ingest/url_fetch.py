@@ -206,11 +206,34 @@ async def fetch_url_to_path(
                 async with asyncio.timeout(FETCH_MAX_SECONDS):
                     async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
                         # codeql[py/full-ssrf] fix(#1708): Rule 2 posture — validate_url_for_ssrf gates the URL at submission, and make_safe_client's transport re-resolves, validates, and pins the IP at connect time plus revalidates every redirect hop
-                        async with client.stream("GET", url) as response:
+                        # fix(#1708 codex r11): identity requested, enforced
+                        # below, and the loop reads aiter_raw — three layers
+                        # against compression bombs (see the loop comment).
+                        async with client.stream(
+                            "GET",
+                            url,
+                            headers={"Accept-Encoding": "identity"},
+                        ) as response:
                             if response.status_code >= 400:
                                 raise UrlFetchError(
                                     f"The server returned HTTP "
                                     f"{response.status_code} for this URL."
+                                )
+                            # fix(#1708 codex r11): a transport-compressed
+                            # response is refused by design. The staged file
+                            # must be the literal bytes the sniff and GDAL
+                            # will read, and decoding a caller-controlled
+                            # stream is exactly the bomb surface this closes.
+                            encoding = response.headers.get(
+                                "Content-Encoding", "identity"
+                            ).lower()
+                            if encoding not in ("", "identity"):
+                                raise UrlFetchError(
+                                    "The server sent a transport-compressed "
+                                    f"response (Content-Encoding: {encoding}). "
+                                    "URL imports require an uncompressed "
+                                    "transfer; the file itself may be any "
+                                    "supported format."
                                 )
                             declared = response.headers.get("Content-Length", "")
                             if declared.isdigit() and int(declared) > max_size_bytes:
@@ -221,8 +244,21 @@ async def fetch_url_to_path(
                             # so the handoff is not paid per httpx chunk.
                             # `bytes(buffer)` snapshots before the thread
                             # reads it, so the following `clear()` is safe.
+                            #
+                            # fix(#1708 codex r11): aiter_raw, NEVER
+                            # aiter_bytes. aiter_bytes transparently inflates
+                            # Content-Encoding gzip/br/zstd, so one wire
+                            # chunk from a caller-controlled origin could
+                            # materialize an unbounded intermediate `bytes`
+                            # BEFORE the size check ran — a compression bomb
+                            # against API memory despite the streaming cap.
+                            # With aiter_raw even an origin that lies about
+                            # its encoding can never route bytes through a
+                            # decompressor: the cap below provably measures
+                            # wire bytes, which (with identity enforced
+                            # above) are exactly the staged bytes.
                             buffer = bytearray()
-                            async for chunk in response.aiter_bytes(_CHUNK_SIZE):
+                            async for chunk in response.aiter_raw(_CHUNK_SIZE):
                                 total += len(chunk)
                                 if total > max_size_bytes:
                                     raise _size_cap_error(

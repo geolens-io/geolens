@@ -693,6 +693,53 @@ async def _stage_put_bounded(
     put_task.result()
 
 
+async def _url_import_transition_landed(job_id: uuid.UUID, staged_path: str) -> bool:
+    """Did the running->pending transition durably land despite the raise?
+
+    fix(#1708 codex r11): a commit whose acknowledgement is lost
+    (cancellation or connection loss while ``COMMIT`` is in flight) may have
+    been durably applied by PostgreSQL even though the await raised. Read
+    the row back on a FRESH session — the request session is mid-failure
+    and cannot be trusted to see anything. True means the job is live
+    catalog state: 'pending' and bound to exactly the staged path this
+    request wrote.
+
+    A probe that itself fails returns True — standing down. The asymmetry
+    is deliberate: standing down on a false positive orphans bytes that the
+    sweeps can reclaim, while proceeding on a false negative deletes data a
+    durable pending row points at, which nothing can reclaim.
+    """
+    # fix(#909)-style late bind so tests' engine patching is honored.
+    import app.core.db as db_module
+
+    from app.platform.jobs.models import IngestJob
+
+    try:
+        async with db_module.async_session() as probe:
+            row = (
+                await probe.execute(
+                    select(IngestJob.status, IngestJob.file_path).where(
+                        IngestJob.id == job_id
+                    )
+                )
+            ).one_or_none()
+    except BaseException:
+        logger.warning("url_import_commit_probe_failed", job_id=str(job_id))
+        return True
+    return row is not None and row.status == "pending" and row.file_path == staged_path
+
+
+async def _commit_staged_transition(db: AsyncSession) -> None:
+    """The final running->pending commit, as a named seam.
+
+    fix(#1708 codex r11): split out so tests can simulate the
+    ambiguous-commit shape — durable on the server, exception on the
+    acknowledgement — which cannot be produced through a real session on
+    demand. Production behavior is exactly ``db.commit()``.
+    """
+    await db.commit()
+
+
 async def _settle_failed_url_import(
     db: AsyncSession,
     exc: BaseException,
@@ -700,12 +747,22 @@ async def _settle_failed_url_import(
     job_id: uuid.UUID,
     s3_key: str | None,
     local_dest: Path,
+    staged_path: str | None = None,
 ) -> None:
     """Everything that must happen when the URL-import fetch path raises.
 
     Until the file_path commit, the request exclusively owns the staged
     bytes (the local file and, if the put ran, the S3 object) — nothing
     else references them, so both go before the exception propagates.
+
+    fix(#1708 codex r11): "until the file_path commit" is exactly why the
+    ambiguous-commit probe below must run first. If the raise came out of
+    that commit AFTER PostgreSQL durably applied it, the row is already
+    'pending' and bound to ``staged_path`` — the bytes are live catalog
+    state, deleting them would leave a durable pending job pointing at
+    nothing, and the failure CAS would match zero rows anyway. When the
+    probe says the transition landed, settlement stands down entirely: the
+    request lost only its response, not the job.
 
     fix(#1708 codex r5): cleanup is best-effort STRUCTURALLY. A cleanup step
     that raises (the NUL-path unlink was one instance) previously escaped
@@ -725,6 +782,16 @@ async def _settle_failed_url_import(
     from sqlalchemy import update as sa_update
 
     from app.platform.jobs.models import IngestJob
+
+    if staged_path is not None and await _url_import_transition_landed(
+        job_id, staged_path
+    ):
+        logger.warning(
+            "url_import_commit_ack_lost_but_landed",
+            job_id=str(job_id),
+            staged_path=staged_path,
+        )
+        return
 
     try:
         if s3_key is not None:
@@ -1072,6 +1139,7 @@ async def upload_from_url(
         staging_dir.mkdir(parents=True, exist_ok=True)
         local_dest = staging_dir / f"{job_id}_{filename}"
         s3_key: str | None = None
+        staged_path: str | None = None
 
         # fix(#1708 codex r2): the download runs under the RUNNING lease, not
         # as a bare 'pending' row. A committed 'pending' row with an empty
@@ -1204,10 +1272,15 @@ async def upload_from_url(
                         "file was downloading. Start a new import."
                     ),
                 )
-            await db.commit()
+            await _commit_staged_transition(db)
         except BaseException as exc:
             await _settle_failed_url_import(
-                db, exc, job_id=job_id, s3_key=s3_key, local_dest=local_dest
+                db,
+                exc,
+                job_id=job_id,
+                s3_key=s3_key,
+                local_dest=local_dest,
+                staged_path=staged_path,
             )
             raise
         if s3_key is not None:

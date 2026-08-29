@@ -66,7 +66,21 @@ def _install_transport(monkeypatch, handler, *, validate=None):
             result = handler(request)
             if inspect.isawaitable(result):
                 result = await result
-            return result
+            # fix(#1708 codex r11): the fetch reads aiter_raw (compression-
+            # bomb hardening), and a Response built with content=... has its
+            # stream pre-consumed — aiter_raw then raises StreamConsumed.
+            # Real network responses are always live streams, so rebuild
+            # content-shaped mock responses as streaming ones to keep the
+            # harness faithful to the wire.
+            try:
+                body = result.content
+            except httpx.ResponseNotRead:
+                return result  # already a streaming body
+            return httpx.Response(
+                result.status_code,
+                headers=result.headers,
+                stream=_StreamingBody(body),
+            )
 
         return httpx.AsyncClient(
             transport=httpx.MockTransport(_handle),
@@ -1458,3 +1472,128 @@ class TestUrlImportQuotaCappedStream:
         )
         job = result.scalar_one()
         assert job.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Round-11 review findings (#1708): compression bombs never reach a
+# decompressor, and an ambiguous final commit never deletes live bytes
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportCompressionRefusal:
+    async def test_compressed_response_refused_without_decoding(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r11): a Content-Encoding response is refused by
+        design, before any body handling. The body here is NOT valid gzip —
+        anything that routed it through a decompressor would raise
+        DecodingError instead of our deterministic refusal — and the request
+        must have asked for identity in the first place."""
+        # Built as a STREAM: httpx.Response(content=..., headers={CE: gzip})
+        # decodes at construction — inside the test handler, before any
+        # production code — which is itself a nice demonstration of the
+        # bomb surface. A real origin delivers a stream, so the mock does.
+        recorded = _install_transport(
+            monkeypatch,
+            lambda request: httpx.Response(
+                200,
+                headers={"Content-Encoding": "gzip"},
+                stream=_StreamingBody(b"\x00\x01not-gzip-at-all" * 64),
+            ),
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/bomb.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        assert "transport-compressed" in resp.json()["detail"]
+        # Belt: the request asked the origin for an uncompressed transfer.
+        assert recorded[0].headers.get("Accept-Encoding") == "identity"
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "bomb.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+        assert "transport-compressed" in (job.error_message or "")
+
+
+class TestUrlImportAmbiguousCommit:
+    async def test_ambiguous_commit_landed_stands_down(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r11): the final commit was durably applied but the
+        acknowledgement raised. Settlement must probe on a fresh session,
+        see the pending row bound to the staged path, and stand down — the
+        staged bytes survive, the row stays coherent, and only the response
+        is lost (500)."""
+
+        async def ack_lost(db) -> None:
+            await db.commit()  # durable on the server...
+            raise ConnectionError("ack lost after durable commit")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._commit_staged_transition", ack_lost
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/acklost.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 500  # the response is lost, not the job
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "acklost.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "pending"  # NOT flipped to failed
+        assert job.error_message is None
+        staged = Path(job.file_path)
+        assert staged.exists()  # the bytes were NOT deleted
+        assert staged.read_bytes() == GEOJSON
+
+    async def test_genuine_commit_failure_settles_normally(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The control: a commit that genuinely failed (rolled back server-
+        side) must settle exactly as before — staged bytes deleted, job
+        CAS-stamped failed."""
+
+        async def commit_failed(db) -> None:
+            await db.rollback()  # the server never applied it
+            raise ConnectionError("commit failed")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._commit_staged_transition", commit_failed
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/commitfail.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 500
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "commitfail.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+        assert job.error_message == "URL import failed"

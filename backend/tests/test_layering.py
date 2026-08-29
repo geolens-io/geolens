@@ -2716,7 +2716,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # sites (declared Content-Length and mid-stream count) name the quota
     # when the quota is what is capping. The post-stage byte-charged check
     # stays authoritative. Cap 2123 -> 2168, exact.
-    "backend/app/processing/ingest/router.py": 2201,
+    # fix(#1708 codex r11): +73 — the ambiguous-commit reconciliation: the
+    # final running->pending commit goes through the _commit_staged_
+    # transition seam, and _settle_failed_url_import probes a FRESH session
+    # first (_url_import_transition_landed) — when the commit durably landed
+    # despite a raised acknowledgement, settlement stands down instead of
+    # deleting bytes a live pending row points at. Probe failure errs
+    # toward standing down: orphaned bytes are sweepable, deleted catalog
+    # data is not. Cap 2168 -> 2241, exact.
+    "backend/app/processing/ingest/router.py": 2274,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
