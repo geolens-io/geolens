@@ -595,6 +595,66 @@ def _raster_stamped_metadata(
     return {**(user_metadata or {}), "file_type": "raster"}
 
 
+async def _settle_failed_url_import(
+    db: AsyncSession,
+    exc: BaseException,
+    *,
+    job_id: uuid.UUID,
+    s3_key: str | None,
+    local_dest: Path,
+) -> None:
+    """Everything that must happen when the URL-import fetch path raises.
+
+    Until the file_path commit, the request exclusively owns the staged
+    bytes (the local file and, if the put ran, the S3 object) — nothing
+    else references them, so both go before the exception propagates.
+
+    fix(#1708 codex r5): cleanup is best-effort STRUCTURALLY. A cleanup step
+    that raises (the NUL-path unlink was one instance) previously escaped
+    the handler's failure block before the failure CAS ran, stranding an
+    undiscoverable 'running' job for the full one-hour lease. That is a
+    shape, not an instance — any raising cleanup reintroduces it — so this
+    helper exists to make "cleanup can never preempt the stamp" a property
+    of the one function every failure goes through.
+
+    fix(#1708 codex P1/r2): the job row was committed before the fetch, so
+    a rollback no longer removes it. The stamp is a guarded CAS from
+    'running' only — zero rows means something external already settled the
+    row, and that verdict is never overwritten. Best-effort throughout:
+    never mask the original error, and a cancelled request may refuse the
+    awaits — then the running sweep's hour is the fallback.
+    """
+    from sqlalchemy import update as sa_update
+
+    from app.platform.jobs.models import IngestJob
+
+    try:
+        if s3_key is not None:
+            await _cleanup_saved_upload(s3_key, str(job_id))
+        # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see upload_from_url
+        local_dest.unlink(missing_ok=True)
+    except BaseException:
+        logger.warning("url_import_cleanup_failed", job_id=str(job_id))
+    try:
+        await db.rollback()
+        await db.execute(
+            sa_update(IngestJob)
+            .where(IngestJob.id == job_id, IngestJob.status == "running")
+            .values(
+                status="failed",
+                error_message=(
+                    str(exc.detail)
+                    if isinstance(exc, HTTPException)
+                    else "URL import failed"
+                ),
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    except BaseException:
+        logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
+
+
 def _url_import_filename(body: UrlUploadRequest) -> str:
     """The staging filename for a URL import, or the endpoint's 400/422.
 
@@ -620,6 +680,17 @@ def _url_import_filename(body: UrlUploadRequest) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid URL: {exc}",
         ) from exc
+    # fix(#1708 codex r5): NUL and other control characters survive percent-
+    # decoding ('/roads%00.geojson') or arrive verbatim in the override, and
+    # pass every suffix/allowlist check — the filesystem refuses them only at
+    # open(), which sits AFTER the running-commit, and the failed open's
+    # cleanup unlink then raised on the same invalid path. Refuse them here,
+    # before any job row exists.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in filename):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Filename contains control characters that are not allowed.",
+        )
     if not filename or not Path(filename).suffix:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -940,46 +1011,20 @@ async def upload_from_url(
                 )
             await db.commit()
         except BaseException as exc:
-            # Until the file_path commit above, this request exclusively owns
-            # the staged bytes (the local file and, if the put ran, the S3
-            # object) — nothing else references them, so both must go before
-            # the exception propagates.
-            if s3_key is not None:
-                await _cleanup_saved_upload(s3_key, str(job_id))
-            # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
-            local_dest.unlink(missing_ok=True)
-            # fix(#1708 codex P1): the job row was committed before the fetch,
-            # so a rollback no longer removes it. Stamp it failed with the
-            # refusal so status polling shows why, instead of leaving it under
-            # the running lease for an hour. Guarded CAS from 'running' only
-            # (codex r2): zero rows means something external already settled
-            # the row — never overwrite that verdict. Best-effort: never mask
-            # the original error, and a cancelled request may refuse the
-            # awaits — then the running sweep's hour is the fallback.
-            try:
-                await db.rollback()
-                await db.execute(
-                    sa_update(IngestJob)
-                    .where(IngestJob.id == job_id, IngestJob.status == "running")
-                    .values(
-                        status="failed",
-                        error_message=(
-                            str(exc.detail)
-                            if isinstance(exc, HTTPException)
-                            else "URL import failed"
-                        ),
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                )
-                await db.commit()
-            except BaseException:
-                logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
+            await _settle_failed_url_import(
+                db, exc, job_id=job_id, s3_key=s3_key, local_dest=local_dest
+            )
             raise
         if s3_key is not None:
             # S3 is the staging store; the local copy served content
-            # validation and has no further reader.
-            # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
-            local_dest.unlink(missing_ok=True)
+            # validation and has no further reader. Best-effort (r5): the job
+            # is committed and previewable — a failing local delete must not
+            # rewrite that success as a 500.
+            try:
+                # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
+                local_dest.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("url_import_cleanup_failed", job_id=str(job_id))
 
         logger.info(
             "url_import_staged",

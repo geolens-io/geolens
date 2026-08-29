@@ -2679,7 +2679,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # validator's unbounded getaddrinfo never overlaps a checked-out pool
     # connection (auth deps query on the same request-cached session, so a
     # reorder alone released nothing). Cap 1908 -> 1928, exact.
-    "backend/app/processing/ingest/router.py": 1961,
+    # fix(#1708 codex r5): +45 — control characters (NUL/C0/DEL) refused at
+    # filename derivation before any job row exists, and the failure path
+    # extracted into _settle_failed_url_import so a raising cleanup can
+    # never preempt the failure CAS (the stuck-running shape, not just the
+    # NUL instance); the post-success unlink went best-effort for the same
+    # reason. Cap 1928 -> 1973, exact.
+    "backend/app/processing/ingest/router.py": 2006,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

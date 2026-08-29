@@ -825,3 +825,133 @@ class TestUrlImportReaperInteraction:
         # or by the failure-path stamp (both CAS from 'running' only).
         assert job.status == "failed"
         assert job.error_message == "Stale: reaped by test"
+
+
+# ---------------------------------------------------------------------------
+# Round-5 review findings (#1708): filesystem-invalid names refused before a
+# job exists; the wall clock covering connect/headers; cleanup that can never
+# preempt the failure stamp
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportControlCharacters:
+    async def test_nul_in_url_path_rejected_before_job_creation(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#1708 codex r5): '/roads%00.geojson' decodes to a NUL-bearing
+        basename that passes the suffix/allowlist checks and blows up only at
+        open() — after the running-commit, with the cleanup unlink raising
+        again on the same path before the failure CAS. Exact payload; the
+        refusal must come before any job row exists (and before DNS — the
+        mock host does not resolve, so a 422 here proves the ordering)."""
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/nulname%00.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "control characters" in resp.json()["detail"]
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename.like("nulname%"))
+        )
+        assert result.scalar_one_or_none() is None
+
+    @pytest.mark.parametrize(
+        "override",
+        [
+            "roads\x00.geojson",  # embedded NUL, the reported payload
+            "roads\n.geojson",  # newline — C0 range
+            "roads\x7f.geojson",  # DEL
+        ],
+    )
+    async def test_control_chars_in_override_rejected(
+        self, client: AsyncClient, admin_auth_header: dict, override: str
+    ):
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={
+                "url": "https://files.example.test/download?id=9",
+                "filename": override,
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 422
+        assert "control characters" in resp.json()["detail"]
+
+
+class TestUrlImportWallClock:
+    async def test_stalled_connect_fails_inside_the_wall_clock(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r5): the deadline used to be polled only between
+        body chunks, so a stall during connect/DNS/headers ran outside it.
+        The transport here never yields a response until well past the
+        (patched) deadline — the request must still fail cleanly inside the
+        budget, with the job stamped failed and nothing left in staging."""
+        monkeypatch.setattr("app.processing.ingest.url_fetch.FETCH_MAX_SECONDS", 1)
+
+        async def stalled(request: httpx.Request) -> httpx.Response:
+            import asyncio
+
+            # Models an origin stalling before headers: nothing is produced
+            # until far beyond the wall clock.
+            await asyncio.sleep(10)
+            return httpx.Response(200, content=GEOJSON)  # pragma: no cover
+
+        _install_transport(monkeypatch, stalled)
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/stall.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        assert "did not finish" in resp.json()["detail"]
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "stall.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+
+
+class TestUrlImportCleanupHardening:
+    async def test_raising_cleanup_cannot_prevent_the_failure_stamp(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r5): the stuck-running SHAPE, not just the NUL
+        instance. Whatever makes a cleanup step raise, the failure CAS must
+        still run — here every unlink of this job's staged file throws, the
+        origin 404s, and the row must still land 'failed' with the real
+        refusal (not a cleanup artifact) while the client gets the 502."""
+        original_unlink = Path.unlink
+
+        def raising_unlink(self, *args, **kwargs):
+            if "cleanupboom" in self.name:
+                raise OSError("simulated cleanup failure")
+            return original_unlink(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", raising_unlink)
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(404, content=b"nope")
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/cleanupboom.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        assert "404" in resp.json()["detail"]
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "cleanupboom.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+        assert "404" in (job.error_message or "")

@@ -19,7 +19,8 @@ so all domain wiring (auth, quota, job rows) stays in the router, which
 already owns those edges.
 """
 
-import time
+import asyncio
+
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
@@ -138,7 +139,6 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
       other transport failure.
     """
     total = 0
-    deadline = time.monotonic() + FETCH_MAX_SECONDS
     # Synchronous open, mirroring save_upload_file: no cancellation point
     # between acquiring the descriptor and owning it.
     # codeql[py/path-injection] fix(#1708): dest's caller-influenced component is basename-stripped and byte-clamped (clamp_filename_bytes), rooted under upload_staging_dir
@@ -146,44 +146,62 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
     try:
         try:
             try:
-                async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
-                    # codeql[py/full-ssrf] fix(#1708): Rule 2 posture — validate_url_for_ssrf gates the URL at submission, and make_safe_client's transport re-resolves, validates, and pins the IP at connect time plus revalidates every redirect hop
-                    async with client.stream("GET", url) as response:
-                        if response.status_code >= 400:
-                            raise UrlFetchError(
-                                f"The server returned HTTP {response.status_code} "
-                                f"for this URL."
-                            )
-                        declared = response.headers.get("Content-Length", "")
-                        if declared.isdigit() and int(declared) > max_size_bytes:
-                            raise _size_cap_error(max_size_bytes)
-                        # Drained threaded writes (so a cancelled request
-                        # cannot leave a worker thread writing through an
-                        # unlinked descriptor), batched through a buffer so
-                        # the handoff is not paid per httpx chunk.
-                        # `bytes(buffer)` snapshots before the thread reads
-                        # it, so the following `clear()` is safe.
-                        buffer = bytearray()
-                        async for chunk in response.aiter_bytes(_CHUNK_SIZE):
-                            total += len(chunk)
-                            if total > max_size_bytes:
-                                raise _size_cap_error(max_size_bytes)
-                            if time.monotonic() > deadline:
+                # fix(#1708 codex r5): the wall clock wraps the ENTIRE
+                # request — connect-time DNS, TLS, headers, every redirect
+                # hop, and the body — not just the gaps between body chunks.
+                # The previous per-chunk elapsed check never ran while an
+                # origin stalled DNS or trickled headers under httpx's
+                # per-read timeout, so such an origin could hold the request
+                # past the edge proxy's 600s deadline. asyncio.timeout
+                # cancels the scope at the deadline (the drained threaded
+                # writes finish their in-flight chunk first, so no thread
+                # outlives the descriptor) and raises TimeoutError at exit,
+                # translated below. Same outer-deadline pattern as
+                # origin_probe.py, whose comment records that unlike httpx's
+                # phase timeouts it can expire during DNS resolution.
+                async with asyncio.timeout(FETCH_MAX_SECONDS):
+                    async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
+                        # codeql[py/full-ssrf] fix(#1708): Rule 2 posture — validate_url_for_ssrf gates the URL at submission, and make_safe_client's transport re-resolves, validates, and pins the IP at connect time plus revalidates every redirect hop
+                        async with client.stream("GET", url) as response:
+                            if response.status_code >= 400:
                                 raise UrlFetchError(
-                                    "The download did not finish within "
-                                    f"{FETCH_MAX_SECONDS // 60} minutes."
+                                    f"The server returned HTTP "
+                                    f"{response.status_code} for this URL."
                                 )
-                            buffer.extend(chunk)
-                            if len(buffer) >= _WRITE_BUFFER_BYTES:
+                            declared = response.headers.get("Content-Length", "")
+                            if declared.isdigit() and int(declared) > max_size_bytes:
+                                raise _size_cap_error(max_size_bytes)
+                            # Drained threaded writes (so a cancelled request
+                            # cannot leave a worker thread writing through an
+                            # unlinked descriptor), batched through a buffer
+                            # so the handoff is not paid per httpx chunk.
+                            # `bytes(buffer)` snapshots before the thread
+                            # reads it, so the following `clear()` is safe.
+                            buffer = bytearray()
+                            async for chunk in response.aiter_bytes(_CHUNK_SIZE):
+                                total += len(chunk)
+                                if total > max_size_bytes:
+                                    raise _size_cap_error(max_size_bytes)
+                                buffer.extend(chunk)
+                                if len(buffer) >= _WRITE_BUFFER_BYTES:
+                                    await run_in_thread_draining(f.write, bytes(buffer))
+                                    buffer.clear()
+                            if buffer:
                                 await run_in_thread_draining(f.write, bytes(buffer))
-                                buffer.clear()
-                        if buffer:
-                            await run_in_thread_draining(f.write, bytes(buffer))
             except SSRFError:
                 # A redirect hop or connect-time re-resolution was refused.
                 # Keep the class: the router maps it exactly like the
                 # submission-time refusal.
                 raise
+            except TimeoutError as exc:
+                # The outer wall clock above. Not an httpx class: httpx's
+                # phase timeouts subclass httpx.HTTPError and are translated
+                # below; this one can fire during DNS or header acquisition
+                # where no httpx timeout is running down.
+                raise UrlFetchError(
+                    "The download did not finish within "
+                    f"{FETCH_MAX_SECONDS // 60} minutes."
+                ) from exc
             except httpx.HTTPError as exc:
                 # Timeouts, DNS failures once past validation, TLS errors,
                 # protocol violations, too many redirects — all origin-side.
@@ -193,8 +211,14 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
     except BaseException:
         # Partial or refused download: remove the file before propagating.
         # Ordering matters — the descriptor was drained and closed above.
-        # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
-        dest.unlink(missing_ok=True)
+        # fix(#1708 codex r5): best-effort, so a path the filesystem refuses
+        # (or a transient FS error) cannot replace the real failure on its
+        # way to the caller's cleanup-then-stamp sequence.
+        try:
+            # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
+            dest.unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
         raise
     return total
 
