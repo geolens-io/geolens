@@ -28,7 +28,8 @@ from httpx import AsyncClient
 from sqlalchemy import select, update
 
 from app.modules.audit.models import AuditLog
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
+from app.platform.jobs.sweep import audit_settled_embedding_backfill
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.service import (
     ACTIVE_RUN_STATUSES,
@@ -275,6 +276,103 @@ class TestCancelEndpoint:
     async def test_cancel_unauthenticated_is_401(self, client: AsyncClient):
         resp = await client.post(f"/jobs/{uuid.uuid4()}/cancel")
         assert resp.status_code == 401
+
+
+async def _terminal_backfill_events(session, job_id) -> list[AuditLog]:
+    """Non-`requested` embedding.backfill rows for one job — the set the
+    partial unique index `uq_audit_logs_terminal_embedding_backfill` caps
+    at one."""
+    rows = await session.execute(
+        select(AuditLog).where(
+            AuditLog.action == "embedding.backfill",
+            AuditLog.details["job_id"].astext == str(job_id),
+            AuditLog.details["outcome"].astext != "requested",
+        )
+    )
+    return list(rows.scalars())
+
+
+class TestCancelEmbeddingBackfillAudit:
+    """fix(#1709 review r3): the job row and the backfill audit trail are
+    written together by whichever actor settles the job (sweep.py's rule).
+    A cancelled queued backfill never runs — the queue row is aborted or the
+    claim fails — so the cancel transaction is the only settling actor left."""
+
+    @staticmethod
+    def _backfill_metadata() -> dict:
+        return {
+            EMBEDDING_BACKFILL_METADATA_KEY: {
+                "force": False,
+                "operation_id": str(uuid.uuid4()),
+            }
+        }
+
+    async def test_cancel_of_queued_backfill_writes_the_terminal_event(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            user_metadata=self._backfill_metadata(),
+        )
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        events = await _terminal_backfill_events(test_db_session, job.id)
+        assert len(events) == 1
+        details = events[0].details
+        assert details["outcome"] == "failed"
+        assert details["error_code"] == "user_cancelled"
+        assert (
+            details["operation_id"]
+            == job.user_metadata[EMBEDDING_BACKFILL_METADATA_KEY]["operation_id"]
+        )
+
+    async def test_late_settle_after_cancel_loses_the_terminal_race(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Fence-loss coherence: a worker or sweeper settling AFTER the
+        cancel hits `uq_audit_logs_terminal_embedding_backfill` and is
+        contained — one terminal entry, and it is the cancel's."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            user_metadata=self._backfill_metadata(),
+        )
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+
+        # The late actor: same helper the sweeps use, different error code.
+        await audit_settled_embedding_backfill(
+            test_db_session,
+            job_id=job.id,
+            user_metadata=job.user_metadata,
+            created_by=job.created_by,
+            error_code="worker_lost",
+        )
+        await test_db_session.commit()
+
+        events = await _terminal_backfill_events(test_db_session, job.id)
+        assert len(events) == 1
+        assert events[0].details["error_code"] == "user_cancelled"
+
+    async def test_non_backfill_cancel_writes_no_backfill_event(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The settle is a marker-gated no-op for every other job kind."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+        assert await _terminal_backfill_events(test_db_session, job.id) == []
 
 
 class TestCancelAuthorization:

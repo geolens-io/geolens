@@ -1084,6 +1084,24 @@ async def cancel_job(
             # VRT state this job stranded and the job's terminal status land
             # together. The asset row lock above is already held.
             await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
+        # fix(#1709 review r3 P2): an embedding backfill's dispatch commits an
+        # `embedding.backfill` audit event at outcome="requested" alongside
+        # the job row, and sweep.py's rule is that the job row and the audit
+        # trail are written together by whichever actor settles the job. A
+        # cancelled queued backfill never runs (the claim fails, or the queue
+        # row is aborted before delivery), so no in-process path can ever
+        # close that trail — this settle is the only one left, exactly as it
+        # is for the lease-expiry and stale-pending sweeps above. No-op for
+        # every other job kind (marker check inside), SAVEPOINT-guarded so a
+        # worker that settles concurrently keeps the database-arbitrated
+        # one-terminal-entry invariant.
+        await audit_settled_embedding_backfill(
+            db,
+            job_id=job.id,
+            user_metadata=job.user_metadata,
+            created_by=job.created_by,
+            error_code="user_cancelled",
+        )
         await audit_emit(
             db,
             AuditEvent(
