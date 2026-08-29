@@ -369,14 +369,26 @@ jobs:
                 echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
               else
                 # Resolve deterministically via the releases API instead of
-                # guessing from tag semantics. The hollow-run check above
-                # already proved this run's "Create GitHub Release" job
-                # succeeded, so by construction it just created or updated
-                # exactly ONE release among these matched tags — that
-                # release is the newest one by created_at. This handles
-                # RC->GA promotion (the GA release is newest) AND an
-                # rc-recut (rc.2's release is newest) with no assumption
-                # about which case produced the ambiguity.
+                # guessing from tag semantics: look up each matched tag's
+                # release and take the one with the newest created_at. In
+                # the ordinary case that IS the release this run's own
+                # trigger chain just created or updated — true for both an
+                # RC->GA promotion (GA release is newest) and an rc-recut
+                # (rc.2's release is newest) — with no assumption about
+                # which case produced the ambiguity.
+                #
+                # One exotic case where it picks a DIFFERENT matched tag:
+                # a manual rerun of an OLDER tag's Release run, on a commit
+                # that has since gained a newer released sibling. `gh
+                # release edit` (release.yml's rerun-onto-an-existing-
+                # release path) never changes created_at, so the older
+                # tag's release stays older and the newer sibling still
+                # wins here. That's fine, not a miss: the older tag already
+                # got its own correct verification cycle when IT was the
+                # newest match, and re-checking one specific superseded tag
+                # on demand is what manual `workflow_dispatch -f
+                # version=vX.Y.Z` is for (it bypasses this resolution
+                # entirely) — not a job for the automatic trigger path.
                 #
                 # Looked up per-candidate (releases/tags/{tag}) rather than
                 # listing+filtering the full releases collection: there are
@@ -401,7 +413,7 @@ jobs:
                 done <<< "${MATCHES}"
                 if [ -n "${NEWEST_TAG}" ]; then
                   TAG="${NEWEST_TAG}"
-                  echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved via the releases API to the newest-created release: ${TAG} (created ${NEWEST_CREATED})"
+                  echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
                   echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
                 else
                   echo "::warning::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')) but none has a GitHub Release yet (unexpected — the release job just succeeded); falling back to VERIFY_VERSION=latest"
@@ -535,14 +547,26 @@ jobs:
                 echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
               else
                 # Resolve deterministically via the releases API instead of
-                # guessing from tag semantics. The hollow-run check above
-                # already proved this run's "Create GitHub Release" job
-                # succeeded, so by construction it just created or updated
-                # exactly ONE release among these matched tags — that
-                # release is the newest one by created_at. This handles
-                # RC->GA promotion (the GA release is newest) AND an
-                # rc-recut (rc.2's release is newest) with no assumption
-                # about which case produced the ambiguity.
+                # guessing from tag semantics: look up each matched tag's
+                # release and take the one with the newest created_at. In
+                # the ordinary case that IS the release this run's own
+                # trigger chain just created or updated — true for both an
+                # RC->GA promotion (GA release is newest) and an rc-recut
+                # (rc.2's release is newest) — with no assumption about
+                # which case produced the ambiguity.
+                #
+                # One exotic case where it picks a DIFFERENT matched tag:
+                # a manual rerun of an OLDER tag's Release run, on a commit
+                # that has since gained a newer released sibling. `gh
+                # release edit` (release.yml's rerun-onto-an-existing-
+                # release path) never changes created_at, so the older
+                # tag's release stays older and the newer sibling still
+                # wins here. That's fine, not a miss: the older tag already
+                # got its own correct verification cycle when IT was the
+                # newest match, and re-checking one specific superseded tag
+                # on demand is what manual `workflow_dispatch -f
+                # version=vX.Y.Z` is for (it bypasses this resolution
+                # entirely) — not a job for the automatic trigger path.
                 #
                 # Looked up per-candidate (releases/tags/{tag}) rather than
                 # listing+filtering the full releases collection: there are
@@ -567,7 +591,7 @@ jobs:
                 done <<< "${MATCHES}"
                 if [ -n "${NEWEST_TAG}" ]; then
                   TAG="${NEWEST_TAG}"
-                  echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved via the releases API to the newest-created release: ${TAG} (created ${NEWEST_CREATED})"
+                  echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
                   echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
                 else
                   echo "::warning::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')) but none has a GitHub Release yet (unexpected — the release job just succeeded); falling back to VERIFY_VERSION=latest"
