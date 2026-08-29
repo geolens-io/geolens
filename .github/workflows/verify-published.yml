@@ -352,101 +352,133 @@ jobs:
               # release.yml's own "Assert semver-shaped tag" step is: a
               # 4-digit GSD milestone tag could in principle share a commit
               # with a real release.
-              MATCHES=$(gh api "repos/${REPOSITORY}/tags" --paginate \
-                --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
-              MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
-              # A commit can carry MORE THAN ONE semver tag: promoting an
-              # unchanged release candidate straight to GA (no new commit)
-              # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
-              # `head -1` on the raw match list would arbitrarily pick
-              # whichever the tags API happened to list first — silently
-              # verifying the wrong one instead of failing loudly. Only
-              # trust the resolution outright when it's unambiguous
-              # (exactly one match). 0 matches falls back to
-              # VERIFY_VERSION=latest, same as a failed resolution always
-              # did. More than one match is resolved deterministically
-              # below rather than assumed to be an RC->GA promotion — that
-              # assumption doesn't hold for every ambiguous case: re-cutting
-              # `v1.17.0-rc.1` as `v1.17.0-rc.2` on an unchanged commit also
-              # lands here, and 'latest' would then silently verify the
-              # PREVIOUS GA (a prerelease never advances 'latest').
-              if [ "${MATCH_COUNT}" -eq 1 ]; then
-                TAG="${MATCHES}"
-                echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
-              elif [ "${MATCH_COUNT}" -eq 0 ]; then
-                echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
-              else
-                # Resolve deterministically via the releases API instead of
-                # guessing from tag semantics: look up each matched tag's
-                # release and take the one with the newest created_at. In
-                # the ordinary case that IS the release this run's own
-                # trigger chain just created or updated — true for both an
-                # RC->GA promotion (GA release is newest) and an rc-recut
-                # (rc.2's release is newest) — with no assumption about
-                # which case produced the ambiguity.
-                #
-                # One exotic case where it picks a DIFFERENT matched tag:
-                # a manual rerun of an OLDER tag's Release run, on a commit
-                # that has since gained a newer released sibling. `gh
-                # release edit` (release.yml's rerun-onto-an-existing-
-                # release path) never changes created_at, so the older
-                # tag's release stays older and the newer sibling still
-                # wins here. That's fine, not a miss: the older tag already
-                # got its own correct verification cycle when IT was the
-                # newest match, and re-checking one specific superseded tag
-                # on demand is what manual `workflow_dispatch -f
-                # version=vX.Y.Z` is for (it bypasses this resolution
-                # entirely) — not a job for the automatic trigger path.
-                #
-                # Looked up per-candidate (releases/tags/{tag}) rather than
-                # listing+filtering the full releases collection: there are
-                # only ever a couple of matched tags here, and
-                # `gh api --paginate` applies --jq PER PAGE, so an aggregate
-                # sort/max over the whole paginated list would silently
-                # pick the wrong answer across a page boundary instead of
-                # the true global newest.
-                NEWEST_TAG=""
-                NEWEST_CREATED=""
-                LOOKUP_FAILED=""
-                while IFS= read -r CANDIDATE; do
-                  [ -z "${CANDIDATE}" ] && continue
-                  # A candidate whose lookup fails is FLAGGED, never
-                  # silently skipped: selecting the newest among only the
-                  # tags that happened to resolve, while one candidate's
-                  # real status is unknown, is exactly the partial-data
-                  # selection this whole resolution exists to avoid (a
-                  # transient failure on the true-newest candidate would
-                  # verify its OLDER sibling green instead of falling back
-                  # loudly). One immediate retry first, since a transient
-                  # API hiccup shouldn't discard an otherwise-resolvable
-                  # selection over a single blip.
-                  if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
-                    if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
-                      LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
-                      continue
-                    fi
-                  fi
-                  if [ -z "${NEWEST_CREATED}" ] || [ "${CREATED}" \> "${NEWEST_CREATED}" ]; then
-                    NEWEST_CREATED="${CREATED}"
-                    NEWEST_TAG="${CANDIDATE}"
-                  fi
-                done <<< "${MATCHES}"
-                if [ -n "${LOOKUP_FAILED}" ]; then
-                  # Discard the partial selection entirely rather than
-                  # trusting NEWEST_TAG computed from incomplete data —
-                  # even if it's set, one candidate's real created_at was
-                  # never confirmed, so the "newest" claim can't be trusted.
-                  echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); refusing to select from a partial result — falling back to VERIFY_VERSION=latest"
-                elif [ -n "${NEWEST_TAG}" ]; then
-                  TAG="${NEWEST_TAG}"
-                  echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
-                  echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
-                else
-                  echo "::warning::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')) but none has a GitHub Release yet (unexpected — the release job just succeeded); falling back to VERIFY_VERSION=latest"
+              # One rule, applied at every query in this branch:
+              # resolution CONFIRMED (a query succeeded and found exactly
+              # what's needed) -> use it. Resolution confirmed ABSENT
+              # (queries succeeded, legitimately zero/no-candidate result)
+              # -> VERIFY_VERSION=latest, the pre-existing best-effort
+              # fallback. Resolution UNCONFIRMED (any query failed even
+              # after one retry) -> the loud skip (hollow=true), never
+              # 'latest' and never a guess from partial data. The tags
+              # query below is retried and its OWN success/failure is
+              # tracked separately from "found zero matches", so an API
+              # failure can no longer masquerade as a legitimately-empty
+              # result and flow into the latest fallback the way `|| true`
+              # on the raw pipeline used to let it.
+              UNCONFIRMED=false
+              if ! RAW_TAGS=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+                  --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" 2>&1); then
+                if ! RAW_TAGS=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+                    --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" 2>&1); then
+                  echo "::warning::could not query tags for commit ${SHA} after 2 attempts (gh api failed: ${RAW_TAGS}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
+                  UNCONFIRMED=true
                 fi
               fi
-              echo "hollow=false" >> "$GITHUB_OUTPUT"
+              if [ "${UNCONFIRMED}" != true ]; then
+                MATCHES=$(printf '%s\n' "${RAW_TAGS}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
+                MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
+                # A commit can carry MORE THAN ONE semver tag: promoting an
+                # unchanged release candidate straight to GA (no new commit)
+                # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
+                # `head -1` on the raw match list would arbitrarily pick
+                # whichever the tags API happened to list first — silently
+                # verifying the wrong one instead of failing loudly. Only
+                # trust the resolution outright when it's unambiguous
+                # (exactly one match). 0 matches is a CONFIRMED-ABSENT
+                # result (the tags query above already succeeded), so it
+                # falls back to VERIFY_VERSION=latest, the pre-existing
+                # best-effort semantics. More than one match is resolved
+                # deterministically below rather than assumed to be an
+                # RC->GA promotion — that assumption doesn't hold for every
+                # ambiguous case: re-cutting `v1.17.0-rc.1` as
+                # `v1.17.0-rc.2` on an unchanged commit also lands here, and
+                # 'latest' would then silently verify the PREVIOUS GA (a
+                # prerelease never advances 'latest').
+                if [ "${MATCH_COUNT}" -eq 1 ]; then
+                  TAG="${MATCHES}"
+                  echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
+                elif [ "${MATCH_COUNT}" -eq 0 ]; then
+                  echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
+                else
+                  # Resolve deterministically via the releases API instead of
+                  # guessing from tag semantics: look up each matched tag's
+                  # release and take the one with the newest created_at. In
+                  # the ordinary case that IS the release this run's own
+                  # trigger chain just created or updated — true for both an
+                  # RC->GA promotion (GA release is newest) and an rc-recut
+                  # (rc.2's release is newest) — with no assumption about
+                  # which case produced the ambiguity.
+                  #
+                  # One exotic case where it picks a DIFFERENT matched tag:
+                  # a manual rerun of an OLDER tag's Release run, on a commit
+                  # that has since gained a newer released sibling. `gh
+                  # release edit` (release.yml's rerun-onto-an-existing-
+                  # release path) never changes created_at, so the older
+                  # tag's release stays older and the newer sibling still
+                  # wins here. That's fine, not a miss: the older tag already
+                  # got its own correct verification cycle when IT was the
+                  # newest match, and re-checking one specific superseded tag
+                  # on demand is what manual `workflow_dispatch -f
+                  # version=vX.Y.Z` is for (it bypasses this resolution
+                  # entirely) — not a job for the automatic trigger path.
+                  #
+                  # Looked up per-candidate (releases/tags/{tag}) rather than
+                  # listing+filtering the full releases collection: there are
+                  # only ever a couple of matched tags here, and
+                  # `gh api --paginate` applies --jq PER PAGE, so an aggregate
+                  # sort/max over the whole paginated list would silently
+                  # pick the wrong answer across a page boundary instead of
+                  # the true global newest.
+                  NEWEST_TAG=""
+                  NEWEST_CREATED=""
+                  LOOKUP_FAILED=""
+                  while IFS= read -r CANDIDATE; do
+                    [ -z "${CANDIDATE}" ] && continue
+                    # A candidate whose lookup fails is FLAGGED, never
+                    # silently skipped: selecting the newest among only the
+                    # tags that happened to resolve, while one candidate's
+                    # real status is unknown, is exactly the partial-data
+                    # selection this whole resolution exists to avoid (a
+                    # transient failure on the true-newest candidate would
+                    # verify its OLDER sibling green instead of falling back
+                    # loudly). One immediate retry first, since a transient
+                    # API hiccup shouldn't discard an otherwise-resolvable
+                    # selection over a single blip.
+                    if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                      if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                        LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
+                        continue
+                      fi
+                    fi
+                    if [ -z "${NEWEST_CREATED}" ] || [ "${CREATED}" \> "${NEWEST_CREATED}" ]; then
+                      NEWEST_CREATED="${CREATED}"
+                      NEWEST_TAG="${CANDIDATE}"
+                    fi
+                  done <<< "${MATCHES}"
+                  if [ -n "${LOOKUP_FAILED}" ]; then
+                    # UNCONFIRMED, not ABSENT: at least one candidate's real
+                    # created_at was never confirmed, so any "newest" claim
+                    # can't be trusted. Skip loudly (same as the tags-query
+                    # and outer-guard-query failure paths) instead of
+                    # falling back to 'latest' the way this branch used to —
+                    # that was the same fail-open-on-unconfirmed-data class
+                    # already fixed for the other two queries in this file.
+                    echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
+                    UNCONFIRMED=true
+                  elif [ -n "${NEWEST_TAG}" ]; then
+                    TAG="${NEWEST_TAG}"
+                    echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
+                    echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "::warning::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')) but none has a GitHub Release yet (unexpected — the release job just succeeded); falling back to VERIFY_VERSION=latest"
+                  fi
+                fi
+              fi
+              if [ "${UNCONFIRMED}" = true ]; then
+                echo "hollow=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "hollow=false" >> "$GITHUB_OUTPUT"
+              fi
             else
               echo "::notice::triggering Release run created no release; nothing to verify (Create GitHub Release job conclusion: '${CONCLUSION:-absent}')"
               echo "hollow=true" >> "$GITHUB_OUTPUT"
@@ -557,101 +589,133 @@ jobs:
               # release.yml's own "Assert semver-shaped tag" step is: a
               # 4-digit GSD milestone tag could in principle share a commit
               # with a real release.
-              MATCHES=$(gh api "repos/${REPOSITORY}/tags" --paginate \
-                --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" \
-                | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
-              MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
-              # A commit can carry MORE THAN ONE semver tag: promoting an
-              # unchanged release candidate straight to GA (no new commit)
-              # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
-              # `head -1` on the raw match list would arbitrarily pick
-              # whichever the tags API happened to list first — silently
-              # verifying the wrong one instead of failing loudly. Only
-              # trust the resolution outright when it's unambiguous
-              # (exactly one match). 0 matches falls back to
-              # VERIFY_VERSION=latest, same as a failed resolution always
-              # did. More than one match is resolved deterministically
-              # below rather than assumed to be an RC->GA promotion — that
-              # assumption doesn't hold for every ambiguous case: re-cutting
-              # `v1.17.0-rc.1` as `v1.17.0-rc.2` on an unchanged commit also
-              # lands here, and 'latest' would then silently verify the
-              # PREVIOUS GA (a prerelease never advances 'latest').
-              if [ "${MATCH_COUNT}" -eq 1 ]; then
-                TAG="${MATCHES}"
-                echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
-              elif [ "${MATCH_COUNT}" -eq 0 ]; then
-                echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
-              else
-                # Resolve deterministically via the releases API instead of
-                # guessing from tag semantics: look up each matched tag's
-                # release and take the one with the newest created_at. In
-                # the ordinary case that IS the release this run's own
-                # trigger chain just created or updated — true for both an
-                # RC->GA promotion (GA release is newest) and an rc-recut
-                # (rc.2's release is newest) — with no assumption about
-                # which case produced the ambiguity.
-                #
-                # One exotic case where it picks a DIFFERENT matched tag:
-                # a manual rerun of an OLDER tag's Release run, on a commit
-                # that has since gained a newer released sibling. `gh
-                # release edit` (release.yml's rerun-onto-an-existing-
-                # release path) never changes created_at, so the older
-                # tag's release stays older and the newer sibling still
-                # wins here. That's fine, not a miss: the older tag already
-                # got its own correct verification cycle when IT was the
-                # newest match, and re-checking one specific superseded tag
-                # on demand is what manual `workflow_dispatch -f
-                # version=vX.Y.Z` is for (it bypasses this resolution
-                # entirely) — not a job for the automatic trigger path.
-                #
-                # Looked up per-candidate (releases/tags/{tag}) rather than
-                # listing+filtering the full releases collection: there are
-                # only ever a couple of matched tags here, and
-                # `gh api --paginate` applies --jq PER PAGE, so an aggregate
-                # sort/max over the whole paginated list would silently
-                # pick the wrong answer across a page boundary instead of
-                # the true global newest.
-                NEWEST_TAG=""
-                NEWEST_CREATED=""
-                LOOKUP_FAILED=""
-                while IFS= read -r CANDIDATE; do
-                  [ -z "${CANDIDATE}" ] && continue
-                  # A candidate whose lookup fails is FLAGGED, never
-                  # silently skipped: selecting the newest among only the
-                  # tags that happened to resolve, while one candidate's
-                  # real status is unknown, is exactly the partial-data
-                  # selection this whole resolution exists to avoid (a
-                  # transient failure on the true-newest candidate would
-                  # verify its OLDER sibling green instead of falling back
-                  # loudly). One immediate retry first, since a transient
-                  # API hiccup shouldn't discard an otherwise-resolvable
-                  # selection over a single blip.
-                  if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
-                    if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
-                      LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
-                      continue
-                    fi
-                  fi
-                  if [ -z "${NEWEST_CREATED}" ] || [ "${CREATED}" \> "${NEWEST_CREATED}" ]; then
-                    NEWEST_CREATED="${CREATED}"
-                    NEWEST_TAG="${CANDIDATE}"
-                  fi
-                done <<< "${MATCHES}"
-                if [ -n "${LOOKUP_FAILED}" ]; then
-                  # Discard the partial selection entirely rather than
-                  # trusting NEWEST_TAG computed from incomplete data —
-                  # even if it's set, one candidate's real created_at was
-                  # never confirmed, so the "newest" claim can't be trusted.
-                  echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); refusing to select from a partial result — falling back to VERIFY_VERSION=latest"
-                elif [ -n "${NEWEST_TAG}" ]; then
-                  TAG="${NEWEST_TAG}"
-                  echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
-                  echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
-                else
-                  echo "::warning::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')) but none has a GitHub Release yet (unexpected — the release job just succeeded); falling back to VERIFY_VERSION=latest"
+              # One rule, applied at every query in this branch:
+              # resolution CONFIRMED (a query succeeded and found exactly
+              # what's needed) -> use it. Resolution confirmed ABSENT
+              # (queries succeeded, legitimately zero/no-candidate result)
+              # -> VERIFY_VERSION=latest, the pre-existing best-effort
+              # fallback. Resolution UNCONFIRMED (any query failed even
+              # after one retry) -> the loud skip (hollow=true), never
+              # 'latest' and never a guess from partial data. The tags
+              # query below is retried and its OWN success/failure is
+              # tracked separately from "found zero matches", so an API
+              # failure can no longer masquerade as a legitimately-empty
+              # result and flow into the latest fallback the way `|| true`
+              # on the raw pipeline used to let it.
+              UNCONFIRMED=false
+              if ! RAW_TAGS=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+                  --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" 2>&1); then
+                if ! RAW_TAGS=$(gh api "repos/${REPOSITORY}/tags" --paginate \
+                    --jq ".[] | select(.commit.sha == \"${SHA}\") | .name" 2>&1); then
+                  echo "::warning::could not query tags for commit ${SHA} after 2 attempts (gh api failed: ${RAW_TAGS}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
+                  UNCONFIRMED=true
                 fi
               fi
-              echo "hollow=false" >> "$GITHUB_OUTPUT"
+              if [ "${UNCONFIRMED}" != true ]; then
+                MATCHES=$(printf '%s\n' "${RAW_TAGS}" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$') || true
+                MATCH_COUNT=$(printf '%s\n' "${MATCHES}" | grep -c . || true)
+                # A commit can carry MORE THAN ONE semver tag: promoting an
+                # unchanged release candidate straight to GA (no new commit)
+                # tags the SAME sha as both `v1.17.0-rc.1` and `v1.17.0`, and
+                # `head -1` on the raw match list would arbitrarily pick
+                # whichever the tags API happened to list first — silently
+                # verifying the wrong one instead of failing loudly. Only
+                # trust the resolution outright when it's unambiguous
+                # (exactly one match). 0 matches is a CONFIRMED-ABSENT
+                # result (the tags query above already succeeded), so it
+                # falls back to VERIFY_VERSION=latest, the pre-existing
+                # best-effort semantics. More than one match is resolved
+                # deterministically below rather than assumed to be an
+                # RC->GA promotion — that assumption doesn't hold for every
+                # ambiguous case: re-cutting `v1.17.0-rc.1` as
+                # `v1.17.0-rc.2` on an unchanged commit also lands here, and
+                # 'latest' would then silently verify the PREVIOUS GA (a
+                # prerelease never advances 'latest').
+                if [ "${MATCH_COUNT}" -eq 1 ]; then
+                  TAG="${MATCHES}"
+                  echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
+                elif [ "${MATCH_COUNT}" -eq 0 ]; then
+                  echo "::warning::could not resolve a semver tag for commit ${SHA}; falling back to VERIFY_VERSION=latest, which under-verifies a prerelease"
+                else
+                  # Resolve deterministically via the releases API instead of
+                  # guessing from tag semantics: look up each matched tag's
+                  # release and take the one with the newest created_at. In
+                  # the ordinary case that IS the release this run's own
+                  # trigger chain just created or updated — true for both an
+                  # RC->GA promotion (GA release is newest) and an rc-recut
+                  # (rc.2's release is newest) — with no assumption about
+                  # which case produced the ambiguity.
+                  #
+                  # One exotic case where it picks a DIFFERENT matched tag:
+                  # a manual rerun of an OLDER tag's Release run, on a commit
+                  # that has since gained a newer released sibling. `gh
+                  # release edit` (release.yml's rerun-onto-an-existing-
+                  # release path) never changes created_at, so the older
+                  # tag's release stays older and the newer sibling still
+                  # wins here. That's fine, not a miss: the older tag already
+                  # got its own correct verification cycle when IT was the
+                  # newest match, and re-checking one specific superseded tag
+                  # on demand is what manual `workflow_dispatch -f
+                  # version=vX.Y.Z` is for (it bypasses this resolution
+                  # entirely) — not a job for the automatic trigger path.
+                  #
+                  # Looked up per-candidate (releases/tags/{tag}) rather than
+                  # listing+filtering the full releases collection: there are
+                  # only ever a couple of matched tags here, and
+                  # `gh api --paginate` applies --jq PER PAGE, so an aggregate
+                  # sort/max over the whole paginated list would silently
+                  # pick the wrong answer across a page boundary instead of
+                  # the true global newest.
+                  NEWEST_TAG=""
+                  NEWEST_CREATED=""
+                  LOOKUP_FAILED=""
+                  while IFS= read -r CANDIDATE; do
+                    [ -z "${CANDIDATE}" ] && continue
+                    # A candidate whose lookup fails is FLAGGED, never
+                    # silently skipped: selecting the newest among only the
+                    # tags that happened to resolve, while one candidate's
+                    # real status is unknown, is exactly the partial-data
+                    # selection this whole resolution exists to avoid (a
+                    # transient failure on the true-newest candidate would
+                    # verify its OLDER sibling green instead of falling back
+                    # loudly). One immediate retry first, since a transient
+                    # API hiccup shouldn't discard an otherwise-resolvable
+                    # selection over a single blip.
+                    if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                      if ! CREATED=$(gh api "repos/${REPOSITORY}/releases/tags/${CANDIDATE}" --jq '.created_at' 2>/dev/null); then
+                        LOOKUP_FAILED="${LOOKUP_FAILED}${LOOKUP_FAILED:+ }${CANDIDATE}"
+                        continue
+                      fi
+                    fi
+                    if [ -z "${NEWEST_CREATED}" ] || [ "${CREATED}" \> "${NEWEST_CREATED}" ]; then
+                      NEWEST_CREATED="${CREATED}"
+                      NEWEST_TAG="${CANDIDATE}"
+                    fi
+                  done <<< "${MATCHES}"
+                  if [ -n "${LOOKUP_FAILED}" ]; then
+                    # UNCONFIRMED, not ABSENT: at least one candidate's real
+                    # created_at was never confirmed, so any "newest" claim
+                    # can't be trusted. Skip loudly (same as the tags-query
+                    # and outer-guard-query failure paths) instead of
+                    # falling back to 'latest' the way this branch used to —
+                    # that was the same fail-open-on-unconfirmed-data class
+                    # already fixed for the other two queries in this file.
+                    echo "::warning::could not confirm every matched tag's release for commit ${SHA} (lookup failed twice for: ${LOOKUP_FAILED}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
+                    UNCONFIRMED=true
+                  elif [ -n "${NEWEST_TAG}" ]; then
+                    TAG="${NEWEST_TAG}"
+                    echo "::notice::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')); resolved to the newest release among the matched tags: ${TAG} (created ${NEWEST_CREATED})"
+                    echo "resolved_version=${TAG}" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "::warning::commit ${SHA} matches ${MATCH_COUNT} semver tags ($(printf '%s' "${MATCHES}" | tr '\n' ' ')) but none has a GitHub Release yet (unexpected — the release job just succeeded); falling back to VERIFY_VERSION=latest"
+                  fi
+                fi
+              fi
+              if [ "${UNCONFIRMED}" = true ]; then
+                echo "hollow=true" >> "$GITHUB_OUTPUT"
+              else
+                echo "hollow=false" >> "$GITHUB_OUTPUT"
+              fi
             else
               echo "::notice::triggering Release run created no release; nothing to verify (Create GitHub Release job conclusion: '${CONCLUSION:-absent}')"
               echo "hollow=true" >> "$GITHUB_OUTPUT"
