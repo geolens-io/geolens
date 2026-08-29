@@ -2985,7 +2985,23 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # childless-fanned_out is the crash signature and nothing else's, and why
     # parents past the retention horizon belong to the purge instead.
     # Cap 1653 -> 1735, exact.
-    "backend/app/platform/jobs/sweep.py": 1735,
+    # fix(#1709 review r8 A): +17 — the recovery stops advertising a retry
+    # flow that does not exist. The settle now stamps
+    # FAN_OUT_INTERRUPTED_METADATA_KEY (which _retry_capability refuses on —
+    # generic retry would re-queue the multi-layer parent as ONE
+    # default-layer import) and the message names re-upload as the real
+    # path. Cap 1735 -> 1752, exact.
+    "backend/app/platform/jobs/sweep.py": 1752,
+    # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
+    # threshold at 1010 when refresh.cancelled attribution was corrected to
+    # name the CANCELLING user (cancel_active_run_for_job and
+    # _emit_refresh_cancelled thread `cancelled_by` through; the run row's
+    # immutable triggered_by mis-attributed exactly the arm-3 cross-user
+    # cancel this PR added, and most of the growth is the docstring saying
+    # why the dispatcher's identity belongs to refresh.dispatch instead).
+    # The module also carries #1677's cancel machinery from earlier rounds:
+    # USER_CANCELLED codes, _emit_refresh_cancelled, cancel_active_run_for_job.
+    "backend/app/platform/refresh/service.py": 1010,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side

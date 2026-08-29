@@ -436,6 +436,66 @@ class TestCancelAuthorization:
         assert job.status == "running"
 
 
+class TestCancelAuditAttribution:
+    async def test_cross_user_cancel_names_the_canceller_on_both_events(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#1709 review r8 B): `refresh.cancelled` is attributed to the
+        CANCELLING user, matching `job.cancel` in the same transaction —
+        not to the run's immutable triggered_by. The divergence shows in
+        exactly the arm-3 case this PR added: a dataset owner cancelling a
+        refresh an admin started. The dispatcher stays visible through
+        `refresh.dispatch`."""
+        headers, owner_id = await create_user(client, admin_auth_header, "editor")
+        owner_uuid = uuid.UUID(owner_id)
+        admin_id = await get_user_id(test_db_session, "admin")
+
+        dataset = await create_dataset(test_db_session, created_by=owner_uuid)
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            dataset_id=dataset.id,
+            user_metadata={"reupload": True, "dataset_id": str(dataset.id)},
+        )
+        run = await create_pending_run(
+            test_db_session,
+            dataset_id=dataset.id,
+            origin_kind="upload",
+            trigger="manual",
+            triggered_by=admin_id,  # the ADMIN started this refresh
+            ingest_job_id=job.id,
+            feature_count_before=1,
+        )
+        await test_db_session.commit()
+        assert await claim_run_for_job(test_db_session, job.id) == run.id
+        await test_db_session.commit()
+
+        # The owner cancels through arm 3.
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
+        assert resp.status_code == 200, resp.text
+
+        job_event = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "job.cancel",
+                    AuditLog.resource_id == job.id,
+                )
+            )
+        ).scalar_one()
+        run_event = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "refresh.cancelled",
+                    AuditLog.resource_id == dataset.id,
+                )
+            )
+        ).scalar_one()
+        assert job_event.user_id == owner_uuid
+        assert run_event.user_id == owner_uuid
+        assert run_event.user_id != admin_id
+
+
 class TestAnalysisWorkerBookkeepingFence:
     """fix(#1709 review r7 B): the analysis materialize is one CTAS awaited
     on asyncpg under SET LOCAL statement_timeout — a DELIVERED abort lands

@@ -27,6 +27,7 @@ from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
     IngestJob,
@@ -51,9 +52,13 @@ JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
 # is never touched.
 FAN_OUT_CHILDLESS_GRACE_SECONDS = 300
 
+# fix(#1709 review r8 A): the message must not advertise retry — generic
+# /jobs/{id}/retry re-queues the parent as ONE default-layer import (the
+# layer selection lived only in the fan-out request body), and retry is
+# refused outright on the marker below. Re-upload is the real path.
 FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE = (
     "Fan-out dispatch was interrupted before any layer was queued. "
-    "Retry the job, then commit the fan-out again."
+    "Re-upload the file to import its layers."
 )
 
 
@@ -1415,6 +1420,18 @@ async def fail_stale_jobs(
             status="failed",
             error_message=FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
             completed_at=now,
+            # fix(#1709 review r8 A): the marker _retry_capability refuses on.
+            # Generic retry of this parent would silently import ONE default
+            # layer of a multi-layer file; restore-to-pending is no better —
+            # the pending sweep's unbound clause keys on created_at, so any
+            # parent older than that cutoff would be re-reaped into the
+            # GENERIC failed message on the next pass, and the generic row
+            # retries into exactly that wrong import.
+            user_metadata=func.coalesce(
+                IngestJob.user_metadata, text("'{}'::jsonb")
+            ).op("||")(
+                text(f"'{{\"{FAN_OUT_INTERRUPTED_METADATA_KEY}\": true}}'::jsonb")
+            ),
         )
         .returning(IngestJob.id)
     )

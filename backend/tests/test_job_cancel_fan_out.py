@@ -394,7 +394,19 @@ class TestChildlessFannedOutSweep:
         await session.refresh(parent)
         return parent
 
-    async def test_crashed_dispatch_settles_failed_and_retryable(self, test_db_session):
+    async def test_crashed_dispatch_settles_failed_with_a_retry_refusal(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#1709 review r8 A): the recovered parent must never silently
+        import. Generic /jobs/{id}/retry re-queues a job as ONE
+        default-layer import — the fan-out's layer selection lived only in
+        the request body — so the sweep stamps a marker the retry
+        capability refuses on, and the message names the real path
+        (re-upload) instead of advertising a retry flow that doesn't
+        exist. (Pre-existing gap, inherited: the OLD ordering's crash aged
+        a pending parent into the same generic retryable-failed shape.)"""
+        from app.platform.jobs.models import FAN_OUT_INTERRUPTED_METADATA_KEY
+        from app.platform.jobs.router import get_retry_capability
         from app.platform.jobs.sweep import (
             FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
             fail_stale_jobs,
@@ -406,6 +418,24 @@ class TestChildlessFannedOutSweep:
         await test_db_session.refresh(parent)
         assert parent.status == "failed"
         assert parent.error_message == FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE
+        assert "Re-upload" in parent.error_message
+        assert "etry" not in parent.error_message  # no advertised retry flow
+        assert (parent.user_metadata or {}).get(
+            FAN_OUT_INTERRUPTED_METADATA_KEY
+        ) is True
+
+        # The capability the UI and the endpoint both read.
+        can_retry, reason = await get_retry_capability(parent)
+        assert can_retry is False
+        assert "Re-upload" in (reason or "")
+
+        # And the endpoint itself refuses — never a silent default-layer
+        # import of a multi-layer file.
+        resp = await client.post(f"/jobs/{parent.id}/retry", headers=admin_auth_header)
+        assert resp.status_code == 400
+        assert "Re-upload" in resp.json()["detail"]
+        await test_db_session.refresh(parent)
+        assert parent.status == "failed"
 
     async def test_grace_protects_a_dispatch_still_in_flight(self, test_db_session):
         from app.platform.jobs.sweep import fail_stale_jobs

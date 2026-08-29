@@ -29,7 +29,11 @@ from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
-from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
     JobCancelResponse,
@@ -443,6 +447,19 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         return (
             False,
             "Refresh runs cannot be replayed as imports. Refresh the dataset again from its source panel.",
+        )
+    if bool((job.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY)):
+        # fix(#1709 review r8 A): a fan-out parent whose dispatch crashed
+        # before any child was queued, settled by the stale sweep. Generic
+        # retry would re-queue this multi-layer parent as ONE default-layer
+        # import — the user's layer selection lived only in the fan-out
+        # request body and was never persisted — so the honest capability is
+        # a refusal naming the real path, exactly like the four sibling
+        # markers above and below.
+        return (
+            False,
+            "Fan-out dispatch was interrupted before any layer was queued. "
+            "Re-upload the file and select its layers again.",
         )
     if bool((job.user_metadata or {}).get("service_auth_required")):
         return (
@@ -1078,7 +1095,7 @@ async def cancel_job(
                 detail={"code": code, "status": job.status},
             )
 
-        run_id = await cancel_active_run_for_job(db, job.id)
+        run_id = await cancel_active_run_for_job(db, job.id, cancelled_by=user.id)
         if is_vrt_job:
             # fix(#1709 review P1): same transaction as the job CAS, so the
             # VRT state this job stranded and the job's terminal status land

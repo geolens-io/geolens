@@ -257,12 +257,28 @@ async def _emit_refresh_abandoned(session: AsyncSession, run_id: uuid.UUID) -> N
     )
 
 
-async def _emit_refresh_cancelled(session: AsyncSession, run_id: uuid.UUID) -> None:
+async def _emit_refresh_cancelled(
+    session: AsyncSession,
+    run_id: uuid.UUID,
+    *,
+    cancelled_by: uuid.UUID | None = None,
+) -> None:
     """Record an explicit user cancel (#1677).
 
     Deliberately not spelled ``refresh.abandoned``: that action is the
     sweep's bookkeeping correction for a task proven gone, while this one
     records a person asking in-flight work to stop.
+
+    fix(#1709 review r8 B): attributed to ``cancelled_by`` — the CANCELLING
+    user — not the run row's immutable ``triggered_by``. The two differ in
+    exactly the case the cancel design added authz arm 3 for: a dataset
+    owner cancelling a refresh someone else started. The dispatcher's
+    identity is not lost — ``refresh.dispatch`` already names it, and the
+    same ``job.cancel`` transaction names the canceller — so attributing
+    this event to the dispatcher would put an action in one user's history
+    that a different user performed. Falls back to the row's actor only
+    when no canceller is supplied (no such caller exists today; the default
+    keeps a future non-request caller from attributing to nobody).
     """
     from app.platform.audit import AuditEvent, audit_emit
 
@@ -273,7 +289,7 @@ async def _emit_refresh_cancelled(session: AsyncSession, run_id: uuid.UUID) -> N
     await audit_emit(
         session,
         AuditEvent(
-            user_id=actor,
+            user_id=cancelled_by if cancelled_by is not None else actor,
             action="refresh.cancelled",
             resource_type="dataset",
             resource_id=dataset_id,
@@ -511,6 +527,7 @@ async def cancel_active_run_for_job(
     ingest_job_id: uuid.UUID,
     *,
     error_message: str = USER_CANCELLED_ERROR_MESSAGE,
+    cancelled_by: uuid.UUID | None = None,
 ) -> uuid.UUID | None:
     """Finalize this job's active run as ``cancelled`` on a user's request.
 
@@ -539,7 +556,7 @@ async def cancel_active_run_for_job(
     )
     if not won:
         return None
-    await _emit_refresh_cancelled(session, run_id)
+    await _emit_refresh_cancelled(session, run_id, cancelled_by=cancelled_by)
     return run_id
 
 
