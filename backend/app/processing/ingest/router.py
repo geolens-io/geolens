@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -93,6 +94,7 @@ from app.processing.ingest.service import (
     validate_file_extension,
 )
 from app.processing.ingest.url_fetch import (
+    STAGE_TOTAL_BUDGET_SECONDS,
     UrlFetchError,
     UrlFetchTooLargeError,
     clamp_filename_bytes,
@@ -595,6 +597,81 @@ def _raster_stamped_metadata(
     return {**(user_metadata or {}), "file_type": "raster"}
 
 
+async def _put_staging_object(s3_key: str, local_dest: Path) -> None:
+    """Upload the staged local file to the S3 staging key.
+
+    Owns its file handle so the task is self-contained: if the bounded wait
+    in ``_stage_put_bounded`` abandons it at the deadline, the handle is
+    still closed by THIS task's finally when the SDK thread finishes — the
+    caller never closes a file a live upload thread is reading.
+    """
+    # codeql[py/path-injection] fix(#1708): the component is basename-stripped (safe_upload_basename/filename_from_url) and byte-clamped, rooted under upload_staging_dir
+    fh = open(local_dest, "rb")
+    try:
+        await _await_provider_call_draining(
+            get_storage().put(resolve_current_storage_key(s3_key), fh)
+        )
+    finally:
+        await run_in_thread_draining(fh.close)
+
+
+def _abandoned_put_reaper(s3_key: str, job_id: str):
+    """Done-callback for a staging put whose wait was abandoned at deadline.
+
+    The request has already answered 502 and ``_settle_failed_url_import``
+    already attempted an S3 delete — but that delete may have run BEFORE the
+    in-flight upload finished, in which case the late-landing object is an
+    orphan nothing references. Re-delete once the task actually completes.
+    ``_cleanup_saved_upload`` never raises; ``task.exception()`` is retrieved
+    first so a failed upload does not log "exception was never retrieved".
+    """
+
+    def _cb(task: "asyncio.Task") -> None:
+        exc = task.exception()
+        logger.warning(
+            "url_import_abandoned_put_finished",
+            job_id=job_id,
+            s3_key=s3_key,
+            outcome="failed" if exc is not None else "landed_late",
+        )
+        asyncio.ensure_future(_cleanup_saved_upload(s3_key, job_id))
+
+    return _cb
+
+
+async def _stage_put_bounded(
+    s3_key: str, local_dest: Path, stage_deadline: float, job_id: str
+) -> None:
+    """Run the staging put inside what remains of the stage budget.
+
+    fix(#1708 codex r7): the put is a blocking boto3 upload in a DRAINED
+    thread — cancelling it does not bound wall time, because the drain
+    deliberately blocks until the SDK thread finishes (storage/s3.py records
+    why that trade is right for cancellation). So the deadline here is a
+    bounded WAIT: at the budget's remainder the wait is abandoned — never
+    cancelled — the request answers a clean 502 inside the proxy deadline,
+    and the still-running task keeps its own file handle, stays bounded by
+    botocore's connect/read timeouts and 3 adaptive retries, and hands its
+    late-landing object (if any) to ``_abandoned_put_reaper`` for deletion.
+    """
+    remaining = stage_deadline - time.monotonic()
+    detail = (
+        "Staging the downloaded file did not finish within the time "
+        "budget. Try again, or upload the file directly."
+    )
+    if remaining <= 0:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+    put_task = asyncio.create_task(_put_staging_object(s3_key, local_dest))
+    _done, pending = await asyncio.wait({put_task}, timeout=remaining)
+    if pending:
+        put_task.add_done_callback(_abandoned_put_reaper(s3_key, job_id))
+        logger.warning("url_import_stage_put_abandoned", job_id=job_id, s3_key=s3_key)
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+    # Completed inside the budget: surface provider failures as themselves
+    # (the settle path stamps the job failed and the outer handler maps them).
+    put_task.result()
+
+
 async def _settle_failed_url_import(
     db: AsyncSession,
     exc: BaseException,
@@ -931,6 +1008,10 @@ async def upload_from_url(
         local_dest = staging_dir / f"{job_id}_{filename}"
 
         s3_key: str | None = None
+        # fix(#1708 codex r7): the joint budget for fetch + sniff + staging
+        # put, measured from here. The fetch's own 480s cap runs inside it;
+        # the S3 put gets whatever remains.
+        stage_deadline = time.monotonic() + STAGE_TOTAL_BUDGET_SECONDS
         try:
             try:
                 actual_size = await fetch_url_to_path(
@@ -959,9 +1040,6 @@ async def upload_from_url(
                     detail=str(exc),
                 ) from exc
 
-            # QUOTA-01 with the byte count that actually landed on disk.
-            await check_upload_quota(db, user.id, actual_size, request)
-
             # Same staged-file content sniff as a direct upload.
             try:
                 validate_file_content(str(local_dest), filename)
@@ -973,17 +1051,23 @@ async def upload_from_url(
 
             if settings.storage_provider == "s3":
                 s3_key = f"staging/{job_id}/{filename}"
-                # codeql[py/path-injection] fix(#1708): the component is basename-stripped (safe_upload_basename/filename_from_url) and byte-clamped, rooted under upload_staging_dir
-                fh = open(local_dest, "rb")
-                try:
-                    await _await_provider_call_draining(
-                        get_storage().put(resolve_current_storage_key(s3_key), fh)
-                    )
-                finally:
-                    await run_in_thread_draining(fh.close)
+                # fix(#1708 codex r7): bounded and connection-free. The put
+                # runs inside what remains of the stage budget (P1-B), and
+                # the byte-quota check moved BELOW it so no transaction is
+                # open across the potentially long provider upload (P1-A) —
+                # the post-stage transaction below holds a connection only
+                # for the quota reads, the CAS, and the commit.
+                await _stage_put_bounded(
+                    s3_key, local_dest, stage_deadline, str(job_id)
+                )
                 staged_path = s3_key
             else:
                 staged_path = str(local_dest)
+
+            # QUOTA-01 with the byte count that actually landed on disk —
+            # re-verified after the fetch/stage gap, in the same short
+            # transaction as the CAS so nothing long runs behind it.
+            await check_upload_quota(db, user.id, actual_size, request)
 
             # fix(#1708 codex r2): guarded CAS, running -> pending. Only the
             # row this request parked in 'running' may proceed to the

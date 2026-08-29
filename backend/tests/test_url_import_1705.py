@@ -12,6 +12,7 @@ Covers the Rule 2 posture end to end without touching the network:
   'pending', the file on local staging, and the raster stamp for .tif.
 """
 
+import asyncio
 import inspect
 import uuid
 from pathlib import Path
@@ -696,10 +697,16 @@ class TestUrlImportReaperInteraction:
         from app.processing.ingest.url_fetch import (
             EDGE_PROXY_READ_TIMEOUT_SECONDS,
             FETCH_MAX_SECONDS,
+            STAGE_TOTAL_BUDGET_SECONDS,
         )
 
         assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
         assert FETCH_MAX_SECONDS + 120 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+        # fix(#1708 codex r7): the JOINT budget (fetch + sniff + S3 staging
+        # put) also fits, with slack for the two short post-work
+        # transactions; and the fetch bound runs inside the joint budget.
+        assert STAGE_TOTAL_BUDGET_SECONDS + 60 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+        assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
 
     async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
         self, client, test_db_session
@@ -1023,3 +1030,138 @@ class TestUrlImportCleanupHardening:
         job = result.scalar_one()
         assert job.status == "failed"
         assert "404" in (job.error_message or "")
+
+
+# ---------------------------------------------------------------------------
+# Round-7 review findings (#1708): the S3-mode completions of the two
+# families — no connection held across the staging put, and the put bounded
+# inside the joint stage budget
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportS3Staging:
+    async def test_s3_success_path_stages_and_cas_transitions(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """S3 mode end to end with the provider stubbed: the bounded put
+        succeeds, the CAS lands the staging key, and the job is previewable."""
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        put_calls: list[tuple[str, str]] = []
+
+        async def fake_put(s3_key: str, local_dest: Path) -> None:
+            put_calls.append((s3_key, str(local_dest)))
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._put_staging_object", fake_put
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/s3ok.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        job = await _get_job(test_db_session, resp.json()["job_id"])
+        assert job.status == "pending"
+        assert job.file_path == f"staging/{job.id}/s3ok.geojson"
+        assert (job.user_metadata or {}).get("staged_at")
+        assert len(put_calls) == 1
+        # The local validation copy is deleted once S3 holds the bytes.
+        assert _staged_files() == []
+
+    async def test_put_runs_before_the_byte_quota_check(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r7 P1-A): pins the reorder. The byte-quota check
+        now runs AFTER the staging put, in the same short transaction as the
+        CAS — so no transaction is open across the provider upload. A put
+        that fails must therefore short-circuit before any byte-charged
+        quota call: only the pre-fetch count-cap call (0 bytes) may exist."""
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+
+        async def failing_put(s3_key: str, local_dest: Path) -> None:
+            raise RuntimeError("provider exploded")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._put_staging_object", failing_put
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.router._cleanup_saved_upload", AsyncMock()
+        )
+        quota_spy = AsyncMock()
+        monkeypatch.setattr(
+            "app.processing.ingest.router.check_upload_quota", quota_spy
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/quotaorder.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 500  # provider failure -> generic 500
+        # Only the pre-fetch count-cap call (incoming_bytes=0) ever ran; the
+        # byte-charged call sits behind the put and was never reached.
+        assert all(c.args[2] == 0 for c in quota_spy.await_args_list)
+
+    async def test_put_exceeding_the_stage_budget_is_a_clean_502(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r7 P1-B): a put that cannot finish inside what
+        remains of the joint stage budget is abandoned — clean 502 inside
+        the proxy deadline, job stamped failed, local staging cleaned, and
+        the late task handed to the reaper (its cleanup is invoked once the
+        put actually ends)."""
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(
+            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 1
+        )
+        release = asyncio.Event()
+        started = asyncio.Event()
+
+        async def slow_put(s3_key: str, local_dest: Path) -> None:
+            started.set()
+            await release.wait()
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._put_staging_object", slow_put
+        )
+        reaper_cleanup = AsyncMock()
+        monkeypatch.setattr(
+            "app.processing.ingest.router._cleanup_saved_upload", reaper_cleanup
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/slowput.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        assert "time" in resp.json()["detail"].lower()
+        assert started.is_set()
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "slowput.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+        # Let the abandoned task finish; the reaper then re-deletes the key.
+        settle_calls = len(reaper_cleanup.await_args_list)
+        release.set()
+        await asyncio.sleep(0.05)
+        assert len(reaper_cleanup.await_args_list) == settle_calls + 1

@@ -43,6 +43,21 @@ FETCH_TIMEOUT = httpx.Timeout(connect=10.0, read=30.0, write=10.0, pool=10.0)
 # for imports that genuinely need longer is the async fetch job (#1710).
 EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 
+# Joint budget for everything the synchronous request stages: fetch + content
+# sniff + (S3 mode) the staging put, measured from fetch start. fix(#1708
+# codex r7): FETCH_MAX_SECONDS bounds only the download — a valid
+# near-limit fetch followed by a slow remote-S3 upload still blew past the
+# proxy. The put is a blocking boto3 upload in a DRAINED thread
+# (storage/s3.py), so an asyncio.timeout around it would not bound wall
+# time (the drain absorbs cancellation until the SDK thread finishes);
+# the router instead waits on the put task only for the budget's remainder
+# and ABANDONS the wait at the deadline — the thread's own lifetime stays
+# bounded by botocore's connect_timeout=10/read_timeout=60/3 adaptive
+# retries, and a late-landing object is deleted by the abandonment reaper.
+# 540 leaves 60s of slack under the proxy for the two short post-work
+# transactions and response serialization.
+STAGE_TOTAL_BUDGET_SECONDS = 540
+
 # Wall-clock ceiling for one fetch. The per-chunk read timeout above cannot
 # bound TOTAL time: a server trickling one chunk every few seconds holds the
 # request coroutine open forever while staying inside every socket timeout.
@@ -226,6 +241,7 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
 __all__ = [
     "EDGE_PROXY_READ_TIMEOUT_SECONDS",
     "FETCH_MAX_SECONDS",
+    "STAGE_TOTAL_BUDGET_SECONDS",
     "FETCH_TIMEOUT",
     "SSRFError",
     "UrlFetchError",

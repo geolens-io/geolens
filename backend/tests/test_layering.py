@@ -2689,7 +2689,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # user_metadata.staged_at so stale_pending_clauses restarts the pending
     # review window at staging completion instead of letting the download
     # time eat it. Cap 1973 -> 1985, exact.
-    "backend/app/processing/ingest/router.py": 2018,
+    # fix(#1708 codex r7): +84 — the S3-mode completions of both families:
+    # the staging put moved into _put_staging_object/_stage_put_bounded (a
+    # bounded WAIT with abandonment, since the drained boto3 thread absorbs
+    # cancellation and an asyncio.timeout would not bound wall time) with
+    # _abandoned_put_reaper deleting a late-landing object, and the byte-
+    # quota check moved below the put so the post-stage transaction holds a
+    # connection only for quota reads + CAS + commit. Cap 1985 -> 2069,
+    # exact.
+    "backend/app/processing/ingest/router.py": 2102,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
