@@ -3257,7 +3257,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_records_still_empty` now locks the chunk's records FOR UPDATE and
     # `_reclaim_observed_rows` runs re-check, delete and commit per chunk in
     # one transaction. Cap 1527 -> 1555, exact.
-    "backend/app/processing/embeddings/backfill.py": 1555,
+    # fix(#1709 review r6): +33 — the cooperative per-batch stop: an opaque
+    # should_continue callback polled at each batch boundary before the
+    # provider call, so a user cancel whose best-effort queue abort was lost
+    # costs at most one batch of provider spend instead of the whole
+    # remaining catalog racing a successor run. Kept opaque here (the queued
+    # caller passes a fenced job-row read) because this module knows records
+    # and vectors, not jobs. Cap 1555 -> 1588, exact.
+    "backend/app/processing/embeddings/backfill.py": 1588,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The

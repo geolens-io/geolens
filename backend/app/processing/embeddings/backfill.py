@@ -1043,7 +1043,12 @@ async def _preflight_embedding(
         )
 
 
-async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> dict:
+async def backfill_embeddings(
+    session: AsyncSession,
+    *,
+    force: bool = False,
+    should_continue: Any = None,
+) -> dict:
     """Generate embeddings for records.
 
     Args:
@@ -1054,6 +1059,14 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
                transaction that writes the batch's new rows, so an aborted run
                leaves the records it reached rewritten and the rest exactly as
                they were. It no longer empties the table up front.
+        should_continue: Optional zero-argument async callable polled once per
+               batch, BEFORE that batch's provider call; a False answer stops
+               the run at the boundary (fix(#1709 review r6)). The queued-run
+               caller passes a fenced job-row read so a user cancel whose
+               best-effort queue abort was lost stops the run within one batch
+               of provider spend instead of the whole remaining catalog. Kept
+               opaque here on purpose: this module knows records and vectors,
+               not jobs.
 
     Returns:
         Dict with counts: processed, created, skipped, errors.
@@ -1303,6 +1316,26 @@ async def backfill_embeddings(session: AsyncSession, *, force: bool = False) -> 
     traced_errors: set[str] = set()
 
     for start in range(0, len(items), _BATCH_SIZE):
+        # fix(#1709 review r6): the cooperative stop for a run whose job was
+        # settled underneath it — a user cancel above all. Procrastinate's
+        # abort for an async task IS asyncio cancellation and needs no polling
+        # once the request reaches the worker; this check covers the request
+        # that never landed (the cancel endpoint's queue abort is best-effort
+        # by design — the DB CAS is the correctness mechanism). One indexed
+        # read per batch bounds the post-cancel overlap to a single batch of
+        # provider spend, instead of the whole remaining catalog running
+        # concurrently with a successor run admitted by the freed
+        # one-active-backfill slot. Before _raise_on_pin_drift so a stopped
+        # run does not pay even the config read.
+        if should_continue is not None and not await should_continue():
+            logger.warning(
+                "backfill_stopped_job_no_longer_running",
+                created=created,
+                errors=errors,
+                remaining=len(items) - start,
+            )
+            break
+
         # fix(#1525 review r4, codex P2): the pin protects each batch from the
         # config moving underneath it, but nothing was noticing that it HAD
         # moved. A run pinned to endpoint A that keeps going after the active
