@@ -474,3 +474,107 @@ class TestChildlessFannedOutSweep:
         survivor = await test_db_session.get(IngestJob, parent_id)
         # Deleted by retention — never relabeled `failed` by this clause.
         assert survivor is None
+
+
+class TestNeverQueuedChildRecovery:
+    """fix(#1709 review r9): a crash between a child's commit and its defer
+    leaves a never-queued pending CHILD — and the child, not the parent, is
+    the unit of recovery. The parent staying `fanned_out` (excluded forever
+    by the childless clause's NOT EXISTS) is correct: dispatch did create a
+    child, and the chain below recovers it without any re-upload.
+
+    The chain, pinned end to end:
+    1. The stale-pending sweep catches the child — it is the classic
+       stale-pending shape (pending, aging created_at, no live queue row)
+       and no clause excludes fan-out children.
+    2. Generic retry then imports the RIGHT layer, because the child is
+       different from the parent in exactly the way round 8 hinged on: its
+       layer selection was PERSISTED at clone time (create_fan_out_jobs
+       writes layer_name into the child's user_metadata), retry's reset
+       leaves user_metadata untouched, and the worker reads the layer from
+       the row (tasks_vector reads um["layer_name"]), not from task kwargs.
+    """
+
+    async def test_swept_child_retries_with_its_own_layer(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        tmp_path,
+    ):
+        from datetime import datetime, timedelta, timezone
+
+        from app.platform.jobs.router import get_retry_capability
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        # A real file so the retry capability's existence check passes.
+        shared_file = tmp_path / "multi.gpkg"
+        shared_file.write_bytes(b"not a real gpkg")
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        old = datetime.now(timezone.utc) - timedelta(hours=2)
+        parent = IngestJob(
+            source_filename="multi.gpkg",
+            file_path=str(shared_file),
+            status="fanned_out",
+            attempt_id=uuid.uuid4(),
+            created_by=admin_id,
+            created_at=old,
+            completed_at=old,
+            user_metadata={"all_layers": ["buildings", "roads"], "file_type": "vector"},
+        )
+        test_db_session.add(parent)
+        await test_db_session.flush()
+        # The never-queued child: committed by create_fan_out_jobs, then the
+        # process died before defer_with_orphan_guard ran. Local absolute
+        # file_path -> the unbound (1h) half of the pending sweep.
+        child = IngestJob(
+            source_filename="multi.gpkg",
+            file_path=str(shared_file),
+            status="pending",
+            attempt_id=uuid.uuid4(),
+            created_by=admin_id,
+            created_at=old,
+            user_metadata={
+                "all_layers": ["buildings", "roads"],
+                "file_type": "vector",
+                "layer_name": "roads",
+                "title": "multi: roads",
+                "fan_out_parent_id": str(parent.id),
+            },
+        )
+        test_db_session.add(child)
+        await test_db_session.commit()
+
+        # Link 1: the pending sweep settles the never-queued child...
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(child)
+        await test_db_session.refresh(parent)
+        assert child.status == "failed"
+        # ...and the parent is correctly untouched: it HAS a child, so the
+        # childless-recovery clause excludes it — the child is the unit.
+        assert parent.status == "fanned_out"
+
+        # Link 2: the swept child is retryable, unlike the round-8 parent.
+        can_retry, reason = await get_retry_capability(child)
+        assert can_retry is True, reason
+
+        async def _noop(fn, rollback=None, db=None):
+            pass
+
+        with patch(
+            "app.processing.ingest.service.defer_with_orphan_guard",
+            side_effect=_noop,
+        ):
+            resp = await client.post(
+                f"/jobs/{child.id}/retry", headers=admin_auth_header
+            )
+        assert resp.status_code == 202, resp.text
+
+        await test_db_session.refresh(child)
+        assert child.status == "pending"
+        # The layer selection survived the retry reset — this row is what
+        # the worker reads its layer from, so the re-run imports "roads",
+        # never a silent default layer.
+        assert (child.user_metadata or {}).get("layer_name") == "roads"
+        assert (child.user_metadata or {}).get("fan_out_parent_id") == str(parent.id)
