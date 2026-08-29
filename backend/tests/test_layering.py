@@ -2709,7 +2709,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and the settlement guard, stranding a running row for the lease), and
     # the INVARIANT comment at the seam: nothing executable may sit between
     # the running-commit and the guarded try. Cap 2109 -> 2123, exact.
-    "backend/app/processing/ingest/router.py": 2156,
+    # fix(#1708 codex r10): +45 — _effective_stream_cap: the fetch's byte
+    # cap becomes min(instance upload max, caller's remaining core byte
+    # quota), refusing at submission when nothing remains and threading a
+    # quota-shaped refusal detail through fetch_url_to_path so both cap
+    # sites (declared Content-Length and mid-stream count) name the quota
+    # when the quota is what is capping. The post-stage byte-charged check
+    # stays authoritative. Cap 2123 -> 2168, exact.
+    "backend/app/processing/ingest/router.py": 2201,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

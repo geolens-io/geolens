@@ -1306,3 +1306,155 @@ class TestUrlImportStagingDirFailure:
         # No stranded 'running' row — no row at all: the failure preceded
         # the commit, so the transaction rolled the INSERT back.
         assert result.scalar_one_or_none() is None
+
+
+# ---------------------------------------------------------------------------
+# Round-10 review finding (#1708): the stream cap honors the caller's
+# remaining byte quota, not just the instance upload max
+# ---------------------------------------------------------------------------
+
+
+def _usage(bytes_used: int, storage_cap: int):
+    from app.modules.quota.schemas import UserQuotaUsage
+
+    return UserQuotaUsage(
+        bytes_used=bytes_used,
+        dataset_count=0,
+        storage_cap=storage_cap,
+        count_cap=0,
+    )
+
+
+class TestUrlImportQuotaCappedStream:
+    async def test_at_cap_user_rejected_at_submission(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r10): zero remaining quota refuses BEFORE any
+        fetch — no bandwidth spent, no job row, no request to the origin."""
+        monkeypatch.setattr(
+            "app.processing.ingest.router.get_user_quota_usage",
+            AsyncMock(return_value=_usage(bytes_used=1000, storage_cap=1000)),
+        )
+        recorded = _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/atcap.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+        assert "Storage quota exceeded" in resp.json()["detail"]
+        assert recorded == []  # the origin was never contacted
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "atcap.geojson")
+        )
+        assert result.scalar_one_or_none() is None
+
+    async def test_near_cap_stream_cut_at_remaining_quota(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r10): the mid-stream cap is min(instance max,
+        remaining quota). 100 KB of quota left against a 192 KB body with no
+        Content-Length: the stream must be cut at the quota, with the
+        refusal naming the quota rather than the instance limit."""
+        monkeypatch.setattr(
+            "app.processing.ingest.router.get_user_quota_usage",
+            AsyncMock(
+                return_value=_usage(bytes_used=900 * 1024, storage_cap=1000 * 1024)
+            ),
+        )
+        chunks = [b"x" * (64 * 1024)] * 3  # 192 KB, no Content-Length
+        recorded = _install_transport(
+            monkeypatch,
+            lambda request: httpx.Response(200, stream=_StreamingBody(*chunks)),
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/nearcap.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+        assert "remaining storage quota" in resp.json()["detail"]
+        assert len(recorded) == 1  # the fetch started, then was cut
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "nearcap.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+        assert "remaining storage quota" in (job.error_message or "")
+
+    async def test_unlimited_quota_streams_under_the_instance_cap(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+    ):
+        """storage_cap == 0 means unlimited: the instance cap applies alone
+        and a normal import is untouched by the preflight derivation."""
+        monkeypatch.setattr(
+            "app.processing.ingest.router.get_user_quota_usage",
+            AsyncMock(return_value=_usage(bytes_used=10**12, storage_cap=0)),
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/unlimited.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+
+    async def test_post_download_check_still_authoritative_on_a_race(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r10): the preflight cap is advisory admission
+        control; the post-stage check stays authoritative. Quota consumed by
+        a concurrent actor DURING the fetch must still be caught by the
+        second (byte-charged) check, with the staged bytes cleaned up."""
+        from fastapi import HTTPException
+
+        calls = {"n": 0}
+
+        async def racing_quota(db_, user_id, incoming_bytes, request_):
+            calls["n"] += 1
+            if calls["n"] == 2:  # the post-stage byte-charged call
+                raise HTTPException(
+                    status_code=413,
+                    detail="Storage quota exceeded: raced during fetch",
+                )
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router.check_upload_quota", racing_quota
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/raced.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 413
+        assert "raced" in resp.json()["detail"]
+        assert calls["n"] == 2
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "raced.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"

@@ -753,6 +753,44 @@ async def _settle_failed_url_import(
         logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
 
 
+async def _effective_stream_cap(
+    db: AsyncSession, user_id: uuid.UUID, max_size_bytes: int
+) -> tuple[int, str | None]:
+    """The fetch's byte cap, and the quota-shaped refusal detail if it is
+    the quota rather than the instance limit doing the capping.
+
+    fix(#1708 codex r10): the effective stream cap is the SMALLER of the
+    instance upload max and the caller's remaining CORE byte quota. With
+    the instance-wide cap alone, a user at or near their storage cap could
+    spend instance-max bandwidth, staging disk, and a 480s request slot on
+    downloads the post-stage check is guaranteed to refuse — and an honest
+    at-cap user waited through the whole transfer for a 413 that was
+    knowable at submission. ``storage_cap == 0`` means unlimited (the
+    instance cap applies alone); zero remaining raises 413 here, before any
+    fetch. The post-stage byte-charged check remains authoritative for
+    races and the cloud entitlement seam, which this preflight does not
+    consult.
+    """
+    usage = await get_user_quota_usage(db, user_id)
+    if usage.storage_cap <= 0:
+        return max_size_bytes, None
+    remaining_quota = usage.storage_cap - usage.bytes_used
+    if remaining_quota <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"Storage quota exceeded: used {usage.bytes_used} of "
+                f"{usage.storage_cap} bytes"
+            ),
+        )
+    if remaining_quota < max_size_bytes:
+        return remaining_quota, (
+            "The remote file exceeds your remaining storage quota "
+            f"({remaining_quota / (1024 * 1024):.1f} MB left)."
+        )
+    return max_size_bytes, None
+
+
 def _url_import_filename(body: UrlUploadRequest) -> str:
     """The staging filename for a URL import, or the endpoint's 400/422.
 
@@ -1009,6 +1047,10 @@ async def upload_from_url(
         # is charged on the remote server's word.
         await check_upload_quota(db, user.id, 0, request)
 
+        effective_cap_bytes, cap_error_detail = await _effective_stream_cap(
+            db, user.id, max_size_bytes
+        )
+
         job = await create_ingest_job(db, filename, "", user.id)
         # Capture the scalars now (the flush inside create_ingest_job
         # populated job.id) and never touch the ORM instance again: the
@@ -1069,7 +1111,10 @@ async def upload_from_url(
         try:
             try:
                 actual_size = await fetch_url_to_path(
-                    body.url, local_dest, max_size_bytes
+                    body.url,
+                    local_dest,
+                    effective_cap_bytes,
+                    cap_error_detail=cap_error_detail,
                 )
             except UrlFetchTooLargeError as exc:
                 raise HTTPException(

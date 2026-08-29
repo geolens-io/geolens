@@ -143,14 +143,29 @@ def filename_from_url(url: str) -> str:
     return clamp_filename_bytes(Path(unquote(urlparse(url).path or "")).name)
 
 
-def _size_cap_error(max_size_bytes: int) -> UrlFetchTooLargeError:
+def _size_cap_error(
+    max_size_bytes: int, cap_error_detail: str | None = None
+) -> UrlFetchTooLargeError:
+    # fix(#1708 codex r10): when the effective cap is the caller's remaining
+    # byte quota rather than the instance limit, the refusal should say so —
+    # the caller passes the quota-shaped detail and both refusal sites
+    # (declared Content-Length and the mid-stream count) speak with one
+    # voice.
+    if cap_error_detail is not None:
+        return UrlFetchTooLargeError(cap_error_detail)
     return UrlFetchTooLargeError(
         f"The remote file exceeds the maximum allowed size "
         f"({max_size_bytes / (1024 * 1024):.1f} MB)."
     )
 
 
-async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
+async def fetch_url_to_path(
+    url: str,
+    dest: Path,
+    max_size_bytes: int,
+    *,
+    cap_error_detail: str | None = None,
+) -> int:
     """Stream ``url`` into ``dest`` under a hard size cap. Returns total bytes.
 
     The cap is enforced twice: a declared ``Content-Length`` above the cap is
@@ -199,7 +214,7 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
                                 )
                             declared = response.headers.get("Content-Length", "")
                             if declared.isdigit() and int(declared) > max_size_bytes:
-                                raise _size_cap_error(max_size_bytes)
+                                raise _size_cap_error(max_size_bytes, cap_error_detail)
                             # Drained threaded writes (so a cancelled request
                             # cannot leave a worker thread writing through an
                             # unlinked descriptor), batched through a buffer
@@ -210,7 +225,9 @@ async def fetch_url_to_path(url: str, dest: Path, max_size_bytes: int) -> int:
                             async for chunk in response.aiter_bytes(_CHUNK_SIZE):
                                 total += len(chunk)
                                 if total > max_size_bytes:
-                                    raise _size_cap_error(max_size_bytes)
+                                    raise _size_cap_error(
+                                        max_size_bytes, cap_error_detail
+                                    )
                                 buffer.extend(chunk)
                                 if len(buffer) >= _WRITE_BUFFER_BYTES:
                                     await run_in_thread_draining(f.write, bytes(buffer))
