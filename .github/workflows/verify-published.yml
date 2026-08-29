@@ -313,12 +313,21 @@ jobs:
           # The `gh api` call is wrapped in an `if` (rather than a bare
           # `CONCLUSION=$(...)` assignment) so a transient API error can't
           # kill this step under `bash -e` — that would turn a network blip
-          # into a NEW red check, the opposite of this guard's job. On a
-          # query failure this falls through to "not hollow" (run the real
-          # check below), which is exactly this workflow's behavior before
-          # this guard existed, not a new failure mode.
+          # into a NEW red check, the opposite of this guard's job. It gets
+          # one immediate retry (the `||` below); if BOTH attempts fail,
+          # this now fails CLOSED into a loud skip (hollow=true + a
+          # distinct ::warning::), not a proceed-with-latest fallback. That
+          # fallback used to be described as "this workflow's behavior
+          # before this guard existed" — that reference point no longer
+          # applies; the guard IS the behavior now, and proceeding against
+          # unconfirmed data (VERIFY_VERSION=latest, with no idea whether
+          # the real release is a GA or a prerelease) is exactly the
+          # fail-open-on-unconfirmed-data class this file already fixed
+          # once, in the tag-resolution loop below.
           if CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
-            --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
+              --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1) \
+            || CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
+              --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
             if [ "${CONCLUSION}" = "success" ]; then
               # Resolve the exact tag this run released rather than trusting
               # VERIFY_VERSION=latest: `latest` only ever tracks the newest
@@ -443,8 +452,8 @@ jobs:
               echo "hollow=true" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "::warning::could not query the triggering Release run's jobs (gh api failed: ${CONCLUSION}); proceeding with verification as if not hollow"
-            echo "hollow=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::could not confirm whether the triggering Release run (id ${RUN_ID}) actually created a release, after 2 attempts (gh api failed: ${CONCLUSION}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
+            echo "hollow=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: docker pull published GHCR images
@@ -509,12 +518,21 @@ jobs:
           # The `gh api` call is wrapped in an `if` (rather than a bare
           # `CONCLUSION=$(...)` assignment) so a transient API error can't
           # kill this step under `bash -e` — that would turn a network blip
-          # into a NEW red check, the opposite of this guard's job. On a
-          # query failure this falls through to "not hollow" (run the real
-          # check below), which is exactly this workflow's behavior before
-          # this guard existed, not a new failure mode.
+          # into a NEW red check, the opposite of this guard's job. It gets
+          # one immediate retry (the `||` below); if BOTH attempts fail,
+          # this now fails CLOSED into a loud skip (hollow=true + a
+          # distinct ::warning::), not a proceed-with-latest fallback. That
+          # fallback used to be described as "this workflow's behavior
+          # before this guard existed" — that reference point no longer
+          # applies; the guard IS the behavior now, and proceeding against
+          # unconfirmed data (VERIFY_VERSION=latest, with no idea whether
+          # the real release is a GA or a prerelease) is exactly the
+          # fail-open-on-unconfirmed-data class this file already fixed
+          # once, in the tag-resolution loop below.
           if CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
-            --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
+              --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1) \
+            || CONCLUSION=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/jobs" \
+              --jq '.jobs[] | select(.name == "Create GitHub Release") | .conclusion' 2>&1); then
             if [ "${CONCLUSION}" = "success" ]; then
               # Resolve the exact tag this run released rather than trusting
               # VERIFY_VERSION=latest: `latest` only ever tracks the newest
@@ -639,8 +657,8 @@ jobs:
               echo "hollow=true" >> "$GITHUB_OUTPUT"
             fi
           else
-            echo "::warning::could not query the triggering Release run's jobs (gh api failed: ${CONCLUSION}); proceeding with verification as if not hollow"
-            echo "hollow=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::could not confirm whether the triggering Release run (id ${RUN_ID}) actually created a release, after 2 attempts (gh api failed: ${CONCLUSION}); skipping verification rather than proceeding against an unconfirmed VERIFY_VERSION=latest. Re-verify explicitly once the API is healthy: gh workflow run verify-published.yml -f version=vX.Y.Z"
+            echo "hollow=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Check release exists
