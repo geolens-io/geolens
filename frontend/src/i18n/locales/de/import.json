@@ -220,6 +220,7 @@
     "commitFailed": "Import konnte nicht gestartet werden",
     "importStarted": "Import gestartet",
     "startOver": "Neu beginnen",
+    "importAnother": "Weiteren Import starten",
     "layerLabel": "Layer"
   },
   "register": {

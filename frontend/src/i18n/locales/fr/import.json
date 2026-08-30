@@ -220,6 +220,7 @@
     "commitFailed": "Échec du lancement de l'importation",
     "importStarted": "Importation lancée",
     "startOver": "Recommencer",
+    "importAnother": "Importer un autre",
     "layerLabel": "Couche"
   },
   "register": {

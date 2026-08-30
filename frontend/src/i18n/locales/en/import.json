@@ -232,6 +232,7 @@
     "commitFailed": "Failed to start import",
     "importStarted": "Import started",
     "startOver": "Start Over",
+    "importAnother": "Import another",
     "layerLabel": "Layer"
   },
   "rail": {

@@ -220,6 +220,7 @@
     "commitFailed": "Error al iniciar la importación",
     "importStarted": "Importación iniciada",
     "startOver": "Empezar de nuevo",
+    "importAnother": "Importar otro",
     "layerLabel": "Capa"
   },
   "register": {

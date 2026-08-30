@@ -11,6 +11,7 @@ import {
   startUrlImport,
   type UrlImportSession,
 } from '@/api/url-import-session';
+import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import type {
   CommitImportRequest,
   FilePreviewResponse,
@@ -52,6 +53,8 @@ export function UrlImportForm() {
     FilePreviewResponse | RasterPreviewResponse | null
   >(null);
   const [error, setError] = useState<string | null>(null);
+  // fix(#1708 codex r22): survives a resume, where previewData does not.
+  const [isRaster, setIsRaster] = useState(false);
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -60,7 +63,13 @@ export function UrlImportForm() {
     };
   }, []);
 
+  // fix(#1708 codex r22): reset is available from every TERMINAL state and
+  // refuses only while an uncancellable operation is in flight — clearing
+  // the session mid-commit orphans a commit that then succeeds untracked.
+  // The controls that call this are disabled in that window; the guard is
+  // here too so the rule holds regardless of which caller is wired up.
   const reset = () => {
+    if (step === 'committing' || step === 'resuming') return;
     clearUrlImport();
     setStep('idle');
     setUrl('');
@@ -113,6 +122,10 @@ export function UrlImportForm() {
     [t],
   );
 
+  // Shares JobProgress's query key, so this is the same cached poll rather
+  // than a second one. Only used to decide which controls to offer.
+  const { data: trackedJob } = useJobStatus(step === 'tracking' ? jobId : null);
+
   // fix(#1708 codex r21): SUBSCRIBE to the commit rather than sampling a
   // flag. r20 stored a boolean set before the await, so a mount arriving
   // mid-commit read "committed" and entered tracking; a commit that then
@@ -159,6 +172,7 @@ export function UrlImportForm() {
     const session = peekUrlImport();
     if (!session) return;
     if (session.commit && session.jobId) {
+      setIsRaster(session.isRaster);
       void runResumedCommit(session.commit, session.jobId);
       return;
     }
@@ -210,7 +224,9 @@ export function UrlImportForm() {
         jobId,
         layerName ? { ...metadata, layer_name: layerName } : metadata,
       );
-      attachUrlImportCommit(commitPromise);
+      const raster = isRasterPreview(previewData);
+      setIsRaster(raster);
+      attachUrlImportCommit(commitPromise, raster);
       await commitPromise;
       if (!mountedRef.current) return;
       setStep('tracking');
@@ -286,7 +302,11 @@ export function UrlImportForm() {
           detectedGeometryType={fp?.geometry_type}
           detectedGeometryColumns={fp?.detected_geometry_columns}
         />
-        <Button variant="outline" onClick={reset}>
+        <Button
+          variant="outline"
+          onClick={reset}
+          disabled={step === 'committing'}
+        >
           {t('urlImport.startOver')}
         </Button>
       </div>
@@ -295,7 +315,21 @@ export function UrlImportForm() {
 
   // ── Job tracking ──
   if (step === 'tracking' && jobId) {
-    return <JobProgress jobId={jobId} onReset={reset} isRasterEntry={previewData ? isRasterPreview(previewData) : false} />;
+    return (
+      <div className="space-y-4">
+        <JobProgress jobId={jobId} onReset={reset} isRasterEntry={isRaster} />
+        {/* fix(#1708 codex r22): JobProgress only offers its own start-over
+            on a FAILED job, so a successful import left the tab pinned to
+            that completed job with no way to run a second one. Reset has to
+            be reachable from every terminal state; the failed case is
+            already covered inside JobProgress and calls this same handler. */}
+        {trackedJob?.status === 'complete' && (
+          <Button variant="outline" onClick={reset}>
+            {t('urlImport.importAnother')}
+          </Button>
+        )}
+      </div>
+    );
   }
 
   // ── Idle — URL input form ──
