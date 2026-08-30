@@ -2788,6 +2788,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lease already owns it. An unexplained asymmetry is what invites the
     # next round, so the trade is written down with its expiry condition.
     # Cap 2482 -> 2511, exact.
+    # RECONCILED at the #1708/#1709 merge: both PRs raised this cap in
+    # parallel off the same 1584 baseline — #1709 to 1617 (the fan-out
+    # parent claim moving before dispatch), #1708 to 2511 (everything
+    # above). Neither number survives having both applied, so the cap is
+    # measured off the merged file rather than composed from either lane's
+    # arithmetic. 2511 + #1709's 33 = 2544, exact.
     "backend/app/processing/ingest/router.py": 2544,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
@@ -3144,6 +3150,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # every row without the key (all other flows) ages from created_at
     # exactly as before. Mostly the comment recording why this is a restart
     # and not an exemption. Cap 1653 -> 1682, exact.
+    # RECONCILED at the #1708/#1709 merge: both raised this cap off the same
+    # 1653 baseline — #1709 to 1763, #1708 to 1682 — so the cap is measured
+    # off the merged file. 1763 + #1708's 29 = 1792, exact.
     "backend/app/platform/jobs/sweep.py": 1792,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
