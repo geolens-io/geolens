@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { reportNetworkError } from '@/lib/report';
 import type {
   UploadResponse,
+  JobCancelResponse,
   JobStatusResponse,
   FilePreviewResponse,
   CommitImportRequest,
@@ -209,6 +210,15 @@ export async function commitImport(
 
 export async function retryJob(jobId: string): Promise<UploadResponse> {
   return apiFetch<UploadResponse>(`/jobs/${jobId}/retry`, {
+    method: 'POST',
+  });
+}
+
+// feat(#1677): one-click cancel for a pending/running job. The backend CASes
+// the job row (and its bound refresh run) to `cancelled` and commits before
+// the best-effort queue abort, so a 200 here is durable.
+export async function cancelJob(jobId: string): Promise<JobCancelResponse> {
+  return apiFetch<JobCancelResponse>(`/jobs/${jobId}/cancel`, {
     method: 'POST',
   });
 }

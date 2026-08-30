@@ -2,10 +2,16 @@ import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 import { AlertCircle, Loader2 } from 'lucide-react';
-import { useDatasetRefreshRuns, useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
+import { toast } from 'sonner';
+import {
+  useCancelRefreshJob,
+  useDatasetRefreshRuns,
+  useDatasetVersions,
+} from '@/components/dataset/hooks/use-dataset';
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -40,6 +46,12 @@ export interface SourcePanelProps {
    *  source" action here, gated on canEdit and a resolvable origin). The
    *  read-only #1225 integration passed nothing. */
   actions?: ReactNode;
+  /** feat(#1677): the same owner-or-admin signal that gates the injected
+   *  refresh action, minus the origin gate — cancel rights are a superset
+   *  of refresh rights on this surface (a run can be in flight on a dataset
+   *  whose origin no longer resolves). Gates the Cancel button on the
+   *  active run row in the refresh history. */
+  canEdit?: boolean;
 }
 
 type PointerField = {
@@ -273,9 +285,10 @@ function SourceHistory({ dataset }: { dataset: DatasetResponse }) {
  * see the dataset at all; the backend redacts triggered_by/error detail for
  * non-owner, non-admin readers rather than hiding the section outright.
  */
-function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
+function RefreshRunHistory({ dataset, canEdit }: { dataset: DatasetResponse; canEdit: boolean }) {
   const { t, i18n } = useTranslation('dataset');
   const { data, isLoading, isError } = useDatasetRefreshRuns(dataset.id, { limit: 5 });
+  const cancelRefreshJob = useCancelRefreshJob();
   const runs = data?.runs ?? [];
 
   return (
@@ -313,6 +326,34 @@ function RefreshRunHistory({ dataset }: { dataset: DatasetResponse }) {
                 >
                   {t('sourcePanel.refresh.history.mechanismLabel', { mechanism: run.origin_kind })}
                 </Badge>
+                {/* feat(#1677): one-click cancel on the active run, Retry
+                    parity — no confirm dialog; recoverable and data-safe
+                    under the backend's no-swap fence. Keyed on the run's
+                    ingest_job_id (absent on legacy rows, so gated on it). */}
+                {canEdit
+                  && (run.status === 'pending' || run.status === 'running')
+                  && run.ingest_job_id && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="ms-auto"
+                    onClick={() =>
+                      cancelRefreshJob.mutate(
+                        { jobId: run.ingest_job_id as string, datasetId: dataset.id },
+                        {
+                          onError: () => {
+                            toast.error(t('sourcePanel.refresh.cancelFailed'));
+                          },
+                        },
+                      )
+                    }
+                    disabled={cancelRefreshJob.isPending}
+                  >
+                    {cancelRefreshJob.isPending
+                      ? t('sourcePanel.refresh.cancelling')
+                      : t('sourcePanel.refresh.cancel')}
+                  </Button>
+                )}
               </div>
               <p className="mt-0.5 text-xs text-muted-foreground">
                 {formatDateTimeSmart(run.started_at)}
@@ -493,7 +534,7 @@ function VrtSection({ dataset, isAuthenticated }: { dataset: DatasetResponse; is
   );
 }
 
-export function SourcePanel({ dataset, actions }: SourcePanelProps) {
+export function SourcePanel({ dataset, actions, canEdit = false }: SourcePanelProps) {
   const { t } = useTranslation('dataset');
   const isAuthenticated = useAuthStore((state) => Boolean(state.token));
   const isVrt = dataset.record_type === 'vrt_dataset';
@@ -584,7 +625,7 @@ export function SourcePanel({ dataset, actions }: SourcePanelProps) {
           <SourceHistory dataset={dataset} />
           {/* Gated the same way SourceRefreshAction is: no origin, nothing
               could ever have been refreshed, so no history to show. */}
-          {origin && <RefreshRunHistory dataset={dataset} />}
+          {origin && <RefreshRunHistory dataset={dataset} canEdit={canEdit} />}
         </>
       )}
     </div>

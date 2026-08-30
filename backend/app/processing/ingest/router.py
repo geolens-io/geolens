@@ -78,9 +78,11 @@ from app.processing.ingest.schemas import (
 from app.processing.ingest.service import (
     PART_SIZE,
     _await_provider_call_draining,
+    claim_fan_out_parent,
     create_fan_out_jobs,
     create_ingest_job,
     discover_unregistered_tables,
+    restore_fan_out_parent_pending,
     get_job_or_404,
     queue_ingest_job,
     register_existing_table,
@@ -987,6 +989,11 @@ async def commit_fan_out(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Job already processed (status='{job.status}')",
         )
+    # fix(#1709 review r2 P1): the attempt id observed WITH the pending status
+    # above — the terminal CAS at the bottom is fenced on this pair, so a
+    # cancel (or any other writer) landing between here and there loses or
+    # wins cleanly instead of being overwritten.
+    parent_attempt_id = job.attempt_id
 
     # feat(#1691): fan-out jobs inherit the parent job's user_metadata, so a
     # visibility seeded there (defense-in-depth — the request schema itself
@@ -1017,23 +1024,49 @@ async def commit_fan_out(
             },
         )
 
+    # fix(#1709 review r5 P1): the terminal transition is the MUTEX for the
+    # whole dispatch — CASed and COMMITTED before the first child exists.
+    # The round-2 shape (children first, CAS after the loop, loser cancels
+    # its children) left a window: a cancel committing mid-loop let an
+    # already-deferred fast child claim and complete before the post-loop
+    # cleanup, whose child CAS rightly refuses terminal rows — a 200 cancel
+    # that still created that child's dataset. With the flip first, a
+    # cancel either wins here (zero children ever created) or arrives after
+    # the parent is terminal and gets 409 job_already_finished, with every
+    # child individually cancellable through the same endpoint.
+    if not await claim_fan_out_parent(db, job, parent_attempt_id=parent_attempt_id):
+        await db.rollback()
+        await db.refresh(job)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "job_conflict",
+                "status": job.status,
+                "message": (
+                    "The job changed while this fan-out was being admitted — "
+                    "nothing was queued."
+                ),
+            },
+        )
+
     # Dispatch one task per layer, collecting results.
     results = []
     for layer in request.layers:
         result = await create_fan_out_jobs(job, layer, db)
         results.append(result)
 
-    # CR-02 fix: only mark 'fanned_out' (terminal) when at least one layer was
-    # successfully dispatched. If every layer failed (e.g. Procrastinate outage),
-    # keep the job 'pending' so the user can retry without re-uploading the file.
+    # CR-02: an all-failed dispatch (e.g. Procrastinate outage) must leave
+    # the parent retryable without a re-upload. Under the early flip that
+    # means a fenced restore of `pending` — a CAS on (fanned_out, attempt),
+    # so it can only undo the flip THIS request wrote, never resurrect a
+    # row some other actor terminated. Partial success keeps the parent
+    # `fanned_out`: at least one child is importing, which is the same
+    # contract the late transition enforced.
     queued_count = sum(1 for r in results if r.status == "queued")
-    if queued_count > 0:
-        job.status = "fanned_out"
-        job.completed_at = datetime.now(timezone.utc)
-    else:
-        # All dispatches failed — leave job 'pending' for retry.
-        job.status = "pending"
-    await db.commit()
+    if queued_count == 0:
+        await restore_fan_out_parent_pending(
+            db, job, parent_attempt_id=parent_attempt_id
+        )
 
     return FanOutCommitResponse(fan_out_id=job.id, results=results)
 

@@ -412,7 +412,10 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     # VrtGeneration UPDATE in that same sweep reads via .all(), and this
     # fixture doesn't care which statement lands at which index, only that
     # every accessor the sweep might call returns an empty result.
-    empty_scalars = [MagicMock() for _ in range(8)]
+    # fix(#1709 review r7): nine — the childless-`fanned_out` reconciliation
+    # (a fan-out parent whose dispatch died before its first child
+    # committed) runs between the running-jobs sweep and the VRT sweep.
+    empty_scalars = [MagicMock() for _ in range(9)]
     for result in empty_scalars:
         result.scalars.return_value = []
         result.all.return_value = []

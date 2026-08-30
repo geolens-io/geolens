@@ -17,7 +17,7 @@ import type { UserResponse } from '@/types/api';
 const navigate = vi.fn();
 vi.mock('react-router', () => ({ useNavigate: () => navigate }));
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 vi.mock('@/components/import/hooks/use-ingest', () => ({ useJobStatus: vi.fn() }));
 vi.mock('react-i18next', () => ({
@@ -146,6 +146,43 @@ describe('AnalysisJobWatcher', () => {
     renderWatcher();
     expect(toast.success).not.toHaveBeenCalled();
     expect(useAnalysisJobStore.getState().job).not.toBeNull();
+  });
+
+  // fix(#1677): the cancel control made `cancelled` a reachable TERMINAL
+  // status for every job type. `useJobStatus` already stopped polling on it,
+  // but this watcher cleared only on complete/failed — so a cancelled
+  // analysis job stayed in the PERSISTED store forever, survived reloads, and
+  // the Analysis panel's Create button (gated on `!!s.job`) never re-enabled
+  // short of logging out or clearing site data.
+  it('treats a cancelled job as terminal: clears the store and releases the gate', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'cancelled', dataset_id: null });
+    renderWatcher();
+
+    await waitFor(() =>
+      expect(useAnalysisJobStore.getState().job).toBeNull(),
+    );
+    // The gate the panel reads is the store slot itself.
+    expect(useAnalysisJobStore.getState().job).toBeNull();
+    // Cancelling is not a failure — the user asked for it.
+    expect(toast.error).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalled();
+    expect(vi.mocked(toast.info).mock.calls[0][0]).toBe('“Buffered” was cancelled');
+  });
+
+  it('persists the cleared state so a reload does not resurrect the gate', async () => {
+    useAnalysisJobStore.setState({ job: { jobId: 'j1', title: 'Buffered', mapId: 'm1' } });
+    mockJob({ status: 'cancelled', dataset_id: null });
+    renderWatcher();
+
+    await waitFor(() =>
+      expect(useAnalysisJobStore.getState().job).toBeNull(),
+    );
+    // The bug's teeth were persistence: the store is zustand/persist-backed,
+    // so a stuck job outlived the tab. Assert storage agrees with memory.
+    const raw = localStorage.getItem(ANALYSIS_JOB_STORAGE_KEY);
+    expect(raw ? JSON.parse(raw).state.job : null).toBeNull();
   });
 
   it('raises a non-expiring named toast on completion and stops tracking', async () => {

@@ -762,6 +762,16 @@ export interface JobStatusResponse {
   created_at: string;
 }
 
+// feat(#1677): POST /jobs/{id}/cancel. `run_id` is the refresh run the
+// cancel finalized when the job had one bound (refreshes/reuploads do;
+// plain imports don't); `already` marks the idempotent repeat.
+export interface JobCancelResponse {
+  id: string;
+  status: 'cancelled';
+  run_id: string | null;
+  already: boolean;
+}
+
 /** fix(#875): 'read_only' keys authenticate GET/HEAD/OPTIONS only. */
 export type ApiKeyScope = 'full' | 'read_only';
 

@@ -162,6 +162,21 @@ class JobStatusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class JobCancelResponse(BaseModel):
+    """Outcome of ``POST /jobs/{id}/cancel`` (#1677).
+
+    ``run_id`` is the ``dataset_refresh_runs`` row this cancel finalized, when
+    the job had one bound (refreshes and reuploads do; plain imports don't).
+    ``already`` is True when the job was cancelled before this request — the
+    repeat is idempotent and nothing was written.
+    """
+
+    id: uuid.UUID
+    status: Literal["cancelled"]
+    run_id: uuid.UUID | None
+    already: bool = False
+
+
 class StaleCleanupResponse(BaseModel):
     pending_failed: int
     running_failed: int

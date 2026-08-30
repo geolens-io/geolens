@@ -14,7 +14,8 @@ from typing import Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_client_ip, get_db
@@ -28,9 +29,14 @@ from app.processing.ingest.schemas import UploadResponse
 from app.processing.ingest.service import queue_ingest_job
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
-from app.platform.jobs.models import EMBEDDING_BACKFILL_METADATA_KEY, IngestJob
+from app.platform.jobs.models import (
+    EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.jobs.schemas import (
     DbfTruncationCollisionWarning,
+    JobCancelResponse,
     JobStatusResponse,
     MercatorClipWarning,
     ReservedRenameWarning,
@@ -40,6 +46,7 @@ from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objec
 from app.platform.jobs.sweep import (
     ABANDONED_UPLOAD_MESSAGE,  # noqa: F401 -- re-exported, see __all__
     JOB_TIMEOUT_SECONDS,
+    _READY_WORTHY_SQL,
     audit_settled_embedding_backfill,
     STALE_PENDING_BOUND_MESSAGE,
     STALE_PENDING_UNBOUND_MESSAGE,  # noqa: F401 -- re-exported, see __all__
@@ -75,12 +82,28 @@ async def _can_access_another_users_job(
     db: AsyncSession,
     user: Identity,
     job: IngestJob,
+    *,
+    log_denial: bool = True,
 ) -> bool:
     """Delegate cross-user job access to the effective permission policy.
 
     Owner access is handled by callers before invoking this helper. Passing the
     job as ``resource`` lets enterprise extensions apply finer-grained policy
     without core code falling back to a hard-coded role-name check.
+
+    ``log_denial`` (fix(#1709 review r12)) exists because this check is a
+    whole decision at two call sites and only ONE ARM of a decision at a
+    third. Where it decides alone (``get_job_status``, ``retry_job``) a
+    refusal here IS the request's refusal and must be recorded — those
+    callers keep the default. Where a later arm can still grant (cancel's
+    dataset-write arm, the supported case of a dataset owner cancelling a
+    refresh an admin triggered), logging here would file a security denial
+    on every SUCCESSFUL cancel: false positives that trip alerts and bury
+    real denials. Such callers pass ``log_denial=False`` and own emitting
+    exactly one event once every arm has failed.
+
+    A default of True is the safe direction: a new caller that forgets the
+    flag over-reports rather than losing a denial silently.
     """
     # Deferred by design: shared platform code must not import product-domain
     # policy implementations at module load time (D-17).
@@ -103,7 +126,7 @@ async def _can_access_another_users_job(
         permission_matrix=matrix,
         resource=job,
     )
-    if not granted:
+    if not granted and log_denial:
         log_permission_denial(
             request,
             user,
@@ -440,6 +463,19 @@ async def _retry_capability(job: IngestJob) -> tuple[bool, str | None]:
         return (
             False,
             "Refresh runs cannot be replayed as imports. Refresh the dataset again from its source panel.",
+        )
+    if bool((job.user_metadata or {}).get(FAN_OUT_INTERRUPTED_METADATA_KEY)):
+        # fix(#1709 review r8 A): a fan-out parent whose dispatch crashed
+        # before any child was queued, settled by the stale sweep. Generic
+        # retry would re-queue this multi-layer parent as ONE default-layer
+        # import — the user's layer selection lived only in the fan-out
+        # request body and was never persisted — so the honest capability is
+        # a refusal naming the real path, exactly like the four sibling
+        # markers above and below.
+        return (
+            False,
+            "Fan-out dispatch was interrupted before any layer was queued. "
+            "Re-upload the file and select its layers again.",
         )
     if bool((job.user_metadata or {}).get("service_auth_required")):
         return (
@@ -783,6 +819,419 @@ async def retry_job(
         status="pending",
         message="Job re-queued for ingestion",
     )
+
+
+# Statuses the cancel endpoint reports as "too late" (409). `cancelled` is
+# handled separately as the idempotent repeat, and everything else is active.
+_CANCEL_TERMINAL_STATUSES = ("complete", "failed", "fanned_out")
+
+# SQL to find the live Procrastinate row(s) for one ingest job — the same
+# args->>'job_id' correlation the sweeps use (`no_live_procrastinate_job` in
+# sweep.py, `_ABANDONED_RUN_SQL` in refresh/service.py). At most one row is
+# live in practice; a retried job's old row is terminal and excluded here.
+_LIVE_QUEUE_ROWS_SQL = text(
+    "SELECT id FROM catalog.procrastinate_jobs"
+    " WHERE args->>'job_id' = :job_id AND status IN ('todo', 'doing')"
+)
+
+
+def _is_lock_conflict(exc: DBAPIError) -> bool:
+    """True for PostgreSQL 55P03 (lock timeout) or 40P01 (deadlock victim).
+
+    Both mean another transaction owns rows this cancel needs right now, and
+    both are safe to report as a retryable 409: nothing was written, and a
+    retry lands after the owner commits. 40P01 should be unreachable now that
+    the cancel takes its locks in the worker's own order (see the asset-first
+    acquisition in ``cancel_job`` — fix(#1709 review r2 P2)), but mapping it
+    costs one tuple member and turns a future ordering regression into a
+    clean conflict instead of a 500.
+    """
+    return getattr(exc.orig, "sqlstate", None) in ("55P03", "40P01")
+
+
+# The three VRT regeneration dispatch sites (regenerate_vrt_endpoint,
+# add_vrt_source, remove_vrt_source) all create their IngestJob with this
+# source_filename literal, and nothing else does.
+_VRT_REGENERATE_JOB_FILENAME = "vrt_regenerate"
+
+
+async def _reconcile_cancelled_vrt_regeneration(
+    db: AsyncSession, dataset_id: uuid.UUID, now: datetime
+) -> None:
+    """Release the VRT state a cancelled ``vrt_regenerate`` job would strand.
+
+    fix(#1709 review P1): VRT dispatch commits a ``pending`` VrtGeneration
+    and flips the RasterAsset to ``regenerating`` BEFORE deferring the job,
+    and that asset status is exactly what 409-blocks every later
+    regenerate/add-source/remove-source call. The worker unwinds it only on
+    its ``except Exception`` path — a task the cancel beat to the claim exits
+    without ever reaching it, and a delivered abort raises CancelledError, a
+    BaseException that handler never sees — so without this, a cancelled
+    regeneration stays blocked until ``sweep_stale_vrt_assets``'s
+    JOB_TIMEOUT_SECONDS cutoff.
+
+    Runs inside the cancel transaction, after the job CAS won, entirely as
+    guarded conditional updates, so the fence-wins discipline holds:
+
+    - The generation flips to ``failed`` only from ``pending``/``running``.
+      (The ``vrt_generations`` CHECK constraint has no ``cancelled`` literal
+      and this feature ships no migration; ``failed`` with a user-cancel
+      message is the same convention the stale sweep writes.) A terminal row
+      means another actor finished first, and nothing here is touched.
+    - The asset restore reuses the sweep's ``_READY_WORTHY_SQL`` branches:
+      ``ready`` only when the published composition provably still matches
+      the catalog's and the prior real attempt did not fail, else ``failed``.
+      Either branch clears ``current_generation_id``, so the 409 block lifts
+      immediately instead of an hour later.
+    - A worker that publishes cannot lose to this: its publish transaction
+      carries the fenced job-complete update, so it either committed before
+      the cancel's job CAS (the cancel then 409s and never reaches here) or
+      rolls back at the fence. Its failure handler's writes are the same
+      terminal values keyed to the same pointer, so late arrival on either
+      side degrades to a zero-row no-op, never a clobber.
+
+    Lock order (fix(#1709 review r2 P2)): the caller already holds the
+    RasterAsset row lock, taken as the cancel transaction's FIRST acquisition
+    to match the worker's publish order (asset FOR UPDATE -> generation ->
+    job). Everything here therefore locks rows the transaction is entitled
+    to reach without inverting that order.
+    """
+    # Deferred by design: platform -> processing imports stay function-local
+    # (D-17), mirroring the worker/task_app imports elsewhere in this module.
+    from app.processing.raster.models import RasterAsset, VrtGeneration
+
+    pointer = await db.scalar(
+        select(RasterAsset.current_generation_id).where(
+            RasterAsset.dataset_id == dataset_id,
+            RasterAsset.status == "regenerating",
+        )
+    )
+    if pointer is None:
+        # Nothing in flight: already published, already reconciled, or the
+        # dispatch's orphan-guard rollback restored the asset itself.
+        return
+    generation_cas = await db.execute(
+        update(VrtGeneration)
+        .where(
+            VrtGeneration.id == pointer,
+            VrtGeneration.status.in_(("pending", "running")),
+        )
+        .values(
+            status="failed",
+            completed_at=now,
+            error_message="Cancelled by user",
+        )
+        .returning(VrtGeneration.id)
+    )
+    if generation_cas.scalar_one_or_none() is None:
+        # The pointed-at generation is already terminal — another actor's
+        # record stands, and the asset is that actor's to reconcile.
+        return
+    asset_predicate = (
+        RasterAsset.dataset_id == dataset_id,
+        RasterAsset.status == "regenerating",
+        RasterAsset.current_generation_id == pointer,
+    )
+    restored = await db.execute(
+        update(RasterAsset)
+        .where(*asset_predicate, text(_READY_WORTHY_SQL))
+        .values(status="ready", current_generation_id=None)
+        .returning(RasterAsset.dataset_id)
+    )
+    if restored.scalar_one_or_none() is None:
+        await db.execute(
+            update(RasterAsset)
+            .where(*asset_predicate, text(f"NOT ({_READY_WORTHY_SQL})"))
+            .values(status="failed", current_generation_id=None)
+        )
+
+
+async def _may_cancel_job(
+    request: Request,
+    db: AsyncSession,
+    user: Identity,
+    job: IngestJob,
+) -> bool:
+    """The three authorization arms for cancel (#1677 design §3).
+
+    Arm 1: owners always retain access. Arm 2: the effective cross-user
+    capability policy (same as view/retry). Arm 3: dataset write access —
+    ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
+    not owner/admin); both mean "this arm does not grant", and the caller's
+    generic 403 avoids leaking dataset visibility through a cancel probe.
+
+    fix(#1709 review r12): arm 2 runs as a SILENT probe here. A losing arm
+    is not a denied request when a later arm grants — and the arm that
+    grants in the case this feature added (a dataset owner cancelling a
+    refresh an admin triggered) is arm 3, so the previous shape filed a
+    ``permission_denied`` event on every successful cross-user cancel. The
+    denial is emitted once, below, only after every arm has failed; arm 3
+    emits none of its own (``check_dataset_write_access`` raises without
+    telemetry), so the deny path's event count is exactly one, unchanged.
+    """
+    from app.modules.auth.dependencies import (
+        get_cached_user_roles,
+        log_permission_denial,
+    )
+
+    if job.created_by == user.id:
+        return True
+    if await _can_access_another_users_job(request, db, user, job, log_denial=False):
+        return True
+    if job.dataset_id is not None:
+        from app.modules.catalog.authorization import check_dataset_write_access
+        from app.modules.catalog.datasets.domain.service import get_dataset
+
+        dataset = await get_dataset(db, job.dataset_id)
+        try:
+            await check_dataset_write_access(db, dataset, job.dataset_id, user)
+            return True
+        except HTTPException:
+            pass
+
+    # Every arm failed: now it is a real denial, and the only one.
+    # ``get_cached_user_roles`` is request-cached, so arm 2 already paid for
+    # this read.
+    log_permission_denial(
+        request,
+        user,
+        "manage_users",
+        await get_cached_user_roles(request, db, user),
+        resource_type="ingest_job",
+    )
+    return False
+
+
+@router.post(
+    "/{job_id}/cancel",
+    response_model=JobCancelResponse,
+    responses={409: CONFLICT_RESPONSE},
+)
+async def cancel_job(
+    job_id: uuid.UUID,
+    request: Request,
+    user: Identity = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+) -> JobCancelResponse:
+    """Cancel a pending or running ingest job (imports, refreshes, and every
+    other IngestJob-shaped run — feat(#1677)).
+
+    The DB compare-and-swap here is the correctness mechanism: the job row
+    (fenced on the attempt id read pre-CAS) and its bound refresh run flip to
+    ``cancelled`` and COMMIT before anything touches the queue. A worker that
+    never hears the abort still cannot install data afterwards, because every
+    finalize site runs its fenced job update inside the swap transaction and
+    ``require_ingest_job_update`` raises on the cancelled row, rolling the
+    swap back. The Procrastinate ``abort=True`` request afterwards is
+    best-effort acceleration only.
+
+    Authorization: the job's creator, a holder of the cross-user job
+    capability (same arm view/retry use), or — wider than retry, on purpose —
+    anyone with write access to the job's dataset, so a dataset's owner can
+    always unblock their own dataset from a run someone else started.
+    """
+    # Deferred by design to preserve the platform -> modules layer boundary.
+    from app.modules.audit.service import AuditEvent, audit_emit
+    from app.platform.refresh.service import cancel_active_run_for_job
+
+    result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
+    job = result.scalar_one_or_none()
+
+    if job is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Job not found",
+        )
+
+    if not await _may_cancel_job(request, db, user, job):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to cancel this job",
+        )
+
+    if job.status == "cancelled":
+        return JobCancelResponse(
+            id=job.id, status="cancelled", run_id=None, already=True
+        )
+    if job.status in _CANCEL_TERMINAL_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "job_already_finished", "status": job.status},
+        )
+
+    # One transaction: fenced job CAS + run CAS + VRT reconciliation + audit,
+    # then commit. The attempt-id predicate mirrors retry_job's own CAS — a
+    # stale cancel aimed at attempt N can never kill a retried attempt N+1.
+    # The 2s lock_timeout keeps this request from blocking behind a finalize
+    # transaction, which holds its row locks from its first fenced update
+    # through the swap to commit.
+    #
+    # fix(#1709 review r2 P2): the try covers the WHOLE transactional block,
+    # not just the job CAS — a lock conflict inside the VRT reconciliation
+    # used to escape as a 500 — and for a vrt_regenerate job the FIRST lock
+    # taken is the RasterAsset row, because that is the first lock the
+    # worker's publish transaction takes (tasks_vrt phase 2: asset FOR UPDATE
+    # -> generation flush -> fenced job update). Both transactions leading
+    # with the asset makes it the VRT mutex: whoever holds it runs alone, the
+    # other waits at its first acquisition holding nothing, and the AB-BA
+    # cycle (worker: asset->...->job vs the old cancel: job->...->asset)
+    # cannot form. Non-VRT jobs keep the job row as their first lock, which
+    # already matches every other worker's order (fenced heartbeat first).
+    previous_attempt_id = job.attempt_id
+    now = datetime.now(timezone.utc)
+    attempt_predicate = (
+        IngestJob.attempt_id == previous_attempt_id
+        if previous_attempt_id is not None
+        else IngestJob.attempt_id.is_(None)
+    )
+    is_vrt_job = (
+        job.source_filename == _VRT_REGENERATE_JOB_FILENAME
+        and job.dataset_id is not None
+    )
+    try:
+        await db.execute(text("SET LOCAL lock_timeout = '2s'"))
+        if is_vrt_job:
+            # Deferred by design: platform -> processing stays function-local
+            # (D-17).
+            from app.processing.raster.models import RasterAsset
+
+            await db.execute(
+                select(RasterAsset.dataset_id)
+                .where(RasterAsset.dataset_id == job.dataset_id)
+                .with_for_update()
+            )
+        cancel_result = await db.execute(
+            update(IngestJob)
+            .where(
+                IngestJob.id == job.id,
+                IngestJob.status.in_(("pending", "running")),
+                attempt_predicate,
+            )
+            .values(
+                status="cancelled",
+                error_message="Cancelled by user",
+                completed_at=now,
+            )
+        )
+
+        if not cancel_result.rowcount:
+            # Another actor moved the row between the read and the CAS.
+            # Report what it became; nothing was written.
+            await db.rollback()
+            await db.refresh(job)
+            if job.status == "cancelled":
+                return JobCancelResponse(
+                    id=job.id, status="cancelled", run_id=None, already=True
+                )
+            code = (
+                "job_already_finished"
+                if job.status in _CANCEL_TERMINAL_STATUSES
+                # Still active under a different attempt id: retried
+                # concurrently. A cancel aimed at the old attempt must not
+                # kill the new one.
+                else "job_conflict"
+            )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": code, "status": job.status},
+            )
+
+        run_id = await cancel_active_run_for_job(db, job.id, cancelled_by=user.id)
+        if is_vrt_job:
+            # fix(#1709 review P1): same transaction as the job CAS, so the
+            # VRT state this job stranded and the job's terminal status land
+            # together. The asset row lock above is already held.
+            await _reconcile_cancelled_vrt_regeneration(db, job.dataset_id, now)
+        # fix(#1709 review r3 P2): an embedding backfill's dispatch commits an
+        # `embedding.backfill` audit event at outcome="requested" alongside
+        # the job row, and sweep.py's rule is that the job row and the audit
+        # trail are written together by whichever actor settles the job. A
+        # cancelled queued backfill never runs (the claim fails, or the queue
+        # row is aborted before delivery), so no in-process path can ever
+        # close that trail — this settle is the only one left, exactly as it
+        # is for the lease-expiry and stale-pending sweeps above. No-op for
+        # every other job kind (marker check inside), SAVEPOINT-guarded so a
+        # worker that settles concurrently keeps the database-arbitrated
+        # one-terminal-entry invariant.
+        await audit_settled_embedding_backfill(
+            db,
+            job_id=job.id,
+            user_metadata=job.user_metadata,
+            created_by=job.created_by,
+            error_code="user_cancelled",
+            # fix(#1709 review r10): the terminal event names the CANCELLER,
+            # matching job.cancel and refresh.cancelled in this same
+            # transaction — not the run's original requester.
+            settled_by=user.id,
+        )
+        await audit_emit(
+            db,
+            AuditEvent(
+                user_id=user.id,
+                action="job.cancel",
+                resource_type="ingest_job",
+                resource_id=job.id,
+                details={
+                    "job_owner_id": (
+                        str(job.created_by) if job.created_by is not None else None
+                    ),
+                    "attempt_id": (
+                        str(previous_attempt_id)
+                        if previous_attempt_id is not None
+                        else None
+                    ),
+                    "run_id": str(run_id) if run_id is not None else None,
+                    "cross_user": job.created_by != user.id,
+                },
+                ip_address=get_client_ip(request),
+            ),
+        )
+    except DBAPIError as exc:
+        if not _is_lock_conflict(exc):
+            raise
+        await db.rollback()
+        # A finalize transaction owns rows this cancel needs; nothing was
+        # written. The client may retry and will then get
+        # `job_already_finished`.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "job_finishing"},
+        ) from exc
+    await db.commit()
+
+    # Post-commit, best-effort: ask Procrastinate to cancel a todo row or
+    # abort a doing one. A failure ANYWHERE past the commit — the row lookup
+    # included (fix(#1709 review P2): a dropped connection here used to 500 a
+    # request whose cancel was already durable) — is logged, not surfaced:
+    # the fences above make the eventual delivery a no-op either way, the
+    # worker just runs to its finalize and dies at the fence instead of
+    # stopping early.
+    try:
+        queue_rows = await db.execute(_LIVE_QUEUE_ROWS_SQL, {"job_id": str(job.id)})
+        queue_job_ids = list(queue_rows.scalars())
+    except Exception:  # broad: post-commit lookup is acceleration, never the guarantee
+        log.warning(
+            "job_cancel_queue_lookup_failed",
+            job_id=str(job.id),
+            exc_info=True,
+        )
+        queue_job_ids = []
+    for queue_job_id in queue_job_ids:
+        try:
+            # Deferred: the API process holds this connector open for its
+            # whole lifespan (app/api/main.py lifespan).
+            from app.processing.ingest.tasks import task_app
+
+            await task_app.job_manager.cancel_job_by_id_async(queue_job_id, abort=True)
+        except Exception:  # broad: queue abort is acceleration, never the guarantee
+            log.warning(
+                "job_cancel_queue_abort_failed",
+                job_id=str(job.id),
+                queue_job_id=queue_job_id,
+                exc_info=True,
+            )
+
+    return JobCancelResponse(id=job.id, status="cancelled", run_id=run_id)
 
 
 __all__ = [

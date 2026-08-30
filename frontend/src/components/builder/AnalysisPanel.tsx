@@ -1927,7 +1927,17 @@ export function AnalysisPanel({
                         })
                     : job.status === 'complete'
                       ? t('analysisTools.jobComplete', { defaultValue: 'Dataset created' })
-                      : job.current_step === 'registering'
+                      : // fix(#1677): cancel made this a reachable terminal
+                        // status. Without its own branch a cancelled run fell
+                        // through to the current_step copy below and sat on
+                        // "Saving the dataset…" — `job` is this panel's own
+                        // query state, so it outlives the watcher's store
+                        // clear rather than disappearing with it.
+                        job.status === 'cancelled'
+                        ? t('analysisTools.jobCancelled', {
+                            defaultValue: 'Analysis run cancelled',
+                          })
+                        : job.current_step === 'registering'
                         ? t('analysisTools.jobSaving', {
                             defaultValue: 'Saving the dataset…',
                           })

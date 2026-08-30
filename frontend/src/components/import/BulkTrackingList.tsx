@@ -73,8 +73,12 @@ export function BulkTrackingList({ entries, onReset, autoOpenVrt = false }: Bulk
   // forward progress under their own job IDs (the per-layer modal already shown).
   // Treat fanned_out as terminal so the parent doesn't sit in "Active and recent
   // jobs" forever. See SMOKE-v1013-F1.
+  // fix(#1677): 'cancelled' likewise. Cancel is a user-reachable terminal
+  // status for every job type now, and a cancelled import will never progress
+  // — leaving it out kept it in "Active" forever and held `allDone` false, so
+  // the VRT auto-open never fired for a batch the user had finished with.
   const isTerminal = (status: string | undefined) =>
-    status === 'complete' || status === 'fanned_out';
+    status === 'complete' || status === 'fanned_out' || status === 'cancelled';
 
   const activeEntries = trackable.filter((_, index) => {
     const job = jobQueries[index]?.data;

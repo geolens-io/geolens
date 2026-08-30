@@ -35,6 +35,16 @@ from app.core.db import Base
 # sweep.py) and the staging-orphan reconciliation both read it.
 STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 
+# `user_metadata` key stamped by the stale sweep on a fan-out parent whose
+# dispatch crashed between the pre-dispatch flip and the first child commit
+# (fix(#1709 review r8)). Two readers: the sweep writes it when it settles the
+# childless `fanned_out` parent as `failed`, and the retry capability in
+# jobs/router.py refuses generic retry on it — the layer selection lived only
+# in the fan-out request body, so a generic retry would silently import ONE
+# default layer of a multi-layer file. Cross-reader markers live here beside
+# the others so the two sites cannot drift (#1249 r6 precedent).
+FAN_OUT_INTERRUPTED_METADATA_KEY = "fan_out_interrupted"
+
 # `user_metadata` key that marks an ``IngestJob`` row as an admin embedding
 # backfill run (fix(#1542)). The run itself imports nothing — the row exists so
 # the operator can see a run in flight and so a second one can be refused

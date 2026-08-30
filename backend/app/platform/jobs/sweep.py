@@ -27,6 +27,7 @@ from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import (
     EMBEDDING_BACKFILL_METADATA_KEY,
+    FAN_OUT_INTERRUPTED_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
     STATUSES_NEEDING_STAGED_INPUT,
     IngestJob,
@@ -43,6 +44,22 @@ log = structlog.get_logger()
 # the two share a number today and answer unrelated questions, so deriving one
 # from the other would only look like agreement.
 JOB_TIMEOUT_SECONDS = 3600  # 60 minutes (accommodates remote service imports)
+
+# fix(#1709 review r7 A): grace before a childless `fanned_out` parent is
+# treated as a crashed dispatch. The flip->first-child gap is sub-second in
+# health (claim_fan_out_parent commits, then the first create_fan_out_jobs
+# commits), so one sweep cadence is generous, and a request still mid-flight
+# is never touched.
+FAN_OUT_CHILDLESS_GRACE_SECONDS = 300
+
+# fix(#1709 review r8 A): the message must not advertise retry — generic
+# /jobs/{id}/retry re-queues the parent as ONE default-layer import (the
+# layer selection lived only in the fan-out request body), and retry is
+# refused outright on the marker below. Re-upload is the real path.
+FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE = (
+    "Fan-out dispatch was interrupted before any layer was queued. "
+    "Re-upload the file to import its layers."
+)
 
 
 # fix(#1235 review r4): the margin between the last moment a client may still
@@ -1343,6 +1360,88 @@ async def fail_stale_jobs(
             error_code="never_started",
         )
 
+    # fix(#1709 review r7 A): reconcile fan-out parents stranded by a crash
+    # between the pre-dispatch flip and the first child commit. Since the r5
+    # fix, `fanned_out` COMMITS before any child exists (the mutex that
+    # closed the fast-child cancel window) — which regressed the
+    # recoverability the old late transition got for free: the old crash
+    # left a `pending` parent this sweep's one-hour clause self-healed,
+    # while the new one left a terminal parent that retry (failed-only) and
+    # cancel (terminal -> 409) both refuse. Permanently stuck, zero
+    # children, staged file idle.
+    #
+    # A childless `fanned_out` parent is the crash signature and nothing
+    # else's: a layer's `queued` result requires its child row to have
+    # committed first (a failed defer still leaves the row, flipped `failed`
+    # by the orphan guard; a failure before the insert commits leaves no row
+    # AND no queued result), and an ALL-failed dispatch restores the parent
+    # to `pending` rather than leaving it `fanned_out`
+    # (restore_fan_out_parent_pending). Two bounds keep the signature exact:
+    #
+    # - the grace above: never touch a dispatch still in flight.
+    # - the retention horizon: a LEGIT old fan-out's children can be deleted
+    #   by the retention purge, after which "never existed" and "purged at
+    #   age" are indistinguishable — but the purge cutoff is
+    #   coalesce(completed_at, created_at) and every child postdates its
+    #   parent's flip, so a parent still INSIDE the horizon cannot have lost
+    #   children to it. Parents past the horizon are the purge's to delete,
+    #   not this clause's to relabel (the freak alignment — children crossing
+    #   the horizon seconds before an old-ordering parent — costs a `failed`
+    #   label the same purge erases seconds later). retention_days=0 keeps
+    #   every row forever, so no bound is needed.
+    #
+    # `failed`, not `cancelled`: nothing was asked to stop — a dispatch was
+    # interrupted — and `failed` is what makes /jobs/{id}/retry offer the
+    # parent again (retry flips it to `pending`; the fan-out is then
+    # committable again), which is the recoverability being restored.
+    #
+    # Not folded into StaleCleanupOutcome, same reasoning as the refresh-run
+    # sweep below: the dataclass is a published shape several callers
+    # reconstruct field by field, and the log line carries the ids.
+    childless_fanout_clauses = [
+        IngestJob.status == "fanned_out",
+        IngestJob.completed_at.is_not(None),
+        IngestJob.completed_at
+        < now - timedelta(seconds=FAN_OUT_CHILDLESS_GRACE_SECONDS),
+        text(
+            "NOT EXISTS (SELECT 1 FROM catalog.ingest_jobs c"
+            " WHERE c.user_metadata->>'fan_out_parent_id' = ingest_jobs.id::text)"
+        ),
+    ]
+    if settings.ingest_jobs_retention_days > 0:
+        childless_fanout_clauses.append(
+            IngestJob.completed_at
+            >= now - timedelta(days=settings.ingest_jobs_retention_days)
+        )
+    childless_fanout_result = await db.execute(
+        update(IngestJob)
+        .where(*childless_fanout_clauses)
+        .values(
+            status="failed",
+            error_message=FAN_OUT_DISPATCH_INTERRUPTED_MESSAGE,
+            completed_at=now,
+            # fix(#1709 review r8 A): the marker _retry_capability refuses on.
+            # Generic retry of this parent would silently import ONE default
+            # layer of a multi-layer file; restore-to-pending is no better —
+            # the pending sweep's unbound clause keys on created_at, so any
+            # parent older than that cutoff would be re-reaped into the
+            # GENERIC failed message on the next pass, and the generic row
+            # retries into exactly that wrong import.
+            user_metadata=func.coalesce(
+                IngestJob.user_metadata, text("'{}'::jsonb")
+            ).op("||")(
+                text(f"'{{\"{FAN_OUT_INTERRUPTED_METADATA_KEY}\": true}}'::jsonb")
+            ),
+        )
+        .returning(IngestJob.id)
+    )
+    childless_fanout_ids = list(childless_fanout_result.scalars())
+    if childless_fanout_ids:
+        log.warning(
+            "childless_fanned_out_parents_failed",
+            job_ids=[str(job_id_) for job_id_ in childless_fanout_ids],
+        )
+
     # GAP-002: sweep stale VRT regenerating assets using the same cutoff.
     # fix(#1322 review): stale_generation_storage_keys are resolved, not yet
     # deleted — carried into StaleCleanupOutcome and reaped only after this
@@ -1568,6 +1667,7 @@ async def audit_settled_embedding_backfill(
     user_metadata: dict | None,
     created_by: uuid.UUID | None,
     error_code: str,
+    settled_by: uuid.UUID | None = None,
 ) -> None:
     """Close an embedding backfill's audit trail when a sweeper settles its row.
 
@@ -1606,10 +1706,17 @@ async def audit_settled_embedding_backfill(
     # The audit is emitted on the caller's session precisely so it commits with
     # the status change; an unguarded IntegrityError would take the status
     # change down with it.
+    # fix(#1709 review r10): the terminal event is attributed to the actor
+    # who SETTLED the run when one exists. The sweeps have no acting user —
+    # a lease expiry is nobody's click, so the requester (created_by) stays
+    # the honest attribution there — but the cancel endpoint acts on behalf
+    # of a specific person, and in the arm-3/cross-user case that person is
+    # not the requester. Same rule refresh.cancelled follows since r8.
+    actor = settled_by if settled_by is not None else created_by
     try:
         async with session.begin_nested():
             await _emit_terminal_backfill_event(
-                session, marker, job_id, created_by, error_code
+                session, marker, job_id, actor, error_code
             )
     except IntegrityError:
         log.info(
@@ -1623,9 +1730,12 @@ async def _emit_terminal_backfill_event(
     session: AsyncSession,
     marker: dict,
     job_id: uuid.UUID,
-    created_by: uuid.UUID | None,
+    actor: uuid.UUID | None,
     error_code: str,
 ) -> None:
+    """Write the one terminal entry. ``actor`` is whoever SETTLED the run —
+    the canceller when a person cancelled it, else the requester (fix(#1709
+    review r10); a sweep has no acting user to name)."""
     # Deferred by design to preserve the platform -> modules layer boundary,
     # matching `cleanup_stale_jobs` above.
     from app.modules.audit.service import AuditEvent, audit_emit
@@ -1633,7 +1743,7 @@ async def _emit_terminal_backfill_event(
     await audit_emit(
         session,
         AuditEvent(
-            user_id=created_by,
+            user_id=actor,
             # Literal, not the constant: test_audit_action_registry checks
             # every emit site statically and cannot resolve a name. The
             # other writer of this action is the admin backfill task.

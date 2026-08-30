@@ -230,7 +230,7 @@ async def test_backfill_failure_after_force_delete_has_durable_safe_audit(
     secret_error = "provider-secret-token=do-not-expose"
     requested_was_durable = False
 
-    async def fail_after_committed_delete(session, *, force):
+    async def fail_after_committed_delete(session, *, force, should_continue=None):
         nonlocal requested_was_durable
         assert force is True
         existing = list(

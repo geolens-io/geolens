@@ -1103,6 +1103,98 @@ async def create_fan_out_jobs(
         )
 
 
+async def claim_fan_out_parent(
+    session: AsyncSession,
+    job: IngestJob,
+    *,
+    parent_attempt_id: uuid.UUID | None,
+) -> bool:
+    """CAS the parent ``pending -> fanned_out`` BEFORE any child is dispatched.
+
+    fix(#1709 review r5 P1): the round-2 shape (children first, terminal CAS
+    after the loop, loser cancels its children) had a window the review
+    named exactly — a cancel committing mid-loop let an already-deferred
+    fast child claim and COMPLETE before the post-loop cleanup, whose child
+    CAS rightly refuses to touch terminal rows, so a 200 cancel still
+    created that child's dataset. The transition is therefore the MUTEX for
+    the whole dispatch now: it runs, fenced on the status and attempt id the
+    endpoint observed, and COMMITS before the first child exists. Only two
+    serializations remain, and both are clean:
+
+    - Cancel commits first: this CAS matches zero rows, the endpoint 409s,
+      and zero children were ever created — nothing to reconcile, which is
+      why the round-2 loser-reconciliation block is deleted rather than
+      kept: the window it compensated (children existing while the parent
+      CAS loses) is unreachable under this ordering.
+    - This CAS commits first: the parent is terminal, every later cancel
+      gets 409 ``job_already_finished``, and each child is its own
+      individually-cancellable IngestJob (uniform scope).
+
+    Committed here, not left to ride a later flush: ``create_fan_out_jobs``
+    commits per layer, and the fence is only a fence once it is durable
+    before the state it guards.
+
+    Returns whether the claim landed. The caller renders the refusal.
+    """
+    from datetime import datetime, timezone
+
+    from sqlalchemy import update as sa_update
+
+    attempt_predicate = (
+        IngestJob.attempt_id == parent_attempt_id
+        if parent_attempt_id is not None
+        else IngestJob.attempt_id.is_(None)
+    )
+    claim = await session.execute(
+        sa_update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.status == "pending",
+            attempt_predicate,
+        )
+        .values(status="fanned_out", completed_at=datetime.now(timezone.utc))
+    )
+    await session.commit()
+    return bool(claim.rowcount)
+
+
+async def restore_fan_out_parent_pending(
+    session: AsyncSession,
+    job: IngestJob,
+    *,
+    parent_attempt_id: uuid.UUID | None,
+) -> None:
+    """Undo the pre-dispatch claim when EVERY layer failed to queue (CR-02).
+
+    The retry contract: an all-failed dispatch (e.g. Procrastinate outage)
+    keeps the parent ``pending`` so the user can commit again without
+    re-uploading the file. Under the early flip that means restoring, and
+    the restore is itself a fenced CAS on ``(fanned_out, attempt_id)`` —
+    it can only undo the flip THIS request wrote. Nothing else can move a
+    ``fanned_out`` row (cancel refuses terminal statuses, retry only offers
+    ``failed`` ones, no sweep targets it), so the fence is cheap insurance
+    rather than a live race, and a blind write here would be the exact
+    resurrect-a-terminal-row bug the round-2 fix removed.
+    """
+    from sqlalchemy import update as sa_update
+
+    attempt_predicate = (
+        IngestJob.attempt_id == parent_attempt_id
+        if parent_attempt_id is not None
+        else IngestJob.attempt_id.is_(None)
+    )
+    await session.execute(
+        sa_update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.status == "fanned_out",
+            attempt_predicate,
+        )
+        .values(status="pending", completed_at=None)
+    )
+    await session.commit()
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,

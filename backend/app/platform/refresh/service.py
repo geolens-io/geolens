@@ -73,6 +73,13 @@ ABANDONED_ERROR_MESSAGE = (
     "disappeared before recording an outcome."
 )
 
+# feat(#1677): an explicit user cancel, distinct from the sweep's `abandoned`
+# correction under the same terminal `cancelled` status. `abandoned` means
+# "the task is provably gone and nobody reported an outcome"; this means
+# "a person asked in-flight work to stop".
+USER_CANCELLED_ERROR_CODE = "user_cancelled"
+USER_CANCELLED_ERROR_MESSAGE = "Cancelled by user."
+
 
 def redact_run_error(message: str) -> str:
     """Short, credential-free failure text for a run row.
@@ -243,6 +250,47 @@ async def _emit_refresh_abandoned(session: AsyncSession, run_id: uuid.UUID) -> N
         AuditEvent(
             user_id=actor,
             action="refresh.abandoned",
+            resource_type="dataset",
+            resource_id=dataset_id,
+            details=details,
+        ),
+    )
+
+
+async def _emit_refresh_cancelled(
+    session: AsyncSession,
+    run_id: uuid.UUID,
+    *,
+    cancelled_by: uuid.UUID | None = None,
+) -> None:
+    """Record an explicit user cancel (#1677).
+
+    Deliberately not spelled ``refresh.abandoned``: that action is the
+    sweep's bookkeeping correction for a task proven gone, while this one
+    records a person asking in-flight work to stop.
+
+    fix(#1709 review r8 B): attributed to ``cancelled_by`` — the CANCELLING
+    user — not the run row's immutable ``triggered_by``. The two differ in
+    exactly the case the cancel design added authz arm 3 for: a dataset
+    owner cancelling a refresh someone else started. The dispatcher's
+    identity is not lost — ``refresh.dispatch`` already names it, and the
+    same ``job.cancel`` transaction names the canceller — so attributing
+    this event to the dispatcher would put an action in one user's history
+    that a different user performed. Falls back to the row's actor only
+    when no canceller is supplied (no such caller exists today; the default
+    keeps a future non-request caller from attributing to nobody).
+    """
+    from app.platform.audit import AuditEvent, audit_emit
+
+    context = await _run_audit_context(session, run_id)
+    if context is None:
+        return
+    actor, dataset_id, details = context
+    await audit_emit(
+        session,
+        AuditEvent(
+            user_id=cancelled_by if cancelled_by is not None else actor,
+            action="refresh.cancelled",
             resource_type="dataset",
             resource_id=dataset_id,
             details=details,
@@ -472,6 +520,44 @@ async def claim_run_for_job(
         values={"claimed_at": datetime.now(timezone.utc)},
     )
     return run_id if won else None
+
+
+async def cancel_active_run_for_job(
+    session: AsyncSession,
+    ingest_job_id: uuid.UUID,
+    *,
+    error_message: str = USER_CANCELLED_ERROR_MESSAGE,
+    cancelled_by: uuid.UUID | None = None,
+) -> uuid.UUID | None:
+    """Finalize this job's active run as ``cancelled`` on a user's request.
+
+    feat(#1677). The caller (the cancel endpoint) owns the transaction: this
+    runs beside the fenced ``ingest_jobs`` CAS so the two terminal rows commit
+    together, and the worker's finalize fence (``require_ingest_job_update``)
+    is what guarantees no swap can land after that commit.
+
+    Returns the run id when this caller won the CAS, else ``None`` — no run
+    row is bound to the job (plain imports), or another actor finalized it
+    first. Both are normal, not errors.
+    """
+    run_id = await _active_run_id_for_job(session, ingest_job_id)
+    if run_id is None:
+        return None
+    won = await transition_run(
+        session,
+        run_id,
+        expected=ACTIVE_RUN_STATUSES,
+        to="cancelled",
+        values={
+            "finished_at": datetime.now(timezone.utc),
+            "error_code": USER_CANCELLED_ERROR_CODE,
+            "error_message": redact_run_error(error_message),
+        },
+    )
+    if not won:
+        return None
+    await _emit_refresh_cancelled(session, run_id, cancelled_by=cancelled_by)
+    return run_id
 
 
 def project_refresh_success(

@@ -1024,6 +1024,8 @@
     "anotherJobRunning": "Otro análisis sigue en curso; espera a que termine.",
     "jobComplete": "Conjunto de datos creado",
     "jobFailed": "El trabajo de análisis falló",
+    "jobCancelled": "Ejecución de análisis cancelada",
+    "jobCancelledNamed": "«{{title}}» se canceló",
     "jobFailedDetail": "El trabajo de análisis falló: {{message}}",
     "addToMap": "Añadir al mapa",
     "addToMapNamed": "Añadir «{{name}}» al mapa",

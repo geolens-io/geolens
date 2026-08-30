@@ -1024,6 +1024,8 @@
     "anotherJobRunning": "Une autre analyse est encore en cours — attendez qu’elle se termine.",
     "jobComplete": "Jeu de données créé",
     "jobFailed": "La tâche d'analyse a échoué",
+    "jobCancelled": "Exécution d'analyse annulée",
+    "jobCancelledNamed": "« {{title}} » a été annulée",
     "jobFailedDetail": "La tâche d'analyse a échoué : {{message}}",
     "addToMap": "Ajouter à la carte",
     "addToMapNamed": "Ajouter « {{name}} » à la carte",

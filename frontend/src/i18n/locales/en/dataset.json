@@ -325,7 +325,8 @@
     "toastSuccess": "Re-upload complete!",
     "uploadFailed": "Upload failed. Please try again.",
     "commitFailed": "Commit failed. Please try again.",
-    "jobFailed": "Re-upload job failed."
+    "jobFailed": "Re-upload job failed.",
+    "jobCancelled": "Re-upload was cancelled."
   },
   "quality": {
     "title": "Quality Score",
@@ -781,6 +782,9 @@
       "tokenPlaceholder": "Only needed for a protected source",
       "tokenHint": "Used once for this refresh and never stored.",
       "confirm": "Start refresh",
+      "cancel": "Cancel",
+      "cancelling": "Cancelling...",
+      "cancelFailed": "Failed to cancel the refresh",
       "toastAccepted": "Refresh started (run {{runId}}).",
       "errors": {
         "unknown": "Refresh failed. Try again."

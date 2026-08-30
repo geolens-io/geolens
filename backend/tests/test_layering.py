@@ -2635,7 +2635,20 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # visibility-writing handlers (commit, fan-out, register, bulk register,
     # VRT create), each a local import (PROCESS-02/04) plus one call and the
     # comment saying which surface it closes. Cap 1547 -> 1584, exact.
-    "backend/app/processing/ingest/router.py": 1584,
+    # fix(#1709 review r2 P1): +16 — commit_fan_out's terminal transition is
+    # a fenced CAS via finalize_fan_out_parent instead of a blind attribute
+    # write, keyed on the attempt id captured with the pending check; the
+    # all-failed branch no longer writes 'pending' back. The lines are the
+    # capture, the call, and the comments recording why the blind writes
+    # could overwrite a committed cancel. Cap 1584 -> 1600, exact.
+    # fix(#1709 review r5 P1): +17 — the terminal transition moved BEFORE the
+    # dispatch loop (claim_fan_out_parent) so it is the mutex for the whole
+    # fan-out: a cancel either wins before any child exists or 409s against
+    # the terminal parent, closing the fast-child window the round-2
+    # post-loop shape left open. The lines are the claim call, its 409
+    # rendering, and the comment carrying the two-serialization argument.
+    # Cap 1600 -> 1617, exact.
+    "backend/app/processing/ingest/router.py": 1617,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2962,7 +2975,39 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cancellations while `total_affected` includes them, and why the count
     # reaches the audit event but not the published response model.
     # Cap 1599 -> 1653, exact.
-    "backend/app/platform/jobs/sweep.py": 1653,
+    # fix(#1709 review r7 A): +82 — the childless-fanned_out reconciliation:
+    # the r5 early flip (the mutex that closed the fast-child cancel window)
+    # regressed the crash recoverability the old late transition got from the
+    # pending clause, so a parent that died between its flip commit and its
+    # first child commit stranded terminal forever. The clause settles such
+    # parents 'failed' (retry becomes available) behind a 5-minute grace and
+    # a retention-horizon bound; most of the lines are the comment proving
+    # childless-fanned_out is the crash signature and nothing else's, and why
+    # parents past the retention horizon belong to the purge instead.
+    # Cap 1653 -> 1735, exact.
+    # fix(#1709 review r8 A): +17 — the recovery stops advertising a retry
+    # flow that does not exist. The settle now stamps
+    # FAN_OUT_INTERRUPTED_METADATA_KEY (which _retry_capability refuses on —
+    # generic retry would re-queue the multi-layer parent as ONE
+    # default-layer import) and the message names re-upload as the real
+    # path. Cap 1735 -> 1752, exact.
+    # fix(#1709 review r10): +11 — audit_settled_embedding_backfill takes an
+    # optional `settled_by`, so the terminal event names whoever SETTLED the
+    # run: the canceller when a person cancelled it (the arm-3/cross-user
+    # case, matching job.cancel and refresh.cancelled in the same
+    # transaction), and the requester when a sweep settles it, since a lease
+    # expiry is nobody's click. Cap 1752 -> 1763, exact.
+    "backend/app/platform/jobs/sweep.py": 1763,
+    # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
+    # threshold at 1010 when refresh.cancelled attribution was corrected to
+    # name the CANCELLING user (cancel_active_run_for_job and
+    # _emit_refresh_cancelled thread `cancelled_by` through; the run row's
+    # immutable triggered_by mis-attributed exactly the arm-3 cross-user
+    # cancel this PR added, and most of the growth is the docstring saying
+    # why the dispatcher's identity belongs to refresh.dispatch instead).
+    # The module also carries #1677's cancel machinery from earlier rounds:
+    # USER_CANCELLED codes, _emit_refresh_cancelled, cancel_active_run_for_job.
+    "backend/app/platform/refresh/service.py": 1010,
     # fix(second-opinion review on #1236 review r3): first entry — crossed
     # _RATCHET_INCLUSION_LOC while adding the belt-and-suspenders
     # `le=5120` bound on `presigned_multipart_threshold_mb` (the router-side
@@ -3244,7 +3289,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_records_still_empty` now locks the chunk's records FOR UPDATE and
     # `_reclaim_observed_rows` runs re-check, delete and commit per chunk in
     # one transaction. Cap 1527 -> 1555, exact.
-    "backend/app/processing/embeddings/backfill.py": 1555,
+    # fix(#1709 review r6): +33 — the cooperative per-batch stop: an opaque
+    # should_continue callback polled at each batch boundary before the
+    # provider call, so a user cancel whose best-effort queue abort was lost
+    # costs at most one batch of provider spend instead of the whole
+    # remaining catalog racing a successor run. Kept opaque here (the queued
+    # caller passes a fenced job-row read) because this module knows records
+    # and vectors, not jobs. Cap 1555 -> 1588, exact.
+    "backend/app/processing/embeddings/backfill.py": 1588,
     # feat(#1219): first entry — crossed _RATCHET_INCLUSION_LOC, exactly as
     # the inclusion rule's own comment predicted for this file ("watched by
     # nothing until they cross 1000. The threshold catches them then"). The
@@ -3308,7 +3360,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # back here and is refused at the refresh door. The rest is the discard
     # wrapper on the defer rollback and the extra dispatch argument.
     # Cap 1144 -> 1194, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1194,
+    # fix(#1709 review r4 P1): +50 — the commit fence in reupload_commit: a
+    # same-value CAS on the job's (pending, attempt_id) pair executed in the
+    # SAME transaction that flushes the DatasetRefreshRun, so a cancel that
+    # lands between the handler's pending read and its commit rolls the run
+    # back into a 409 instead of stranding a pending run bound to a
+    # cancelled job (which held uq_refresh_runs_one_active against every
+    # refresh until the stale-run sweep). Over half the lines are the
+    # comment recording both serializations and why the lock order cannot
+    # deadlock against the cancel endpoint. Cap 1194 -> 1244, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1244,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -3509,7 +3570,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # narrower here than at the refresh door, where #1220 accepted the same
     # trade. Written down so the next review lands on the decision rather than
     # re-deriving it. Cap 1259 -> 1284, exact.
-    "backend/app/processing/ingest/service.py": 1284,
+    # fix(#1709 review r2 P1): +133 — finalize_fan_out_parent: the fenced
+    # pending->fanned_out CAS, and the lost-CAS reconciliation that cancels
+    # the children this request queued (guarded status CAS, best-effort
+    # queue aborts, per-layer results rewritten to failed) so a cancel that
+    # beat the fan-out mid-loop cannot leave every child importing. Roughly
+    # a third of the lines are the docstring recording why the loser, not
+    # the cancel endpoint, owns that reconciliation — only this side knows
+    # the full child set. Cap 1284 -> 1417, exact.
+    # fix(#1709 review r5 P1): -41 — finalize_fan_out_parent's post-loop
+    # loser-reconciliation is DELETED, not kept as defense-in-depth: with
+    # the flip preceding every child (claim_fan_out_parent), the window it
+    # compensated — children existing while the parent CAS loses — is
+    # unreachable, and dead compensation code reads as a live invariant.
+    # Replaced by the smaller claim/restore pair, restore being the fenced
+    # CR-02 retry contract. Cap 1417 -> 1376, exact.
+    "backend/app/processing/ingest/service.py": 1376,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

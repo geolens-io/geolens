@@ -690,8 +690,31 @@ async def run_embedding_backfill(
                     extra={"error_code": "attempt_not_owned"},
                 )
                 return
+
+            # fix(#1709 review r6): the cooperative stop signal, read off the
+            # JOB ROW rather than procrastinate's abort flag — the DB CAS is
+            # the cancel design's correctness mechanism, and the row also
+            # covers settles by the sweeps. Polled by backfill_embeddings once
+            # per batch, so a user cancel whose best-effort queue abort was
+            # lost stops this run within one batch of provider spend; the
+            # fenced _settle below then loses to the committed cancel exactly
+            # like every other worker, and the terminal-audit unique index
+            # arbitrates the trail. Same session on purpose: the loop commits
+            # per batch and READ COMMITTED shows each new statement the
+            # latest committed status either way.
+            async def _job_still_running() -> bool:
+                current = await session.scalar(
+                    select(IngestJob.status).where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                    )
+                )
+                return current == "running"
+
             try:
-                result = await backfill_embeddings(session, force=force)
+                result = await backfill_embeddings(
+                    session, force=force, should_continue=_job_still_running
+                )
             except Exception:  # broad: the backfill spans the embedding SDK and DB writes; every failure ends the run the same way
                 logger.exception(
                     "embedding_backfill_failed",

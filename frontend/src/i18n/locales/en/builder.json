@@ -1024,6 +1024,8 @@
     "anotherJobRunning": "Another analysis is still running — wait for it to finish.",
     "jobComplete": "Dataset created",
     "jobFailed": "Analysis job failed",
+    "jobCancelled": "Analysis run cancelled",
+    "jobCancelledNamed": "“{{title}}” was cancelled",
     "jobFailedDetail": "Analysis job failed: {{message}}",
     "addToMap": "Add to map",
     "addToMapNamed": "Add “{{name}}” to map",

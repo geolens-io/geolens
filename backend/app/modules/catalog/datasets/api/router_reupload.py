@@ -15,7 +15,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -824,6 +824,56 @@ async def reupload_commit(
                 },
             ) from exc
 
+    # fix(#1709 review r4 P1): the pending check at the top of this handler
+    # is a plain read, and everything since — the metadata merge, the run
+    # row, the staged credential — flushes in THIS commit. POST
+    # /jobs/{id}/cancel can land between that read and here, and without a
+    # fence this commit would bind a pending run to the now-cancelled job:
+    # the queued task's claim fence fails immediately, nothing ever
+    # finalizes the run, and it holds `uq_refresh_runs_one_active` against
+    # every refresh until the stale-run sweep's cutoff — a successful cancel
+    # that leaves the dataset reporting busy for up to an hour.
+    #
+    # The same-value CAS below re-evaluates the pending+attempt pair against
+    # committed state under the row lock, atomically with the run flush. A
+    # committed cancel makes it match zero rows and the whole request rolls
+    # back — run row included — into a clean 409. When this side takes the
+    # lock first, the cancel waits at its own CAS and then cancels the job
+    # AND the run together: `cancel_active_run_for_job` sees the row this
+    # commit just made durable. Either serialization strands nothing.
+    #
+    # No deadlock risk from the ordering: the cancel locks job-then-run, and
+    # the run row this transaction INSERTs is invisible to the cancel's run
+    # CAS until commit (any pre-existing active run was refused above as
+    # dataset_busy), so the cancel never waits on anything this transaction
+    # holds except the job row itself.
+    commit_fence = await db.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.status == "pending",
+            (
+                IngestJob.attempt_id == job.attempt_id
+                if job.attempt_id is not None
+                else IngestJob.attempt_id.is_(None)
+            ),
+        )
+        .values(status="pending")
+    )
+    if not commit_fence.rowcount:
+        await db.rollback()
+        await db.refresh(job)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "job_conflict",
+                "status": job.status,
+                "message": (
+                    "The job changed while this commit was in flight — "
+                    "nothing was queued."
+                ),
+            },
+        )
     await db.commit()
 
     # Each defer_async path is wrapped in the shared orphan guard

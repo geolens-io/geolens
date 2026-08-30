@@ -374,7 +374,8 @@
     "toastSuccess": "¡Nueva subida completada!",
     "uploadFailed": "Error al subir. Inténtelo de nuevo.",
     "commitFailed": "Error de confirmación. Inténtelo de nuevo.",
-    "jobFailed": "Error en el trabajo de nueva subida."
+    "jobFailed": "Error en el trabajo de nueva subida.",
+    "jobCancelled": "La resubida se canceló."
   },
   "quality": {
     "title": "Puntuación de calidad",
@@ -830,6 +831,9 @@
       "tokenPlaceholder": "Solo necesario para una fuente protegida",
       "tokenHint": "Se usa una sola vez para esta actualización y nunca se almacena.",
       "confirm": "Iniciar actualización",
+      "cancel": "Cancelar",
+      "cancelling": "Cancelando...",
+      "cancelFailed": "Error al cancelar la actualización",
       "toastAccepted": "Actualización iniciada (ejecución {{runId}}).",
       "errors": {
         "unknown": "La actualización falló. Inténtalo de nuevo."

@@ -159,6 +159,7 @@ export function DetailPanel(props: DetailPanelProps) {
       <TabsContent value="sources" className="space-y-6">
         <SourcePanel
           dataset={dataset}
+          canEdit={canEdit}
           actions={
             canEdit && canRefresh
               ? <SourceRefreshAction dataset={dataset} watch={refreshWatch} />

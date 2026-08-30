@@ -29,7 +29,7 @@ import {
 import type { ApiKeyScope } from '@/types/api';
 import { toast } from 'sonner';
 import i18n from '@/i18n/i18n';
-import { getJobStatus, retryJob } from '@/api/ingest';
+import { cancelJob, getJobStatus, retryJob } from '@/api/ingest';
 import { ApiError } from '@/api/client';
 import { logger } from '@/lib/logger';
 
@@ -166,6 +166,22 @@ export function useRetryAdminJob() {
     onError: (err) => {
       logger.error('[useRetryAdminJob]', err);
       toast.error(i18n.t('admin:errors.retryJobFailed'));
+    },
+  });
+}
+
+// feat(#1677): mirror of useRetryAdminJob for the shared /jobs/{id}/cancel
+// route — admin cancel reuses it the same way admin retry reuses /retry.
+export function useCancelAdminJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => cancelJob(jobId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.admin.allJobs });
+    },
+    onError: (err) => {
+      logger.error('[useCancelAdminJob]', err);
+      toast.error(i18n.t('admin:errors.cancelJobFailed'));
     },
   });
 }
@@ -436,6 +452,13 @@ export function useBackfillJobStatus(jobId: string | null) {
     if (settledFor.current === jobId) return;
     settledFor.current = jobId;
     qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
+    if (status === 'cancelled') {
+      // fix(#1677): somebody cancelled this run; reporting it as a failure
+      // put a red error toast in front of a user who had just asked for it
+      // to stop.
+      toast.info(i18n.t('admin:ai.backfillRunCancelled'));
+      return;
+    }
     if (status !== 'complete') {
       toast.error(i18n.t('admin:ai.backfillRunFailed'));
       return;

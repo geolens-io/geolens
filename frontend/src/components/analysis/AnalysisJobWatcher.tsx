@@ -78,7 +78,14 @@ export function AnalysisJobWatcher() {
     // and the Analysis panel's Create button re-enables at the same moment
     // the server would admit a new materialize. The client still needs no
     // staleness rule of its own; it mirrors the server's verdict.
-    if (status !== 'complete' && status !== 'failed') return;
+    // fix(#1677): 'cancelled' is terminal too. The cancel control made it a
+    // reachable outcome for every job type, and `useJobStatus` already stops
+    // polling on it — but this watcher did not clear, so a cancelled analysis
+    // job stayed tracked in a PERSISTED store forever, surviving reloads, and
+    // the Analysis panel's Create button (gated on `!!s.job`) never
+    // re-enabled short of logging out or clearing site data.
+    if (status !== 'complete' && status !== 'failed' && status !== 'cancelled')
+      return;
 
     // Once per job per tab. The clear used to be synchronous, so a re-run
     // simply fell out at `if (!job)`; now the claim is awaited, and any render
@@ -185,6 +192,23 @@ export function AnalysisJobWatcher() {
               duration: Infinity,
             });
           }
+        } else if (status === 'cancelled') {
+          // fix(#1677): not an error — somebody asked for this. It still
+          // deserves a notification, because the cancel can arrive from
+          // another tab, or from the dataset's owner or an admin cancelling
+          // a run this user started, and the panel is about to re-enable
+          // with no other explanation of why the run stopped.
+          toast.info(
+            job.title
+              ? t('analysisTools.jobCancelledNamed', {
+                  defaultValue: '“{{title}}” was cancelled',
+                  title: job.title,
+                })
+              : t('analysisTools.jobCancelled', {
+                  defaultValue: 'Analysis run cancelled',
+                }),
+            { id: toastId },
+          );
         } else {
           const message = data?.error_message;
           // Interpolate the detail through i18n rather than concatenating onto
@@ -224,7 +248,9 @@ export function AnalysisJobWatcher() {
       // finished run's name and re-enable its own Create button.
       // Settled either way: a failed run KEEPS its name for the retry, which
       // is a decision, not an omission — the departure handler below must not
-      // second-guess it.
+      // second-guess it. fix(#1677): a cancelled run keeps it for the same
+      // reason — nothing was created, and re-running under the same name is
+      // the likely next step.
       titleRetiredRef.current.add(tracked.jobId);
       if (status === 'complete') {
         useAnalysisFormStore.getState().clearTitleForMap(tracked.mapId);
