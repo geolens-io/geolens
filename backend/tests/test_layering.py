@@ -2749,7 +2749,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # guarded stamps. A cancelled put task also reaches its deleter now
     # (task.exception() raises on a cancelled task). Cap 2332 -> 2400,
     # exact.
-    "backend/app/processing/ingest/router.py": 2433,
+    # fix(#1708 codex r15): +26 — the landed stand-down deletes the LOCAL
+    # copy when the row references an S3 key (nothing downstream can
+    # discover a path no row names, so it leaked one file per ambiguous
+    # commit) and keeps it when the row references the local file itself.
+    # Most of the growth is the comment making that asymmetry read as
+    # intent rather than an oversight. Cap 2400 -> 2426, exact.
+    "backend/app/processing/ingest/router.py": 2459,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

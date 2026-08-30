@@ -868,6 +868,32 @@ async def _settle_failed_url_import(
         and staged_path is not None
         and await _url_import_transition_landed(job_id, staged_path)
     ):
+        # fix(#1708 codex r15): the transition is live, so the artifact the
+        # ROW references must survive — but the local file is only that
+        # artifact under local storage. The discriminator is the row itself:
+        #
+        #   staged_path == str(local_dest)  -> local storage. local_dest IS
+        #       the referenced artifact. Deleting it would leave a pending
+        #       job pointing at nothing, which is the whole failure this
+        #       stand-down exists to avoid.
+        #   staged_path != str(local_dest)  -> S3. The row records only the
+        #       staging key, so the local file is a redundant copy that
+        #       served the content sniff, and NOTHING downstream can ever
+        #       discover it — no reaper sees a path no row references. Left
+        #       behind, repeated ambiguous commits accumulate files up to
+        #       the upload limit on the staging volume.
+        #
+        # The success path makes exactly the same distinction a few lines
+        # later; this branch returns early, which is how it was missed.
+        if staged_path != str(local_dest):
+            try:
+                # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see upload_from_url
+                local_dest.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "url_import_landed_local_copy_cleanup_failed",
+                    job_id=str(job_id),
+                )
         logger.warning(
             "url_import_commit_ack_lost_but_landed",
             job_id=str(job_id),

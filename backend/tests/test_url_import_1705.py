@@ -2037,3 +2037,98 @@ class TestUrlImportCancelledPutReaper:
         await asyncio.sleep(0.05)
 
         cleanup.assert_awaited_once_with("staging/jid/cancelled.geojson", "jid")
+
+
+# ---------------------------------------------------------------------------
+# Round-15 review finding (#1708): the landed stand-down keeps the artifact
+# the ROW references and drops the copy nothing references
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportLandedStandDownCleanup:
+    async def test_s3_landed_stand_down_drops_the_local_copy(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r15): under S3 the pending row records only the
+        staging key, so the local file is a redundant sniff copy that NO
+        reaper can discover — the stand-down's early return used to leak one
+        per ambiguous commit. The S3 object must survive (the row points at
+        it); the local copy must not."""
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(
+            "app.processing.ingest.router._put_staging_object", AsyncMock()
+        )
+        delete_spy = AsyncMock()
+        monkeypatch.setattr(
+            "app.processing.ingest.router._cleanup_saved_upload", delete_spy
+        )
+
+        async def ack_lost(db) -> None:
+            await db.commit()
+            raise ConnectionError("ack lost after durable commit")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._commit_staged_transition", ack_lost
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/s3landed.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 500  # the response is lost, not the job
+
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "s3landed.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "pending"
+        assert job.file_path == f"staging/{job.id}/s3landed.geojson"
+        # The referenced S3 object was NOT deleted...
+        delete_spy.assert_not_awaited()
+        # ...and the unreferenced local copy is gone.
+        assert _staged_files() == []
+
+    async def test_local_landed_stand_down_keeps_the_artifact(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The other half of the distinction, pinned: under local storage
+        `local_dest` IS the artifact the pending row references, so the same
+        branch must NOT delete it — doing so would recreate the exact
+        pending-row-pointing-at-nothing failure the stand-down prevents."""
+
+        async def ack_lost(db) -> None:
+            await db.commit()
+            raise ConnectionError("ack lost after durable commit")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._commit_staged_transition", ack_lost
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/locallanded.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 500
+
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "locallanded.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "pending"
+        staged = Path(job.file_path)
+        assert staged.exists()
+        assert staged.read_bytes() == GEOJSON
