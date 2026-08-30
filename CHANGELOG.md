@@ -7,6 +7,44 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-08-30
+
+### Added
+
+- **Cancel a running import or refresh.** Imports and dataset refreshes can now
+  be cancelled while they are pending or in flight, from the refresh history on
+  a dataset's source panel and from the admin job list. A cancelled run stops
+  before anything reaches the live table: the finalize path is fenced on the
+  job's attempt, so a worker that finishes after the cancel commits rolls its
+  swap back rather than publishing data the user already walked away from.
+  Existing data and version history are left untouched, and the cancel lands in
+  the audit log. Asking twice is harmless. The job's owner can cancel, so can an
+  admin, and so can the dataset's own owner, which means a stuck job can always
+  be cleared by someone with a stake in the dataset (#1677, #1709).
+
+- **Import a dataset from a file URL.** A new File URL tab on the import page
+  takes an HTTP(S) link to a data file, fetches it server-side, and hands it to
+  the same preview and commit pipeline an upload uses, layer picker and raster
+  branch included. Plenty of public data is published as a stable link rather
+  than a file you keep on disk. The URL goes through the same SSRF checks as
+  every other outbound fetch and is re-checked on each redirect hop. The size cap
+  is enforced per chunk as the body streams, so an origin that lies about its
+  length, or simply never stops sending, cannot get past it. Once staged, the
+  file faces the same extension, content-sniff and quota checks as a direct
+  upload (#1705, #1708).
+
+### Fixed
+
+- **Published-package verification no longer races the release it verifies.**
+  The workflow triggered off the SDK, CLI and MCP publishes, then polled five
+  minutes for a GitHub Release and GHCR images that land much later: the release
+  waits for the prod compose smoke to boot the published images and run the audit
+  suite. On 1.16.0 the automatic attempts gave up more than two minutes before
+  the release existed, so every release needed a manual rerun that then passed
+  trivially. Each check now runs off the trigger that can actually satisfy it,
+  and resolves the exact tag under test instead of falling back to `latest`
+  (#1707).
+
 ## [1.16.1] - 2026-08-28
 
 ### Added
