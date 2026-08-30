@@ -2755,7 +2755,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # commit) and keeps it when the row references the local file itself.
     # Most of the growth is the comment making that asymmetry read as
     # intent rather than an oversight. Cap 2400 -> 2426, exact.
-    "backend/app/processing/ingest/router.py": 2459,
+    # fix(#1708 codex r16): +14 — the INVARIANT comment at the deadline's
+    # initialization now states what the joint clock does NOT cover (auth
+    # and dependency-phase work run before this handler body; the
+    # post-stage transaction runs after the budget), replacing wording
+    # that claimed auth time was deducted. A comment describing a
+    # protection the code does not implement is the class AGENTS.md calls
+    # out, so the correction is the point of the change. Cap 2426 -> 2440,
+    # exact.
+    "backend/app/processing/ingest/router.py": 2473,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

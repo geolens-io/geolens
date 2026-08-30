@@ -1238,17 +1238,31 @@ async def upload_from_url(
         # fetch, staging put — runs inside one clock that fits the proxy
         # deadline. The DB blocks before and after are short single-row
         # transactions living in the budget's slack.
-        # INVARIANT (fix #1708 codex r13) — ONE monotonic clock bounds this
-        # whole request. Every phase's bound is
+        # INVARIANT (fix #1708 codex r13, corrected r16) — ONE monotonic
+        # clock bounds every long operation this handler performs. Each
+        # phase's bound is
         #     min(that phase's own ceiling, stage_deadline - now)
-        # so time already spent by earlier phases (auth, the
-        # dependency-phase transaction, preflight DNS, the config/quota
-        # transaction) is deducted from every later one. The joint budget is
-        # STAGE_TOTAL_BUDGET_SECONDS (540s) and 540 + post-work slack <= the
-        # edge proxy's 600s read timeout, so no phase can push the response
-        # past nginx no matter how long an earlier phase ran. A NEW phase
-        # added to this handler inherits the rule: derive its bound from
-        # this deadline, never from a fresh constant.
+        # so time spent by an earlier phase is deducted from every later
+        # one. A NEW phase added here inherits the rule: derive its bound
+        # from this deadline, never from a fresh constant.
+        #
+        # What the clock covers, precisely: preflight DNS, the pre-fetch
+        # config/quota transaction, the fetch, the content sniff, the
+        # staging put, and the failure-path cleanup.
+        #
+        # What it does NOT cover, equally precisely (r16 — the earlier
+        # wording claimed auth was deducted, which was never true and is
+        # the kind of comment that reads as a protection while
+        # implementing none): auth, permission and dependency-phase work,
+        # which run before this handler body and therefore before this
+        # line; and the post-stage transaction, which runs after the
+        # budget expires. Both of those can wait on a pool checkout,
+        # bounded by settings.db_pool_timeout. That is why
+        # STAGE_TOTAL_BUDGET_SECONDS is 510 and not the proxy's 600: the
+        # 90s it leaves absorbs two worst-case pool waits plus the
+        # single-row CAS and serialization. The arithmetic is derived at
+        # the constant's definition and pinned by
+        # test_every_phase_bound_fits_the_joint_budget.
         stage_deadline = time.monotonic() + STAGE_TOTAL_BUDGET_SECONDS
 
         # Rule 2, submission gate: refuse private/link-local/reserved targets

@@ -54,9 +54,28 @@ EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 # and ABANDONS the wait at the deadline — the thread's own lifetime stays
 # bounded by botocore's connect_timeout=10/read_timeout=60/3 adaptive
 # retries, and a late-landing object is deleted by the abandonment reaper.
-# 540 leaves 60s of slack under the proxy for the two short post-work
-# transactions and response serialization.
-STAGE_TOTAL_BUDGET_SECONDS = 540
+#
+# fix(#1708 codex r16): 540 -> 510, derived rather than assumed. The clock
+# this budget starts does NOT cover the request's whole life (see the
+# INVARIANT at its initialization in router.py): auth, permission and
+# dependency-phase work run BEFORE the handler body, and the post-stage
+# transaction runs after the budget expires. Both can wait on a pool
+# checkout, bounded by ``settings.db_pool_timeout`` (default 30s) — past
+# that the request fails instead of proceeding. Worst case, in order:
+#
+#     30s  pre-handler pool wait (db_pool_timeout)
+#   + 510s joint stage budget (this constant)
+#   + 30s  post-stage pool wait (db_pool_timeout)
+#   +  ~0  single-row CAS/commit + serialization, local Postgres
+#   = 570s  <= 600s proxy read timeout, ~30s margin
+#
+# At 540 that sum reached exactly 600 with no room for the queries
+# themselves. The fetch keeps its full ceiling either way:
+# PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS == 510. The arithmetic is
+# pinned by test_every_phase_bound_fits_the_joint_budget, which reads
+# db_pool_timeout from settings so raising that config fails the test
+# rather than silently eroding the margin.
+STAGE_TOTAL_BUDGET_SECONDS = 510
 
 # Bound on the submission-time SSRF preflight (validate_url_for_ssrf's
 # getaddrinfo). fix(#1708 codex r8): it was the one long operation left

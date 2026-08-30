@@ -723,9 +723,14 @@ class TestUrlImportReaperInteraction:
         assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
         assert FETCH_MAX_SECONDS + 120 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
         # fix(#1708 codex r7): the JOINT budget (fetch + sniff + S3 staging
-        # put) also fits, with slack for the two short post-work
-        # transactions; and the fetch bound runs inside the joint budget.
-        assert STAGE_TOTAL_BUDGET_SECONDS + 60 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+        # put) also fits, with slack for the post-work; and the fetch bound
+        # runs inside the joint budget. fix(r16): the slack is now derived
+        # from db_pool_timeout rather than assumed — see
+        # test_every_phase_bound_fits_the_joint_budget for the full chain.
+        assert (
+            STAGE_TOTAL_BUDGET_SECONDS + 2 * settings.db_pool_timeout
+            <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+        )
         assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
         # fix(#1708 codex r8): the preflight DNS bound joined the budget —
         # it now starts the clock, so a max-length resolution must still
@@ -1778,12 +1783,31 @@ class TestUrlImportJointClock:
         )
 
         assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
-        assert STAGE_TOTAL_BUDGET_SECONDS + 60 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
         assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
         assert (
             PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_BUDGET_SECONDS
         )
         assert 0 < MIN_FETCH_BUDGET_SECONDS < FETCH_MAX_SECONDS
+
+        # fix(#1708 codex r16): the FULL chain, including what the joint
+        # clock does NOT cover. The budget starts inside the handler, so
+        # pre-handler dependency work and the post-stage transaction sit
+        # outside it, and each can wait on a pool checkout bounded by
+        # db_pool_timeout (past which the request fails rather than
+        # proceeding). Reading that from settings rather than hardcoding it
+        # means raising the config fails HERE instead of silently eroding
+        # the margin under the proxy.
+        pool_wait = settings.db_pool_timeout
+        worst_case = pool_wait + STAGE_TOTAL_BUDGET_SECONDS + pool_wait
+        assert worst_case <= EDGE_PROXY_READ_TIMEOUT_SECONDS, (
+            f"worst case {worst_case}s exceeds the "
+            f"{EDGE_PROXY_READ_TIMEOUT_SECONDS}s proxy deadline: shrink "
+            "STAGE_TOTAL_BUDGET_SECONDS or re-derive"
+        )
+        # With real margin left for the single-row CAS/commit and response
+        # serialization, not merely equal to the deadline (which is what
+        # 540 gave: 30 + 540 + 30 == 600 exactly).
+        assert worst_case + 20 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
 
     def test_fetch_budget_shrinks_as_the_joint_clock_advances(self):
         """fix(#1708 codex r13): the DERIVATION, not just the static sum. A
