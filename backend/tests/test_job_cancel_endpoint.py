@@ -522,6 +522,95 @@ class TestCancelAuthorization:
         assert job.status == "running"
 
 
+class TestCancelDenialTelemetry:
+    """fix(#1709 review r12): a losing ARM is not a denied REQUEST.
+
+    Arm 2 (the cross-user capability check) used to log a
+    ``permission_denied`` event the instant it failed — including on every
+    successful cancel that arm 3 went on to grant, which is exactly the
+    case this feature added (a dataset owner cancelling a refresh an admin
+    triggered). That is false-positive security telemetry: it trips alerts
+    and buries genuine denials. Arm 2 is now a silent probe and the denial
+    is emitted once, only after every arm has failed.
+    """
+
+    async def test_successful_arm3_cancel_emits_no_denial(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """The supported cross-user case: 200 AND zero denial telemetry."""
+        from unittest.mock import patch
+
+        headers, owner_id = await create_user(client, admin_auth_header, "editor")
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=uuid.UUID(owner_id))
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,  # an ADMIN started it
+            status="running",
+            dataset_id=dataset.id,
+        )
+
+        with patch(
+            "app.modules.auth.dependencies.log_permission_denial"
+        ) as denial_telemetry:
+            resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
+
+        assert resp.status_code == 200, resp.text
+        assert denial_telemetry.call_count == 0
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+
+    async def test_all_arms_failing_emits_exactly_one_denial(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """A genuine denial is still recorded — once, not zero, not three."""
+        from unittest.mock import patch
+
+        headers, _ = await create_user(client, admin_auth_header, "viewer")
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        job = await _create_job(
+            test_db_session,
+            created_by=admin_id,
+            status="running",
+            dataset_id=dataset.id,
+        )
+
+        with patch(
+            "app.modules.auth.dependencies.log_permission_denial"
+        ) as denial_telemetry:
+            resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
+
+        assert resp.status_code == 403
+        assert denial_telemetry.call_count == 1
+        # The same narrow shape the single-arm callers emit.
+        assert denial_telemetry.call_args.args[2] == "manage_users"
+        assert denial_telemetry.call_args.kwargs == {"resource_type": "ingest_job"}
+
+        await test_db_session.refresh(job)
+        assert job.status == "running"
+
+    async def test_dataset_less_job_denial_still_reported_once(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Arm 3 cannot even run without a dataset; the denial is still
+        emitted exactly once rather than lost with arm 2's silence."""
+        from unittest.mock import patch
+
+        headers, _ = await create_user(client, admin_auth_header, "viewer")
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id)
+
+        with patch(
+            "app.modules.auth.dependencies.log_permission_denial"
+        ) as denial_telemetry:
+            resp = await client.post(f"/jobs/{job.id}/cancel", headers=headers)
+
+        assert resp.status_code == 403
+        assert denial_telemetry.call_count == 1
+
+
 class TestCancelAuditAttribution:
     async def test_cross_user_cancel_names_the_canceller_on_both_events(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

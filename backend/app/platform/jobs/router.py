@@ -82,12 +82,28 @@ async def _can_access_another_users_job(
     db: AsyncSession,
     user: Identity,
     job: IngestJob,
+    *,
+    log_denial: bool = True,
 ) -> bool:
     """Delegate cross-user job access to the effective permission policy.
 
     Owner access is handled by callers before invoking this helper. Passing the
     job as ``resource`` lets enterprise extensions apply finer-grained policy
     without core code falling back to a hard-coded role-name check.
+
+    ``log_denial`` (fix(#1709 review r12)) exists because this check is a
+    whole decision at two call sites and only ONE ARM of a decision at a
+    third. Where it decides alone (``get_job_status``, ``retry_job``) a
+    refusal here IS the request's refusal and must be recorded — those
+    callers keep the default. Where a later arm can still grant (cancel's
+    dataset-write arm, the supported case of a dataset owner cancelling a
+    refresh an admin triggered), logging here would file a security denial
+    on every SUCCESSFUL cancel: false positives that trip alerts and bury
+    real denials. Such callers pass ``log_denial=False`` and own emitting
+    exactly one event once every arm has failed.
+
+    A default of True is the safe direction: a new caller that forgets the
+    flag over-reports rather than losing a denial silently.
     """
     # Deferred by design: shared platform code must not import product-domain
     # policy implementations at module load time (D-17).
@@ -110,7 +126,7 @@ async def _can_access_another_users_job(
         permission_matrix=matrix,
         resource=job,
     )
-    if not granted:
+    if not granted and log_denial:
         log_permission_denial(
             request,
             user,
@@ -943,22 +959,47 @@ async def _may_cancel_job(
     ``check_dataset_write_access`` raises 404 (not visible) or 403 (visible,
     not owner/admin); both mean "this arm does not grant", and the caller's
     generic 403 avoids leaking dataset visibility through a cancel probe.
+
+    fix(#1709 review r12): arm 2 runs as a SILENT probe here. A losing arm
+    is not a denied request when a later arm grants — and the arm that
+    grants in the case this feature added (a dataset owner cancelling a
+    refresh an admin triggered) is arm 3, so the previous shape filed a
+    ``permission_denied`` event on every successful cross-user cancel. The
+    denial is emitted once, below, only after every arm has failed; arm 3
+    emits none of its own (``check_dataset_write_access`` raises without
+    telemetry), so the deny path's event count is exactly one, unchanged.
     """
+    from app.modules.auth.dependencies import (
+        get_cached_user_roles,
+        log_permission_denial,
+    )
+
     if job.created_by == user.id:
         return True
-    if await _can_access_another_users_job(request, db, user, job):
+    if await _can_access_another_users_job(request, db, user, job, log_denial=False):
         return True
-    if job.dataset_id is None:
-        return False
-    from app.modules.catalog.authorization import check_dataset_write_access
-    from app.modules.catalog.datasets.domain.service import get_dataset
+    if job.dataset_id is not None:
+        from app.modules.catalog.authorization import check_dataset_write_access
+        from app.modules.catalog.datasets.domain.service import get_dataset
 
-    dataset = await get_dataset(db, job.dataset_id)
-    try:
-        await check_dataset_write_access(db, dataset, job.dataset_id, user)
-        return True
-    except HTTPException:
-        return False
+        dataset = await get_dataset(db, job.dataset_id)
+        try:
+            await check_dataset_write_access(db, dataset, job.dataset_id, user)
+            return True
+        except HTTPException:
+            pass
+
+    # Every arm failed: now it is a real denial, and the only one.
+    # ``get_cached_user_roles`` is request-cached, so arm 2 already paid for
+    # this read.
+    log_permission_denial(
+        request,
+        user,
+        "manage_users",
+        await get_cached_user_roles(request, db, user),
+        resource_type="ingest_job",
+    )
+    return False
 
 
 @router.post(
