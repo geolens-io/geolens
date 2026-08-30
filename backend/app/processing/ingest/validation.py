@@ -343,6 +343,7 @@ def validate_vrt_body(file_path: str) -> None:
 
     Raises ValueError with user-friendly message on any violation.
     """
+    # codeql[py/path-injection] fix(#1708): file_path is always server-staged — every caller (router upload_file/upload_from_url, tasks_common, presigned probe) builds it under managed staging from a basename-stripped, byte-clamped name. This module sniffs content and never derives a path, so the guarantee is the caller's.
     with open(file_path, "rb") as f:
         body = f.read(VRT_BODY_MAX_BYTES + 1)
 
@@ -380,8 +381,10 @@ def validate_parquet_file(file_path: str) -> None:
     """
     path = Path(file_path)
     # 12 bytes = header magic + 4-byte footer length + footer magic.
+    # codeql[py/path-injection] fix(#1708): file_path is always server-staged — every caller (router upload_file/upload_from_url, tasks_common, presigned probe) builds it under managed staging from a basename-stripped, byte-clamped name. This module sniffs content and never derives a path, so the guarantee is the caller's.
     if path.stat().st_size < 12:
         raise ValueError("The uploaded file is not a valid Parquet file.")
+    # codeql[py/path-injection] fix(#1708): file_path is always server-staged — every caller (router upload_file/upload_from_url, tasks_common, presigned probe) builds it under managed staging from a basename-stripped, byte-clamped name. This module sniffs content and never derives a path, so the guarantee is the caller's.
     with path.open("rb") as f:
         head = f.read(4)
         f.seek(-4, 2)
@@ -401,6 +404,7 @@ def validate_flatgeobuf_file(file_path: str) -> None:
     branch and reach GDAL unverified. Raises ValueError with a user-friendly
     message.
     """
+    # codeql[py/path-injection] fix(#1708): file_path is always server-staged — every caller (router upload_file/upload_from_url, tasks_common, presigned probe) builds it under managed staging from a basename-stripped, byte-clamped name. This module sniffs content and never derives a path, so the guarantee is the caller's.
     with open(file_path, "rb") as f:
         header = f.read(_FGB_MAGIC_SIZE)
     if (
@@ -462,6 +466,7 @@ def validate_file_content(file_path: str, filename: str) -> None:
         validate_flatgeobuf_file(file_path)
         return
 
+    # codeql[py/path-injection] fix(#1708): file_path is always server-staged — every caller (router upload_file/upload_from_url, tasks_common, presigned probe) builds it under managed staging from a basename-stripped, byte-clamped name. This module sniffs content and never derives a path, so the guarantee is the caller's.
     with open(file_path, "rb") as f:
         header = f.read(HEADER_READ_SIZE)
 

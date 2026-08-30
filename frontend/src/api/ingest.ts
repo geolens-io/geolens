@@ -145,6 +145,40 @@ export async function uploadFile(
   return xhrUpload<UploadResponse>('/ingest/upload', formData, onProgress);
 }
 
+// fix(#1708 codex r2/r3): the backend holds this request open for the whole
+// server-side download plus its post-work, all budgeted to fit inside the
+// edge proxy's 600s `location /api/` read timeout (frontend/nginx.conf) —
+// the fetch itself is bounded at FETCH_MAX_SECONDS = 480s in
+// backend/app/processing/ingest/url_fetch.py. apiFetch's 30s default would
+// abort the request (and lose the job id) long before either deadline.
+// 630s deliberately OUTLIVES the proxy so whichever end fails first — the
+// backend's own 4xx/502 or the proxy's 504 — reaches the form as a real
+// verdict instead of a client-side abort.
+const URL_IMPORT_TIMEOUT_MS = 630_000;
+
+/**
+ * feat(#1705): the URL variant of upload. The backend fetches the file
+ * server-side (SSRF-validated, size-capped) into staging; the returned job
+ * then flows through the same preview → commit pipeline as a direct upload.
+ */
+export async function uploadFromUrl(
+  url: string,
+  filename?: string,
+): Promise<UploadResponse> {
+  try {
+    return await apiFetch<UploadResponse>('/ingest/upload/url', {
+      method: 'POST',
+      body: JSON.stringify({ url, ...(filename && { filename }) }),
+      timeoutMs: URL_IMPORT_TIMEOUT_MS,
+    });
+  } catch (err) {
+    // Direct call from UrlImportForm's try/catch (not a TanStack mutation),
+    // so report here — metadata only, same reasoning as uploadFile above.
+    reportApiCallFailure('/ingest/upload/url', err);
+    throw err;
+  }
+}
+
 export async function getJobStatus(
   jobId: string,
 ): Promise<JobStatusResponse> {

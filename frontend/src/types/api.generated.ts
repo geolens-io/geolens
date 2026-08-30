@@ -3092,6 +3092,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ingest/upload/url": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload From Url
+         * @description Import a geospatial file from an HTTP(S) URL for staging.
+         *
+         *     feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
+         *     source type. The server fetches the file itself and the staged bytes
+         *     enter the normal pipeline unchanged (preview → commit). Rule 2 posture:
+         *     ``validate_url_for_ssrf`` gates the URL at submission, the download runs
+         *     through ``make_safe_client()`` (connect-time IP pinning plus per-hop
+         *     redirect revalidation), the size cap is enforced while streaming, the
+         *     staged file passes the same extension allowlist and content sniff as a
+         *     direct upload, and GDAL only ever sees the staged local file.
+         */
+        post: operations["upload_from_url_ingest_upload_url_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ingest/vrt/create": {
         parameters: {
             query?: never;
@@ -13076,6 +13105,26 @@ export interface components {
              * @description Human-readable message describing the upload result.
              */
             message: string;
+        };
+        /**
+         * UrlUploadRequest
+         * @description Request body for the URL variant of upload (feat #1705).
+         *
+         *     The server fetches the file itself (SSRF-validated, size-capped) and
+         *     stages it exactly like a direct upload — preview and commit take over
+         *     unchanged.
+         */
+        UrlUploadRequest: {
+            /**
+             * Url
+             * @description HTTP(S) URL of the file to import. The server validates the URL against SSRF, downloads it with the configured size cap, and stages it like a direct upload.
+             */
+            url: string;
+            /**
+             * Filename
+             * @description Filename override for URLs whose path does not end in the actual file name (e.g. download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.
+             */
+            filename?: string | null;
         };
         /** UserCreate */
         UserCreate: {
@@ -28975,6 +29024,131 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResponse"];
+                };
+            };
+            /** @description Bad request — invalid payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks write access */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Payload too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    upload_from_url_ingest_upload_url_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UrlUploadRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
                 headers: {
                     [name: string]: unknown;
                 };

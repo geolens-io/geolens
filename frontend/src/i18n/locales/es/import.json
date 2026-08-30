@@ -3,6 +3,7 @@
   "tabs": {
     "label": "Fuentes de importación",
     "upload": "Subir archivo",
+    "url": "URL de archivo",
     "register": "Registrar tabla",
     "service": "URL de servicio",
     "stac": "Catálogo STAC"
@@ -201,6 +202,26 @@
     "unknownDataset": "Conjunto de datos desconocido",
     "alreadyRegistered": "Ya registrado: \"{{title}}\"",
     "viewExisting": "Ver existente"
+  },
+  "urlImport": {
+    "label": "URL de archivo — descargada en el servidor",
+    "placeholder": "https://data.source.coop/…/buildings.parquet",
+    "fetch": "Obtener →",
+    "fetching": "Descargando archivo...",
+    "fetchingHint": "Los archivos grandes pueden tardar varios minutos en descargarse; mantén esta página abierta.",
+    "loadingPreview": "Analizando archivo...",
+    "resuming": "Reanudando la importación…",
+    "filenameLabel": "Nombre de archivo (opcional)",
+    "filenamePlaceholder": "buildings.parquet",
+    "filenameHelpText": "Solo es necesario cuando la ruta de la URL no termina en el nombre del archivo, por ejemplo un enlace de descarga con un id.",
+    "supported": "Enlaces directos a:",
+    "fetchFailed": "Error al obtener el archivo desde esa URL",
+    "previewFailed": "Error al analizar el archivo descargado",
+    "commitFailed": "Error al iniciar la importación",
+    "importStarted": "Importación iniciada",
+    "startOver": "Empezar de nuevo",
+    "importAnother": "Importar otro",
+    "layerLabel": "Capa"
   },
   "register": {
     "helpText": "Catalogue tablas PostGIS existentes de su base de datos como conjuntos de datos en GeoLens. Use esta opción cuando tenga datos geográficos ya en la base de datos que no fueron importados a través de GeoLens. Las tablas seleccionadas se añadirán al catálogo con detección automática de metadatos.",
@@ -496,7 +517,11 @@
     "compareRegister": "La carga ingesta desde un archivo. Registrar apunta a una tabla existente — sin duplicación, pero la tabla debe permanecer en tu base de datos.",
     "compareStac": "La carga ingesta archivos locales. Las importaciones STAC descubren activos remotos primero, luego preparan los elementos seleccionados para el catálogo.",
     "compareService": "La carga ingesta desde un archivo. La URL de servicio obtiene de una API remota e importa los datos a GeoLens para teselado y consultas locales.",
-    "asideLabel": "Flujo de importación"
+    "asideLabel": "Flujo de importación",
+    "urlHint": "Importando desde una URL de archivo",
+    "urlDesc": "GeoLens descarga el archivo en el servidor al área de preparación y luego ejecuta el mismo proceso de detección e importación que una carga.",
+    "urlNote": "La URL se valida y se limita en tamaño antes de la descarga · los datos se copian en GeoLens",
+    "compareUrl": "La carga envía un archivo desde tu equipo. URL de archivo lo obtiene de la web: misma revisión, mismo resultado, sin descarga local."
   },
   "status": {
     "uploading": "Subiendo",

@@ -719,6 +719,7 @@ from .translation_upsert import TranslationUpsert
 from .type_change import TypeChange
 from .upload_config_response import UploadConfigResponse
 from .upload_response import UploadResponse
+from .url_upload_request import UrlUploadRequest
 from .user_create import UserCreate
 from .user_list_response import UserListResponse
 from .user_name_item import UserNameItem
@@ -1281,6 +1282,7 @@ __all__ = (
     "TypeChange",
     "UploadConfigResponse",
     "UploadResponse",
+    "UrlUploadRequest",
     "UserCreate",
     "UserListResponse",
     "UserNameItem",

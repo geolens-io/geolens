@@ -2,6 +2,7 @@
 
 import asyncio
 import math
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -69,6 +70,7 @@ from app.processing.ingest.schemas import (
     TableRegisterResponse,
     UploadConfigResponse,
     UploadResponse,
+    UrlUploadRequest,
     VectorCommitRequest,
     VrtAddSourceRequest,
     VrtCreateRequest,
@@ -87,8 +89,19 @@ from app.processing.ingest.service import (
     queue_ingest_job,
     register_existing_table,
     resolve_file_path,
+    safe_upload_basename,
     save_upload_file,
     validate_file_extension,
+)
+from app.processing.ingest.url_fetch import (
+    MIN_FETCH_BUDGET_SECONDS,
+    PREFLIGHT_DNS_MAX_SECONDS,
+    stage_total_budget_seconds,
+    UrlFetchError,
+    UrlFetchTooLargeError,
+    clamp_filename_bytes,
+    fetch_url_to_path,
+    filename_from_url,
 )
 from app.processing.ingest.presigned import (
     abort_presigned_multipart_upload,
@@ -533,6 +546,7 @@ async def _cleanup_saved_upload(
     S3 failures are logged instead (KISS-N9).
     """
     if isinstance(saved_path, Path):
+        # codeql[py/path-injection] fix(#1708): the Path branch only ever receives a staging-rooted path (save_upload_file, or job.file_path the server itself wrote). The URL-import flow reaches this helper with an S3 KEY STRING and so takes the branch below — it is that call which makes the taint visible here.
         saved_path.unlink(missing_ok=True)
         return
     try:
@@ -565,10 +579,536 @@ def _stamp_raster_metadata(job: "IngestJob", filename: str | None) -> None:
     in hand and now derives the answer there. So the stamp costs no I/O and
     both upload endpoints can afford it.
     """
+    job.user_metadata = _raster_stamped_metadata(job.user_metadata, filename)
+
+
+def _raster_stamped_metadata(
+    user_metadata: dict | None, filename: str | None
+) -> dict | None:
+    """Pure form of ``_stamp_raster_metadata``: the metadata that should be
+    persisted for ``filename``, without touching an ORM instance.
+
+    fix(#1708 codex r2): the URL-import path persists its final state through
+    a guarded compare-and-swap ``UPDATE`` rather than by dirtying the ORM
+    object (a dirtied object would flush a SECOND, unguarded UPDATE on
+    commit, silently bypassing the CAS). It still must apply the exact same
+    stamping policy, so the policy lives here and both forms share it.
+    """
     if not (filename or "").lower().endswith((".tif", ".tiff", ".vrt")):
+        return user_metadata
+
+    return {**(user_metadata or {}), "file_type": "raster"}
+
+
+class _StagePutAbandoned(HTTPException):
+    """The staging put outlived its budget and was abandoned, not cancelled.
+
+    fix(#1708 codex r12): carries one fact settlement needs — the late-put
+    reaper already owns this key's deletion, so the failure path must NOT
+    synchronously await an S3 delete of it. A degraded endpoint is the very
+    condition that produced the timeout, and that delete would spend
+    botocore's read timeout plus retries on the way to the 502, pushing the
+    response past the edge proxy's deadline: the exact loss the budget
+    exists to prevent.
+    """
+
+
+async def _put_staging_object(s3_key: str, local_dest: Path) -> None:
+    """Upload the staged local file to the S3 staging key.
+
+    Owns its file handle so the task is self-contained: if the bounded wait
+    in ``_stage_put_bounded`` abandons it at the deadline, the handle is
+    still closed by THIS task's finally when the SDK thread finishes — the
+    caller never closes a file a live upload thread is reading.
+    """
+    # codeql[py/path-injection] fix(#1708): the component is basename-stripped (safe_upload_basename/filename_from_url) and byte-clamped, rooted under upload_staging_dir
+    fh = open(local_dest, "rb")
+    try:
+        await _await_provider_call_draining(
+            get_storage().put(resolve_current_storage_key(s3_key), fh)
+        )
+    finally:
+        await run_in_thread_draining(fh.close)
+
+
+def _abandoned_put_reaper(s3_key: str, job_id: str):
+    """Done-callback for a staging put whose wait was abandoned at deadline.
+
+    The request has already answered 502 and ``_settle_failed_url_import``
+    already attempted an S3 delete — but that delete may have run BEFORE the
+    in-flight upload finished, in which case the late-landing object is an
+    orphan nothing references. Re-delete once the task actually completes.
+    ``_cleanup_saved_upload`` never raises; ``task.exception()`` is retrieved
+    first so a failed upload does not log "exception was never retrieved".
+    """
+
+    def _cb(task: "asyncio.Task") -> None:
+        # fix(#1708 codex r14): cancelled() FIRST. On a cancelled task
+        # `exception()` RAISES CancelledError, which escaped this callback
+        # before the cleanup below was ever scheduled — and because the
+        # provider call drains, the upload can still land its object after
+        # that cancellation propagates, leaving it unreferenced. All three
+        # outcomes now schedule the same delete.
+        if task.cancelled():
+            outcome = "cancelled"
+        else:
+            outcome = "failed" if task.exception() is not None else "landed_late"
+        logger.warning(
+            "url_import_abandoned_put_finished",
+            job_id=job_id,
+            s3_key=s3_key,
+            outcome=outcome,
+        )
+        asyncio.ensure_future(_cleanup_saved_upload(s3_key, job_id))
+
+    return _cb
+
+
+async def _stage_put_bounded(
+    s3_key: str, local_dest: Path, stage_deadline: float, job_id: str
+) -> None:
+    """Run the staging put inside what remains of the stage budget.
+
+    fix(#1708 codex r7): the put is a blocking boto3 upload in a DRAINED
+    thread — cancelling it does not bound wall time, because the drain
+    deliberately blocks until the SDK thread finishes (storage/s3.py records
+    why that trade is right for cancellation). So the deadline here is a
+    bounded WAIT: at the budget's remainder the wait is abandoned — never
+    cancelled — the request answers a clean 502 inside the proxy deadline,
+    and the still-running task keeps its own file handle, stays bounded by
+    botocore's connect/read timeouts and 3 adaptive retries, and hands its
+    late-landing object (if any) to ``_abandoned_put_reaper`` for deletion.
+    """
+    remaining = stage_deadline - time.monotonic()
+    detail = (
+        "Staging the downloaded file did not finish within the time "
+        "budget. Try again, or upload the file directly."
+    )
+    if remaining <= 0:
+        raise _StagePutAbandoned(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+    put_task = asyncio.create_task(_put_staging_object(s3_key, local_dest))
+    # fix(#1708 codex r8): the reaper must exist from the moment the put
+    # task can outlive this coroutine. asyncio.wait does not cancel the
+    # task when IT is cancelled, so a request cancelled mid-wait (forced
+    # worker shutdown) previously escaped before the timeout branch ever
+    # installed the callback — the settle path then deleted the key while
+    # the upload was still in flight, and its late-landing object had no
+    # deleter. No await sits between create_task and this try, so every
+    # exit that leaves the task running installs the reaper first.
+    try:
+        _done, pending = await asyncio.wait({put_task}, timeout=remaining)
+    except BaseException:
+        if put_task.done():
+            # Retrieve so a failed upload does not log "never retrieved";
+            # the settle path deletes the key either way.
+            put_task.exception()
+        else:
+            put_task.add_done_callback(_abandoned_put_reaper(s3_key, job_id))
+            logger.warning(
+                "url_import_stage_put_abandoned", job_id=job_id, s3_key=s3_key
+            )
+        raise
+    if pending:
+        put_task.add_done_callback(_abandoned_put_reaper(s3_key, job_id))
+        logger.warning("url_import_stage_put_abandoned", job_id=job_id, s3_key=s3_key)
+        raise _StagePutAbandoned(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+    # Completed inside the budget: surface provider failures as themselves
+    # (the settle path stamps the job failed and the outer handler maps them).
+    put_task.result()
+
+
+async def _url_import_transition_landed(job_id: uuid.UUID, staged_path: str) -> bool:
+    """Did the running->pending transition durably land despite the raise?
+
+    fix(#1708 codex r11): a commit whose acknowledgement is lost
+    (cancellation or connection loss while ``COMMIT`` is in flight) may have
+    been durably applied by PostgreSQL even though the await raised. Read
+    the row back on a FRESH session — the request session is mid-failure
+    and cannot be trusted to see anything. True means the job is live
+    catalog state: 'pending' and bound to exactly the staged path this
+    request wrote.
+
+    A probe that itself fails returns True — standing down. The asymmetry
+    is deliberate: standing down on a false positive orphans bytes that the
+    sweeps can reclaim, while proceeding on a false negative deletes data a
+    durable pending row points at, which nothing can reclaim.
+    """
+    # fix(#909)-style late bind so tests' engine patching is honored.
+    import app.core.db as db_module
+
+    from app.platform.jobs.models import IngestJob
+
+    try:
+        async with db_module.async_session() as probe:
+            row = (
+                await probe.execute(
+                    select(IngestJob.status, IngestJob.file_path).where(
+                        IngestJob.id == job_id
+                    )
+                )
+            ).one_or_none()
+    except BaseException:
+        logger.warning("url_import_commit_probe_failed", job_id=str(job_id))
+        return True
+    return row is not None and row.status == "pending" and row.file_path == staged_path
+
+
+# fix(#1708 codex r14): stamped on the exception raised BY the final commit,
+# and read back in settlement. Carrying the fact on the exception rather than
+# threading a flag through the handler keeps the marker inseparable from the
+# one await whose outcome is genuinely unknown — nothing else can acquire it
+# by being re-raised through the same code path.
+_COMMIT_AMBIGUOUS_ATTR = "_geolens_url_import_commit_ambiguous"
+
+
+async def _commit_staged_transition(db: AsyncSession) -> None:
+    """The final running->pending commit, as a named seam.
+
+    fix(#1708 codex r11): split out so tests can simulate the
+    ambiguous-commit shape — durable on the server, exception on the
+    acknowledgement — which cannot be produced through a real session on
+    demand. Production behavior is exactly ``db.commit()``.
+
+    Kept as the bare commit so a test can replace it with an ack-lost
+    stub; the marking lives in ``_commit_staged_transition_guarded`` around
+    it, so the marker is always applied by production code rather than by
+    whatever a test substitutes here.
+    """
+    await db.commit()
+
+
+async def _commit_staged_transition_guarded(db: AsyncSession) -> None:
+    """Commit the staged transition, marking the exception if it raises.
+
+    fix(#1708 codex r14): an exception out of THIS await, and only this
+    one, is ambiguous — PostgreSQL may have applied the transition before
+    the acknowledgement was lost. Marking it here lets settlement tell it
+    apart from every failure whose outcome is known, without threading a
+    flag through the handler (which would also mean another branch in an
+    already complexity-capped function).
+    """
+    try:
+        await _commit_staged_transition(db)
+    except BaseException as exc:
+        try:
+            setattr(exc, _COMMIT_AMBIGUOUS_ATTR, True)
+        except AttributeError:  # pragma: no cover - exotic exception types
+            pass
+        raise
+
+
+async def _settle_failed_url_import(
+    db: AsyncSession,
+    exc: BaseException,
+    *,
+    job_id: uuid.UUID,
+    s3_key: str | None,
+    local_dest: Path,
+    staged_path: str | None = None,
+    stage_deadline: float | None = None,
+) -> None:
+    """Everything that must happen when the URL-import fetch path raises.
+
+    Until the file_path commit, the request exclusively owns the staged
+    bytes (the local file and, if the put ran, the S3 object) — nothing
+    else references them, so both go before the exception propagates.
+
+    fix(#1708 codex r14): the session's transaction is ROLLED BACK FIRST,
+    before anything else here. Everything below — the probe's fresh
+    session, the remote delete, the CAS — used to run while this request
+    still held its failed transaction's pool connection, so a burst of
+    ordinary post-stage rejections (a quota race, say) could hold
+    pool_size + max_overflow connections through a remote round-trip and
+    stall unrelated traffic until DB_POOL_TIMEOUT. That is the connection
+    family closed in r2/r7, reopened by a settlement path that grew.
+
+    fix(#1708 codex r11, narrowed by r14): the ambiguous-commit probe fires
+    ONLY when the exception itself carries the marker
+    ``_commit_staged_transition`` stamps on it. If it did, and PostgreSQL applied
+    the transition before the acknowledgement was lost, the row is already
+    'pending' and bound to ``staged_path``: the bytes are live catalog
+    state, deleting them would leave a durable pending job pointing at
+    nothing, and the failure CAS would match zero rows anyway — so
+    settlement stands down entirely and the request loses only its
+    response. Scoping matters as much as the check: applied to EVERY
+    failure (r11's mistake), the probe's deliberate "assume landed when the
+    probe itself fails" default turned ordinary pre-commit failures into
+    skipped cleanups and stranded 'running' jobs. The asymmetry is correct
+    only where the outcome is genuinely unknown.
+
+    fix(#1708 codex r5): cleanup is best-effort STRUCTURALLY. A cleanup step
+    that raises (the NUL-path unlink was one instance) previously escaped
+    the handler's failure block before the failure CAS ran, stranding an
+    undiscoverable 'running' job for the full one-hour lease. That is a
+    shape, not an instance — any raising cleanup reintroduces it — so this
+    helper exists to make "cleanup can never preempt the stamp" a property
+    of the one function every failure goes through.
+
+    fix(#1708 codex P1/r2): the job row was committed before the fetch, so
+    a rollback no longer removes it. The stamp is a guarded CAS from
+    'running' only — zero rows means something external already settled the
+    row, and that verdict is never overwritten. Best-effort throughout:
+    never mask the original error, and a cancelled request may refuse the
+    awaits — then the running sweep's hour is the fallback.
+    """
+    from sqlalchemy import update as sa_update
+
+    from app.platform.jobs.models import IngestJob
+
+    # Release the pool connection before the probe, the remote delete, or
+    # anything else that can take time (r14). Best-effort: a session whose
+    # connection died mid-commit may refuse this, and the CAS below opens
+    # its own transaction regardless.
+    try:
+        await db.rollback()
+    except BaseException:
+        logger.warning("url_import_settle_rollback_failed", job_id=str(job_id))
+
+    if (
+        getattr(exc, _COMMIT_AMBIGUOUS_ATTR, False)
+        and staged_path is not None
+        and await _url_import_transition_landed(job_id, staged_path)
+    ):
+        # fix(#1708 codex r15): the transition is live, so the artifact the
+        # ROW references must survive — but the local file is only that
+        # artifact under local storage. The discriminator is the row itself:
+        #
+        #   staged_path == str(local_dest)  -> local storage. local_dest IS
+        #       the referenced artifact. Deleting it would leave a pending
+        #       job pointing at nothing, which is the whole failure this
+        #       stand-down exists to avoid.
+        #   staged_path != str(local_dest)  -> S3. The row records only the
+        #       staging key, so the local file is a redundant copy that
+        #       served the content sniff, and NOTHING downstream can ever
+        #       discover it — no reaper sees a path no row references. Left
+        #       behind, repeated ambiguous commits accumulate files up to
+        #       the upload limit on the staging volume.
+        #
+        # The success path makes exactly the same distinction a few lines
+        # later; this branch returns early, which is how it was missed.
+        if staged_path != str(local_dest):
+            try:
+                # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see upload_from_url
+                local_dest.unlink(missing_ok=True)
+            except OSError:
+                logger.warning(
+                    "url_import_landed_local_copy_cleanup_failed",
+                    job_id=str(job_id),
+                )
+        logger.warning(
+            "url_import_commit_ack_lost_but_landed",
+            job_id=str(job_id),
+            staged_path=staged_path,
+        )
         return
 
-    job.user_metadata = {**(job.user_metadata or {}), "file_type": "raster"}
+    try:
+        # fix(#1708 codex r12): the remote delete is the last unbounded
+        # operation on the request path, and it sits on the failure path
+        # that fires when S3 is degraded.
+        #
+        # Abandoned put: skip it entirely. `_abandoned_put_reaper` is
+        # already attached to the live put task and deletes this key when
+        # the upload actually ends — which is also the only ordering that
+        # can win, since a delete issued now would race the in-flight
+        # upload. Handing over costs nothing and saves the verdict.
+        #
+        # Every other failure: bound it by what is left of the request's
+        # own budget. `_cleanup_saved_upload` drains and never raises, so
+        # cancellation cannot stop it; the wait is abandoned instead and
+        # the deletion continues in the background, with the stale-staging
+        # sweep as the backstop if it ultimately fails.
+        if s3_key is not None and not isinstance(exc, _StagePutAbandoned):
+            cleanup_budget = (
+                None if stage_deadline is None else stage_deadline - time.monotonic()
+            )
+            if cleanup_budget is not None and cleanup_budget <= 0:
+                logger.warning(
+                    "url_import_cleanup_deferred_no_budget",
+                    job_id=str(job_id),
+                    s3_key=s3_key,
+                )
+            else:
+                cleanup_task = asyncio.create_task(
+                    _cleanup_saved_upload(s3_key, str(job_id))
+                )
+                _done, still_running = await asyncio.wait(
+                    {cleanup_task}, timeout=cleanup_budget
+                )
+                if still_running:
+                    logger.warning(
+                        "url_import_cleanup_abandoned",
+                        job_id=str(job_id),
+                        s3_key=s3_key,
+                    )
+        # Local disk, not the network. Safe while the abandoned put may
+        # still be reading it: POSIX keeps the inode alive for that open
+        # handle until the task's own finally closes it.
+        # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see upload_from_url
+        local_dest.unlink(missing_ok=True)
+    except BaseException:
+        logger.warning("url_import_cleanup_failed", job_id=str(job_id))
+    try:
+        # No rollback here: the transaction was already ended above, and
+        # this CAS opens a fresh one of its own.
+        await db.execute(
+            sa_update(IngestJob)
+            .where(IngestJob.id == job_id, IngestJob.status == "running")
+            .values(
+                status="failed",
+                error_message=(
+                    str(exc.detail)
+                    if isinstance(exc, HTTPException)
+                    else "URL import failed"
+                ),
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await db.commit()
+    except BaseException:
+        logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
+
+
+_BUDGET_EXHAUSTED_DETAIL = (
+    "Not enough time remained in the request budget to download this file. Try again."
+)
+
+
+def _preflight_dns_budget(stage_deadline: float) -> float:
+    """The preflight resolution's bound: min(its ceiling, what remains).
+
+    fix(#1708 codex r19): the preflight was bounded by a bare
+    ``PREFLIGHT_DNS_MAX_SECONDS`` while the INVARIANT above states that
+    every phase uses ``min(own ceiling, remaining)``. Harmless while the
+    budget is healthy — the clock starts immediately before this phase, so
+    the min is always the ceiling — but wrong in the floored regime, where
+    a 1s budget would still have spent up to 30s resolving before anything
+    refused. A comment stating a rule the code does not follow is the
+    failure mode this PR has hit twice, so the code follows the rule.
+
+    With nothing left, refuse with the BUDGET's message rather than a
+    zero-second DNS timeout, which would blame the resolver for an
+    exhausted clock.
+    """
+    remaining = stage_deadline - time.monotonic()
+    if remaining <= 0.0:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_BUDGET_EXHAUSTED_DETAIL,
+        )
+    return min(float(PREFLIGHT_DNS_MAX_SECONDS), remaining)
+
+
+def _remaining_fetch_budget(stage_deadline: float) -> float:
+    """What the joint budget has left for the download, or a prompt refusal.
+
+    fix(#1708 codex r13): the fetch used to receive a fresh
+    ``FETCH_MAX_SECONDS`` regardless of how much of the request's own clock
+    auth, preflight DNS and the config/quota transaction had already spent —
+    so a slow start could carry the response past the edge proxy even though
+    each individual phase respected its own ceiling.
+    ``fetch_url_to_path`` applies ``min(FETCH_MAX_SECONDS, this)``. Below
+    ``MIN_FETCH_BUDGET_SECONDS`` no download can plausibly finish, so the
+    request is refused now rather than opening a doomed connection.
+
+    fix(#1708 codex r25): called TWICE per request — once immediately after
+    the deadline is derived, purely for that refusal, and again here for the
+    download's bound. Sharing one function is the point: an early check with
+    its own threshold could drift from this one, and then the floor would
+    promise a refusal at a size this call still accepts.
+    """
+    remaining = stage_deadline - time.monotonic()
+    if remaining < MIN_FETCH_BUDGET_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_BUDGET_EXHAUSTED_DETAIL,
+        )
+    return remaining
+
+
+async def _effective_stream_cap(
+    db: AsyncSession, user_id: uuid.UUID, max_size_bytes: int
+) -> tuple[int, str | None]:
+    """The fetch's byte cap, and the quota-shaped refusal detail if it is
+    the quota rather than the instance limit doing the capping.
+
+    fix(#1708 codex r10): the effective stream cap is the SMALLER of the
+    instance upload max and the caller's remaining CORE byte quota. With
+    the instance-wide cap alone, a user at or near their storage cap could
+    spend instance-max bandwidth, staging disk, and a 480s request slot on
+    downloads the post-stage check is guaranteed to refuse — and an honest
+    at-cap user waited through the whole transfer for a 413 that was
+    knowable at submission. ``storage_cap == 0`` means unlimited (the
+    instance cap applies alone); zero remaining raises 413 here, before any
+    fetch. The post-stage byte-charged check remains authoritative for
+    races and the cloud entitlement seam, which this preflight does not
+    consult.
+    """
+    usage = await get_user_quota_usage(db, user_id)
+    if usage.storage_cap <= 0:
+        return max_size_bytes, None
+    remaining_quota = usage.storage_cap - usage.bytes_used
+    if remaining_quota <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail=(
+                f"Storage quota exceeded: used {usage.bytes_used} of "
+                f"{usage.storage_cap} bytes"
+            ),
+        )
+    if remaining_quota < max_size_bytes:
+        return remaining_quota, (
+            "The remote file exceeds your remaining storage quota "
+            f"({remaining_quota / (1024 * 1024):.1f} MB left)."
+        )
+    return max_size_bytes, None
+
+
+def _url_import_filename(body: UrlUploadRequest) -> str:
+    """The staging filename for a URL import, or the endpoint's 400/422.
+
+    fix(#1708 codex P2): both name sources go through the byte clamp. The
+    schema admits 255 CHARACTERS, but filesystems cap name components in
+    BYTES (NAME_MAX 255), and staging prepends a 37-byte job-id prefix — an
+    unclamped long-ASCII or multibyte override made open() ENAMETOOLONG and
+    the endpoint answer 500.
+
+    fix(#1708 codex r2): callers must invoke this INSIDE their guarded
+    block — urlparse raises ValueError on malformed authorities
+    ('http://[/x.geojson'), which used to escape as a 500 because the
+    derivation ran before the handler's try.
+    """
+    try:
+        filename = (
+            clamp_filename_bytes(safe_upload_basename(body.filename))
+            if body.filename
+            else filename_from_url(body.url)
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid URL: {exc}",
+        ) from exc
+    # fix(#1708 codex r5): NUL and other control characters survive percent-
+    # decoding ('/roads%00.geojson') or arrive verbatim in the override, and
+    # pass every suffix/allowlist check — the filesystem refuses them only at
+    # open(), which sits AFTER the running-commit, and the failed open's
+    # cleanup unlink then raised on the same invalid path. Refuse them here,
+    # before any job row exists.
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in filename):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="Filename contains control characters that are not allowed.",
+        )
+    if not filename or not Path(filename).suffix:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "Could not determine a filename with an extension from the "
+                "URL path. Provide 'filename' explicitly."
+            ),
+        )
+    return filename
 
 
 @router.post(
@@ -668,6 +1208,414 @@ async def upload_file(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An unexpected error occurred during upload",
+        )
+
+
+@router.post(
+    "/upload/url",
+    response_model=UploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        413: PAYLOAD_TOO_LARGE_RESPONSE,
+        502: BAD_GATEWAY_RESPONSE,
+    },
+)
+async def upload_from_url(
+    body: UrlUploadRequest,
+    request: Request,
+    user: Identity = Depends(require_permission("upload")),
+    db: AsyncSession = Depends(get_db),
+) -> UploadResponse:
+    """Import a geospatial file from an HTTP(S) URL for staging.
+
+    feat(#1705): the URL variant of ``POST /ingest/upload`` — NOT a new
+    source type. The server fetches the file itself and the staged bytes
+    enter the normal pipeline unchanged (preview → commit). Rule 2 posture:
+    ``validate_url_for_ssrf`` gates the URL at submission, the download runs
+    through ``make_safe_client()`` (connect-time IP pinning plus per-hop
+    redirect revalidation), the size cap is enforced while streaming, the
+    staged file passes the same extension allowlist and content sniff as a
+    direct upload, and GDAL only ever sees the staged local file.
+    """
+    from sqlalchemy import update as sa_update
+
+    from app.core.url_redaction import redact_url_credentials
+    from app.platform.jobs.models import IngestJob
+    from app.platform.security import SSRFError, validate_url_for_ssrf
+
+    # Exception-safe on malformed input by design (fix #1119) — safe to run
+    # before the guarded block below.
+    safe_url = redact_url_credentials(body.url)
+    try:
+        filename = _url_import_filename(body)
+        _reject_standalone_vrt(filename)
+
+        # fix(#1708 codex r4): END the dependency-phase transaction before
+        # the DNS await. Reordering the handler's own DB calls below the SSRF
+        # gate is necessary but NOT sufficient: require_permission /
+        # get_current_user run queries on this same request-cached session,
+        # so the connection is already checked out under autobegin when the
+        # handler body starts. validate_url_for_ssrf's getaddrinfo has no
+        # bound of its own, so slow or stalling DNS across pool_size +
+        # max_overflow (10 + 3) concurrent imports could occupy the whole
+        # pool without any request ever reaching the pre-fetch commit. This
+        # commit ends the auth-phase transaction (reads, plus any auth-side
+        # write the pre-fetch commit would have committed moments later
+        # anyway) and releases the connection; the first DB call below
+        # checks out a fresh one. After this line, the only awaits that run
+        # while a connection is held are the DB calls between the allowlist
+        # fetch and the pre-fetch commit.
+        await db.commit()
+
+        # fix(#1708 codex r8): the joint stage budget starts HERE, ahead of
+        # the preflight DNS, so every long operation in the request — DNS,
+        # fetch, staging put — runs inside one clock that fits the proxy
+        # deadline. The DB blocks before and after are short single-row
+        # transactions living in the budget's slack.
+        # INVARIANT (fix #1708 codex r13, corrected r16) — ONE monotonic
+        # clock bounds every long operation this handler performs. Each
+        # phase's bound is
+        #     min(that phase's own ceiling, stage_deadline - now)
+        # so time spent by an earlier phase is deducted from every later
+        # one. A NEW phase added here inherits the rule: derive its bound
+        # from this deadline, never from a fresh constant.
+        #
+        # What the clock covers, precisely: preflight DNS, the pre-fetch
+        # config/quota transaction, the fetch, the content sniff, the
+        # staging put, and the failure-path cleanup.
+        #
+        # What it does NOT cover, equally precisely (r16 — the earlier
+        # wording claimed auth was deducted, which was never true and is
+        # the kind of comment that reads as a protection while
+        # implementing none): the request's THREE pool checkouts, none of
+        # which is inside this clock —
+        #   1. auth/dependency work, before this handler body;
+        #   2. the pre-fetch config/quota transaction, which ends at the
+        #      commit that starts the fetch;
+        #   3. the post-stage quota/CAS transaction, after the budget.
+        # Each can wait up to settings.db_pool_timeout under pool
+        # exhaustion, so the budget is DERIVED from that timeout and that
+        # COUNT rather than hardcoded: stage_total_budget_seconds() returns
+        # min(ceiling, proxy - POOL_CHECKOUTS_PER_REQUEST*db_pool_timeout
+        # - post-work margin). r17 derived it from 2 checkouts and r18
+        # caught the third, which is why the count is a named constant with
+        # its enumeration beside it rather than a number inlined here — the
+        # arithmetic has to be checkable against the code it describes.
+        # See that function for the derivation and the floor.
+        stage_deadline = time.monotonic() + stage_total_budget_seconds()
+
+        # fix(#1708 codex r25): refuse a floored budget HERE, not at the fetch.
+        # The floor's whole promise is a PROMPT refusal, but nothing inspected
+        # it until `_remaining_fetch_budget()` immediately before the download —
+        # so a budget that could never host a fetch still paid for preflight
+        # DNS, the config/quota transaction and a committed 'running' job row
+        # before saying so. That is this PR's recurring failure mode once more:
+        # a comment describing a protection the code orders itself out of.
+        #
+        # Deliberately the SAME call the pre-fetch check makes, not a second
+        # threshold comparison, so the early and late refusals can never
+        # disagree about what "too small to start" means. The value is
+        # discarded because every phase re-derives its own remaining.
+        _remaining_fetch_budget(stage_deadline)
+
+        # Rule 2, submission gate: refuse private/link-local/reserved targets
+        # before any connection is attempted — and before any handler DB
+        # work, so the DNS resolution never overlaps a checked-out
+        # connection (r4). The safe client re-validates at connect time and
+        # per redirect hop during the fetch below.
+        # fix(#1708 codex r8): bounded at the call site — getaddrinfo has no
+        # deadline of its own and this was the one long operation outside
+        # every clock. wait_for cancels the to_thread wrapper immediately;
+        # the abandoned resolver thread ends when the OS resolver gives up
+        # (the same accepted pattern as an abandoned staging put).
+        # fix(#1708 codex r19): min(own ceiling, remaining), not the bare
+        # ceiling. The INVARIANT above states that rule for every phase, and
+        # the preflight was the one phase not following it — harmless while
+        # the budget is healthy (the clock starts on the line above, so
+        # remaining is the whole budget and the min is always the ceiling),
+        # but wrong in the floored regime, where a 1s budget would still
+        # have spent up to 30s resolving before anything refused. A comment
+        # that states a rule the code does not follow is the failure mode
+        # this PR has already hit twice, so the code follows the rule.
+        preflight_budget = _preflight_dns_budget(stage_deadline)
+        try:
+            await asyncio.wait_for(
+                validate_url_for_ssrf(body.url),
+                timeout=preflight_budget,
+            )
+        except TimeoutError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "DNS resolution for this URL did not finish within "
+                    f"{int(preflight_budget)} seconds."
+                ),
+            ) from exc
+        except SSRFError as exc:
+            logger.warning(
+                "url_import_ssrf_blocked",
+                event_type="security",
+                url=safe_url,
+                reason=str(exc),
+            )
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
+
+        allowed_list = await _get_allowed_extensions_safely(db)
+        validate_file_extension(filename, allowed_list)
+
+        max_size_mb = await UPLOAD_MAX_SIZE_MB.get(db)
+        max_size_bytes = max_size_mb * 1024 * 1024
+
+        # QUOTA-02: refuse at the dataset-count cap before staging anything.
+        # The byte half (QUOTA-01) runs again after the download with the
+        # real size — Content-Length may be absent or dishonest, so nothing
+        # is charged on the remote server's word.
+        await check_upload_quota(db, user.id, 0, request)
+
+        effective_cap_bytes, cap_error_detail = await _effective_stream_cap(
+            db, user.id, max_size_bytes
+        )
+
+        job = await create_ingest_job(db, filename, "", user.id)
+        # Capture the scalars now (the flush inside create_ingest_job
+        # populated job.id) and never touch the ORM instance again: the
+        # failure path ROLLS BACK, and rollback expires every object in the
+        # session — a later `job.id` would then lazy-refresh synchronously
+        # and die with MissingGreenlet inside the exception handler, turning
+        # a clean 4xx into a 500.
+        job_id = job.id
+        job_metadata = job.user_metadata
+
+        # fix(#1708 codex r9): path setup runs BEFORE the running-commit.
+        # It has no dependency on the committed row (job_id came from the
+        # flush above), and a read-only staging parent used to raise here
+        # AFTER the commit but OUTSIDE the settlement guard — a 500 with the
+        # job stranded 'running' for the one-hour lease. Failing before the
+        # commit instead rolls the uncommitted row back entirely: no
+        # stranded row, nothing for a reaper to find.
+        staging_dir = Path(settings.upload_staging_dir)
+        staging_dir.mkdir(parents=True, exist_ok=True)
+        local_dest = staging_dir / f"{job_id}_{filename}"
+        s3_key: str | None = None
+        staged_path: str | None = None
+
+        # fix(#1708 codex r2): the download runs under the RUNNING lease, not
+        # as a bare 'pending' row. A committed 'pending' row with an empty
+        # file_path and no live queue task matches every clause of
+        # stale_pending_clauses, and pending_job_timeout_seconds may legally
+        # be as low as 61s while the fetch is allowed FETCH_MAX_SECONDS
+        # (480s) — both the periodic sweep and the get_job_status poll (which
+        # the frontend hits every 2s) could fail an in-progress fetch.
+        # 'running' rows are judged by the running lease instead:
+        # coalesce(heartbeat_at, started_at) against the fixed 3600s
+        # JOB_TIMEOUT_SECONDS, so one started_at stamp outlives the fetch's
+        # own hard deadline six times over with no periodic heartbeat needed
+        # ('running' is already in the status CHECK constraint — no
+        # migration). test_url_import_1705 pins FETCH_MAX_SECONDS under the
+        # lease. If the process dies mid-fetch, the running sweep reaps the
+        # row after an hour — the same recovery every worker task gets.
+        job.status = "running"
+        job.started_at = datetime.now(timezone.utc)
+        # fix(#1708 codex P1): COMMIT before awaiting the fetch. The session
+        # autobegins on its first query and holds a checked-out pool
+        # connection until the transaction ends, so leaving it open across a
+        # download that may legitimately run for minutes (FETCH_MAX_SECONDS)
+        # let pool_size + max_overflow (10 + 3) trickling URL imports starve
+        # every DB-backed request in the API. Committing here persists the
+        # job row and returns the connection; every later query checks out a
+        # fresh one. Consequences, each handled below: the row now survives
+        # a failed fetch (CAS-stamped 'failed' in the cleanup path instead of
+        # vanishing with a rollback), and the byte-quota check must re-run
+        # after the download since the world may have moved while we fetched.
+        await db.commit()
+        # ASYMMETRY, judged rather than overlooked (fix #1708 codex r20):
+        # this commit is NOT covered by the ambiguous-commit probe that
+        # guards the final one. A lost acknowledgement here leaves a
+        # 'running' row the request never settles, and that is accepted:
+        #
+        #   - Nothing is staged yet. Path setup above only computes a path
+        #     and ensures the shared staging directory; the fetch has not
+        #     written a byte. So unlike the final commit — where a landed-
+        #     but-unacknowledged row points at real staged bytes we would
+        #     otherwise delete — this row has nothing to lose.
+        #   - It blocks nothing. Verified against every predicate that
+        #     keys on an active job: the active-backfill unique index
+        #     requires user_metadata ? 'embedding_backfill'; the per-user
+        #     analysis cap (datasets/api/router_analysis.py) requires
+        #     user_metadata.has_key('analysis') — deliberately, per its own
+        #     fix(#682) comment, so that ordinary uploads cannot lock a
+        #     user out of analysis; the manifest in-flight check keys on
+        #     user_metadata.manifest_key; the reupload lookup requires
+        #     metadata.reupload is True; and quota counts datasets and
+        #     asset bytes, never job rows. A URL import carries none of
+        #     those keys.
+        #   - The running-lease reaper already owns it: the row is failed
+        #     within JOB_TIMEOUT_SECONDS, while the user has an error in
+        #     hand and can retry immediately.
+        #
+        # Probing here would add a second fresh-session round-trip on a
+        # path that has nothing to protect. If any of the predicates above
+        # ever grows to match a bare ingest job, this trade expires.
+        #
+        # INVARIANT (fix #1708 codex r9): nothing executable may sit between
+        # the running-commit above and the `try` below. Any statement here
+        # that can raise escapes the settlement guard and strands the
+        # committed row 'running' for the one-hour lease — path setup and
+        # scalar capture are hoisted ABOVE the commit for exactly that
+        # reason. Keep it that way.
+        try:
+            try:
+                actual_size = await fetch_url_to_path(
+                    body.url,
+                    local_dest,
+                    effective_cap_bytes,
+                    cap_error_detail=cap_error_detail,
+                    timeout_seconds=_remaining_fetch_budget(stage_deadline),
+                )
+            except UrlFetchTooLargeError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                    detail=str(exc),
+                ) from exc
+            except SSRFError as exc:
+                # A redirect hop or a rebinding DNS answer targeted a blocked
+                # address mid-fetch — same refusal as at submission.
+                logger.warning(
+                    "url_import_ssrf_blocked",
+                    event_type="security",
+                    url=safe_url,
+                    reason=str(exc),
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+                ) from exc
+            except UrlFetchError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_502_BAD_GATEWAY,
+                    detail=str(exc),
+                ) from exc
+
+            # Same staged-file content sniff as a direct upload.
+            try:
+                validate_file_content(str(local_dest), filename)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=str(exc),
+                ) from exc
+
+            if settings.storage_provider == "s3":
+                s3_key = f"staging/{job_id}/{filename}"
+                # fix(#1708 codex r7): bounded and connection-free. The put
+                # runs inside what remains of the stage budget (P1-B), and
+                # the byte-quota check moved BELOW it so no transaction is
+                # open across the potentially long provider upload (P1-A) —
+                # the post-stage transaction below holds a connection only
+                # for the quota reads, the CAS, and the commit.
+                await _stage_put_bounded(
+                    s3_key, local_dest, stage_deadline, str(job_id)
+                )
+                staged_path = s3_key
+            else:
+                staged_path = str(local_dest)
+
+            # QUOTA-01 with the byte count that actually landed on disk —
+            # re-verified after the fetch/stage gap, in the same short
+            # transaction as the CAS so nothing long runs behind it.
+            await check_upload_quota(db, user.id, actual_size, request)
+
+            # fix(#1708 codex r2): guarded CAS, running -> pending. Only the
+            # row this request parked in 'running' may proceed to the
+            # previewable state; a Core UPDATE (not dirtied ORM attributes,
+            # which would flush a second unguarded UPDATE) so an external
+            # flip — admin cancel, or a lease reap that would take an
+            # impossible >1h stall — matches zero rows and is SURFACED
+            # instead of silently part-updating a dead row.
+            cas = await db.execute(
+                sa_update(IngestJob)
+                .where(IngestJob.id == job_id, IngestJob.status == "running")
+                .values(
+                    status="pending",
+                    file_path=staged_path,
+                    # fix(#1708 codex r6): staged_at restarts the pending
+                    # review window. stale_pending_clauses measures pending
+                    # age from coalesce(staged_at, created_at), so the
+                    # download time (up to FETCH_MAX_SECONDS, which
+                    # created_at already paid for) no longer eats the review
+                    # window — at the 61s floor of pending_job_timeout the
+                    # sweep could otherwise reap this row the moment it was
+                    # staged. Always an isoformat timestamptz; the sweep
+                    # casts it, so only this flow may write the key.
+                    user_metadata={
+                        **(_raster_stamped_metadata(job_metadata, filename) or {}),
+                        "staged_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+            )
+            if cas.rowcount == 0:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "The import was cancelled or timed out while the "
+                        "file was downloading. Start a new import."
+                    ),
+                )
+            await _commit_staged_transition_guarded(db)
+        except BaseException as exc:
+            await _settle_failed_url_import(
+                db,
+                exc,
+                job_id=job_id,
+                s3_key=s3_key,
+                local_dest=local_dest,
+                staged_path=staged_path,
+                stage_deadline=stage_deadline,
+            )
+            raise
+        if s3_key is not None:
+            # S3 is the staging store; the local copy served content
+            # validation and has no further reader. Best-effort (r5): the job
+            # is committed and previewable — a failing local delete must not
+            # rewrite that success as a 500.
+            try:
+                # codeql[py/path-injection] fix(#1708): same clamped, staging-rooted path as the open above
+                local_dest.unlink(missing_ok=True)
+            except OSError:
+                logger.warning("url_import_cleanup_failed", job_id=str(job_id))
+
+        logger.info(
+            "url_import_staged",
+            url=safe_url,
+            job_id=str(job_id),
+            filename=filename,
+            size_bytes=actual_size,
+        )
+        return UploadResponse(
+            job_id=job_id,
+            status="pending",
+            message="File downloaded and ready for preview",
+        )
+    # N4 (mirrors upload_file): HTTPException before the ValueError fallback,
+    # or every deliberate 4xx above is rewritten as a 400/500.
+    except HTTPException:
+        raise
+    except (IngestionError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
+    except (
+        Exception
+    ):  # broad: fetch pipeline involves network, file I/O, S3, DB — any can throw
+        logger.exception(
+            "Unexpected error during URL import",
+            url=safe_url,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="An unexpected error occurred during URL import",
         )
 
 

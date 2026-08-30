@@ -2648,7 +2648,165 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # post-loop shape left open. The lines are the claim call, its 409
     # rendering, and the comment carrying the two-serialization argument.
     # Cap 1600 -> 1617, exact.
-    "backend/app/processing/ingest/router.py": 1617,
+    # feat(#1705): +189 — upload_from_url, the URL variant of POST
+    # /ingest/upload. The handler lives here rather than a sibling module
+    # because the PROCESS-02/04 burndowns (auth.dependencies, quota.service)
+    # may only shrink; the fetch mechanics themselves are in url_fetch.py.
+    # The lines are the Rule 2 sequencing — SSRF gate, safe-client fetch,
+    # streamed size cap, staged-file sniff — plus the same cleanup-ownership
+    # comments the direct upload path carries. #1705 and #1709 both raised
+    # this cap from the same 1584 baseline in parallel, so the value is
+    # measured off the MERGED file rather than taken from either lane (the
+    # two lanes' import-region edits overlap, so the deltas do not simply
+    # add). Cap 1617 -> 1808, exact.
+    # fix(#1708 codex P1/P2): +40 — the pre-fetch commit that releases the
+    # pool connection for the download's lifetime (plus the failed-fetch
+    # stamping that replaces the rollback it gave up), the byte-clamp on the
+    # override filename, and the codeql[py/path-injection] markers at the
+    # staging open/unlink sites. Cap 1775 -> 1815, exact.
+    # fix(#1708 codex r2): +86 — the download now rides the RUNNING lease
+    # (status='running' + started_at before the pre-fetch commit) so the
+    # stale-pending sweep cannot fail an in-progress fetch at a legal 61s
+    # pending_job_timeout_seconds; both post-fetch transitions became
+    # guarded CAS UPDATEs from 'running' only, with the zero-row case
+    # surfaced as a 409; filename derivation moved into _url_import_filename
+    # inside the guarded path (urlparse ValueError on malformed authorities
+    # was an unhandled 500); _raster_stamped_metadata split out pure so the
+    # CAS can persist the same stamp without dirtying the ORM row. Cap
+    # 1815 -> 1908, exact.
+    # fix(#1708 codex r4): +20 — the SSRF gate moved above the handler's DB
+    # work AND the dependency-phase transaction is committed first, so the
+    # validator's unbounded getaddrinfo never overlaps a checked-out pool
+    # connection (auth deps query on the same request-cached session, so a
+    # reorder alone released nothing). Cap 1908 -> 1928, exact.
+    # fix(#1708 codex r5): +45 — control characters (NUL/C0/DEL) refused at
+    # filename derivation before any job row exists, and the failure path
+    # extracted into _settle_failed_url_import so a raising cleanup can
+    # never preempt the failure CAS (the stuck-running shape, not just the
+    # NUL instance); the post-success unlink went best-effort for the same
+    # reason. Cap 1928 -> 1973, exact.
+    # fix(#1708 codex r6): +12 — the completion CAS stamps
+    # user_metadata.staged_at so stale_pending_clauses restarts the pending
+    # review window at staging completion instead of letting the download
+    # time eat it. Cap 1973 -> 1985, exact.
+    # fix(#1708 codex r7): +84 — the S3-mode completions of both families:
+    # the staging put moved into _put_staging_object/_stage_put_bounded (a
+    # bounded WAIT with abandonment, since the drained boto3 thread absorbs
+    # cancellation and an asyncio.timeout would not bound wall time) with
+    # _abandoned_put_reaper deleting a late-landing object, and the byte-
+    # quota check moved below the put so the post-stage transaction holds a
+    # connection only for quota reads + CAS + commit. Cap 1985 -> 2069,
+    # exact.
+    # fix(#1708 codex r8): +40 — the stage clock now starts BEFORE the
+    # preflight SSRF DNS, which is bounded at the call site with wait_for
+    # (the one long operation still outside every deadline), and
+    # _stage_put_bounded installs the abandonment reaper on ANY exit that
+    # leaves the put task running — including the waiter itself being
+    # cancelled mid-wait, which previously escaped before the timeout
+    # branch installed it. Cap 2069 -> 2109, exact.
+    # fix(#1708 codex r9): +14 — staging-path setup hoisted ABOVE the
+    # running-commit (a read-only parent used to raise between the commit
+    # and the settlement guard, stranding a running row for the lease), and
+    # the INVARIANT comment at the seam: nothing executable may sit between
+    # the running-commit and the guarded try. Cap 2109 -> 2123, exact.
+    # fix(#1708 codex r10): +45 — _effective_stream_cap: the fetch's byte
+    # cap becomes min(instance upload max, caller's remaining core byte
+    # quota), refusing at submission when nothing remains and threading a
+    # quota-shaped refusal detail through fetch_url_to_path so both cap
+    # sites (declared Content-Length and mid-stream count) name the quota
+    # when the quota is what is capping. The post-stage byte-charged check
+    # stays authoritative. Cap 2123 -> 2168, exact.
+    # fix(#1708 codex r11): +73 — the ambiguous-commit reconciliation: the
+    # final running->pending commit goes through the _commit_staged_
+    # transition seam, and _settle_failed_url_import probes a FRESH session
+    # first (_url_import_transition_landed) — when the commit durably landed
+    # despite a raised acknowledgement, settlement stands down instead of
+    # deleting bytes a live pending row points at. Probe failure errs
+    # toward standing down: orphaned bytes are sweepable, deleted catalog
+    # data is not. Cap 2168 -> 2241, exact.
+    # fix(#1708 codex r12): +54 — the last unbounded operation on the
+    # request path, on the failure route that fires when S3 is degraded.
+    # An abandoned put raises _StagePutAbandoned, and settlement then skips
+    # the synchronous remote delete entirely (the late-put reaper already
+    # owns that key, and a delete issued now would race the in-flight
+    # upload); every other failure bounds its delete by what remains of the
+    # request budget. Cap 2241 -> 2295, exact.
+    # fix(#1708 codex r13): +37 — the joint budget became genuinely joint.
+    # The fetch's bound is now min(FETCH_MAX_SECONDS, stage_deadline - now)
+    # via _remaining_fetch_budget, so time spent by auth, preflight DNS and
+    # the config/quota transaction is deducted from it instead of the fetch
+    # starting a fresh 480s clock; a budget already under the floor refuses
+    # promptly rather than opening a doomed connection. Most of the growth
+    # is the INVARIANT comment at the deadline's definition, which a future
+    # phase added to this handler inherits. Cap 2295 -> 2332, exact.
+    # fix(#1708 codex r14): +68 — the r11 ambiguous-commit probe was scoped
+    # to EVERY post-staging failure, so ordinary rejections opened a second
+    # session while still holding their own transaction (the r2/r7
+    # connection family, reopened by a settlement path that grew) and
+    # inherited the probe's deliberate assume-landed default, skipping
+    # cleanup. Settlement now rolls back FIRST, and the probe fires only
+    # for an exception carrying the marker _commit_staged_transition_
+    # guarded stamps. A cancelled put task also reaches its deleter now
+    # (task.exception() raises on a cancelled task). Cap 2332 -> 2400,
+    # exact.
+    # fix(#1708 codex r15): +26 — the landed stand-down deletes the LOCAL
+    # copy when the row references an S3 key (nothing downstream can
+    # discover a path no row names, so it leaked one file per ambiguous
+    # commit) and keeps it when the row references the local file itself.
+    # Most of the growth is the comment making that asymmetry read as
+    # intent rather than an oversight. Cap 2400 -> 2426, exact.
+    # fix(#1708 codex r16): +14 — the INVARIANT comment at the deadline's
+    # initialization now states what the joint clock does NOT cover (auth
+    # and dependency-phase work run before this handler body; the
+    # post-stage transaction runs after the budget), replacing wording
+    # that claimed auth time was deducted. A comment describing a
+    # protection the code does not implement is the class AGENTS.md calls
+    # out, so the correction is the point of the change. Cap 2426 -> 2440,
+    # exact.
+    # fix(#1708 codex r17): +1 — the stage budget is derived per request
+    # from the configured db_pool_timeout (see stage_total_budget_seconds)
+    # rather than hardcoded, so raising that operator-settable value
+    # shrinks the budget instead of silently breaking the proxy invariant.
+    # Cap 2440 -> 2441, exact.
+    # fix(#1708 codex r18): +4 — the INVARIANT comment now enumerates the
+    # request's THREE pool checkouts (auth, pre-fetch, post-stage) instead
+    # of the two r17's derivation assumed, and points at the named constant
+    # that carries the count so the arithmetic stays checkable against the
+    # code. Cap 2441 -> 2445, exact.
+    # fix(#1708 codex r19): +37 — _preflight_dns_budget, so the preflight
+    # follows the INVARIANT's own rule (min(own ceiling, remaining)) rather
+    # than a bare ceiling. Harmless while the budget is healthy, wrong in
+    # the floored regime, where a 1s budget could still spend 30s resolving
+    # before anything refused; an exhausted clock now refuses with the
+    # budget's message before any job row exists. Cap 2445 -> 2482, exact.
+    # fix(#1708 codex r20): +29 — comment only. The running-state commit is
+    # deliberately NOT covered by the ambiguous-commit probe, and the
+    # reasoning is recorded at the site: nothing is staged yet, the row
+    # blocks nothing (checked against every active-job predicate: the
+    # backfill unique index, the per-user analysis cap, the manifest
+    # in-flight check, the reupload lookup, and quota), and the running
+    # lease already owns it. An unexplained asymmetry is what invites the
+    # next round, so the trade is written down with its expiry condition.
+    # Cap 2482 -> 2511, exact.
+    # RECONCILED at the #1708/#1709 merge: both PRs raised this cap in
+    # parallel off the same 1584 baseline — #1709 to 1617 (the fan-out
+    # parent claim moving before dispatch), #1708 to 2511 (everything
+    # above). Neither number survives having both applied, so the cap is
+    # measured off the merged file rather than composed from either lane's
+    # arithmetic. 2511 + #1709's 33 = 2544, exact.
+    # fix(#1708 CodeQL triage): +1 — the codeql[py/path-injection] marker on
+    # _cleanup_saved_upload's Path branch. The URL flow reaches that shared
+    # helper (from _settle_failed_url_import) with an S3 KEY STRING, which is
+    # what made the pre-existing sink alert; the marker records that the Path
+    # branch only ever receives a staging-rooted path. Cap 2544 -> 2545, exact.
+    # fix(#1708 codex r25): +20 — the floored-budget refusal moved to
+    # immediately after the deadline is derived, before preflight DNS and the
+    # config/quota transaction. Deliberately the SAME _remaining_fetch_budget
+    # call the pre-fetch check makes, so the two can never disagree about what
+    # "too small to start" means; most of the lines are the comment recording
+    # that the floor promised a PROMPT refusal the ordering did not deliver.
+    # Cap 2545 -> 2565, exact.
+    "backend/app/processing/ingest/router.py": 2565,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
@@ -2997,7 +3155,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # case, matching job.cancel and refresh.cancelled in the same
     # transaction), and the requester when a sweep settles it, since a lease
     # expiry is nobody's click. Cap 1752 -> 1763, exact.
-    "backend/app/platform/jobs/sweep.py": 1763,
+    # fix(#1708 codex r6): +29 — pending age in stale_pending_clauses is
+    # measured from coalesce(user_metadata.staged_at, created_at), so a URL
+    # import whose download consumed part of the configurable pending
+    # timeout gets its full review window back at staging completion, while
+    # every row without the key (all other flows) ages from created_at
+    # exactly as before. Mostly the comment recording why this is a restart
+    # and not an exemption. Cap 1653 -> 1682, exact.
+    # RECONCILED at the #1708/#1709 merge: both raised this cap off the same
+    # 1653 baseline — #1709 to 1763, #1708 to 1682 — so the cap is measured
+    # off the merged file. 1763 + #1708's 29 = 1792, exact.
+    "backend/app/platform/jobs/sweep.py": 1792,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and

@@ -3,6 +3,7 @@
   "tabs": {
     "label": "Import sources",
     "upload": "Upload File",
+    "url": "File URL",
     "register": "Register Table",
     "service": "Service URL",
     "stac": "STAC Catalog"
@@ -214,6 +215,26 @@
     "alreadyRegistered": "Already registered: \"{{title}}\"",
     "viewExisting": "View existing"
   },
+  "urlImport": {
+    "label": "File URL — fetched server-side",
+    "placeholder": "https://data.source.coop/…/buildings.parquet",
+    "fetch": "Fetch →",
+    "fetching": "Downloading file...",
+    "fetchingHint": "Large files can take several minutes to download — keep this page open.",
+    "loadingPreview": "Analyzing file...",
+    "resuming": "Resuming import…",
+    "filenameLabel": "Filename override (optional)",
+    "filenamePlaceholder": "buildings.parquet",
+    "filenameHelpText": "Only needed when the URL path doesn't end in the file name — for example a download link keyed by an id.",
+    "supported": "Direct links to:",
+    "fetchFailed": "Failed to fetch the file from that URL",
+    "previewFailed": "Failed to analyze the downloaded file",
+    "commitFailed": "Failed to start import",
+    "importStarted": "Import started",
+    "startOver": "Start Over",
+    "importAnother": "Import another",
+    "layerLabel": "Layer"
+  },
   "rail": {
     "stageTitle": "Stage files",
     "stageDesc": "Drop or pick files. No commit yet — you can remove any before detection.",
@@ -244,7 +265,11 @@
     "compareRegister": "Upload ingests from a file. Register points at an existing table — no duplication, but the table must stay in your database.",
     "compareStac": "Upload ingests local files. STAC imports discover remote assets first, then stages selected items for catalog use.",
     "compareService": "Upload ingests from a file. Service URL fetches from a remote API and imports the data into GeoLens for local tiling and querying.",
-    "asideLabel": "Import workflow"
+    "asideLabel": "Import workflow",
+    "urlHint": "Importing from a file URL",
+    "urlDesc": "GeoLens downloads the file server-side into staging, then runs the same detection and import pipeline as an upload.",
+    "urlNote": "The URL is validated and size-capped before download · data is copied into GeoLens",
+    "compareUrl": "Upload sends a file from your machine. File URL fetches it from the web — same review, same result, no local download needed."
   },
   "register": {
     "helpText": "Catalog existing PostGIS tables from your database as datasets in GeoLens. Use this when you have geographic data already in the database that wasn't imported through GeoLens. Selected tables will be added to the dataset catalog with automatic metadata detection.",

@@ -17644,6 +17644,37 @@
         "title": "UploadResponse",
         "type": "object"
       },
+      "UrlUploadRequest": {
+        "description": "Request body for the URL variant of upload (feat #1705).\n\nThe server fetches the file itself (SSRF-validated, size-capped) and\nstages it exactly like a direct upload \u2014 preview and commit take over\nunchanged.",
+        "properties": {
+          "url": {
+            "description": "HTTP(S) URL of the file to import. The server validates the URL against SSRF, downloads it with the configured size cap, and stages it like a direct upload.",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Filename override for URLs whose path does not end in the actual file name (e.g. download links keyed by query id). Must carry an allowed extension. Defaults to the URL path's basename.",
+            "title": "Filename"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "UrlUploadRequest",
+        "type": "object"
+      },
       "UserCreate": {
         "properties": {
           "username": {
@@ -42057,6 +42088,168 @@
           }
         ],
         "summary": "Complete Presigned Upload",
+        "tags": [
+          "Datasets"
+        ]
+      }
+    },
+    "/ingest/upload/url": {
+      "post": {
+        "description": "Import a geospatial file from an HTTP(S) URL for staging.\n\nfeat(#1705): the URL variant of ``POST /ingest/upload`` \u2014 NOT a new\nsource type. The server fetches the file itself and the staged bytes\nenter the normal pipeline unchanged (preview \u2192 commit). Rule 2 posture:\n``validate_url_for_ssrf`` gates the URL at submission, the download runs\nthrough ``make_safe_client()`` (connect-time IP pinning plus per-hop\nredirect revalidation), the size cap is enforced while streaming, the\nstaged file passes the same extension allowlist and content sniff as a\ndirect upload, and GDAL only ever sees the staged local file.",
+        "operationId": "upload_from_url_ingest_upload_url_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UrlUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks write access"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Payload too large"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Upload From Url",
         "tags": [
           "Datasets"
         ]

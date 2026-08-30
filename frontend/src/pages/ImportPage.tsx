@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Upload, Database, Globe, Satellite } from 'lucide-react';
+import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
 import { PageShell } from '@/components/layout/PageShell';
 import { AppErrorBoundary } from '@/components/error';
 import { UploadForm } from '@/components/import/UploadForm';
+import { UrlImportForm } from '@/components/import/UrlImportForm';
 import { RegisterForm } from '@/components/import/RegisterForm';
 import { ServiceUrlForm } from '@/components/import/ServiceUrlForm';
 import { StacImportForm } from '@/components/import/StacImportForm';
@@ -13,10 +14,12 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { cn } from '@/lib/utils';
 import type { BatchPhase } from '@/types/api';
 
-type Tab = 'upload' | 'register' | 'service' | 'stac';
+type Tab = 'upload' | 'url' | 'register' | 'service' | 'stac';
 
 const MODE_TABS: { value: Tab; icon: typeof Upload; labelKey: string }[] = [
   { value: 'upload', icon: Upload, labelKey: 'tabs.upload' },
+  // feat(#1705): URL variant of upload — server-side fetch into staging.
+  { value: 'url', icon: Link, labelKey: 'tabs.url' },
   { value: 'register', icon: Database, labelKey: 'tabs.register' },
   { value: 'service', icon: Globe, labelKey: 'tabs.service' },
   { value: 'stac', icon: Satellite, labelKey: 'tabs.stac' },
@@ -75,6 +78,7 @@ export function ImportPage() {
         <div className="min-w-0">
           <AppErrorBoundary>
             {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}
+            {activeTab === 'url' && <UrlImportForm />}
             {activeTab === 'register' && <RegisterForm />}
             {activeTab === 'service' && <ServiceUrlForm />}
             {activeTab === 'stac' && <StacImportForm />}

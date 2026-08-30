@@ -3,6 +3,7 @@
   "tabs": {
     "label": "Importquellen",
     "upload": "Datei hochladen",
+    "url": "Datei-URL",
     "register": "Tabelle registrieren",
     "service": "Service-URL",
     "stac": "STAC-Katalog"
@@ -201,6 +202,26 @@
     "unknownDataset": "Unbekannter Datensatz",
     "alreadyRegistered": "Bereits registriert: \"{{title}}\"",
     "viewExisting": "Vorhandenen Datensatz anzeigen"
+  },
+  "urlImport": {
+    "label": "Datei-URL — serverseitig abgerufen",
+    "placeholder": "https://data.source.coop/…/buildings.parquet",
+    "fetch": "Abrufen →",
+    "fetching": "Datei wird heruntergeladen...",
+    "fetchingHint": "Große Dateien können mehrere Minuten zum Herunterladen brauchen — lassen Sie diese Seite geöffnet.",
+    "loadingPreview": "Datei wird analysiert...",
+    "resuming": "Import wird fortgesetzt…",
+    "filenameLabel": "Dateiname überschreiben (optional)",
+    "filenamePlaceholder": "buildings.parquet",
+    "filenameHelpText": "Nur nötig, wenn der URL-Pfad nicht mit dem Dateinamen endet — zum Beispiel bei einem Download-Link mit einer ID.",
+    "supported": "Direkte Links zu:",
+    "fetchFailed": "Datei konnte nicht von dieser URL abgerufen werden",
+    "previewFailed": "Heruntergeladene Datei konnte nicht analysiert werden",
+    "commitFailed": "Import konnte nicht gestartet werden",
+    "importStarted": "Import gestartet",
+    "startOver": "Neu beginnen",
+    "importAnother": "Weiteren Import starten",
+    "layerLabel": "Layer"
   },
   "register": {
     "helpText": "Katalogisieren Sie vorhandene PostGIS-Tabellen aus Ihrer Datenbank als Datensätze in GeoLens. Verwenden Sie diese Option, wenn Sie bereits geografische Daten in der Datenbank haben, die nicht über GeoLens importiert wurden. Ausgewählte Tabellen werden mit automatischer Metadatenerkennung zum Katalog hinzugefügt.",
@@ -496,7 +517,11 @@
     "compareRegister": "Upload nimmt aus einer Datei auf. Registrieren zeigt auf eine vorhandene Tabelle — keine Duplizierung, aber die Tabelle muss in Ihrer Datenbank bleiben.",
     "compareStac": "Upload nimmt lokale Dateien auf. STAC-Import erkennt zuerst Remote-Assets und stellt ausgewählte Elemente dann für den Katalog bereit.",
     "compareService": "Upload nimmt aus einer Datei auf. Service-URL ruft von einer Remote-API ab und importiert die Daten in GeoLens zur lokalen Kachelung und Abfrage.",
-    "asideLabel": "Import-Workflow"
+    "asideLabel": "Import-Workflow",
+    "urlHint": "Import von einer Datei-URL",
+    "urlDesc": "GeoLens lädt die Datei serverseitig in den Staging-Bereich und führt dann dieselbe Erkennungs- und Importpipeline wie bei einem Upload aus.",
+    "urlNote": "Die URL wird vor dem Download validiert und größenbeschränkt · die Daten werden in GeoLens kopiert",
+    "compareUrl": "Upload sendet eine Datei von Ihrem Rechner. Datei-URL ruft sie aus dem Web ab — gleiche Prüfung, gleiches Ergebnis, ohne lokalen Download."
   },
   "status": {
     "uploading": "Hochladen",
