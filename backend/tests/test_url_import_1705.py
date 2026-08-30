@@ -1918,11 +1918,14 @@ class TestUrlImportJointClock:
         assert "time remained" in resp.json()["detail"]
         assert recorded == []  # no connection was opened
         assert _staged_files() == []
+        # fix(#1708 codex r19): the refusal now lands at the PREFLIGHT, which
+        # runs before create_ingest_job — so there is no row at all rather
+        # than a failed one. Strictly better, and the same shape as the r9
+        # staging-dir refusal: nothing committed means nothing to reap.
         result = await test_db_session.execute(
             select(IngestJob).where(IngestJob.source_filename == "nobudget.geojson")
         )
-        job = result.scalar_one()
-        assert job.status == "failed"
+        assert result.scalar_one_or_none() is None
 
 
 # ---------------------------------------------------------------------------

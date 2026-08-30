@@ -2773,7 +2773,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # of the two r17's derivation assumed, and points at the named constant
     # that carries the count so the arithmetic stays checkable against the
     # code. Cap 2441 -> 2445, exact.
-    "backend/app/processing/ingest/router.py": 2478,
+    # fix(#1708 codex r19): +37 — _preflight_dns_budget, so the preflight
+    # follows the INVARIANT's own rule (min(own ceiling, remaining)) rather
+    # than a bare ceiling. Harmless while the budget is healthy, wrong in
+    # the floored regime, where a 1s budget could still spend 30s resolving
+    # before anything refused; an exhausted clock now refuses with the
+    # budget's message before any job row exists. Cap 2445 -> 2482, exact.
+    "backend/app/processing/ingest/router.py": 2515,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

@@ -1,9 +1,15 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Link as LinkIcon } from 'lucide-react';
 import { ApiError } from '@/api/client';
-import { uploadFromUrl, previewFile, commitImport } from '@/api/ingest';
+import { previewFile, commitImport } from '@/api/ingest';
+import {
+  clearUrlImport,
+  peekUrlImport,
+  startUrlImport,
+  type UrlImportSession,
+} from '@/api/url-import-session';
 import type {
   CommitImportRequest,
   FilePreviewResponse,
@@ -44,8 +50,16 @@ export function UrlImportForm() {
     FilePreviewResponse | RasterPreviewResponse | null
   >(null);
   const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const reset = () => {
+    clearUrlImport();
     setStep('idle');
     setUrl('');
     setFilename('');
@@ -54,38 +68,67 @@ export function UrlImportForm() {
     setError(null);
   };
 
+  // fix(#1708 codex r19): the session is owned by the module, so a tab
+  // switch mid-import cannot strand the job. Everything below only decides
+  // what THIS mount displays.
+  const runSession = useCallback(
+    async (session: UrlImportSession) => {
+      setStep('fetching');
+      setError(null);
+
+      let fetchedJobId: string;
+      try {
+        const res = await session.promise;
+        fetchedJobId = res.job_id;
+      } catch (err) {
+        // Only touch state if this mount is still the live one; the session
+        // already recorded the outcome for whoever mounts next.
+        if (!mountedRef.current) return;
+        const msg = err instanceof ApiError ? err.message : t('urlImport.fetchFailed');
+        setError(msg);
+        setStep('idle');
+        toast.error(msg);
+        clearUrlImport();
+        return;
+      }
+      if (!mountedRef.current) return;
+      setJobId(fetchedJobId);
+
+      setStep('previewing');
+      try {
+        const preview = await previewFile(fetchedJobId);
+        if (!mountedRef.current) return;
+        setPreviewData(preview);
+        setStep('review');
+      } catch (err) {
+        if (!mountedRef.current) return;
+        const msg = err instanceof ApiError ? err.message : t('urlImport.previewFailed');
+        setError(msg);
+        setStep('idle');
+        toast.error(msg);
+      }
+    },
+    [t],
+  );
+
+  // Re-attach to an import that was running (or finished) while this form
+  // was unmounted. Without this the job id the server returned to a dead
+  // component would be unreachable until the stale-pending sweep, with its
+  // staged bytes held the whole time.
+  useEffect(() => {
+    const session = peekUrlImport();
+    if (!session) return;
+    void runSession(session);
+    // Deliberately mount-only: re-running on every `runSession` identity
+    // change would re-enter a session already being displayed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleFetch = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = url.trim();
     if (!trimmed) return;
-
-    setStep('fetching');
-    setError(null);
-
-    let fetchedJobId: string;
-    try {
-      const res = await uploadFromUrl(trimmed, filename.trim() || undefined);
-      fetchedJobId = res.job_id;
-      setJobId(res.job_id);
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : t('urlImport.fetchFailed');
-      setError(msg);
-      setStep('idle');
-      toast.error(msg);
-      return;
-    }
-
-    setStep('previewing');
-    try {
-      const preview = await previewFile(fetchedJobId);
-      setPreviewData(preview);
-      setStep('review');
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.message : t('urlImport.previewFailed');
-      setError(msg);
-      setStep('idle');
-      toast.error(msg);
-    }
+    await runSession(startUrlImport(trimmed, filename.trim() || undefined));
   };
 
   const handleLayerChange = async (layerName: string) => {
@@ -118,6 +161,10 @@ export function UrlImportForm() {
         jobId,
         layerName ? { ...metadata, layer_name: layerName } : metadata,
       );
+      // The job has left the fetch/preview stage, so the resume session has
+      // done its job. Holding it would make a later remount re-preview an
+      // already-committed job, which the API refuses with 400.
+      clearUrlImport();
       setStep('tracking');
       toast.success(t('urlImport.importStarted'));
     } catch (err) {

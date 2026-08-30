@@ -10,6 +10,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { UrlImportForm } from '../UrlImportForm';
 import type { CommitImportRequest } from '@/types/api';
+import { clearUrlImport } from '@/api/url-import-session';
 
 const mockUploadFromUrl = vi.fn();
 const mockPreviewFile = vi.fn();
@@ -64,6 +65,14 @@ const VECTOR_PREVIEW = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // fix(#1708 codex r19): the URL-import session is module-owned so it can
+  // outlive an unmount (that is the point). Tests must therefore start from
+  // a clean one, or a leftover session resumes into the next test's mount.
+  clearUrlImport();
+});
+
+afterEach(() => {
+  clearUrlImport();
 });
 
 async function fetchUrl(url: string) {

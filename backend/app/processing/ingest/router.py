@@ -968,6 +968,36 @@ async def _settle_failed_url_import(
         logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
 
 
+_BUDGET_EXHAUSTED_DETAIL = (
+    "Not enough time remained in the request budget to download this file. Try again."
+)
+
+
+def _preflight_dns_budget(stage_deadline: float) -> float:
+    """The preflight resolution's bound: min(its ceiling, what remains).
+
+    fix(#1708 codex r19): the preflight was bounded by a bare
+    ``PREFLIGHT_DNS_MAX_SECONDS`` while the INVARIANT above states that
+    every phase uses ``min(own ceiling, remaining)``. Harmless while the
+    budget is healthy — the clock starts immediately before this phase, so
+    the min is always the ceiling — but wrong in the floored regime, where
+    a 1s budget would still have spent up to 30s resolving before anything
+    refused. A comment stating a rule the code does not follow is the
+    failure mode this PR has hit twice, so the code follows the rule.
+
+    With nothing left, refuse with the BUDGET's message rather than a
+    zero-second DNS timeout, which would blame the resolver for an
+    exhausted clock.
+    """
+    remaining = stage_deadline - time.monotonic()
+    if remaining <= 0.0:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=_BUDGET_EXHAUSTED_DETAIL,
+        )
+    return min(float(PREFLIGHT_DNS_MAX_SECONDS), remaining)
+
+
 def _remaining_fetch_budget(stage_deadline: float) -> float:
     """What the joint budget has left for the download, or a prompt refusal.
 
@@ -984,10 +1014,7 @@ def _remaining_fetch_budget(stage_deadline: float) -> float:
     if remaining < MIN_FETCH_BUDGET_SECONDS:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=(
-                "Not enough time remained in the request budget to download "
-                "this file. Try again."
-            ),
+            detail=_BUDGET_EXHAUSTED_DETAIL,
         )
     return remaining
 
@@ -1280,17 +1307,27 @@ async def upload_from_url(
         # every clock. wait_for cancels the to_thread wrapper immediately;
         # the abandoned resolver thread ends when the OS resolver gives up
         # (the same accepted pattern as an abandoned staging put).
+        # fix(#1708 codex r19): min(own ceiling, remaining), not the bare
+        # ceiling. The INVARIANT above states that rule for every phase, and
+        # the preflight was the one phase not following it — harmless while
+        # the budget is healthy (the clock starts on the line above, so
+        # remaining is the whole budget and the min is always the ceiling),
+        # but wrong in the floored regime, where a 1s budget would still
+        # have spent up to 30s resolving before anything refused. A comment
+        # that states a rule the code does not follow is the failure mode
+        # this PR has already hit twice, so the code follows the rule.
+        preflight_budget = _preflight_dns_budget(stage_deadline)
         try:
             await asyncio.wait_for(
                 validate_url_for_ssrf(body.url),
-                timeout=PREFLIGHT_DNS_MAX_SECONDS,
+                timeout=preflight_budget,
             )
         except TimeoutError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=(
                     "DNS resolution for this URL did not finish within "
-                    f"{PREFLIGHT_DNS_MAX_SECONDS} seconds."
+                    f"{int(preflight_budget)} seconds."
                 ),
             ) from exc
         except SSRFError as exc:
