@@ -747,7 +747,7 @@ _is_production = settings.is_production
 # no metadata to read. We fall back to the current published line so import never
 # crashes. Keep this fallback in lockstep with backend/pyproject.toml — it is one
 # of the sites `make bump` rewrites.
-_FALLBACK_APP_VERSION = "1.16.1"
+_FALLBACK_APP_VERSION = "1.17.0"
 
 
 def _resolve_app_version() -> str:
