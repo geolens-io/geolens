@@ -598,6 +598,19 @@ def _raster_stamped_metadata(
     return {**(user_metadata or {}), "file_type": "raster"}
 
 
+class _StagePutAbandoned(HTTPException):
+    """The staging put outlived its budget and was abandoned, not cancelled.
+
+    fix(#1708 codex r12): carries one fact settlement needs — the late-put
+    reaper already owns this key's deletion, so the failure path must NOT
+    synchronously await an S3 delete of it. A degraded endpoint is the very
+    condition that produced the timeout, and that delete would spend
+    botocore's read timeout plus retries on the way to the 502, pushing the
+    response past the edge proxy's deadline: the exact loss the budget
+    exists to prevent.
+    """
+
+
 async def _put_staging_object(s3_key: str, local_dest: Path) -> None:
     """Upload the staged local file to the S3 staging key.
 
@@ -661,7 +674,7 @@ async def _stage_put_bounded(
         "budget. Try again, or upload the file directly."
     )
     if remaining <= 0:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+        raise _StagePutAbandoned(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
     put_task = asyncio.create_task(_put_staging_object(s3_key, local_dest))
     # fix(#1708 codex r8): the reaper must exist from the moment the put
     # task can outlive this coroutine. asyncio.wait does not cancel the
@@ -687,7 +700,7 @@ async def _stage_put_bounded(
     if pending:
         put_task.add_done_callback(_abandoned_put_reaper(s3_key, job_id))
         logger.warning("url_import_stage_put_abandoned", job_id=job_id, s3_key=s3_key)
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
+        raise _StagePutAbandoned(status_code=status.HTTP_502_BAD_GATEWAY, detail=detail)
     # Completed inside the budget: surface provider failures as themselves
     # (the settle path stamps the job failed and the outer handler maps them).
     put_task.result()
@@ -748,6 +761,7 @@ async def _settle_failed_url_import(
     s3_key: str | None,
     local_dest: Path,
     staged_path: str | None = None,
+    stage_deadline: float | None = None,
 ) -> None:
     """Everything that must happen when the URL-import fetch path raises.
 
@@ -794,8 +808,47 @@ async def _settle_failed_url_import(
         return
 
     try:
-        if s3_key is not None:
-            await _cleanup_saved_upload(s3_key, str(job_id))
+        # fix(#1708 codex r12): the remote delete is the last unbounded
+        # operation on the request path, and it sits on the failure path
+        # that fires when S3 is degraded.
+        #
+        # Abandoned put: skip it entirely. `_abandoned_put_reaper` is
+        # already attached to the live put task and deletes this key when
+        # the upload actually ends — which is also the only ordering that
+        # can win, since a delete issued now would race the in-flight
+        # upload. Handing over costs nothing and saves the verdict.
+        #
+        # Every other failure: bound it by what is left of the request's
+        # own budget. `_cleanup_saved_upload` drains and never raises, so
+        # cancellation cannot stop it; the wait is abandoned instead and
+        # the deletion continues in the background, with the stale-staging
+        # sweep as the backstop if it ultimately fails.
+        if s3_key is not None and not isinstance(exc, _StagePutAbandoned):
+            cleanup_budget = (
+                None if stage_deadline is None else stage_deadline - time.monotonic()
+            )
+            if cleanup_budget is not None and cleanup_budget <= 0:
+                logger.warning(
+                    "url_import_cleanup_deferred_no_budget",
+                    job_id=str(job_id),
+                    s3_key=s3_key,
+                )
+            else:
+                cleanup_task = asyncio.create_task(
+                    _cleanup_saved_upload(s3_key, str(job_id))
+                )
+                _done, still_running = await asyncio.wait(
+                    {cleanup_task}, timeout=cleanup_budget
+                )
+                if still_running:
+                    logger.warning(
+                        "url_import_cleanup_abandoned",
+                        job_id=str(job_id),
+                        s3_key=s3_key,
+                    )
+        # Local disk, not the network. Safe while the abandoned put may
+        # still be reading it: POSIX keeps the inode alive for that open
+        # handle until the task's own finally closes it.
         # codeql[py/path-injection] fix(#1708): clamped, staging-rooted path — see upload_from_url
         local_dest.unlink(missing_ok=True)
     except BaseException:
@@ -1281,6 +1334,7 @@ async def upload_from_url(
                 s3_key=s3_key,
                 local_dest=local_dest,
                 staged_path=staged_path,
+                stage_deadline=stage_deadline,
             )
             raise
         if s3_key is not None:

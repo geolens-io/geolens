@@ -1597,3 +1597,142 @@ class TestUrlImportAmbiguousCommit:
         job = result.scalar_one()
         assert job.status == "failed"
         assert job.error_message == "URL import failed"
+
+
+# ---------------------------------------------------------------------------
+# Round-12 review finding (#1708): the failure path after deadline
+# exhaustion never awaits an unbounded remote delete
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportDegradedS3Failure:
+    async def test_abandoned_put_hands_cleanup_to_the_reaper(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r12): on the abandonment path the failure route
+        must NOT synchronously await an S3 delete — a degraded endpoint (the
+        very condition that caused the timeout) would spend botocore's read
+        timeout plus retries on the way to the 502. The delete is handed to
+        the already-attached late-put reaper, which fires when the upload
+        actually ends. Modeled with a delete that would hang for minutes:
+        the response must arrive anyway."""
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        monkeypatch.setattr(
+            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 1
+        )
+        release = asyncio.Event()
+        cleanup_started = asyncio.Event()
+        cleanup_calls: list[str] = []
+
+        async def slow_put(s3_key: str, local_dest: Path) -> None:
+            await release.wait()
+
+        async def degraded_delete(saved_path, job_id) -> None:
+            cleanup_calls.append(str(saved_path))
+            cleanup_started.set()
+            await asyncio.sleep(300)  # a degraded endpoint, mid-retry
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._put_staging_object", slow_put
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.router._cleanup_saved_upload", degraded_delete
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+
+        resp = await asyncio.wait_for(
+            client.post(
+                "/ingest/upload/url",
+                json={"url": "https://files.example.test/degraded.geojson"},
+                headers=admin_auth_header,
+            ),
+            # Far below the hanging delete: the point is that the verdict
+            # does not wait on it.
+            timeout=20,
+        )
+        assert resp.status_code == 502
+        # The settlement path issued NO delete of its own...
+        assert cleanup_calls == []
+        assert not cleanup_started.is_set()
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "degraded.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+
+        # ...and the reaper still owns the key: it fires when the put ends.
+        release.set()
+        await asyncio.sleep(0.05)
+        assert cleanup_calls == [f"staging/{job.id}/degraded.geojson"]
+
+    async def test_non_timeout_failure_bounds_its_cleanup(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """A failure with budget left still attempts an immediate delete —
+        but bounded by the remaining request budget, so a degraded endpoint
+        cannot hold the 502 past the proxy deadline. Here the content sniff
+        rejects the file (plenty of budget left) and the delete hangs: the
+        response must still arrive, and the job must still be stamped."""
+        monkeypatch.setattr(settings, "storage_provider", "s3")
+        # Small budget so the bounded wait resolves fast in the test; the
+        # production value is the joint stage budget's remainder.
+        monkeypatch.setattr(
+            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 2
+        )
+        cleanup_started = asyncio.Event()
+
+        async def degraded_delete(saved_path, job_id) -> None:
+            cleanup_started.set()
+            await asyncio.sleep(300)
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._cleanup_saved_upload", degraded_delete
+        )
+        monkeypatch.setattr(
+            "app.processing.ingest.router._put_staging_object", AsyncMock()
+        )
+        # Fail AFTER the put, so s3_key is set and cleanup is attempted:
+        # a quota race at the post-stage check.
+        from fastapi import HTTPException
+
+        calls = {"n": 0}
+
+        async def racing_quota(db_, user_id, incoming_bytes, request_):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise HTTPException(status_code=413, detail="quota raced")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router.check_upload_quota", racing_quota
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+
+        resp = await asyncio.wait_for(
+            client.post(
+                "/ingest/upload/url",
+                json={"url": "https://files.example.test/bounded.geojson"},
+                headers=admin_auth_header,
+            ),
+            timeout=20,
+        )
+        assert resp.status_code == 413
+        # The delete WAS attempted (budget remained) but did not hold the
+        # response — it was abandoned at the budget and continues alone.
+        assert cleanup_started.is_set()
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "bounded.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"

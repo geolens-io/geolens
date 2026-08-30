@@ -205,10 +205,16 @@ async def fetch_url_to_path(
                 # phase timeouts it can expire during DNS resolution.
                 async with asyncio.timeout(FETCH_MAX_SECONDS):
                     async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
-                        # codeql[py/full-ssrf] fix(#1708): Rule 2 posture — validate_url_for_ssrf gates the URL at submission, and make_safe_client's transport re-resolves, validates, and pins the IP at connect time plus revalidates every redirect hop
                         # fix(#1708 codex r11): identity requested, enforced
                         # below, and the loop reads aiter_raw — three layers
                         # against compression bombs (see the loop comment).
+                        #
+                        # The marker below must stay the LAST line before the
+                        # call: the suppression query binds a marker to the
+                        # line that follows it, so an explanatory comment
+                        # inserted between the two silently disarms it (that
+                        # is how alert 103 re-fired at r11). Prose goes above.
+                        # codeql[py/full-ssrf] fix(#1708): Rule 2 posture — validate_url_for_ssrf gates the URL at submission, and make_safe_client's transport re-resolves, validates, and pins the IP at connect time plus revalidates every redirect hop
                         async with client.stream(
                             "GET",
                             url,

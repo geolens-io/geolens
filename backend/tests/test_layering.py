@@ -2724,7 +2724,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # deleting bytes a live pending row points at. Probe failure errs
     # toward standing down: orphaned bytes are sweepable, deleted catalog
     # data is not. Cap 2168 -> 2241, exact.
-    "backend/app/processing/ingest/router.py": 2274,
+    # fix(#1708 codex r12): +54 — the last unbounded operation on the
+    # request path, on the failure route that fires when S3 is degraded.
+    # An abandoned put raises _StagePutAbandoned, and settlement then skips
+    # the synchronous remote delete entirely (the late-put reaper already
+    # owns that key, and a delete issued now would race the in-flight
+    # upload); every other failure bounds its delete by what remains of the
+    # request budget. Cap 2241 -> 2295, exact.
+    "backend/app/processing/ingest/router.py": 2328,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
