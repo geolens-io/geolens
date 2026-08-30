@@ -717,6 +717,7 @@ class TestUrlImportReaperInteraction:
         from app.processing.ingest.url_fetch import (
             EDGE_PROXY_READ_TIMEOUT_SECONDS,
             FETCH_MAX_SECONDS,
+            POOL_CHECKOUTS_PER_REQUEST,
             STAGE_TOTAL_CEILING_SECONDS,
             stage_total_budget_seconds,
         )
@@ -729,7 +730,8 @@ class TestUrlImportReaperInteraction:
         # from db_pool_timeout rather than assumed — see
         # test_every_phase_bound_fits_the_joint_budget for the full chain.
         assert (
-            stage_total_budget_seconds() + 2 * settings.db_pool_timeout
+            stage_total_budget_seconds()
+            + POOL_CHECKOUTS_PER_REQUEST * settings.db_pool_timeout
             <= EDGE_PROXY_READ_TIMEOUT_SECONDS
         )
         assert FETCH_MAX_SECONDS < STAGE_TOTAL_CEILING_SECONDS
@@ -1782,6 +1784,7 @@ class TestUrlImportJointClock:
             EDGE_PROXY_READ_TIMEOUT_SECONDS,
             FETCH_MAX_SECONDS,
             MIN_FETCH_BUDGET_SECONDS,
+            POOL_CHECKOUTS_PER_REQUEST,
             PREFLIGHT_DNS_MAX_SECONDS,
             STAGE_TOTAL_CEILING_SECONDS,
             stage_total_budget_seconds,
@@ -1794,16 +1797,20 @@ class TestUrlImportJointClock:
         )
         assert 0 < MIN_FETCH_BUDGET_SECONDS < FETCH_MAX_SECONDS
 
-        # fix(#1708 codex r16): the FULL chain, including what the joint
-        # clock does NOT cover. The budget starts inside the handler, so
-        # pre-handler dependency work and the post-stage transaction sit
-        # outside it, and each can wait on a pool checkout bounded by
-        # db_pool_timeout (past which the request fails rather than
-        # proceeding). Reading that from settings rather than hardcoding it
-        # means raising the config fails HERE instead of silently eroding
-        # the margin under the proxy.
+        # fix(#1708 codex r16, corrected r18): the FULL chain, including
+        # what the joint clock does NOT cover. The session checks a
+        # connection out POOL_CHECKOUTS_PER_REQUEST times across the
+        # request (auth, pre-fetch, post-stage — enumerated at that
+        # constant), each able to wait db_pool_timeout under exhaustion.
+        # r16 counted two of the three, which is exactly the arithmetic
+        # error this assertion now catches. Reading both values from the
+        # source rather than hardcoding them means raising the config
+        # fails HERE instead of silently eroding the margin.
         pool_wait = settings.db_pool_timeout
-        worst_case = pool_wait + stage_total_budget_seconds() + pool_wait
+        # fix(r18): N checkouts, not 2 — see POOL_CHECKOUTS_PER_REQUEST.
+        worst_case = (
+            POOL_CHECKOUTS_PER_REQUEST * pool_wait + stage_total_budget_seconds()
+        )
         assert worst_case <= EDGE_PROXY_READ_TIMEOUT_SECONDS, (
             f"worst case {worst_case}s exceeds the "
             f"{EDGE_PROXY_READ_TIMEOUT_SECONDS}s proxy deadline: shrink "
@@ -2181,6 +2188,7 @@ class TestUrlImportDerivedBudget:
         CI run, pinned to the default, stayed green."""
         from app.processing.ingest.url_fetch import (
             EDGE_PROXY_READ_TIMEOUT_SECONDS,
+            POOL_CHECKOUTS_PER_REQUEST,
             POST_WORK_MARGIN_SECONDS,
             STAGE_BUDGET_FLOOR_SECONDS,
             STAGE_TOTAL_CEILING_SECONDS,
@@ -2196,7 +2204,11 @@ class TestUrlImportDerivedBudget:
         # Never nonsensical.
         assert budget >= STAGE_BUDGET_FLOOR_SECONDS
 
-        worst_case = pool_timeout + budget + pool_timeout + POST_WORK_MARGIN_SECONDS
+        worst_case = (
+            POOL_CHECKOUTS_PER_REQUEST * pool_timeout
+            + budget
+            + POST_WORK_MARGIN_SECONDS
+        )
         if budget > STAGE_BUDGET_FLOOR_SECONDS:
             # The derived (non-floored) regime: the full chain fits under
             # the proxy deadline for THIS configuration.
@@ -2207,9 +2219,16 @@ class TestUrlImportDerivedBudget:
             # rather than the invariant being quietly violated.
             assert budget == STAGE_BUDGET_FLOOR_SECONDS
 
-    def test_default_config_keeps_the_full_ceiling(self, monkeypatch):
-        """At the shipped default the budget is unchanged from r16's 510, so
-        this derivation costs nothing on a stock deployment."""
+    def test_default_config_costs_the_stock_deployment_20s(self, monkeypatch):
+        """fix(#1708 codex r18): counting the third checkout costs the stock
+        deployment real headroom, and that is the right trade — an accurate
+        budget beats an invariant that reads true and is not.
+
+        At the default the budget is 600 - 3*30 - 20 = 490, twenty seconds
+        under the 510 ceiling. The fetch's own 480s ceiling still fits
+        whenever the preflight resolves quickly (the normal case, DNS in
+        milliseconds); only a preflight that burns its full 30s squeezes
+        the fetch, to 460, via the joint clock's min()."""
         from app.processing.ingest.url_fetch import (
             FETCH_MAX_SECONDS,
             PREFLIGHT_DNS_MAX_SECONDS,
@@ -2218,9 +2237,12 @@ class TestUrlImportDerivedBudget:
         )
 
         monkeypatch.setattr(settings, "db_pool_timeout", 30)
-        assert stage_total_budget_seconds() == STAGE_TOTAL_CEILING_SECONDS == 510
-        # And the fetch still gets its full ceiling inside that budget.
-        assert PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= 510
+        budget = stage_total_budget_seconds()
+        assert budget == 490  # 600 - 3*30 - 20
+        assert budget < STAGE_TOTAL_CEILING_SECONDS
+        # The fetch keeps its full ceiling unless the preflight runs long.
+        assert FETCH_MAX_SECONDS < budget
+        assert PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS > budget
 
     def test_raised_pool_timeout_shrinks_the_budget(self, monkeypatch):
         """The exact case from the finding: at 60 the old hardcoded 510 gave
@@ -2233,8 +2255,8 @@ class TestUrlImportDerivedBudget:
 
         monkeypatch.setattr(settings, "db_pool_timeout", 60)
         budget = stage_total_budget_seconds()
-        assert budget == 460  # 600 - 120 - 20
-        assert 60 + budget + 60 + POST_WORK_MARGIN_SECONDS == (
+        assert budget == 400  # 600 - 3*60 - 20
+        assert (3 * 60) + budget + POST_WORK_MARGIN_SECONDS == (
             EDGE_PROXY_READ_TIMEOUT_SECONDS
         )
 

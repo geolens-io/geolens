@@ -1253,17 +1253,21 @@ async def upload_from_url(
         # What it does NOT cover, equally precisely (r16 — the earlier
         # wording claimed auth was deducted, which was never true and is
         # the kind of comment that reads as a protection while
-        # implementing none): auth, permission and dependency-phase work,
-        # which run before this handler body and therefore before this
-        # line; and the post-stage transaction, which runs after the
-        # budget expires. Both of those can wait on a pool checkout,
-        # bounded by settings.db_pool_timeout. That is why
-        # the budget is DERIVED from that timeout rather than hardcoded
-        # (r17): stage_total_budget_seconds() returns
-        # min(ceiling 510, proxy 600 - 2*db_pool_timeout - post-work
-        # margin), so an operator raising DB_POOL_TIMEOUT shrinks the
-        # staging budget instead of silently pushing the response past
-        # nginx. See that function for the derivation and the floor.
+        # implementing none): the request's THREE pool checkouts, none of
+        # which is inside this clock —
+        #   1. auth/dependency work, before this handler body;
+        #   2. the pre-fetch config/quota transaction, which ends at the
+        #      commit that starts the fetch;
+        #   3. the post-stage quota/CAS transaction, after the budget.
+        # Each can wait up to settings.db_pool_timeout under pool
+        # exhaustion, so the budget is DERIVED from that timeout and that
+        # COUNT rather than hardcoded: stage_total_budget_seconds() returns
+        # min(ceiling, proxy - POOL_CHECKOUTS_PER_REQUEST*db_pool_timeout
+        # - post-work margin). r17 derived it from 2 checkouts and r18
+        # caught the third, which is why the count is a named constant with
+        # its enumeration beside it rather than a number inlined here — the
+        # arithmetic has to be checkable against the code it describes.
+        # See that function for the derivation and the floor.
         stage_deadline = time.monotonic() + stage_total_budget_seconds()
 
         # Rule 2, submission gate: refuse private/link-local/reserved targets

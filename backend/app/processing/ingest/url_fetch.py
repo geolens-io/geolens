@@ -80,21 +80,47 @@ EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 # fix(#1708 codex r17): 510 is the CEILING, not the answer. db_pool_timeout
 # is operator-settable (`Field(default=30, gt=0)`), and a hardcoded 510
 # silently breaks the invariant the moment it is raised — at
-# DB_POOL_TIMEOUT=60 the sum is 60 + 510 + 60 = 630 > 600 and the job id is
-# lost after a successful staging. A test that reads the live setting
+# DB_POOL_TIMEOUT=60 the sum is 60 + 60 + 510 + 60 + 20 = 710 > 600 and the
+# job id is lost after a successful staging (THREE checkouts, not two — see
+# POOL_CHECKOUTS_PER_REQUEST; r17 undercounted, r18 caught it).
+# A test that reads the live setting
 # cannot catch that either, because CI only ever runs the default. So the
 # budget is DERIVED per request from the configured value (see
 # ``stage_total_budget_seconds``) and this constant only bounds it above.
 STAGE_TOTAL_CEILING_SECONDS = 510
 
-# Reserved, beyond the two pool waits, for the post-stage transaction's
+# Every point where this handler's session BEGINS a transaction after a
+# release. Each is a pool checkout that can block up to db_pool_timeout
+# under exhaustion, and none of them is inside the joint stage clock, so
+# the budget must reserve room for every one. Enumerated from
+# ``upload_from_url`` rather than assumed (fix #1708 codex r18, which
+# caught this counted as 2):
+#
+#   1. Auth/dependency phase — require_permission -> get_current_user
+#      queries the request-cached session before the handler body runs;
+#      released by the pre-gate commit (r4).
+#   2. Pre-fetch transaction — allowlist read, size cap, count quota,
+#      quota usage, job INSERT + running stamp; released by the pre-fetch
+#      commit (r2/P1).
+#   3. Post-stage transaction — byte quota on the landed size, the
+#      running->pending CAS, and its commit.
+#
+# The non-ambiguous failure path is also 3 (auth, pre-fetch, and
+# settlement's CAS after its rollback). The ambiguous-commit path adds a
+# 4th — the probe's fresh session — deliberately NOT budgeted for: it is
+# reached only when a commit's acknowledgement is lost, the response is
+# already an error, and its purpose is to avoid destroying live data, so a
+# late response there costs nothing beyond what is already lost.
+POOL_CHECKOUTS_PER_REQUEST = 3
+
+# Reserved, beyond the pool waits, for the post-stage transaction's
 # single-row CAS and commit plus response serialization — all local
 # Postgres, milliseconds in practice; 20s is deliberate slack, not an
 # estimate of their cost.
 POST_WORK_MARGIN_SECONDS = 20
 
-# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600 - 600 - 20 =
-# -20) must not yield a zero or negative budget, and must not crash the app
+# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600 - 900 - 20 =
+# -320) must not yield a zero or negative budget, and must not crash the app
 # at import over an operator setting. Clamp here instead, and clamp STRICTLY
 # BELOW ``MIN_FETCH_BUDGET_SECONDS`` so the refusal is guaranteed by
 # construction rather than by however much time happened to elapse first:
@@ -110,15 +136,16 @@ def stage_total_budget_seconds() -> int:
     """The joint stage budget for THIS deployment's pool configuration.
 
     fix(#1708 codex r17): derived rather than asserted. The synchronous
-    request must fit inside the edge proxy's read timeout, and two phases
-    sit outside the budget's own clock — pre-handler dependency work and
-    the post-stage transaction — each able to wait up to
-    ``settings.db_pool_timeout`` on a pool checkout. Deriving the budget
-    from that value means raising the pool timeout shrinks the staging
-    budget automatically instead of quietly pushing the response past
-    nginx:
+    request must fit inside the edge proxy's read timeout, and the session
+    checks a connection out ``POOL_CHECKOUTS_PER_REQUEST`` times across it
+    (see that constant for the enumeration), each able to wait up to
+    ``settings.db_pool_timeout`` under exhaustion. Deriving the budget from
+    that value means raising the pool timeout shrinks the staging budget
+    automatically instead of quietly pushing the response past nginx:
 
-        min(STAGE_TOTAL_CEILING, EDGE_PROXY - 2*pool_timeout - POST_WORK_MARGIN)
+        min(STAGE_TOTAL_CEILING,
+            EDGE_PROXY - POOL_CHECKOUTS_PER_REQUEST*pool_timeout
+            - POST_WORK_MARGIN)
 
     The ceiling keeps a very small pool timeout from inflating the budget
     past what the preflight and fetch ceilings assume; the floor keeps a
@@ -128,7 +155,9 @@ def stage_total_budget_seconds() -> int:
 
     pool_timeout = settings.db_pool_timeout
     derived = (
-        EDGE_PROXY_READ_TIMEOUT_SECONDS - (2 * pool_timeout) - POST_WORK_MARGIN_SECONDS
+        EDGE_PROXY_READ_TIMEOUT_SECONDS
+        - (POOL_CHECKOUTS_PER_REQUEST * pool_timeout)
+        - POST_WORK_MARGIN_SECONDS
     )
     budget = min(STAGE_TOTAL_CEILING_SECONDS, derived)
     if budget < STAGE_BUDGET_FLOOR_SECONDS:
@@ -425,6 +454,7 @@ __all__ = [
     "FETCH_MAX_SECONDS",
     "MIN_FETCH_BUDGET_SECONDS",
     "PREFLIGHT_DNS_MAX_SECONDS",
+    "POOL_CHECKOUTS_PER_REQUEST",
     "POST_WORK_MARGIN_SECONDS",
     "STAGE_BUDGET_FLOOR_SECONDS",
     "STAGE_TOTAL_CEILING_SECONDS",

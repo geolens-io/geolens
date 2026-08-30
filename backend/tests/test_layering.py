@@ -2768,7 +2768,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rather than hardcoded, so raising that operator-settable value
     # shrinks the budget instead of silently breaking the proxy invariant.
     # Cap 2440 -> 2441, exact.
-    "backend/app/processing/ingest/router.py": 2474,
+    # fix(#1708 codex r18): +4 — the INVARIANT comment now enumerates the
+    # request's THREE pool checkouts (auth, pre-fetch, post-stage) instead
+    # of the two r17's derivation assumed, and points at the named constant
+    # that carries the count so the arithmetic stays checkable against the
+    # code. Cap 2441 -> 2445, exact.
+    "backend/app/processing/ingest/router.py": 2478,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
