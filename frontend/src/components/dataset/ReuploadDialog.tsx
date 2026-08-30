@@ -239,6 +239,14 @@ export function ReuploadDialog({
           : message,
       );
       setStep('error');
+    } else if (jobData.status === 'cancelled') {
+      // fix(#1677): cancel is a reachable terminal status now. With no branch
+      // here the dialog sat on the tracking spinner forever — polling had
+      // already stopped, so nothing would ever move it again. No retry
+      // guidance: the run was cancelled deliberately, not by a failure the
+      // user should work around.
+      setError(t('reupload.jobCancelled'));
+      setStep('error');
     }
   }, [step, jobData, dataset.id, queryClient, sourceType, isRaster, onReplaceComplete, appendRetryGuidance, t]);
 

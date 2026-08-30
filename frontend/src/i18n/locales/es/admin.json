@@ -267,6 +267,7 @@
     "backfillFinished": "Relleno de embeddings finalizado",
     "backfillFinishedWithErrors": "El relleno de embeddings terminó con {{errors}} registro(s) rechazado(s) — la cobertura tiene huecos",
     "backfillRunFailed": "La ejecución del relleno de embeddings falló — revise los registros del servidor",
+    "backfillRunCancelled": "El relleno de incrustaciones se canceló",
     "allEmbedded": "Todos los conjuntos de datos tienen embeddings",
     "staleEmbeddingsWarning": "{{count}} embedding(s) se generaron con otro modelo y la búsqueda semántica no puede usarlos. Genere los embeddings faltantes para volver a generar solo esos registros, o regenere todos para eliminar además los vectores obsoletos.",
     "apiKeysEnvOnlyNote": "Las claves API solo se pueden configurar mediante variables de entorno (ANTHROPIC_API_KEY, OPENAI_API_KEY) y no se pueden cambiar desde esta página. Todas las demás configuraciones de IA son modificables por el administrador.",

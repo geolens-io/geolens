@@ -374,7 +374,8 @@
     "toastSuccess": "Erneutes Hochladen abgeschlossen!",
     "uploadFailed": "Hochladen fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "commitFailed": "Übernahme fehlgeschlagen. Bitte versuchen Sie es erneut.",
-    "jobFailed": "Auftrag zum erneuten Hochladen fehlgeschlagen."
+    "jobFailed": "Auftrag zum erneuten Hochladen fehlgeschlagen.",
+    "jobCancelled": "Der erneute Upload wurde abgebrochen."
   },
   "quality": {
     "title": "Qualitätsbewertung",

@@ -374,7 +374,8 @@
     "toastSuccess": "Rechargement terminé !",
     "uploadFailed": "Échec du téléchargement. Veuillez réessayer.",
     "commitFailed": "Échec de la validation. Veuillez réessayer.",
-    "jobFailed": "La tâche de rechargement a échoué."
+    "jobFailed": "La tâche de rechargement a échoué.",
+    "jobCancelled": "Le renvoi a été annulé."
   },
   "quality": {
     "title": "Score de qualité",

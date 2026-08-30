@@ -28,8 +28,10 @@ export interface AnalysisCompletionClaim {
   tabId: string;
   /** fix(#1008 codex P2): how the run ended. A tab that never observed the
    *  terminal poll itself still has document-local cleanup to do once the
-   *  claim reaches it, and complete and failed call for different cleanup. */
-  status: 'complete' | 'failed';
+   *  claim reaches it, and complete and failed call for different cleanup.
+   *  fix(#1677): 'cancelled' joined the set — cancel is a user-reachable
+   *  terminal status for every job type now, analysis included. */
+  status: 'complete' | 'failed' | 'cancelled';
   at: number;
 }
 
@@ -59,7 +61,7 @@ interface AnalysisJobState extends PersistedAnalysisJobState {
    */
   claimCompletion: (
     jobId: string,
-    status: 'complete' | 'failed',
+    status: 'complete' | 'failed' | 'cancelled',
   ) => Promise<boolean>;
   /**
    * Stop tracking ``jobId``, unless a newer run already owns the slot.

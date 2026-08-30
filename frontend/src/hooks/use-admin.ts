@@ -452,6 +452,13 @@ export function useBackfillJobStatus(jobId: string | null) {
     if (settledFor.current === jobId) return;
     settledFor.current = jobId;
     qc.invalidateQueries({ queryKey: queryKeys.admin.embeddingStats });
+    if (status === 'cancelled') {
+      // fix(#1677): somebody cancelled this run; reporting it as a failure
+      // put a red error toast in front of a user who had just asked for it
+      // to stop.
+      toast.info(i18n.t('admin:ai.backfillRunCancelled'));
+      return;
+    }
     if (status !== 'complete') {
       toast.error(i18n.t('admin:ai.backfillRunFailed'));
       return;

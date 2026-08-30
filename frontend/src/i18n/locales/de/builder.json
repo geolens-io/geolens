@@ -1024,6 +1024,8 @@
     "anotherJobRunning": "Eine andere Analyse läuft noch – warte, bis sie abgeschlossen ist.",
     "jobComplete": "Datensatz erstellt",
     "jobFailed": "Analyseauftrag fehlgeschlagen",
+    "jobCancelled": "Analyselauf abgebrochen",
+    "jobCancelledNamed": "„{{title}}“ wurde abgebrochen",
     "jobFailedDetail": "Analyseauftrag fehlgeschlagen: {{message}}",
     "addToMap": "Zur Karte hinzufügen",
     "addToMapNamed": "„{{name}}“ zur Karte hinzufügen",

@@ -325,7 +325,8 @@
     "toastSuccess": "Re-upload complete!",
     "uploadFailed": "Upload failed. Please try again.",
     "commitFailed": "Commit failed. Please try again.",
-    "jobFailed": "Re-upload job failed."
+    "jobFailed": "Re-upload job failed.",
+    "jobCancelled": "Re-upload was cancelled."
   },
   "quality": {
     "title": "Quality Score",

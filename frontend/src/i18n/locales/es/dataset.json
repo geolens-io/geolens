@@ -374,7 +374,8 @@
     "toastSuccess": "¡Nueva subida completada!",
     "uploadFailed": "Error al subir. Inténtelo de nuevo.",
     "commitFailed": "Error de confirmación. Inténtelo de nuevo.",
-    "jobFailed": "Error en el trabajo de nueva subida."
+    "jobFailed": "Error en el trabajo de nueva subida.",
+    "jobCancelled": "La resubida se canceló."
   },
   "quality": {
     "title": "Puntuación de calidad",

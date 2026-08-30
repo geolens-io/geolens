@@ -267,6 +267,7 @@
     "backfillFinished": "Remplissage des embeddings terminé",
     "backfillFinishedWithErrors": "Remplissage des embeddings terminé avec {{errors}} enregistrement(s) rejeté(s) — la couverture présente des lacunes",
     "backfillRunFailed": "L'exécution du remplissage des embeddings a échoué — consultez les journaux du serveur",
+    "backfillRunCancelled": "Le remplissage des plongements a été annulé",
     "allEmbedded": "Tous les jeux de données ont des embeddings",
     "staleEmbeddingsWarning": "{{count}} embedding(s) ont été générés par un autre modèle et la recherche sémantique ne peut pas les utiliser. Générez les embeddings manquants pour ne régénérer que ces enregistrements, ou régénérez tout pour supprimer également les vecteurs obsolètes.",
     "apiKeysEnvOnlyNote": "Les clés API ne peuvent être définies que via des variables d'environnement (ANTHROPIC_API_KEY, OPENAI_API_KEY).",
