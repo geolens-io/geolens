@@ -29,7 +29,13 @@ vi.mock('../ImportPreview', () => ({
   ImportPreview: () => <div data-testid="import-preview" />,
 }));
 vi.mock('../ImportMetadataForm', () => ({
-  ImportMetadataForm: () => <div data-testid="metadata-form" />,
+  ImportMetadataForm: ({ onCommit }: { onCommit: (m: unknown) => void }) => (
+    <div data-testid="metadata-form">
+      <button type="button" onClick={() => onCommit({ title: 'Roads' })}>
+        commit-stub
+      </button>
+    </div>
+  ),
 }));
 vi.mock('../JobProgress', () => ({
   JobProgress: ({ jobId }: { jobId: string }) => (
@@ -152,5 +158,87 @@ describe('UrlImportForm unmount survival', () => {
     );
     expect(peekUrlImport()).toBeNull();
     expect(mockPreviewFile).not.toHaveBeenCalled();
+  });
+
+  test('unmounting mid-commit resumes into tracking, not a blank form', async () => {
+    // fix(#1708 codex r20): r19 covered fetch+preview but cleared the
+    // session on commit success, so an unmount while commitImport() was in
+    // flight wrote `tracking` into a dead component and left the user with
+    // a blank form on return — while the ingest was really running.
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-committing', status: 'pending' });
+    mockPreviewFile.mockResolvedValue({ ...VECTOR_PREVIEW, job_id: 'job-committing' });
+    let resolveCommit!: (v: unknown) => void;
+    mockCommitImport.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCommit = resolve;
+      }),
+    );
+
+    const user = userEvent.setup();
+    const view = render(<UrlImportForm />);
+    await user.type(
+      screen.getByLabelText('urlImport.label'),
+      'https://files.example.test/roads.geojson',
+    );
+    await user.click(screen.getByRole('button', { name: 'urlImport.fetch' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('metadata-form')).toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+    await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
+
+    // The user switches tabs while the commit is still in flight.
+    view.unmount();
+    resolveCommit({ job_id: 'job-committing', status: 'queued' });
+    await waitFor(() => expect(peekUrlImport()?.committed).toBe(true));
+
+    // Coming back shows the running job rather than a blank form...
+    render(<UrlImportForm />);
+    await waitFor(() =>
+      expect(screen.getByTestId('job-progress')).toHaveTextContent(
+        'job-committing',
+      ),
+    );
+    // ...without re-previewing (the API refuses a committed job with 400)
+    // and without committing a second time.
+    expect(mockCommitImport).toHaveBeenCalledTimes(1);
+    expect(mockPreviewFile).toHaveBeenCalledTimes(1);
+  });
+
+  test('a commit that fails while unmounted leaves the job previewable again', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-recommit', status: 'pending' });
+    mockPreviewFile.mockResolvedValue({ ...VECTOR_PREVIEW, job_id: 'job-recommit' });
+    let rejectCommit!: (e: unknown) => void;
+    mockCommitImport.mockReturnValue(
+      new Promise((_resolve, reject) => {
+        rejectCommit = reject;
+      }),
+    );
+
+    const user = userEvent.setup();
+    const view = render(<UrlImportForm />);
+    await user.type(
+      screen.getByLabelText('urlImport.label'),
+      'https://files.example.test/roads.geojson',
+    );
+    await user.click(screen.getByRole('button', { name: 'urlImport.fetch' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('metadata-form')).toBeInTheDocument(),
+    );
+    await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+    await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
+
+    view.unmount();
+    rejectCommit(new Error('commit boom'));
+    // The failure reverts the marker: the job is still pending, so the
+    // resume path must offer review again rather than a dead tracking view.
+    await waitFor(() => expect(peekUrlImport()?.committed).toBe(false));
+
+    render(<UrlImportForm />);
+    await waitFor(() =>
+      expect(screen.getByTestId('import-preview')).toBeInTheDocument(),
+    );
+    expect(screen.queryByTestId('job-progress')).not.toBeInTheDocument();
   });
 });

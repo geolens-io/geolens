@@ -2779,7 +2779,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the floored regime, where a 1s budget could still spend 30s resolving
     # before anything refused; an exhausted clock now refuses with the
     # budget's message before any job row exists. Cap 2445 -> 2482, exact.
-    "backend/app/processing/ingest/router.py": 2515,
+    # fix(#1708 codex r20): +29 — comment only. The running-state commit is
+    # deliberately NOT covered by the ambiguous-commit probe, and the
+    # reasoning is recorded at the site: nothing is staged yet, the row
+    # blocks nothing (checked against every active-job predicate: the
+    # backfill unique index, the per-user analysis cap, the manifest
+    # in-flight check, the reupload lookup, and quota), and the running
+    # lease already owns it. An unexplained asymmetry is what invites the
+    # next round, so the trade is written down with its expiry condition.
+    # Cap 2482 -> 2511, exact.
+    "backend/app/processing/ingest/router.py": 2544,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

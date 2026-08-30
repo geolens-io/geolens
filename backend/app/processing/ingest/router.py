@@ -1409,6 +1409,35 @@ async def upload_from_url(
         # vanishing with a rollback), and the byte-quota check must re-run
         # after the download since the world may have moved while we fetched.
         await db.commit()
+        # ASYMMETRY, judged rather than overlooked (fix #1708 codex r20):
+        # this commit is NOT covered by the ambiguous-commit probe that
+        # guards the final one. A lost acknowledgement here leaves a
+        # 'running' row the request never settles, and that is accepted:
+        #
+        #   - Nothing is staged yet. Path setup above only computes a path
+        #     and ensures the shared staging directory; the fetch has not
+        #     written a byte. So unlike the final commit — where a landed-
+        #     but-unacknowledged row points at real staged bytes we would
+        #     otherwise delete — this row has nothing to lose.
+        #   - It blocks nothing. Verified against every predicate that
+        #     keys on an active job: the active-backfill unique index
+        #     requires user_metadata ? 'embedding_backfill'; the per-user
+        #     analysis cap (datasets/api/router_analysis.py) requires
+        #     user_metadata.has_key('analysis') — deliberately, per its own
+        #     fix(#682) comment, so that ordinary uploads cannot lock a
+        #     user out of analysis; the manifest in-flight check keys on
+        #     user_metadata.manifest_key; the reupload lookup requires
+        #     metadata.reupload is True; and quota counts datasets and
+        #     asset bytes, never job rows. A URL import carries none of
+        #     those keys.
+        #   - The running-lease reaper already owns it: the row is failed
+        #     within JOB_TIMEOUT_SECONDS, while the user has an error in
+        #     hand and can retry immediately.
+        #
+        # Probing here would add a second fresh-session round-trip on a
+        # path that has nothing to protect. If any of the predicates above
+        # ever grows to match a bare ingest job, this trade expires.
+        #
         # INVARIANT (fix #1708 codex r9): nothing executable may sit between
         # the running-commit above and the `try` below. Any statement here
         # that can raise escapes the settlement guard and strands the

@@ -6,6 +6,7 @@ import { ApiError } from '@/api/client';
 import { previewFile, commitImport } from '@/api/ingest';
 import {
   clearUrlImport,
+  markUrlImportCommitting,
   peekUrlImport,
   startUrlImport,
   type UrlImportSession,
@@ -118,6 +119,14 @@ export function UrlImportForm() {
   useEffect(() => {
     const session = peekUrlImport();
     if (!session) return;
+    if (session.committed && session.jobId) {
+      // Past preview: the ingest is already queued server-side, so hand
+      // straight to JobProgress, which polls the job and is therefore
+      // correct however long this form was unmounted.
+      setJobId(session.jobId);
+      setStep('tracking');
+      return;
+    }
     void runSession(session);
     // Deliberately mount-only: re-running on every `runSession` identity
     // change would re-enter a session already being displayed.
@@ -157,17 +166,22 @@ export function UrlImportForm() {
       fp && (fp.layers?.length ?? 0) > 1 ? fp.layer_name : undefined;
 
     try {
-      await commitImport(
+      // fix(#1708 codex r20): registered BEFORE the await, so an unmount
+      // mid-commit still leaves a session that resumes into tracking. The
+      // `committed` flag is what stops a remount from re-previewing a job
+      // the API would refuse with 400 — clearing the session here (r19)
+      // is what made the tracking phase unresumable in the first place.
+      const commitPromise = commitImport(
         jobId,
         layerName ? { ...metadata, layer_name: layerName } : metadata,
       );
-      // The job has left the fetch/preview stage, so the resume session has
-      // done its job. Holding it would make a later remount re-preview an
-      // already-committed job, which the API refuses with 400.
-      clearUrlImport();
+      markUrlImportCommitting(commitPromise);
+      await commitPromise;
+      if (!mountedRef.current) return;
       setStep('tracking');
       toast.success(t('urlImport.importStarted'));
     } catch (err) {
+      if (!mountedRef.current) return;
       const msg = err instanceof ApiError ? err.message : t('urlImport.commitFailed');
       setError(msg);
       setStep('review');
