@@ -546,6 +546,7 @@ async def _cleanup_saved_upload(
     S3 failures are logged instead (KISS-N9).
     """
     if isinstance(saved_path, Path):
+        # codeql[py/path-injection] fix(#1708): the Path branch only ever receives a staging-rooted path (save_upload_file, or job.file_path the server itself wrote). The URL-import flow reaches this helper with an S3 KEY STRING and so takes the branch below — it is that call which makes the taint visible here.
         saved_path.unlink(missing_ok=True)
         return
     try:

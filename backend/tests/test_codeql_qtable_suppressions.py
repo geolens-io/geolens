@@ -80,6 +80,11 @@ SUPPRESSION_QUERY = SUPPRESSION_PACK_DIR / "AlertSuppression.ql"
 # per-site justification naming _qtable.
 MARKER_RE = re.compile(r"\bcodeql\s*\[\s*py/sql-injection\s*\]", re.IGNORECASE)
 
+# Any rule id, for the placement test below. #1708 introduced markers for
+# py/path-injection and py/full-ssrf, so a rule-specific pattern would leave
+# every future rule's markers unguarded the day they are added.
+ANY_MARKER_RE = re.compile(r"\bcodeql\s*\[\s*[^\]]+\]", re.IGNORECASE)
+
 
 def _dynamic_text_sites(source: str) -> list[int]:
     """Return the 1-based start line of every non-constant ``text()`` argument.
@@ -131,6 +136,46 @@ def test_every_dynamic_text_site_carries_a_suppression_marker(rel_path: str) -> 
         "Dynamic text() sites without a `# codeql[py/sql-injection]` marker on "
         "their own line directly above:\n  " + "\n  ".join(unmarked) + "\n"
         "Add the marker with its justification, or make the SQL static. See "
+        "AGENTS.md > Standing CodeQL policy."
+    )
+
+
+def test_every_codeql_marker_in_backend_app_binds_to_the_line_it_covers() -> None:
+    """Every ``# codeql[...]`` marker under ``backend/app/`` is placed where it works.
+
+    The sibling test above enumerates SITES and demands a marker. This one
+    enumerates MARKERS and demands they be placed where the query can see
+    them, which is the half that covers rules with no site enumeration:
+    #1708 added six ``py/path-injection`` markers and one ``py/full-ssrf``
+    marker, and there is no equivalent of ``_dynamic_text_sites`` that could
+    find those sinks generically.
+
+    A marker is inert unless it sits alone on its line and the statement it
+    covers follows immediately. Prose inserted between a marker and its call
+    is the exact regression this pins — it reads as a helpful clarification
+    and silently reopens the alert, with nothing failing until the alert
+    turns up on the default branch's dashboard after the merge.
+    """
+    misplaced: list[str] = []
+    for path in sorted((REPO_ROOT / "backend/app").rglob("*.py")):
+        lines = path.read_text(encoding="utf-8").splitlines()
+        rel = path.relative_to(REPO_ROOT)
+        for i, line in enumerate(lines):
+            if not ANY_MARKER_RE.search(line):
+                continue
+            if not line.lstrip().startswith("#"):
+                misplaced.append(f"{rel}:{i + 1} — trailing marker on a code line")
+                continue
+            following = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            if not following or following.startswith("#"):
+                misplaced.append(
+                    f"{rel}:{i + 1} — covers {following!r}, not a statement"
+                )
+
+    assert not misplaced, (
+        "CodeQL markers that do not bind to the line they are meant to "
+        "suppress:\n  " + "\n  ".join(misplaced) + "\n"
+        "A marker must sit alone on the line directly above its call. See "
         "AGENTS.md > Standing CodeQL policy."
     )
 

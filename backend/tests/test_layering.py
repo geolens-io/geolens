@@ -2794,7 +2794,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # above). Neither number survives having both applied, so the cap is
     # measured off the merged file rather than composed from either lane's
     # arithmetic. 2511 + #1709's 33 = 2544, exact.
-    "backend/app/processing/ingest/router.py": 2544,
+    # fix(#1708 CodeQL triage): +1 — the codeql[py/path-injection] marker on
+    # _cleanup_saved_upload's Path branch. The URL flow reaches that shared
+    # helper (from _settle_failed_url_import) with an S3 KEY STRING, which is
+    # what made the pre-existing sink alert; the marker records that the Path
+    # branch only ever receives a staging-rooted path. Cap 2544 -> 2545, exact.
+    "backend/app/processing/ingest/router.py": 2545,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
