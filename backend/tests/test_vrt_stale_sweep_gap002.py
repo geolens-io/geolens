@@ -195,6 +195,16 @@ def _make_mock_db_for_fail_stale(
             ]
         results.append(mock_result)
 
+    # fix(#1709 review r7): the childless-`fanned_out` reconciliation runs
+    # between the running-jobs sweep and the VRT sweep — a fan-out parent
+    # whose dispatch died before its first child committed. It RETURNs ids
+    # and reads them via .scalars(). No such parents in these fixtures, so
+    # an empty result keeps each test stating only what it cares about; the
+    # clause has its own coverage in test_job_cancel_fan_out.py.
+    childless_fanout_result = MagicMock()
+    childless_fanout_result.scalars.return_value = []
+    results.append(childless_fanout_result)
+
     # feat(#1267): RETURNING widened to (id, vrt_dataset_id) — the storage
     # cleanup helper needs the pairing, so .all() replaces .scalars() here.
     gen_result = MagicMock()
@@ -506,9 +516,12 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     # round 3)) + the refresh-run sweep's TWO statements (feat(#1219),
     # fix(#1274 review): legacy-completion recorder then abandonment cancel)
     # + the purge DELETE + the post-expiry staging SELECT.
-    assert mock_db.execute.await_count == 10
-    # Indexes 6-7 are the refresh-run sweep now; the purge shifted to 8.
-    purge_stmt = mock_db.execute.await_args_list[8].args[0]
+    # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
+    assert mock_db.execute.await_count == 11
+    # Indexes 7-8 are the refresh-run sweep now; the purge shifted to 9.
+    # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation
+    # sits at index 3, between the running-jobs sweep and the VRT sweep.
+    purge_stmt = mock_db.execute.await_args_list[9].args[0]
     assert isinstance(purge_stmt, Delete)
     where_sql = str(purge_stmt.compile(compile_kwargs={"literal_binds": True}))
     assert "'pending'" in where_sql and "'running'" in where_sql, (
@@ -674,7 +687,8 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     # plus the refresh-run sweep's two statements (feat(#1219), fix(#1274
     # review)) and no purge DELETE, plus the post-expiry staging SELECT,
     # which is independent of retention.
-    assert mock_db.execute.await_count == 9
+    # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
+    assert mock_db.execute.await_count == 10
 
 
 # ---------------------------------------------------------------------------
