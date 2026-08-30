@@ -210,6 +210,7 @@
     "fetching": "Descargando archivo...",
     "fetchingHint": "Los archivos grandes pueden tardar varios minutos en descargarse; mantén esta página abierta.",
     "loadingPreview": "Analizando archivo...",
+    "resuming": "Reanudando la importación…",
     "filenameLabel": "Nombre de archivo (opcional)",
     "filenamePlaceholder": "buildings.parquet",
     "filenameHelpText": "Solo es necesario cuando la ruta de la URL no termina en el nombre del archivo, por ejemplo un enlace de descarga con un id.",

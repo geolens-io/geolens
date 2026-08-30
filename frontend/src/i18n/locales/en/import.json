@@ -222,6 +222,7 @@
     "fetching": "Downloading file...",
     "fetchingHint": "Large files can take several minutes to download — keep this page open.",
     "loadingPreview": "Analyzing file...",
+    "resuming": "Resuming import…",
     "filenameLabel": "Filename override (optional)",
     "filenamePlaceholder": "buildings.parquet",
     "filenameHelpText": "Only needed when the URL path doesn't end in the file name — for example a download link keyed by an id.",

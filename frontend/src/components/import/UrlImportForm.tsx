@@ -6,7 +6,7 @@ import { ApiError } from '@/api/client';
 import { previewFile, commitImport } from '@/api/ingest';
 import {
   clearUrlImport,
-  markUrlImportCommitting,
+  attachUrlImportCommit,
   peekUrlImport,
   startUrlImport,
   type UrlImportSession,
@@ -28,6 +28,7 @@ type UrlStep =
   | 'idle'
   | 'fetching'
   | 'previewing'
+  | 'resuming'
   | 'review'
   | 'committing'
   | 'tracking';
@@ -112,6 +113,44 @@ export function UrlImportForm() {
     [t],
   );
 
+  // fix(#1708 codex r21): SUBSCRIBE to the commit rather than sampling a
+  // flag. r20 stored a boolean set before the await, so a mount arriving
+  // mid-commit read "committed" and entered tracking; a commit that then
+  // failed flipped the flag back at module scope while this component kept
+  // polling a job that was still pending and previewable. Awaiting the
+  // promise removes the window entirely — whenever the outcome lands, the
+  // mounted form gets the real one.
+  const runResumedCommit = useCallback(
+    async (commitPromise: Promise<unknown>, committingJobId: string) => {
+      setJobId(committingJobId);
+      setStep('resuming');
+      setError(null);
+      try {
+        await commitPromise;
+        if (!mountedRef.current) return;
+        setStep('tracking');
+      } catch (err) {
+        if (!mountedRef.current) return;
+        // The commit failed, so the job is still `pending` and genuinely
+        // previewable: rebuild review so the user can retry rather than
+        // stranding them on a tracking view for a job nothing will finish.
+        const msg =
+          err instanceof ApiError ? err.message : t('urlImport.commitFailed');
+        setError(msg);
+        try {
+          const preview = await previewFile(committingJobId);
+          if (!mountedRef.current) return;
+          setPreviewData(preview);
+          setStep('review');
+        } catch {
+          if (!mountedRef.current) return;
+          setStep('idle');
+        }
+      }
+    },
+    [t],
+  );
+
   // Re-attach to an import that was running (or finished) while this form
   // was unmounted. Without this the job id the server returned to a dead
   // component would be unreachable until the stale-pending sweep, with its
@@ -119,12 +158,8 @@ export function UrlImportForm() {
   useEffect(() => {
     const session = peekUrlImport();
     if (!session) return;
-    if (session.committed && session.jobId) {
-      // Past preview: the ingest is already queued server-side, so hand
-      // straight to JobProgress, which polls the job and is therefore
-      // correct however long this form was unmounted.
-      setJobId(session.jobId);
-      setStep('tracking');
+    if (session.commit && session.jobId) {
+      void runResumedCommit(session.commit, session.jobId);
       return;
     }
     void runSession(session);
@@ -175,7 +210,7 @@ export function UrlImportForm() {
         jobId,
         layerName ? { ...metadata, layer_name: layerName } : metadata,
       );
-      markUrlImportCommitting(commitPromise);
+      attachUrlImportCommit(commitPromise);
       await commitPromise;
       if (!mountedRef.current) return;
       setStep('tracking');
@@ -190,9 +225,13 @@ export function UrlImportForm() {
   };
 
   // ── Loading states ──
-  if (step === 'fetching' || step === 'previewing') {
+  if (step === 'fetching' || step === 'previewing' || step === 'resuming') {
     const loadingLabel =
-      step === 'fetching' ? t('urlImport.fetching') : t('urlImport.loadingPreview');
+      step === 'fetching'
+        ? t('urlImport.fetching')
+        : step === 'resuming'
+          ? t('urlImport.resuming')
+          : t('urlImport.loadingPreview');
     return (
       <div className="flex flex-col items-center gap-3 rounded-xl border border-border bg-card px-5 py-8">
         <div className="flex items-center gap-3">

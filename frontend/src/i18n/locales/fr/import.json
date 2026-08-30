@@ -210,6 +210,7 @@
     "fetching": "Téléchargement du fichier...",
     "fetchingHint": "Le téléchargement des fichiers volumineux peut prendre plusieurs minutes ; gardez cette page ouverte.",
     "loadingPreview": "Analyse du fichier...",
+    "resuming": "Reprise de l'importation…",
     "filenameLabel": "Nom de fichier (facultatif)",
     "filenamePlaceholder": "buildings.parquet",
     "filenameHelpText": "Nécessaire uniquement lorsque le chemin de l'URL ne se termine pas par le nom du fichier, par exemple un lien de téléchargement identifié par un id.",

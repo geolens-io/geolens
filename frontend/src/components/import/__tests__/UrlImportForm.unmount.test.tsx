@@ -188,13 +188,13 @@ describe('UrlImportForm unmount survival', () => {
     await user.click(screen.getByRole('button', { name: 'commit-stub' }));
     await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
 
-    // The user switches tabs while the commit is still in flight.
+    // The user switches tabs while the commit is still in flight, and
+    // comes back BEFORE it settles — the r21 case: there is no outcome to
+    // sample yet, so the mount must subscribe.
     view.unmount();
-    resolveCommit({ job_id: 'job-committing', status: 'queued' });
-    await waitFor(() => expect(peekUrlImport()?.committed).toBe(true));
-
-    // Coming back shows the running job rather than a blank form...
+    expect(peekUrlImport()?.commit).not.toBeNull();
     render(<UrlImportForm />);
+    resolveCommit({ job_id: 'job-committing', status: 'queued' });
     await waitFor(() =>
       expect(screen.getByTestId('job-progress')).toHaveTextContent(
         'job-committing',
@@ -229,16 +229,21 @@ describe('UrlImportForm unmount survival', () => {
     await user.click(screen.getByRole('button', { name: 'commit-stub' }));
     await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
 
+    // Remount FIRST, while the commit is still in flight — the mount
+    // subscribes rather than sampling — and only then let it fail.
     view.unmount();
-    rejectCommit(new Error('commit boom'));
-    // The failure reverts the marker: the job is still pending, so the
-    // resume path must offer review again rather than a dead tracking view.
-    await waitFor(() => expect(peekUrlImport()?.committed).toBe(false));
-
     render(<UrlImportForm />);
+    rejectCommit(new Error('commit boom'));
+
+    // The subscriber learns the real outcome: back to review, with the job
+    // still previewable, instead of polling a job nothing will finish.
     await waitFor(() =>
       expect(screen.getByTestId('import-preview')).toBeInTheDocument(),
     );
     expect(screen.queryByTestId('job-progress')).not.toBeInTheDocument();
+    expect(screen.getByText('urlImport.commitFailed')).toBeInTheDocument();
+    // Re-previewed to rebuild review state; still exactly one commit.
+    expect(mockPreviewFile).toHaveBeenCalledTimes(2);
+    expect(mockCommitImport).toHaveBeenCalledTimes(1);
   });
 });
