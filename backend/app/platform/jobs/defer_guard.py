@@ -38,7 +38,8 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 
 from app.platform.jobs.models import IngestJob
 
@@ -139,6 +140,90 @@ async def defer_with_orphan_guard(
         raise DeferFailed(rolled_back=rolled_back) from defer_exc
 
 
+async def settle_ingest_job_failed(
+    job: IngestJob,
+    defer_exc: BaseException,
+    *,
+    message_prefix: str,
+) -> bool:
+    """Fenced ``pending -> failed`` for a dispatch that never queued.
+
+    Returns whether the write landed. Zero rows means the job is no longer
+    pending under this attempt — something else already settled it — and
+    the rollback correctly does nothing.
+
+    fix(#1709 review r11): this used to be a blind in-place ORM mutation,
+    and #1709 round 4 recorded the resulting window as a benign wart. It
+    is not. A cancel that commits while the dispatch request is still
+    awaiting queue submission was overwritten here: the row went back to
+    ``failed``, which is the one status ``/jobs/{id}/retry`` accepts, so
+    the user who cancelled was handed a Retry affordance that restarts
+    exactly the work they cancelled — with the audit trail (a committed
+    ``job.cancel``) contradicting the row.
+
+    The fence is the same one every other write in #1677 uses: status
+    ``pending`` AND the attempt id this dispatch belongs to, read when the
+    closure was built. That failure mode is right for every caller — a
+    settled job needs no orphan rollback, whoever settled it owns its
+    terminal state — which is what makes one guard safe across the shared
+    surface.
+
+    The ORM attributes are mutated ONLY when the CAS landed, so the
+    instance keeps describing the row. On a lost CAS they are deliberately
+    left alone: writing ``status='failed'`` onto the instance would have
+    the guard's own commit flush it and clobber the row the CAS just
+    declined to touch — the same bug in a second costume. Nothing in that
+    branch is marked dirty, so the commit writes nothing for this row.
+
+    (Expiring the instance instead is what an earlier draft did, and it
+    is wrong here: every caller reads attributes off this object after
+    the guard re-raises — ``commit_import`` reads ``file_path`` to clean
+    up staging — and a lazily reloading attribute outside a greenlet
+    raises ``MissingGreenlet``.)
+    """
+    completed_at = datetime.now(timezone.utc)
+    session = async_object_session(job)
+    if session is None:
+        # No session to fence through (an unforeseen caller holding a
+        # detached instance). Preserve the historical behaviour rather
+        # than silently skipping the orphan rollback: an orphaned pending
+        # row is the failure this guard exists to prevent.
+        job.status = "failed"
+        job.error_message = f"{message_prefix}: {defer_exc}"
+        job.completed_at = datetime.now(timezone.utc)
+        return True
+
+    result = await session.execute(
+        update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.status == "pending",
+            (
+                IngestJob.attempt_id == job.attempt_id
+                if job.attempt_id is not None
+                else IngestJob.attempt_id.is_(None)
+            ),
+        )
+        .values(
+            status="failed",
+            error_message=f"{message_prefix}: {defer_exc}",
+            completed_at=completed_at,
+        )
+    )
+    landed = bool(result.rowcount)
+    if landed:
+        job.status = "failed"
+        job.error_message = f"{message_prefix}: {defer_exc}"
+        job.completed_at = completed_at
+    else:
+        logger.info(
+            "orphan_guard_rollback_skipped_job_already_settled",
+            job_id=str(job.id),
+            defer_error=str(defer_exc),
+        )
+    return landed
+
+
 def make_ingest_job_failed_rollback(
     job: IngestJob,
     *,
@@ -148,20 +233,20 @@ def make_ingest_job_failed_rollback(
 
     Convenience for the common case where the only committed state to
     revert is a pending ``IngestJob`` row (reupload, vanilla ingest).
-    The returned closure captures ``job`` and mutates it in-place when
-    invoked — the caller is responsible for supplying ``job`` bound to
-    the same session that will commit the rollback.
+    The returned closure captures ``job``; the caller is responsible for
+    supplying ``job`` bound to the same session that will commit the
+    rollback.
 
     The ``message_prefix`` is embedded before the defer exception string
     so ``job.error_message`` reads like
     ``"Failed to queue ingest task: <exc>"``. This format matches the
     existing ``test_queue_ingest_job_*`` regression tests.
+
+    fix(#1709 review r11): fenced — see ``settle_ingest_job_failed``.
     """
 
     async def _rollback(defer_exc: BaseException) -> None:
-        job.status = "failed"
-        job.error_message = f"{message_prefix}: {defer_exc}"
-        job.completed_at = datetime.now(timezone.utc)
+        await settle_ingest_job_failed(job, defer_exc, message_prefix=message_prefix)
 
     return _rollback
 
@@ -186,16 +271,25 @@ def make_vrt_regeneration_failed_rollback(
     ``job.error_message`` still reads ``"Failed to queue VRT regeneration:
     <exc>"``).
     """
-    job_rollback = make_ingest_job_failed_rollback(
-        job, message_prefix="Failed to queue VRT regeneration"
-    )
 
     async def _rollback(defer_exc: BaseException) -> None:
+        # fix(#1709 review r11): the job fence decides. The VRT restore is
+        # this dispatch's type-specific state, and it is only this
+        # dispatch's to undo while the job is still pending under its own
+        # attempt. If the CAS matches zero rows, a cancel (or a sweep)
+        # already settled the job — and the cancel endpoint reconciles the
+        # generation and the asset in the same transaction it commits the
+        # cancellation, so restoring here would undo exactly that
+        # reconciliation and put the asset back to `regenerating`, the
+        # 409-blocking state the reconciliation exists to clear.
+        if not await settle_ingest_job_failed(
+            job, defer_exc, message_prefix="Failed to queue VRT regeneration"
+        ):
+            return
         vrt_asset.status = previous_status
         vrt_asset.current_generation_id = previous_generation_id
         generation.status = "failed"
         generation.completed_at = datetime.now(timezone.utc)
         generation.error_message = f"Failed to queue VRT regeneration: {defer_exc}"
-        await job_rollback(defer_exc)
 
     return _rollback
