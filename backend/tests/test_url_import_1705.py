@@ -2294,3 +2294,85 @@ class TestUrlImportDerivedBudget:
         # And the floor is below the fetch's start threshold, so requests
         # refuse through the ordinary path instead of opening a connection.
         assert first < url_fetch_mod.MIN_FETCH_BUDGET_SECONDS
+
+
+# ---------------------------------------------------------------------------
+# Round-25 review finding (#1708): the floored budget refuses PROMPTLY
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+class TestUrlImportFlooredBudgetRefusesBeforeAnyWork:
+    """A budget too small to host a fetch is refused before DNS or DB work.
+
+    The sibling test above asserts the ARITHMETIC — that the floor lands
+    below ``MIN_FETCH_BUDGET_SECONDS`` — and then says requests "refuse
+    through the ordinary path". That is the half a helper test cannot see:
+    until r25 nothing inspected the budget until ``_remaining_fetch_budget``
+    immediately before the download, so a floored deployment still paid for
+    preflight DNS, the config/quota transaction and a committed 'running'
+    job row before refusing. The refusal was correct and not prompt, which
+    is what the floor exists to promise.
+
+    So these assert ORDERING, not arithmetic: same status and message, but
+    the resolver was never called and no job row was written.
+    """
+
+    async def test_floored_budget_refuses_before_dns_or_a_job_row(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        monkeypatch.setattr(
+            "app.processing.ingest.router.stage_total_budget_seconds",
+            lambda: 1,
+        )
+        resolved: list[str] = []
+
+        async def _spy_validate(url: str) -> None:
+            resolved.append(url)
+
+        # The handler imports it locally (PROCESS-02/04), so patch it at the
+        # definition, which is where every sibling test patches it too.
+        monkeypatch.setattr(
+            "app.platform.security.validate_url_for_ssrf", _spy_validate
+        )
+
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/floored.geojson"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 502
+        assert "budget" in resp.json()["detail"].lower()
+        # The ordering claim: neither of the two things the old placement
+        # paid for before refusing happened.
+        assert resolved == [], "preflight DNS ran despite a floored budget"
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "floored.geojson")
+        )
+        assert result.scalars().all() == [], "a job row was written before refusing"
+
+    async def test_a_healthy_budget_still_reaches_the_fetch(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        monkeypatch,
+    ):
+        """The counterfactual: the early refusal must not swallow real requests.
+
+        Without this, a guard that refused unconditionally would pass the
+        test above.
+        """
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/healthy.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text

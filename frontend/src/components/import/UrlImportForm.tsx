@@ -35,6 +35,29 @@ type UrlStep =
   | 'tracking';
 
 /**
+ * fix(#1708 codex r25): the job statuses that are still moving.
+ *
+ * `JobStatusResponse.status` is pending | running | complete | failed |
+ * cancelled | fanned_out. Reset has to be reachable from EVERY terminal
+ * state (the r22 invariant), and r22 satisfied that by listing the terminal
+ * statuses that existed then — so when #1709 made `cancelled` reachable for
+ * an import job, a cancelled URL import pinned this tab to a finished job
+ * with no way to start another. Neither PR could see it alone: #1709's
+ * terminal-status sweep ran before this component existed on main.
+ *
+ * So the predicate names what is IN FLIGHT and treats everything else as
+ * terminal. An unknown or newly added status then fails toward offering the
+ * escape hatch, which is the safe direction — a spurious "Import another"
+ * on a live job is a cosmetic bug, a job with no way out is the one that
+ * strands the tab for the rest of the SPA session.
+ */
+const IN_FLIGHT_JOB_STATUSES: ReadonlySet<string> = new Set(['pending', 'running']);
+
+function isTerminalJobStatus(status: string | undefined): boolean {
+  return status !== undefined && !IN_FLIGHT_JOB_STATUSES.has(status);
+}
+
+/**
  * feat(#1705): import a dataset straight from an HTTP(S) file URL.
  *
  * The URL variant of the Upload tab: the backend fetches the file
@@ -347,12 +370,18 @@ export function UrlImportForm() {
             on a FAILED job, so a successful import left the tab pinned to
             that completed job with no way to run a second one. Reset has to
             be reachable from every terminal state; the failed case is
-            already covered inside JobProgress and calls this same handler. */}
-        {trackedJob?.status === 'complete' && (
-          <Button variant="outline" onClick={reset}>
-            {t('urlImport.importAnother')}
-          </Button>
-        )}
+            already covered inside JobProgress and calls this same handler.
+            fix(#1708 codex r25): every OTHER terminal status, not just
+            `complete` — #1709 made `cancelled` reachable (an admin can
+            cancel the job from the job list) and JobProgress renders no
+            action block for it, so this is the only control that can free
+            the tab. `failed` stays excluded to avoid two start-overs. */}
+        {isTerminalJobStatus(trackedJob?.status) &&
+          trackedJob?.status !== 'failed' && (
+            <Button variant="outline" onClick={reset}>
+              {t('urlImport.importAnother')}
+            </Button>
+          )}
       </div>
     );
   }

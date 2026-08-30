@@ -333,6 +333,72 @@ describe('URL import lifecycle', () => {
     expect(mockUploadFromUrl).toHaveBeenCalledTimes(2);
   });
 
+  // ── r25: `cancelled` became reachable when #1709 shipped job cancellation ──
+  test.each([
+    ['cancelled', 'an admin cancelled the job from the job list'],
+    ['fanned_out', 'a terminal status this flow should not reach, handled anyway'],
+  ])('tracking(%s) still offers a way out', async (jobStatus) => {
+    render(<UrlImportForm />);
+    const user = await driveToReview(VECTOR_PREVIEW, 'job-c');
+    mockCommitImport.mockResolvedValue({ job_id: 'job-c', status: 'queued' });
+    mockUseJobStatus.mockReturnValue({ data: { status: jobStatus } });
+    await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('job-progress')).toBeInTheDocument(),
+    );
+
+    // JobProgress renders an action block only for complete/failed, so before
+    // r25 this state had NO control at all and pinned the tab for the rest of
+    // the SPA session.
+    expect(
+      within(screen.getByTestId('job-progress')).queryByRole('button'),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'urlImport.importAnother' }));
+    expect(peekUrlImport()).toBeNull();
+    expect(screen.getByLabelText('urlImport.label')).toBeInTheDocument();
+  });
+
+  test('an in-flight job offers no start-over, and failed defers to JobProgress', async () => {
+    // The other side of the predicate: it must not hand out an escape while
+    // the job is still moving, and must not produce a SECOND start-over on
+    // failed, which JobProgress already covers.
+    for (const jobStatus of ['pending', 'running']) {
+      mockUseJobStatus.mockReturnValue({ data: { status: jobStatus } });
+      const view = render(<UrlImportForm />);
+      const user = await driveToReview(VECTOR_PREVIEW, `job-${jobStatus}`);
+      mockCommitImport.mockResolvedValue({ job_id: `job-${jobStatus}`, status: 'queued' });
+      await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+      await waitFor(() =>
+        expect(screen.getByTestId('job-progress')).toBeInTheDocument(),
+      );
+      expect(
+        screen.queryByRole('button', { name: 'urlImport.importAnother' }),
+      ).not.toBeInTheDocument();
+      view.unmount();
+      clearUrlImport();
+      vi.clearAllMocks();
+    }
+
+    mockUseJobStatus.mockReturnValue({ data: { status: 'failed' } });
+    render(<UrlImportForm />);
+    const user = await driveToReview(VECTOR_PREVIEW, 'job-f');
+    mockCommitImport.mockResolvedValue({ job_id: 'job-f', status: 'queued' });
+    await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+    await waitFor(() =>
+      expect(screen.getByTestId('job-progress')).toBeInTheDocument(),
+    );
+    // Exactly one start-over on a failed job, and it is JobProgress's.
+    expect(
+      screen.queryByRole('button', { name: 'urlImport.importAnother' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId('job-progress')).getByRole('button', {
+        name: 'jobProgress.startOver',
+      }),
+    ).toBeInTheDocument();
+  });
+
   test('tracking(failed) offers start-over via JobProgress', async () => {
     render(<UrlImportForm />);
     const user = await driveToReview(VECTOR_PREVIEW, 'job-1');

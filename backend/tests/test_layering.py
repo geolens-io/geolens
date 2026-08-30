@@ -2799,7 +2799,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # helper (from _settle_failed_url_import) with an S3 KEY STRING, which is
     # what made the pre-existing sink alert; the marker records that the Path
     # branch only ever receives a staging-rooted path. Cap 2544 -> 2545, exact.
-    "backend/app/processing/ingest/router.py": 2545,
+    # fix(#1708 codex r25): +20 — the floored-budget refusal moved to
+    # immediately after the deadline is derived, before preflight DNS and the
+    # config/quota transaction. Deliberately the SAME _remaining_fetch_budget
+    # call the pre-fetch check makes, so the two can never disagree about what
+    # "too small to start" means; most of the lines are the comment recording
+    # that the floor promised a PROMPT refusal the ordering did not deliver.
+    # Cap 2545 -> 2565, exact.
+    "backend/app/processing/ingest/router.py": 2565,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

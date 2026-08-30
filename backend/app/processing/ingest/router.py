@@ -1010,6 +1010,12 @@ def _remaining_fetch_budget(stage_deadline: float) -> float:
     ``fetch_url_to_path`` applies ``min(FETCH_MAX_SECONDS, this)``. Below
     ``MIN_FETCH_BUDGET_SECONDS`` no download can plausibly finish, so the
     request is refused now rather than opening a doomed connection.
+
+    fix(#1708 codex r25): called TWICE per request — once immediately after
+    the deadline is derived, purely for that refusal, and again here for the
+    download's bound. Sharing one function is the point: an early check with
+    its own threshold could drift from this one, and then the floor would
+    promise a refusal at a size this call still accepts.
     """
     remaining = stage_deadline - time.monotonic()
     if remaining < MIN_FETCH_BUDGET_SECONDS:
@@ -1297,6 +1303,20 @@ async def upload_from_url(
         # arithmetic has to be checkable against the code it describes.
         # See that function for the derivation and the floor.
         stage_deadline = time.monotonic() + stage_total_budget_seconds()
+
+        # fix(#1708 codex r25): refuse a floored budget HERE, not at the fetch.
+        # The floor's whole promise is a PROMPT refusal, but nothing inspected
+        # it until `_remaining_fetch_budget()` immediately before the download —
+        # so a budget that could never host a fetch still paid for preflight
+        # DNS, the config/quota transaction and a committed 'running' job row
+        # before saying so. That is this PR's recurring failure mode once more:
+        # a comment describing a protection the code orders itself out of.
+        #
+        # Deliberately the SAME call the pre-fetch check makes, not a second
+        # threshold comparison, so the early and late refusals can never
+        # disagree about what "too small to start" means. The value is
+        # discarded because every phase re-derives its own remaining.
+        _remaining_fetch_budget(stage_deadline)
 
         # Rule 2, submission gate: refuse private/link-local/reserved targets
         # before any connection is attempted — and before any handler DB
