@@ -307,6 +307,92 @@ class TestCancelEmbeddingBackfillAudit:
             }
         }
 
+    async def test_cross_user_cancel_names_the_canceller_on_both_events(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """fix(#1709 review r10): the sibling of r8's refresh.cancelled fix.
+        The terminal `embedding.backfill` event named the run's original
+        requester (job.created_by), so a cross-user cancel put the action in
+        the requester's audit history while `job.cancel` — in the SAME
+        transaction — correctly named the canceller. Both must name the
+        canceller; the requester stays visible on the dispatch's own
+        `requested` entry.
+
+        Cancelled here by a capability holder (arm 2, the seeded admin)
+        over a run another user requested."""
+        requester_id = uuid.UUID(
+            (await create_user(client, admin_auth_header, "editor"))[1]
+        )
+        canceller_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=requester_id,
+            status="running",
+            user_metadata=self._backfill_metadata(),
+        )
+
+        resp = await client.post(f"/jobs/{job.id}/cancel", headers=admin_auth_header)
+        assert resp.status_code == 200, resp.text
+
+        terminal = await _terminal_backfill_events(test_db_session, job.id)
+        assert len(terminal) == 1
+        assert terminal[0].details["error_code"] == "user_cancelled"
+        assert terminal[0].user_id == canceller_id
+        assert terminal[0].user_id != requester_id
+
+        job_event = (
+            await test_db_session.execute(
+                select(AuditLog).where(
+                    AuditLog.action == "job.cancel",
+                    AuditLog.resource_id == job.id,
+                )
+            )
+        ).scalar_one()
+        # The two events written by one transaction agree on the actor.
+        assert job_event.user_id == canceller_id
+
+    async def test_sweep_settles_still_name_the_requester(self, test_db_session):
+        """The other half of the rule: a sweep has no acting user — a lease
+        expiry is nobody's click — so `settled_by` is omitted there and the
+        requester remains the honest attribution. Pinned so a future change
+        cannot quietly attribute a sweep to whoever happened to be around."""
+        from app.platform.jobs.sweep import audit_settled_embedding_backfill
+
+        requester_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(
+            test_db_session,
+            created_by=requester_id,
+            status="running",
+            user_metadata=self._backfill_metadata(),
+        )
+
+        # The sweep settles the ROW and the trail in one transaction — that
+        # is the contract this helper exists to uphold, so the test performs
+        # both halves (and leaves no `running` row holding the
+        # one-active-backfill-per-tenant index behind it).
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                status="failed",
+                error_message="Stale: running for over 60 minutes",
+                completed_at=datetime.now(timezone.utc),
+            )
+        )
+        await audit_settled_embedding_backfill(
+            test_db_session,
+            job_id=job.id,
+            user_metadata=job.user_metadata,
+            created_by=requester_id,
+            error_code="worker_lost",
+        )
+        await test_db_session.commit()
+
+        terminal = await _terminal_backfill_events(test_db_session, job.id)
+        assert len(terminal) == 1
+        assert terminal[0].user_id == requester_id
+        assert terminal[0].details["error_code"] == "worker_lost"
+
     async def test_cancel_of_queued_backfill_writes_the_terminal_event(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

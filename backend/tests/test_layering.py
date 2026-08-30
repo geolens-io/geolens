@@ -2991,7 +2991,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # generic retry would re-queue the multi-layer parent as ONE
     # default-layer import) and the message names re-upload as the real
     # path. Cap 1735 -> 1752, exact.
-    "backend/app/platform/jobs/sweep.py": 1752,
+    # fix(#1709 review r10): +11 — audit_settled_embedding_backfill takes an
+    # optional `settled_by`, so the terminal event names whoever SETTLED the
+    # run: the canceller when a person cancelled it (the arm-3/cross-user
+    # case, matching job.cancel and refresh.cancelled in the same
+    # transaction), and the requester when a sweep settles it, since a lease
+    # expiry is nobody's click. Cap 1752 -> 1763, exact.
+    "backend/app/platform/jobs/sweep.py": 1763,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and

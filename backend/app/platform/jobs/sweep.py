@@ -1667,6 +1667,7 @@ async def audit_settled_embedding_backfill(
     user_metadata: dict | None,
     created_by: uuid.UUID | None,
     error_code: str,
+    settled_by: uuid.UUID | None = None,
 ) -> None:
     """Close an embedding backfill's audit trail when a sweeper settles its row.
 
@@ -1705,10 +1706,17 @@ async def audit_settled_embedding_backfill(
     # The audit is emitted on the caller's session precisely so it commits with
     # the status change; an unguarded IntegrityError would take the status
     # change down with it.
+    # fix(#1709 review r10): the terminal event is attributed to the actor
+    # who SETTLED the run when one exists. The sweeps have no acting user —
+    # a lease expiry is nobody's click, so the requester (created_by) stays
+    # the honest attribution there — but the cancel endpoint acts on behalf
+    # of a specific person, and in the arm-3/cross-user case that person is
+    # not the requester. Same rule refresh.cancelled follows since r8.
+    actor = settled_by if settled_by is not None else created_by
     try:
         async with session.begin_nested():
             await _emit_terminal_backfill_event(
-                session, marker, job_id, created_by, error_code
+                session, marker, job_id, actor, error_code
             )
     except IntegrityError:
         log.info(
@@ -1722,9 +1730,12 @@ async def _emit_terminal_backfill_event(
     session: AsyncSession,
     marker: dict,
     job_id: uuid.UUID,
-    created_by: uuid.UUID | None,
+    actor: uuid.UUID | None,
     error_code: str,
 ) -> None:
+    """Write the one terminal entry. ``actor`` is whoever SETTLED the run —
+    the canceller when a person cancelled it, else the requester (fix(#1709
+    review r10); a sweep has no acting user to name)."""
     # Deferred by design to preserve the platform -> modules layer boundary,
     # matching `cleanup_stale_jobs` above.
     from app.modules.audit.service import AuditEvent, audit_emit
@@ -1732,7 +1743,7 @@ async def _emit_terminal_backfill_event(
     await audit_emit(
         session,
         AuditEvent(
-            user_id=created_by,
+            user_id=actor,
             # Literal, not the constant: test_audit_action_registry checks
             # every emit site statically and cannot resolve a name. The
             # other writer of this action is the admin backfill task.

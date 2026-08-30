@@ -1118,6 +1118,10 @@ async def cancel_job(
             user_metadata=job.user_metadata,
             created_by=job.created_by,
             error_code="user_cancelled",
+            # fix(#1709 review r10): the terminal event names the CANCELLER,
+            # matching job.cancel and refresh.cancelled in this same
+            # transaction — not the run's original requester.
+            settled_by=user.id,
         )
         await audit_emit(
             db,
