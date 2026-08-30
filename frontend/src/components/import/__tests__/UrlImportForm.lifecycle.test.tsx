@@ -9,9 +9,23 @@
  * States: idle · fetching · review · committing · tracking(active) ·
  *         tracking(complete) · tracking(failed)
  * Events: mount · unmount · reset · commit resolve · commit reject ·
- *         job reaches terminal
+ *         job reaches terminal · layer change · commit submit
+ *
+ * fix(#1708 codex r24): the last two events are the ones r22 missed. Its
+ * state axis was right and its event axis was a list of remembered events,
+ * so `committing × layer-change` was simply absent. The axis is now taken
+ * from the component's RENDERED CONTROLS instead: every control that can
+ * mutate `step`, the module session, or an in-flight request is an event
+ * here, which is what makes the set complete rather than merely longer.
+ *
+ * Controls, read off the JSX:
+ *   spinner branch (fetching/previewing/resuming) — none at all
+ *   review/commit  — layer <select>, ImportMetadataForm submit, Start Over
+ *   tracking       — JobProgress (its controls gated on a terminal job),
+ *                    Import another (gated on complete)
+ *   idle           — URL field, filename field (local state only), submit
  */
-import { render, screen, waitFor, within } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { UrlImportForm } from '../UrlImportForm';
 import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
@@ -38,9 +52,24 @@ vi.mock('react-i18next', () => ({
 vi.mock('../ImportPreview', () => ({
   ImportPreview: () => <div data-testid="import-preview" />,
 }));
+// The real form gates its submit on `isCommitting` (ImportMetadataForm.tsx:
+// `disabled={isCommitting || !name.trim()}`). The stub reports that prop
+// instead of honouring it, so one test can assert the UI half is wired up
+// while another can still call the handler through it — which is the only
+// way to exercise the handler half of the belt-and-braces guard.
 vi.mock('../ImportMetadataForm', () => ({
-  ImportMetadataForm: ({ onCommit }: { onCommit: (m: unknown) => void }) => (
-    <button type="button" onClick={() => onCommit({ title: 'X' })}>
+  ImportMetadataForm: ({
+    onCommit,
+    isCommitting,
+  }: {
+    onCommit: (m: unknown) => void;
+    isCommitting: boolean;
+  }) => (
+    <button
+      type="button"
+      data-committing={String(isCommitting)}
+      onClick={() => onCommit({ title: 'X' })}
+    >
       commit-stub
     </button>
   ),
@@ -80,6 +109,18 @@ const VECTOR_PREVIEW = {
   sample_rows: [],
   layer_name: 'roads',
   layers: null,
+};
+// Only a MULTI-layer container renders the layer picker, so the r24 cell is
+// unreachable without one.
+const MULTI_LAYER_PREVIEW = {
+  ...VECTOR_PREVIEW,
+  job_id: 'job-m',
+  source_filename: 'bundle.gpkg',
+  layer_name: 'layer_a',
+  layers: [
+    { name: 'layer_a', feature_count: 5, field_count: 2 },
+    { name: 'layer_b', feature_count: 9, field_count: 3 },
+  ],
 };
 const RASTER_PREVIEW = {
   job_id: 'job-r',
@@ -163,6 +204,98 @@ describe('URL import lifecycle', () => {
     await waitFor(() =>
       expect(screen.getByTestId('job-progress')).toBeInTheDocument(),
     );
+  });
+
+  // ── r24: the two events the r22 axis never had ──
+
+  // The counterfactual for the test below: with nothing in flight the picker
+  // is enabled and this exact event DOES re-preview. So when the same event
+  // changes nothing mid-commit, it is the guard doing it, not a change event
+  // that never reached React.
+  test('review + layer change re-previews the chosen layer', async () => {
+    render(<UrlImportForm />);
+    await driveToReview(MULTI_LAYER_PREVIEW, 'job-m');
+    expect(mockPreviewFile).toHaveBeenCalledTimes(1);
+
+    const select = screen.getByLabelText('urlImport.layerLabel');
+    expect(select).toBeEnabled();
+    fireEvent.change(select, { target: { value: 'layer_b' } });
+
+    await waitFor(() =>
+      expect(mockPreviewFile).toHaveBeenLastCalledWith('job-m', 'layer_b'),
+    );
+    expect(screen.getByRole('button', { name: 'urlImport.startOver' })).toBeEnabled();
+  });
+
+  test('committing + layer change is refused: one commit issued, none orphaned', async () => {
+    render(<UrlImportForm />);
+    const user = await driveToReview(MULTI_LAYER_PREVIEW, 'job-m');
+
+    // The commit must stay PENDING for the whole test: settling it first
+    // would leave nothing to race.
+    let resolveCommit!: (v: unknown) => void;
+    mockCommitImport.mockReturnValue(
+      new Promise((res) => {
+        resolveCommit = res;
+      }),
+    );
+    await user.click(screen.getByRole('button', { name: 'commit-stub' }));
+    await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
+
+    const previewCallsBefore = mockPreviewFile.mock.calls.length;
+    const select = screen.getByLabelText('urlImport.layerLabel');
+
+    // Belt: the control is disabled while the commit is in flight.
+    expect(select).toBeDisabled();
+
+    // Braces: firing the event anyway must not re-enter preview.
+    fireEvent.change(select, { target: { value: 'layer_b' } });
+
+    // Still committing — no re-preview, and the controls that a bounce
+    // through `review` would have re-enabled are all still shut.
+    expect(mockPreviewFile).toHaveBeenCalledTimes(previewCallsBefore);
+    expect(screen.getByRole('button', { name: 'urlImport.startOver' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'commit-stub' })).toHaveAttribute(
+      'data-committing',
+      'true',
+    );
+    expect(peekUrlImport()).not.toBeNull();
+
+    // The single issued commit still lands, and it lands as tracking for the
+    // job it was issued for — not orphaned, and not committed twice.
+    resolveCommit({ job_id: 'job-m', status: 'queued' });
+    await waitFor(() =>
+      expect(screen.getByTestId('job-progress')).toBeInTheDocument(),
+    );
+    expect(mockCommitImport).toHaveBeenCalledTimes(1);
+    expect(within(screen.getByTestId('job-progress')).getByText('job-m')).toBeInTheDocument();
+  });
+
+  test('committing + a second commit submit is refused', async () => {
+    render(<UrlImportForm />);
+    const user = await driveToReview(VECTOR_PREVIEW, 'job-1');
+    let resolveCommit!: (v: unknown) => void;
+    mockCommitImport.mockReturnValue(
+      new Promise((res) => {
+        resolveCommit = res;
+      }),
+    );
+    const commitButton = screen.getByRole('button', { name: 'commit-stub' });
+    await user.click(commitButton);
+    await waitFor(() => expect(mockCommitImport).toHaveBeenCalledTimes(1));
+
+    // Belt: the real form is told to disable its submit.
+    expect(commitButton).toHaveAttribute('data-committing', 'true');
+    // Braces: the stub ignores that and calls the handler anyway, which is
+    // the only way to reach the guard — and the guard refuses.
+    await user.click(commitButton);
+    expect(mockCommitImport).toHaveBeenCalledTimes(1);
+
+    resolveCommit({ job_id: 'job-1', status: 'queued' });
+    await waitFor(() =>
+      expect(screen.getByTestId('job-progress')).toBeInTheDocument(),
+    );
+    expect(mockCommitImport).toHaveBeenCalledTimes(1);
   });
 
   test('committing + commit resolve moves to tracking; reject returns to review', async () => {

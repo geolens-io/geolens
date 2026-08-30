@@ -63,13 +63,26 @@ export function UrlImportForm() {
     };
   }, []);
 
+  // fix(#1708 codex r24): the window in which a request has been issued that
+  // nothing can recall. Every control below that would mutate `step`, the
+  // module session, or an in-flight request is disabled on this AND refuses
+  // on it in its handler — a disabled control is a fact about one rendered
+  // tree, the handler guard is the invariant.
+  //
+  // The set is read off the RENDERED CONTROLS rather than off a list of
+  // remembered events, which is what makes it complete: `committing` is the
+  // only in-flight state that renders a control at all, because `fetching`,
+  // `previewing` and `resuming` all render the spinner branch, which has
+  // none. `resuming` is named here anyway — it is the same uncancellable
+  // commit, adopted by a later mount — so the predicate stays true if that
+  // branch ever grows a control.
+  const commitInFlight = step === 'committing' || step === 'resuming';
+
   // fix(#1708 codex r22): reset is available from every TERMINAL state and
   // refuses only while an uncancellable operation is in flight — clearing
   // the session mid-commit orphans a commit that then succeeds untracked.
-  // The controls that call this are disabled in that window; the guard is
-  // here too so the rule holds regardless of which caller is wired up.
   const reset = () => {
-    if (step === 'committing' || step === 'resuming') return;
+    if (commitInFlight) return;
     clearUrlImport();
     setStep('idle');
     setUrl('');
@@ -190,7 +203,13 @@ export function UrlImportForm() {
   };
 
   const handleLayerChange = async (layerName: string) => {
-    if (!jobId) return;
+    // fix(#1708 codex r24): re-previewing mid-commit replaced `committing`
+    // with `previewing` and then UNCONDITIONALLY with `review`, which
+    // re-enabled Start Over and the commit button against a request that
+    // cannot be recalled — orphaning the queued job, or offering a second
+    // commit for one already started. Same cell of the r22 table as reset;
+    // the event axis, not the state axis, was what that round missed.
+    if (!jobId || commitInFlight) return;
     setStep('previewing');
     setError(null);
     try {
@@ -205,7 +224,12 @@ export function UrlImportForm() {
   };
 
   const handleCommit = async (metadata: CommitImportRequest) => {
-    if (!jobId || !previewData) return;
+    // fix(#1708 codex r24): the commit control was disabled during its own
+    // commit (ImportMetadataForm gates its submit on `isCommitting`) but the
+    // handler took anything it was given. Same belt-and-braces the layer
+    // picker and reset now have, for the same reason: the UI half only holds
+    // for the tree that rendered it.
+    if (!jobId || !previewData || commitInFlight) return;
 
     setStep('committing');
     setError(null);
@@ -280,7 +304,8 @@ export function UrlImportForm() {
               id="url-import-layer"
               value={fp.layer_name}
               onChange={(e) => handleLayerChange(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm"
+              disabled={commitInFlight}
+              className="w-full rounded-md border border-border bg-surface-0 px-3 py-2 text-sm disabled:opacity-60"
             >
               {fp.layers?.map((layer) => (
                 <option key={layer.name} value={layer.name}>
@@ -295,7 +320,7 @@ export function UrlImportForm() {
           defaultName={previewData.source_filename ?? fp?.layer_name ?? ''}
           detectedCrs={raster ? previewData.crs_epsg : (fp?.crs ?? null)}
           onCommit={handleCommit}
-          isCommitting={step === 'committing'}
+          isCommitting={commitInFlight}
           isRaster={raster}
           previewData={raster ? previewData : undefined}
           previewColumns={fp?.columns}
@@ -305,7 +330,7 @@ export function UrlImportForm() {
         <Button
           variant="outline"
           onClick={reset}
-          disabled={step === 'committing'}
+          disabled={commitInFlight}
         >
           {t('urlImport.startOver')}
         </Button>
