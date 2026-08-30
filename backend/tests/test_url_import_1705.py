@@ -28,6 +28,7 @@ from app.core.config import settings
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB
 from app.platform.jobs.models import IngestJob
 from app.platform.security import SSRFError, _revalidate_redirect
+from app.processing.ingest import url_fetch as url_fetch_module
 from app.processing.ingest.url_fetch import clamp_filename_bytes, filename_from_url
 
 GEOJSON = b'{"type":"FeatureCollection","features":[]}'
@@ -700,6 +701,10 @@ class TestUrlImportReaperInteraction:
         assert FETCH_MAX_SECONDS + 300 < JOB_TIMEOUT_SECONDS
 
     def test_fetch_deadline_fits_the_edge_proxy_budget(self):
+        # Superseded in scope by TestUrlImportJointClock (r13), which pins
+        # the DERIVATION as well as the static sums; kept because it is the
+        # one place the proxy value itself is asserted next to the fetch
+        # ceiling.
         """fix(#1708 codex r3): the endpoint sends nothing until fetch AND
         post-work finish, and frontend/nginx.conf's `location /api/` severs
         any response at proxy_read_timeout 600s. The fetch bound must leave
@@ -1153,6 +1158,11 @@ class TestUrlImportS3Staging:
         monkeypatch.setattr(
             "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 1
         )
+        # fix(#1708 codex r13): the fetch now refuses when the joint budget
+        # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
+        # deliberately run on a tiny budget, so drop the floor to keep the
+        # PUT the thing under test.
+        monkeypatch.setattr("app.processing.ingest.router.MIN_FETCH_BUDGET_SECONDS", 0)
         release = asyncio.Event()
         started = asyncio.Event()
 
@@ -1624,6 +1634,11 @@ class TestUrlImportDegradedS3Failure:
         monkeypatch.setattr(
             "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 1
         )
+        # fix(#1708 codex r13): the fetch now refuses when the joint budget
+        # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
+        # deliberately run on a tiny budget, so drop the floor to keep the
+        # PUT the thing under test.
+        monkeypatch.setattr("app.processing.ingest.router.MIN_FETCH_BUDGET_SECONDS", 0)
         release = asyncio.Event()
         cleanup_started = asyncio.Event()
         cleanup_calls: list[str] = []
@@ -1689,6 +1704,11 @@ class TestUrlImportDegradedS3Failure:
         monkeypatch.setattr(
             "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 2
         )
+        # fix(#1708 codex r13): the fetch now refuses when the joint budget
+        # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
+        # deliberately run on a tiny budget, so drop the floor to keep the
+        # PUT the thing under test.
+        monkeypatch.setattr("app.processing.ingest.router.MIN_FETCH_BUDGET_SECONDS", 0)
         cleanup_started = asyncio.Event()
 
         async def degraded_delete(saved_path, job_id) -> None:
@@ -1733,6 +1753,136 @@ class TestUrlImportDegradedS3Failure:
         assert cleanup_started.is_set()
         result = await test_db_session.execute(
             select(IngestJob).where(IngestJob.source_filename == "bounded.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Round-13 review finding (#1708): every phase draws from ONE joint clock —
+# the fetch's bound is min(its own ceiling, remaining joint budget)
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportJointClock:
+    def test_every_phase_bound_fits_the_joint_budget(self):
+        """The static half of the invariant: each phase ceiling, and their
+        worst-case sequence, fit inside the joint budget, which fits the
+        proxy deadline with post-work slack."""
+        from app.processing.ingest.url_fetch import (
+            EDGE_PROXY_READ_TIMEOUT_SECONDS,
+            FETCH_MAX_SECONDS,
+            MIN_FETCH_BUDGET_SECONDS,
+            PREFLIGHT_DNS_MAX_SECONDS,
+            STAGE_TOTAL_BUDGET_SECONDS,
+        )
+
+        assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
+        assert STAGE_TOTAL_BUDGET_SECONDS + 60 <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+        assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
+        assert (
+            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_BUDGET_SECONDS
+        )
+        assert 0 < MIN_FETCH_BUDGET_SECONDS < FETCH_MAX_SECONDS
+
+    def test_fetch_budget_shrinks_as_the_joint_clock_advances(self):
+        """fix(#1708 codex r13): the DERIVATION, not just the static sum. A
+        clock that has already advanced must yield a smaller fetch bound —
+        this is what the old fixed FETCH_MAX_SECONDS argument could not do."""
+        import time as _time
+
+        from app.processing.ingest.router import _remaining_fetch_budget
+        from app.processing.ingest.url_fetch import (
+            FETCH_MAX_SECONDS,
+            STAGE_TOTAL_BUDGET_SECONDS,
+        )
+
+        now = _time.monotonic()
+        # A fresh request: essentially the whole joint budget remains.
+        fresh = _remaining_fetch_budget(now + STAGE_TOTAL_BUDGET_SECONDS)
+        assert fresh > STAGE_TOTAL_BUDGET_SECONDS - 1
+        # 200s already spent by earlier phases: the fetch gets the rest...
+        spent = _remaining_fetch_budget(now + STAGE_TOTAL_BUDGET_SECONDS - 200)
+        assert (
+            STAGE_TOTAL_BUDGET_SECONDS - 202 < spent < STAGE_TOTAL_BUDGET_SECONDS - 199
+        )
+        # ...and once the remainder drops under the per-fetch ceiling, THAT
+        # is the effective bound, which is the whole point of the change.
+        squeezed = _remaining_fetch_budget(now + 120)
+        assert squeezed < FETCH_MAX_SECONDS
+
+    def test_exhausted_budget_refuses_before_opening_a_connection(self):
+        """Below the floor, refuse promptly with the timeout shape rather
+        than starting a doomed download."""
+        import time as _time
+
+        from fastapi import HTTPException
+
+        from app.processing.ingest.router import _remaining_fetch_budget
+
+        with pytest.raises(HTTPException) as caught:
+            _remaining_fetch_budget(_time.monotonic() + 1)
+        assert caught.value.status_code == 502
+        assert "time remained" in caught.value.detail
+
+    async def test_handler_passes_the_remaining_budget_to_the_fetch(
+        self, client: AsyncClient, admin_auth_header: dict, monkeypatch
+    ):
+        """End to end: the handler must hand the fetch the joint clock's
+        remainder, not a fresh constant. With a 60s joint budget the fetch
+        may not be given the 480s ceiling."""
+        monkeypatch.setattr(
+            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 60
+        )
+        seen: dict[str, float | None] = {}
+        real_fetch = url_fetch_module.fetch_url_to_path
+
+        async def recording_fetch(*args, **kwargs):
+            seen["timeout"] = kwargs.get("timeout_seconds")
+            return await real_fetch(*args, **kwargs)
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router.fetch_url_to_path", recording_fetch
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/jointclock.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        assert seen["timeout"] is not None
+        assert seen["timeout"] <= 60
+        assert seen["timeout"] < url_fetch_module.FETCH_MAX_SECONDS
+
+    async def test_exhausted_budget_short_circuits_the_request(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """A request whose earlier phases consumed the whole budget refuses
+        with the clean 502 and never contacts the origin."""
+        monkeypatch.setattr(
+            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 0
+        )
+        recorded = _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/nobudget.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 502
+        assert "time remained" in resp.json()["detail"]
+        assert recorded == []  # no connection was opened
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "nobudget.geojson")
         )
         job = result.scalar_one()
         assert job.status == "failed"

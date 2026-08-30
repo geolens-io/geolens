@@ -72,6 +72,12 @@ STAGE_TOTAL_BUDGET_SECONDS = 540
 # cap intact (30 + 480 <= 540, pinned by the budget test).
 PREFLIGHT_DNS_MAX_SECONDS = 30
 
+# The least remaining joint budget worth starting a fetch with. Below this a
+# download cannot plausibly connect, transfer and stage, so the request is
+# refused promptly with the ordinary timeout shape instead of opening a
+# doomed connection (fix #1708 codex r13).
+MIN_FETCH_BUDGET_SECONDS = 5
+
 # Wall-clock ceiling for one fetch. The per-chunk read timeout above cannot
 # bound TOTAL time: a server trickling one chunk every few seconds holds the
 # request coroutine open forever while staying inside every socket timeout.
@@ -165,6 +171,7 @@ async def fetch_url_to_path(
     max_size_bytes: int,
     *,
     cap_error_detail: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> int:
     """Stream ``url`` into ``dest`` under a hard size cap. Returns total bytes.
 
@@ -183,6 +190,15 @@ async def fetch_url_to_path(
       other transport failure.
     """
     total = 0
+    # fix(#1708 codex r13): the caller passes what the JOINT budget has left,
+    # already reduced by FETCH_MAX_SECONDS. Defaulting to the constant keeps
+    # the function usable on its own, but the handler never relies on that —
+    # see the invariant at STAGE_TOTAL_BUDGET_SECONDS.
+    fetch_timeout = (
+        FETCH_MAX_SECONDS
+        if timeout_seconds is None
+        else min(FETCH_MAX_SECONDS, timeout_seconds)
+    )
     # Synchronous open, mirroring save_upload_file: no cancellation point
     # between acquiring the descriptor and owning it.
     # codeql[py/path-injection] fix(#1708): dest's caller-influenced component is basename-stripped and byte-clamped (clamp_filename_bytes), rooted under upload_staging_dir
@@ -203,7 +219,7 @@ async def fetch_url_to_path(
                 # translated below. Same outer-deadline pattern as
                 # origin_probe.py, whose comment records that unlike httpx's
                 # phase timeouts it can expire during DNS resolution.
-                async with asyncio.timeout(FETCH_MAX_SECONDS):
+                async with asyncio.timeout(fetch_timeout):
                     async with make_safe_client(timeout=FETCH_TIMEOUT) as client:
                         # fix(#1708 codex r11): identity requested, enforced
                         # below, and the loop reads aiter_raw — three layers
@@ -287,8 +303,8 @@ async def fetch_url_to_path(
                 # below; this one can fire during DNS or header acquisition
                 # where no httpx timeout is running down.
                 raise UrlFetchError(
-                    "The download did not finish within "
-                    f"{FETCH_MAX_SECONDS // 60} minutes."
+                    "The download did not finish within the time budget "
+                    f"({int(fetch_timeout)} seconds)."
                 ) from exc
             except httpx.HTTPError as exc:
                 # Timeouts, DNS failures once past validation, TLS errors,
@@ -314,6 +330,7 @@ async def fetch_url_to_path(
 __all__ = [
     "EDGE_PROXY_READ_TIMEOUT_SECONDS",
     "FETCH_MAX_SECONDS",
+    "MIN_FETCH_BUDGET_SECONDS",
     "PREFLIGHT_DNS_MAX_SECONDS",
     "STAGE_TOTAL_BUDGET_SECONDS",
     "FETCH_TIMEOUT",

@@ -94,6 +94,7 @@ from app.processing.ingest.service import (
     validate_file_extension,
 )
 from app.processing.ingest.url_fetch import (
+    MIN_FETCH_BUDGET_SECONDS,
     PREFLIGHT_DNS_MAX_SECONDS,
     STAGE_TOTAL_BUDGET_SECONDS,
     UrlFetchError,
@@ -873,6 +874,30 @@ async def _settle_failed_url_import(
         logger.warning("url_import_fail_stamp_skipped", job_id=str(job_id))
 
 
+def _remaining_fetch_budget(stage_deadline: float) -> float:
+    """What the joint budget has left for the download, or a prompt refusal.
+
+    fix(#1708 codex r13): the fetch used to receive a fresh
+    ``FETCH_MAX_SECONDS`` regardless of how much of the request's own clock
+    auth, preflight DNS and the config/quota transaction had already spent —
+    so a slow start could carry the response past the edge proxy even though
+    each individual phase respected its own ceiling.
+    ``fetch_url_to_path`` applies ``min(FETCH_MAX_SECONDS, this)``. Below
+    ``MIN_FETCH_BUDGET_SECONDS`` no download can plausibly finish, so the
+    request is refused now rather than opening a doomed connection.
+    """
+    remaining = stage_deadline - time.monotonic()
+    if remaining < MIN_FETCH_BUDGET_SECONDS:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=(
+                "Not enough time remained in the request budget to download "
+                "this file. Try again."
+            ),
+        )
+    return remaining
+
+
 async def _effective_stream_cap(
     db: AsyncSession, user_id: uuid.UUID, max_size_bytes: int
 ) -> tuple[int, str | None]:
@@ -1119,6 +1144,17 @@ async def upload_from_url(
         # fetch, staging put — runs inside one clock that fits the proxy
         # deadline. The DB blocks before and after are short single-row
         # transactions living in the budget's slack.
+        # INVARIANT (fix #1708 codex r13) — ONE monotonic clock bounds this
+        # whole request. Every phase's bound is
+        #     min(that phase's own ceiling, stage_deadline - now)
+        # so time already spent by earlier phases (auth, the
+        # dependency-phase transaction, preflight DNS, the config/quota
+        # transaction) is deducted from every later one. The joint budget is
+        # STAGE_TOTAL_BUDGET_SECONDS (540s) and 540 + post-work slack <= the
+        # edge proxy's 600s read timeout, so no phase can push the response
+        # past nginx no matter how long an earlier phase ran. A NEW phase
+        # added to this handler inherits the rule: derive its bound from
+        # this deadline, never from a fresh constant.
         stage_deadline = time.monotonic() + STAGE_TOTAL_BUDGET_SECONDS
 
         # Rule 2, submission gate: refuse private/link-local/reserved targets
@@ -1236,6 +1272,7 @@ async def upload_from_url(
                     local_dest,
                     effective_cap_bytes,
                     cap_error_detail=cap_error_detail,
+                    timeout_seconds=_remaining_fetch_budget(stage_deadline),
                 )
             except UrlFetchTooLargeError as exc:
                 raise HTTPException(

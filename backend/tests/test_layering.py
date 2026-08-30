@@ -2731,7 +2731,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # owns that key, and a delete issued now would race the in-flight
     # upload); every other failure bounds its delete by what remains of the
     # request budget. Cap 2241 -> 2295, exact.
-    "backend/app/processing/ingest/router.py": 2328,
+    # fix(#1708 codex r13): +37 — the joint budget became genuinely joint.
+    # The fetch's bound is now min(FETCH_MAX_SECONDS, stage_deadline - now)
+    # via _remaining_fetch_budget, so time spent by auth, preflight DNS and
+    # the config/quota transaction is deducted from it instead of the fetch
+    # starting a fresh 480s clock; a budget already under the floor refuses
+    # promptly rather than opening a doomed connection. Most of the growth
+    # is the INVARIANT comment at the deadline's definition, which a future
+    # phase added to this handler inherits. Cap 2295 -> 2332, exact.
+    "backend/app/processing/ingest/router.py": 2365,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
