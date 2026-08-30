@@ -2763,7 +2763,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # protection the code does not implement is the class AGENTS.md calls
     # out, so the correction is the point of the change. Cap 2426 -> 2440,
     # exact.
-    "backend/app/processing/ingest/router.py": 2473,
+    # fix(#1708 codex r17): +1 — the stage budget is derived per request
+    # from the configured db_pool_timeout (see stage_total_budget_seconds)
+    # rather than hardcoded, so raising that operator-settable value
+    # shrinks the budget instead of silently breaking the proxy invariant.
+    # Cap 2440 -> 2441, exact.
+    "backend/app/processing/ingest/router.py": 2474,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

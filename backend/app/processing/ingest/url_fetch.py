@@ -25,9 +25,13 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import httpx
+import structlog
 
 from app.core.async_io import run_in_thread_draining
+from app.core.config import settings
 from app.platform.security import SSRFError, make_safe_client
+
+logger = structlog.get_logger(__name__)
 
 # Connect fast; the read clock is per-chunk (httpx read timeout is the max
 # gap between bytes), so a steadily flowing large download is fine.
@@ -71,11 +75,81 @@ EDGE_PROXY_READ_TIMEOUT_SECONDS = 600
 #
 # At 540 that sum reached exactly 600 with no room for the queries
 # themselves. The fetch keeps its full ceiling either way:
-# PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS == 510. The arithmetic is
-# pinned by test_every_phase_bound_fits_the_joint_budget, which reads
-# db_pool_timeout from settings so raising that config fails the test
-# rather than silently eroding the margin.
-STAGE_TOTAL_BUDGET_SECONDS = 510
+# PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS == 510.
+#
+# fix(#1708 codex r17): 510 is the CEILING, not the answer. db_pool_timeout
+# is operator-settable (`Field(default=30, gt=0)`), and a hardcoded 510
+# silently breaks the invariant the moment it is raised — at
+# DB_POOL_TIMEOUT=60 the sum is 60 + 510 + 60 = 630 > 600 and the job id is
+# lost after a successful staging. A test that reads the live setting
+# cannot catch that either, because CI only ever runs the default. So the
+# budget is DERIVED per request from the configured value (see
+# ``stage_total_budget_seconds``) and this constant only bounds it above.
+STAGE_TOTAL_CEILING_SECONDS = 510
+
+# Reserved, beyond the two pool waits, for the post-stage transaction's
+# single-row CAS and commit plus response serialization — all local
+# Postgres, milliseconds in practice; 20s is deliberate slack, not an
+# estimate of their cost.
+POST_WORK_MARGIN_SECONDS = 20
+
+# A pathological pool timeout (DB_POOL_TIMEOUT=300 leaves 600 - 600 - 20 =
+# -20) must not yield a zero or negative budget, and must not crash the app
+# at import over an operator setting. Clamp here instead, and clamp STRICTLY
+# BELOW ``MIN_FETCH_BUDGET_SECONDS`` so the refusal is guaranteed by
+# construction rather than by however much time happened to elapse first:
+# ``_remaining_fetch_budget`` sees a remainder under its floor and refuses
+# before opening a connection. The one-time warning below says why, so the
+# operator sees a cause instead of a mysterious 502.
+STAGE_BUDGET_FLOOR_SECONDS = 1
+
+_budget_floor_warned = False
+
+
+def stage_total_budget_seconds() -> int:
+    """The joint stage budget for THIS deployment's pool configuration.
+
+    fix(#1708 codex r17): derived rather than asserted. The synchronous
+    request must fit inside the edge proxy's read timeout, and two phases
+    sit outside the budget's own clock — pre-handler dependency work and
+    the post-stage transaction — each able to wait up to
+    ``settings.db_pool_timeout`` on a pool checkout. Deriving the budget
+    from that value means raising the pool timeout shrinks the staging
+    budget automatically instead of quietly pushing the response past
+    nginx:
+
+        min(STAGE_TOTAL_CEILING, EDGE_PROXY - 2*pool_timeout - POST_WORK_MARGIN)
+
+    The ceiling keeps a very small pool timeout from inflating the budget
+    past what the preflight and fetch ceilings assume; the floor keeps a
+    very large one from producing a nonsensical budget.
+    """
+    global _budget_floor_warned
+
+    pool_timeout = settings.db_pool_timeout
+    derived = (
+        EDGE_PROXY_READ_TIMEOUT_SECONDS - (2 * pool_timeout) - POST_WORK_MARGIN_SECONDS
+    )
+    budget = min(STAGE_TOTAL_CEILING_SECONDS, derived)
+    if budget < STAGE_BUDGET_FLOOR_SECONDS:
+        if not _budget_floor_warned:
+            _budget_floor_warned = True
+            logger.warning(
+                "url_import_stage_budget_floored",
+                db_pool_timeout=pool_timeout,
+                edge_proxy_read_timeout=EDGE_PROXY_READ_TIMEOUT_SECONDS,
+                derived_budget=derived,
+                floor=STAGE_BUDGET_FLOOR_SECONDS,
+                detail=(
+                    "DB_POOL_TIMEOUT leaves no room for URL-import staging "
+                    "inside the edge proxy's read timeout; URL imports will "
+                    "be refused. Lower DB_POOL_TIMEOUT or raise the proxy's "
+                    "proxy_read_timeout."
+                ),
+            )
+        return STAGE_BUDGET_FLOOR_SECONDS
+    return budget
+
 
 # Bound on the submission-time SSRF preflight (validate_url_for_ssrf's
 # getaddrinfo). fix(#1708 codex r8): it was the one long operation left
@@ -212,7 +286,7 @@ async def fetch_url_to_path(
     # fix(#1708 codex r13): the caller passes what the JOINT budget has left,
     # already reduced by FETCH_MAX_SECONDS. Defaulting to the constant keeps
     # the function usable on its own, but the handler never relies on that —
-    # see the invariant at STAGE_TOTAL_BUDGET_SECONDS.
+    # see the invariant at stage_total_budget_seconds().
     fetch_timeout = (
         FETCH_MAX_SECONDS
         if timeout_seconds is None
@@ -351,7 +425,10 @@ __all__ = [
     "FETCH_MAX_SECONDS",
     "MIN_FETCH_BUDGET_SECONDS",
     "PREFLIGHT_DNS_MAX_SECONDS",
-    "STAGE_TOTAL_BUDGET_SECONDS",
+    "POST_WORK_MARGIN_SECONDS",
+    "STAGE_BUDGET_FLOOR_SECONDS",
+    "STAGE_TOTAL_CEILING_SECONDS",
+    "stage_total_budget_seconds",
     "FETCH_TIMEOUT",
     "SSRFError",
     "UrlFetchError",

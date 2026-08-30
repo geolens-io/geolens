@@ -717,7 +717,8 @@ class TestUrlImportReaperInteraction:
         from app.processing.ingest.url_fetch import (
             EDGE_PROXY_READ_TIMEOUT_SECONDS,
             FETCH_MAX_SECONDS,
-            STAGE_TOTAL_BUDGET_SECONDS,
+            STAGE_TOTAL_CEILING_SECONDS,
+            stage_total_budget_seconds,
         )
 
         assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
@@ -728,17 +729,17 @@ class TestUrlImportReaperInteraction:
         # from db_pool_timeout rather than assumed — see
         # test_every_phase_bound_fits_the_joint_budget for the full chain.
         assert (
-            STAGE_TOTAL_BUDGET_SECONDS + 2 * settings.db_pool_timeout
+            stage_total_budget_seconds() + 2 * settings.db_pool_timeout
             <= EDGE_PROXY_READ_TIMEOUT_SECONDS
         )
-        assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
+        assert FETCH_MAX_SECONDS < STAGE_TOTAL_CEILING_SECONDS
         # fix(#1708 codex r8): the preflight DNS bound joined the budget —
         # it now starts the clock, so a max-length resolution must still
         # leave the fetch its full cap inside the joint budget.
         from app.processing.ingest.url_fetch import PREFLIGHT_DNS_MAX_SECONDS
 
         assert (
-            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_BUDGET_SECONDS
+            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_CEILING_SECONDS
         )
 
     async def test_mid_fetch_row_shape_is_invisible_to_the_pending_sweep(
@@ -1161,7 +1162,8 @@ class TestUrlImportS3Staging:
         put actually ends)."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
         monkeypatch.setattr(
-            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 1
+            "app.processing.ingest.router.stage_total_budget_seconds",
+            lambda: 1,
         )
         # fix(#1708 codex r13): the fetch now refuses when the joint budget
         # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
@@ -1637,7 +1639,8 @@ class TestUrlImportDegradedS3Failure:
         the response must arrive anyway."""
         monkeypatch.setattr(settings, "storage_provider", "s3")
         monkeypatch.setattr(
-            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 1
+            "app.processing.ingest.router.stage_total_budget_seconds",
+            lambda: 1,
         )
         # fix(#1708 codex r13): the fetch now refuses when the joint budget
         # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
@@ -1707,7 +1710,8 @@ class TestUrlImportDegradedS3Failure:
         # Small budget so the bounded wait resolves fast in the test; the
         # production value is the joint stage budget's remainder.
         monkeypatch.setattr(
-            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 2
+            "app.processing.ingest.router.stage_total_budget_seconds",
+            lambda: 2,
         )
         # fix(#1708 codex r13): the fetch now refuses when the joint budget
         # is under MIN_FETCH_BUDGET_SECONDS. These put-path tests
@@ -1779,13 +1783,14 @@ class TestUrlImportJointClock:
             FETCH_MAX_SECONDS,
             MIN_FETCH_BUDGET_SECONDS,
             PREFLIGHT_DNS_MAX_SECONDS,
-            STAGE_TOTAL_BUDGET_SECONDS,
+            STAGE_TOTAL_CEILING_SECONDS,
+            stage_total_budget_seconds,
         )
 
         assert EDGE_PROXY_READ_TIMEOUT_SECONDS == 600
-        assert FETCH_MAX_SECONDS < STAGE_TOTAL_BUDGET_SECONDS
+        assert FETCH_MAX_SECONDS < STAGE_TOTAL_CEILING_SECONDS
         assert (
-            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_BUDGET_SECONDS
+            PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= STAGE_TOTAL_CEILING_SECONDS
         )
         assert 0 < MIN_FETCH_BUDGET_SECONDS < FETCH_MAX_SECONDS
 
@@ -1798,11 +1803,11 @@ class TestUrlImportJointClock:
         # means raising the config fails HERE instead of silently eroding
         # the margin under the proxy.
         pool_wait = settings.db_pool_timeout
-        worst_case = pool_wait + STAGE_TOTAL_BUDGET_SECONDS + pool_wait
+        worst_case = pool_wait + stage_total_budget_seconds() + pool_wait
         assert worst_case <= EDGE_PROXY_READ_TIMEOUT_SECONDS, (
             f"worst case {worst_case}s exceeds the "
             f"{EDGE_PROXY_READ_TIMEOUT_SECONDS}s proxy deadline: shrink "
-            "STAGE_TOTAL_BUDGET_SECONDS or re-derive"
+            "the stage budget (see stage_total_budget_seconds) or re-derive"
         )
         # With real margin left for the single-row CAS/commit and response
         # serialization, not merely equal to the deadline (which is what
@@ -1818,18 +1823,17 @@ class TestUrlImportJointClock:
         from app.processing.ingest.router import _remaining_fetch_budget
         from app.processing.ingest.url_fetch import (
             FETCH_MAX_SECONDS,
-            STAGE_TOTAL_BUDGET_SECONDS,
+            stage_total_budget_seconds,
         )
 
         now = _time.monotonic()
         # A fresh request: essentially the whole joint budget remains.
-        fresh = _remaining_fetch_budget(now + STAGE_TOTAL_BUDGET_SECONDS)
-        assert fresh > STAGE_TOTAL_BUDGET_SECONDS - 1
+        fresh = _remaining_fetch_budget(now + stage_total_budget_seconds())
+        assert fresh > stage_total_budget_seconds() - 1
         # 200s already spent by earlier phases: the fetch gets the rest...
-        spent = _remaining_fetch_budget(now + STAGE_TOTAL_BUDGET_SECONDS - 200)
-        assert (
-            STAGE_TOTAL_BUDGET_SECONDS - 202 < spent < STAGE_TOTAL_BUDGET_SECONDS - 199
-        )
+        spent = _remaining_fetch_budget(now + stage_total_budget_seconds() - 200)
+        budget = stage_total_budget_seconds()
+        assert budget - 202 < spent < budget - 199
         # ...and once the remainder drops under the per-fetch ceiling, THAT
         # is the effective bound, which is the whole point of the change.
         squeezed = _remaining_fetch_budget(now + 120)
@@ -1856,7 +1860,8 @@ class TestUrlImportJointClock:
         remainder, not a fresh constant. With a 60s joint budget the fetch
         may not be given the 480s ceiling."""
         monkeypatch.setattr(
-            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 60
+            "app.processing.ingest.router.stage_total_budget_seconds",
+            lambda: 60,
         )
         seen: dict[str, float | None] = {}
         real_fetch = url_fetch_module.fetch_url_to_path
@@ -1891,7 +1896,8 @@ class TestUrlImportJointClock:
         """A request whose earlier phases consumed the whole budget refuses
         with the clean 502 and never contacts the origin."""
         monkeypatch.setattr(
-            "app.processing.ingest.router.STAGE_TOTAL_BUDGET_SECONDS", 0
+            "app.processing.ingest.router.stage_total_budget_seconds",
+            lambda: 0,
         )
         recorded = _install_transport(
             monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
@@ -2156,3 +2162,110 @@ class TestUrlImportLandedStandDownCleanup:
         staged = Path(job.file_path)
         assert staged.exists()
         assert staged.read_bytes() == GEOJSON
+
+
+# ---------------------------------------------------------------------------
+# Round-17 review finding (#1708): the stage budget is DERIVED from the
+# configured pool timeout, so a deployment CI never runs still holds the
+# invariant
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportDerivedBudget:
+    @pytest.mark.parametrize("pool_timeout", [1, 15, 30, 45, 60, 100, 200])
+    def test_invariant_holds_for_every_pool_timeout(self, pool_timeout, monkeypatch):
+        """fix(#1708 codex r17): the whole point — the assertion must hold
+        for configurations CI never runs at. `db_pool_timeout` is
+        operator-settable (`Field(default=30, gt=0)`), and a hardcoded 510
+        broke at DB_POOL_TIMEOUT=60 (60 + 510 + 60 = 630 > 600) while every
+        CI run, pinned to the default, stayed green."""
+        from app.processing.ingest.url_fetch import (
+            EDGE_PROXY_READ_TIMEOUT_SECONDS,
+            POST_WORK_MARGIN_SECONDS,
+            STAGE_BUDGET_FLOOR_SECONDS,
+            STAGE_TOTAL_CEILING_SECONDS,
+            stage_total_budget_seconds,
+        )
+
+        monkeypatch.setattr(settings, "db_pool_timeout", pool_timeout)
+        budget = stage_total_budget_seconds()
+
+        # Never above the ceiling: a tiny pool timeout must not inflate the
+        # budget past what the preflight and fetch ceilings assume.
+        assert budget <= STAGE_TOTAL_CEILING_SECONDS
+        # Never nonsensical.
+        assert budget >= STAGE_BUDGET_FLOOR_SECONDS
+
+        worst_case = pool_timeout + budget + pool_timeout + POST_WORK_MARGIN_SECONDS
+        if budget > STAGE_BUDGET_FLOOR_SECONDS:
+            # The derived (non-floored) regime: the full chain fits under
+            # the proxy deadline for THIS configuration.
+            assert worst_case <= EDGE_PROXY_READ_TIMEOUT_SECONDS
+        else:
+            # The floored regime is the honest degradation: the config
+            # cannot fit, so the budget is a stub and requests refuse fast
+            # rather than the invariant being quietly violated.
+            assert budget == STAGE_BUDGET_FLOOR_SECONDS
+
+    def test_default_config_keeps_the_full_ceiling(self, monkeypatch):
+        """At the shipped default the budget is unchanged from r16's 510, so
+        this derivation costs nothing on a stock deployment."""
+        from app.processing.ingest.url_fetch import (
+            FETCH_MAX_SECONDS,
+            PREFLIGHT_DNS_MAX_SECONDS,
+            STAGE_TOTAL_CEILING_SECONDS,
+            stage_total_budget_seconds,
+        )
+
+        monkeypatch.setattr(settings, "db_pool_timeout", 30)
+        assert stage_total_budget_seconds() == STAGE_TOTAL_CEILING_SECONDS == 510
+        # And the fetch still gets its full ceiling inside that budget.
+        assert PREFLIGHT_DNS_MAX_SECONDS + FETCH_MAX_SECONDS <= 510
+
+    def test_raised_pool_timeout_shrinks_the_budget(self, monkeypatch):
+        """The exact case from the finding: at 60 the old hardcoded 510 gave
+        630 > 600. The derived budget shrinks instead."""
+        from app.processing.ingest.url_fetch import (
+            EDGE_PROXY_READ_TIMEOUT_SECONDS,
+            POST_WORK_MARGIN_SECONDS,
+            stage_total_budget_seconds,
+        )
+
+        monkeypatch.setattr(settings, "db_pool_timeout", 60)
+        budget = stage_total_budget_seconds()
+        assert budget == 460  # 600 - 120 - 20
+        assert 60 + budget + 60 + POST_WORK_MARGIN_SECONDS == (
+            EDGE_PROXY_READ_TIMEOUT_SECONDS
+        )
+
+    def test_pathological_pool_timeout_floors_and_warns_once(self, monkeypatch, caplog):
+        """A config that cannot fit must clamp to the floor, say so ONCE and
+        clearly, and let the ordinary budget-exhausted refusal do the rest —
+        not produce a negative budget, and not crash at import."""
+        import app.processing.ingest.url_fetch as url_fetch_mod
+
+        monkeypatch.setattr(settings, "db_pool_timeout", 300)
+        # The warning latch is module state; reset so this test observes it.
+        monkeypatch.setattr(url_fetch_mod, "_budget_floor_warned", False)
+
+        warnings: list[dict] = []
+        monkeypatch.setattr(
+            url_fetch_mod.logger,
+            "warning",
+            lambda event, **kw: warnings.append({"event": event, **kw}),
+        )
+
+        first = url_fetch_mod.stage_total_budget_seconds()
+        second = url_fetch_mod.stage_total_budget_seconds()
+
+        assert first == second == url_fetch_mod.STAGE_BUDGET_FLOOR_SECONDS
+        assert first > 0  # never zero or negative
+        # Logged once, not once per request, and legible about the cause.
+        assert len(warnings) == 1
+        assert warnings[0]["event"] == "url_import_stage_budget_floored"
+        assert warnings[0]["db_pool_timeout"] == 300
+        assert warnings[0]["derived_budget"] < 0
+        assert "DB_POOL_TIMEOUT" in warnings[0]["detail"]
+        # And the floor is below the fetch's start threshold, so requests
+        # refuse through the ordinary path instead of opening a connection.
+        assert first < url_fetch_mod.MIN_FETCH_BUDGET_SECONDS

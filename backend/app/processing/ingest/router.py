@@ -96,7 +96,7 @@ from app.processing.ingest.service import (
 from app.processing.ingest.url_fetch import (
     MIN_FETCH_BUDGET_SECONDS,
     PREFLIGHT_DNS_MAX_SECONDS,
-    STAGE_TOTAL_BUDGET_SECONDS,
+    stage_total_budget_seconds,
     UrlFetchError,
     UrlFetchTooLargeError,
     clamp_filename_bytes,
@@ -1258,12 +1258,13 @@ async def upload_from_url(
         # line; and the post-stage transaction, which runs after the
         # budget expires. Both of those can wait on a pool checkout,
         # bounded by settings.db_pool_timeout. That is why
-        # STAGE_TOTAL_BUDGET_SECONDS is 510 and not the proxy's 600: the
-        # 90s it leaves absorbs two worst-case pool waits plus the
-        # single-row CAS and serialization. The arithmetic is derived at
-        # the constant's definition and pinned by
-        # test_every_phase_bound_fits_the_joint_budget.
-        stage_deadline = time.monotonic() + STAGE_TOTAL_BUDGET_SECONDS
+        # the budget is DERIVED from that timeout rather than hardcoded
+        # (r17): stage_total_budget_seconds() returns
+        # min(ceiling 510, proxy 600 - 2*db_pool_timeout - post-work
+        # margin), so an operator raising DB_POOL_TIMEOUT shrinks the
+        # staging budget instead of silently pushing the response past
+        # nginx. See that function for the derivation and the floor.
+        stage_deadline = time.monotonic() + stage_total_budget_seconds()
 
         # Rule 2, submission gate: refuse private/link-local/reserved targets
         # before any connection is attempted — and before any handler DB
