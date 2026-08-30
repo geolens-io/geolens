@@ -1886,3 +1886,154 @@ class TestUrlImportJointClock:
         )
         job = result.scalar_one()
         assert job.status == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Round-14 review findings (#1708): the ambiguous-commit probe fires ONLY for
+# a genuinely ambiguous commit, settlement releases its connection first, and
+# a cancelled put task still gets its key deleted
+# ---------------------------------------------------------------------------
+
+
+class TestUrlImportSettlementScope:
+    async def test_post_stage_rejection_never_probes_and_rolls_back_first(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """fix(#1708 codex r14): an ordinary post-stage failure (quota race)
+        has a KNOWN outcome, so it must not open the probe's fresh session —
+        which, held alongside its own still-open transaction, is what could
+        exhaust the pool. It must also roll back BEFORE any settlement work,
+        and settle normally: artifact cleaned, job failed."""
+        from fastapi import HTTPException
+        from sqlalchemy.ext.asyncio import AsyncSession as _AsyncSession
+
+        order: list[str] = []
+
+        probe_spy = AsyncMock(return_value=True)
+        monkeypatch.setattr(
+            "app.processing.ingest.router._url_import_transition_landed", probe_spy
+        )
+
+        real_rollback = _AsyncSession.rollback
+
+        async def recording_rollback(self):
+            order.append("rollback")
+            return await real_rollback(self)
+
+        monkeypatch.setattr(_AsyncSession, "rollback", recording_rollback)
+
+        real_unlink = Path.unlink
+
+        def recording_unlink(self, *args, **kwargs):
+            if "probescope" in self.name:
+                order.append("cleanup")
+            return real_unlink(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "unlink", recording_unlink)
+
+        calls = {"n": 0}
+
+        async def racing_quota(db_, user_id, incoming_bytes, request_):
+            calls["n"] += 1
+            if calls["n"] == 2:  # the post-stage byte-charged check
+                raise HTTPException(status_code=413, detail="quota raced")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router.check_upload_quota", racing_quota
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/probescope.geojson"},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == 413
+        # The probe — and its fresh session — was never reached.
+        probe_spy.assert_not_awaited()
+        # The connection was released before any settlement work.
+        assert "rollback" in order and "cleanup" in order
+        assert order.index("rollback") < order.index("cleanup")
+        # And the failure settled normally.
+        assert _staged_files() == []
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "probescope.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "failed"
+
+    async def test_ambiguous_commit_still_probes(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        monkeypatch,
+    ):
+        """The narrowing must not disarm the r11 protection: an exception
+        out of the final commit still reaches the probe and stands down."""
+
+        async def ack_lost(db) -> None:
+            await db.commit()
+            raise ConnectionError("ack lost after durable commit")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.router._commit_staged_transition", ack_lost
+        )
+        _install_transport(
+            monkeypatch, lambda request: httpx.Response(200, content=GEOJSON)
+        )
+        resp = await client.post(
+            "/ingest/upload/url",
+            json={"url": "https://files.example.test/stillprobes.geojson"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 500
+        result = await test_db_session.execute(
+            select(IngestJob).where(IngestJob.source_filename == "stillprobes.geojson")
+        )
+        job = result.scalar_one()
+        assert job.status == "pending"  # stood down, not stamped failed
+        assert Path(job.file_path).exists()  # bytes preserved
+
+    def test_only_the_commit_seam_marks_its_exception(self):
+        """The marker is acquired by the commit seam alone — an exception
+        merely passing through settlement never gains it."""
+        from app.processing.ingest.router import _COMMIT_AMBIGUOUS_ATTR
+
+        assert getattr(ValueError("plain"), _COMMIT_AMBIGUOUS_ATTR, False) is False
+
+
+class TestUrlImportCancelledPutReaper:
+    async def test_cancelled_put_task_still_schedules_cleanup(self, monkeypatch):
+        """fix(#1708 codex r14): on a cancelled task `exception()` RAISES
+        CancelledError, which used to escape the done-callback before the
+        delete was scheduled — while the drained provider call could still
+        land the object. All three outcomes must schedule cleanup."""
+        from app.processing.ingest import router as router_module
+
+        cleanup = AsyncMock()
+        monkeypatch.setattr(router_module, "_cleanup_saved_upload", cleanup)
+
+        started = asyncio.Event()
+
+        async def never_finishes() -> None:
+            started.set()
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(never_finishes())
+        await started.wait()
+        task.add_done_callback(
+            router_module._abandoned_put_reaper("staging/jid/cancelled.geojson", "jid")
+        )
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0.05)
+
+        cleanup.assert_awaited_once_with("staging/jid/cancelled.geojson", "jid")

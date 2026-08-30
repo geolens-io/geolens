@@ -642,12 +642,21 @@ def _abandoned_put_reaper(s3_key: str, job_id: str):
     """
 
     def _cb(task: "asyncio.Task") -> None:
-        exc = task.exception()
+        # fix(#1708 codex r14): cancelled() FIRST. On a cancelled task
+        # `exception()` RAISES CancelledError, which escaped this callback
+        # before the cleanup below was ever scheduled — and because the
+        # provider call drains, the upload can still land its object after
+        # that cancellation propagates, leaving it unreferenced. All three
+        # outcomes now schedule the same delete.
+        if task.cancelled():
+            outcome = "cancelled"
+        else:
+            outcome = "failed" if task.exception() is not None else "landed_late"
         logger.warning(
             "url_import_abandoned_put_finished",
             job_id=job_id,
             s3_key=s3_key,
-            outcome="failed" if exc is not None else "landed_late",
+            outcome=outcome,
         )
         asyncio.ensure_future(_cleanup_saved_upload(s3_key, job_id))
 
@@ -743,6 +752,14 @@ async def _url_import_transition_landed(job_id: uuid.UUID, staged_path: str) -> 
     return row is not None and row.status == "pending" and row.file_path == staged_path
 
 
+# fix(#1708 codex r14): stamped on the exception raised BY the final commit,
+# and read back in settlement. Carrying the fact on the exception rather than
+# threading a flag through the handler keeps the marker inseparable from the
+# one await whose outcome is genuinely unknown — nothing else can acquire it
+# by being re-raised through the same code path.
+_COMMIT_AMBIGUOUS_ATTR = "_geolens_url_import_commit_ambiguous"
+
+
 async def _commit_staged_transition(db: AsyncSession) -> None:
     """The final running->pending commit, as a named seam.
 
@@ -750,8 +767,33 @@ async def _commit_staged_transition(db: AsyncSession) -> None:
     ambiguous-commit shape — durable on the server, exception on the
     acknowledgement — which cannot be produced through a real session on
     demand. Production behavior is exactly ``db.commit()``.
+
+    Kept as the bare commit so a test can replace it with an ack-lost
+    stub; the marking lives in ``_commit_staged_transition_guarded`` around
+    it, so the marker is always applied by production code rather than by
+    whatever a test substitutes here.
     """
     await db.commit()
+
+
+async def _commit_staged_transition_guarded(db: AsyncSession) -> None:
+    """Commit the staged transition, marking the exception if it raises.
+
+    fix(#1708 codex r14): an exception out of THIS await, and only this
+    one, is ambiguous — PostgreSQL may have applied the transition before
+    the acknowledgement was lost. Marking it here lets settlement tell it
+    apart from every failure whose outcome is known, without threading a
+    flag through the handler (which would also mean another branch in an
+    already complexity-capped function).
+    """
+    try:
+        await _commit_staged_transition(db)
+    except BaseException as exc:
+        try:
+            setattr(exc, _COMMIT_AMBIGUOUS_ATTR, True)
+        except AttributeError:  # pragma: no cover - exotic exception types
+            pass
+        raise
 
 
 async def _settle_failed_url_import(
@@ -770,14 +812,28 @@ async def _settle_failed_url_import(
     bytes (the local file and, if the put ran, the S3 object) — nothing
     else references them, so both go before the exception propagates.
 
-    fix(#1708 codex r11): "until the file_path commit" is exactly why the
-    ambiguous-commit probe below must run first. If the raise came out of
-    that commit AFTER PostgreSQL durably applied it, the row is already
-    'pending' and bound to ``staged_path`` — the bytes are live catalog
+    fix(#1708 codex r14): the session's transaction is ROLLED BACK FIRST,
+    before anything else here. Everything below — the probe's fresh
+    session, the remote delete, the CAS — used to run while this request
+    still held its failed transaction's pool connection, so a burst of
+    ordinary post-stage rejections (a quota race, say) could hold
+    pool_size + max_overflow connections through a remote round-trip and
+    stall unrelated traffic until DB_POOL_TIMEOUT. That is the connection
+    family closed in r2/r7, reopened by a settlement path that grew.
+
+    fix(#1708 codex r11, narrowed by r14): the ambiguous-commit probe fires
+    ONLY when the exception itself carries the marker
+    ``_commit_staged_transition`` stamps on it. If it did, and PostgreSQL applied
+    the transition before the acknowledgement was lost, the row is already
+    'pending' and bound to ``staged_path``: the bytes are live catalog
     state, deleting them would leave a durable pending job pointing at
-    nothing, and the failure CAS would match zero rows anyway. When the
-    probe says the transition landed, settlement stands down entirely: the
-    request lost only its response, not the job.
+    nothing, and the failure CAS would match zero rows anyway — so
+    settlement stands down entirely and the request loses only its
+    response. Scoping matters as much as the check: applied to EVERY
+    failure (r11's mistake), the probe's deliberate "assume landed when the
+    probe itself fails" default turned ordinary pre-commit failures into
+    skipped cleanups and stranded 'running' jobs. The asymmetry is correct
+    only where the outcome is genuinely unknown.
 
     fix(#1708 codex r5): cleanup is best-effort STRUCTURALLY. A cleanup step
     that raises (the NUL-path unlink was one instance) previously escaped
@@ -798,8 +854,19 @@ async def _settle_failed_url_import(
 
     from app.platform.jobs.models import IngestJob
 
-    if staged_path is not None and await _url_import_transition_landed(
-        job_id, staged_path
+    # Release the pool connection before the probe, the remote delete, or
+    # anything else that can take time (r14). Best-effort: a session whose
+    # connection died mid-commit may refuse this, and the CAS below opens
+    # its own transaction regardless.
+    try:
+        await db.rollback()
+    except BaseException:
+        logger.warning("url_import_settle_rollback_failed", job_id=str(job_id))
+
+    if (
+        getattr(exc, _COMMIT_AMBIGUOUS_ATTR, False)
+        and staged_path is not None
+        and await _url_import_transition_landed(job_id, staged_path)
     ):
         logger.warning(
             "url_import_commit_ack_lost_but_landed",
@@ -855,7 +922,8 @@ async def _settle_failed_url_import(
     except BaseException:
         logger.warning("url_import_cleanup_failed", job_id=str(job_id))
     try:
-        await db.rollback()
+        # No rollback here: the transaction was already ended above, and
+        # this CAS opens a fresh one of its own.
         await db.execute(
             sa_update(IngestJob)
             .where(IngestJob.id == job_id, IngestJob.status == "running")
@@ -1362,7 +1430,7 @@ async def upload_from_url(
                         "file was downloading. Start a new import."
                     ),
                 )
-            await _commit_staged_transition(db)
+            await _commit_staged_transition_guarded(db)
         except BaseException as exc:
             await _settle_failed_url_import(
                 db,

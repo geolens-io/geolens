@@ -2739,7 +2739,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # promptly rather than opening a doomed connection. Most of the growth
     # is the INVARIANT comment at the deadline's definition, which a future
     # phase added to this handler inherits. Cap 2295 -> 2332, exact.
-    "backend/app/processing/ingest/router.py": 2365,
+    # fix(#1708 codex r14): +68 — the r11 ambiguous-commit probe was scoped
+    # to EVERY post-staging failure, so ordinary rejections opened a second
+    # session while still holding their own transaction (the r2/r7
+    # connection family, reopened by a settlement path that grew) and
+    # inherited the probe's deliberate assume-landed default, skipping
+    # cleanup. Settlement now rolls back FIRST, and the probe fires only
+    # for an exception carrying the marker _commit_staged_transition_
+    # guarded stamps. A cancelled put task also reaches its deleter now
+    # (task.exception() raises on a cancelled task). Cap 2332 -> 2400,
+    # exact.
+    "backend/app/processing/ingest/router.py": 2433,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
