@@ -218,6 +218,7 @@ _TENANCY_GLOBAL_STATE_MODULES = {
     #     concurrently with each other or the group above (pg_shdepend contention).
     "test_analysis_materialize",  # register_existing_table → grant_reader_access
     "test_registered_delete_detach_1452",  # same: registers real tables
+    "test_register_geom_column_name_1737",  # same: its accept-case registers
     "test_embed_tokens",
     "test_features_crud",
     "test_features_geojson_z",
