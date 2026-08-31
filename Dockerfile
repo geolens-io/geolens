@@ -236,7 +236,7 @@ RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh
 
 ENTRYPOINT ["/scripts/backup-entrypoint.sh"]
 
-FROM node:26.7.0-alpine AS frontend-build
+FROM node:26.8.1-alpine AS frontend-build
 
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
