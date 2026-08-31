@@ -50,6 +50,11 @@ thing standing between a truncated or reshaped source and live data. Nothing in
 the API stops you calling this from a scheduler, but until completeness
 verification ships, you are the check.
 
+`--wait` reports the job's terminal status, not what changed in the data. Drift
+is recorded on the dataset: read `schema_drift_status` from `GET /datasets/{id}`,
+or open the dataset's Source panel in the web app. Neither `geolens refresh` nor
+`geolens status` surfaces it today.
+
 Protected services can receive a transient credential with `--token`. Use bare
 `--token` to open a hidden-input prompt, which keeps the value out of terminal
 output and shell history. Supplying a token value directly is supported for
