@@ -40,8 +40,15 @@ source whose data changed independently.
 the dataset from the origin binding stored by GeoLens, without accepting a URL,
 layer, or client-selected trigger. Add `--wait` to poll the refresh job to a
 terminal state without an implicit deadline; pass `--timeout` when automation
-needs a finite bound. This is the supported command for scheduled cron or CI
-refresh jobs; use `apply` when the declared source configuration itself changes.
+needs a finite bound. Use `apply` when the declared source configuration itself
+changes.
+
+Unattended refresh is not supported yet. GeoLens does not verify that a
+re-pulled source is complete, and schema drift is reported but does not block
+the swap, so the person who triggers a refresh and reads the result is the only
+thing standing between a truncated or reshaped source and live data. Nothing in
+the API stops you calling this from a scheduler, but until completeness
+verification ships, you are the check.
 
 Protected services can receive a transient credential with `--token`. Use bare
 `--token` to open a hidden-input prompt, which keeps the value out of terminal
