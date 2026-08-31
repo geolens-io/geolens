@@ -48,7 +48,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@42947a340483f03ba47bb1a039b2c519aab3df85  # v3
+        uses: github/codeql-action/init@6f5948dfacef28e207b48d0905cf90c03365536d  # v3
         with:
           languages: ${{ matrix.language }}
           # Runs IN ADDITION to the default code-scanning suite. `queries:`
@@ -59,11 +59,11 @@ jobs:
           queries: ${{ matrix.suppression-queries }}
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@42947a340483f03ba47bb1a039b2c519aab3df85  # v3
+        uses: github/codeql-action/autobuild@6f5948dfacef28e207b48d0905cf90c03365536d  # v3
 
       - name: Perform CodeQL Analysis
         id: analyze
-        uses: github/codeql-action/analyze@42947a340483f03ba47bb1a039b2c519aab3df85  # v3
+        uses: github/codeql-action/analyze@6f5948dfacef28e207b48d0905cf90c03365536d  # v3
         with:
           category: "/language:${{ matrix.language }}"
 
