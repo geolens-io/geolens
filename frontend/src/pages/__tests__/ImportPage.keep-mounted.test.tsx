@@ -18,10 +18,10 @@ import { ImportPage } from '../ImportPage';
 
 const mounts: Record<string, number> = {};
 
-function trackMount(name: string) {
+function useTrackMount(name: string) {
   useEffect(() => {
     mounts[name] = (mounts[name] ?? 0) + 1;
-  }, []);
+  }, [name]);
 }
 
 vi.mock('react-i18next', () => ({
@@ -47,7 +47,7 @@ vi.mock('@/hooks/use-document-title', () => ({ useDocumentTitle: vi.fn() }));
 // that an unmount would have destroyed.
 vi.mock('@/components/import/UploadForm', () => ({
   UploadForm: () => {
-    trackMount('upload');
+    useTrackMount('upload');
     const [value, setValue] = useState('');
     return (
       <input
@@ -61,28 +61,28 @@ vi.mock('@/components/import/UploadForm', () => ({
 
 vi.mock('@/components/import/UrlImportForm', () => ({
   UrlImportForm: () => {
-    trackMount('url');
+    useTrackMount('url');
     return <div>URL workflow</div>;
   },
 }));
 
 vi.mock('@/components/import/RegisterForm', () => ({
   RegisterForm: () => {
-    trackMount('register');
+    useTrackMount('register');
     return <div>Register workflow</div>;
   },
 }));
 
 vi.mock('@/components/import/ServiceUrlForm', () => ({
   ServiceUrlForm: () => {
-    trackMount('service');
+    useTrackMount('service');
     return <div>Service workflow</div>;
   },
 }));
 
 vi.mock('@/components/import/StacImportForm', () => ({
   StacImportForm: () => {
-    trackMount('stac');
+    useTrackMount('stac');
     return <div>STAC workflow</div>;
   },
 }));
