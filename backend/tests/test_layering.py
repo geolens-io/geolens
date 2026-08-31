@@ -3753,7 +3753,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # unreachable, and dead compensation code reads as a live invariant.
     # Replaced by the smaller claim/restore pair, restore being the fenced
     # CR-02 retry contract. Cap 1417 -> 1376, exact.
-    "backend/app/processing/ingest/service.py": 1376,
+    # fix(#1737): +26 for the geometry-column-name probe in
+    # register_existing_table. A spatial table whose geometry is not named
+    # `geom` used to register silently as a non-spatial attribute table; the
+    # probe tells that case apart from the deliberate no-geometry path (#1359)
+    # and refuses with the offending column name. Cap 1376 -> 1402, exact.
+    "backend/app/processing/ingest/service.py": 1402,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

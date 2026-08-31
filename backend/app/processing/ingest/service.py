@@ -741,6 +741,32 @@ async def register_existing_table(
     has_geom = "geom" in geom_cols
     has_4326 = "geom_4326" in geom_cols
 
+    # fix(#1737): a spatial table whose geometry lives under any other name
+    # used to register SILENTLY as a non-spatial attribute table -- the branch
+    # below is gated on `has_geom`, and extract_metadata reports srid/
+    # geometry_type/extent as None for a column it does not recognize. The
+    # non-spatial registration path is deliberate (#1359), so the two cases
+    # have to be told apart here rather than by widening that path: a table
+    # with NO geometry column anywhere is still a legitimate attribute table.
+    # `ogr2ogr -f PostgreSQL` names its column `wkb_geometry` by default, so
+    # the most ordinary way to land a table in the data schema hit this.
+    if not has_geom:
+        other_geom = await session.execute(
+            text(
+                "SELECT f_geometry_column FROM geometry_columns "
+                "WHERE f_table_schema = :schema AND f_table_name = :table_name "
+                "LIMIT 1"
+            ).bindparams(schema=_schema, table_name=table_name)
+        )
+        found = other_geom.scalar_one_or_none()
+        if found is not None:
+            raise ValueError(
+                f"Table '{table_name}' stores geometry in a column named "
+                f"'{found}'. GeoLens reads geometry from a column named "
+                "'geom'. Rename the column, or re-export the table with "
+                "`-lco GEOMETRY_NAME=geom`."
+            )
+
     from app.processing.ingest.tasks_common import (
         _current_tenant_role,
     )
