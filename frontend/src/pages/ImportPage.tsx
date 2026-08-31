@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Upload, Link, Database, Globe, Satellite } from 'lucide-react';
 import { PageHeader } from '@/components/layout/PageHeader';
@@ -31,6 +31,50 @@ export function ImportPage() {
   const [uploadPhase, setUploadPhase] = useState<BatchPhase>('idle');
   useDocumentTitle(t('common:pageTitle.import'));
 
+  // fix(#1712): a tab is mounted on first visit and never unmounted again.
+  //
+  // These panels used to render as `activeTab === x && <Form />`, so switching
+  // tabs mid-import UNMOUNTED the running form. The request kept going, since
+  // the server does not stop working when a client goes away, and its response
+  // landed in dead component state: the job became unreachable from the UI and
+  // its staged bytes sat there until the stale-pending sweep took them.
+  //
+  // Aborting on unmount is not a fix, for the same reason #1708 gives for the
+  // URL tab: the abort strands the identical server-side state and throws away
+  // the id needed to find it. Not unmounting is the direct answer, and it costs
+  // one Set: an in-flight XHR's progress callbacks keep writing to live state
+  // because the component they belong to is still there.
+  //
+  // Mount-on-FIRST-VISIT rather than mount-everything, because these forms do
+  // real work when they mount -- RegisterForm lists unregistered tables -- and
+  // rendering all five up front would fire that for tabs nobody opened.
+  //
+  // This closes tab switching, which is what #1712 reports. It does NOT survive
+  // leaving the Import route entirely; only a module-scoped session outside
+  // React does that, which is what #1708 built for the URL tab. #1712 stays
+  // open for the batch version of that work.
+  const [visited, setVisited] = useState<ReadonlySet<Tab>>(() => new Set<Tab>(['upload']));
+
+  const selectTab = useCallback((value: Tab) => {
+    setActiveTab(value);
+    setVisited((prev) => (prev.has(value) ? prev : new Set(prev).add(value)));
+  }, []);
+
+  const panelFor = (value: Tab) => {
+    switch (value) {
+      case 'upload':
+        return <UploadForm onPhaseChange={setUploadPhase} />;
+      case 'url':
+        return <UrlImportForm />;
+      case 'register':
+        return <RegisterForm />;
+      case 'service':
+        return <ServiceUrlForm />;
+      case 'stac':
+        return <StacImportForm />;
+    }
+  };
+
   return (
     <PageShell>
       <PageHeader
@@ -51,7 +95,7 @@ export function ImportPage() {
             <button
               key={value}
               type="button"
-              onClick={() => setActiveTab(value)}
+              onClick={() => selectTab(value)}
               aria-current={activeTab === value ? 'page' : undefined}
               className={cn(
                 'inline-flex items-center gap-2 border-b-2 px-4 pb-3 pt-3 text-sm font-medium transition-colors',
@@ -76,13 +120,15 @@ export function ImportPage() {
       {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 pb-12 xl:grid-cols-[1fr_320px]">
         <div className="min-w-0">
-          <AppErrorBoundary>
-            {activeTab === 'upload' && <UploadForm onPhaseChange={setUploadPhase} />}
-            {activeTab === 'url' && <UrlImportForm />}
-            {activeTab === 'register' && <RegisterForm />}
-            {activeTab === 'service' && <ServiceUrlForm />}
-            {activeTab === 'stac' && <StacImportForm />}
-          </AppErrorBoundary>
+          {MODE_TABS.filter(({ value }) => visited.has(value)).map(({ value }) => (
+            // `hidden` rather than unmounting: it takes the panel out of the
+            // a11y tree and the tab order while leaving the component alive.
+            // One boundary PER panel, because a shared one would let a hidden
+            // tab's error blank the tab the user is actually looking at.
+            <div key={value} hidden={activeTab !== value}>
+              <AppErrorBoundary>{panelFor(value)}</AppErrorBoundary>
+            </div>
+          ))}
         </div>
         <WorkflowRail
           mode={activeTab}
