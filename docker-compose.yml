@@ -901,6 +901,8 @@ services:
     # 8.x line tip; cloud-dev profile only.
     image: valkey/valkey:8.1.7-alpine
     profiles: ["cloud-dev"]
+    # fix(#1746): cap_drop ALL removes CAP_SETUID, so the entrypoint's setpriv fails; a non-root user skips setpriv.
+    user: "valkey"
     # D04 (docker-audit-20260604): drop caps + block privilege gain (opt-in dev cache).
     security_opt:
       - no-new-privileges:true
