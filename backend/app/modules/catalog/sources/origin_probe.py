@@ -53,6 +53,9 @@ from typing import Any
 
 import httpx
 
+from app.modules.catalog.sources.adapters.arcgis import (
+    build_arcgis_count_query_url,
+)
 from app.modules.catalog.sources.adapters.wfs import build_capabilities_url
 from app.platform.security import (
     SSRFError,
@@ -280,10 +283,18 @@ async def probe_arcgis_origin(
     Reads the body, so it inherits ``fetch_json_document``'s size cap, and an
     oversized sub-400 answer is resolved in the origin's favour — see the
     comment at that branch.
+
+    fix(#1746 codex r6): probes ``<layer>/query``, not the layer document.
+    ``build_gdal_source`` composes ``<layer>/query?...`` and that is what the
+    worker fetches, while a deployment that serves layer METADATA publicly and
+    gates the query operation is ordinary. Probing the document would clear
+    such a service and hand it to the worker to fail on. ``uri`` is still the
+    stored layer pointer, because that is what both callers hold; the query
+    URL is composed from it by the one builder the count fetcher also uses.
     """
     try:
-        target = str(httpx.URL(uri).copy_set_param("f", "json"))
-    except (httpx.InvalidURL, ValueError):
+        target = build_arcgis_count_query_url(uri)
+    except (ValueError, AttributeError):
         # Let the fetch classify a malformed stored URL, rather than raising
         # out of a handler that has already released its DB session.
         target = uri
@@ -291,12 +302,12 @@ async def probe_arcgis_origin(
     if result.oversized:
         # fix(#1746 codex post-rebase): the origin answered sub-400 with a
         # body too big to parse. An ArcGIS auth envelope is a few hundred
-        # bytes, so whatever this is, it is not one — a real layer document
-        # with a long field list or a coded-value domain is exactly what runs
-        # past the cap. Calling a layer that answered 200 `inaccessible`
-        # because it answered at LENGTH is the false negative that mirrors the
-        # false positive this probe exists to close. The size limit stays
-        # where STAC needs it; only the reading of a hit limit changes.
+        # bytes and a returnCountOnly answer is smaller still, so whatever
+        # this is, it is not a refusal. Calling an origin that answered 200
+        # `inaccessible` because it answered at LENGTH is the false negative
+        # that mirrors the false positive this probe exists to close. The
+        # size limit stays where STAC needs it; only the reading of a hit
+        # limit changes.
         return OriginProbeResult(HEALTHY)
     if not result.ok:
         return result
@@ -313,8 +324,10 @@ def service_probe_target(origin_ref: Any, origin_uri: str | None) -> str | None:
 
     fix(#1271 review): the target depends on the service type. Ingest stores
     ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and only
-    ArcGIS's flavor of that (``<base>/<numeric id>``) is a real HTTP resource
-    — WFS and OGC API address layers through a typename or collection
+    ArcGIS's flavor of that (``<base>/<numeric id>``) addresses a real HTTP
+    resource — the layer, from which :func:`probe_arcgis_origin` composes the
+    ``/query`` the worker actually reads (fix #1746 codex r6).
+    WFS and OGC API address layers through a typename or collection
     parameter, so their enriched URI is a non-endpoint and probing it records
     whatever the server's 404 fallback happens to say about a URL nobody
     serves. For those two the canonical service base in ``origin_ref.url`` is

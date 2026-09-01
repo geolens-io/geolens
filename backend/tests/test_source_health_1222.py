@@ -892,23 +892,77 @@ class TestArcgisAuthEnvelope:
         assert result.detail == AUTH_REQUIRED
         assert result.ok is False
 
-    async def test_a_normal_layer_document_stays_healthy(self, probe_transport) -> None:
+    async def test_a_public_layer_document_does_not_clear_a_gated_query(
+        self, probe_transport
+    ) -> None:
+        """fix(#1746 codex r6): the exact deployment the old target missed.
+
+        Serving layer metadata anonymously while requiring a token to run a
+        query is an ordinary ArcGIS configuration. The old probe read the
+        document, saw a healthy 200, and dispatched a refresh that the worker
+        could only fail — the metadata endpoint is not the one it reads.
+        """
         install, recorded = probe_transport
-        install(_json_body({"id": 0, "name": "roads", "type": "Feature Layer"}))
+
+        def _public_metadata_gated_query(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/query"):
+                return httpx.Response(
+                    200, json={"error": {"code": 499, "message": "Token Required"}}
+                )
+            return httpx.Response(200, json={"id": 0, "name": "roads"})
+
+        install(_public_metadata_gated_query)
+        result = await probe_arcgis_origin(self._LAYER_URI)
+
+        assert result.health == INACCESSIBLE
+        assert result.detail == AUTH_REQUIRED
+        # And it never asked the endpoint that would have lied to it.
+        assert [r.url.path.endswith("/query") for r in recorded] == [True]
+
+    async def test_a_healthy_count_answer_probes_the_query_operation(
+        self, probe_transport
+    ) -> None:
+        """fix(#1746 codex r6): the probe asks what the WORKER asks.
+
+        ``build_gdal_source`` composes ``<layer>/query?...`` and that is what
+        ogr2ogr fetches. A service that serves the layer DOCUMENT publicly and
+        gates ``/query`` is an ordinary deployment, and probing the document
+        would clear it and hand it to the worker to fail on.
+        """
+        install, recorded = probe_transport
+        install(_json_body({"count": 4127}))
         result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == HEALTHY
         assert result.detail is None
         assert len(recorded) == 1
+        assert recorded[0].url.path.endswith("/query")
+        assert recorded[0].url.params["returnCountOnly"] == "true"
+        assert recorded[0].url.params["where"] == "1=1"
         assert recorded[0].url.params["f"] == "json"
+        # Token-less by construction: the door only probes when the request
+        # carried no token, and the health endpoint never has one.
+        assert "token" not in recorded[0].url.params
 
-    async def test_a_url_that_already_carries_f_is_not_doubled(
-        self, probe_transport
+    @pytest.mark.parametrize(
+        "stored",
+        ["?f=html", "/", "/query", "#frag"],
+        ids=["query_string", "trailing_slash", "already_query", "fragment"],
+    )
+    async def test_a_stored_pointer_is_normalized_before_the_query_is_composed(
+        self, probe_transport, stored: str
     ) -> None:
-        """``copy_set_param`` replaces rather than appends."""
+        """``origin_uri`` is provenance, not a curated endpoint.
+
+        It can arrive with a query string, a fragment, a trailing slash, or an
+        already-appended ``/query``. Every one of those has to compose to the
+        same endpoint rather than to ``.../0?f=html/query?...``.
+        """
         install, recorded = probe_transport
-        install(_json_body({"id": 0, "name": "roads"}))
-        await probe_arcgis_origin(f"{self._LAYER_URI}?f=html")
+        install(_json_body({"count": 1}))
+        await probe_arcgis_origin(f"{self._LAYER_URI}{stored}")
+        assert str(recorded[0].url).startswith(f"{self._LAYER_URI}/query?")
         assert recorded[0].url.params.get_list("f") == ["json"]
+        assert recorded[0].url.params["returnCountOnly"] == "true"
 
     async def test_a_non_auth_envelope_is_left_alone(self, probe_transport) -> None:
         """Only 498 and 499 are read.
@@ -918,7 +972,7 @@ class TestArcgisAuthEnvelope:
         would report ``missing`` for services that still answer.
         """
         install, _ = probe_transport
-        install(_json_body({"error": {"code": 400, "message": "Invalid layer"}}))
+        install(_json_body({"error": {"code": 400, "message": "Invalid where"}}))
         result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == HEALTHY
 
@@ -948,13 +1002,14 @@ class TestArcgisAuthEnvelope:
         assert result.health == INACCESSIBLE
         assert result.detail == UNEXPECTED_STATUS
 
-    def _oversized_layer_document(self) -> dict:
-        """A VALID layer document that runs past ``MAX_DOCUMENT_BYTES``.
+    def _oversized_document(self) -> dict:
+        """A VALID ArcGIS document that runs past ``MAX_DOCUMENT_BYTES``.
 
-        Not a contrived blob. A FeatureServer layer with a long field list and
-        coded-value domains on those fields is exactly the shape that gets
-        there, which is why the size cap and the envelope check collide at
-        all.
+        Shaped as a layer with a long field list and coded-value domains,
+        because that is the real thing that gets there. The probe asks
+        ``/query`` now (fix #1746 codex r6), whose answer is a single count
+        and could never be this big — which is exactly why an oversized body
+        cannot be an auth envelope either, and is read as reachable.
         """
         return {
             "id": 0,
@@ -993,7 +1048,7 @@ class TestArcgisAuthEnvelope:
         cannot be one. That is the whole argument, and it is arithmetic rather
         than a guess.
         """
-        payload = self._oversized_layer_document()
+        payload = self._oversized_document()
         # Positive control on the fixture: if this stops exceeding the cap,
         # the test below would pass while exercising nothing.
         assert len(json.dumps(payload).encode()) > MAX_DOCUMENT_BYTES
@@ -1018,7 +1073,7 @@ class TestArcgisAuthEnvelope:
         in the origin's favour.
         """
         install, _ = probe_transport
-        install(_json_body(self._oversized_layer_document()))
+        install(_json_body(self._oversized_document()))
         result, body, _url = await fetch_json_document(_ITEM)
 
         assert result.health == INACCESSIBLE
@@ -1055,7 +1110,7 @@ class TestArcgisAuthEnvelope:
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:
         install, _ = probe_transport
-        install(_json_body(self._oversized_layer_document()))
+        install(_json_body(self._oversized_document()))
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
@@ -1101,9 +1156,11 @@ class TestServiceOriginProbe:
         self, client, admin_auth_header, test_db_session, probe_transport
     ) -> None:
         install, recorded = probe_transport
-        # fix(#1746): the ArcGIS branch now reads the body, so the double has
-        # to answer with a real layer document rather than an empty 200.
-        install(_json_body({"id": 0, "name": "roads", "type": "Feature Layer"}))
+        # fix(#1746): the ArcGIS branch reads the body, so the double has to
+        # answer with a real document rather than an empty 200. fix(#1746
+        # codex r6): and the thing asked is the count query, so that is what
+        # comes back.
+        install(_json_body({"count": 4127}))
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
@@ -1113,12 +1170,15 @@ class TestServiceOriginProbe:
         assert resp.status_code == 200, resp.text
         assert resp.json()["origin"] == "service"
         assert resp.json()["source_health"] == HEALTHY
-        # Bounded: the layer endpoint, once. For ArcGIS the enriched
-        # origin_uri IS the layer resource, so it is the sharper probe target.
-        # fix(#1746): asked as `?f=json` rather than a ranged GET, because the
-        # error envelope only exists in the JSON representation.
+        # Bounded: one request, to the operation the worker depends on. The
+        # enriched origin_uri identifies the layer; the probe composes the
+        # `/query` from it. Asked as JSON rather than as a ranged GET, because
+        # the error envelope only exists in the JSON representation.
         assert len(recorded) == 1
-        assert str(recorded[0].url) == "https://origin.test/FeatureServer/0?f=json"
+        assert (
+            str(recorded[0].url) == "https://origin.test/FeatureServer/0/query"
+            "?where=1%3D1&returnCountOnly=true&f=json"
+        )
         assert "Range" not in recorded[0].headers
 
     async def test_mid_probe_rebind_discards_the_stale_verdict(

@@ -195,7 +195,10 @@ def _service_probe_target(dataset: Dataset) -> str:
     status-code probe reads them as healthy. fix(#1746) parses exactly one of
     those envelopes: codes 498 and 499, the auth refusals, which
     :func:`probe_arcgis_origin` reports as ``inaccessible`` /
-    ``auth_required``. A DROPPED LAYER is still not detected — parsing the
+    ``auth_required``. fix(#1746 codex r6): it asks the ``/query`` operation
+    rather than the layer document, because that is what the worker reads and
+    a service can serve one publicly while gating the other. A DROPPED LAYER
+    is still not detected — parsing the
     rest of the per-service error space is the connector-completeness
     contract, which ADR-002 leaves out of v1, so ``missing`` on a service
     origin still means the HTTP resource itself is gone, not that a layer was
