@@ -1023,6 +1023,12 @@ async def preview_service_layer(
                 layer=request.layer_name,
             )
             await _fail_preview(db, user.id, request.url, request.layer_name)
+    except HTTPException:
+        # fix(#1746): run_service_preview now refuses a header-auth token that
+        # is outside the base64url charset with a 422, which is an answer and
+        # not a pipeline failure. Without this clause the broad handler below
+        # would rewrite it into a 500 and lose the policy message.
+        raise
     except Exception:  # broad: preview pipeline involves GDAL/OGR/HTTP probes; record failure without aborting the request
         logger.exception(
             "Unexpected error during service preview",

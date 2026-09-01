@@ -21,6 +21,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
+from app.core.service_tokens import (
+    header_token_rejection_reason,
+    requires_header_token_policy,
+)
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.dataset_origin import set_postgis_origin
 from app.platform.extensions import get_processing_port
@@ -1221,6 +1225,46 @@ async def restore_fan_out_parent_pending(
     await session.commit()
 
 
+def _assert_header_token_dispatchable(job: IngestJob, token: str | None) -> None:
+    """fix(#1746): refuse a header-auth token the worker is going to reject.
+
+    The import-commit door used to hand any printable, whitespace-free token
+    straight to ``resolve_dispatch_credential``. A WFS or OGC API token
+    containing ``+`` or ``/`` therefore got a 202, spent its single-use
+    credential, and failed deterministically inside ogr2ogr's own charset check
+    (``_sanitize_authorization_token``). Same policy, same 422 and same
+    policy-only message the refresh door has returned since #1277 — the caller
+    has the token and can compare it against the rule, and a response body must
+    never echo part of a credential.
+
+    ArcGIS is deliberately exempt, which is ``requires_header_token_policy``'s
+    decision and not this function's: an ArcGIS token is a urlencoded query
+    parameter, never a header line, so the strict charset would reject valid
+    tokens for a danger that path does not have.
+    """
+    if not token:
+        return
+    from app.processing.ingest.ogr import IngestionError
+    from app.processing.ingest.tasks import resolve_service_type
+
+    try:
+        _, source_format = resolve_service_type(
+            str((job.user_metadata or {}).get("service_type") or "")
+        )
+    except IngestionError:
+        # An unrecognized service label is the worker's error to report; this
+        # check does not take that decision away from it.
+        return
+    if not requires_header_token_policy(source_format):
+        return
+    rejection = header_token_rejection_reason(token)
+    if rejection is not None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": "invalid_service_token", "message": rejection},
+        )
+
+
 async def queue_ingest_job(
     job: IngestJob,
     user_id: str,
@@ -1263,6 +1307,10 @@ async def queue_ingest_job(
         # nested closure (the attribute access reverts to ``str | None``).
         source_url = job.source_url
         job_failed = make_ingest_job_failed_rollback(job)
+
+        # fix(#1746): BEFORE the stash below, so a token the worker will refuse
+        # never burns a single-use credential.
+        _assert_header_token_dispatchable(job, token)
 
         # feat(#1676): the import door's half of the lease. On an install with
         # a shared credential store this returns (None, ref) and the secret

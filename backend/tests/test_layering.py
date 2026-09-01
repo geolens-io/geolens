@@ -3566,7 +3566,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refresh until the stale-run sweep). Over half the lines are the
     # comment recording both serializations and why the lock order cannot
     # deadlock against the cancel endpoint. Cap 1194 -> 1244, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1244,
+    # fix(#1746): +38 — reupload_commit applies the strict header-token policy
+    # before it reserves anything, so a WFS/OGC token outside the base64url
+    # charset is refused with the same 422 the refresh door returns instead of
+    # burning its single-use credential and dying in ogr2ogr. Most of the lines
+    # are the comment saying why the check sits ahead of `create_pending_run`
+    # (a token that cannot work must not take the one-active-run admission
+    # slot) and why ArcGIS is exempt. Cap 1244 -> 1282, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1282,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -3795,7 +3802,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `geom` used to register silently as a non-spatial attribute table; the
     # probe tells that case apart from the deliberate no-geometry path (#1359)
     # and refuses with the offending column name. Cap 1376 -> 1402, exact.
-    "backend/app/processing/ingest/service.py": 1402,
+    # fix(#1746): +48 — `_assert_header_token_dispatchable`, called by
+    # `queue_ingest_job` before it stashes anything, so a WFS/OGC token outside
+    # the base64url charset is refused with the same 422 the refresh door
+    # returns instead of burning its single-use credential and dying in
+    # ogr2ogr. It is a named helper rather than an inline block because inline
+    # pushed `queue_ingest_job` past ruff's C901 ceiling; most of the lines are
+    # its docstring, recording the failure it closes and why ArcGIS is exempt.
+    # Cap 1402 -> 1450, exact.
+    "backend/app/processing/ingest/service.py": 1450,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
