@@ -27,6 +27,7 @@ same worker.
 """
 
 import logging
+import time
 
 import pytest
 from procrastinate.jobs import Job
@@ -273,3 +274,32 @@ def test_redact_token_value_repr_handles_a_dict_repr_escaped_quote():
     assert _TOKEN not in redacted
     assert "'token': '[REDACTED]'" in redacted
     assert "'credential_ref': None" in redacted
+
+
+def test_redact_token_value_repr_stays_linear_on_unterminated_input():
+    """Codex round 4 P2: the two value-body alternatives must not overlap.
+
+    `(?:\\.|.)*?` let `.` also match a backslash, so an unterminated
+    `token='` followed by N backslashes had N different ways to split into
+    `\\.` pairs versus lone `.` characters -- and the regex engine tried all
+    of them before concluding there is no closing quote, which is
+    exponential in N. That ran synchronously on every log record, so
+    malformed third-party error text (no code here has to intend it) could
+    stall the whole process. `[^\\]` in place of the second `.` makes the
+    two alternatives partition the input instead of overlapping it: for any
+    given position there is exactly one alternative that can consume it, so
+    an unterminated match now fails in time linear in the input length.
+
+    200 backslashes is comfortably past the ~34 where the old pattern's
+    runtime was already visible in a manual timing check; a generous 1
+    second bound is asserted so this fails loudly (not by hanging) if the
+    linear property regresses.
+    """
+    message = "token='" + "\\" * 200
+
+    start = time.perf_counter()
+    redacted = _redact_token_value_repr(message)
+    elapsed = time.perf_counter() - start
+
+    assert elapsed < 1.0, f"took {elapsed:.3f}s -- no longer linear"
+    assert redacted == message  # no closing quote: nothing to redact, unchanged

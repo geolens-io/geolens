@@ -87,7 +87,7 @@ _MAX_REDACT_DEPTH = 8
 # between "n" and "_", so a name that merely CONTAINS "token" as a sub-word
 # never matches either branch.
 #
-# fix(#1746 codex r3): the value body is `(?:\\.|.)*?`, not a bare `.*?`.
+# fix(#1746 codex r3): the value body is `(?:\\.|[^\\])*?`, not a bare `.*?`.
 # `repr()` of a string containing BOTH quote styles picks one as the
 # delimiter and ESCAPES that character where it occurs in the value (and
 # always escapes a literal backslash), e.g. `repr("pre'SECRET\"post")` is
@@ -95,12 +95,22 @@ _MAX_REDACT_DEPTH = 8
 # instead of the real closing quote, leaving the rest of the token in the
 # log. `\\.` consumes an escape (backslash + whatever follows it) as one
 # unit before the closing-quote alternative gets a chance to match it.
+#
+# fix(#1746 codex r4): the non-escape alternative excludes the backslash
+# (`[^\\]`, not `.`) so the two alternatives never overlap. `.` also
+# matches `\\`, so a run of N backslashes with no closing quote had N ways
+# to split into `\\.` pairs versus lone `.` characters, and the engine tried
+# all of them before giving up -- exponential backtracking on malformed
+# third-party text (36 backslashes took over three seconds), synchronously,
+# on every log record. Excluding the backslash from the second alternative
+# leaves exactly one way to consume each character, so an unterminated match
+# fails in time linear in the input length instead.
 _TOKEN_VALUE_RE = re.compile(
     r"""
     (?:
-        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"])(?:\\.|.)*?(?P=dv)
+        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"])(?:\\.|[^\\])*?(?P=dv)
       |
-        \btoken\b\s*=\s*(?P<kv>['\"])(?:\\.|.)*?(?P=kv)
+        \btoken\b\s*=\s*(?P<kv>['\"])(?:\\.|[^\\])*?(?P=kv)
     )
     """,
     re.VERBOSE,
