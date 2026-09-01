@@ -34,6 +34,7 @@ Six properties this suite exists to hold:
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -49,6 +50,7 @@ from app.modules.catalog.sources.origin_probe import (
     HEALTHY,
     INACCESSIBLE,
     ITEM_WITHDRAWN,
+    MAX_DOCUMENT_BYTES,
     MISSING,
     NETWORK_ERROR,
     NOT_FOUND,
@@ -56,6 +58,7 @@ from app.modules.catalog.sources.origin_probe import (
     TIMEOUT,
     UNAUTHORIZED,
     UNEXPECTED_STATUS,
+    fetch_json_document,
     probe_arcgis_origin,
     probe_remote_uri,
     remote_asset_exists,
@@ -944,6 +947,129 @@ class TestArcgisAuthEnvelope:
         result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == INACCESSIBLE
         assert result.detail == UNEXPECTED_STATUS
+
+    def _oversized_layer_document(self) -> dict:
+        """A VALID layer document that runs past ``MAX_DOCUMENT_BYTES``.
+
+        Not a contrived blob. A FeatureServer layer with a long field list and
+        coded-value domains on those fields is exactly the shape that gets
+        there, which is why the size cap and the envelope check collide at
+        all.
+        """
+        return {
+            "id": 0,
+            "name": "roads",
+            "type": "Feature Layer",
+            "fields": [
+                {
+                    "name": f"field_{i}",
+                    "alias": f"Field number {i}",
+                    "type": "esriFieldTypeString",
+                    "domain": {
+                        "type": "codedValue",
+                        "name": f"domain_{i}",
+                        "codedValues": [
+                            {"name": f"coded value number {j}", "code": j}
+                            for j in range(60)
+                        ],
+                    },
+                }
+                for i in range(1200)
+            ],
+        }
+
+    async def test_a_body_too_large_to_parse_is_reachable_not_inaccessible(
+        self, probe_transport
+    ) -> None:
+        """fix(#1746 codex post-rebase): the false negative that mirrors the bug.
+
+        ``fetch_json_document`` stops reading at ``MAX_DOCUMENT_BYTES``, a cap
+        sized for STAC item documents. A real ArcGIS layer with a long field
+        list runs past it, and before this the probe reported that layer
+        ``inaccessible`` — a healthy HTTP 200 called unreachable because it
+        answered at length.
+
+        An auth envelope is a few hundred bytes, so a body too big to parse
+        cannot be one. That is the whole argument, and it is arithmetic rather
+        than a guess.
+        """
+        payload = self._oversized_layer_document()
+        # Positive control on the fixture: if this stops exceeding the cap,
+        # the test below would pass while exercising nothing.
+        assert len(json.dumps(payload).encode()) > MAX_DOCUMENT_BYTES
+
+        install, recorded = probe_transport
+        install(_json_body(payload))
+        result = await probe_arcgis_origin(self._LAYER_URI)
+
+        assert result.health == HEALTHY
+        assert result.detail is None
+        assert result.ok is True
+        assert len(recorded) == 1
+
+    async def test_the_size_cap_still_stands_for_everyone_else(
+        self, probe_transport
+    ) -> None:
+        """The limit is not raised, only read differently by one caller.
+
+        STAC re-resolution needs the body it asked for, so an oversized item
+        document is still a verdict it cannot act on. Only the ArcGIS probe,
+        which reads the body for one specific small thing, resolves a hit cap
+        in the origin's favour.
+        """
+        install, _ = probe_transport
+        install(_json_body(self._oversized_layer_document()))
+        result, body, _url = await fetch_json_document(_ITEM)
+
+        assert result.health == INACCESSIBLE
+        assert result.detail == UNEXPECTED_STATUS
+        assert body is None
+        # The internal signal the ArcGIS probe reads. Not a detail code: the
+        # persisted vocabulary is a wire contract, and this is not on it.
+        assert result.oversized is True
+        assert result.detail in DETAIL_CODES
+
+    async def test_an_unreadable_body_is_not_confused_with_an_oversized_one(
+        self, probe_transport
+    ) -> None:
+        """Same verdict, different fact, and the ArcGIS probe needs the split.
+
+        A short HTML error page is still ``inaccessible`` for ArcGIS: it fits
+        inside the cap, so it COULD have carried an envelope and did not.
+        """
+        install, _ = probe_transport
+
+        def _html(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, text="<html>login</html>")
+
+        install(_html)
+        result, _body, _url = await fetch_json_document(_ITEM)
+        assert result.oversized is False
+
+        install(_html)
+        arcgis = await probe_arcgis_origin(self._LAYER_URI)
+        assert arcgis.health == INACCESSIBLE
+        assert arcgis.detail == UNEXPECTED_STATUS
+
+    async def test_end_to_end_an_oversized_layer_reports_healthy(
+        self, client, admin_auth_header, test_db_session, probe_transport
+    ) -> None:
+        install, _ = probe_transport
+        install(_json_body(self._oversized_layer_document()))
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        resp = await client.post(
+            f"/datasets/{dataset.id}/source-health/", headers=admin_auth_header
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["source_health"] == HEALTHY
+        assert body["source_health_detail"] is None
+
+        await test_db_session.refresh(dataset)
+        assert dataset.source_health == HEALTHY
+        assert dataset.source_health_detail is None
 
     async def test_end_to_end_persists_auth_required_and_leaks_nothing(
         self, client, admin_auth_header, test_db_session, probe_transport

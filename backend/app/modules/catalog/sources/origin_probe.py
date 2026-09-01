@@ -135,6 +135,13 @@ class OriginProbeResult:
     # SSRF refusal did contact the first hop, but under-stamping a contact
     # is recoverable while fabricating one is not.
     contacted: bool = True
+    # fix(#1746 codex post-rebase): the body came back sub-400 but exceeded
+    # `max_bytes`, so it was never parsed. Deliberately NOT a detail code: the
+    # persisted vocabulary is a wire contract every consumer enumerates, and
+    # this is an internal fact one caller needs to interpret its own silence.
+    # The verdict stays `inaccessible`/`unexpected_status` for everyone who
+    # does not ask.
+    oversized: bool = False
 
     @property
     def ok(self) -> bool:
@@ -269,6 +276,10 @@ async def probe_arcgis_origin(
     and answers with layer metadata. Two functions with one name in one
     package is a trap, and it got closer once this module started importing
     from ``adapters/`` for the WFS URL builder.
+
+    Reads the body, so it inherits ``fetch_json_document``'s size cap, and an
+    oversized sub-400 answer is resolved in the origin's favour — see the
+    comment at that branch.
     """
     try:
         target = str(httpx.URL(uri).copy_set_param("f", "json"))
@@ -277,6 +288,16 @@ async def probe_arcgis_origin(
         # out of a handler that has already released its DB session.
         target = uri
     result, body, _final_url = await fetch_json_document(target, timeout=timeout)
+    if result.oversized:
+        # fix(#1746 codex post-rebase): the origin answered sub-400 with a
+        # body too big to parse. An ArcGIS auth envelope is a few hundred
+        # bytes, so whatever this is, it is not one — a real layer document
+        # with a long field list or a coded-value domain is exactly what runs
+        # past the cap. Calling a layer that answered 200 `inaccessible`
+        # because it answered at LENGTH is the false negative that mirrors the
+        # false positive this probe exists to close. The size limit stays
+        # where STAC needs it; only the reading of a hit limit changes.
+        return OriginProbeResult(HEALTHY)
     if not result.ok:
         return result
     error = body.get("error") if isinstance(body, dict) else None
@@ -340,9 +361,17 @@ async def probe_service_origin(
 
 
 # "The origin answered, and what it said is not something GeoLens can act
-# on." One verdict for both shapes of that, because they are one fact to the
+# on." One VERDICT for both shapes of that, because they are one fact to the
 # person reading it and neither is a transport failure.
-_OVERSIZED_OR_UNREADABLE = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS)
+#
+# fix(#1746 codex post-rebase): two constants rather than one, because they
+# are no longer one fact to every CALLER. "Too big to parse" and "not JSON"
+# say different things about whether an ArcGIS auth envelope could have been
+# in there, and only the size case can be ruled out by arithmetic. The
+# health value and the detail code are identical, so nothing persisted or
+# served changes.
+_UNREADABLE_DOCUMENT = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS)
+_OVERSIZED_DOCUMENT = OriginProbeResult(INACCESSIBLE, UNEXPECTED_STATUS, oversized=True)
 
 
 async def fetch_json_document(
@@ -420,7 +449,7 @@ async def fetch_json_document(
                                 # Stop reading rather than stop the request:
                                 # leaving the context manager closes the
                                 # response, so nothing keeps arriving.
-                                return _OVERSIZED_OR_UNREADABLE, None, final_url
+                                return _OVERSIZED_DOCUMENT, None, final_url
     except (
         Exception
     ) as exc:  # broad: every transport failure means "could not determine"
@@ -441,7 +470,7 @@ async def fetch_json_document(
         # JSON is not a transport failure, and classifying it as one would
         # report `network_error` for an origin that answered perfectly well
         # with an HTML error page.
-        return _OVERSIZED_OR_UNREADABLE, None, final_url
+        return _UNREADABLE_DOCUMENT, None, final_url
 
 
 async def remote_asset_exists(asset_uri: str) -> bool:
