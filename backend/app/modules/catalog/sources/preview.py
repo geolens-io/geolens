@@ -8,7 +8,7 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import structlog
 from fastapi import HTTPException, status
 
-from app.core.config import settings
+from app.core.runtime.staging import gdal_header_dir
 from app.core.service_tokens import header_token_rejection_reason
 from app.core.url_redaction import redact_url_credentials
 from app.platform.extensions import get_catalog_port
@@ -172,20 +172,26 @@ async def run_service_preview(
             safe_token = _validate_safe_token(token)
             import tempfile
 
-            # fix(#1746): name the staging directory rather than inheriting it.
+            # fix(#1746): name the directory rather than inheriting it.
             # Without `dir=`, where this bearer-token file lands depends on
             # whether the process ran `redirect_tempfile_to_staging`
             # (app/api/main.py, app/platform/jobs/worker.py) AND on that
             # helper's own escape hatch — it silently declines to move
-            # `tempfile.tempdir` when the directory is missing, so a 0600 file
-            # holding an Authorization header could still be written to the
-            # system tempdir, outside the volume the staging sweep covers. The
-            # env var carries this PATH, so the path is worth stating.
-            os.makedirs(settings.upload_staging_dir, exist_ok=True)
+            # `tempfile.tempdir` when the directory is missing.
+            #
+            # fix(#1746 codex r2): and the directory is the container tmpfs,
+            # not the staging volume. Staging is a persistent volume that
+            # `scripts/backup-entrypoint.sh` tars every cycle, so a header
+            # orphaned by a SIGKILL before the unlink below could be archived
+            # into a backup. `gdal_header_dir()` is 0700 under /tmp, which both
+            # the api and the worker mount as their own 512m tmpfs: the file is
+            # private to this container and gone on restart, and the sweep at
+            # boot and on the API's periodic cadence reclaims one that leaks
+            # inside a container that keeps running.
             fd, header_file_path = tempfile.mkstemp(
                 prefix="gdal_auth_",
                 suffix=".hdr",
-                dir=settings.upload_staging_dir,
+                dir=gdal_header_dir(),
             )
             try:
                 os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))

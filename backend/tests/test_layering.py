@@ -2478,7 +2478,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Mostly the comment recording why the queue table is not a tenant's.
     # Re-measured on the rebase across #1751, which raised the same cap.
     # Cap 1770 -> 1789, exact.
-    "backend/app/api/main.py": 1789,
+    # fix(#1746 codex r2): +7 — both of those sweeps now default to the
+    # container tmpfs rather than taking the staging volume. The lines are the
+    # comments recording why: staging is persistent and backup-entrypoint.sh
+    # tars it every cycle, so a crash-orphaned Authorization header there can
+    # reach a backup, while /tmp is a per-container 512m tmpfs. Re-baselined on
+    # the rebase across #1753, which raised the same cap for the token purge.
+    # Cap 1789 -> 1796, exact.
+    "backend/app/api/main.py": 1796,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3697,7 +3704,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # settings.upload_staging_dir (plus an os.makedirs and a comment
     # explaining why) so it lands on the staging volume the stale-file
     # sweep can reach, instead of the system tempdir. Cap 1089 -> 1096, exact.
-    "backend/app/processing/ingest/ogr.py": 1096,
+    # fix(#1746 codex r2): +8 — that dir is now gdal_header_dir(), the
+    # container tmpfs, not the backed-up staging volume; the os.makedirs went
+    # with it (the helper owns creating its own 0700 directory) and the rest is
+    # the comment saying why a credential file does not belong on a volume
+    # scripts/backup-entrypoint.sh archives. Cap 1096 -> 1104, exact.
+    "backend/app/processing/ingest/ogr.py": 1104,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

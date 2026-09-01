@@ -1,4 +1,5 @@
 import os
+import stat
 import time
 from pathlib import Path
 
@@ -144,8 +145,78 @@ def test_sweep_stale_gdal_header_files_removes_only_old_matching_files(
 
 
 def test_sweep_stale_gdal_header_files_missing_dir_is_a_noop(tmp_path: Path) -> None:
-    """A staging dir that does not exist yet (fresh boot) must not raise."""
+    """A header dir that does not exist yet (fresh boot) must not raise."""
     from app.core.runtime.staging import sweep_stale_gdal_header_files
 
     missing = tmp_path / "does-not-exist"
     assert sweep_stale_gdal_header_files(missing) == 0
+
+
+def test_sweep_stale_gdal_header_files_defaults_without_provisioning(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """fix(#1746 codex r2): the no-argument form reads GDAL_HEADER_DIR and
+    never creates it.
+
+    Both boot hooks and the API's periodic pass call it with no argument. It
+    must not leave an empty 0700 directory behind on every install that never
+    fetches a protected WFS/OGC layer — reclamation is not provisioning.
+    """
+    from app.core.runtime import staging as staging_runtime
+
+    missing = tmp_path / "never-created"
+    monkeypatch.setattr(staging_runtime, "GDAL_HEADER_DIR", missing)
+
+    assert staging_runtime.sweep_stale_gdal_header_files() == 0
+    assert not missing.exists()
+
+    # And it does read the constant rather than a snapshot: a stale header in
+    # the redirected directory is swept by the same no-argument call.
+    missing.mkdir()
+    stale = missing / "gdal_auth_zzz.hdr"
+    stale.write_text("Authorization: Bearer z\n", encoding="utf-8")
+    old = time.time() - 2 * 3600
+    os.utime(stale, (old, old))
+
+    assert staging_runtime.sweep_stale_gdal_header_files() == 1
+    assert not stale.exists()
+
+
+def test_gdal_header_dir_is_on_the_container_tmpfs_not_the_backed_up_volume(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """fix(#1746 codex r2): the bearer-header directory is /tmp, mode 0700.
+
+    Two properties, and they fail for different reasons. It must be under /tmp,
+    because the api and the worker each mount that as their own 512m tmpfs —
+    private to the container, emptied on restart, and never read by
+    ``scripts/backup-entrypoint.sh``. And it must NOT be under
+    ``upload_staging_dir``, which is a persistent volume that script tars every
+    cycle, so a header orphaned by a SIGKILL before the unlink could be
+    archived into a backup. The mode is asserted because the file inside is a
+    credential and the container's /tmp is 1777.
+    """
+    from app.core.config import settings
+    from app.core.runtime import staging as staging_runtime
+
+    # The real constant, asserted as a path only — creating /tmp/gdal-auth from
+    # a test would be the exact pollution the fixtures elsewhere avoid.
+    real = staging_runtime.GDAL_HEADER_DIR
+    assert real == Path("/tmp/gdal-auth")
+    assert str(real).startswith("/tmp/")
+    assert not str(real).startswith(str(Path(settings.upload_staging_dir)))
+
+    # Behaviour is exercised against a redirected constant, the same way every
+    # test that touches the header branch does.
+    redirected = tmp_path / "gdal-auth"
+    monkeypatch.setattr(staging_runtime, "GDAL_HEADER_DIR", redirected)
+    created = staging_runtime.gdal_header_dir()
+    assert created == redirected
+    assert created.is_dir()
+    assert stat.S_IMODE(created.stat().st_mode) == 0o700
+
+    # Idempotent, and it tightens a directory that already existed too loose —
+    # /tmp is world-writable, so "already there" is not "already ours".
+    created.chmod(0o755)
+    assert staging_runtime.gdal_header_dir() == redirected
+    assert stat.S_IMODE(redirected.stat().st_mode) == 0o700

@@ -43,6 +43,10 @@ from tests.test_import_token_lease_1676 import (  # noqa: F401
     credential_backend,
 )
 
+# fix(#1746 codex r2): autouse where imported — keeps the bearer header file the
+# preview tests below write out of the real /tmp/gdal-auth.
+from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
+
 pytestmark = pytest.mark.anyio
 
 _WFS_URL = "https://services.example.test/geoserver/wfs"
@@ -422,7 +426,7 @@ class TestServicePreviewDoor:
         assert excinfo.value.detail["code"] == "invalid_service_token"
         assert excinfo.value.detail["message"] == HEADER_TOKEN_POLICY
 
-    async def test_an_accepted_token_writes_its_header_file_into_staging(
+    async def test_an_accepted_token_writes_its_header_file_to_the_tmpfs_dir(
         self, client: AsyncClient, monkeypatch, tmp_path
     ) -> None:
         """fix(#1746) finding 16: the header file's directory is named, not inherited.
@@ -435,11 +439,14 @@ class TestServicePreviewDoor:
         present, since it silently declines to move ``tempfile.tempdir``
         otherwise.
 
-        ``tempfile.tempdir`` is therefore pointed at a decoy for the duration.
-        Without it the assertion below passes on the inherited default and
-        proves nothing about the argument this test exists for — the client
-        fixture calls ``redirect_tempfile_to_staging`` itself, so the two
-        directories would be the same one.
+        fix(#1746 codex r2): and the named directory is ``gdal_header_dir()``,
+        the container tmpfs — never ``upload_staging_dir``, which is a
+        persistent volume ``scripts/backup-entrypoint.sh`` tars every cycle. A
+        crash-orphaned bearer header on that volume can reach a backup.
+
+        ``tempfile.tempdir`` is pointed at a decoy for the duration. Without it
+        the assertion below passes on the inherited default and proves nothing
+        about the argument this test exists for.
         """
         import asyncio as aio
         import json as json_mod
@@ -447,9 +454,10 @@ class TestServicePreviewDoor:
         import tempfile
 
         from app.core.config import settings
+        from app.core.runtime.staging import gdal_header_dir
         from app.modules.catalog.sources import preview as preview_mod
 
-        decoy = tmp_path / "not-staging"
+        decoy = tmp_path / "not-the-header-dir"
         decoy.mkdir()
         monkeypatch.setattr(tempfile, "tempdir", str(decoy))
 
@@ -486,5 +494,8 @@ class TestServicePreviewDoor:
         header_file = seen["header_file"]
         assert header_file
         parent = os.path.realpath(os.path.dirname(header_file))
-        assert parent == os.path.realpath(settings.upload_staging_dir)
+        assert parent == os.path.realpath(gdal_header_dir())
         assert parent != os.path.realpath(decoy)
+        # The two directories this file must NOT be in: the inherited tempdir,
+        # and the backed-up staging volume.
+        assert parent != os.path.realpath(settings.upload_staging_dir)
