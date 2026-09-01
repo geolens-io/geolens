@@ -173,6 +173,26 @@ def _redact_url_match(match: re.Match[str]) -> str:
     return redacted
 
 
+def _scrub_text(value: str) -> str:
+    """Redact URL credentials and rendered token values in free text.
+
+    fix(#1746 codex r5): redact credentials PER URL-SHAPED SUBSTRING, not the
+    whole string -- see the module docstring for why a whole-string gate
+    missed a userinfo credential, and why matching on URL_LIKE_RE first is
+    still whitespace-safe. fix(#1746 codex r6): `_redact_url_match()`
+    escalates to the whole query when a partial parse would leave part of
+    the credential behind -- see its own docstring.
+
+    fix(#1746 codex r9): factored out of `_redact_sensitive_fields` so the
+    exact same scrub applies to a rendered `exception` string as already
+    applied to `event` -- an exception's own message can carry a credential
+    just as easily as a log line can, e.g. `httpx.HTTPStatusError`'s message
+    quotes the failing request URL verbatim, `?token=...` included.
+    """
+    value = URL_LIKE_RE.sub(_redact_url_match, value)
+    return _redact_token_value_repr(value)
+
+
 def _redact_sensitive_fields(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
 ) -> MutableMapping[str, Any]:
@@ -191,21 +211,25 @@ def _redact_sensitive_fields(
     request-URL line, Procrastinate's keyword-rendered task_kwargs). `event`
     is the one field every record has by this point, so it is scrubbed here
     by pattern and by shape rather than by key.
+
+    fix(#1746 codex r9): `exception` gets the identical scrub, when present
+    and already a string. `format_exc_info` now runs BEFORE this processor
+    (see `setup_logging`) precisely so `exception` exists as a plain string
+    by the time this runs, instead of being rendered afterward and reaching
+    JSON/production logs unscrubbed. `exc_info` itself (the raw tuple/bool,
+    present only when `format_exc_info` did NOT run first -- dev mode) is
+    never touched: it is not text, and dev's rich-based renderer is the one
+    that turns it into text, after this processor.
     """
     for key in list(event_dict.keys()):
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
     event = event_dict.get("event")
     if isinstance(event, str):
-        # fix(#1746 codex r5): redact credentials PER URL-SHAPED SUBSTRING,
-        # not the whole event -- see the module docstring for why a
-        # whole-event gate missed a userinfo credential, and why matching on
-        # URL_LIKE_RE first is still whitespace-safe. fix(#1746 codex r6):
-        # _redact_url_match() escalates to the whole query when a partial
-        # parse would leave part of the credential behind -- see its own
-        # docstring.
-        event = URL_LIKE_RE.sub(_redact_url_match, event)
-        event_dict["event"] = _redact_token_value_repr(event)
+        event_dict["event"] = _scrub_text(event)
+    exception = event_dict.get("exception")
+    if isinstance(exception, str):
+        event_dict["exception"] = _scrub_text(exception)
     return event_dict
 
 
@@ -306,12 +330,6 @@ def setup_logging(
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.stdlib.ExtraAdder(),
         structlog.processors.TimeStamper(fmt="iso", utc=True),
-        # SEC-03: redact sensitive fields BEFORE rendering / stack-info.
-        # Placed after TimeStamper (so the redactor runs on the final
-        # field set) and before StackInfoRenderer (which doesn't add
-        # user-supplied values).
-        _redact_sensitive_fields,
-        structlog.processors.StackInfoRenderer(),
     ]
 
     # fix(#1485): resolve `exc_info` into a plain `exception` string inside the
@@ -319,8 +337,28 @@ def setup_logging(
     # pretty-print. This chain is also the ProcessorFormatter's
     # `foreign_pre_chain` below, so it covers stdlib records (uvicorn.error and
     # friends) as well as structlog's own.
+    #
+    # fix(#1746 codex r9): moved BEFORE `_redact_sensitive_fields` (it used to
+    # run last, after `StackInfoRenderer`). An exception's own message can
+    # carry a credential -- `httpx.HTTPStatusError` quotes the failing
+    # request URL verbatim -- and the redactor can only scrub a field that
+    # already exists when it runs. Left conditional on `json_logs or
+    # production`: dev's rich-based renderer is NOT tolerant of a
+    # pre-rendered `exception` field (see the `plain_traceback` comment
+    # below -- it warns and stops rendering prettily), so a pre-rendered
+    # `exception` string is unconditionally worse there, not just untested.
     if json_logs or production:
         shared_processors.append(structlog.processors.format_exc_info)
+
+    shared_processors += [
+        # SEC-03: redact sensitive fields BEFORE rendering / stack-info.
+        # Placed after TimeStamper (so the redactor runs on the final field
+        # set, including a `format_exc_info`-rendered `exception` string
+        # when one exists) and before StackInfoRenderer (which doesn't add
+        # user-supplied values).
+        _redact_sensitive_fields,
+        structlog.processors.StackInfoRenderer(),
+    ]
 
     structlog.configure(
         processors=shared_processors

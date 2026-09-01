@@ -26,6 +26,7 @@ loggers, and (as of fix #1746 codex r5) ``httpx``/``httpcore`` (see
 the autouse fixture below for why it needs to.
 """
 
+import json
 import logging
 import time
 
@@ -448,3 +449,68 @@ def test_redact_token_value_repr_stays_linear_on_unterminated_input():
 
     assert elapsed < 1.0, f"took {elapsed:.3f}s -- no longer linear"
     assert redacted == message  # no closing quote: nothing to redact, unchanged
+
+
+def _emit_exception_through_real_pipeline(exc: Exception) -> tuple[str, dict]:
+    """Raise/catch *exc*, log it with `exc_info=True` through the real
+    JSON/production pipeline, and return (captured line, parsed JSON dict).
+
+    Uses the same capturing-handler approach as `_emit_through_real_pipeline`
+    above, but with `exc_info=True` so `format_exc_info` actually renders an
+    `exception` field, and `json_logs=True` so the captured line is parseable
+    JSON rather than an ANSI-colored console line.
+    """
+    with configured_logging(json_logs=True, log_level="INFO", production=True):
+        root = logging.getLogger()
+        capture = _ListHandler()
+        capture.setFormatter(root.handlers[0].formatter)
+        root.addHandler(capture)
+        try:
+            try:
+                raise exc
+            except type(exc):
+                logging.getLogger("test.exception_scrub").error("boom", exc_info=True)
+        finally:
+            root.removeHandler(capture)
+    assert len(capture.lines) == 1
+    return capture.lines[0], json.loads(capture.lines[0])
+
+
+def test_exception_field_url_credential_is_scrubbed():
+    """Codex round 9 P1: `format_exc_info` ran AFTER the redactor.
+
+    `_redact_sensitive_fields` only ever saw `event`; `format_exc_info` was
+    appended to the chain AFTER it (only when `json_logs or production`), so
+    the `exception` string it renders -- which can itself quote a credential,
+    e.g. `httpx.HTTPStatusError`'s message quoting the failing request URL --
+    was created after redaction and reached JSON/production logs verbatim.
+    `format_exc_info` now runs before `_redact_sensitive_fields`, so
+    `exception` exists as a plain string in time to be scrubbed the same way
+    `event` always was.
+    """
+    exc = ValueError(f"request failed: {_ARCGIS_URL}")
+    assert _TOKEN in str(exc)  # pin the premise before redacting it
+
+    line, data = _emit_exception_through_real_pipeline(exc)
+
+    assert _TOKEN not in line
+    assert "ValueError" in data["exception"]
+    assert "?<redacted>" in data["exception"]
+
+
+def test_exception_field_keyword_form_token_is_scrubbed():
+    """Same fix, the keyword-rendered token shape (finding 13's shape).
+
+    An exception raised while handling a credential-store token can just as
+    easily quote it back in a `key=value!r` shape as Procrastinate's worker
+    does -- the same `_scrub_text()` now applied to `event` and `exception`
+    catches both shapes either way.
+    """
+    exc = ValueError(f"job failed with kwargs token='{_TOKEN}'")
+    assert _TOKEN in str(exc)  # pin the premise before redacting it
+
+    line, data = _emit_exception_through_real_pipeline(exc)
+
+    assert _TOKEN not in line
+    assert "ValueError" in data["exception"]
+    assert "token='[REDACTED]'" in data["exception"]
