@@ -143,20 +143,23 @@ def test_production_resolves_exc_info_before_the_renderer(json_logs: bool) -> No
         assert structlog.processors.format_exc_info in foreign_chain
 
 
-def test_development_console_renderer_does_not_render_locals() -> None:
-    """Dev keeps rich's highlighted frames but not the unbounded part.
+def test_development_console_renderer_uses_plain_traceback_too() -> None:
+    """fix(#1746 codex r10): dev no longer keeps rich at all, locals-off or not.
 
-    Turning locals off is what makes the render cost independent of local
-    size; no setting bounds an arbitrary object's `repr()`.
+    Superseded by a stronger fix, not merely a stricter test: round 10
+    retired dev's rich-with-locals-off compromise (the previous version of
+    this test) entirely. `format_exc_info` now runs unconditionally, so an
+    `exception` field is always pre-rendered before any renderer sees it --
+    and a non-plain formatter meeting a pre-rendered `exception` field is
+    the exact case the `plain_traceback` comment in `setup_logging` warns
+    about, not merely a perf compromise. Dev and production now build this
+    renderer identically.
     """
     with configured_logging(json_logs=False, production=False):
         renderer = _current_formatter().processors[-1]
-        exception_formatter = renderer.exception_formatter
 
-        if isinstance(exception_formatter, structlog.dev.RichTracebackFormatter):
-            assert exception_formatter.show_locals is False
-        else:
-            assert exception_formatter is structlog.dev.plain_traceback
+        assert isinstance(renderer, structlog.dev.ConsoleRenderer)
+        assert renderer.exception_formatter is structlog.dev.plain_traceback
 
 
 # ---------------------------------------------------------------------------

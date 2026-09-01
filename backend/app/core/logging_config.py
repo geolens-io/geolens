@@ -6,7 +6,8 @@ structlog chain so JWT / API-key / password values are replaced with
 accidentally logs `logger.info("attempt", token=jwt)`, the token is
 redacted at the structlog layer.
 
-fix(#1485): exception rendering is never handed to rich in production.
+fix(#1485): exception rendering is never handed to rich, in production OR
+dev (as of #1746 codex r10 -- see that fix note below for why dev joined).
 `structlog.dev.ConsoleRenderer` defaults its `exception_formatter` to
 `RichTracebackFormatter(show_locals=True)` whenever rich is importable, and
 rich is in the backend's transitive dependency set. Rendering per-frame
@@ -53,6 +54,23 @@ excludes whitespace, so a matched substring can never contain `\t`/`\r`/`\n`
 in the first place — `redact_url_credentials()`'s unconditional strip has
 nothing to strip inside a match, and every character outside a match is
 untouched.
+
+fix(#1746 codex r10): round 9 only closed this for `json_logs or production`,
+because `format_exc_info` stayed conditional on that and dev's renderer used
+a rich-based formatter incompatible with a pre-rendered `exception` field
+anyway. That left dev exactly as exposed as before: an unhandled exception
+in a local API or worker run still printed a raw, unscrubbed traceback, and
+rich's own locals rendering would print a secret held in a local variable
+even if the message text were somehow already clean. `format_exc_info` now
+runs UNCONDITIONALLY, and dev's `ConsoleRenderer` now takes the same
+`plain_traceback` formatter production does — not a softer version of the
+same idea, but the only formatter that is even compatible with a
+pre-rendered `exception` field (a non-plain one meeting one warns and stops
+rendering prettily; see the `plain_traceback` comment in `setup_logging`).
+Locals are where a secret variable itself would leak regardless of any
+string scrub, so removing rich from dev closes that path too, not only the
+one the string scrub covers. Dev keeps every other `ConsoleRenderer` default
+(colours included) — only the exception formatter changed.
 """
 
 import logging
@@ -267,20 +285,6 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     return value
 
 
-def _dev_exception_formatter() -> structlog.types.ExceptionRenderer:
-    """The console exception formatter for non-production deployments.
-
-    Keeps rich's syntax-highlighted frames, which are the reason the pretty
-    renderer is worth having, and drops only the per-frame locals tables — the
-    part whose cost is unbounded (see the module docstring). Deployments
-    without rich installed keep whatever structlog picked for them.
-    """
-    formatter = structlog.dev.default_exception_formatter
-    if isinstance(formatter, structlog.dev.RichTracebackFormatter):
-        return structlog.dev.RichTracebackFormatter(show_locals=False)
-    return formatter
-
-
 def apply_http_logger_levels(root_level: int | str) -> None:
     """Keep httpx/httpcore at least as quiet as WARNING, never quieter than root.
 
@@ -318,10 +322,14 @@ def setup_logging(
 ) -> None:
     """Configure structlog + stdlib logging with shared processor chain.
 
-    `production` selects the exception-rendering posture rather than the log
-    format: when set, tracebacks are formatted by the stdlib `traceback`
-    module and rich is never reached, at a cost that does not depend on the
-    size of any frame's local variables.
+    fix(#1746 codex r10): `production` no longer selects the
+    exception-rendering posture -- dev and production now render exceptions
+    identically (plain, scrubbed, no rich), because `format_exc_info` runs
+    unconditionally and the redactor needs the SAME `exception` string to
+    scrub regardless of console mode. `production` is still threaded through
+    from `settings.is_production` at both call sites, in case a future
+    difference needs it again; today it affects nothing inside this
+    function.
     """
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
@@ -342,13 +350,15 @@ def setup_logging(
     # run last, after `StackInfoRenderer`). An exception's own message can
     # carry a credential -- `httpx.HTTPStatusError` quotes the failing
     # request URL verbatim -- and the redactor can only scrub a field that
-    # already exists when it runs. Left conditional on `json_logs or
-    # production`: dev's rich-based renderer is NOT tolerant of a
-    # pre-rendered `exception` field (see the `plain_traceback` comment
-    # below -- it warns and stops rendering prettily), so a pre-rendered
-    # `exception` string is unconditionally worse there, not just untested.
-    if json_logs or production:
-        shared_processors.append(structlog.processors.format_exc_info)
+    # already exists when it runs.
+    #
+    # fix(#1746 codex r10): now UNCONDITIONAL. Gating this on `json_logs or
+    # production` left dev exactly as exposed as before -- an unhandled
+    # exception in a local run still printed a raw, unscrubbed traceback.
+    # dev's `ConsoleRenderer` below now uses `plain_traceback`
+    # unconditionally too, so there is no longer a renderer left that this
+    # would be incompatible with.
+    shared_processors.append(structlog.processors.format_exc_info)
 
     shared_processors += [
         # SEC-03: redact sensitive fields BEFORE rendering / stack-info.
@@ -371,18 +381,18 @@ def setup_logging(
     log_renderer: structlog.types.Processor
     if json_logs:
         log_renderer = structlog.processors.JSONRenderer()
-    elif production:
+    else:
         # `plain_traceback` is the second half of the #1485 fix, not a
         # redundant one: ConsoleRenderer warns on every exception when a
         # non-plain formatter meets an already-rendered `exception` field
         # ("Remove `format_exc_info` from your processor chain..."), and it
         # still owns any exc_info that reaches it by another route.
+        #
+        # fix(#1746 codex r10): dev and production share this construction
+        # now -- see the module docstring and this function's docstring for
+        # why `production` no longer needs to pick between them.
         log_renderer = structlog.dev.ConsoleRenderer(
             exception_formatter=structlog.dev.plain_traceback
-        )
-    else:
-        log_renderer = structlog.dev.ConsoleRenderer(
-            exception_formatter=_dev_exception_formatter()
         )
 
     formatter = structlog.stdlib.ProcessorFormatter(

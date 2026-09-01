@@ -514,3 +514,45 @@ def test_exception_field_keyword_form_token_is_scrubbed():
     assert _TOKEN not in line
     assert "ValueError" in data["exception"]
     assert "token='[REDACTED]'" in data["exception"]
+
+
+def _raise_with_secret_local() -> None:
+    secret = _TOKEN  # noqa: F841 -- deliberately unused; must never leak via locals rendering
+    raise ValueError(f"request failed: {_ARCGIS_URL}")
+
+
+def test_dev_console_exception_is_scrubbed_and_has_no_locals():
+    """Codex round 10 P1: dev console mode leaked a token two different ways.
+
+    Round 9 only fixed the JSON/production path: `format_exc_info` stayed
+    conditional on `json_logs or production`, so in pure dev mode `exc_info`
+    was still a raw tuple when `_redact_sensitive_fields` ran -- nothing to
+    scrub yet -- and only got rendered afterward, by the console renderer,
+    unscrubbed. Rich's own locals rendering was a SECOND, independent leak on
+    top of that: even a scrubbed message would not have stopped a `secret`
+    local variable from appearing verbatim, since `RichTracebackFormatter`
+    prints every frame local's `repr()` regardless of what the message says.
+    Both are closed now: `format_exc_info` runs unconditionally (so
+    `exception` exists, scrubbed, before ANY renderer runs), and dev's
+    renderer is `plain_traceback`, which never touches locals at all.
+    """
+    with configured_logging(json_logs=False, production=False, log_level="INFO"):
+        root = logging.getLogger()
+        capture = _ListHandler()
+        capture.setFormatter(root.handlers[0].formatter)
+        root.addHandler(capture)
+        try:
+            try:
+                _raise_with_secret_local()
+            except ValueError:
+                logging.getLogger("test.dev_exception_scrub").error(
+                    "boom", exc_info=True
+                )
+        finally:
+            root.removeHandler(capture)
+
+    assert len(capture.lines) == 1
+    out = capture.lines[0]
+    assert "ValueError" in out
+    assert "?<redacted>" in out
+    assert _TOKEN not in out
