@@ -1683,12 +1683,19 @@ class TestServiceTokenPolicy:
         worth asserting. The worker keeps its own enforcement — the guarantee
         is about what reaches libcurl and must not rest on a validator in
         another process — but it must enforce the SHARED definition.
+
+        fix(#1746): widened from one door to all of them. Refresh was the only
+        door consuming the policy, so import commit, re-upload commit and
+        service preview each judged the same token by a weaker rule and let it
+        through — the second and third of those after stashing the single-use
+        credential the worker was then going to reject.
         """
         import inspect
 
         from app.core import service_tokens
-        from app.modules.catalog.datasets.api import router_refresh
-        from app.processing.ingest import ogr
+        from app.modules.catalog.datasets.api import router_refresh, router_reupload
+        from app.modules.catalog.sources import preview
+        from app.processing.ingest import ogr, service
 
         worker_source = inspect.getsource(ogr._sanitize_authorization_token)
         assert "HEADER_TOKEN_CHARSET" in worker_source
@@ -1696,9 +1703,30 @@ class TestServiceTokenPolicy:
         # No private copy of the charset survives anywhere in the module.
         assert "_BASE64URL_CHARSET" not in inspect.getsource(ogr)
 
-        door_source = inspect.getsource(router_refresh.refresh_dataset)
-        assert "header_token_rejection_reason" in door_source
-        assert "requires_header_token_policy" in door_source
+        # Every door that can hand a service token to the worker, by the name
+        # whoever adds the next one will search for. The import door's check is
+        # a named helper (inline pushed `queue_ingest_job` past ruff's C901
+        # ceiling), so the call site is asserted alongside it.
+        for door in (
+            router_refresh.refresh_dataset,
+            router_reupload.reupload_commit,
+            service._assert_header_token_dispatchable,
+        ):
+            door_source = inspect.getsource(door)
+            assert "header_token_rejection_reason" in door_source, door.__name__
+            assert "requires_header_token_policy" in door_source, door.__name__
+        assert "_assert_header_token_dispatchable" in inspect.getsource(
+            service.queue_ingest_job
+        )
+
+        # Preview is the fourth consumer and selects the header-auth case
+        # differently: it holds a composed GDAL source string, not a stored
+        # `source_format`, so the `WFS:`/`OAPIF:` prefix IS the selector and
+        # `requires_header_token_policy` has nothing to answer for it. It must
+        # still judge the token by the shared rule — it used to accept anything
+        # printable, so a token that could never import previewed cleanly.
+        preview_source = inspect.getsource(preview.run_service_preview)
+        assert "header_token_rejection_reason" in preview_source
 
         # And the policy text itself never interpolates the token. The
         # worker's message DOES name the offending character, deliberately —

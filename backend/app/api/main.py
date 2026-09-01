@@ -327,7 +327,11 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
     # (boot-time), not the wider periodic export threshold, since a header file
     # is only ever alive for a single ogr2ogr subprocess run, not an
     # in-flight multi-hour export.
-    gdal_headers = sweep_stale_gdal_header_files(Path(settings.upload_staging_dir))
+    # fix(#1746 codex r2): defaults to the container tmpfs now, not the
+    # staging volume — see gdal_header_dir(). No argument because the sweep
+    # reclaims rather than provisions: a container that has never written a
+    # header has no directory and nothing to reclaim.
+    gdal_headers = sweep_stale_gdal_header_files()
     if gdal_headers:
         logger.info("stale_gdal_header_files_swept", removed=gdal_headers)
     return sweep_orphaned_exports(
@@ -429,7 +433,10 @@ async def lifespan(app: FastAPI):
     sweep_orphaned_exports(exports_dir)
     # fix(#1746): reclaim GDAL bearer-header tempfiles orphaned by a crash
     # before this boot (see sweep_stale_gdal_header_files docstring).
-    sweep_stale_gdal_header_files(staging_root)
+    # fix(#1746 codex r2): from the container tmpfs, NOT staging_root. A
+    # container restart normally empties /tmp on its own; this covers the case
+    # where the process died without the container going with it.
+    sweep_stale_gdal_header_files()
 
     await init_tile_pool()
     await task_app.open_async()

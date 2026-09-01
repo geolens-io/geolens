@@ -12,18 +12,29 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from app.core.config import settings
+from app.core.runtime import staging as staging_runtime
 from app.processing.ingest.ogr import run_ogr2ogr_service
 
 
 @pytest.fixture(autouse=True)
-def _staging_dir(tmp_path, monkeypatch):
-    """fix(#1746): the header-file mkstemp now os.makedirs + writes under
-    settings.upload_staging_dir (previously it used the system tempdir
-    unconditionally), so tests must point that setting at a writable
-    per-test directory rather than the container-only default (/app/staging).
+def gdal_header_tmpdir(tmp_path, monkeypatch):
+    """fix(#1746 codex r2): keep header files out of the real /tmp/gdal-auth.
+
+    The mkstemp for the bearer header passes ``dir=gdal_header_dir()``, which
+    creates and returns ``GDAL_HEADER_DIR`` — the container tmpfs in
+    production, and the developer's or the CI runner's actual /tmp under
+    pytest. Pointing the module constant at a per-test directory keeps the
+    suite from writing credential-shaped files outside its own tmp_path.
+
+    Imported by the other modules that exercise the same branch
+    (test_preview_token_sec021, test_door_token_policy_1746); it is autouse
+    there too, which is the intent — no test in this repo should touch the
+    real directory.
     """
-    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    monkeypatch.setattr(
+        staging_runtime, "GDAL_HEADER_DIR", tmp_path / "gdal-auth", raising=True
+    )
+    return tmp_path / "gdal-auth"
 
 
 @pytest.mark.asyncio

@@ -19,6 +19,10 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.service_tokens import (
+    header_token_rejection_reason,
+    requires_header_token_policy,
+)
 from app.core.async_io import (
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
@@ -766,6 +770,40 @@ async def reupload_commit(
     # worker at the advisory lock with both jobs already queued.
     is_service_refresh = bool(job.source_url and not job.file_path)
     _require_reupload_source(job, is_service_refresh)
+
+    # fix(#1746): judge the token by the policy the WORKER will apply, before
+    # anything is reserved and well before the stash below — the same order and
+    # the same reason as the refresh door (router_refresh.py). A WFS/OGC token
+    # containing `+` or `/` used to get a 202 here, spend its single-use
+    # credential, and then fail deterministically in ogr2ogr's own charset
+    # check. Placed ahead of `create_pending_run` so a token that cannot work
+    # never takes the one-active-run admission slot from a refresh that can.
+    # ArcGIS is exempt: its token is a urlencoded query parameter, never a
+    # header line, so the strict charset would reject valid ArcGIS tokens.
+    if is_service_refresh and request.token:
+        try:
+            _, service_source_format = _catalog_port.resolve_service_type(
+                str((job.user_metadata or {}).get("service_type") or "")
+            )
+        except IngestionError:
+            # An unrecognized service label is the worker's error to report;
+            # this check does not take that decision away from it.
+            service_source_format = None
+        if requires_header_token_policy(service_source_format):
+            rejection = header_token_rejection_reason(request.token)
+            if rejection is not None:
+                await db.rollback()
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail={
+                        "code": "invalid_service_token",
+                        # The policy, never the input: the caller has the token
+                        # and can compare it against the rule, and a response
+                        # body must not echo part of a credential.
+                        "message": rejection,
+                    },
+                )
+
     try:
         await create_pending_run(
             db,

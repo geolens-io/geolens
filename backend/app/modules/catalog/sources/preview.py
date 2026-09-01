@@ -6,7 +6,10 @@ import os
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import structlog
+from fastapi import HTTPException, status
 
+from app.core.runtime.staging import gdal_header_dir
+from app.core.service_tokens import header_token_rejection_reason
 from app.core.url_redaction import redact_url_credentials
 from app.platform.extensions import get_catalog_port
 
@@ -134,6 +137,25 @@ async def run_service_preview(
         if token and (
             gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
         ):
+            # fix(#1746): the strict header-token policy first, because this
+            # branch builds the same Authorization header line the commit path
+            # builds. Preview used to judge the token by `_validate_safe_token`
+            # alone — printable, no whitespace — so a WFS token containing `+`
+            # or `/` previewed cleanly and was then refused at commit, or worse,
+            # burned its single-use credential and died in the worker. Same 422,
+            # same code and same policy-only message the commit doors return:
+            # the caller has the token and can compare it against the rule, and
+            # a response must never echo any part of a credential.
+            rejection = header_token_rejection_reason(token)
+            if rejection is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail={
+                        "code": "invalid_service_token",
+                        "message": rejection,
+                    },
+                )
+
             # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
             # Passing the bearer via GDAL_HTTP_HEADERS leaks it through the
             # subprocess env (visible in /proc/<pid>/environ for the process
@@ -150,7 +172,27 @@ async def run_service_preview(
             safe_token = _validate_safe_token(token)
             import tempfile
 
-            fd, header_file_path = tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr")
+            # fix(#1746): name the directory rather than inheriting it.
+            # Without `dir=`, where this bearer-token file lands depends on
+            # whether the process ran `redirect_tempfile_to_staging`
+            # (app/api/main.py, app/platform/jobs/worker.py) AND on that
+            # helper's own escape hatch — it silently declines to move
+            # `tempfile.tempdir` when the directory is missing.
+            #
+            # fix(#1746 codex r2): and the directory is the container tmpfs,
+            # not the staging volume. Staging is a persistent volume that
+            # `scripts/backup-entrypoint.sh` tars every cycle, so a header
+            # orphaned by a SIGKILL before the unlink below could be archived
+            # into a backup. `gdal_header_dir()` is 0700 under /tmp, which both
+            # the api and the worker mount as their own 512m tmpfs: the file is
+            # private to this container and gone on restart, and the sweep at
+            # boot and on the API's periodic cadence reclaims one that leaks
+            # inside a container that keeps running.
+            fd, header_file_path = tempfile.mkstemp(
+                prefix="gdal_auth_",
+                suffix=".hdr",
+                dir=gdal_header_dir(),
+            )
             try:
                 os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
             finally:

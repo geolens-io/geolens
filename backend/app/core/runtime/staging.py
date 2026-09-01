@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import tempfile
@@ -225,25 +226,64 @@ def sweep_orphaned_exports(
     return (deleted_count, skipped_count)
 
 
-# fix(#1746): the GDAL bearer-header tempfile ogr.py writes for a WFS/OGC API
-# preview/ingest (GDAL_HTTP_HEADER_FILE, 0600) is unlinked in a `finally`
-# block, but a SIGKILL/OOM on the ogr2ogr subprocess skips it, leaking the
+# fix(#1746): the GDAL bearer-header tempfile ogr.py and preview.py write for
+# a WFS/OGC API preview/ingest (GDAL_HTTP_HEADER_FILE, 0600) is unlinked in a
+# `finally` block, but a SIGKILL/OOM on the subprocess skips it, leaking the
 # token-bearing file. Matched by exact prefix/suffix (mirrors
-# `tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr", ...)` in ogr.py).
+# `tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr", ...)` at both sites).
 _GDAL_AUTH_HEADER_PREFIX = "gdal_auth_"
 _GDAL_AUTH_HEADER_SUFFIX = ".hdr"
 
+# fix(#1746 codex r2): the container tmpfs, deliberately NOT
+# `settings.upload_staging_dir`. Both the api and the worker mount /tmp as a
+# 512m tmpfs (docker-compose.yml and docker-compose.prod.yml), so it is private
+# to the container, gone on restart, and never read by
+# `scripts/backup-entrypoint.sh` — which tars the staging volume every cycle
+# and would otherwise archive a crash-orphaned Authorization header into the
+# backups. A hardcoded path rather than a setting: an operator who repointed it
+# at a persistent volume would silently undo exactly that.
+GDAL_HEADER_DIR = Path("/tmp/gdal-auth")
+
+
+def gdal_header_dir() -> Path:
+    """The 0700 directory GDAL bearer-header files are written into.
+
+    Created on demand by the two ``mkstemp(dir=...)`` call sites, and by
+    nothing else — an install that never fetches a protected WFS/OGC layer
+    never grows the directory. The chmod matters because the container's /tmp
+    is mode 1777: "already there" is not "already ours".
+
+    ``redirect_tempfile_to_staging`` does not reach these files and is not
+    meant to: both call sites pass ``dir=`` explicitly, which overrides
+    ``tempfile.tempdir``. That is the point — the rest of the process's
+    scratch belongs on the multi-GB staging volume, and this one file, which
+    holds a credential, does not.
+    """
+    directory = GDAL_HEADER_DIR
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    os.chmod(directory, 0o700)
+    return directory
+
 
 def sweep_stale_gdal_header_files(
-    staging_dir: Path, max_age_seconds: int = 3600
+    header_dir: Path | None = None, max_age_seconds: int = 3600
 ) -> int:
-    """Reclaim orphaned GDAL bearer-header tempfiles under ``staging_dir``.
+    """Reclaim orphaned GDAL bearer-header tempfiles under ``header_dir``.
 
-    Only direct children of ``staging_dir`` named ``gdal_auth_*.hdr`` are
-    considered — never recurse, since the staging volume also holds
-    originals, COGs, exports, and VRTs this sweeper has no business
-    touching. A file younger than ``max_age_seconds`` is left alone (still
-    in use by a running ogr2ogr subprocess).
+    Defaults to ``GDAL_HEADER_DIR``, and deliberately reads it rather than
+    calling ``gdal_header_dir()``: this sweep reclaims, it does not provision.
+    A missing directory means nothing has ever written a header in this
+    container and there is nothing to reclaim, so it returns 0 — creating the
+    directory from here would make every boot leave an empty 0700 directory
+    behind for a feature the install may never use. The explicit argument
+    exists so the unit tests can point it somewhere writable.
+
+    Only direct children named ``gdal_auth_*.hdr`` are considered, and the
+    sweep never recurses. A file younger than ``max_age_seconds`` is left alone
+    (still in use by a running ogr2ogr/ogrinfo subprocess).
+
+    The tmpfs already bounds the damage — a container restart empties it — so
+    this is what reclaims a leaked header inside a long-running container.
 
     Never raises: a file that disappears between listing and stat/unlink
     (a race with the process that owns it, or with another sweep pass) is
@@ -251,12 +291,12 @@ def sweep_stale_gdal_header_files(
 
     Returns the number of files removed.
     """
-    staging_dir = Path(staging_dir)
-    if not staging_dir.is_dir():
+    header_dir = GDAL_HEADER_DIR if header_dir is None else Path(header_dir)
+    if not header_dir.is_dir():
         return 0
     cutoff = time.time() - max_age_seconds
     removed = 0
-    for entry in staging_dir.iterdir():
+    for entry in header_dir.iterdir():
         name = entry.name
         if not (
             name.startswith(_GDAL_AUTH_HEADER_PREFIX)

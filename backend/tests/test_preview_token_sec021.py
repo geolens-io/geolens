@@ -17,6 +17,10 @@ from pydantic import ValidationError
 
 from app.modules.catalog.sources.schemas import ProbeRequest, ServicePreviewRequest
 
+# fix(#1746 codex r2): autouse where imported — the bearer header now lands in
+# gdal_header_dir(), so without this the suite writes into the real /tmp.
+from tests.test_ogr_subprocess_env import gdal_header_tmpdir  # noqa: F401
+
 
 def _base_kwargs(model) -> dict:
     """Minimal VALID fields per model (everything except the token under test),

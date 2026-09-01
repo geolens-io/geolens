@@ -544,7 +544,9 @@ async def main() -> None:
     # docstring). The worker has no periodic sweep loop, unlike the API, so
     # boot-time is the only hook here — matches how sweep_orphaned_exports
     # itself is only swept at worker boot, not on a cadence.
-    sweep_stale_gdal_header_files(Path(settings.upload_staging_dir))
+    # fix(#1746 codex r2): the container tmpfs, not the staging volume — see
+    # gdal_header_dir(); staging is backed up every cycle and /tmp is not.
+    sweep_stale_gdal_header_files()
 
     # 2. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
     # overlay requested, init edition, init storage + S3 health probe, init cache.

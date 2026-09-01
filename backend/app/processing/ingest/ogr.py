@@ -11,6 +11,7 @@ import structlog
 
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
+from app.core.runtime.staging import gdal_header_dir
 from app.core.service_tokens import HEADER_TOKEN_CHARSET, HEADER_TOKEN_MIN_LENGTH
 from app.core.url_redaction import redact_url_credentials
 
@@ -1039,13 +1040,20 @@ async def run_ogr2ogr_service(
             # set explicitly for clarity).
             import tempfile
 
-            # fix(#1746): mkstemp had no dir=, so it landed in the system
-            # tempdir, not the staging volume the comment above claims — a
-            # SIGKILL/OOM before the finally block below then leaks the
-            # bearer-header tempfile outside anything a sweep can reach.
-            os.makedirs(settings.upload_staging_dir, exist_ok=True)
+            # fix(#1746): mkstemp had no dir=, so it landed wherever
+            # `tempfile.tempdir` happened to point — a SIGKILL/OOM before the
+            # finally block below then leaks the bearer-header tempfile outside
+            # anything a sweep can reach.
+            #
+            # fix(#1746 codex r2): the directory is the container tmpfs, not
+            # the staging volume. Staging is persistent and
+            # `scripts/backup-entrypoint.sh` tars it every cycle, so an
+            # orphaned header could be archived into a backup.
+            # `gdal_header_dir()` is 0700 under /tmp, which the worker mounts
+            # as its own 512m tmpfs: private to this container, gone on
+            # restart, and swept at boot for anything that leaks in between.
             fd, header_file_path = tempfile.mkstemp(
-                prefix="gdal_auth_", suffix=".hdr", dir=settings.upload_staging_dir
+                prefix="gdal_auth_", suffix=".hdr", dir=gdal_header_dir()
             )
             try:
                 os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
