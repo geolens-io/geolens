@@ -7,6 +7,7 @@ and reupload workflows.
 """
 
 import asyncio
+import functools
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -261,6 +262,74 @@ task_app = App(
         "app.modules.admin.backfill_jobs",
     ],
 )
+
+
+# fix(#1746): with no credential store configured — the default — the import
+# and re-upload commit doors dispatch the service tasks with the raw service
+# token sitting in the job's own kwargs. The worker deletes SUCCESSFUL rows
+# only, so a terminal failure leaves `procrastinate_jobs.args->>'token'`
+# holding that secret for as long as the row survives, which is the retention
+# horizon at best and forever at worst. Deleting the key is safe because both
+# service tasks are `retry=0`: the first exception IS the terminal one, and
+# nothing will ever re-run the row from these args.
+_PURGE_JOB_TOKEN_SQL = (
+    "UPDATE catalog.procrastinate_jobs SET args = args - 'token' WHERE id = :job_id"
+)
+
+
+async def purge_queued_job_token(job_context: Any) -> None:
+    """Best-effort: drop `token` from the running job's own queue row.
+
+    Takes the Procrastinate ``JobContext`` rather than a bare id so the one
+    caller that has it does not have to reach through it, and so a direct
+    (non-worker) call passing ``None`` is a no-op instead of an error.
+
+    Never raises. It runs while a real failure is being handled, and
+    displacing that exception would cost the diagnosis. The warning names the
+    row, never the value it failed to remove.
+    """
+    row_id = getattr(getattr(job_context, "job", None), "id", None)
+    if row_id is None:
+        return
+    from sqlalchemy import text
+
+    from app.core.db import async_session
+
+    try:
+        async with async_session() as session:
+            await session.execute(text(_PURGE_JOB_TOKEN_SQL), {"job_id": row_id})
+            await session.commit()
+    except Exception:  # broad: a purge failure must not replace the real one
+        structlog.get_logger().warning(
+            "queued_job_token_purge_failed", procrastinate_job_id=row_id
+        )
+
+
+def purge_token_on_failure(fn):
+    """Wrap a ``pass_context=True`` task so a dying attempt purges its token.
+
+    Applied UNDER ``@tenant_task`` so the purge runs with the job's tenant
+    context still bound. It absorbs the ``JobContext`` Procrastinate passes as
+    the first positional argument, which keeps the task's own signature and
+    keyword-only call shape unchanged — every direct caller (tests, ``.func``,
+    ``.__wrapped__``) supplies no context, and with no context there is no row
+    to purge and the wrapper is transparent.
+
+    Catches ``Exception``, not ``BaseException``: a cancelled attempt (worker
+    shutdown) leaves the row `doing`, which is not terminal, and the sweep in
+    ``platform/jobs/sweep.py`` is the backstop for whatever settles it later.
+    """
+
+    @functools.wraps(fn)
+    async def _wrapper(job_context: Any = None, /, **kwargs: Any) -> Any:
+        try:
+            return await fn(**kwargs)
+        except Exception:  # broad: every terminal failure strands the token
+            await purge_queued_job_token(job_context)
+            raise
+
+    return _wrapper
+
 
 # ArcGIS esriFieldType → column_info type mapping
 _ARCGIS_TYPE_MAP = {

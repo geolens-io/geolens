@@ -50,6 +50,7 @@ from app.processing.ingest.tasks_common import (
     _validate_upload_file_safety,
     apply_manifest_record_metadata,
     invalidate_tile_cache_for_table,
+    purge_token_on_failure,
     resolve_service_type,
     task_app,
 )
@@ -776,8 +777,16 @@ async def _fetch_service_layer_with_paging_guard(
     )
 
 
-@task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.reupload_service"])
+@task_app.task(
+    queue="ingest",
+    retry=0,
+    # fix(#1746): the context is how the task learns its own queue-row id, so
+    # a terminal failure can strip the raw token out of its own kwargs.
+    pass_context=True,
+    aliases=["app.ingest.tasks.reupload_service"],
+)
 @tenant_task
+@purge_token_on_failure
 async def reupload_service(
     job_id: str,
     dataset_id: str,
