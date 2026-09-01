@@ -56,7 +56,7 @@ from app.modules.catalog.sources.origin_probe import (
     TIMEOUT,
     UNAUTHORIZED,
     UNEXPECTED_STATUS,
-    probe_arcgis_service,
+    probe_arcgis_origin,
     probe_remote_uri,
     remote_asset_exists,
 )
@@ -884,7 +884,7 @@ class TestArcgisAuthEnvelope:
     ) -> None:
         install, _ = probe_transport
         install(_json_body({"error": {"code": code, "message": "Token Required"}}))
-        result = await probe_arcgis_service(self._LAYER_URI)
+        result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == INACCESSIBLE
         assert result.detail == AUTH_REQUIRED
         assert result.ok is False
@@ -892,7 +892,7 @@ class TestArcgisAuthEnvelope:
     async def test_a_normal_layer_document_stays_healthy(self, probe_transport) -> None:
         install, recorded = probe_transport
         install(_json_body({"id": 0, "name": "roads", "type": "Feature Layer"}))
-        result = await probe_arcgis_service(self._LAYER_URI)
+        result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == HEALTHY
         assert result.detail is None
         assert len(recorded) == 1
@@ -904,7 +904,7 @@ class TestArcgisAuthEnvelope:
         """``copy_set_param`` replaces rather than appends."""
         install, recorded = probe_transport
         install(_json_body({"id": 0, "name": "roads"}))
-        await probe_arcgis_service(f"{self._LAYER_URI}?f=html")
+        await probe_arcgis_origin(f"{self._LAYER_URI}?f=html")
         assert recorded[0].url.params.get_list("f") == ["json"]
 
     async def test_a_non_auth_envelope_is_left_alone(self, probe_transport) -> None:
@@ -916,14 +916,14 @@ class TestArcgisAuthEnvelope:
         """
         install, _ = probe_transport
         install(_json_body({"error": {"code": 400, "message": "Invalid layer"}}))
-        result = await probe_arcgis_service(self._LAYER_URI)
+        result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == HEALTHY
 
     async def test_a_transport_verdict_still_wins(self, probe_transport) -> None:
         """A 404 is still ``missing``; the envelope check runs after the status."""
         install, _ = probe_transport
         install(_status_map({}, default=404))
-        result = await probe_arcgis_service(self._LAYER_URI)
+        result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == MISSING
         assert result.detail == NOT_FOUND
 
@@ -941,7 +941,7 @@ class TestArcgisAuthEnvelope:
             return httpx.Response(200, text="<html>login</html>")
 
         install(_html)
-        result = await probe_arcgis_service(self._LAYER_URI)
+        result = await probe_arcgis_origin(self._LAYER_URI)
         assert result.health == INACCESSIBLE
         assert result.detail == UNEXPECTED_STATUS
 

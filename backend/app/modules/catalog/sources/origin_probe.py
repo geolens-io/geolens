@@ -254,17 +254,21 @@ async def probe_remote_uri(
 _ARCGIS_AUTH_ERROR_CODES = frozenset({498, 499})
 
 
-async def probe_arcgis_service(
+async def probe_arcgis_origin(
     uri: str, *, timeout: float = PROBE_TIMEOUT_SECONDS
 ) -> OriginProbeResult:
     """Probe an ArcGIS FeatureServer layer and read its error envelope.
 
-    NOT the namesake in ``sources/adapters/arcgis.py``. That one is the
-    import-time detector — it takes a client and a token, asks whether a URL
-    is a FeatureServer at all, and answers with layer metadata. This one asks
-    the much smaller question this module exists for, about a pointer GeoLens
-    already stored: does it still answer, and is it asking us to authenticate.
-    Do not import the two into the same namespace.
+    Named for the question it asks, like its siblings ``probe_remote_uri`` and
+    ``probe_service_origin``: this is about an ORIGIN, a pointer GeoLens
+    already stored. Does it still answer, and is it asking us to authenticate.
+
+    Deliberately not ``probe_arcgis_service``, which is taken in this package
+    by the import-time DETECTOR in ``sources/adapters/arcgis.py`` — that one
+    takes a client and a token, asks whether a URL is a FeatureServer at all,
+    and answers with layer metadata. Two functions with one name in one
+    package is a trap, and it got closer once this module started importing
+    from ``adapters/`` for the WFS URL builder.
     """
     try:
         target = str(httpx.URL(uri).copy_set_param("f", "json"))
@@ -331,7 +335,7 @@ async def probe_service_origin(
     about whether an ArcGIS 200 was healthy.
     """
     if service_type == "arcgis_featureserver":
-        return await probe_arcgis_service(target, timeout=timeout)
+        return await probe_arcgis_origin(target, timeout=timeout)
     return await probe_remote_uri(target, timeout=timeout)
 
 
