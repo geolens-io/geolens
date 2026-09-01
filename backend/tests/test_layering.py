@@ -3338,7 +3338,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#1691): +13 — the RESTRICT_PUBLIC_VISIBILITY flag (admins-only
     # `visibility: public`) plus the comment pointing at its shared gate in
     # catalog/authorization.py. Cap 1029 -> 1042, exact.
-    "backend/app/core/persistent_config.py": 1042,
+    # fix(#1746 codex r8): +5 — the runtime log-level setter now also calls
+    # apply_http_logger_levels() (logging_config.py) after raising root's
+    # level, so httpx/httpcore's WARNING floor tracks a LOG_LEVEL change made
+    # through the admin settings UI, not just one made at boot.
+    "backend/app/core/persistent_config.py": 1047,
     # fix(#1533): first entry — crossed _RATCHET_INCLUSION_LOC on the change
     # that made the run notice the embedding column moving under it. Two
     # guards, both small: _live_column_dims (one pg_attribute read, shared with

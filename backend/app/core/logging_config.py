@@ -257,6 +257,38 @@ def _dev_exception_formatter() -> structlog.types.ExceptionRenderer:
     return formatter
 
 
+def apply_http_logger_levels(root_level: int | str) -> None:
+    """Keep httpx/httpcore at least as quiet as WARNING, never quieter than root.
+
+    fix(#1746): httpx (and its httpcore transport) logs the full request URL
+    at INFO on every call, including a `?token=...` query string on the
+    ArcGIS path — with or without a credential store. Root defaults to INFO
+    (see core/config.py), so that line reached every deployment's logs by
+    default, twice per refresh on the credential-store path. WARNING keeps
+    connection failures visible while dropping the routine per-request echo;
+    the `event`-string scrub in `_redact_sensitive_fields` is the backstop
+    for whatever still gets through at WARNING or above.
+
+    fix(#1746 codex r8): a FIXED WARNING silently reverses itself the moment
+    root is raised past it. `Logger.isEnabledFor` uses the LOGGER'S OWN
+    explicit level once one is set and never re-derives it from root, so
+    `LOG_LEVEL=ERROR`/`CRITICAL` at boot, or a runtime change to either via
+    the persistent-config log-level setter, left httpx sitting at WARNING —
+    MORE verbose than the deployment asked for. Deriving from whichever
+    level is stricter makes WARNING a floor rather than a fixed point:
+    quieter than WARNING (ERROR, CRITICAL), httpx follows root; noisier
+    (INFO or below), httpx stays at WARNING. Accepts the string form too,
+    since both call sites (this module's own `setup_logging` and
+    `persistent_config.py`'s runtime setter) hold the level as a string
+    right before calling this.
+    """
+    if isinstance(root_level, str):
+        root_level = logging.getLevelName(root_level.upper())
+    level = max(logging.WARNING, root_level)
+    for _log in ("httpx", "httpcore"):
+        logging.getLogger(_log).setLevel(level)
+
+
 def setup_logging(
     json_logs: bool = False, log_level: str = "INFO", *, production: bool = False
 ) -> None:
@@ -338,13 +370,4 @@ def setup_logging(
     logging.getLogger("uvicorn.access").handlers.clear()
     logging.getLogger("uvicorn.access").propagate = False
 
-    # fix(#1746): httpx (and its httpcore transport) logs the full request
-    # URL at INFO on every call, including a `?token=...` query string on the
-    # ArcGIS path — with or without a credential store. Root defaults to
-    # INFO (see core/config.py), so that line reached every deployment's logs
-    # by default, twice per refresh on the credential-store path. WARNING
-    # keeps connection failures visible while dropping the routine per-request
-    # echo; the `event`-string scrub above is the backstop for whatever still
-    # gets through at WARNING or above.
-    for _log in ("httpx", "httpcore"):
-        logging.getLogger(_log).setLevel(logging.WARNING)
+    apply_http_logger_levels(log_level.upper())

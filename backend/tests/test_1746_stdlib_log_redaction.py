@@ -398,6 +398,29 @@ def test_redact_token_value_repr_handles_a_dict_repr_escaped_quote():
     assert "'credential_ref': None" in redacted
 
 
+@pytest.mark.parametrize(
+    ("log_level", "expected_httpx_level"),
+    [
+        ("ERROR", logging.ERROR),
+        ("INFO", logging.WARNING),
+        ("DEBUG", logging.WARNING),
+    ],
+)
+def test_setup_logging_derives_httpx_floor_from_root(log_level, expected_httpx_level):
+    """Codex round 8 P2: httpx's WARNING floor must track root, not override it.
+
+    A FIXED WARNING silently reverses itself the moment root is raised past
+    it: `LOG_LEVEL=ERROR` at boot (`app.core.config`) previously left httpx
+    sitting AT WARNING -- more verbose than the deployment asked for.
+    `apply_http_logger_levels()` makes WARNING a floor rather than a fixed
+    point: root stricter than WARNING (ERROR here) raises httpx to match;
+    root laxer than WARNING (INFO, DEBUG) leaves httpx pinned at WARNING.
+    """
+    with configured_logging(json_logs=False, log_level=log_level, production=True):
+        assert logging.getLogger("httpx").level == expected_httpx_level
+        assert logging.getLogger("httpcore").level == expected_httpx_level
+
+
 def test_redact_token_value_repr_stays_linear_on_unterminated_input():
     """Codex round 4 P2: the two value-body alternatives must not overlap.
 
