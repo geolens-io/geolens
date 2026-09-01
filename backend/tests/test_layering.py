@@ -3109,7 +3109,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and refuses only on an auth challenge; every other outcome falls through
     # to the worker. Most of the addition is the docstring saying why it fails
     # open. Cap 1163 -> 1200, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1200,
+    # fix(#1746 codex r2): +82 — two corrections to the r1 guard. It probes
+    # only ArcGIS, whose target IS the layer the worker reads; WFS and OGC API
+    # are refused outright, because their probe target is GetCapabilities or
+    # the landing page and a public one of those in front of a protected
+    # GetFeature is an ordinary deployment, so a healthy answer would be
+    # evidence of nothing. And the probe path now releases the session across
+    # the outbound wait and re-reads after it, the way check_source_health
+    # does, so concurrent marked refreshes against a slow origin cannot
+    # exhaust the pool. Most of the addition is the docstring stating which
+    # services can be asked and why, plus the caller contract for the
+    # rollback. Cap 1200 -> 1282, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1282,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,

@@ -34,6 +34,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.api import router_refresh
 from app.modules.catalog.datasets.domain.schemas import DatasetRefreshRequest
@@ -58,6 +59,9 @@ pytestmark = pytest.mark.anyio
 
 _ARCGIS_BASE = "https://services.example.com/arcgis/rest/services/Parcels/FeatureServer"
 _WFS_BASE = "https://services.example.com/geoserver/wfs"
+# fix(#1746 codex r2): the third service type the marker gate has to
+# answer for, and the second that cannot be probed.
+_OGCAPI_BASE = "https://services.example.com/ogcapi"
 
 
 # ---------------------------------------------------------------------------
@@ -184,13 +188,17 @@ async def _probe_harness(*, result=None, raises=None):
     alone, it asks the origin. Tests need to state the origin's answer, and to
     assert that the probe did NOT happen on the paths that must not pay for
     one.
+
+    fix(#1746 codex r2): only the ArcGIS path probes, so this patches the
+    ArcGIS origin probe by name. A WFS or OGC API dataset that reaches the
+    probe at all is the bug this harness now also catches.
     """
     probe = AsyncMock()
     if raises is not None:
         probe.side_effect = raises
     else:
         probe.return_value = result or OriginProbeResult(HEALTHY)
-    with patch.object(router_refresh, "probe_service_origin", probe):
+    with patch.object(router_refresh, "probe_arcgis_origin", probe):
         yield probe
 
 
@@ -421,9 +429,14 @@ class TestAuthRequiredRefusal:
     fix(#1746 codex r1): the stored marker says the last successful pull was
     MADE with a token, which is not the same claim as "the origin demands
     one" — a public service imported while the user held a token is marked
-    too. So the marker is a gate and the door asks the origin itself. Only an
-    auth challenge refuses; every other probe outcome falls through to the
-    worker, exactly as before this existed.
+    too. So the marker is a gate.
+
+    fix(#1746 codex r2): and the gate resolves differently per service,
+    because only ArcGIS can be asked. Its probe target is the layer the
+    worker actually reads. A WFS or OGC API probe would hit GetCapabilities
+    or the landing page, which says nothing about whether GetFeature or
+    /items is protected, so those are refused outright rather than cleared by
+    evidence that is not evidence.
     """
 
     _CHALLENGES = [
@@ -431,10 +444,25 @@ class TestAuthRequiredRefusal:
         OriginProbeResult(INACCESSIBLE, UNAUTHORIZED),  # a plain 401/403
     ]
 
+    @staticmethod
+    async def _marked_arcgis(session, *, created_by):
+        return await _service_dataset(
+            session,
+            created_by=created_by,
+            source_format="arcgis_featureserver",
+            base_url=_ARCGIS_BASE,
+            layer_id="0",
+            auth_required=True,
+        )
+
+    # ---------------------------------------------------------------- #
+    # ArcGIS: the probe target IS the resource the worker reads
+    # ---------------------------------------------------------------- #
+
     @pytest.mark.parametrize(
         "challenge", _CHALLENGES, ids=["arcgis_envelope", "http_401"]
     )
-    async def test_a_marked_dataset_is_refused_when_the_origin_challenges(
+    async def test_a_marked_arcgis_is_refused_when_the_layer_challenges(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
@@ -442,9 +470,7 @@ class TestAuthRequiredRefusal:
         challenge,
     ) -> None:
         admin_id = await get_user_id(test_db_session, "admin")
-        dataset = await _service_dataset(
-            test_db_session, created_by=admin_id, auth_required=True
-        )
+        dataset = await self._marked_arcgis(test_db_session, created_by=admin_id)
 
         async with _dispatch_harness() as task:
             async with _probe_harness(result=challenge) as probe:
@@ -455,24 +481,24 @@ class TestAuthRequiredRefusal:
         assert resp.status_code == 422, resp.text
         detail = resp.json()["detail"]
         assert detail["code"] == "service_token_required"
-        # The message names the field that fixes it, and says why there is
-        # nothing on the server to un-expire.
+        # The message names the field that fixes it, and the door that clears
+        # the marker when the source really did go public.
         assert "`token` field" in detail["message"]
         assert "request-only" in detail["message"]
+        assert "re-upload" in detail["message"]
 
-        # The probe went to the canonical service target for this service
-        # type, token-less, and ran exactly once.
+        # The probe went to the LAYER, once — the same resource the worker
+        # fetches, which is what makes its answer worth acting on.
         probe.assert_awaited_once()
-        target, service_type = probe.await_args.args
-        assert target == f"{_WFS_BASE}?service=WFS&request=GetCapabilities"
-        assert service_type == "wfs"
+        (target,) = probe.await_args.args
+        assert target == f"{_ARCGIS_BASE}/0"
 
         # Refused before the reservation: no run row, nothing deferred, and
         # so nothing holding the dataset against the admission index.
         assert await _run_for(test_db_session, dataset.id) is None
         task.defer_async.assert_not_awaited()
 
-    async def test_a_healthy_probe_lets_the_refresh_through(
+    async def test_a_healthy_layer_lets_the_refresh_through(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ) -> None:
         """The false-marker case, which is the whole reason for the probe.
@@ -482,9 +508,7 @@ class TestAuthRequiredRefusal:
         refresh until they went through the re-upload dialog.
         """
         admin_id = await get_user_id(test_db_session, "admin")
-        dataset = await _service_dataset(
-            test_db_session, created_by=admin_id, auth_required=True
-        )
+        dataset = await self._marked_arcgis(test_db_session, created_by=admin_id)
 
         async with _dispatch_harness() as task:
             async with _probe_harness(result=OriginProbeResult(HEALTHY)) as probe:
@@ -517,9 +541,7 @@ class TestAuthRequiredRefusal:
         worker is still there with copy that names the token field.
         """
         admin_id = await get_user_id(test_db_session, "admin")
-        dataset = await _service_dataset(
-            test_db_session, created_by=admin_id, auth_required=True
-        )
+        dataset = await self._marked_arcgis(test_db_session, created_by=admin_id)
 
         async with _dispatch_harness() as task:
             async with _probe_harness(result=outcome):
@@ -535,9 +557,7 @@ class TestAuthRequiredRefusal:
     ) -> None:
         """The guard cannot be the thing that 500s a request bound for 202."""
         admin_id = await get_user_id(test_db_session, "admin")
-        dataset = await _service_dataset(
-            test_db_session, created_by=admin_id, auth_required=True
-        )
+        dataset = await self._marked_arcgis(test_db_session, created_by=admin_id)
 
         async with _dispatch_harness() as task:
             async with _probe_harness(raises=RuntimeError("origin exploded")):
@@ -553,9 +573,7 @@ class TestAuthRequiredRefusal:
     ) -> None:
         """A token is request-only; nothing about it is ever reflected back."""
         admin_id = await get_user_id(test_db_session, "admin")
-        dataset = await _service_dataset(
-            test_db_session, created_by=admin_id, auth_required=True
-        )
+        dataset = await self._marked_arcgis(test_db_session, created_by=admin_id)
 
         async with _dispatch_harness():
             async with _probe_harness(
@@ -573,6 +591,170 @@ class TestAuthRequiredRefusal:
         assert "auth_required" not in resp.text
         await test_db_session.refresh(dataset)
         assert "token" not in str(dataset.origin_ref)
+
+    # ---------------------------------------------------------------- #
+    # WFS and OGC API: nothing reachable can answer the question
+    # ---------------------------------------------------------------- #
+
+    @pytest.mark.parametrize(
+        ("source_format", "base_url", "layer_id"),
+        [
+            ("wfs", _WFS_BASE, "topp:parcels"),
+            ("ogcapi_features", _OGCAPI_BASE, "parcels"),
+        ],
+        ids=["wfs", "ogcapi_features"],
+    )
+    async def test_a_marked_header_auth_service_is_refused_without_probing(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        source_format: str,
+        base_url: str,
+        layer_id: str,
+    ) -> None:
+        """fix(#1746 codex r2): a probe here could only ask the wrong question.
+
+        ``service_probe_target`` deliberately aims a WFS at GetCapabilities
+        and an OGC API at its landing page, because those are the documents
+        whose reachability describes the service. Neither is the resource the
+        worker fetches, and a public capabilities document in front of a
+        protected GetFeature is an ordinary deployment — so a healthy answer
+        would be evidence of nothing while reading as permission to proceed.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session,
+            created_by=admin_id,
+            source_format=source_format,
+            base_url=base_url,
+            layer_id=layer_id,
+            auth_required=True,
+        )
+
+        async with _dispatch_harness() as task:
+            async with _probe_harness() as probe:
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "service_token_required"
+        # Not asked, because nothing it could reach would answer.
+        probe.assert_not_awaited()
+        assert await _run_for(test_db_session, dataset.id) is None
+        task.defer_async.assert_not_awaited()
+
+    async def test_the_header_auth_refusal_names_the_way_out(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """The refusal must not read as a permanent trap.
+
+        A marked WFS that genuinely went public cannot clear itself through
+        this door, so the message has to name the one that still allows a
+        token-less pull.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        async with _dispatch_harness():
+            async with _probe_harness():
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+
+        message = resp.json()["detail"]["message"]
+        assert "re-upload" in message
+        assert "without a token" in message
+
+    # ---------------------------------------------------------------- #
+    # Session handling across the probe
+    # ---------------------------------------------------------------- #
+
+    async def test_the_session_is_released_across_the_probe_and_re_read_after(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1746 codex r2): the pool must not be held across the wait.
+
+        The probe can hold its full deadline against a slow origin, and a
+        session held across it pins one of the pool's connections — enough
+        concurrent marked refreshes would starve every other database-backed
+        request. ``check_source_health`` already releases; so does this.
+
+        The re-read afterwards is the other half. Rolling back expires the ORM
+        instance, and the lines below the guard read it
+        (``dataset.feature_count`` at the reservation, then a ``db.refresh``),
+        where an async lazy load raises rather than quietly re-querying.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await self._marked_arcgis(test_db_session, created_by=admin_id)
+
+        calls: list[str] = []
+        real_get_dataset = router_refresh.get_dataset
+
+        async def _tracking_get_dataset(db, ds_id, *args, **kwargs):
+            calls.append("get_dataset")
+            return await real_get_dataset(db, ds_id, *args, **kwargs)
+
+        async def _probe(_target):
+            calls.append("probe")
+            return OriginProbeResult(HEALTHY)
+
+        real_rollback = AsyncSession.rollback
+
+        async def _tracking_rollback(self):
+            calls.append("rollback")
+            return await real_rollback(self)
+
+        with (
+            patch.object(router_refresh, "get_dataset", _tracking_get_dataset),
+            patch.object(router_refresh, "probe_arcgis_origin", _probe),
+            patch.object(AsyncSession, "rollback", _tracking_rollback),
+        ):
+            async with _dispatch_harness():
+                resp = await client.post(
+                    f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                )
+
+        assert resp.status_code == 202, resp.text
+        # The door's own first read, then release, then the outbound wait,
+        # then the read that re-materializes what the rest of the handler
+        # touches. The ORDER is the property under test; what the request does
+        # after those four is not this test's business.
+        assert calls[:4] == ["get_dataset", "rollback", "probe", "get_dataset"], calls
+
+    async def test_the_header_auth_refusal_releases_nothing(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """No network, no rollback. The refusal is a pure read of the marker."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        rolled_back: list[bool] = []
+        real_rollback = AsyncSession.rollback
+
+        async def _tracking_rollback(self):
+            rolled_back.append(True)
+            return await real_rollback(self)
+
+        with patch.object(AsyncSession, "rollback", _tracking_rollback):
+            async with _dispatch_harness():
+                async with _probe_harness() as probe:
+                    resp = await client.post(
+                        f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                    )
+
+        assert resp.status_code == 422, resp.text
+        probe.assert_not_awaited()
+        assert rolled_back == []
+
+    # ---------------------------------------------------------------- #
+    # The paths that must cost nothing at all
+    # ---------------------------------------------------------------- #
 
     async def test_a_marked_dataset_with_a_token_still_dispatches(
         self,

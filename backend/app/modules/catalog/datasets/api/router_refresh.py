@@ -62,7 +62,7 @@ from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
-    probe_service_origin,
+    probe_arcgis_origin,
     service_probe_target,
 )
 from app.platform.dataset_origin import classify_origin, service_auth_required
@@ -226,35 +226,80 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
     )
 
 
-async def _require_service_token_if_marked(dataset, token: str | None) -> None:
-    """Refuse a credential-less refresh only when the origin still demands one.
+def _service_token_required() -> HTTPException:
+    """The one 422 both refusal paths raise, so the wording cannot fork."""
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "code": "service_token_required",
+            "message": (
+                "This dataset's source needed a service token the last time "
+                "it was imported or refreshed, and this request carries "
+                "none. Send the token again in the request body's `token` "
+                "field; tokens are request-only and are never stored between "
+                "runs. If the source is public now, re-import it through the "
+                "re-upload dialog without a token to clear the requirement."
+            ),
+        },
+    )
+
+
+async def _require_service_token_if_marked(db, dataset, dataset_id, token):
+    """Handle a token-less refresh of an origin whose last pull used a token.
+
+    Returns the dataset to carry forward — the same instance, or a re-read one
+    when this had to release the session (see the rollback note below).
+
+    CALLER CONTRACT: on the ArcGIS probe path this rolls back, which expires
+    EVERY ORM instance in the session, not just the dataset. Anything the
+    caller loaded earlier and still needs — the injected ``user`` included,
+    since ``Identity`` is a Protocol the concrete ``User`` ORM satisfies —
+    must be re-read or captured into a local before the call.
 
     fix(#1746): dispatching a token-less refresh of a protected origin is a
     202 followed ~0.5s later by a worker failure whose message is the only
     place the real cause appears. Refusing at the door instead, naming the
     field that fixes it, is the whole point.
 
-    fix(#1746 codex r1): but the marker alone is not that fact. The worker
-    cannot observe a challenge, so ``auth_required`` records only that the
-    last SUCCESSFUL pull was MADE with a token — a user who imported a public
-    service while holding a token gets a marked dataset, and refusing on the
-    marker alone would lock them out of every token-less refresh until they
-    went through the re-upload dialog. So the marker is the gate, not the
-    verdict: it is cheap, it is written where the credential is known, and
-    reaching it costs one token-less probe that asks the origin whether it
-    still demands a credential.
+    fix(#1746 codex r1): the marker alone is not that fact. The worker cannot
+    observe a challenge, so ``auth_required`` records only that the last
+    SUCCESSFUL pull was MADE with a token — a user who imported a public
+    service while holding a token gets a marked dataset. So the marker is a
+    gate, and where it is possible to ask the origin, the door asks.
 
-    Only an auth challenge refuses. Every other probe outcome — healthy,
-    missing, timed out, unreachable, blocked — falls through and lets the
-    refresh proceed exactly as it did before this existed. Failing open is
-    deliberate: a probe is one request against a third party, and turning its
-    bad day into a refusal would be a worse bug than the one this closes. The
-    worker is still there, and its auth-failure copy now names the token
-    field.
+    fix(#1746 codex r2): "where it is possible" is the whole of this function,
+    and it is not every service.
 
-    A false marker therefore costs one probe per refresh and never a refusal,
-    and it does not persist: a successful token-less pull rebuilds the ref
-    without the key, so the next refresh does not probe at all.
+    ArcGIS is asked. Its probe target IS the resource the worker reads: the
+    layer's ``?f=json``, which answers 499 "Token Required" for an org-only
+    layer and 498 for a token it rejected. A healthy answer there is real
+    evidence the token-less refresh will work, so a false marker costs one
+    probe and never a refusal.
+
+    WFS and OGC API Features are refused outright, with no probe. Their probe
+    target is the capabilities document or the landing page, which is a
+    DIFFERENT resource from the one the worker fetches — a public
+    GetCapabilities in front of a protected GetFeature is an ordinary
+    deployment, so a healthy answer there would be evidence of nothing while
+    reading as permission to proceed. Probing the feature endpoint anonymously
+    instead is not on the table: composing a correct GetFeature or /items
+    request means reproducing the worker's whole URL-building path, and a
+    wrong one would answer 400 and be read as "not an auth problem". A
+    refusal that names the field is honest; a probe that cannot see the
+    protected resource is not.
+
+    The escape hatch is the same for both, and the message says so: a
+    successful token-less pull rebuilds the ref without the key, and the
+    re-upload dialog (preview + commit with no token) is the door that still
+    allows one. So a marked WFS dataset that genuinely went public is two
+    clicks from clearing its marker, not stuck.
+
+    Only an auth challenge refuses on the ArcGIS path. Every other probe
+    outcome — healthy, missing, timed out, unreachable, blocked — falls
+    through and lets the refresh proceed exactly as it did before this
+    existed. Failing open is deliberate: a probe is one request against a
+    third party, and turning its bad day into a refusal would be worse than
+    the bug this closes.
 
     A function rather than inline lines because ``refresh_dataset`` sits one
     branch under ruff's C901 ceiling, and the repo's answer to that has been
@@ -262,36 +307,54 @@ async def _require_service_token_if_marked(dataset, token: str | None) -> None:
     another per-file exemption.
     """
     if token or not service_auth_required(dataset.origin_ref):
-        return
+        return dataset
     ref = dataset.origin_ref or {}
+    if ref.get("service_type") != "arcgis_featureserver":
+        # No probe, and no session released: this path touches no network.
+        raise _service_token_required()
     target = service_probe_target(ref, dataset.origin_uri)
     if not target:
         # Nothing safe to contact, so there is nothing to ask. The health
         # endpoint answers 409 here; a refresh has no verdict to persist and
         # simply lets the worker try.
-        return
+        return dataset
+
+    # fix(#1746 codex r2): release the pooled connection BEFORE the outbound
+    # wait, exactly as `check_source_health` does and for the same reason. The
+    # probe can hold its full deadline against a slow origin, and a session
+    # held across it pins one of the pool's connections for the duration —
+    # enough concurrent marked refreshes would starve every other
+    # database-backed request. Nothing has been written yet (the job row and
+    # the reservation both come later), so this rolls back a read-only
+    # transaction and costs nothing.
+    #
+    # Everything the probe needs is already in locals; the ORM instance is
+    # dead across the await, and touching an expired attribute there would
+    # raise on an async lazy load rather than quietly re-query. Hence the
+    # re-read below, whose result is what the caller carries forward.
+    await db.rollback()
     try:
-        result = await probe_service_origin(target, ref.get("service_type"))
+        result = await probe_arcgis_origin(target)
     except Exception:  # broad: this guard must never 500 a refresh bound for 202
-        # Both probes already swallow every transport failure into a verdict,
-        # so this is the belt to those braces. Anything that still escapes is
-        # a bug in the probe, and the honest response to it is to let the
+        # `probe_arcgis_origin` already swallows every transport failure into
+        # a verdict, so this is the belt to those braces. Anything that still
+        # escapes is a bug in the probe, and the honest response is to let the
         # refresh proceed the way it did before this guard existed.
-        return
-    if result.detail not in AUTH_CHALLENGE_DETAILS:
-        return
-    raise HTTPException(
-        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-        detail={
-            "code": "service_token_required",
-            "message": (
-                "This dataset's source is asking for a service token, and it "
-                "needed one the last time it was imported or refreshed. Send "
-                "the token again in the request body's `token` field; tokens "
-                "are request-only and are never stored between runs."
-            ),
-        },
-    )
+        result = None
+
+    # Re-read on BOTH outcomes, so the post-condition is flat: when this
+    # returns or raises, the session is live again and no expired instance is
+    # left for a later line to touch. Write access was gated on this same
+    # dataset id before the probe; this read only re-materializes it.
+    reloaded = await get_dataset(db, dataset_id)
+    if reloaded is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+    if result is not None and result.detail in AUTH_CHALLENGE_DETAILS:
+        raise _service_token_required()
+    return reloaded
 
 
 @dataclass(frozen=True)
@@ -890,12 +953,31 @@ async def refresh_dataset(
         ) from exc
 
     # fix(#1746): placed after the postgis and stac early returns so it can
-    # never fire for a non-service origin, and after the SSRF block because it
-    # FETCHES the stored URL — fix(#1746 codex r1) turned this from a marker
-    # read into a token-less probe, so the target has to be validated before
-    # it is contacted. Still before `create_pending_run`: a refusal here must
-    # not burn a run row or hold the dataset against the admission index.
-    await _require_service_token_if_marked(dataset, body.token)
+    # never fire for a non-service origin, and after the SSRF block because
+    # its ArcGIS branch FETCHES the stored URL — fix(#1746 codex r1) turned
+    # this from a marker read into a token-less probe, so the target has to be
+    # validated before it is contacted. Still before `create_pending_run`: a
+    # refusal here must not burn a run row or hold the dataset against the
+    # admission index.
+    #
+    # fix(#1746 codex r2): it returns the dataset because its probe path
+    # releases the session across the outbound wait, and what comes back is a
+    # re-read instance. Rebinding the name here is what keeps the reads below
+    # (`dataset.feature_count`, the post-reservation `db.refresh`) off an
+    # expired one. `candidate` is deliberately NOT recomputed: it is the
+    # pre-check binding, and a rebind during the probe window is exactly what
+    # the `origin != candidate` check after the reservation answers with 409.
+    #
+    # `user` needs the same treatment and cannot get it, because it is not
+    # this function's to re-read: `Identity` is a Protocol the concrete `User`
+    # ORM satisfies, so the injected instance lives in THIS session and the
+    # rollback expires it too. Reading `user.id` afterwards is a sync lazy
+    # load inside a coroutine, which raises MissingGreenlet rather than
+    # re-querying. It is one already-loaded UUID, so it is captured here.
+    user_id = user.id
+    dataset = await _require_service_token_if_marked(
+        db, dataset, dataset_id, body.token
+    )
 
     # Refuse a credentialed refresh we cannot carry out, before writing
     # anything. Without a shared store the secret cannot reach the worker at
@@ -958,7 +1040,7 @@ async def refresh_dataset(
     # ------------------------------------------------------------------ #
     job = IngestJob(
         dataset_id=dataset_id,
-        created_by=user.id,
+        created_by=user_id,
         status="pending",
         # Enough to be a well-formed re-upload job; the source binding is
         # filled in below, from the read that happens after the reservation.
@@ -976,7 +1058,7 @@ async def refresh_dataset(
             dataset_id=dataset_id,
             origin_kind="service",
             trigger="api",
-            triggered_by=user.id,
+            triggered_by=user_id,
             ingest_job_id=job.id,
             feature_count_before=dataset.feature_count,
         )
@@ -1152,7 +1234,7 @@ async def refresh_dataset(
             dataset_id=str(dataset_id),
             source_url=origin.base_url,
             source_layer=origin.layer_name,
-            user_id=str(user.id),
+            user_id=str(user_id),
             # The REFERENCE, never the secret. Task arguments are durable rows
             # in PostgreSQL and a failed job keeps them until retention runs;
             # this value means nothing once claimed or expired.
