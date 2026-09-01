@@ -123,14 +123,22 @@ def test_httpx_warning_request_line_is_delivered_but_redacted():
     Silencing httpx to WARNING (finding 1's primary fix) must not become the
     only defense — an httpx warning (e.g. a retry log) carries the same URL
     shape, so the event-string scrub is the backstop this test pins.
+
+    fix(#1746 codex r6): the query is now redacted WHOLE (`?<redacted>`)
+    whenever it carries any credential, not just the token's value -- see
+    `_redact_url_match()` for why a partial parse is not trustworthy enough
+    to leave the rest of the query in place. `"token="` itself no longer
+    survives here; the host and path do.
     """
     message = f'HTTP Request: GET {_ARCGIS_URL} "HTTP/1.1 200 OK"'
     lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
 
     assert len(lines) == 1
     assert _TOKEN not in lines[0]
-    assert "token=" in lines[0]  # the field survives; only the value is scrubbed
+    assert "?<redacted>" in lines[0]
+    assert "services6.arcgis.com/x/FeatureServer/0" in lines[0]
     assert "HTTP Request: GET" in lines[0]
+    assert '"HTTP/1.1 200 OK"' in lines[0]
 
 
 def test_httpx_warning_userinfo_credential_is_redacted():
@@ -153,6 +161,66 @@ def test_httpx_warning_userinfo_credential_is_redacted():
     assert len(lines) == 1
     assert _TOKEN not in lines[0]
     assert "redacted@" in lines[0]
+
+
+def test_httpx_warning_query_credential_with_hash_is_fully_redacted():
+    """Codex round 6 P1: an un-escaped `#` in a token value breaks the parse.
+
+    The token/source validators only reject whitespace/control characters,
+    so a value containing `#` is reachable. `urlsplit` reads `#` as the
+    start of a URL fragment, which query redaction never inspects, so
+    `redact_url_credentials()` alone left everything after the `#` -- the
+    bulk of the secret -- untouched. `_redact_url_match()` now escalates to
+    redacting the whole query once the ORIGINAL query is known to carry a
+    credential, so the host and path stay legible but the query does not.
+    """
+    secret_url = (
+        f"https://services6.arcgis.com/x/FeatureServer/0?f=json&token=#{_TOKEN}"
+    )
+    message = f'HTTP Request: GET {secret_url} "HTTP/1.1 200 OK"'
+    assert _TOKEN in message  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
+
+    assert len(lines) == 1
+    assert _TOKEN not in lines[0]
+    assert "services6.arcgis.com/x/FeatureServer/0" in lines[0]
+    assert '"HTTP/1.1 200 OK"' in lines[0]
+
+
+def test_httpx_warning_query_credential_with_ampersand_is_fully_redacted():
+    """Codex round 6 P1: an un-escaped `&` in a token value breaks the parse.
+
+    `parse_qsl` reads an un-escaped `&` inside a token value as the START of
+    a NEW query parameter -- a bare name with no `=`, which matches no
+    known-sensitive key, so the tail of the secret survived as an
+    unredacted "parameter". Same escalation as the `#` case above.
+    """
+    secret_url = f"https://services6.arcgis.com/x/FeatureServer/0?token=abc&{_TOKEN}"
+    message = f'HTTP Request: GET {secret_url} "HTTP/1.1 200 OK"'
+    assert _TOKEN in message  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
+
+    assert len(lines) == 1
+    assert _TOKEN not in lines[0]
+    assert "services6.arcgis.com/x/FeatureServer/0" in lines[0]
+    assert '"HTTP/1.1 200 OK"' in lines[0]
+
+
+def test_httpx_warning_query_without_a_credential_is_left_intact():
+    """The round 6 escalation must not fire for a query with no credential.
+
+    `where=1%3D1` is a plain (non-credential) query parameter; nothing here
+    should trip `query_has_credentials()`, so the query survives whole.
+    """
+    plain_url = "https://services6.arcgis.com/x/FeatureServer/0?f=json&where=1%3D1"
+    message = f'HTTP Request: GET {plain_url} "HTTP/1.1 200 OK"'
+
+    lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
+
+    assert len(lines) == 1
+    assert plain_url in lines[0]
 
 
 def test_procrastinate_worker_task_kwargs_token_is_redacted():

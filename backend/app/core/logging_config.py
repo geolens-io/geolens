@@ -62,7 +62,11 @@ from typing import Any
 
 import structlog
 
-from app.core.url_redaction import URL_LIKE_RE, redact_url_credentials
+from app.core.url_redaction import (
+    URL_LIKE_RE,
+    query_has_credentials,
+    redact_url_credentials,
+)
 
 # SEC-03: case-insensitive denylist of field names that contain sensitive
 # values. Comparison is done in lower-case after stripping common
@@ -141,6 +145,34 @@ def _redact_token_value_repr(value: str) -> str:
     return _TOKEN_VALUE_RE.sub(_sub, value)
 
 
+def _redact_url_match(match: re.Match[str]) -> str:
+    """Redact one `URL_LIKE_RE` match, escalating to the whole query if needed.
+
+    fix(#1746 codex r6): `redact_url_credentials()` only replaces KNOWN
+    credential query-parameter VALUES, via `urlsplit`/`parse_qsl`. A token
+    value containing an unescaped `#` or `&` (the validators only reject
+    whitespace/control characters) breaks that: `urlsplit` reads a `#` as
+    the start of a fragment, which query redaction never looks at, and
+    `parse_qsl` reads an `&` as a new parameter -- a bare name with no
+    value, which matches no known-sensitive key. Either way, part of the
+    secret survives in the "redacted" output. This is a log line, so once
+    the ORIGINAL query is known to carry a credential at all, dropping the
+    whole query is cheaper than trusting a partial parse. Checked on the
+    raw query and, since `#` is not a `parse_qsl` delimiter, again with `#`
+    treated as `&` so a credential split across the fragment boundary is
+    still caught.
+    """
+    url = match.group(0)
+    redacted = redact_url_credentials(url)
+    _, _, query = url.partition("?")
+    if query and (
+        query_has_credentials(query) or query_has_credentials(query.replace("#", "&"))
+    ):
+        head, _, _ = redacted.partition("?")
+        redacted = f"{head}?<redacted>"
+    return redacted
+
+
 def _redact_sensitive_fields(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
 ) -> MutableMapping[str, Any]:
@@ -168,10 +200,11 @@ def _redact_sensitive_fields(
         # fix(#1746 codex r5): redact credentials PER URL-SHAPED SUBSTRING,
         # not the whole event -- see the module docstring for why a
         # whole-event gate missed a userinfo credential, and why matching on
-        # URL_LIKE_RE first is still whitespace-safe.
-        event = URL_LIKE_RE.sub(
-            lambda match: redact_url_credentials(match.group(0)), event
-        )
+        # URL_LIKE_RE first is still whitespace-safe. fix(#1746 codex r6):
+        # _redact_url_match() escalates to the whole query when a partial
+        # parse would leave part of the credential behind -- see its own
+        # docstring.
+        event = URL_LIKE_RE.sub(_redact_url_match, event)
         event_dict["event"] = _redact_token_value_repr(event)
     return event_dict
 
