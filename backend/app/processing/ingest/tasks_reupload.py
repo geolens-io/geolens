@@ -1144,7 +1144,12 @@ async def reupload_service(
                         layer_id=layer_id,
                         layer_name=source_layer_value,
                     ),
-                    # fix(#1746): the origin needed a credential to answer.
+                    # fix(#1746): the last successful pull of this origin was
+                    # MADE with a token. Not "the origin demanded one" — the
+                    # worker never sees a challenge on the happy path. See the
+                    # matching comment in tasks_vector.ingest_service; the
+                    # refresh door turns this gate into a verdict by probing.
+                    #
                     # True or absent, never False — build_origin_ref drops
                     # None, so an unauthenticated pull stores the ref shape it
                     # stored before this key existed, and no backfill is owed.

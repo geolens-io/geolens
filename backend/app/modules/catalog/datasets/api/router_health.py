@@ -57,13 +57,13 @@ from app.modules.catalog.authorization import check_dataset_write_access
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.schemas import SourceHealthResponse
 from app.modules.catalog.datasets.domain.service import get_dataset
-from app.modules.catalog.sources.adapters.wfs import build_capabilities_url
 from app.modules.catalog.sources.origin_probe import (
     ITEM_WITHDRAWN,
     MISSING,
     OriginProbeResult,
-    probe_arcgis_service,
     probe_remote_uri,
+    probe_service_origin,
+    service_probe_target,
 )
 from app.observability.metrics.refresh import (
     origin_probe_duration_seconds,
@@ -201,35 +201,16 @@ def _service_probe_target(dataset: Dataset) -> str:
     origin still means the HTTP resource itself is gone, not that a layer was
     dropped from a service that still answers.
 
-    fix(#1271 review): the probe target depends on the service type. Ingest
-    stores ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and
-    only ArcGIS's flavor of that (``<base>/<numeric id>``) is a real HTTP
-    resource — WFS and OGC API address layers through a typename or collection
-    parameter, so their enriched URI is a non-endpoint and probing it records
-    whatever the server's 404 fallback happens to say about a URL nobody
-    serves. For those two the canonical service base in ``origin_ref.url`` is
-    the thing whose reachability the answer claims to describe — and for WFS
-    the base alone is not enough either: many servers 4xx a request without
-    ``service=WFS&request=GetCapabilities``, so the probe asks the same
-    question the import adapter asks, via the same URL builder. An OGC API
-    base is a plain JSON landing page and needs no parameters.
+    The per-service target rule lives in
+    :func:`~app.modules.catalog.sources.origin_probe.service_probe_target`,
+    which the refresh door reads too (fix #1746). This wrapper is only the
+    HTTP vocabulary around it: a row with nothing safe to probe answers 409
+    rather than reporting a health state.
     """
-    ref = dataset.origin_ref or {}
-    service_type = ref.get("service_type")
-    if service_type in ("wfs", "ogcapi_features"):
-        # No fallback to origin_uri here: migration 0036's legacy branch
-        # deliberately leaves ``url`` unset when the base is not derivable
-        # (the enriched URI cannot be split without the layer name that went
-        # missing), so the only value on hand is the non-endpoint. Probing
-        # it would persist a false result; refusing keeps "nothing safe to
-        # probe" distinguishable from a health state, same as every other
-        # pointerless row.
-        target = ref.get("url")
-        if target and service_type == "wfs":
-            target = build_capabilities_url(target)
-    else:
-        target = dataset.origin_uri or ref.get("url")
+    target = service_probe_target(dataset.origin_ref, dataset.origin_uri)
     if not target:
+        # "Nothing safe to probe" stays distinguishable from a health state,
+        # the same way every other pointerless row is answered.
         raise _origin_pointer_missing("service")
     return target
 
@@ -311,12 +292,12 @@ async def check_source_health(
     probe_started = time.perf_counter()
     if origin == "stac":
         result = await _probe_stac_targets(asset_uri, item_href)
-    elif service_type == "arcgis_featureserver":
-        # fix(#1746): ArcGIS answers an auth refusal with HTTP 200 and an
-        # error envelope, which a status-code probe reads as healthy.
-        result = await probe_arcgis_service(service_target)
     else:
-        result = await probe_remote_uri(service_target)
+        # fix(#1746): ArcGIS answers an auth refusal with HTTP 200 and an
+        # error envelope, which a status-code probe reads as healthy, so the
+        # probe is chosen by service type. The refresh door chooses the same
+        # way, through the same helper.
+        result = await probe_service_origin(service_target, service_type)
     origin_probe_duration_seconds.labels(
         origin_kind=origin, health=result.health
     ).observe(time.perf_counter() - probe_started)

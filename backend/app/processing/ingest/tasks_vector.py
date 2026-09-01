@@ -1069,13 +1069,22 @@ async def ingest_service(
                             layer_id=layer_id,
                             layer_name=source_layer,
                         ),
-                        # fix(#1746): the origin needed a credential to answer.
+                        # fix(#1746): the last successful pull of this origin
+                        # was MADE with a token. Not "the origin demanded one":
+                        # the worker never sees a challenge on the happy path,
+                        # so this cannot be that claim, and a public service
+                        # imported while holding a token is marked too.
+                        #
+                        # fix(#1746 codex r1): which is why the refresh door
+                        # treats the marker as a GATE and not a verdict — it
+                        # runs one token-less probe before refusing, so a false
+                        # marker costs a probe and never a refusal.
+                        #
                         # True or absent, never False — build_origin_ref drops
                         # None, so an unauthenticated pull stores the ref shape
-                        # it stored before this key existed, and no backfill is
-                        # owed. This is the resolved worker credential, so the
-                        # marker means the fetch really did use one; the value
-                        # is a boolean and the token itself is never stored.
+                        # it stored before this key existed, no backfill is
+                        # owed, and a later token-less success clears it. The
+                        # value is a boolean; the token itself is never stored.
                         "auth_required": True if token else None,
                     },
                 )

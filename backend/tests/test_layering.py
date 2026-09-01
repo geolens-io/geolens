@@ -3067,7 +3067,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # door neither caller came through: this task serves the refresh endpoint
     # and the re-upload commit, and never a first import. Cap 1251 -> 1278,
     # exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1278,
+    # fix(#1746 codex r1): +5 — the marker comment now states the claim
+    # narrowly ("the last successful pull was MADE with a token"), because the
+    # worker never sees a challenge on the happy path. Cap 1278 -> 1283, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1283,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3098,7 +3101,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # answer to that is extraction. Most of the addition is the docstring
     # saying why the marker is not a permanent trap: the re-upload dialog with
     # no token is the path that clears it. Cap 1119 -> 1163, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1163,
+    # fix(#1746 codex r1): +37 — the marker records that a token was USED, not
+    # that the origin demanded one, so refusing on it alone locks a user who
+    # imported a public service while holding a token out of every token-less
+    # refresh. The guard now runs ONE token-less probe (through the health
+    # endpoint's own target and probe helpers, both lifted into origin_probe)
+    # and refuses only on an auth challenge; every other outcome falls through
+    # to the worker. Most of the addition is the docstring saying why it fails
+    # open. Cap 1163 -> 1200, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1200,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3710,7 +3721,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # One key and the comment saying why the value is True-or-None: absent
     # means "not known to need auth", which is where every dataset imported
     # before the marker sits. Cap 1126 -> 1134, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1134,
+    # fix(#1746 codex r1): +9 — same narrowing of the marker comment, plus the
+    # note that the refresh door treats the key as a gate and not a verdict.
+    # Cap 1134 -> 1143, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1143,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

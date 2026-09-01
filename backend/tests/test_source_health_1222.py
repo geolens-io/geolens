@@ -1009,19 +1009,16 @@ class TestServiceOriginProbe:
         admin_id = await get_user_id(test_db_session, "admin")
         dataset = await _service_dataset(test_db_session, created_by=admin_id)
 
-        async def rebind_then_report_healthy(_uri) -> OriginProbeResult:
+        async def rebind_then_report_healthy(*_args, **_kwargs) -> OriginProbeResult:
             set_dataset_origin(dataset, "upload", filename="roads.gpkg")
             await test_db_session.commit()
             return OriginProbeResult(HEALTHY, None)
 
+        # fix(#1746): every service origin now goes through the one helper
+        # that picks a probe by service type, so this patches that rather than
+        # a specific probe and keeps asserting the rebind property.
         monkeypatch.setattr(
-            router_health, "probe_remote_uri", rebind_then_report_healthy
-        )
-        # fix(#1746): the default fixture dataset is ArcGIS, which now routes
-        # to the envelope probe. Both names are patched so this test keeps
-        # asserting the rebind property rather than which probe ran.
-        monkeypatch.setattr(
-            router_health, "probe_arcgis_service", rebind_then_report_healthy
+            router_health, "probe_service_origin", rebind_then_report_healthy
         )
 
         resp = await client.post(

@@ -60,6 +60,11 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
+from app.modules.catalog.sources.origin_probe import (
+    AUTH_CHALLENGE_DETAILS,
+    probe_service_origin,
+    service_probe_target,
+)
 from app.platform.dataset_origin import classify_origin, service_auth_required
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
@@ -221,37 +226,69 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
     )
 
 
-def _require_service_token_if_marked(dataset, token: str | None) -> None:
-    """Refuse a credential-less refresh of an origin that needed one.
+async def _require_service_token_if_marked(dataset, token: str | None) -> None:
+    """Refuse a credential-less refresh only when the origin still demands one.
 
-    fix(#1746): the origin asked for a credential the last time it answered,
-    and the refresh body carries none. Dispatching anyway is a 202 followed
-    ~0.5s later by a worker failure whose message is the only place the real
-    cause appears. Refuse at the door instead, naming the field that fixes it.
+    fix(#1746): dispatching a token-less refresh of a protected origin is a
+    202 followed ~0.5s later by a worker failure whose message is the only
+    place the real cause appears. Refusing at the door instead, naming the
+    field that fixes it, is the whole point.
 
-    Absent means "not known to need auth", which is where every dataset
-    imported before this marker existed sits — they refresh exactly as before.
-    The marker clears on the next successful token-less pull, and since this
-    door refuses those, the re-upload dialog (preview + commit with no token)
-    is the way to prove a service went public again. Say that here so a later
-    reader does not read the 422 as a permanent trap.
+    fix(#1746 codex r1): but the marker alone is not that fact. The worker
+    cannot observe a challenge, so ``auth_required`` records only that the
+    last SUCCESSFUL pull was MADE with a token — a user who imported a public
+    service while holding a token gets a marked dataset, and refusing on the
+    marker alone would lock them out of every token-less refresh until they
+    went through the re-upload dialog. So the marker is the gate, not the
+    verdict: it is cheap, it is written where the credential is known, and
+    reaching it costs one token-less probe that asks the origin whether it
+    still demands a credential.
 
-    A function rather than three lines in the handler because ``refresh_
-    dataset`` sits one branch under ruff's C901 ceiling, and the repo's answer
-    to that has been extraction (see ``router_analysis`` and ``router_export``)
-    rather than another per-file exemption.
+    Only an auth challenge refuses. Every other probe outcome — healthy,
+    missing, timed out, unreachable, blocked — falls through and lets the
+    refresh proceed exactly as it did before this existed. Failing open is
+    deliberate: a probe is one request against a third party, and turning its
+    bad day into a refusal would be a worse bug than the one this closes. The
+    worker is still there, and its auth-failure copy now names the token
+    field.
+
+    A false marker therefore costs one probe per refresh and never a refusal,
+    and it does not persist: a successful token-less pull rebuilds the ref
+    without the key, so the next refresh does not probe at all.
+
+    A function rather than inline lines because ``refresh_dataset`` sits one
+    branch under ruff's C901 ceiling, and the repo's answer to that has been
+    extraction (see ``router_analysis`` and ``router_export``) rather than
+    another per-file exemption.
     """
     if token or not service_auth_required(dataset.origin_ref):
+        return
+    ref = dataset.origin_ref or {}
+    target = service_probe_target(ref, dataset.origin_uri)
+    if not target:
+        # Nothing safe to contact, so there is nothing to ask. The health
+        # endpoint answers 409 here; a refresh has no verdict to persist and
+        # simply lets the worker try.
+        return
+    try:
+        result = await probe_service_origin(target, ref.get("service_type"))
+    except Exception:  # broad: this guard must never 500 a refresh bound for 202
+        # Both probes already swallow every transport failure into a verdict,
+        # so this is the belt to those braces. Anything that still escapes is
+        # a bug in the probe, and the honest response to it is to let the
+        # refresh proceed the way it did before this guard existed.
+        return
+    if result.detail not in AUTH_CHALLENGE_DETAILS:
         return
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail={
             "code": "service_token_required",
             "message": (
-                "This dataset's source required a service token the last "
-                "time it was imported or refreshed. Send the token again "
-                "in the request body's `token` field; tokens are "
-                "request-only and are never stored between runs."
+                "This dataset's source is asking for a service token, and it "
+                "needed one the last time it was imported or refreshed. Send "
+                "the token again in the request body's `token` field; tokens "
+                "are request-only and are never stored between runs."
             ),
         },
     )
@@ -834,14 +871,6 @@ async def refresh_dataset(
     # again below, after the reservation exists. See the ordering note there.
     candidate = _resolve_service_origin(dataset)
 
-    # fix(#1746): placed after the postgis and stac early returns so it can
-    # never fire for a non-service origin, and before the reservation so a
-    # doomed request never burns a run row or holds the dataset against the
-    # admission index. It needs no network and no database, so refusing ahead
-    # of the SSRF check also saves a DNS resolution on a request that cannot
-    # succeed.
-    _require_service_token_if_marked(dataset, body.token)
-
     # Rule 2: the URL is ours, but "ours" is not a safety property — it was a
     # client's when ingest stored it, and DNS moves. Revalidating at dispatch
     # matches what the preview door does with a fresh URL; the worker
@@ -859,6 +888,14 @@ async def refresh_dataset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"This dataset's stored source URL is not reachable: {exc}",
         ) from exc
+
+    # fix(#1746): placed after the postgis and stac early returns so it can
+    # never fire for a non-service origin, and after the SSRF block because it
+    # FETCHES the stored URL — fix(#1746 codex r1) turned this from a marker
+    # read into a token-less probe, so the target has to be validated before
+    # it is contacted. Still before `create_pending_run`: a refusal here must
+    # not burn a run row or hold the dataset against the admission index.
+    await _require_service_token_if_marked(dataset, body.token)
 
     # Refuse a credentialed refresh we cannot carry out, before writing
     # anything. Without a shared store the secret cannot reach the worker at

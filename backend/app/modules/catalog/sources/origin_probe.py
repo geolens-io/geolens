@@ -53,6 +53,7 @@ from typing import Any
 
 import httpx
 
+from app.modules.catalog.sources.adapters.wfs import build_capabilities_url
 from app.platform.security import (
     SSRFError,
     SSRFResolutionError,
@@ -105,6 +106,12 @@ DETAIL_CODES: frozenset[str] = frozenset(
         AUTH_REQUIRED,
     }
 )
+
+# fix(#1746): the two ways an origin can say "you need a credential I do not
+# hold" — ArcGIS's error envelope inside a 200, and a plain 401/403 from
+# everything else. They are one fact to a caller deciding whether to ask for a
+# token, so the set is named once here rather than spelled out at each reader.
+AUTH_CHALLENGE_DETAILS: frozenset[str] = frozenset({UNAUTHORIZED, AUTH_REQUIRED})
 
 # "The origin answered and the resource is gone." 404 and 410 only.
 _GONE_STATUSES = frozenset({404, 410})
@@ -250,7 +257,15 @@ _ARCGIS_AUTH_ERROR_CODES = frozenset({498, 499})
 async def probe_arcgis_service(
     uri: str, *, timeout: float = PROBE_TIMEOUT_SECONDS
 ) -> OriginProbeResult:
-    """Probe an ArcGIS FeatureServer layer and read its error envelope."""
+    """Probe an ArcGIS FeatureServer layer and read its error envelope.
+
+    NOT the namesake in ``sources/adapters/arcgis.py``. That one is the
+    import-time detector — it takes a client and a token, asks whether a URL
+    is a FeatureServer at all, and answers with layer metadata. This one asks
+    the much smaller question this module exists for, about a pointer GeoLens
+    already stored: does it still answer, and is it asking us to authenticate.
+    Do not import the two into the same namespace.
+    """
     try:
         target = str(httpx.URL(uri).copy_set_param("f", "json"))
     except (httpx.InvalidURL, ValueError):
@@ -266,6 +281,58 @@ async def probe_arcgis_service(
         # read, and the closed vocabulary is what keeps it leak-proof.
         return OriginProbeResult(INACCESSIBLE, AUTH_REQUIRED)
     return result
+
+
+def service_probe_target(origin_ref: Any, origin_uri: str | None) -> str | None:
+    """The URL a probe of a service origin should contact, or ``None``.
+
+    fix(#1271 review): the target depends on the service type. Ingest stores
+    ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and only
+    ArcGIS's flavor of that (``<base>/<numeric id>``) is a real HTTP resource
+    — WFS and OGC API address layers through a typename or collection
+    parameter, so their enriched URI is a non-endpoint and probing it records
+    whatever the server's 404 fallback happens to say about a URL nobody
+    serves. For those two the canonical service base in ``origin_ref.url`` is
+    the thing whose reachability the answer describes, and for WFS the base
+    alone is not enough either: many servers 4xx a request without
+    ``service=WFS&request=GetCapabilities``, so the probe asks the same
+    question the import adapter asks, through the same URL builder. An OGC API
+    base is a plain JSON landing page and needs no parameters.
+
+    No fallback to ``origin_uri`` on the WFS and OGC API branches: migration
+    0036's legacy branch deliberately leaves ``url`` unset when the base is
+    not derivable, so the only value on hand is the non-endpoint, and probing
+    it would produce a false verdict. ``None`` means "nothing safe to probe",
+    which each caller answers in its own vocabulary.
+
+    fix(#1746): lifted out of ``router_health`` so the refresh door can decide
+    what to contact the same way the health endpoint does. It takes the two
+    stored columns rather than a ``Dataset`` so this module keeps its
+    independence from the catalog ORM.
+    """
+    ref = origin_ref if isinstance(origin_ref, dict) else {}
+    service_type = ref.get("service_type")
+    if service_type in ("wfs", "ogcapi_features"):
+        target = ref.get("url")
+        if target and service_type == "wfs":
+            target = build_capabilities_url(target)
+    else:
+        target = origin_uri or ref.get("url")
+    return target or None
+
+
+async def probe_service_origin(
+    target: str, service_type: str | None, *, timeout: float = PROBE_TIMEOUT_SECONDS
+) -> OriginProbeResult:
+    """Probe a service origin with the probe its service type needs.
+
+    fix(#1746): one place decides which probe answers for which service, so
+    the health endpoint and the refresh door cannot drift into disagreeing
+    about whether an ArcGIS 200 was healthy.
+    """
+    if service_type == "arcgis_featureserver":
+        return await probe_arcgis_service(target, timeout=timeout)
+    return await probe_remote_uri(target, timeout=timeout)
 
 
 # "The origin answered, and what it said is not something GeoLens can act

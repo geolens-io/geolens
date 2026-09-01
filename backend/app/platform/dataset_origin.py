@@ -119,12 +119,19 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # keeps the enriched form ingest composed, as provenance.
     #
     # `auth_required` (fix #1746) records that the last SUCCESSFUL pull of this
-    # origin needed a service token. It is `True` or absent, never `False`, so
-    # an unauthenticated pull stores the exact ref shape it stored before the
-    # key existed and no backfill is owed — the same absent-means-no convention
-    # `managed` uses on the postgis kind. The worker writes it at the service
-    # swap, from the credential it actually used; a request door only knows a
-    # token was offered. Never the token itself: this is a boolean.
+    # origin was MADE with a service token. Read the claim narrowly: the worker
+    # writes it at the swap from the credential it actually used, and a
+    # successful fetch never shows it a challenge, so this is NOT "the origin
+    # demanded one" (fix #1746 codex r1). A public service imported while the
+    # user happened to hold a token is marked too, which is why the refresh
+    # door treats the key as a gate — one token-less probe before it refuses —
+    # rather than as a verdict.
+    #
+    # `True` or absent, never `False`, so an unauthenticated pull stores the
+    # exact ref shape it stored before the key existed, no backfill is owed —
+    # the same absent-means-no convention `managed` uses on the postgis kind —
+    # and a later token-less success clears it. Never the token itself: this is
+    # a boolean.
     "service": frozenset({"service_type", "url", "layer_id", "auth_required"}),
     # `asset_href` is additive to ADR-002's declared stac shape, and the two
     # href keys are NOT interchangeable: `asset_href` is the COG the tiler
@@ -282,9 +289,14 @@ def geolens_owns_table(
 def service_auth_required(origin_ref: Any) -> bool:
     """Whether the last successful pull of this service origin used a token.
 
+    Exactly that, and no more: a token was USED, not demanded. Nothing on the
+    worker's success path observes a challenge, so no caller may read this as
+    "the origin requires authentication" — the refresh door asks the origin
+    that question itself before acting (fix #1746 codex r1).
+
     fix(#1746): `is True`, not truthiness, for the same reason
-    ``geolens_owns_table`` spells it that way — this decides whether a request
-    is refused, and a stored 1 or "yes" is not a claim worth refusing on.
+    ``geolens_owns_table`` spells it that way — this gates an outbound request
+    and a refusal, and a stored 1 or "yes" is not a claim worth acting on.
     """
     if not isinstance(origin_ref, dict):
         return False
