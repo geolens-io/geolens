@@ -46,6 +46,7 @@ from app.core.runtime.staging import (
     ensure_staging_ready,
     sweep_orphaned_exports,
     sweep_orphaned_write_scratch_occasionally,
+    sweep_stale_gdal_header_files,
 )
 from app.platform.extensions.bootstrap import (
     assert_enterprise_ports_resolved,
@@ -301,6 +302,15 @@ def _sweep_orphaned_exports_periodic(exports_dir: Path) -> tuple[int, int]:
     )
     if scratch:
         logger.info("orphaned_write_scratch_swept", removed=scratch)
+    # fix(#1746): reclaim GDAL bearer-header tempfiles a SIGKILL/OOM left
+    # behind (see sweep_stale_gdal_header_files docstring). Rides this same
+    # periodic cadence; the default 1-hour age matches EXPORTS_SWEEP_AGE_SECONDS
+    # (boot-time), not the wider periodic export threshold, since a header file
+    # is only ever alive for a single ogr2ogr subprocess run, not an
+    # in-flight multi-hour export.
+    gdal_headers = sweep_stale_gdal_header_files(Path(settings.upload_staging_dir))
+    if gdal_headers:
+        logger.info("stale_gdal_header_files_swept", removed=gdal_headers)
     return sweep_orphaned_exports(
         exports_dir, age_threshold_seconds=EXPORTS_PERIODIC_SWEEP_AGE_SECONDS
     )
@@ -398,6 +408,9 @@ async def lifespan(app: FastAPI):
     # truncate an export a surviving sibling was still writing or streaming. Share
     # the worker's age-aware sweeper instead.
     sweep_orphaned_exports(exports_dir)
+    # fix(#1746): reclaim GDAL bearer-header tempfiles orphaned by a crash
+    # before this boot (see sweep_stale_gdal_header_files docstring).
+    sweep_stale_gdal_header_files(staging_root)
 
     await init_tile_pool()
     await task_app.open_async()
