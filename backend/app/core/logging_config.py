@@ -86,12 +86,21 @@ _MAX_REDACT_DEPTH = 8
 # excludes `credential_ref=` and `token_hint=`: a word boundary never falls
 # between "n" and "_", so a name that merely CONTAINS "token" as a sub-word
 # never matches either branch.
+#
+# fix(#1746 codex r3): the value body is `(?:\\.|.)*?`, not a bare `.*?`.
+# `repr()` of a string containing BOTH quote styles picks one as the
+# delimiter and ESCAPES that character where it occurs in the value (and
+# always escapes a literal backslash), e.g. `repr("pre'SECRET\"post")` is
+# `'pre\'SECRET"post'`. A bare lazy `.*?` stops at that escaped delimiter
+# instead of the real closing quote, leaving the rest of the token in the
+# log. `\\.` consumes an escape (backslash + whatever follows it) as one
+# unit before the closing-quote alternative gets a chance to match it.
 _TOKEN_VALUE_RE = re.compile(
     r"""
     (?:
-        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"]).*?(?P=dv)
+        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"])(?:\\.|.)*?(?P=dv)
       |
-        \btoken\b\s*=\s*(?P<kv>['\"]).*?(?P=kv)
+        \btoken\b\s*=\s*(?P<kv>['\"])(?:\\.|.)*?(?P=kv)
     )
     """,
     re.VERBOSE,

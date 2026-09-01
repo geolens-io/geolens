@@ -167,6 +167,43 @@ def test_procrastinate_worker_task_kwargs_token_is_redacted():
     assert "dataset_id='abc'" in lines[0]
 
 
+def test_procrastinate_worker_token_with_escaped_quotes_is_redacted():
+    """Codex round 3 P1: a token containing both quote styles survives `repr()`.
+
+    `repr()` of a string with BOTH a single and a double quote in it picks
+    one quote character as the delimiter and ESCAPES that character where it
+    recurs in the value (and always escapes a literal backslash), e.g.
+    `repr("pre'SECRET\"post")` is `'pre\'SECRET"post'`. A lazy `.*?` value
+    match stops at that escaped delimiter instead of the real closing quote,
+    leaving the rest of the token in the log. ArcGIS tokens only pass a weak
+    validator, so a value shaped like this is reachable. Built from a REAL
+    `Job.call_string`, with a backslash in the value as well, so both escape
+    forms `_TOKEN_VALUE_RE` has to consume are exercised together.
+    """
+    tricky_token = "pre'" + _TOKEN + '"post\\end'
+    job = Job(
+        id=1270,
+        queue="default",
+        lock=None,
+        queueing_lock=None,
+        task_name="ingest_service",
+        task_kwargs={
+            "token": tricky_token,
+            "credential_ref": None,
+            "dataset_id": "abc",
+        },
+    )
+    message = f"Starting job {job.call_string}"
+    assert _TOKEN in message  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline("procrastinate.worker", logging.INFO, message)
+
+    assert len(lines) == 1
+    assert _TOKEN not in lines[0]
+    assert "credential_ref=None" in lines[0]
+    assert "dataset_id='abc'" in lines[0]
+
+
 def test_event_without_a_credential_url_is_never_mangled():
     """Codex round 2 P2: `redact_url_credentials()` must be gated, not blanket.
 
@@ -213,6 +250,23 @@ def test_redact_token_value_repr_also_handles_a_dict_repr_shape():
     the helper rather than only through one caller's rendering choice.
     """
     text = f"payload: {{'token': '{_TOKEN}', 'credential_ref': None}}"
+
+    redacted = _redact_token_value_repr(text)
+
+    assert _TOKEN not in redacted
+    assert "'token': '[REDACTED]'" in redacted
+    assert "'credential_ref': None" in redacted
+
+
+def test_redact_token_value_repr_handles_a_dict_repr_escaped_quote():
+    """The dict-repr branch needs the same escape-consuming fix as the keyword one.
+
+    `repr()` of a token with both quote styles in it escapes the delimiter
+    quote inside the value, so a bare lazy `.*?` would stop early here too.
+    """
+    tricky_token = "pre'" + _TOKEN + '"post\\end'
+    text = f"payload: {{'token': {tricky_token!r}, 'credential_ref': None}}"
+    assert _TOKEN in text  # pin the premise before redacting it
 
     redacted = _redact_token_value_repr(text)
 
