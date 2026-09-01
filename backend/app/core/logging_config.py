@@ -191,6 +191,27 @@ def _redact_url_match(match: re.Match[str]) -> str:
     return redacted
 
 
+# fix(#1746 codex r11): catches a credential-bearing query independent of
+# whether URL_LIKE_RE matched the URL it belongs to. A base URL containing
+# an apostrophe (or any other character URL_LIKE_RE's `[^\s"'<>]+` class
+# excludes) in its PATH -- accepted by validators that only reject
+# whitespace/control characters, and kept literal by httpx -- makes
+# URL_LIKE_RE stop before the query ever starts, so `_redact_url_match()`
+# above never runs on it and a trailing `?token=...` survives untouched.
+# This scans for any `?`-led run of non-whitespace ANYWHERE in the text,
+# independent of what precedes the `?`, and applies the same
+# query-has-credentials check `_redact_url_match()` uses.
+_QUERY_TAIL_RE = re.compile(r"\?[^\s]*")
+
+
+def _redact_query_tail_match(match: re.Match[str]) -> str:
+    """Redact one `?`-led run of non-whitespace if its tail carries a credential."""
+    tail = match.group(0)[1:]
+    if query_has_credentials(tail) or query_has_credentials(tail.replace("#", "&")):
+        return "?<redacted>"
+    return match.group(0)
+
+
 def _scrub_text(value: str) -> str:
     """Redact URL credentials and rendered token values in free text.
 
@@ -206,8 +227,17 @@ def _scrub_text(value: str) -> str:
     applied to `event` -- an exception's own message can carry a credential
     just as easily as a log line can, e.g. `httpx.HTTPStatusError`'s message
     quotes the failing request URL verbatim, `?token=...` included.
+
+    fix(#1746 codex r11): the `_QUERY_TAIL_RE` pass runs independently of the
+    `URL_LIKE_RE` one above it, deliberately -- see its own comment for why
+    the URL match alone is not reliable enough to gate a query redaction on.
+    A trailing quote or bracket swallowed along with a credential-bearing
+    query tail is acceptable in a log line; a bare `?` with no credential
+    after it, or one already redacted by the pass above, is left alone
+    either way.
     """
     value = URL_LIKE_RE.sub(_redact_url_match, value)
+    value = _QUERY_TAIL_RE.sub(_redact_query_tail_match, value)
     return _redact_token_value_repr(value)
 
 

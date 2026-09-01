@@ -33,12 +33,16 @@ import time
 import pytest
 from procrastinate.jobs import Job
 
-from app.core.logging_config import _redact_token_value_repr
+from app.core.logging_config import _redact_token_value_repr, _scrub_text
 from app.core.url_redaction import URL_LIKE_RE
 from tests._logging_state import configured_logging
 
 _TOKEN = "SECRETTOKEN123"
 _ARCGIS_URL = f"https://services6.arcgis.com/x/FeatureServer/0?f=json&token={_TOKEN}"
+# fix(#1746 codex r11): an apostrophe in the URL PATH (not the token) stops
+# URL_LIKE_RE's match before the query ever starts -- see _QUERY_TAIL_RE's
+# comment in logging_config.py.
+_APOSTROPHE_URL = f"https://example.com/it'works/FeatureServer/0?f=json&token={_TOKEN}"
 
 
 class _ListHandler(logging.Handler):
@@ -556,3 +560,61 @@ def test_dev_console_exception_is_scrubbed_and_has_no_locals():
     assert "ValueError" in out
     assert "?<redacted>" in out
     assert _TOKEN not in out
+
+
+def test_httpx_warning_apostrophe_in_url_path_still_redacts_the_query():
+    """Codex round 11 P1: URL_LIKE_RE's own match can hide the query from it.
+
+    `URL_LIKE_RE`'s character class excludes `'`/`"`/`<`/`>` and whitespace,
+    so a base URL with an apostrophe in its PATH -- accepted by validators
+    that only reject whitespace/control characters, and kept literal by
+    httpx -- makes the match stop BEFORE the query ever starts.
+    `_redact_url_match()` then never runs on the real query at all, and
+    `?token=...` survives untouched even though the token itself is
+    perfectly well-formed. `_QUERY_TAIL_RE` in `_scrub_text()` finds the
+    query independently of whether `URL_LIKE_RE` matched through it.
+    """
+    message = f'HTTP Request: GET {_APOSTROPHE_URL} "HTTP/1.1 200 OK"'
+    assert _TOKEN in message  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
+
+    assert len(lines) == 1
+    assert _TOKEN not in lines[0]
+    assert "?<redacted>" in lines[0]
+    assert '"HTTP/1.1 200 OK"' in lines[0]
+
+
+def test_exception_field_apostrophe_in_url_path_still_redacts_the_query():
+    """Same gap, in a rendered exception message through the JSON pipeline.
+
+    `_scrub_text()` is shared between `event` and `exception`, so the fix
+    above covers both without a second implementation.
+    """
+    exc = ValueError(f"request failed: {_APOSTROPHE_URL}")
+    assert _TOKEN in str(exc)  # pin the premise before redacting it
+
+    line, data = _emit_exception_through_real_pipeline(exc)
+
+    assert _TOKEN not in line
+    assert "ValueError" in data["exception"]
+    assert "?<redacted>" in data["exception"]
+
+
+def test_scrub_text_leaves_a_non_credential_query_unchanged():
+    """The new `_QUERY_TAIL_RE` pass must not fire on an ordinary query.
+
+    `where=1%3D1` carries no credential-shaped parameter, so nothing here
+    should trip `query_has_credentials()` either directly or with `#`
+    treated as `&`.
+    """
+    text = "GET https://host/path?f=json&where=1%3D1 done"
+
+    assert _scrub_text(text) == text
+
+
+def test_scrub_text_leaves_a_bare_question_mark_in_prose_unchanged():
+    """A `?` with nothing credential-shaped after it is just punctuation."""
+    text = "are we done? yes, all set"
+
+    assert _scrub_text(text) == text
