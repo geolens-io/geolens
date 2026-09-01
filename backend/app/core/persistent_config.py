@@ -23,6 +23,7 @@ from app.platform.cache import get_cache
 from app.platform.cache.provider import CacheProvider
 from app.platform.audit import AuditEvent, audit_emit
 from app.core.config import settings
+from app.core.logging_config import apply_http_logger_levels
 from app.core.public_urls import (
     PUBLIC_URL_KEYS,
     _is_env_only,
@@ -438,6 +439,10 @@ class _LogLevelConfig(PersistentConfig[str]):
 
     def _on_change(self, value: str) -> None:
         logging.getLogger().setLevel(value.upper())
+        # fix(#1746 codex r8): keep httpx/httpcore's WARNING floor correct
+        # after a runtime log-level change too -- see
+        # apply_http_logger_levels() in logging_config.py.
+        apply_http_logger_levels(value.upper())
 
 
 # ---------------------------------------------------------------------------

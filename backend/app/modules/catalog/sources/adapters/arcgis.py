@@ -2,7 +2,7 @@
 
 import asyncio
 import re
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import httpx
 import structlog
@@ -133,7 +133,13 @@ async def probe_arcgis_service(
     or None if not an ArcGIS service.
     """
     try:
-        query = f"{base_url}?f=json" + (f"&token={token}" if token else "")
+        # fix(#1746 codex r7): percent-encode the token before concatenating it
+        # into the URL -- a URL-reserved character in a raw token (', #, &)
+        # can change what the request means and, in a log line, end the
+        # URL_LIKE_RE match early enough to escape the redactor entirely.
+        query = f"{base_url}?f=json" + (
+            f"&token={quote(token, safe='')}" if token else ""
+        )
         response = await client.get(query)
         response.raise_for_status()
     except (httpx.HTTPStatusError, httpx.TransportError) as exc:
@@ -227,9 +233,11 @@ async def enrich_arcgis_feature_counts(
             layer_id = layer.get("id")
             if layer_id is None:
                 return {**layer, "feature_count": None}
+            # fix(#1746 codex r7): same percent-encoding as probe_arcgis_service
+            # above -- see its comment.
             url = (
                 f"{base_url}/{layer_id}/query?where=1%3D1&returnCountOnly=true&f=json"
-            ) + (f"&token={token}" if token else "")
+            ) + (f"&token={quote(token, safe='')}" if token else "")
             try:
                 resp = await client.get(url)
                 resp.raise_for_status()

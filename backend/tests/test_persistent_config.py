@@ -341,6 +341,42 @@ async def test_log_level_side_effect(client: AsyncClient):
 
 
 @pytest.mark.anyio
+async def test_log_level_side_effect_raises_httpx_floor_too(client: AsyncClient):
+    """fix(#1746 codex r8): a runtime LOG_LEVEL change must raise httpx's floor.
+
+    `apply_http_logger_levels()` keeps httpx/httpcore at least WARNING, but
+    that floor has to track root upward too: a LOG_LEVEL=CRITICAL change made
+    through the admin settings UI at runtime (not just LOG_LEVEL set at boot)
+    must not leave httpx sitting at WARNING -- MORE verbose than the
+    deployment just asked for. The round 5/6 test guards already restore
+    httpx/httpcore's level around every test, so no manual cleanup is needed
+    for those two here; only root's own level is restored, matching the
+    sibling test above.
+    """
+    import logging
+
+    from app.core.persistent_config import LOG_LEVEL
+
+    from app.core.dependencies import get_db
+    from app.api.main import app
+
+    original_level = logging.getLogger().level
+    try:
+        async for db in app.dependency_overrides[get_db]():
+            await LOG_LEVEL.set(db, "CRITICAL")
+            assert logging.getLogger().level == logging.CRITICAL
+            assert logging.getLogger("httpx").level == logging.CRITICAL
+            assert logging.getLogger("httpcore").level == logging.CRITICAL
+
+            # Dropping back below WARNING restores the WARNING floor.
+            await LOG_LEVEL.set(db, "INFO")
+            assert logging.getLogger("httpx").level == logging.WARNING
+            assert logging.getLogger("httpcore").level == logging.WARNING
+    finally:
+        logging.getLogger().setLevel(original_level)
+
+
+@pytest.mark.anyio
 async def test_sync_rate_limit_accessor(client: AsyncClient):
     """Sync rate limit accessor returns cached value or default."""
     from app.core.persistent_config import LOGIN_RATE_LIMIT, get_cached_login_rate_limit

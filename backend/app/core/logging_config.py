@@ -6,7 +6,8 @@ structlog chain so JWT / API-key / password values are replaced with
 accidentally logs `logger.info("attempt", token=jwt)`, the token is
 redacted at the structlog layer.
 
-fix(#1485): exception rendering is never handed to rich in production.
+fix(#1485): exception rendering is never handed to rich, in production OR
+dev (as of #1746 codex r10 -- see that fix note below for why dev joined).
 `structlog.dev.ConsoleRenderer` defaults its `exception_formatter` to
 `RichTracebackFormatter(show_locals=True)` whenever rich is importable, and
 rich is in the backend's transitive dependency set. Rendering per-frame
@@ -20,13 +21,70 @@ path. With `--workers 1` that is the whole API.
 bound it: they truncate containers and `str` values, not the `repr()` of an
 arbitrary object, which is exactly what a SQLAlchemy session or model
 instance produces.
+
+fix(#1746): `_redact_sensitive_fields` is KEY-based, so it never looks inside
+the `event` message string itself. That leaves two leak paths open: httpx
+(and its httpcore transport) log the full outgoing request URL at INFO for
+every call, including a `?token=...` query string on the ArcGIS path; and
+Procrastinate's worker logs `task_kwargs` rendered by `Job.call_string`
+(`procrastinate/jobs.py`: `", ".join(f"{key}={value!r}" ...)`), e.g.
+`Starting job ingest_service[1270](token='...', credential_ref=None)`, which
+puts a credential-store token inside the message text as a bare keyword
+argument rather than a keyed field. Both are stdlib records, and
+`shared_processors` doubles as the `ProcessorFormatter`'s `foreign_pre_chain`,
+so this chain already runs for them.
+
+fix(#1746 codex r2, replaced r5): `redact_url_credentials()` is built for a
+string already known to be URL-shaped: its `_URLSPLIT_STRIPS` step deletes
+`\t`, `\r`, `\n` unconditionally on that assumption, which is wrong for an
+arbitrary log `event`. Round 2 gated the call on `has_url_credentials(event)`
+to avoid that, but `has_url_credentials()` parses the WHOLE event as one URL
+— a message like `HTTP Request: GET https://user:SECRET@example.com/path
+"HTTP/1.1 200 OK"` does not parse as a URL on its own (the sentence around it
+breaks `urlsplit`), so the gate returned False and the userinfo credential
+was emitted verbatim.
+
+`url_redaction.URL_LIKE_RE` already exists to find just the URL-shaped
+SUBSTRING inside free text (it is what `redact_url_credentials()` itself
+falls back to for non-URL input), so this instead matches every URL-shaped
+substring and redacts each one individually. That both finds the real
+credential (per-URL matching sees the userinfo the whole-event parse missed)
+and keeps the earlier fix intact: `URL_LIKE_RE`'s own character class
+excludes whitespace, so a matched substring can never contain `\t`/`\r`/`\n`
+in the first place — `redact_url_credentials()`'s unconditional strip has
+nothing to strip inside a match, and every character outside a match is
+untouched.
+
+fix(#1746 codex r10): round 9 only closed this for `json_logs or production`,
+because `format_exc_info` stayed conditional on that and dev's renderer used
+a rich-based formatter incompatible with a pre-rendered `exception` field
+anyway. That left dev exactly as exposed as before: an unhandled exception
+in a local API or worker run still printed a raw, unscrubbed traceback, and
+rich's own locals rendering would print a secret held in a local variable
+even if the message text were somehow already clean. `format_exc_info` now
+runs UNCONDITIONALLY, and dev's `ConsoleRenderer` now takes the same
+`plain_traceback` formatter production does — not a softer version of the
+same idea, but the only formatter that is even compatible with a
+pre-rendered `exception` field (a non-plain one meeting one warns and stops
+rendering prettily; see the `plain_traceback` comment in `setup_logging`).
+Locals are where a secret variable itself would leak regardless of any
+string scrub, so removing rich from dev closes that path too, not only the
+one the string scrub covers. Dev keeps every other `ConsoleRenderer` default
+(colours included) — only the exception formatter changed.
 """
 
 import logging
+import re
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 import structlog
+
+from app.core.url_redaction import (
+    URL_LIKE_RE,
+    query_has_credentials,
+    redact_url_credentials,
+)
 
 # SEC-03: case-insensitive denylist of field names that contain sensitive
 # values. Comparison is done in lower-case after stripping common
@@ -54,6 +112,134 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
 # most; this only exists so a caller-supplied cyclic structure terminates.
 _MAX_REDACT_DEPTH = 8
 
+# fix(#1746): catches a token value rendered either as a Python dict repr
+# (`{'token': 'abc', ...}`) or as `key=value!r` keyword arguments — the shape
+# `Job.call_string` actually produces, e.g.
+# `ingest_service[1270](token='abc', credential_ref=None)`. `\btoken\b`
+# excludes `credential_ref=` and `token_hint=`: a word boundary never falls
+# between "n" and "_", so a name that merely CONTAINS "token" as a sub-word
+# never matches either branch.
+#
+# fix(#1746 codex r3): the value body is `(?:\\.|[^\\])*?`, not a bare `.*?`.
+# `repr()` of a string containing BOTH quote styles picks one as the
+# delimiter and ESCAPES that character where it occurs in the value (and
+# always escapes a literal backslash), e.g. `repr("pre'SECRET\"post")` is
+# `'pre\'SECRET"post'`. A bare lazy `.*?` stops at that escaped delimiter
+# instead of the real closing quote, leaving the rest of the token in the
+# log. `\\.` consumes an escape (backslash + whatever follows it) as one
+# unit before the closing-quote alternative gets a chance to match it.
+#
+# fix(#1746 codex r4): the non-escape alternative excludes the backslash
+# (`[^\\]`, not `.`) so the two alternatives never overlap. `.` also
+# matches `\\`, so a run of N backslashes with no closing quote had N ways
+# to split into `\\.` pairs versus lone `.` characters, and the engine tried
+# all of them before giving up -- exponential backtracking on malformed
+# third-party text (36 backslashes took over three seconds), synchronously,
+# on every log record. Excluding the backslash from the second alternative
+# leaves exactly one way to consume each character, so an unterminated match
+# fails in time linear in the input length instead.
+_TOKEN_VALUE_RE = re.compile(
+    r"""
+    (?:
+        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"])(?:\\.|[^\\])*?(?P=dv)
+      |
+        \btoken\b\s*=\s*(?P<kv>['\"])(?:\\.|[^\\])*?(?P=kv)
+    )
+    """,
+    re.VERBOSE,
+)
+
+
+def _redact_token_value_repr(value: str) -> str:
+    """Redact a `'token': '...'` (dict-repr) or `token='...'` (kwarg) pair."""
+
+    def _sub(match: re.Match[str]) -> str:
+        if match.group("dq") is not None:
+            quote, value_quote = match.group("dq"), match.group("dv")
+            return f"{quote}token{quote}: {value_quote}[REDACTED]{value_quote}"
+        value_quote = match.group("kv")
+        return f"token={value_quote}[REDACTED]{value_quote}"
+
+    return _TOKEN_VALUE_RE.sub(_sub, value)
+
+
+def _redact_url_match(match: re.Match[str]) -> str:
+    """Redact one `URL_LIKE_RE` match, escalating to the whole query if needed.
+
+    fix(#1746 codex r6): `redact_url_credentials()` only replaces KNOWN
+    credential query-parameter VALUES, via `urlsplit`/`parse_qsl`. A token
+    value containing an unescaped `#` or `&` (the validators only reject
+    whitespace/control characters) breaks that: `urlsplit` reads a `#` as
+    the start of a fragment, which query redaction never looks at, and
+    `parse_qsl` reads an `&` as a new parameter -- a bare name with no
+    value, which matches no known-sensitive key. Either way, part of the
+    secret survives in the "redacted" output. This is a log line, so once
+    the ORIGINAL query is known to carry a credential at all, dropping the
+    whole query is cheaper than trusting a partial parse. Checked on the
+    raw query and, since `#` is not a `parse_qsl` delimiter, again with `#`
+    treated as `&` so a credential split across the fragment boundary is
+    still caught.
+    """
+    url = match.group(0)
+    redacted = redact_url_credentials(url)
+    _, _, query = url.partition("?")
+    if query and (
+        query_has_credentials(query) or query_has_credentials(query.replace("#", "&"))
+    ):
+        head, _, _ = redacted.partition("?")
+        redacted = f"{head}?<redacted>"
+    return redacted
+
+
+# fix(#1746 codex r11): catches a credential-bearing query independent of
+# whether URL_LIKE_RE matched the URL it belongs to. A base URL containing
+# an apostrophe (or any other character URL_LIKE_RE's `[^\s"'<>]+` class
+# excludes) in its PATH -- accepted by validators that only reject
+# whitespace/control characters, and kept literal by httpx -- makes
+# URL_LIKE_RE stop before the query ever starts, so `_redact_url_match()`
+# above never runs on it and a trailing `?token=...` survives untouched.
+# This scans for any `?`-led run of non-whitespace ANYWHERE in the text,
+# independent of what precedes the `?`, and applies the same
+# query-has-credentials check `_redact_url_match()` uses.
+_QUERY_TAIL_RE = re.compile(r"\?[^\s]*")
+
+
+def _redact_query_tail_match(match: re.Match[str]) -> str:
+    """Redact one `?`-led run of non-whitespace if its tail carries a credential."""
+    tail = match.group(0)[1:]
+    if query_has_credentials(tail) or query_has_credentials(tail.replace("#", "&")):
+        return "?<redacted>"
+    return match.group(0)
+
+
+def _scrub_text(value: str) -> str:
+    """Redact URL credentials and rendered token values in free text.
+
+    fix(#1746 codex r5): redact credentials PER URL-SHAPED SUBSTRING, not the
+    whole string -- see the module docstring for why a whole-string gate
+    missed a userinfo credential, and why matching on URL_LIKE_RE first is
+    still whitespace-safe. fix(#1746 codex r6): `_redact_url_match()`
+    escalates to the whole query when a partial parse would leave part of
+    the credential behind -- see its own docstring.
+
+    fix(#1746 codex r9): factored out of `_redact_sensitive_fields` so the
+    exact same scrub applies to a rendered `exception` string as already
+    applied to `event` -- an exception's own message can carry a credential
+    just as easily as a log line can, e.g. `httpx.HTTPStatusError`'s message
+    quotes the failing request URL verbatim, `?token=...` included.
+
+    fix(#1746 codex r11): the `_QUERY_TAIL_RE` pass runs independently of the
+    `URL_LIKE_RE` one above it, deliberately -- see its own comment for why
+    the URL match alone is not reliable enough to gate a query redaction on.
+    A trailing quote or bracket swallowed along with a credential-bearing
+    query tail is acceptable in a log line; a bare `?` with no credential
+    after it, or one already redacted by the pass above, is left alone
+    either way.
+    """
+    value = URL_LIKE_RE.sub(_redact_url_match, value)
+    value = _QUERY_TAIL_RE.sub(_redact_query_tail_match, value)
+    return _redact_token_value_repr(value)
+
 
 def _redact_sensitive_fields(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
@@ -66,10 +252,32 @@ def _redact_sensitive_fields(
     deliberate trade-off: structlog idiomatic usage logs flat key/value
     pairs; recursing would amplify the redactor's CPU cost on every log
     line.
+
+    fix(#1746): the key-based loop above only ever sees STRUCTURED fields, so
+    it cannot catch a secret embedded in the rendered MESSAGE STRING itself —
+    which is exactly how it reaches the log for a raw stdlib record (httpx's
+    request-URL line, Procrastinate's keyword-rendered task_kwargs). `event`
+    is the one field every record has by this point, so it is scrubbed here
+    by pattern and by shape rather than by key.
+
+    fix(#1746 codex r9): `exception` gets the identical scrub, when present
+    and already a string. `format_exc_info` now runs BEFORE this processor
+    (see `setup_logging`) precisely so `exception` exists as a plain string
+    by the time this runs, instead of being rendered afterward and reaching
+    JSON/production logs unscrubbed. `exc_info` itself (the raw tuple/bool,
+    present only when `format_exc_info` did NOT run first -- dev mode) is
+    never touched: it is not text, and dev's rich-based renderer is the one
+    that turns it into text, after this processor.
     """
     for key in list(event_dict.keys()):
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
+    event = event_dict.get("event")
+    if isinstance(event, str):
+        event_dict["event"] = _scrub_text(event)
+    exception = event_dict.get("exception")
+    if isinstance(exception, str):
+        event_dict["exception"] = _scrub_text(exception)
     return event_dict
 
 
@@ -107,18 +315,36 @@ def redact_nested(value: Any, _depth: int = 0) -> Any:
     return value
 
 
-def _dev_exception_formatter() -> structlog.types.ExceptionRenderer:
-    """The console exception formatter for non-production deployments.
+def apply_http_logger_levels(root_level: int | str) -> None:
+    """Keep httpx/httpcore at least as quiet as WARNING, never quieter than root.
 
-    Keeps rich's syntax-highlighted frames, which are the reason the pretty
-    renderer is worth having, and drops only the per-frame locals tables — the
-    part whose cost is unbounded (see the module docstring). Deployments
-    without rich installed keep whatever structlog picked for them.
+    fix(#1746): httpx (and its httpcore transport) logs the full request URL
+    at INFO on every call, including a `?token=...` query string on the
+    ArcGIS path — with or without a credential store. Root defaults to INFO
+    (see core/config.py), so that line reached every deployment's logs by
+    default, twice per refresh on the credential-store path. WARNING keeps
+    connection failures visible while dropping the routine per-request echo;
+    the `event`-string scrub in `_redact_sensitive_fields` is the backstop
+    for whatever still gets through at WARNING or above.
+
+    fix(#1746 codex r8): a FIXED WARNING silently reverses itself the moment
+    root is raised past it. `Logger.isEnabledFor` uses the LOGGER'S OWN
+    explicit level once one is set and never re-derives it from root, so
+    `LOG_LEVEL=ERROR`/`CRITICAL` at boot, or a runtime change to either via
+    the persistent-config log-level setter, left httpx sitting at WARNING —
+    MORE verbose than the deployment asked for. Deriving from whichever
+    level is stricter makes WARNING a floor rather than a fixed point:
+    quieter than WARNING (ERROR, CRITICAL), httpx follows root; noisier
+    (INFO or below), httpx stays at WARNING. Accepts the string form too,
+    since both call sites (this module's own `setup_logging` and
+    `persistent_config.py`'s runtime setter) hold the level as a string
+    right before calling this.
     """
-    formatter = structlog.dev.default_exception_formatter
-    if isinstance(formatter, structlog.dev.RichTracebackFormatter):
-        return structlog.dev.RichTracebackFormatter(show_locals=False)
-    return formatter
+    if isinstance(root_level, str):
+        root_level = logging.getLevelName(root_level.upper())
+    level = max(logging.WARNING, root_level)
+    for _log in ("httpx", "httpcore"):
+        logging.getLogger(_log).setLevel(level)
 
 
 def setup_logging(
@@ -126,10 +352,14 @@ def setup_logging(
 ) -> None:
     """Configure structlog + stdlib logging with shared processor chain.
 
-    `production` selects the exception-rendering posture rather than the log
-    format: when set, tracebacks are formatted by the stdlib `traceback`
-    module and rich is never reached, at a cost that does not depend on the
-    size of any frame's local variables.
+    fix(#1746 codex r10): `production` no longer selects the
+    exception-rendering posture -- dev and production now render exceptions
+    identically (plain, scrubbed, no rich), because `format_exc_info` runs
+    unconditionally and the redactor needs the SAME `exception` string to
+    scrub regardless of console mode. `production` is still threaded through
+    from `settings.is_production` at both call sites, in case a future
+    difference needs it again; today it affects nothing inside this
+    function.
     """
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
@@ -138,12 +368,6 @@ def setup_logging(
         structlog.stdlib.PositionalArgumentsFormatter(),
         structlog.stdlib.ExtraAdder(),
         structlog.processors.TimeStamper(fmt="iso", utc=True),
-        # SEC-03: redact sensitive fields BEFORE rendering / stack-info.
-        # Placed after TimeStamper (so the redactor runs on the final
-        # field set) and before StackInfoRenderer (which doesn't add
-        # user-supplied values).
-        _redact_sensitive_fields,
-        structlog.processors.StackInfoRenderer(),
     ]
 
     # fix(#1485): resolve `exc_info` into a plain `exception` string inside the
@@ -151,8 +375,30 @@ def setup_logging(
     # pretty-print. This chain is also the ProcessorFormatter's
     # `foreign_pre_chain` below, so it covers stdlib records (uvicorn.error and
     # friends) as well as structlog's own.
-    if json_logs or production:
-        shared_processors.append(structlog.processors.format_exc_info)
+    #
+    # fix(#1746 codex r9): moved BEFORE `_redact_sensitive_fields` (it used to
+    # run last, after `StackInfoRenderer`). An exception's own message can
+    # carry a credential -- `httpx.HTTPStatusError` quotes the failing
+    # request URL verbatim -- and the redactor can only scrub a field that
+    # already exists when it runs.
+    #
+    # fix(#1746 codex r10): now UNCONDITIONAL. Gating this on `json_logs or
+    # production` left dev exactly as exposed as before -- an unhandled
+    # exception in a local run still printed a raw, unscrubbed traceback.
+    # dev's `ConsoleRenderer` below now uses `plain_traceback`
+    # unconditionally too, so there is no longer a renderer left that this
+    # would be incompatible with.
+    shared_processors.append(structlog.processors.format_exc_info)
+
+    shared_processors += [
+        # SEC-03: redact sensitive fields BEFORE rendering / stack-info.
+        # Placed after TimeStamper (so the redactor runs on the final field
+        # set, including a `format_exc_info`-rendered `exception` string
+        # when one exists) and before StackInfoRenderer (which doesn't add
+        # user-supplied values).
+        _redact_sensitive_fields,
+        structlog.processors.StackInfoRenderer(),
+    ]
 
     structlog.configure(
         processors=shared_processors
@@ -165,18 +411,18 @@ def setup_logging(
     log_renderer: structlog.types.Processor
     if json_logs:
         log_renderer = structlog.processors.JSONRenderer()
-    elif production:
+    else:
         # `plain_traceback` is the second half of the #1485 fix, not a
         # redundant one: ConsoleRenderer warns on every exception when a
         # non-plain formatter meets an already-rendered `exception` field
         # ("Remove `format_exc_info` from your processor chain..."), and it
         # still owns any exc_info that reaches it by another route.
+        #
+        # fix(#1746 codex r10): dev and production share this construction
+        # now -- see the module docstring and this function's docstring for
+        # why `production` no longer needs to pick between them.
         log_renderer = structlog.dev.ConsoleRenderer(
             exception_formatter=structlog.dev.plain_traceback
-        )
-    else:
-        log_renderer = structlog.dev.ConsoleRenderer(
-            exception_formatter=_dev_exception_formatter()
         )
 
     formatter = structlog.stdlib.ProcessorFormatter(
@@ -201,3 +447,5 @@ def setup_logging(
 
     logging.getLogger("uvicorn.access").handlers.clear()
     logging.getLogger("uvicorn.access").propagate = False
+
+    apply_http_logger_levels(log_level.upper())
