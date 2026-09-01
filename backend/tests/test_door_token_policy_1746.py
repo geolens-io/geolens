@@ -142,6 +142,51 @@ class TestImportCommitDoor:
         stash.assert_not_awaited()
         task.defer_async.assert_not_awaited()
 
+    async def test_the_refusal_persists_no_service_auth_required_marker(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,  # noqa: F811
+    ) -> None:
+        """fix(#1746 codex r1): the refusal must land before the metadata write.
+
+        ``commit_import`` writes ``service_auth_required`` into
+        ``user_metadata`` and commits it BEFORE dispatching, and that key is a
+        one-way door: ``_replay_capability`` in platform/jobs/router.py reads it
+        and refuses ``POST /jobs/{id}/retry`` with "This service import requires
+        fresh credentials". Checking the token only at the dispatch call would
+        leave a still-pending job carrying that marker for a request that queued
+        nothing — permanently un-retryable after any later, unrelated failure.
+        """
+        from sqlalchemy import select
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _wfs_import_job(test_db_session, created_by=admin_id)
+
+        async with _import_harness() as task:
+            resp = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Parcels", "token": _rejected_token()},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        task.defer_async.assert_not_awaited()
+
+        reloaded = (
+            await test_db_session.execute(
+                select(IngestJob)
+                .where(IngestJob.id == job.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+        assert "service_auth_required" not in (reloaded.user_metadata or {})
+        # And nothing else from the commit body was persisted either, so the
+        # job is exactly as retryable as it was before the request.
+        assert "title" not in (reloaded.user_metadata or {})
+        assert reloaded.status == "pending"
+
     async def test_a_short_token_is_refused_too(
         self,
         client: AsyncClient,

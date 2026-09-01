@@ -79,6 +79,7 @@ from app.processing.ingest.schemas import (
 )
 from app.processing.ingest.service import (
     PART_SIZE,
+    _assert_header_token_dispatchable,
     _await_provider_call_draining,
     claim_fan_out_parent,
     create_fan_out_jobs,
@@ -1863,6 +1864,22 @@ async def commit_import(
     # Extract token only for service commits (ServiceCommitRequest is the
     # only subclass with a token field). AUTH-04: never persisted.
     token = getattr(commit, "token", None)
+
+    # fix(#1746 codex r1): judge the token BEFORE the write below, not just
+    # before the stash inside `queue_ingest_job`. The refusal is the same 422
+    # either way, but the metadata write and its commit happen in between, and
+    # `service_auth_required` is a one-way door: `_replay_capability` in
+    # platform/jobs/router.py reads it and refuses POST /jobs/{id}/retry with
+    # "This service import requires fresh credentials". A rejected token would
+    # therefore leave a still-`pending` job permanently un-retryable after any
+    # later, unrelated failure — for a request that queued nothing at all.
+    #
+    # `service_type` is read from `job.user_metadata`, which preview wrote and
+    # no commit-request subclass carries, so it is already the value the merge
+    # below preserves. The call inside `queue_ingest_job` stays as well: this
+    # door is one of three callers, and the guarantee is about what reaches the
+    # worker rather than about who asked.
+    _assert_header_token_dispatchable(job, token)
 
     # Persist the subclass-filtered view. model_dump(exclude={"token"}) is
     # a no-op when the subclass has no token field. mode="json" so datetime

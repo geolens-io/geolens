@@ -2816,7 +2816,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # "too small to start" means; most of the lines are the comment recording
     # that the floor promised a PROMPT refusal the ordering did not deliver.
     # Cap 2545 -> 2565, exact.
-    "backend/app/processing/ingest/router.py": 2565,
+    # fix(#1746 codex r1): +17 — the header-token check moved ahead of the
+    # metadata write in commit_import. The refusal already existed one call
+    # deeper, but `service_auth_required` was committed in between and
+    # permanently blocks POST /jobs/{id}/retry, so a rejected token left a
+    # still-pending job that could never be replayed. Most of the lines are the
+    # comment recording that, and why `service_type` is readable before the
+    # merge. Cap 2565 -> 2582, exact.
+    "backend/app/processing/ingest/router.py": 2582,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901
