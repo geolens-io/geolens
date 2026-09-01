@@ -731,6 +731,12 @@ export function ReuploadDialog({
                   })}
                   value={serviceToken}
                   onChange={(event) => setServiceToken(event.target.value)}
+                  // fix(#1746): request-only service token, not a login
+                  // credential — opt out of password managers explicitly.
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
                 />
               </div>
               {error && <p className="text-sm text-destructive">{error}</p>}

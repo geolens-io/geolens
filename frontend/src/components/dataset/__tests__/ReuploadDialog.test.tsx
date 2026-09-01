@@ -306,6 +306,22 @@ describe('ReuploadDialog', () => {
     expect(screen.getByTestId('reupload-file-dropzone')).toBeInTheDocument();
   });
 
+  // fix(#1746): this is a request-only service token, not a login credential,
+  // so it must opt every password manager out explicitly.
+  it('opts every password manager out of the service token field', async () => {
+    const user = userEvent.setup();
+    renderDialog();
+
+    await user.click(screen.getByRole('button', { name: 'Service URL' }));
+
+    const input = screen.getByLabelText('Access Token (optional)');
+    expect(input).toHaveAttribute('type', 'password');
+    expect(input).toHaveAttribute('autocomplete', 'new-password');
+    expect(input).toHaveAttribute('data-1p-ignore');
+    expect(input).toHaveAttribute('data-lpignore', 'true');
+    expect(input).toHaveAttribute('data-bwignore');
+  });
+
   it('advertises only formats supported by vector and table reupload', async () => {
     const user = userEvent.setup();
     renderDialog();

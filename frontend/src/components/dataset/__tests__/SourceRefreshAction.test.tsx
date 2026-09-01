@@ -131,6 +131,23 @@ describe('SourceRefreshAction', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 
+  // fix(#1746): this is a request-only service token, not a login credential.
+  // autoComplete="off" alone does not stop Chrome from offering a saved
+  // password on a password-type field, so every password manager needs an
+  // explicit opt-out.
+  it('opts every password manager out of the refresh token field', async () => {
+    const user = userEvent.setup();
+    render(<SourceRefreshAction dataset={makeDataset()} watch={makeWatch()} />);
+
+    await openDialog(user);
+
+    const input = screen.getByLabelText('Access token (optional)');
+    expect(input).toHaveAttribute('autocomplete', 'new-password');
+    expect(input).toHaveAttribute('data-1p-ignore');
+    expect(input).toHaveAttribute('data-lpignore', 'true');
+    expect(input).toHaveAttribute('data-bwignore');
+  });
+
   // fix(#1285 codex round 3): _dispatch_postgis_refresh() rejects ANY
   // nonempty token with 422 credential_not_applicable — a registered table
   // needs no service credential. Offering the field here invites a
