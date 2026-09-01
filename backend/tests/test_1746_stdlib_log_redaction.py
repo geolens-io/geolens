@@ -18,12 +18,12 @@ handler onto a logger that structlog's stdlib bridge does not use the same
 way), so these tests attach an explicit ``logging.Handler`` to the stdlib
 root logger instead and read back what it actually received.
 
-``tests/_logging_state.configured_logging()`` only saves and restores the
-loggers ``setup_logging()`` is documented to mutate — root and the three
-uvicorn loggers (see ``_logging_state.py``'s own docstring). httpx/httpcore
-are outside that list, so this file restores their levels itself; otherwise
-the first test below would leak a WARNING level into every later test in the
-same worker.
+``tests/_logging_state.configured_logging()`` saves and restores every
+logger ``setup_logging()`` is documented to mutate — root, the three uvicorn
+loggers, and (as of fix #1746 codex r5) ``httpx``/``httpcore`` (see
+``_logging_state.py``'s own docstring). ``setup_logging()`` never touches
+``.disabled`` though, so this file still restores that one flag itself; see
+the autouse fixture below for why it needs to.
 """
 
 import logging
@@ -33,7 +33,7 @@ import pytest
 from procrastinate.jobs import Job
 
 from app.core.logging_config import _redact_token_value_repr
-from app.core.url_redaction import has_url_credentials
+from app.core.url_redaction import URL_LIKE_RE
 from tests._logging_state import configured_logging
 
 _TOKEN = "SECRETTOKEN123"
@@ -52,33 +52,32 @@ class _ListHandler(logging.Handler):
 
 
 @pytest.fixture(autouse=True)
-def _restore_httpx_logger_state():
-    """Undo this file's own level change, and alembic's `fileConfig()`.
+def _restore_httpx_logger_disabled_flag():
+    """Undo alembic's `fileConfig()` disabling the "httpx" logger.
 
-    `configured_logging()` only tracks the loggers `setup_logging()` is
-    documented to mutate (see `_logging_state.py`'s own docstring), so it
-    never restores httpx/httpcore's level -- without this, running this file
-    would leave both pinned at WARNING for whatever test runs next on the
-    same xdist worker.
+    `_logging_state._MUTATED_LOGGERS` and `conftest._LOGGING_MUTATED_LOGGERS`
+    now include "httpx"/"httpcore" (fix #1746 codex r5), so `level` -- what
+    this fixture used to also save and restore -- is covered by
+    `configured_logging()` and the autouse guard already. `.disabled` is not:
+    neither snapshot reads or writes it, because `setup_logging()` itself
+    never touches it, so it was never in scope for either.
 
-    Separately: `alembic/env.py` calls `logging.config.fileConfig()` to run
-    migrations, and that defaults to `disable_existing_loggers=True`, which
-    disables every *already-registered* logger not named in alembic.ini's
-    `[loggers]` section. By the time that runs, collection has already
-    imported plenty of other test modules that import httpx, so the "httpx"
-    logger object already exists and gets silently `.disabled = True` for
-    the rest of the session -- independent of level, and independent of this
-    file's own fix. Restoring the `disabled` flag too keeps this file
-    exercising the real `setup_logging()` level change instead of that
-    unrelated fixture's side effect.
+    `alembic/env.py` calls `logging.config.fileConfig()` to run migrations,
+    and that defaults to `disable_existing_loggers=True`, which disables
+    every *already-registered* logger not named in alembic.ini's `[loggers]`
+    section. By the time that runs, collection has already imported plenty
+    of other test modules that import httpx, so the "httpx" logger object
+    already exists and gets silently `.disabled = True` for the rest of the
+    session -- independent of this file's own fix, and independent of
+    `setup_logging()` entirely. Restoring the flag here keeps this file
+    exercising the real fix instead of that unrelated side effect.
     """
     loggers = [logging.getLogger(name) for name in ("httpx", "httpcore")]
-    saved = [(lg.level, lg.disabled) for lg in loggers]
+    saved = [lg.disabled for lg in loggers]
     for lg in loggers:
         lg.disabled = False
     yield
-    for lg, (level, disabled) in zip(loggers, saved):
-        lg.setLevel(level)
+    for lg, disabled in zip(loggers, saved):
         lg.disabled = disabled
 
 
@@ -132,6 +131,28 @@ def test_httpx_warning_request_line_is_delivered_but_redacted():
     assert _TOKEN not in lines[0]
     assert "token=" in lines[0]  # the field survives; only the value is scrubbed
     assert "HTTP Request: GET" in lines[0]
+
+
+def test_httpx_warning_userinfo_credential_is_redacted():
+    """Codex round 5 P1: a userinfo credential the whole-event gate missed.
+
+    `has_url_credentials()` (round 2's gate, since replaced) parses the
+    WHOLE event as one URL, and a sentence like `HTTP Request: GET
+    https://user:SECRET@host/path "HTTP/1.1 200 OK"` does not parse as a URL
+    on its own -- the surrounding prose breaks `urlsplit`, so the gate
+    returned False and the credential went out untouched. Round 5 matches
+    `URL_LIKE_RE` first and redacts each matched URL individually, which
+    finds the userinfo the whole-event parse missed.
+    """
+    secret_url = f"https://user:{_TOKEN}@example.com/path"
+    message = f'HTTP Request: GET {secret_url} "HTTP/1.1 200 OK"'
+    assert f"user:{_TOKEN}@" in message  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
+
+    assert len(lines) == 1
+    assert _TOKEN not in lines[0]
+    assert "redacted@" in lines[0]
 
 
 def test_procrastinate_worker_task_kwargs_token_is_redacted():
@@ -206,17 +227,19 @@ def test_procrastinate_worker_token_with_escaped_quotes_is_redacted():
 
 
 def test_event_without_a_credential_url_is_never_mangled():
-    """Codex round 2 P2: `redact_url_credentials()` must be gated, not blanket.
+    """Codex round 2 P2, mechanism updated in round 5.
 
-    That helper's `_URLSPLIT_STRIPS` step deletes `\t`/`\r`/`\n`
-    unconditionally -- correct for a string already known to be URL-shaped,
-    wrong for an arbitrary log `event`. `_redact_sensitive_fields` now calls
-    it only when `has_url_credentials()` says the string actually carries a
-    credential-shaped URL, so a plain multi-line / tab-delimited message with
-    no credential in it survives byte-for-byte.
+    `redact_url_credentials()`'s `_URLSPLIT_STRIPS` step deletes
+    `\t`/`\r`/`\n` unconditionally -- correct for a string already known to
+    be URL-shaped, wrong for an arbitrary log `event`. Round 2 gated the
+    whole-event call on `has_url_credentials()`; round 5 replaced that with
+    matching `URL_LIKE_RE` and redacting each match, which keeps this
+    property for a different reason: a message with no URL-shaped substring
+    at all has nothing for `URL_LIKE_RE` to match, so it is never handed to
+    `redact_url_credentials()` in the first place and survives byte-for-byte.
     """
     message = "first line\nsecond\tline"
-    assert not has_url_credentials(message)  # pin the premise: nothing to redact
+    assert URL_LIKE_RE.search(message) is None  # pin the premise: no URL at all
 
     lines = _emit_through_real_pipeline("procrastinate.worker", logging.INFO, message)
 
@@ -227,12 +250,17 @@ def test_event_without_a_credential_url_is_never_mangled():
 def test_multiline_event_with_a_credential_url_still_gets_the_token_scrubbed():
     """A credential URL embedded in a multi-line message is still caught.
 
-    Flattening the message is accepted here -- it DOES carry a credential, so
-    running it through `redact_url_credentials()` is the right call. Only the
-    no-credential case above is required to come back untouched.
+    Round 2 accepted flattening the WHOLE message here, because the old
+    whole-event gate could only call `redact_url_credentials()` on
+    everything or nothing. Round 5's per-`URL_LIKE_RE`-match redaction
+    removes that trade-off entirely: `URL_LIKE_RE`'s character class already
+    excludes whitespace, so the matched URL substring can never contain the
+    leading `\n`, and text outside the match is never touched at all. Both
+    the token and the newline are asserted now -- neither has to be given up
+    for the other.
     """
     message = f'retrying request\nHTTP Request: GET {_ARCGIS_URL} "HTTP/1.1 200 OK"'
-    assert has_url_credentials(message)  # pin the premise before redacting it
+    assert URL_LIKE_RE.search(message) is not None  # pin the premise: a URL is there
 
     lines = _emit_through_real_pipeline(
         "procrastinate.worker", logging.WARNING, message
@@ -240,6 +268,7 @@ def test_multiline_event_with_a_credential_url_still_gets_the_token_scrubbed():
 
     assert len(lines) == 1
     assert _TOKEN not in lines[0]
+    assert "retrying request\n" in lines[0]
 
 
 def test_redact_token_value_repr_also_handles_a_dict_repr_shape():

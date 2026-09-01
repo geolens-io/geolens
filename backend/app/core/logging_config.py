@@ -33,15 +33,26 @@ argument rather than a keyed field. Both are stdlib records, and
 `shared_processors` doubles as the `ProcessorFormatter`'s `foreign_pre_chain`,
 so this chain already runs for them.
 
-fix(#1746 codex r2): `redact_url_credentials()` is built for a URL (or a
-GDAL-style URL-shaped string): its `_URLSPLIT_STRIPS` step deletes `\t`,
-`\r`, `\n` unconditionally, on the assumption the caller already knows the
-string is URL-shaped (see that module's own docstring). An arbitrary log
-`event` is not that — a plain multi-line or tab-delimited message with no
-credential in it at all came back with every `\n`/`\t` silently removed.
-`has_url_credentials()` is the read-only counterpart with none of that side
-effect, so it gates the call: only a string that actually carries a
-credential-shaped URL is worth the stripping `redact_url_credentials` does.
+fix(#1746 codex r2, replaced r5): `redact_url_credentials()` is built for a
+string already known to be URL-shaped: its `_URLSPLIT_STRIPS` step deletes
+`\t`, `\r`, `\n` unconditionally on that assumption, which is wrong for an
+arbitrary log `event`. Round 2 gated the call on `has_url_credentials(event)`
+to avoid that, but `has_url_credentials()` parses the WHOLE event as one URL
+— a message like `HTTP Request: GET https://user:SECRET@example.com/path
+"HTTP/1.1 200 OK"` does not parse as a URL on its own (the sentence around it
+breaks `urlsplit`), so the gate returned False and the userinfo credential
+was emitted verbatim.
+
+`url_redaction.URL_LIKE_RE` already exists to find just the URL-shaped
+SUBSTRING inside free text (it is what `redact_url_credentials()` itself
+falls back to for non-URL input), so this instead matches every URL-shaped
+substring and redacts each one individually. That both finds the real
+credential (per-URL matching sees the userinfo the whole-event parse missed)
+and keeps the earlier fix intact: `URL_LIKE_RE`'s own character class
+excludes whitespace, so a matched substring can never contain `\t`/`\r`/`\n`
+in the first place — `redact_url_credentials()`'s unconditional strip has
+nothing to strip inside a match, and every character outside a match is
+untouched.
 """
 
 import logging
@@ -51,7 +62,7 @@ from typing import Any
 
 import structlog
 
-from app.core.url_redaction import has_url_credentials, redact_url_credentials
+from app.core.url_redaction import URL_LIKE_RE, redact_url_credentials
 
 # SEC-03: case-insensitive denylist of field names that contain sensitive
 # values. Comparison is done in lower-case after stripping common
@@ -154,11 +165,13 @@ def _redact_sensitive_fields(
             event_dict[key] = "[REDACTED]"
     event = event_dict.get("event")
     if isinstance(event, str):
-        # fix(#1746 codex r2): only feed a credential-bearing string through
-        # redact_url_credentials() -- see the module docstring for why an
-        # unconditional call corrupts every other event.
-        if has_url_credentials(event):
-            event = redact_url_credentials(event)
+        # fix(#1746 codex r5): redact credentials PER URL-SHAPED SUBSTRING,
+        # not the whole event -- see the module docstring for why a
+        # whole-event gate missed a userinfo credential, and why matching on
+        # URL_LIKE_RE first is still whitespace-safe.
+        event = URL_LIKE_RE.sub(
+            lambda match: redact_url_credentials(match.group(0)), event
+        )
         event_dict["event"] = _redact_token_value_repr(event)
     return event_dict
 

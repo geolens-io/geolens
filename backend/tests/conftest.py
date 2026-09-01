@@ -490,10 +490,21 @@ def _install_stdout_safe_structlog_baseline():
 _install_stdout_safe_structlog_baseline()
 
 
-# Every logger setup_logging() reaches, read off app/core/logging_config.py:102-112.
+# Every logger setup_logging() reaches, read off app/core/logging_config.py:283-304.
 # "" is the root logger. tests/_logging_state.py keeps the same list for the
 # per-test helper; both are derived from that source, not from each other.
-_LOGGING_MUTATED_LOGGERS = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
+#
+# fix(#1746 codex r5): httpx/httpcore (set to WARNING there) were missing
+# from this list, so this guard could not undo a direct setup_logging() call
+# that left them pinned at WARNING for the rest of the worker.
+_LOGGING_MUTATED_LOGGERS = (
+    "",
+    "uvicorn",
+    "uvicorn.error",
+    "uvicorn.access",
+    "httpx",
+    "httpcore",
+)
 
 
 def _is_pytest_owned_handler(handler: logging.Handler) -> bool:
