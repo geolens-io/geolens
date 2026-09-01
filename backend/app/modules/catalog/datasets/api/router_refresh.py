@@ -244,6 +244,55 @@ def _service_token_required() -> HTTPException:
     )
 
 
+async def _recheck_service_token_after_reservation(
+    db, dataset, token, *, marked_before: bool
+) -> None:
+    """Catch a marker that APPEARED while the refresh was being reserved.
+
+    fix(#1746 codex r3): a narrow race the pre-reservation guard cannot close.
+    A token-less refresh reads an UNMARKED dataset and passes; an
+    authenticated re-upload of the same origin commits inside the reservation
+    window and marks it; and the dispatch goes out token-less into exactly the
+    worker failure the guard exists to prevent.
+
+    The post-reservation binding check cannot see it. ``_ServiceOrigin`` is the
+    binding the WORKER is handed — base url, layer identity, service type — and
+    its equality answers "did the source move". The marker is not part of that:
+    the source did not move, its auth state did, and folding the marker into
+    that dataclass would both mis-describe it and answer with
+    ``origin_changed``, whose copy tells the caller to "check the new source"
+    when the fix is to send a token. So the decision is re-applied here instead,
+    through the same predicate and the same message the door already uses —
+    one source of truth for what the refusal means, in two places that have to
+    ask at two different times.
+
+    No probe, deliberately. A marker that APPEARED inside the reservation
+    window is not the ambiguous case the pre-reservation probe exists for: it
+    was written by the swap of an authenticated pull that just succeeded
+    against this exact origin, seconds ago. That is the strongest evidence the
+    origin wants a credential that this door will ever hold, and re-asking
+    over the network could only weaken it.
+
+    A TRANSITION, not a second opinion. ``marked_before`` is what the
+    pre-check saw, and a marker that was already there has already been
+    adjudicated: the pre-reservation guard probed the ArcGIS layer and let this
+    request through, or refused a WFS outright so it never reached here.
+    Re-deciding on the marker alone would overturn a healthy probe with no new
+    evidence, which is the regression the ArcGIS pass-through tests caught the
+    moment this was written as an unconditional recheck.
+
+    A function rather than three lines in the handler for the reason every
+    other extraction here has: ``refresh_dataset`` sits one branch under ruff's
+    C901 ceiling.
+    """
+    if token or marked_before or not service_auth_required(dataset.origin_ref):
+        return
+    # Release the reservation the way every other post-reservation refusal
+    # does, so a refused request leaves no run row holding the dataset.
+    await db.rollback()
+    raise _service_token_required()
+
+
 async def _require_service_token_if_marked(db, dataset, dataset_id, token):
     """Handle a token-less refresh of an origin whose last pull used a token.
 
@@ -975,6 +1024,11 @@ async def refresh_dataset(
     # load inside a coroutine, which raises MissingGreenlet rather than
     # re-querying. It is one already-loaded UUID, so it is captured here.
     user_id = user.id
+    # fix(#1746 codex r3): what the PRE-CHECK saw, so the recheck after the
+    # reservation can tell a marker that appeared in the window from one the
+    # guard below has already adjudicated. Read before the guard, because its
+    # ArcGIS path re-reads the row.
+    marked_before = service_auth_required(dataset.origin_ref)
     dataset = await _require_service_token_if_marked(
         db, dataset, dataset_id, body.token
     )
@@ -1104,6 +1158,14 @@ async def refresh_dataset(
                 ),
             },
         )
+
+    # fix(#1746 codex r3): the binding can be identical and the answer still
+    # different. An authenticated re-upload that landed inside the reservation
+    # window marks the dataset without moving its origin, so the check above
+    # passes and only this one notices.
+    await _recheck_service_token_after_reservation(
+        db, dataset, body.token, marked_before=marked_before
+    )
 
     # fix(#1277 review): read after the reservation too, for the same reason
     # the binding is. An unchanged binding does NOT mean unchanged dispatch

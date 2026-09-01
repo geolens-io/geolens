@@ -3120,7 +3120,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # exhaust the pool. Most of the addition is the docstring stating which
     # services can be asked and why, plus the caller contract for the
     # rollback. Cap 1200 -> 1282, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1282,
+    # fix(#1746 codex r3): +62 — the marker is re-checked after the
+    # reservation. A token-less refresh could read an unmarked dataset, pass
+    # the guard, and have an authenticated re-upload of the same origin mark it
+    # inside the reservation window; the binding comparison there cannot see
+    # that, because `_ServiceOrigin` is the worker's binding and the origin did
+    # not move. Detects the TRANSITION rather than re-deciding, so a healthy
+    # ArcGIS probe is not overturned with no new evidence. Most of the addition
+    # is the docstring saying why it is not folded into the binding check and
+    # why it does not probe. Cap 1282 -> 1344, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1344,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,

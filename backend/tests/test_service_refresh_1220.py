@@ -35,6 +35,7 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.modules.catalog.datasets.api import router_refresh
 from app.modules.catalog.datasets.domain.schemas import DatasetRefreshRequest
@@ -751,6 +752,112 @@ class TestAuthRequiredRefusal:
         assert resp.status_code == 422, resp.text
         probe.assert_not_awaited()
         assert rolled_back == []
+
+    # ---------------------------------------------------------------- #
+    # The reservation window
+    # ---------------------------------------------------------------- #
+
+    @staticmethod
+    @asynccontextmanager
+    async def _marked_inside_the_reservation_window():
+        """Make the post-reservation re-read see a marker the pre-check did not.
+
+        The real race is an authenticated re-upload of the same origin
+        committing its swap between the door's first read and the read after
+        the reservation. Reproducing that with two racing sessions would be a
+        stopwatch test; setting the committed value on the door's own re-read
+        is the same observation without the flake. ``set_committed_value``
+        rather than plain assignment, so the instance is not left dirty and no
+        later flush can write the simulation back to the row.
+        """
+        real_refresh = AsyncSession.refresh
+        marked = {"done": False}
+
+        async def _refresh(self, instance, attribute_names=None, **kwargs):
+            await real_refresh(self, instance, attribute_names, **kwargs)
+            if marked["done"] or not attribute_names:
+                return
+            if "origin_ref" not in attribute_names:
+                return
+            marked["done"] = True
+            set_committed_value(
+                instance,
+                "origin_ref",
+                {**(instance.origin_ref or {}), "auth_required": True},
+            )
+
+        with patch.object(AsyncSession, "refresh", _refresh):
+            yield
+
+    async def test_a_marker_that_lands_during_the_reservation_is_caught(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """fix(#1746 codex r3): the binding check cannot see this one.
+
+        An authenticated re-upload commits its swap while this refresh is
+        reserving. The origin did not move, so ``origin != candidate`` passes,
+        and without the recheck the dispatch goes out token-less into the
+        worker failure the whole guard exists to prevent.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        assert "auth_required" not in (dataset.origin_ref or {})
+
+        async with _dispatch_harness() as task:
+            async with _probe_harness() as probe:
+                async with self._marked_inside_the_reservation_window():
+                    resp = await client.post(
+                        f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+                    )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "service_token_required"
+        # Unmarked at the pre-check, so the pre-reservation guard had nothing
+        # to ask about and correctly did not.
+        probe.assert_not_awaited()
+        # The point: the token-less dispatch never left the door.
+        task.defer_async.assert_not_awaited()
+        # And the refusal released the dataset rather than leaving a run row
+        # holding the admission index against the retry that follows.
+        assert await _run_for(test_db_session, dataset.id) is None
+        jobs = (
+            (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.dataset_id == dataset.id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert jobs == []
+
+    async def test_a_marker_landing_during_the_reservation_is_fine_with_a_token(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,
+    ) -> None:
+        """The recheck asks for a credential; it does not lock the dataset.
+
+        Same race, same window, but this caller sent the thing the marker is
+        asking for, so there is nothing to refuse.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+
+        async with _dispatch_harness() as task:
+            async with _probe_harness():
+                async with self._marked_inside_the_reservation_window():
+                    resp = await client.post(
+                        f"/datasets/{dataset.id}/refresh",
+                        headers=admin_auth_header,
+                        json={"token": "tok-" + uuid.uuid4().hex},
+                    )
+
+        assert resp.status_code == 202, resp.text
+        task.defer_async.assert_awaited_once()
+        assert await _run_for(test_db_session, dataset.id) is not None
 
     # ---------------------------------------------------------------- #
     # The paths that must cost nothing at all
