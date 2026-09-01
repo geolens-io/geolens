@@ -37,6 +37,7 @@ from app.processing.ingest.tasks_common import (
     _resolve_effective_srid,
     _run_service_import_with_wfs_fallback,
     _validate_upload_file_safety,
+    purge_token_on_failure,
     rename_pkey_to_match_table,
     resolve_service_type,
     task_app,
@@ -738,8 +739,16 @@ async def ingest_file(
         )
 
 
-@task_app.task(queue="ingest", retry=0, aliases=["app.ingest.tasks.ingest_service"])
+@task_app.task(
+    queue="ingest",
+    retry=0,
+    # fix(#1746): the context is how the task learns its own queue-row id, so
+    # a terminal failure can strip the raw token out of its own kwargs.
+    pass_context=True,
+    aliases=["app.ingest.tasks.ingest_service"],
+)
 @tenant_task
+@purge_token_on_failure
 async def ingest_service(
     job_id: str,
     source_url: str,

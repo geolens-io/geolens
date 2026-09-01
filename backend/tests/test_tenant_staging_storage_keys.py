@@ -427,12 +427,16 @@ async def test_cleanup_and_retention_reaper_delete_only_tenant_key(
     deleted.all.return_value = [(uuid.uuid4(), logical, None)]
     survivors = MagicMock()
     survivors.scalars.return_value = []
+    # fix(#1746): the terminal-row service-token purge, the last statement
+    # inside the transaction. It reads nothing back, so an unconfigured
+    # result is enough; it just has to occupy its position.
+    token_purge = MagicMock()
     # fix(#1202 review r8): one more SELECT for the post-expiry staging sweep.
     post_expiry = MagicMock()
     post_expiry.all.return_value = []
     db = AsyncMock()
     db.execute = AsyncMock(
-        side_effect=[*empty_scalars, deleted, survivors, post_expiry]
+        side_effect=[*empty_scalars, deleted, survivors, token_purge, post_expiry]
     )
 
     with _tenant_mode(monkeypatch, "multi_tenant", TENANT_A):

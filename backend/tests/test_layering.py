@@ -2964,7 +2964,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # shared reupload helper is keyed on the derived source_format instead of
     # the .zip suffix, plus the import and the comment saying why (a File
     # Geodatabase arrives in a .zip and has no DBF). Cap 2308 -> 2311, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2311,
+    # fix(#1746): +69 — the shared token purge both service tasks now run on
+    # their terminal failure path: `purge_queued_job_token` (a best-effort
+    # `args - 'token'` UPDATE against the task's own procrastinate row) and
+    # the `purge_token_on_failure` decorator that absorbs the JobContext
+    # procrastinate passes in so the tasks keep their existing signatures.
+    # Two thirds of it is comments — why deleting the key is safe (retry=0,
+    # so the first exception is the terminal one) and why the wrapper catches
+    # Exception rather than BaseException. Cap 2311 -> 2380, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2380,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3028,7 +3036,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # top-level edge back would close a cycle), which is what put the shared
     # copy in platform/. Ratchet DOWN in the same commit, per the no-headroom
     # rule. Cap 1247 -> 1242, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1242,
+    # fix(#1746): +9 — `reupload_service` takes `pass_context=True` (the only
+    # way a task can learn its own queue-row id) and the
+    # `purge_token_on_failure` wrapper, plus the comment saying what the
+    # context is for. Cap 1242 -> 1251, exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1251,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3169,7 +3181,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # RECONCILED at the #1708/#1709 merge: both raised this cap off the same
     # 1653 baseline — #1709 to 1763, #1708 to 1682 — so the cap is measured
     # off the merged file. 1763 + #1708's 29 = 1792, exact.
-    "backend/app/platform/jobs/sweep.py": 1792,
+    # fix(#1746): +18 — the backstop UPDATE that strips a leftover `token`
+    # from every TERMINAL procrastinate row, for the attempts that never
+    # reached the task-side purge (worker killed mid-run, rows deferred
+    # before the fix). Mostly the comment on why `todo`/`doing` are excluded.
+    # Cap 1792 -> 1810, exact.
+    "backend/app/platform/jobs/sweep.py": 1810,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -3636,7 +3653,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # by exact value the way `reupload_service` does — this task holds the
     # value now, and the pattern layers only match tokens shaped like URLs.
     # Cap 1085 -> 1117, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1117,
+    # fix(#1746): +9 — `ingest_service` takes `pass_context=True` (the only
+    # way a task can learn its own queue-row id) and the
+    # `purge_token_on_failure` wrapper, plus the comment saying what the
+    # context is for. Cap 1117 -> 1126, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1126,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
