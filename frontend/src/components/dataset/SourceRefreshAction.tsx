@@ -171,7 +171,14 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
                 <Input
                   id="source-refresh-token"
                   type="password"
-                  autoComplete="off"
+                  // fix(#1746): autoComplete="off" alone does not stop Chrome
+                  // from offering a saved password on a password-type field —
+                  // this is a request-only service token, so opt out of every
+                  // password manager explicitly.
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
                   value={token}
                   onChange={(event) => setToken(event.target.value)}
                   placeholder={t('sourcePanel.refresh.tokenPlaceholder')}

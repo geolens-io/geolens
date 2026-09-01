@@ -57,6 +57,12 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
     'errors.stagingFileUnavailable',
   'This service requires authentication. Provide an access token and try again.':
     'errors.serviceRequiresAuth',
+  // fix(#1746): the ArcGIS-specific wording of the same auth-required refusal
+  // (ArcGISTokenError path in backend/app/modules/catalog/sources/router.py)
+  // was unmapped and fell through to the generic 403 "Access denied", hiding
+  // that a token was the fix.
+  'This service requires authentication. Provide a valid ArcGIS token and try again.':
+    'errors.serviceRequiresAuth',
   'Could not reach the service. Check the URL and try again.':
     'errors.couldNotReachService',
   "Service didn't respond in time. Check the URL and try again.":

@@ -199,7 +199,13 @@ export function ServiceUrlForm() {
               // when geometry_type is null (the post-D-05 default for OGC API / WFS layers).
               return (
                 <button
-                  key={layer.name}
+                  // fix(#1746): keyed by layer_id, not layer.name — two
+                  // layers in the same service can share a display name
+                  // (e.g. two ArcGIS sublayers both titled
+                  // REC_PassiveConservedAccessScore), and a name-keyed list
+                  // collapses/misrenders duplicates. layer_id is what the
+                  // backend already dedupes on.
+                  key={layer.layer_id ?? layer.name}
                   onClick={() => handleLayerSelect(layer)}
                   className={cn(
                     'flex items-center gap-2.5 rounded-lg border border-border p-2.5 text-start transition-colors',
@@ -302,6 +308,14 @@ export function ServiceUrlForm() {
             value={token}
             onChange={(e) => setToken(e.target.value)}
             className="font-mono text-sm"
+            // fix(#1746): this is a request-only service token, not a login
+            // credential — autocomplete="off" alone does not stop Chrome from
+            // offering a saved password here, so opt out of every password
+            // manager explicitly.
+            autoComplete="new-password"
+            data-1p-ignore
+            data-lpignore="true"
+            data-bwignore
           />
           <p className="text-xs text-muted-foreground">{t('serviceUrl.tokenHelpText')}</p>
         </div>

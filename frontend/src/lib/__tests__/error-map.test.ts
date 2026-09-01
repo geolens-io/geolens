@@ -12,6 +12,24 @@ describe('API error localization boundary', () => {
     expect(translateError('Dataset not found', 404)).toBe('Dataset not found');
   });
 
+  // fix(#1746): the ArcGIS-worded auth-required refusal (ArcGISTokenError
+  // path) previously fell through to the generic 403 "Access denied" because
+  // only the WFS/OGC wording of the same refusal was mapped.
+  it('maps the ArcGIS-worded auth-required refusal to the same key as the generic one', () => {
+    expect(
+      classifyApiError(
+        'This service requires authentication. Provide a valid ArcGIS token and try again.',
+        403,
+      ),
+    ).toEqual({ key: 'errors.serviceRequiresAuth' });
+    expect(
+      translateApiErrorDetail(
+        'This service requires authentication. Provide a valid ArcGIS token and try again.',
+        403,
+      ),
+    ).toBe('This service requires authentication. Provide an access token and try again.');
+  });
+
   it('does not render unknown backend prose', () => {
     const backendDetail = 'Name is required according to an internal rule';
     const rendered = translateApiErrorDetail(backendDetail, 400);
