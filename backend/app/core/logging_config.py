@@ -20,13 +20,26 @@ path. With `--workers 1` that is the whole API.
 bound it: they truncate containers and `str` values, not the `repr()` of an
 arbitrary object, which is exactly what a SQLAlchemy session or model
 instance produces.
+
+fix(#1746): `_redact_sensitive_fields` is KEY-based, so it never looks inside
+the `event` message string itself. That leaves two leak paths open: httpx
+(and its httpcore transport) log the full outgoing request URL at INFO for
+every call, including a `?token=...` query string on the ArcGIS path; and
+Procrastinate's worker logs a dict-repr of `task_kwargs`
+(`Starting job x[1](({'token': '...'})`), which puts a credential-store token
+inside the message text rather than a keyed field. Both are stdlib records,
+and `shared_processors` doubles as the `ProcessorFormatter`'s
+`foreign_pre_chain`, so this chain already runs for them.
 """
 
 import logging
+import re
 from collections.abc import Mapping, MutableMapping
 from typing import Any
 
 import structlog
+
+from app.core.url_redaction import redact_url_credentials
 
 # SEC-03: case-insensitive denylist of field names that contain sensitive
 # values. Comparison is done in lower-case after stripping common
@@ -54,6 +67,25 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
 # most; this only exists so a caller-supplied cyclic structure terminates.
 _MAX_REDACT_DEPTH = 8
 
+# fix(#1746): catches a dict-repr rendering of task_kwargs, e.g.
+# `{'token': 'abc', 'credential_ref': None}`. A Python dict repr always
+# quotes a key and its value with the same quote character, but the two
+# named groups (rather than one shared backreference) still let this match
+# either style without assuming which one produced the string.
+_TOKEN_DICT_REPR_RE = re.compile(
+    r"(?P<kq>['\"])token(?P=kq)\s*:\s*(?P<vq>['\"]).*?(?P=vq)"
+)
+
+
+def _redact_token_dict_repr(value: str) -> str:
+    """Redact a `'token': '...'` (or double-quoted) pair inside free text."""
+    return _TOKEN_DICT_REPR_RE.sub(
+        lambda m: (
+            f"{m.group('kq')}token{m.group('kq')}: {m.group('vq')}[REDACTED]{m.group('vq')}"
+        ),
+        value,
+    )
+
 
 def _redact_sensitive_fields(
     _logger: Any, _method_name: str, event_dict: MutableMapping[str, Any]
@@ -66,10 +98,20 @@ def _redact_sensitive_fields(
     deliberate trade-off: structlog idiomatic usage logs flat key/value
     pairs; recursing would amplify the redactor's CPU cost on every log
     line.
+
+    fix(#1746): the key-based loop above only ever sees STRUCTURED fields, so
+    it cannot catch a secret embedded in the rendered MESSAGE STRING itself —
+    which is exactly how it reaches the log for a raw stdlib record (httpx's
+    request-URL line, Procrastinate's dict-repr of task_kwargs). `event` is
+    the one field every record has by this point, so it is scrubbed here by
+    pattern and by shape rather than by key.
     """
     for key in list(event_dict.keys()):
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
+    event = event_dict.get("event")
+    if isinstance(event, str):
+        event_dict["event"] = _redact_token_dict_repr(redact_url_credentials(event))
     return event_dict
 
 
@@ -201,3 +243,14 @@ def setup_logging(
 
     logging.getLogger("uvicorn.access").handlers.clear()
     logging.getLogger("uvicorn.access").propagate = False
+
+    # fix(#1746): httpx (and its httpcore transport) logs the full request
+    # URL at INFO on every call, including a `?token=...` query string on the
+    # ArcGIS path — with or without a credential store. Root defaults to
+    # INFO (see core/config.py), so that line reached every deployment's logs
+    # by default, twice per refresh on the credential-store path. WARNING
+    # keeps connection failures visible while dropping the routine per-request
+    # echo; the `event`-string scrub above is the backstop for whatever still
+    # gets through at WARNING or above.
+    for _log in ("httpx", "httpcore"):
+        logging.getLogger(_log).setLevel(logging.WARNING)
