@@ -2472,7 +2472,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # sweep_stale_gdal_header_files, reclaiming the GDAL bearer-header
     # tempfile ogr.py's finally block misses on a SIGKILL/OOM. Cap 1757 ->
     # 1770, exact.
-    "backend/app/api/main.py": 1770,
+    # fix(#1746 codex r1): +19 — `sweep_stale_jobs_once` runs the terminal-row
+    # token purge ONCE per pass, in its own bare session with its own
+    # best-effort handler, instead of once per tenant inside the loop below.
+    # Mostly the comment recording why the queue table is not a tenant's.
+    # Re-measured on the rebase across #1751, which raised the same cap.
+    # Cap 1770 -> 1789, exact.
+    "backend/app/api/main.py": 1789,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3181,12 +3187,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # RECONCILED at the #1708/#1709 merge: both raised this cap off the same
     # 1653 baseline — #1709 to 1763, #1708 to 1682 — so the cap is measured
     # off the merged file. 1763 + #1708's 29 = 1792, exact.
-    # fix(#1746): +18 — the backstop UPDATE that strips a leftover `token`
-    # from every TERMINAL procrastinate row, for the attempts that never
-    # reached the task-side purge (worker killed mid-run, rows deferred
-    # before the fix). Mostly the comment on why `todo`/`doing` are excluded.
-    # Cap 1792 -> 1810, exact.
-    "backend/app/platform/jobs/sweep.py": 1810,
+    # fix(#1746): +35 — `purge_terminal_job_tokens`, the backstop UPDATE that
+    # strips a leftover `token` from every TERMINAL procrastinate row (the
+    # attempts that never reached the task-side purge: worker killed mid-run,
+    # rows deferred before the fix). Its own coroutine rather than a line in
+    # `fail_stale_jobs`, because that runs once per TENANT in hosted mode and
+    # the queue table has no tenant column — the docstring carries that and
+    # the why-no-index note. Cap 1792 -> 1827, exact.
+    "backend/app/platform/jobs/sweep.py": 1827,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and

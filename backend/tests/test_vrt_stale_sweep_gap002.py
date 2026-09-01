@@ -242,12 +242,6 @@ def _make_mock_db_for_fail_stale(
         survivors_result.scalars.return_value = surviving_paths or []
         results.append(survivors_result)
 
-    # fix(#1746): the last statement inside the transaction — the backstop
-    # UPDATE that strips a leftover service `token` from every terminal
-    # procrastinate row. It reads nothing back, so an unconfigured result is
-    # enough; it just has to occupy its position in this list.
-    results.append(MagicMock())
-
     # fix(#1202 review r8): the post-expiry presigned-staging sweep issues one
     # more SELECT after the purge. No candidates in these fixtures, so an empty
     # .all() keeps each test stating only what it cares about.
@@ -523,9 +517,7 @@ async def test_fail_stale_jobs_purges_terminal_jobs_past_retention():
     # fix(#1274 review): legacy-completion recorder then abandonment cancel)
     # + the purge DELETE + the post-expiry staging SELECT.
     # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
-    # fix(#1746): +1 — the terminal-row service-token purge, last statement
-    # inside the transaction.
-    assert mock_db.execute.await_count == 12
+    assert mock_db.execute.await_count == 11
     # Indexes 7-8 are the refresh-run sweep now; the purge shifted to 9.
     # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation
     # sits at index 3, between the running-jobs sweep and the VRT sweep.
@@ -696,9 +688,7 @@ async def test_fail_stale_jobs_retention_zero_disables_purge(monkeypatch):
     # review)) and no purge DELETE, plus the post-expiry staging SELECT,
     # which is independent of retention.
     # fix(#1709 review r7): +1 — the childless-`fanned_out` reconciliation.
-    # fix(#1746): +1 — the terminal-row service-token purge, which is also
-    # independent of retention.
-    assert mock_db.execute.await_count == 11
+    assert mock_db.execute.await_count == 10
 
 
 # ---------------------------------------------------------------------------

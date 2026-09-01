@@ -218,6 +218,25 @@ async def sweep_stale_jobs_once(
     """
     from app.core.db import async_session  # fix(#909): late-bind for tests
     from app.platform.jobs.router import fail_stale_jobs
+    from app.platform.jobs.sweep import purge_terminal_job_tokens
+
+    # fix(#1746 codex r1): once per PASS, not once per tenant.
+    # `catalog.procrastinate_jobs` is shared queue infrastructure with no
+    # tenant column, so this belongs to the sweep rather than to any tenant —
+    # inside the loop below it would repeat one unscoped UPDATE tenants-many
+    # times every cadence, per API process. A bare session on purpose: the
+    # statement is tenant-agnostic and needs no GUC, exactly like the tenant
+    # registry read below. Best-effort like the per-tenant branch — a purge
+    # that cannot run must not cost the sweep that can.
+    try:
+        async with async_session() as purge_session:
+            await purge_terminal_job_tokens(purge_session)
+    except Exception as exc:  # broad: the sweep proceeds without the purge
+        logger.warning(
+            "Terminal-row job token purge failed",
+            error=str(exc),
+            exc_info=True,
+        )
 
     if not is_multi_tenant():
         async with async_session() as session:

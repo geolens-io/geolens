@@ -8,10 +8,11 @@ SUCCESSFUL rows only, so a terminal failure used to leave
 retention window, and forever when retention is off.
 
 Two defenses, one test module: the task strips its own row on the way out
-(`purge_token_on_failure`), and the stale-job sweep strips every terminal row
-that still carries the key. DB-backed on purpose — both are raw SQL against a
-JSONB column, and a mocked session would assert nothing about whether the
-statements are even valid.
+(`purge_token_on_failure`), and `purge_terminal_job_tokens` — one statement per
+fleet sweep, NOT per tenant (see `test_tenant_job_recovery.py`) — strips every
+terminal row that still carries the key. DB-backed on purpose: both are raw SQL
+against a JSONB column, and a mocked session would assert nothing about whether
+the statements are even valid.
 
 Every token literal here is obviously fake.
 """
@@ -27,7 +28,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.platform.jobs.sweep import fail_stale_jobs
+from app.platform.jobs.sweep import purge_terminal_job_tokens
 from app.processing.ingest import tasks_reupload, tasks_vector
 from app.processing.ingest.tasks_common import (
     purge_queued_job_token,
@@ -100,14 +101,14 @@ async def _drop_queue(session: AsyncSession, queue_name: str) -> None:
     await session.commit()
 
 
-class TestTheSweepStripsTerminalRows:
+class TestThePurgeStripsTerminalRows:
     async def test_terminal_rows_lose_the_token_and_keep_everything_else(
         self, test_db_session: AsyncSession
     ):
         """failed and succeeded lose `token`; todo is left alone.
 
         `todo` is still waiting to be worked with exactly these args — the
-        sweep taking the token from it would break the pending dispatch,
+        purge taking the token from it would break the pending dispatch,
         which is the one way this cleanup could cause harm.
         """
         queue = f"tok-purge-{uuid.uuid4().hex[:12]}"
@@ -128,7 +129,7 @@ class TestTheSweepStripsTerminalRows:
                 args=succeeded_args,
             )
 
-            await fail_stale_jobs(test_db_session)
+            await purge_terminal_job_tokens(test_db_session)
 
             after_failed = await _read_args(test_db_session, failed_id)
             assert "token" not in after_failed
@@ -156,7 +157,7 @@ class TestTheSweepStripsTerminalRows:
                 test_db_session, status="failed", queue_name=queue, args=clean_args
             )
 
-            await fail_stale_jobs(test_db_session)
+            await purge_terminal_job_tokens(test_db_session)
 
             assert await _read_args(test_db_session, row_id) == clean_args
         finally:

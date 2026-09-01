@@ -1243,6 +1243,40 @@ def publish_refresh_reconciliation(outcome: StaleCleanupOutcome) -> None:
         refresh_sweep_reconciled_total.inc(outcome._refresh_runs_reconciled)
 
 
+async def purge_terminal_job_tokens(db: AsyncSession) -> None:
+    """Backstop the token purge the service tasks run on their own failure.
+
+    ``purge_token_on_failure`` (processing/ingest/tasks_common.py) drops the
+    raw service token from a dying attempt's own queue row. A row that never
+    reached that handler still holds it — a worker killed mid-attempt, a job
+    cancelled before it was ever claimed, a row deferred before #1746 — and
+    the worker's ``delete_jobs="successful"`` only ever removes the rows that
+    succeeded. Terminal statuses only: `todo` is still waiting to be worked
+    with those args, and `doing` is being worked right now (`aborting` is
+    legacy in procrastinate 3.x and never written).
+
+    fix(#1746 codex r1): NOT part of ``fail_stale_jobs``. That runs once per
+    TENANT in hosted mode, and ``catalog.procrastinate_jobs`` is shared queue
+    infrastructure with no tenant column — so living there repeated one
+    unscoped UPDATE tenants-many times per pass, per API process, every
+    cadence. It belongs to the pass, not to a tenant, so
+    ``sweep_stale_jobs_once`` calls it exactly once. Keeping it out of
+    ``fail_stale_jobs`` also keeps the dry-run cleanup endpoint
+    (``commit=False, detailed=True``) from writing.
+
+    Deliberately unindexed: the retention purge already bounds how many
+    terminal rows survive, and one sequential scan per pass is cheaper than a
+    write-amplifying index on a hot queue table.
+    """
+    await db.execute(
+        text(
+            "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
+            "WHERE status NOT IN ('todo', 'doing') AND args ? 'token'"
+        )
+    )
+    await db.commit()
+
+
 @overload
 async def fail_stale_jobs(
     db: AsyncSession,
@@ -1651,23 +1685,6 @@ async def fail_stale_jobs(
             )
             deleted_paths -= set(survivors.scalars())
         staged_paths_considered = len(deleted_paths)
-
-    # fix(#1746): backstop for the token purge the service tasks run on their
-    # own failure path (`purge_token_on_failure` in processing/ingest/
-    # tasks_common.py). A row that never reached that handler still holds the
-    # raw service token in its kwargs — a worker killed mid-attempt, a job
-    # cancelled before it was ever claimed, a row deferred before this fix —
-    # and the worker's `delete_jobs="successful"` only ever removes the rows
-    # that succeeded. Terminal statuses only: `todo` is still waiting to be
-    # worked with those args, and `doing` is being worked right now.
-    # (`aborting` is legacy in procrastinate 3.x and never written.) Last
-    # statement in the sweep so it costs nothing when there is nothing to do.
-    await db.execute(
-        text(
-            "UPDATE catalog.procrastinate_jobs SET args = args - 'token' "
-            "WHERE status NOT IN ('todo', 'doing') AND args ? 'token'"
-        )
-    )
 
     outcome = StaleCleanupOutcome(
         pending_failed=len(pending_job_ids) - pending_cancelled,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 
@@ -33,8 +33,15 @@ async def test_api_sweeper_scopes_each_tenant_and_continues_after_failure():
     registry_session = _session_context(tenant_ids=[tenant_a, tenant_b])
     tenant_a_session = _session_context()
     tenant_b_session = _session_context()
+    # fix(#1746 codex r1): the fleet-level token purge opens the first session
+    # of the pass, before any tenant scope is entered.
     session_factory = MagicMock(
-        side_effect=[registry_session, tenant_a_session, tenant_b_session]
+        side_effect=[
+            _session_context(),
+            registry_session,
+            tenant_a_session,
+            tenant_b_session,
+        ]
     )
     observed: list[tuple[str | None, object]] = []
 
@@ -55,6 +62,10 @@ async def test_api_sweeper_scopes_each_tenant_and_continues_after_failure():
             "app.platform.jobs.router.fail_stale_jobs",
             side_effect=fake_fail_stale_jobs,
         ),
+        # fix(#1746 codex r1): stubbed so this test keeps stating only the
+        # per-tenant scoping it is about — the purge writes to a table that
+        # has nothing to do with tenant scope, and has its own tests below.
+        patch("app.platform.jobs.sweep.purge_terminal_job_tokens", AsyncMock()),
         patch.object(main_module, "logger") as logger,
     ):
         assert await main_module.sweep_stale_jobs_once() == (2, 3)
@@ -77,8 +88,14 @@ async def test_api_sweeper_aggregates_detailed_tenant_outcomes():
     registry_session = _session_context(tenant_ids=[tenant_a, tenant_b])
     tenant_a_session = _session_context()
     tenant_b_session = _session_context()
+    # fix(#1746 codex r1): the purge's session comes first — see the test above.
     session_factory = MagicMock(
-        side_effect=[registry_session, tenant_a_session, tenant_b_session]
+        side_effect=[
+            _session_context(),
+            registry_session,
+            tenant_a_session,
+            tenant_b_session,
+        ]
     )
     outcomes = [
         StaleCleanupOutcome(
@@ -113,6 +130,8 @@ async def test_api_sweeper_aggregates_detailed_tenant_outcomes():
         # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
         patch("app.core.db.async_session", session_factory),
         patch("app.platform.jobs.router.fail_stale_jobs", cleanup),
+        # fix(#1746 codex r1): see the note in the test above.
+        patch("app.platform.jobs.sweep.purge_terminal_job_tokens", AsyncMock()),
     ):
         details = await main_module.sweep_stale_jobs_once(detailed=True)
 
@@ -133,7 +152,10 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
     from app.api import main as main_module
 
     session = _session_context()
-    session_factory = MagicMock(return_value=session)
+    # fix(#1746 codex r1): two sessions per pass now — the fleet-level token
+    # purge's, then the sweep's. The one-shot property this test is about is
+    # `fail_stale_jobs` being awaited exactly once, asserted below.
+    session_factory = MagicMock(side_effect=[_session_context(), session])
     fail_stale_jobs = AsyncMock(return_value=(4, 5))
 
     with (
@@ -141,11 +163,101 @@ async def test_api_sweeper_preserves_single_tenant_one_shot():
         # fix(#909): sweep_stale_jobs_once late-binds from app.core.db
         patch("app.core.db.async_session", session_factory),
         patch("app.platform.jobs.router.fail_stale_jobs", fail_stale_jobs),
+        # fix(#1746 codex r1): see the note two tests above.
+        patch("app.platform.jobs.sweep.purge_terminal_job_tokens", AsyncMock()),
     ):
         assert await main_module.sweep_stale_jobs_once() == (4, 5)
 
-    session_factory.assert_called_once_with()
+    assert session_factory.call_args_list == [call(), call()]
     fail_stale_jobs.assert_awaited_once_with(session)
+
+
+class TestTheTokenPurgeBelongsToThePassNotTheTenant:
+    """fix(#1746 codex r1): `catalog.procrastinate_jobs` has no tenant column.
+
+    The purge started life inside ``fail_stale_jobs``, which hosted mode calls
+    once per tenant — so one unscoped, unindexed UPDATE ran tenants-many times
+    per pass, per API process, every cadence. It belongs to the pass.
+    """
+
+    @pytest.mark.asyncio
+    async def test_three_tenants_still_purge_exactly_once(self):
+        from app.api import main as main_module
+
+        tenants = [uuid.uuid4() for _ in range(3)]
+        registry_session = _session_context(tenant_ids=tenants)
+        purge_session = _session_context()
+        session_factory = MagicMock(
+            side_effect=[
+                purge_session,
+                registry_session,
+                *[_session_context() for _ in tenants],
+            ]
+        )
+        purge = AsyncMock()
+
+        with (
+            patch.object(main_module, "is_multi_tenant", return_value=True),
+            patch("app.core.tenancy.is_multi_tenant", return_value=True),
+            patch("app.core.db.async_session", session_factory),
+            patch(
+                "app.platform.jobs.router.fail_stale_jobs",
+                AsyncMock(return_value=(0, 0)),
+            ),
+            patch("app.platform.jobs.sweep.purge_terminal_job_tokens", purge),
+        ):
+            await main_module.sweep_stale_jobs_once()
+
+        purge.assert_awaited_once_with(purge_session)
+        assert current_tenant_var.get() is None
+
+    @pytest.mark.asyncio
+    async def test_single_tenant_purges_once_too(self):
+        """The property is per `sweep_stale_jobs_once` call, in both modes."""
+        from app.api import main as main_module
+
+        purge_session = _session_context()
+        sweep_session = _session_context()
+        session_factory = MagicMock(side_effect=[purge_session, sweep_session])
+        purge = AsyncMock()
+
+        with (
+            patch.object(main_module, "is_multi_tenant", return_value=False),
+            patch("app.core.db.async_session", session_factory),
+            patch(
+                "app.platform.jobs.router.fail_stale_jobs",
+                AsyncMock(return_value=(0, 0)),
+            ),
+            patch("app.platform.jobs.sweep.purge_terminal_job_tokens", purge),
+        ):
+            await main_module.sweep_stale_jobs_once()
+
+        purge.assert_awaited_once_with(purge_session)
+
+    @pytest.mark.asyncio
+    async def test_a_failing_purge_does_not_cost_the_sweep(self):
+        """Best-effort, like the per-tenant branch: warn and carry on."""
+        from app.api import main as main_module
+
+        session_factory = MagicMock(
+            side_effect=[_session_context(), _session_context()]
+        )
+        fail_stale_jobs = AsyncMock(return_value=(4, 5))
+
+        with (
+            patch.object(main_module, "is_multi_tenant", return_value=False),
+            patch("app.core.db.async_session", session_factory),
+            patch("app.platform.jobs.router.fail_stale_jobs", fail_stale_jobs),
+            patch(
+                "app.platform.jobs.sweep.purge_terminal_job_tokens",
+                AsyncMock(side_effect=RuntimeError("queue table unreachable")),
+            ),
+            patch.object(main_module, "logger") as logger,
+        ):
+            assert await main_module.sweep_stale_jobs_once() == (4, 5)
+
+        assert logger.warning.call_count == 1
+        fail_stale_jobs.assert_awaited_once()
 
 
 @pytest.mark.asyncio
