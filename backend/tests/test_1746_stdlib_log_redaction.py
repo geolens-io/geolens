@@ -32,6 +32,7 @@ import pytest
 from procrastinate.jobs import Job
 
 from app.core.logging_config import _redact_token_value_repr
+from app.core.url_redaction import has_url_credentials
 from tests._logging_state import configured_logging
 
 _TOKEN = "SECRETTOKEN123"
@@ -164,6 +165,43 @@ def test_procrastinate_worker_task_kwargs_token_is_redacted():
     assert _TOKEN not in lines[0]
     assert "credential_ref=None" in lines[0]
     assert "dataset_id='abc'" in lines[0]
+
+
+def test_event_without_a_credential_url_is_never_mangled():
+    """Codex round 2 P2: `redact_url_credentials()` must be gated, not blanket.
+
+    That helper's `_URLSPLIT_STRIPS` step deletes `\t`/`\r`/`\n`
+    unconditionally -- correct for a string already known to be URL-shaped,
+    wrong for an arbitrary log `event`. `_redact_sensitive_fields` now calls
+    it only when `has_url_credentials()` says the string actually carries a
+    credential-shaped URL, so a plain multi-line / tab-delimited message with
+    no credential in it survives byte-for-byte.
+    """
+    message = "first line\nsecond\tline"
+    assert not has_url_credentials(message)  # pin the premise: nothing to redact
+
+    lines = _emit_through_real_pipeline("procrastinate.worker", logging.INFO, message)
+
+    assert len(lines) == 1
+    assert message in lines[0]
+
+
+def test_multiline_event_with_a_credential_url_still_gets_the_token_scrubbed():
+    """A credential URL embedded in a multi-line message is still caught.
+
+    Flattening the message is accepted here -- it DOES carry a credential, so
+    running it through `redact_url_credentials()` is the right call. Only the
+    no-credential case above is required to come back untouched.
+    """
+    message = f'retrying request\nHTTP Request: GET {_ARCGIS_URL} "HTTP/1.1 200 OK"'
+    assert has_url_credentials(message)  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline(
+        "procrastinate.worker", logging.WARNING, message
+    )
+
+    assert len(lines) == 1
+    assert _TOKEN not in lines[0]
 
 
 def test_redact_token_value_repr_also_handles_a_dict_repr_shape():

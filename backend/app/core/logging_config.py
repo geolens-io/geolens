@@ -32,6 +32,16 @@ puts a credential-store token inside the message text as a bare keyword
 argument rather than a keyed field. Both are stdlib records, and
 `shared_processors` doubles as the `ProcessorFormatter`'s `foreign_pre_chain`,
 so this chain already runs for them.
+
+fix(#1746 codex r2): `redact_url_credentials()` is built for a URL (or a
+GDAL-style URL-shaped string): its `_URLSPLIT_STRIPS` step deletes `\t`,
+`\r`, `\n` unconditionally, on the assumption the caller already knows the
+string is URL-shaped (see that module's own docstring). An arbitrary log
+`event` is not that — a plain multi-line or tab-delimited message with no
+credential in it at all came back with every `\n`/`\t` silently removed.
+`has_url_credentials()` is the read-only counterpart with none of that side
+effect, so it gates the call: only a string that actually carries a
+credential-shaped URL is worth the stripping `redact_url_credentials` does.
 """
 
 import logging
@@ -41,7 +51,7 @@ from typing import Any
 
 import structlog
 
-from app.core.url_redaction import redact_url_credentials
+from app.core.url_redaction import has_url_credentials, redact_url_credentials
 
 # SEC-03: case-insensitive denylist of field names that contain sensitive
 # values. Comparison is done in lower-case after stripping common
@@ -125,7 +135,12 @@ def _redact_sensitive_fields(
             event_dict[key] = "[REDACTED]"
     event = event_dict.get("event")
     if isinstance(event, str):
-        event_dict["event"] = _redact_token_value_repr(redact_url_credentials(event))
+        # fix(#1746 codex r2): only feed a credential-bearing string through
+        # redact_url_credentials() -- see the module docstring for why an
+        # unconditional call corrupts every other event.
+        if has_url_credentials(event):
+            event = redact_url_credentials(event)
+        event_dict["event"] = _redact_token_value_repr(event)
     return event_dict
 
 
