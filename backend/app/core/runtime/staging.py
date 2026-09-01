@@ -225,6 +225,56 @@ def sweep_orphaned_exports(
     return (deleted_count, skipped_count)
 
 
+# fix(#1746): the GDAL bearer-header tempfile ogr.py writes for a WFS/OGC API
+# preview/ingest (GDAL_HTTP_HEADER_FILE, 0600) is unlinked in a `finally`
+# block, but a SIGKILL/OOM on the ogr2ogr subprocess skips it, leaking the
+# token-bearing file. Matched by exact prefix/suffix (mirrors
+# `tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr", ...)` in ogr.py).
+_GDAL_AUTH_HEADER_PREFIX = "gdal_auth_"
+_GDAL_AUTH_HEADER_SUFFIX = ".hdr"
+
+
+def sweep_stale_gdal_header_files(
+    staging_dir: Path, max_age_seconds: int = 3600
+) -> int:
+    """Reclaim orphaned GDAL bearer-header tempfiles under ``staging_dir``.
+
+    Only direct children of ``staging_dir`` named ``gdal_auth_*.hdr`` are
+    considered — never recurse, since the staging volume also holds
+    originals, COGs, exports, and VRTs this sweeper has no business
+    touching. A file younger than ``max_age_seconds`` is left alone (still
+    in use by a running ogr2ogr subprocess).
+
+    Never raises: a file that disappears between listing and stat/unlink
+    (a race with the process that owns it, or with another sweep pass) is
+    silently skipped, not an error.
+
+    Returns the number of files removed.
+    """
+    staging_dir = Path(staging_dir)
+    if not staging_dir.is_dir():
+        return 0
+    cutoff = time.time() - max_age_seconds
+    removed = 0
+    for entry in staging_dir.iterdir():
+        name = entry.name
+        if not (
+            name.startswith(_GDAL_AUTH_HEADER_PREFIX)
+            and name.endswith(_GDAL_AUTH_HEADER_SUFFIX)
+        ):
+            continue
+        try:
+            if not entry.is_file():
+                continue
+            if entry.stat().st_mtime >= cutoff:
+                continue
+            entry.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 class StagingRuntimeError(RuntimeError):
     """Raised when a staging directory cannot be created or written to."""
 

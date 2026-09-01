@@ -23,6 +23,7 @@ from app.core.runtime.staging import (
     ensure_staging_ready,
     redirect_tempfile_to_staging,
     sweep_orphaned_exports,
+    sweep_stale_gdal_header_files,
 )
 
 # Redirect stdlib tempfile to the staging volume BEFORE any task module is
@@ -537,6 +538,13 @@ async def main() -> None:
     # boot during the export's stream phase.
     exports_dir = Path(settings.upload_staging_dir) / "exports"
     sweep_orphaned_exports(exports_dir)
+
+    # fix(#1746): reclaim GDAL bearer-header tempfiles a SIGKILL/OOM left
+    # behind on a previous ogr2ogr run (see sweep_stale_gdal_header_files
+    # docstring). The worker has no periodic sweep loop, unlike the API, so
+    # boot-time is the only hook here — matches how sweep_orphaned_exports
+    # itself is only swept at worker boot, not on a cadence.
+    sweep_stale_gdal_header_files(Path(settings.upload_staging_dir))
 
     # 2. WORK-01: shared bootstrap — load extensions (overlay), check enterprise
     # overlay requested, init edition, init storage + S3 health probe, init cache.

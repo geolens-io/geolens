@@ -154,10 +154,14 @@ async def test_preview_timeout_raises_not_empty(monkeypatch):
 
 @pytest.mark.anyio
 async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
-    """fetch_arcgis_layer_preview reads ?f=json metadata + a bounded sample.
+    """fetch_arcgis_layer_preview reads ?f=json metadata + a bounded sample
+    + a returnCountOnly=true feature count.
 
-    Verifies ESRI field types map to OGR names, CRS prefers latestWkid, and
-    the sample query reads ``attributes`` (ArcGIS) not ``properties``.
+    Verifies ESRI field types map to OGR names, CRS prefers latestWkid, the
+    sample query reads ``attributes`` (ArcGIS) not ``properties``, and the
+    preview now carries the layer's feature count (fix(#1746): the preview
+    used to always report feature_count=None even though the probe already
+    showed a real count for the same layer).
     """
     from unittest.mock import AsyncMock, MagicMock
 
@@ -180,6 +184,7 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
             {"attributes": {"OBJECTID": 2, "owner": "Jones", "value": 200.0}},
         ]
     }
+    count = {"count": 9567}
 
     meta_resp = MagicMock()
     meta_resp.raise_for_status = MagicMock()
@@ -187,9 +192,12 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
     sample_resp = MagicMock()
     sample_resp.raise_for_status = MagicMock()
     sample_resp.json = MagicMock(return_value=sample)
+    count_resp = MagicMock()
+    count_resp.raise_for_status = MagicMock()
+    count_resp.json = MagicMock(return_value=count)
 
     client = MagicMock()
-    client.get = AsyncMock(side_effect=[meta_resp, sample_resp])
+    client.get = AsyncMock(side_effect=[meta_resp, sample_resp, count_resp])
 
     result = await fetch_arcgis_layer_preview(
         "https://services.arcgis.com/x/rest/services/Parcels/FeatureServer",
@@ -200,9 +208,49 @@ async def test_fetch_arcgis_layer_preview_maps_fields_crs_and_attributes():
     assert result["srid"] == 3857  # latestWkid wins over wkid
     assert result["geometry_type"] == "Polygon"
     assert result["layer_name"] == "Parcels"
-    assert result["feature_count"] is None
+    assert result["feature_count"] == 9567
     # Geometry field is skipped; OID→Integer64, String→String, Double→Real.
     cols = {c["name"]: c["type"] for c in result["columns"]}
     assert cols == {"OBJECTID": "Integer64", "owner": "String", "value": "Real"}
     assert len(result["sample_rows"]) == 2
     assert result["sample_rows"][0]["owner"] == "Smith"
+
+
+@pytest.mark.anyio
+async def test_fetch_arcgis_layer_preview_count_failure_degrades_to_none():
+    """fix(#1746): a returnCountOnly=true failure must degrade feature_count
+    to None, not fail the whole preview."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    import httpx
+
+    from app.modules.catalog.sources.adapters.arcgis import fetch_arcgis_layer_preview
+
+    meta = {
+        "name": "Parcels",
+        "geometryType": "esriGeometryPolygon",
+        "extent": {"spatialReference": {"wkid": 3857}},
+        "fields": [{"name": "OBJECTID", "type": "esriFieldTypeOID"}],
+    }
+    sample = {"features": []}
+
+    meta_resp = MagicMock()
+    meta_resp.raise_for_status = MagicMock()
+    meta_resp.json = MagicMock(return_value=meta)
+    sample_resp = MagicMock()
+    sample_resp.raise_for_status = MagicMock()
+    sample_resp.json = MagicMock(return_value=sample)
+
+    client = MagicMock()
+    client.get = AsyncMock(
+        side_effect=[meta_resp, sample_resp, httpx.TransportError("connection reset")]
+    )
+
+    result = await fetch_arcgis_layer_preview(
+        "https://services.arcgis.com/x/rest/services/Parcels/FeatureServer",
+        0,
+        client,
+    )
+
+    assert result["feature_count"] is None
+    assert result["layer_name"] == "Parcels"

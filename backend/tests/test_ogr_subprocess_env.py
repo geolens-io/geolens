@@ -12,7 +12,18 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from app.core.config import settings
 from app.processing.ingest.ogr import run_ogr2ogr_service
+
+
+@pytest.fixture(autouse=True)
+def _staging_dir(tmp_path, monkeypatch):
+    """fix(#1746): the header-file mkstemp now os.makedirs + writes under
+    settings.upload_staging_dir (previously it used the system tempdir
+    unconditionally), so tests must point that setting at a writable
+    per-test directory rather than the container-only default (/app/staging).
+    """
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
 
 
 @pytest.mark.asyncio

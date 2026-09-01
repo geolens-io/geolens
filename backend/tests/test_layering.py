@@ -2468,7 +2468,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # route registers. The other two widen the production CORS warning, which
     # told an operator only standards reads were open to any browser origin.
     # Cap 1628 -> 1635, exact.
-    "backend/app/api/main.py": 1757,
+    # fix(#1746): +13 — the boot-time and periodic sweeps now also call
+    # sweep_stale_gdal_header_files, reclaiming the GDAL bearer-header
+    # tempfile ogr.py's finally block misses on a SIGKILL/OOM. Cap 1757 ->
+    # 1770, exact.
+    "backend/app/api/main.py": 1770,
     # fix(#1005): +4 — MapSummaryResponse gains thumbnail_updated_at, the
     # thumbnail cache version split out of updated_at. Ratchet stays exact.
     # fix(#910): +1 on top of that, the fillColorSaved entry in the authoritative
@@ -3646,7 +3650,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # b-tree page — distinct from "file is not a database", which is a
     # corrupt header). Empirically confirmed against a real GPKG with a
     # byte-flipped leaf page. Cap 1073 -> 1089, exact.
-    "backend/app/processing/ingest/ogr.py": 1089,
+    # fix(#1746): +7 — the GDAL bearer-header tempfile now pins dir=
+    # settings.upload_staging_dir (plus an os.makedirs and a comment
+    # explaining why) so it lands on the staging volume the stale-file
+    # sweep can reach, instead of the system tempdir. Cap 1089 -> 1096, exact.
+    "backend/app/processing/ingest/ogr.py": 1096,
     "backend/app/modules/auth/oauth/service.py": 1031,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the

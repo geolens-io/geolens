@@ -1,3 +1,5 @@
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -105,3 +107,45 @@ async def test_export_dataset_creates_temp_dir_after_staging_guard_passes(
     assert output.parent.name  # uuid-like directory created by export service
     assert filename == "Roads_2024.gpkg"
     assert media_type == "application/geopackage+sqlite3"
+
+
+def test_sweep_stale_gdal_header_files_removes_only_old_matching_files(
+    tmp_path: Path,
+) -> None:
+    """fix(#1746): only ``gdal_auth_*.hdr`` files older than ``max_age_seconds``
+    are removed. A fresh header file (still owned by a running ogr2ogr
+    subprocess) and a non-matching old file both survive.
+    """
+    from app.core.runtime.staging import sweep_stale_gdal_header_files
+
+    fresh_header = tmp_path / "gdal_auth_abc123.hdr"
+    fresh_header.write_text("Authorization: Bearer x\n", encoding="utf-8")
+
+    stale_header = tmp_path / "gdal_auth_def456.hdr"
+    stale_header.write_text("Authorization: Bearer y\n", encoding="utf-8")
+
+    other_old_file = tmp_path / "some_other_file.tmp"
+    other_old_file.write_text("unrelated", encoding="utf-8")
+
+    now = time.time()
+    # fresh_header stays at "now" (just written, well within the window).
+    os.utime(stale_header, (now - 2 * 3600, now - 2 * 3600))  # 2 hours old
+    os.utime(other_old_file, (now - 2 * 3600, now - 2 * 3600))  # 2 hours old
+
+    removed = sweep_stale_gdal_header_files(tmp_path, max_age_seconds=3600)
+
+    assert removed == 1
+    assert fresh_header.exists(), "a fresh header file must survive"
+    assert not stale_header.exists(), "a 2-hour-old header file must be swept"
+    assert other_old_file.exists(), (
+        "a non-matching old file must survive — the sweep only ever touches "
+        "gdal_auth_*.hdr"
+    )
+
+
+def test_sweep_stale_gdal_header_files_missing_dir_is_a_noop(tmp_path: Path) -> None:
+    """A staging dir that does not exist yet (fresh boot) must not raise."""
+    from app.core.runtime.staging import sweep_stale_gdal_header_files
+
+    missing = tmp_path / "does-not-exist"
+    assert sweep_stale_gdal_header_files(missing) == 0

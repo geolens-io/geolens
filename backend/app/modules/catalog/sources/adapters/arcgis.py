@@ -415,11 +415,28 @@ async def fetch_arcgis_layer_preview(
             exc,
         )
 
+    # fix(#1746): the preview previously always returned feature_count=None;
+    # reuse the existing returnCountOnly=true helper (same safe client, one
+    # extra request) so the preview matches the count the probe already shows.
+    # A count failure degrades to None rather than failing the whole preview.
+    feature_count: int | None = None
+    try:
+        feature_count = await fetch_arcgis_feature_count(
+            base, safe_layer_id, client, token=token
+        )
+    except (httpx.HTTPError, ValueError, ArcGISTokenError) as exc:
+        logger.debug(
+            "ArcGIS feature-count fetch failed for %s/%s: %s",
+            base,
+            safe_layer_id,
+            exc,
+        )
+
     return {
         "srid": srid,
         "geometry_type": geometry_type,
         "layer_name": layer_name,
-        "feature_count": None,
+        "feature_count": feature_count,
         "columns": columns,
         "sample_rows": sample_rows,
     }

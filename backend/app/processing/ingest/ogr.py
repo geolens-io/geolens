@@ -1039,7 +1039,14 @@ async def run_ogr2ogr_service(
             # set explicitly for clarity).
             import tempfile
 
-            fd, header_file_path = tempfile.mkstemp(prefix="gdal_auth_", suffix=".hdr")
+            # fix(#1746): mkstemp had no dir=, so it landed in the system
+            # tempdir, not the staging volume the comment above claims — a
+            # SIGKILL/OOM before the finally block below then leaks the
+            # bearer-header tempfile outside anything a sweep can reach.
+            os.makedirs(settings.upload_staging_dir, exist_ok=True)
+            fd, header_file_path = tempfile.mkstemp(
+                prefix="gdal_auth_", suffix=".hdr", dir=settings.upload_staging_dir
+            )
             try:
                 os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
             finally:
