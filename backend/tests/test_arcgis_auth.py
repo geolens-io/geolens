@@ -7,6 +7,7 @@ import pytest
 
 from app.modules.catalog.sources.adapters.arcgis import (
     ArcGISTokenError,
+    enrich_arcgis_feature_counts,
     fetch_arcgis_pagination_info,
     probe_arcgis_service,
 )
@@ -47,6 +48,61 @@ async def test_arcgis_probe_no_bearer_header():
     kwargs = call_args[1] if call_args[1] else {}
     headers = kwargs.get("headers", {})
     assert "Authorization" not in headers
+
+
+@pytest.mark.asyncio
+async def test_arcgis_probe_encodes_url_reserved_characters_in_token():
+    """fix(#1746 codex r7): a token with URL-reserved characters must be encoded.
+
+    probe_arcgis_service() concatenates the token into the query string by
+    hand (unlike the sibling call sites that pass it through httpx's
+    ``params=``, which encodes automatically). The token validators only
+    reject whitespace/control characters, so ``'``, ``#``, and ``&`` all
+    pass through and were kept literal here -- a raw ``#`` truncates the
+    URL at a fragment boundary and a raw ``&`` starts a bogus new query
+    parameter, either of which leaks the tail of the token into the actual
+    request AND lets it escape the log redactor's URL match.
+    """
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_response = _make_mock_response({"layers": []})
+    mock_client.get.return_value = mock_response
+
+    await probe_arcgis_service(
+        "https://services.arcgis.com/svc/FeatureServer",
+        mock_client,
+        token="AA'#&ULTRASECRET",
+    )
+
+    url_called = mock_client.get.call_args[0][0]
+    assert "token=AA%27%23%26ULTRASECRET" in url_called
+    assert "'" not in url_called
+    assert "#" not in url_called
+    assert "&ULTRA" not in url_called
+
+
+@pytest.mark.asyncio
+async def test_enrich_arcgis_feature_counts_encodes_url_reserved_characters_in_token():
+    """fix(#1746 codex r7): the second raw string-concatenation site.
+
+    Same issue and same fix as the probe above, in
+    ``enrich_arcgis_feature_counts()``'s per-layer count query.
+    """
+    mock_client = AsyncMock(spec=httpx.AsyncClient)
+    mock_response = _make_mock_response({"count": 5})
+    mock_client.get.return_value = mock_response
+
+    await enrich_arcgis_feature_counts(
+        "https://services.arcgis.com/svc/FeatureServer",
+        [{"id": 0, "name": "layer0"}],
+        mock_client,
+        token="AA'#&ULTRASECRET",
+    )
+
+    url_called = mock_client.get.call_args[0][0]
+    assert "token=AA%27%23%26ULTRASECRET" in url_called
+    assert "'" not in url_called
+    assert "#" not in url_called
+    assert "&ULTRA" not in url_called
 
 
 @pytest.mark.asyncio

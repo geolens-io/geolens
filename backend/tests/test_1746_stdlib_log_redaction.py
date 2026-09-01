@@ -223,6 +223,31 @@ def test_httpx_warning_query_without_a_credential_is_left_intact():
     assert plain_url in lines[0]
 
 
+def test_httpx_warning_percent_encoded_reserved_chars_are_fully_redacted():
+    """Codex round 7: the OTHER half of the fix.
+
+    Once the ArcGIS adapter percent-encodes a token before concatenating it
+    into a URL (`adapters/arcgis.py`, `quote(token, safe="")`), the raw
+    `'`/`#`/`&` a token could otherwise contain never reaches the log line
+    at all. This pins that the existing whole-query redaction already
+    covers the encoded form end-to-end: a percent-encoded token no longer
+    ends the `URL_LIKE_RE` match early, so the match runs to the end of the
+    URL and `query_has_credentials()` still sees the `token=` key.
+    """
+    secret_url = (
+        "https://services6.arcgis.com/x/FeatureServer/0"
+        "?f=json&token=AA%27%23%26ULTRASECRET"
+    )
+    message = f'HTTP Request: GET {secret_url} "HTTP/1.1 200 OK"'
+    assert "ULTRASECRET" in message  # pin the premise before redacting it
+
+    lines = _emit_through_real_pipeline("httpx", logging.WARNING, message)
+
+    assert len(lines) == 1
+    assert "ULTRASECRET" not in lines[0]
+    assert "?<redacted>" in lines[0]
+
+
 def test_procrastinate_worker_task_kwargs_token_is_redacted():
     """Finding 13: a credential-store token survives inside `Job.call_string`.
 
