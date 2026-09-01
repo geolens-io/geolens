@@ -25,11 +25,13 @@ fix(#1746): `_redact_sensitive_fields` is KEY-based, so it never looks inside
 the `event` message string itself. That leaves two leak paths open: httpx
 (and its httpcore transport) log the full outgoing request URL at INFO for
 every call, including a `?token=...` query string on the ArcGIS path; and
-Procrastinate's worker logs a dict-repr of `task_kwargs`
-(`Starting job x[1](({'token': '...'})`), which puts a credential-store token
-inside the message text rather than a keyed field. Both are stdlib records,
-and `shared_processors` doubles as the `ProcessorFormatter`'s
-`foreign_pre_chain`, so this chain already runs for them.
+Procrastinate's worker logs `task_kwargs` rendered by `Job.call_string`
+(`procrastinate/jobs.py`: `", ".join(f"{key}={value!r}" ...)`), e.g.
+`Starting job ingest_service[1270](token='...', credential_ref=None)`, which
+puts a credential-store token inside the message text as a bare keyword
+argument rather than a keyed field. Both are stdlib records, and
+`shared_processors` doubles as the `ProcessorFormatter`'s `foreign_pre_chain`,
+so this chain already runs for them.
 """
 
 import logging
@@ -67,24 +69,36 @@ _SENSITIVE_FIELDS: frozenset[str] = frozenset(
 # most; this only exists so a caller-supplied cyclic structure terminates.
 _MAX_REDACT_DEPTH = 8
 
-# fix(#1746): catches a dict-repr rendering of task_kwargs, e.g.
-# `{'token': 'abc', 'credential_ref': None}`. A Python dict repr always
-# quotes a key and its value with the same quote character, but the two
-# named groups (rather than one shared backreference) still let this match
-# either style without assuming which one produced the string.
-_TOKEN_DICT_REPR_RE = re.compile(
-    r"(?P<kq>['\"])token(?P=kq)\s*:\s*(?P<vq>['\"]).*?(?P=vq)"
+# fix(#1746): catches a token value rendered either as a Python dict repr
+# (`{'token': 'abc', ...}`) or as `key=value!r` keyword arguments — the shape
+# `Job.call_string` actually produces, e.g.
+# `ingest_service[1270](token='abc', credential_ref=None)`. `\btoken\b`
+# excludes `credential_ref=` and `token_hint=`: a word boundary never falls
+# between "n" and "_", so a name that merely CONTAINS "token" as a sub-word
+# never matches either branch.
+_TOKEN_VALUE_RE = re.compile(
+    r"""
+    (?:
+        (?P<dq>['\"])token(?P=dq)\s*:\s*(?P<dv>['\"]).*?(?P=dv)
+      |
+        \btoken\b\s*=\s*(?P<kv>['\"]).*?(?P=kv)
+    )
+    """,
+    re.VERBOSE,
 )
 
 
-def _redact_token_dict_repr(value: str) -> str:
-    """Redact a `'token': '...'` (or double-quoted) pair inside free text."""
-    return _TOKEN_DICT_REPR_RE.sub(
-        lambda m: (
-            f"{m.group('kq')}token{m.group('kq')}: {m.group('vq')}[REDACTED]{m.group('vq')}"
-        ),
-        value,
-    )
+def _redact_token_value_repr(value: str) -> str:
+    """Redact a `'token': '...'` (dict-repr) or `token='...'` (kwarg) pair."""
+
+    def _sub(match: re.Match[str]) -> str:
+        if match.group("dq") is not None:
+            quote, value_quote = match.group("dq"), match.group("dv")
+            return f"{quote}token{quote}: {value_quote}[REDACTED]{value_quote}"
+        value_quote = match.group("kv")
+        return f"token={value_quote}[REDACTED]{value_quote}"
+
+    return _TOKEN_VALUE_RE.sub(_sub, value)
 
 
 def _redact_sensitive_fields(
@@ -102,16 +116,16 @@ def _redact_sensitive_fields(
     fix(#1746): the key-based loop above only ever sees STRUCTURED fields, so
     it cannot catch a secret embedded in the rendered MESSAGE STRING itself —
     which is exactly how it reaches the log for a raw stdlib record (httpx's
-    request-URL line, Procrastinate's dict-repr of task_kwargs). `event` is
-    the one field every record has by this point, so it is scrubbed here by
-    pattern and by shape rather than by key.
+    request-URL line, Procrastinate's keyword-rendered task_kwargs). `event`
+    is the one field every record has by this point, so it is scrubbed here
+    by pattern and by shape rather than by key.
     """
     for key in list(event_dict.keys()):
         if key.lower() in _SENSITIVE_FIELDS:
             event_dict[key] = "[REDACTED]"
     event = event_dict.get("event")
     if isinstance(event, str):
-        event_dict["event"] = _redact_token_dict_repr(redact_url_credentials(event))
+        event_dict["event"] = _redact_token_value_repr(redact_url_credentials(event))
     return event_dict
 
 

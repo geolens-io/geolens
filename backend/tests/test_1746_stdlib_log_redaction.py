@@ -4,11 +4,14 @@ httpx (and its httpcore transport) logs the full outgoing request URL at INFO
 for every call, e.g. ``HTTP Request: GET <url>?f=json&token=<value> "HTTP/1.1
 200 OK"``. That line reaches every deployment's logs by default, because root
 defaults to INFO (``app.core.config``), and it fires twice per refresh on the
-credential-store path (finding 13). Procrastinate's worker separately logs a
-dict-repr of ``task_kwargs`` (``Starting job x[1]({'token': '...'})``), which
-puts a token inside the MESSAGE STRING rather than a keyed field, so the
-existing key-based ``_redact_sensitive_fields`` processor cannot see it
-either way.
+credential-store path (finding 13). Procrastinate's worker separately logs
+``task_kwargs`` rendered by ``Job.call_string`` (pinned procrastinate 3.9.0,
+``procrastinate/jobs.py``): ``", ".join(f"{key}={value!r}" ...)`` — a bare
+keyword-argument rendering, e.g.
+``Starting job ingest_service[1270](token='...', credential_ref=None)``, NOT
+a dict repr. That puts a token inside the MESSAGE STRING rather than a keyed
+field, so the existing key-based ``_redact_sensitive_fields`` processor
+cannot see it either way.
 
 pytest's ``caplog`` sees zero structlog records in this repo (it hooks a
 handler onto a logger that structlog's stdlib bridge does not use the same
@@ -26,7 +29,9 @@ same worker.
 import logging
 
 import pytest
+from procrastinate.jobs import Job
 
+from app.core.logging_config import _redact_token_value_repr
 from tests._logging_state import configured_logging
 
 _TOKEN = "SECRETTOKEN123"
@@ -127,21 +132,52 @@ def test_httpx_warning_request_line_is_delivered_but_redacted():
     assert "HTTP Request: GET" in lines[0]
 
 
-def test_procrastinate_worker_dict_repr_token_is_redacted():
-    """Finding 13: a credential-store token survives inside a dict repr.
+def test_procrastinate_worker_task_kwargs_token_is_redacted():
+    """Finding 13: a credential-store token survives inside `Job.call_string`.
 
-    Procrastinate's worker renders `task_kwargs` with Python's dict repr
-    (`Job.call_string`), so the token sits inside free text next to a
-    `credential_ref` field that must stay visible for operators debugging a
-    stuck job.
+    Built from a REAL `procrastinate.jobs.Job`, mirroring
+    `procrastinate/worker.py:285`'s `f"Starting job {job.call_string}"`
+    exactly, so this test breaks if Procrastinate ever changes how it
+    renders `task_kwargs` rather than silently staying green against a
+    hand-typed guess. `call_string` renders each kwarg as `key=value!r` —
+    NOT a dict repr — so the token sits next to a `credential_ref` field
+    that must stay visible for operators debugging a stuck job.
     """
-    message = (
-        "Starting job "
-        f"ingest_service[1270]({{'token': '{_TOKEN}', 'credential_ref': None}})"
+    job = Job(
+        id=1270,
+        queue="default",
+        lock=None,
+        queueing_lock=None,
+        task_name="ingest_service",
+        task_kwargs={
+            "token": _TOKEN,
+            "credential_ref": None,
+            "dataset_id": "abc",
+        },
     )
+    message = f"Starting job {job.call_string}"
+    assert f"token='{_TOKEN}'" in message  # pin the premise before redacting it
+
     lines = _emit_through_real_pipeline("procrastinate.worker", logging.INFO, message)
 
     assert len(lines) == 1
     assert _TOKEN not in lines[0]
-    assert "credential_ref" in lines[0]
-    assert "None" in lines[0]
+    assert "credential_ref=None" in lines[0]
+    assert "dataset_id='abc'" in lines[0]
+
+
+def test_redact_token_value_repr_also_handles_a_dict_repr_shape():
+    """The dict-repr shape (`{'token': '...'}`) is a separate, real shape.
+
+    Not how Procrastinate renders `task_kwargs` (see the test above), but a
+    shape other code logs a raw dict as (`%r` on a plain dict, or a
+    debug-only `logger.info(str(payload))`), so it stays covered directly on
+    the helper rather than only through one caller's rendering choice.
+    """
+    text = f"payload: {{'token': '{_TOKEN}', 'credential_ref': None}}"
+
+    redacted = _redact_token_value_repr(text)
+
+    assert _TOKEN not in redacted
+    assert "'token': '[REDACTED]'" in redacted
+    assert "'credential_ref': None" in redacted
