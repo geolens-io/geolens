@@ -86,6 +86,11 @@ UNEXPECTED_STATUS = "unexpected_status"  # any other >= 400
 TIMEOUT = "timeout"
 NETWORK_ERROR = "network_error"  # connect failure, DNS, TLS, bad redirect chain
 BLOCKED_BY_POLICY = "blocked_by_policy"  # SSRF validation refused the target
+# fix(#1746): the origin wants a credential we do not hold. Separate from
+# UNAUTHORIZED, whose shipped copy says the source "now requires" access —
+# that misdescribes a service which has been org-only since the day it was
+# imported, which is the common case for an ArcGIS 499.
+AUTH_REQUIRED = "auth_required"
 
 DETAIL_CODES: frozenset[str] = frozenset(
     {
@@ -97,6 +102,7 @@ DETAIL_CODES: frozenset[str] = frozenset(
         TIMEOUT,
         NETWORK_ERROR,
         BLOCKED_BY_POLICY,
+        AUTH_REQUIRED,
     }
 )
 
@@ -232,6 +238,34 @@ async def probe_remote_uri(
         return OriginProbeResult(INACCESSIBLE, detail, contacted=contacted)
 
     return _status_result(status_code)
+
+
+# ArcGIS reports auth refusals as an error envelope inside an HTTP 200 body:
+# 499 "Token Required" for an org-only service, 498 for a token it rejected.
+# A status-code probe reads both as healthy, which is the false positive this
+# closes (#1746 finding 12).
+_ARCGIS_AUTH_ERROR_CODES = frozenset({498, 499})
+
+
+async def probe_arcgis_service(
+    uri: str, *, timeout: float = PROBE_TIMEOUT_SECONDS
+) -> OriginProbeResult:
+    """Probe an ArcGIS FeatureServer layer and read its error envelope."""
+    try:
+        target = str(httpx.URL(uri).copy_set_param("f", "json"))
+    except (httpx.InvalidURL, ValueError):
+        # Let the fetch classify a malformed stored URL, rather than raising
+        # out of a handler that has already released its DB session.
+        target = uri
+    result, body, _final_url = await fetch_json_document(target, timeout=timeout)
+    if not result.ok:
+        return result
+    error = body.get("error") if isinstance(body, dict) else None
+    if isinstance(error, dict) and error.get("code") in _ARCGIS_AUTH_ERROR_CODES:
+        # No provider text: `source_health_detail` is served on every dataset
+        # read, and the closed vocabulary is what keeps it leak-proof.
+        return OriginProbeResult(INACCESSIBLE, AUTH_REQUIRED)
+    return result
 
 
 # "The origin answered, and what it said is not something GeoLens can act

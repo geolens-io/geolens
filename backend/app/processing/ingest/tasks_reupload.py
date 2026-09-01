@@ -848,11 +848,6 @@ async def reupload_service(
     port = get_processing_port()
     Dataset = port.get_dataset_orm_class()
 
-    auth_error_message = (
-        "Remote service authentication failed. Retry commit with a service token; "
-        "tokens are request-only and are not persisted for retries."
-    )
-
     # fix(#1271 review): tracks whether the outbound fetch was reached, so the
     # failure handler can date the contact. A failure before this point never
     # touched the origin and must not claim it did.
@@ -941,6 +936,10 @@ async def reupload_service(
             source_layer_value = job.source_layer or source_layer
             source_filename = job.source_filename
             reupload_oid_field = um.get("object_id_field") or None
+            # fix(#1746): which door dispatched this run, so the auth-failure
+            # copy can name the call the operator actually made. router_refresh
+            # writes "refresh" into user_metadata; reupload_commit does not.
+            is_refresh = bool(um.get("refresh"))
 
             if not source_url_value:
                 raise IngestionError(
@@ -1018,7 +1017,25 @@ async def reupload_service(
                 _run_service_import,
                 source_layer_value,
                 token=token,
-                auth_error_message=auth_error_message,
+                # fix(#1746): the old copy said "Retry commit", which names a
+                # door neither caller came through — this task serves the
+                # refresh endpoint and the re-upload commit, never a first
+                # import (ingest_service passes no auth_error_message at all).
+                # Two literals rather than one f-string over a noun: the
+                # message reaches record_refresh_failure through
+                # redact_run_error, and a composed string is one more thing a
+                # redactor has to be right about.
+                auth_error_message=(
+                    "Remote service authentication failed. Retry the refresh "
+                    "with a service token in the request body's `token` "
+                    "field; tokens are request-only and are not stored "
+                    "between runs."
+                    if is_refresh
+                    else "Remote service authentication failed. Retry the "
+                    "re-upload with a service token in the commit request's "
+                    "`token` field; tokens are request-only and are not "
+                    "stored between runs."
+                ),
             )
         except ValueError as exc:
             raise IngestionError(str(exc)) from exc
@@ -1127,6 +1144,16 @@ async def reupload_service(
                         layer_id=layer_id,
                         layer_name=source_layer_value,
                     ),
+                    # fix(#1746): the origin needed a credential to answer.
+                    # True or absent, never False — build_origin_ref drops
+                    # None, so an unauthenticated pull stores the ref shape it
+                    # stored before this key existed, and no backfill is owed.
+                    # Written on the SUCCESS path only: a failed authenticated
+                    # attempt tells you nothing new, and a successful
+                    # token-less pull clearing the key is how a service that
+                    # went public gets un-marked. The value is a boolean; the
+                    # token itself is never stored on the dataset.
+                    "auth_required": True if token else None,
                 },
             )
             # Captured pre-commit: the ORM attribute may be expired after commit.

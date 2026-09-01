@@ -132,6 +132,7 @@ async def _service_dataset(
     base_url: str = _WFS_BASE,
     layer_id: str | int = "topp:parcels",
     visibility: str = "public",
+    auth_required: bool = False,
 ):
     """A dataset bound to a service origin the way ingest binds one.
 
@@ -157,6 +158,9 @@ async def _service_dataset(
         service_type=source_format,
         url=base_url,
         layer_id=str(layer_id),
+        # fix(#1746): True or None, never False — the worker writes it this
+        # way at the swap and the key is simply absent for a public origin.
+        auth_required=True if auth_required else None,
     )
     await session.commit()
     await session.refresh(dataset)
@@ -378,6 +382,169 @@ class TestRefreshDispatch:
 # ---------------------------------------------------------------------------
 # Refusals
 # ---------------------------------------------------------------------------
+
+
+class TestAuthRequiredRefusal:
+    """fix(#1746) finding 3: the door refuses what the worker cannot do.
+
+    Before this, a credential-less refresh of an org-only service answered
+    202 and then failed ~0.5s later in the worker, where the only statement
+    of the real cause was a job error message nobody was watching. The
+    dataset carries a boolean marker (never a token) saying its last
+    successful pull needed a credential, and the door reads it.
+    """
+
+    async def test_a_marked_dataset_without_a_token_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "service_token_required"
+        # The message names the field that fixes it, and says why there is
+        # nothing on the server to un-expire.
+        assert "`token` field" in detail["message"]
+        assert "request-only" in detail["message"]
+
+        # Refused before the reservation: no run row, nothing deferred, and
+        # so nothing holding the dataset against the admission index.
+        assert await _run_for(test_db_session, dataset.id) is None
+        task.defer_async.assert_not_awaited()
+
+    async def test_the_refusal_never_echoes_a_credential(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """A token is request-only; nothing about it is ever reflected back."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                headers=admin_auth_header,
+                json={"token": None},
+            )
+
+        assert resp.status_code == 422, resp.text
+        # Structural rather than "this particular secret is absent": the
+        # refusal is composed from literals and reads one boolean.
+        assert "auth_required" not in resp.text
+        await test_db_session.refresh(dataset)
+        assert "token" not in str(dataset.origin_ref)
+
+    async def test_a_marked_dataset_with_a_token_still_dispatches(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,
+    ) -> None:
+        """The marker is a prompt for a credential, not a lock on the dataset."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(
+            test_db_session, created_by=admin_id, auth_required=True
+        )
+
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh",
+                headers=admin_auth_header,
+                json={"token": "tok-" + uuid.uuid4().hex},
+            )
+
+        assert resp.status_code == 202, resp.text
+        task.defer_async.assert_awaited_once()
+        assert await _run_for(test_db_session, dataset.id) is not None
+
+    async def test_an_unmarked_dataset_without_a_token_still_dispatches(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """No backfill is owed: an absent key means "not known to need auth".
+
+        Every dataset imported before the marker existed sits here, and each
+        one keeps refreshing exactly the way it did.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        assert "auth_required" not in (dataset.origin_ref or {})
+
+        async with _dispatch_harness() as task:
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        assert resp.status_code == 202, resp.text
+        task.defer_async.assert_awaited_once()
+
+    async def test_a_stored_false_is_not_a_reason_to_refuse(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ) -> None:
+        """``is True``, not truthiness — the same rule ``managed`` reads by."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _service_dataset(test_db_session, created_by=admin_id)
+        dataset.origin_ref = {**(dataset.origin_ref or {}), "auth_required": False}
+        await test_db_session.commit()
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        assert resp.status_code == 202, resp.text
+
+    @pytest.mark.parametrize(
+        ("source_format", "record_type"),
+        [
+            (None, "vector_dataset"),  # registered postgis table
+            ("stac", "vector_dataset"),
+            ("geojson", "vector_dataset"),  # upload
+            ("wfs", "vrt_dataset"),  # originless record type
+        ],
+        ids=["postgis", "stac", "upload", "vrt"],
+    )
+    async def test_a_non_service_origin_can_never_reach_the_refusal(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        source_format: str | None,
+        record_type: str,
+    ) -> None:
+        """The placement claim, stated as behaviour.
+
+        The check sits after the postgis and stac early returns and after
+        ``_resolve_service_origin``, so a stray ``auth_required`` on a row of
+        any other kind is inert. The allowlist would never write one there;
+        the JSONB column would happily store one.
+        """
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(
+            test_db_session, created_by=admin_id, source_format=source_format
+        )
+        dataset.record.record_type = record_type
+        dataset.origin_ref = {"auth_required": True}
+        await test_db_session.commit()
+
+        async with _dispatch_harness():
+            resp = await client.post(
+                f"/datasets/{dataset.id}/refresh", headers=admin_auth_header
+            )
+
+        body = resp.json()
+        detail = body.get("detail")
+        code = detail.get("code") if isinstance(detail, dict) else None
+        assert code != "service_token_required", resp.text
 
 
 class TestRefreshRefusals:

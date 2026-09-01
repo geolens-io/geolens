@@ -808,7 +808,8 @@
       "unexpected_status": "Die Quelle hat eine unerwartete Antwort zurückgegeben.",
       "timeout": "Die Quelle hat nicht rechtzeitig geantwortet.",
       "network_error": "GeoLens konnte die Quelle nicht erreichen.",
-      "blocked_by_policy": "Die GeoLens-Sicherheitsrichtlinie hat diese Quelle blockiert."
+      "blocked_by_policy": "Die GeoLens-Sicherheitsrichtlinie hat diese Quelle blockiert.",
+      "auth_required": "Die Quelle erfordert ein Dienst-Token, das GeoLens nicht besitzt."
     },
     "history": {
       "title": "Quellverlauf",

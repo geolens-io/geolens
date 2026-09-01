@@ -5757,7 +5757,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body \u2014 nothing the origin sent is stored here.",
+            "description": "Why the origin is not healthy, as one of a fixed set of GeoLens codes: auth_required, blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body \u2014 nothing the origin sent is stored here.",
             "title": "Source Health Detail"
           },
           "schema_drift_status": {
@@ -15468,7 +15468,7 @@
                 "type": "null"
               }
             ],
-            "description": "Why the origin is not healthy, as one of a fixed set of GeoLens codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body \u2014 nothing the origin sent is stored here.",
+            "description": "Why the origin is not healthy, as one of a fixed set of GeoLens codes: auth_required, blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body \u2014 nothing the origin sent is stored here.",
             "title": "Source Health Detail"
           },
           "last_checked_at": {

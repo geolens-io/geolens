@@ -759,7 +759,8 @@
       "unexpected_status": "The source returned an unexpected response.",
       "timeout": "The source did not respond in time.",
       "network_error": "GeoLens could not reach the source.",
-      "blocked_by_policy": "GeoLens security policy blocked this source."
+      "blocked_by_policy": "GeoLens security policy blocked this source.",
+      "auth_required": "The source requires a service token GeoLens does not have."
     },
     "history": {
       "title": "Source history",

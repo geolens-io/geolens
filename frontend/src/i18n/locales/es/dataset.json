@@ -808,7 +808,8 @@
       "unexpected_status": "La fuente devolvió una respuesta inesperada.",
       "timeout": "La fuente no respondió a tiempo.",
       "network_error": "GeoLens no pudo conectar con la fuente.",
-      "blocked_by_policy": "La política de seguridad de GeoLens bloqueó esta fuente."
+      "blocked_by_policy": "La política de seguridad de GeoLens bloqueó esta fuente.",
+      "auth_required": "La fuente requiere un token de servicio que GeoLens no tiene."
     },
     "history": {
       "title": "Historial de la fuente",

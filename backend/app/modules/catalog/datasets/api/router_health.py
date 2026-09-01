@@ -62,6 +62,7 @@ from app.modules.catalog.sources.origin_probe import (
     ITEM_WITHDRAWN,
     MISSING,
     OriginProbeResult,
+    probe_arcgis_service,
     probe_remote_uri,
 )
 from app.observability.metrics.refresh import (
@@ -189,13 +190,16 @@ async def _probe_stac_targets(
 def _service_probe_target(dataset: Dataset) -> str:
     """The URL a service probe contacts. Reachability is all it can claim.
 
-    Reachability is genuinely all this can claim. ArcGIS FeatureServer in
-    particular answers a request for a layer that no longer exists with HTTP
-    200 and an error envelope in the body, so a status-code probe reads that
-    as healthy. Parsing per-service error bodies to do better is the
-    connector-completeness contract, which ADR-002 leaves out of v1; until
-    then ``missing`` on a service origin means the HTTP resource itself is
-    gone, not that a layer was dropped from a service that still answers.
+    Reachability is nearly all this can claim. ArcGIS FeatureServer answers
+    several conditions with HTTP 200 and an error envelope in the body, so a
+    status-code probe reads them as healthy. fix(#1746) parses exactly one of
+    those envelopes: codes 498 and 499, the auth refusals, which
+    :func:`probe_arcgis_service` reports as ``inaccessible`` /
+    ``auth_required``. A DROPPED LAYER is still not detected — parsing the
+    rest of the per-service error space is the connector-completeness
+    contract, which ADR-002 leaves out of v1, so ``missing`` on a service
+    origin still means the HTTP resource itself is gone, not that a layer was
+    dropped from a service that still answers.
 
     fix(#1271 review): the probe target depends on the service type. Ingest
     stores ``origin_uri`` as ``<base>/<layer identity>`` for provenance, and
@@ -281,9 +285,14 @@ async def check_source_health(
     if origin == "stac":
         asset_uri, item_href = await _stac_probe_targets(db, dataset)
         service_target = None
+        service_type = None
     else:
         asset_uri = item_href = None
         service_target = _service_probe_target(dataset)
+        # fix(#1746): read while the session is still live — the ORM instance
+        # is dead after the rollback below, and the probe branch needs to know
+        # whether this origin speaks ArcGIS error envelopes.
+        service_type = (dataset.origin_ref or {}).get("service_type")
 
     # ...then release the pooled connection BEFORE the outbound wait
     # (fix #1271 review). The probe can take 10s against a slow origin, and
@@ -302,6 +311,10 @@ async def check_source_health(
     probe_started = time.perf_counter()
     if origin == "stac":
         result = await _probe_stac_targets(asset_uri, item_href)
+    elif service_type == "arcgis_featureserver":
+        # fix(#1746): ArcGIS answers an auth refusal with HTTP 200 and an
+        # error envelope, which a status-code probe reads as healthy.
+        result = await probe_arcgis_service(service_target)
     else:
         result = await probe_remote_uri(service_target)
     origin_probe_duration_seconds.labels(

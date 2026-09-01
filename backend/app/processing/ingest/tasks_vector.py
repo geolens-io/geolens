@@ -1069,6 +1069,14 @@ async def ingest_service(
                             layer_id=layer_id,
                             layer_name=source_layer,
                         ),
+                        # fix(#1746): the origin needed a credential to answer.
+                        # True or absent, never False — build_origin_ref drops
+                        # None, so an unauthenticated pull stores the ref shape
+                        # it stored before this key existed, and no backfill is
+                        # owed. This is the resolved worker credential, so the
+                        # marker means the fetch really did use one; the value
+                        # is a boolean and the token itself is never stored.
+                        "auth_required": True if token else None,
                     },
                 )
             )

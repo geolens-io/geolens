@@ -60,7 +60,7 @@ from app.modules.catalog.datasets.domain.schemas import (
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
-from app.platform.dataset_origin import classify_origin
+from app.platform.dataset_origin import classify_origin, service_auth_required
 from app.platform.extensions import get_catalog_port
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
@@ -218,6 +218,42 @@ def _resolve_service_origin(dataset) -> _ServiceOrigin:
         base_url=base_url,
         layer_id=layer_identity,
         layer_name=str(layer_identity),
+    )
+
+
+def _require_service_token_if_marked(dataset, token: str | None) -> None:
+    """Refuse a credential-less refresh of an origin that needed one.
+
+    fix(#1746): the origin asked for a credential the last time it answered,
+    and the refresh body carries none. Dispatching anyway is a 202 followed
+    ~0.5s later by a worker failure whose message is the only place the real
+    cause appears. Refuse at the door instead, naming the field that fixes it.
+
+    Absent means "not known to need auth", which is where every dataset
+    imported before this marker existed sits — they refresh exactly as before.
+    The marker clears on the next successful token-less pull, and since this
+    door refuses those, the re-upload dialog (preview + commit with no token)
+    is the way to prove a service went public again. Say that here so a later
+    reader does not read the 422 as a permanent trap.
+
+    A function rather than three lines in the handler because ``refresh_
+    dataset`` sits one branch under ruff's C901 ceiling, and the repo's answer
+    to that has been extraction (see ``router_analysis`` and ``router_export``)
+    rather than another per-file exemption.
+    """
+    if token or not service_auth_required(dataset.origin_ref):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "code": "service_token_required",
+            "message": (
+                "This dataset's source required a service token the last "
+                "time it was imported or refreshed. Send the token again "
+                "in the request body's `token` field; tokens are "
+                "request-only and are never stored between runs."
+            ),
+        },
     )
 
 
@@ -797,6 +833,14 @@ async def refresh_dataset(
     # reservation window. The binding the worker is actually handed is read
     # again below, after the reservation exists. See the ordering note there.
     candidate = _resolve_service_origin(dataset)
+
+    # fix(#1746): placed after the postgis and stac early returns so it can
+    # never fire for a non-service origin, and before the reservation so a
+    # doomed request never burns a run row or holds the dataset against the
+    # admission index. It needs no network and no database, so refusing ahead
+    # of the SSRF check also saves a DNS resolution on a request that cannot
+    # succeed.
+    _require_service_token_if_marked(dataset, body.token)
 
     # Rule 2: the URL is ours, but "ours" is not a safety property — it was a
     # client's when ingest stored it, and DNS moves. Revalidating at dispatch

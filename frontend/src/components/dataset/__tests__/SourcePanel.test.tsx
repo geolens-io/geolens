@@ -468,6 +468,26 @@ describe('SourcePanel', () => {
     expect(container.innerHTML).not.toContain('Bearer hidden');
   });
 
+  // fix(#1746): the panel renders null for a detail code it does not know, so
+  // a backend code with no entry here is invisible rather than obviously
+  // broken. This is the assertion that notices.
+  it('renders the auth_required detail rather than nothing', () => {
+    render(
+      <SourcePanel
+        dataset={makeDataset({
+          origin: 'service',
+          source_format: 'arcgis_featureserver',
+          source_health: 'inaccessible',
+          source_health_detail: 'auth_required',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('The source requires a service token GeoLens does not have.')).toBeInTheDocument();
+    // Distinct from 'unauthorized', whose copy claims the source CHANGED.
+    expect(screen.queryByText('The source now requires access GeoLens does not have.')).not.toBeInTheDocument();
+  });
+
   it('suppresses an origin_ref whose discriminator does not match the dataset origin', () => {
     const { container } = render(
       <SourcePanel

@@ -117,7 +117,15 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
     # must never have to strip a layer back out of the url. Note this is why
     # `url` is not the same value as `datasets.origin_uri`, which deliberately
     # keeps the enriched form ingest composed, as provenance.
-    "service": frozenset({"service_type", "url", "layer_id"}),
+    #
+    # `auth_required` (fix #1746) records that the last SUCCESSFUL pull of this
+    # origin needed a service token. It is `True` or absent, never `False`, so
+    # an unauthenticated pull stores the exact ref shape it stored before the
+    # key existed and no backfill is owed — the same absent-means-no convention
+    # `managed` uses on the postgis kind. The worker writes it at the service
+    # swap, from the credential it actually used; a request door only knows a
+    # token was offered. Never the token itself: this is a boolean.
+    "service": frozenset({"service_type", "url", "layer_id", "auth_required"}),
     # `asset_href` is additive to ADR-002's declared stac shape, and the two
     # href keys are NOT interchangeable: `asset_href` is the COG the tiler
     # reads, `item_href` is the STAC item document that publishes it. A 200 on
@@ -269,6 +277,18 @@ def geolens_owns_table(
     # `is True`, not truthiness: a stored "yes" or 1 is not a claim this
     # function is willing to drop a table on.
     return origin_ref.get("managed") is True
+
+
+def service_auth_required(origin_ref: Any) -> bool:
+    """Whether the last successful pull of this service origin used a token.
+
+    fix(#1746): `is True`, not truthiness, for the same reason
+    ``geolens_owns_table`` spells it that way — this decides whether a request
+    is refused, and a stored 1 or "yes" is not a claim worth refusing on.
+    """
+    if not isinstance(origin_ref, dict):
+        return False
+    return origin_ref.get("auth_required") is True
 
 
 def service_layer_identity(

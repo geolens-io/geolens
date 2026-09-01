@@ -53,6 +53,7 @@ from app.platform.dataset_origin import (
     build_origin_ref,
     classify_origin,
     project_unknown,
+    service_auth_required,
     service_layer_identity,
     set_dataset_origin,
     set_postgis_origin,
@@ -2584,9 +2585,45 @@ class TestServiceLayerIdentity:
 
     def test_a_second_name_key_is_still_refused(self) -> None:
         """Unification means one key; the allowlist must not have grown."""
+        # fix(#1746): `auth_required` joined the set. It is not a second layer
+        # key — it says the last successful pull needed a service token — so
+        # the "one key addresses the layer" rule this test guards is intact.
         assert ORIGIN_REF_KEYS["service"] == frozenset(
-            {"service_type", "url", "layer_id"}
+            {"service_type", "url", "layer_id", "auth_required"}
         )
         for key in ("layer_name", "source_layer", "typename", "collection_id"):
             with pytest.raises(ValueError, match="rejects key"):
                 build_origin_ref("service", **{key: "topp:parcels"})
+
+    def test_auth_required_is_true_or_absent_never_false(self) -> None:
+        """fix(#1746): a token-less pull stores the pre-marker ref shape."""
+        ref = build_origin_ref(
+            "service",
+            service_type="arcgis_featureserver",
+            url="https://example.test/FeatureServer",
+            layer_id="3",
+            auth_required=None,
+        )
+        assert ref is not None
+        assert "auth_required" not in ref
+        assert not service_auth_required(ref)
+
+        marked = build_origin_ref(
+            "service",
+            service_type="arcgis_featureserver",
+            url="https://example.test/FeatureServer",
+            layer_id="3",
+            auth_required=True,
+        )
+        assert marked is not None
+        assert marked["auth_required"] is True
+        assert service_auth_required(marked)
+
+    def test_service_auth_required_reads_only_a_real_true(self) -> None:
+        """A stored 1 or "yes" is not a claim worth refusing a request on."""
+        assert not service_auth_required(None)
+        assert not service_auth_required("auth_required")
+        assert not service_auth_required({})
+        assert not service_auth_required({"auth_required": 1})
+        assert not service_auth_required({"auth_required": "yes"})
+        assert not service_auth_required({"auth_required": False})

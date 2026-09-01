@@ -3060,7 +3060,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # way a task can learn its own queue-row id) and the
     # `purge_token_on_failure` wrapper, plus the comment saying what the
     # context is for. Cap 1242 -> 1251, exact.
-    "backend/app/processing/ingest/tasks_reupload.py": 1251,
+    # fix(#1746): +27 — the auth_required marker on the service swap's
+    # origin_ref (True or absent, never False, so a token-less pull stores the
+    # pre-marker ref shape and no backfill is owed), plus door-aware
+    # auth-failure copy. The old string said "Retry commit", which names a
+    # door neither caller came through: this task serves the refresh endpoint
+    # and the re-upload commit, and never a first import. Cap 1251 -> 1278,
+    # exact.
+    "backend/app/processing/ingest/tasks_reupload.py": 1278,
     # --- entered by the inclusion rule, feat(#1266) -----------------------
     # The refresh door crossed 1000 when it gained its third execution
     # strategy. Two thirds of the addition is the STAC dispatcher, which is
@@ -3083,7 +3090,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # business: an unverified first answer would be both adopted and recorded
     # as durable truth, and a caller who learns that immediately can act on
     # it, where one who learns it from a failed run cannot. Cap 1091 -> 1119.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1119,
+    # fix(#1746): +44 — the service_token_required 422, refusing a
+    # credential-less refresh of an origin whose last successful pull needed a
+    # token, before the SSRF resolve and before the run reservation. Extracted
+    # into its own helper rather than three lines in the handler, because
+    # refresh_dataset sits one branch under ruff's C901 ceiling and the repo's
+    # answer to that is extraction. Most of the addition is the docstring
+    # saying why the marker is not a permanent trap: the re-upload dialog with
+    # no token is the path that clears it. Cap 1119 -> 1163, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1163,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3690,7 +3705,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # way a task can learn its own queue-row id) and the
     # `purge_token_on_failure` wrapper, plus the comment saying what the
     # context is for. Cap 1117 -> 1126, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1126,
+    # fix(#1746): +8 — the auth_required marker on a first service import's
+    # origin_ref, so a token-bearing import is refusable at the refresh door.
+    # One key and the comment saying why the value is True-or-None: absent
+    # means "not known to need auth", which is where every dataset imported
+    # before the marker sits. Cap 1126 -> 1134, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1134,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

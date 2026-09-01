@@ -44,9 +44,9 @@ class SourceHealthResponse:
                 missing — the origin answered authoritatively that it is gone (404/410). inaccessible — GeoLens could not
                 determine either way, which includes 401/403: access was lost, the data may be intact.
             source_health_detail (None | str | Unset): Why the origin is not healthy, as one of a fixed set of GeoLens
-                codes: blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout, unauthorized,
-                unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response body — nothing
-                the origin sent is stored here.
+                codes: auth_required, blocked_by_policy, item_withdrawn, network_error, not_found, server_error, timeout,
+                unauthorized, unexpected_status. Null when healthy or never probed. Never provider text, a URL, or a response
+                body — nothing the origin sent is stored here.
             last_checked_at (datetime.datetime | None | Unset): When GeoLens last contacted this origin, success or failure.
     """
 
