@@ -50,15 +50,22 @@ _SERVICE_IMPORT_INITIAL_PROGRESS = 0.1
 _SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS = 5.0
 _SERVICE_IMPORT_HEARTBEAT_INCREMENT = 0.05
 _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS = 0.65
-# fix(#1778 codex r2): the longest a cancelled heartbeat tick's drain (see
-# _heartbeat_service_import_progress) may hold up the caller. The ordinary
-# session it runs on carries no statement or lock timeout of its own, so a
-# tick blocked on something else entirely -- another transaction's row lock
-# inside session.commit() -- could otherwise hang the drain, and with it
-# ingest_service's finally, indefinitely. A few seconds, not a fraction of
-# one: this is a last-resort bound for an already-rare case (a cancel racing
-# a tick), not a budget anything is sized against.
-_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS = 5.0
+# fix(#1778 codex r3): the PRIMARY bound on one heartbeat tick's own database
+# wait. Set as `SET LOCAL lock_timeout` / `SET LOCAL statement_timeout` on the
+# tick's own transaction (see _service_import_heartbeat_tick), so a commit
+# blocked on another transaction's row lock fails on its own, INSIDE the
+# database, and releases the connection -- rather than depending on the
+# caller merely giving up on WAITING for it, which left the connection itself
+# still checked out and blocked, exhausting the worker's pool under repeated
+# stalled imports even though their parent tasks continued.
+_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS = 3.0
+# fix(#1778 codex r2, revised r3): a SAFETY NET above the DB timeout above,
+# not the primary mechanism -- see _heartbeat_service_import_progress. Covers
+# only what a DB-side timeout cannot: a connection stuck before it ever
+# reaches Postgres (e.g. a network partition), where `SET LOCAL` never runs.
+# Comfortably above the DB timeout's own worst case (lock_timeout wait, then
+# statement_timeout once granted) so it should not fire in the common case.
+_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS = 10.0
 _ARCGIS_SERVICE_IMPORT_CHUNK_SIZE = 2000
 
 
@@ -120,6 +127,15 @@ async def _service_import_heartbeat_tick(
     left the step this heartbeat belongs to), ``True`` otherwise. Split out of
     ``_heartbeat_service_import_progress`` so that function can ``shield`` the
     whole tick from cancellation (fix(#1778)) — see that function's docstring.
+
+    fix(#1778 codex r3): sets ``lock_timeout``/``statement_timeout`` on this
+    transaction before touching the job row, so a commit blocked on another
+    transaction's row lock raises INSIDE Postgres within a few seconds
+    instead of waiting on whatever holds the lock. ``_job_phase_session``'s
+    own exception handling rolls back and re-raises on that error, which
+    releases this tick's connection back to the pool the ordinary way --
+    the caller no longer has to choose between waiting on a stuck connection
+    forever and abandoning one it can never reclaim.
     """
     async with _job_phase_session(
         job_uuid,
@@ -130,6 +146,13 @@ async def _service_import_heartbeat_tick(
             return False
         if job.status != "running" or job.current_step != "ogr2ogr":
             return False
+
+        # fix(#1778 codex r3): milliseconds, integer -- `SET LOCAL` takes a
+        # literal, not a bind parameter (Postgres rejects `SET x = $1`), so
+        # this interpolates a module constant, never request-supplied data.
+        _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
+        await session.execute(text(f"SET LOCAL lock_timeout = {_timeout_ms}"))
+        await session.execute(text(f"SET LOCAL statement_timeout = {_timeout_ms}"))
 
         existing_progress = (
             job.progress
@@ -168,19 +191,26 @@ async def _heartbeat_service_import_progress(
     same trade a clean subprocess kill/reap already makes elsewhere in this
     package.
 
-    fix(#1778 codex r2): the drain that lets a shielded tick finish is itself
-    bounded by ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``. The shield
-    bounds WHERE a cancel can land, not HOW LONG draining one can take -- an
-    ordinary session carries no statement or lock timeout of its own, so a
-    tick blocked on something else entirely (another transaction's row lock
-    inside ``session.commit()``) could hang this drain, and with it
-    ``ingest_service``'s own ``finally``, indefinitely. On timeout this
-    function gives up WAITING and returns; ``asyncio.shield`` keeps the tick
-    itself running in the background rather than cancelling it, so its
-    connection still gets to close cleanly on its own schedule. The
-    heartbeat's write is best-effort progress UI sugar the import's own
-    result never reads back, so abandoning one late tick costs nothing the
-    caller depends on.
+    fix(#1778 codex r2, revised r3): the drain that lets a shielded tick
+    finish is bounded by ``_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS``,
+    a SAFETY NET, not the primary mechanism. The shield bounds WHERE a cancel
+    can land, not HOW LONG draining one can take, and round 2 covered that
+    gap by giving up on WAITING here -- which left the tick's connection
+    itself still checked out and blocked if it was stuck on a row lock,
+    exhausting the pool under repeated stalls even though this function
+    itself moved on. Round 3 bounds the tick's OWN database wait instead
+    (``_service_import_heartbeat_tick`` sets ``lock_timeout``/
+    ``statement_timeout`` on its transaction), so in the common case the
+    tick resolves -- successfully or by raising -- well inside this drain
+    window on its own, connection released either way. What survives here is
+    a last-resort bound for what a DB-side timeout cannot cover: a
+    connection stuck before it ever reaches Postgres. ``asyncio.shield``
+    still keeps the tick itself running in the background rather than
+    cancelling it on that rarer timeout, so a connection that DOES eventually
+    hear back from Postgres still gets to close cleanly. The heartbeat's
+    write is best-effort progress UI sugar the import's own result never
+    reads back, so abandoning one late tick, on the rare path where even the
+    DB timeout does not save it, costs nothing the caller depends on.
     """
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
@@ -205,6 +235,12 @@ async def _heartbeat_service_import_progress(
                             timeout=_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS,
                         )
                     except asyncio.TimeoutError:
+                        # Expected to be rare after fix(#1778 codex r3): the
+                        # tick's own DB-level timeout should have already
+                        # resolved it well within this window. Reaching this
+                        # means something OUTSIDE the database's own timeout
+                        # handling is stuck (e.g. the connection never reached
+                        # Postgres at all).
                         structlog.get_logger().warning(
                             "service_import_heartbeat_drain_timed_out",
                             job_id=str(job_uuid),

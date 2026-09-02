@@ -3864,7 +3864,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # bounds it; `asyncio.shield` still keeps the tick itself running in the
     # background on a timeout rather than cancelling it, so its connection
     # still gets to close cleanly. Cap 1209 -> 1245, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1245,
+    # fix(#1778 codex r3): +36 — round 2's drain deadline bounded how long the
+    # caller would WAIT for a stuck tick, but the tick's own connection stayed
+    # checked out and blocked until whatever held the lock let go, so
+    # repeated stalls could still exhaust the pool. `_service_import_
+    # heartbeat_tick` now sets `lock_timeout`/`statement_timeout` on its own
+    # transaction, so a blocked commit fails INSIDE Postgres within a few
+    # seconds and releases its connection the ordinary way; the drain deadline
+    # survives only as a safety net for what a DB-side timeout cannot cover.
+    # Cap 1245 -> 1281, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1281,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
