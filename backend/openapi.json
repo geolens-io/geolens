@@ -9124,6 +9124,21 @@
               }
             ],
             "title": "Layer"
+          },
+          "checksum": {
+            "anyOf": [
+              {
+                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. For a vector source, bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Manifest raster updates are not supported: do not set or change checksum on a raster_cog source, because a changed value there makes apply report that entry as an error ('Manifest raster updates are not supported; create a new raster dataset instead.'), not a skip. An unchanged raster entry, checksum included, still skips normally.",
+                "maxLength": 71,
+                "minLength": 71,
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checksum"
           }
         },
         "required": [

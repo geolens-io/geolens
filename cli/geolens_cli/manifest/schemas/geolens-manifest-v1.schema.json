@@ -173,6 +173,13 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 500
+        },
+        "checksum": {
+          "type": ["string", "null"],
+          "minLength": 71,
+          "maxLength": 71,
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>', or null. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. For a vector source, bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Manifest raster updates are not supported: do not set or change checksum on a raster_cog source, because a changed value there makes apply report that entry as an error ('Manifest raster updates are not supported; create a new raster dataset instead.'), not a skip. An unchanged raster entry, checksum included, still skips normally. Mirrors ManifestSource.checksum in backend/app/processing/ingest/manifest_schemas.py; keep the two in step. gh#1773 codex r4: type includes null because ManifestSource.checksum is Optional and the generated OpenAPI schema allows a null variant; minLength/maxLength/pattern apply only to the string branch per JSON Schema semantics. gh#1773 codex r5: corrected the raster sentence, which previously read as a harmless no-op instead of the error result apply actually returns."
         }
       }
     },

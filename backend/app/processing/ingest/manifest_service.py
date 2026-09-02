@@ -472,6 +472,37 @@ def _skip_result_for_in_flight(
     )
 
 
+def _skip_complete_message(prepared: ManifestPreparedSource) -> str:
+    """Explain a skip_complete result without promising a recovery path
+    `_validate_existing_dataset_update` would then refuse.
+
+    gh#1736: this branch means the manifest entry matches the last completed
+    one; it does not mean the source bytes were read. A stable URI whose file
+    changed underneath it lands here too, so say plainly that the source was
+    not inspected.
+
+    gh#1773 codex r4: the original wording named `checksum` unconditionally,
+    but bumping it on a `raster_cog` entry changes the fingerprint to
+    "update" only for `_validate_existing_dataset_update` to then reject it
+    with "Manifest raster updates are not supported" -- an impossible
+    recovery path. Vector entries get the checksum escape hatch; raster
+    entries get the same guidance `_validate_existing_dataset_update` gives
+    on the update path, so the two never disagree.
+    """
+    if prepared.source.type == "raster_cog":
+        return (
+            "Manifest dataset entry is unchanged; the source was not "
+            "inspected. Manifest raster updates are not supported; to "
+            "replace this dataset's data, create a new raster dataset "
+            "instead."
+        )
+    return (
+        "Manifest dataset entry is unchanged; the source was not "
+        "inspected. Set checksum on the source to force a re-import "
+        "when the file changes under a stable URI."
+    )
+
+
 async def _classify_dataset(
     db: AsyncSession,
     dataset: ManifestDataset,
@@ -762,7 +793,7 @@ async def _run_entry(
             action="skip",
             job_id=job.id,
             dataset_id=job.dataset_id,
-            message="Manifest dataset is already up to date.",
+            message=_skip_complete_message(prepared),
         )
 
     if classification == "update" and existing_dataset is not None:

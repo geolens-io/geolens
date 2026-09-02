@@ -26,6 +26,7 @@ class ManifestSource:
         description (None | str | Unset):
         format_ (None | str | Unset):
         layer (None | str | Unset):
+        checksum (None | str | Unset):
     """
 
     type_: ManifestSourceType
@@ -34,6 +35,7 @@ class ManifestSource:
     description: None | str | Unset = UNSET
     format_: None | str | Unset = UNSET
     layer: None | str | Unset = UNSET
+    checksum: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         type_: str = self.type_
@@ -64,6 +66,12 @@ class ManifestSource:
         else:
             layer = self.layer
 
+        checksum: None | str | Unset
+        if isinstance(self.checksum, Unset):
+            checksum = UNSET
+        else:
+            checksum = self.checksum
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -80,6 +88,8 @@ class ManifestSource:
             field_dict["format"] = format_
         if layer is not UNSET:
             field_dict["layer"] = layer
+        if checksum is not UNSET:
+            field_dict["checksum"] = checksum
 
         return field_dict
 
@@ -126,6 +136,15 @@ class ManifestSource:
 
         layer = _parse_layer(d.pop("layer", UNSET))
 
+        def _parse_checksum(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        checksum = _parse_checksum(d.pop("checksum", UNSET))
+
         manifest_source = cls(
             type_=type_,
             uri=uri,
@@ -133,6 +152,7 @@ class ManifestSource:
             description=description,
             format_=format_,
             layer=layer,
+            checksum=checksum,
         )
 
         return manifest_source

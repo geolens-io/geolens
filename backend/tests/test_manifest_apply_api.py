@@ -102,6 +102,85 @@ class TestManifestApplySchemas:
 
         assert request.datasets[0].sources[0].uri == f"./data/roads{extension}"
 
+    def test_accepts_a_well_formed_checksum(self):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["checksum"] = f"sha256:{'a' * 64}"
+
+        request = ManifestApplyRequest.model_validate(payload)
+
+        assert request.datasets[0].sources[0].checksum == f"sha256:{'a' * 64}"
+
+    def test_omitted_checksum_defaults_to_none(self):
+        request = ManifestApplyRequest.model_validate(valid_manifest_payload())
+
+        assert request.datasets[0].sources[0].checksum is None
+
+    @pytest.mark.parametrize(
+        "checksum",
+        [
+            "sha256:" + "a" * 63,  # too short
+            "sha256:" + "a" * 65,  # too long
+            "sha256:" + "A" * 64,  # uppercase hex is rejected, not normalized
+            "sha256:" + "g" * 64,  # not hex
+            "md5:" + "a" * 32,  # wrong algorithm prefix
+            "a" * 64,  # missing algorithm prefix entirely
+            "sha256:",
+            "",
+        ],
+    )
+    def test_rejects_malformed_checksum_shapes(self, checksum: str):
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["checksum"] = checksum
+
+        with pytest.raises(ValidationError) as exc:
+            ManifestApplyRequest.model_validate(payload)
+
+        assert "checksum" in str(exc.value)
+
+    def test_rejects_checksum_with_a_trailing_newline(self):
+        """gh#1773 codex r1: pinned in parity with the CLI's JSON Schema test
+        of the same name. Python's `re` module treats `$` as matching just
+        before a trailing newline, which let a YAML literal-scalar checksum
+        (which can carry one) through the CLI's jsonschema-based validator.
+        pydantic-core's regex engine anchors `$` to the true end of the
+        string with no such exception, so this was already rejected here;
+        this test pins that so a future engine swap cannot reintroduce the
+        gap silently.
+        """
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["checksum"] = f"sha256:{'a' * 64}\n"
+
+        with pytest.raises(ValidationError, match="checksum"):
+            ManifestApplyRequest.model_validate(payload)
+
+    def test_openapi_contract_carries_the_checksum_length_bound(self):
+        """gh#1773 codex r2: the length bound must also reach the *published*
+        OpenAPI contract, not just this pydantic model. Before min_length/
+        max_length were added to the ManifestChecksum Field, a consumer
+        validating a request against the generated OpenAPI schema (rather
+        than against ManifestApplyRequest directly, e.g. a Python jsonschema
+        client) could accept the same trailing-newline checksum the CLI's
+        mirror let through in r1, then get a 422 from the live API. Pins the
+        contract and the CLI's JSON Schema mirror (which carries the same
+        71-length bound) to agree.
+        """
+        from app.api.main import app
+
+        app.openapi_schema = None
+        spec = app.openapi()
+        checksum_schema = spec["components"]["schemas"]["ManifestSource"]["properties"][
+            "checksum"
+        ]
+        string_variant = next(
+            variant
+            for variant in checksum_schema["anyOf"]
+            if variant.get("type") == "string"
+        )
+
+        assert string_variant["minLength"] == 71
+        assert string_variant["maxLength"] == 71
+        assert string_variant["pattern"] == "^sha256:[0-9a-f]{64}$"
+
     @pytest.mark.parametrize(
         ("source_type", "uri", "expected"),
         [

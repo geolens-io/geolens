@@ -57,6 +57,69 @@ ManifestUrl = Annotated[
     Field(max_length=2000, pattern=r"^https?://[^\s]+$"),
 ]
 ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
+# gh#1736: a caller-declared digest of the source bytes, used only as a
+# change-detection input alongside the rest of the manifest entry. Apply does
+# not fetch the source to verify it; see ManifestSource.checksum below and
+# manifest_service._run_entry's skip-complete message for the caveat this
+# implies for a stable URI whose file content changes underneath it.
+#
+# gh#1773 codex r1: the CLI's separate JSON Schema mirror of this pattern
+# needed an explicit minLength/maxLength(71) bound, because Python's `re`
+# (which the CLI's jsonschema validator uses) treats `$` as matching just
+# before a trailing newline, letting a YAML literal-scalar checksum with a
+# trailing newline through. pydantic-core's regex engine anchors `$` to the
+# true end of the string with no such exception, so ManifestApplyRequest
+# itself was never exploitable this way; test_rejects_checksum_with_a_trailing_newline
+# in test_manifest_apply_api.py pins that.
+#
+# gh#1773 codex r2: min_length/max_length(71) added below too, so the
+# *published* OpenAPI contract also carries the bound alongside pattern.
+# Before this, a consumer validating against the OpenAPI schema (rather than
+# against this pydantic model directly) could accept the same trailing-newline
+# value the CLI's mirror did, then get a 422 from the live API.
+# test_openapi_contract_carries_the_checksum_length_bound in
+# test_manifest_apply_api.py pins minLength and maxLength on the emitted
+# checksum property.
+#
+# gh#1773 codex r4: the description below used to promise checksum-driven
+# re-import unconditionally. For a raster_cog entry, bumping checksum does
+# change the fingerprint to "update", but manifest_service's
+# _validate_existing_dataset_update then rejects it ("Manifest raster
+# updates are not supported"), so that promise pointed a raster caller at an
+# impossible recovery path. Scoped to vector sources here, in the CLI's
+# schema mirror, and in the README; manifest_service._skip_complete_message
+# gives a raster entry the matching guidance instead.
+#
+# gh#1773 codex r5: the round-4 fix said a changed raster checksum "cannot
+# be re-imported this way", which reads as a harmless no-op. It is not: a
+# changed fingerprint classifies as update regardless of source type, and
+# _validate_existing_dataset_update raises for raster_cog before any
+# staging happens, so apply reports that entry as action="error" with
+# "Manifest raster updates are not supported; create a new raster dataset
+# instead." -- not a skip. Worded below to say that plainly. An unchanged
+# raster entry, checksum included, still skips normally.
+ManifestChecksum = Annotated[
+    str,
+    Field(
+        min_length=71,
+        max_length=71,
+        pattern=r"^sha256:[0-9a-f]{64}$",
+        description=(
+            "Declared SHA-256 digest of the source bytes, as "
+            "'sha256:<64 lowercase hex characters>'. Apply uses this only as "
+            "a change-detection input alongside the rest of the entry; it is "
+            "not verified against the fetched bytes. For a vector source, "
+            "bump it when the file under a stable URI changes, to force "
+            "apply to reclassify the entry as an update instead of "
+            "skipping it. Manifest raster updates are not supported: do not "
+            "set or change checksum on a raster_cog source, because a "
+            "changed value there makes apply report that entry as an error "
+            "('Manifest raster updates are not supported; create a new "
+            "raster dataset instead.'), not a skip. An unchanged raster "
+            "entry, checksum included, still skips normally."
+        ),
+    ),
+]
 ManifestBboxCoordinate = Annotated[float, Field(ge=-180, le=180)]
 ManifestBbox = Annotated[
     list[ManifestBboxCoordinate],
@@ -122,6 +185,7 @@ class ManifestSource(_ManifestBaseModel):
     description: NonEmptyString5000 | None = None
     format: NonEmptyString100 | None = None
     layer: NonEmptyString500 | None = None
+    checksum: ManifestChecksum | None = None
 
     @field_validator("uri")
     @classmethod

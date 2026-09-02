@@ -37,6 +37,21 @@ manifest entry only when that entry's fingerprint changes; applying an
 unchanged manifest returns `skip_complete` and does not re-fetch a remote
 source whose data changed independently.
 
+A vector source can carry an optional `checksum: sha256:<64 lowercase hex>`
+field. It is declared, not verified: apply never fetches the source bytes to
+check it, and folds it into the entry fingerprint like any other field. That
+makes it the way to force a re-import under a stable URI, such as
+`latest.gpkg` or a path an ETL job overwrites in place, where the entry
+itself never changes but the file underneath it does. Bump `checksum` when
+the file changes and the next apply reclassifies the entry as an update
+instead of skipping it. This does not apply to `raster_cog` sources: manifest
+raster updates are not supported, so do not set or change `checksum` on a
+raster entry. A changed checksum there still reclassifies the entry the same
+way, but the update then fails with an error result ("Manifest raster
+updates are not supported; create a new raster dataset instead."), not a
+skip. An unchanged raster entry, checksum included, still skips normally.
+Replace raster data by creating a new raster dataset instead.
+
 `geolens replace <dataset-id> <file>` replaces this dataset's data from a
 local file, the CLI equivalent of the Re-upload dialog in the web app. It
 prints the preview (layer, feature count, detected SRID) before committing
