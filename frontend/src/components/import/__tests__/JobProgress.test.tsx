@@ -3,15 +3,20 @@ import userEvent from '@testing-library/user-event';
 import { JobProgress } from '../JobProgress';
 import { ApiError } from '@/api/client';
 
-const { mockUseJobStatus, mockRetry } = vi.hoisted(() => ({
+const { mockUseJobStatus, mockRetry, mockCancel } = vi.hoisted(() => ({
   mockUseJobStatus: vi.fn(),
   mockRetry: vi.fn(),
+  mockCancel: vi.fn(),
 }));
 
 vi.mock('@/components/import/hooks/use-ingest', () => ({
   useJobStatus: (...args: unknown[]) => mockUseJobStatus(...args),
   useRetryJob: () => ({
     mutateAsync: mockRetry,
+    isPending: false,
+  }),
+  useCancelJob: () => ({
+    mutate: mockCancel,
     isPending: false,
   }),
 }));
@@ -47,6 +52,13 @@ function failedJob(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function runningJob(overrides: Record<string, unknown> = {}) {
+  return {
+    ...failedJob({ status: 'running', error_message: null, started_at: null, completed_at: null }),
+    ...overrides,
+  };
+}
+
 describe('JobProgress retry capability', () => {
   beforeEach(() => {
     mockUseJobStatus.mockReset();
@@ -78,6 +90,33 @@ describe('JobProgress retry capability', () => {
     expect(screen.getByText('Fresh service credentials are required.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Over' })).toBeInTheDocument();
+  });
+});
+
+// fix(#1778): #1709 granted job-creator cancel server-side, but JobProgress —
+// the terminal render for every import path — offered no way to reach it.
+describe('JobProgress owner cancel', () => {
+  beforeEach(() => {
+    mockUseJobStatus.mockReset();
+    mockCancel.mockReset();
+  });
+
+  it('shows Cancel on a running job and calls the cancel mutation with the job id', async () => {
+    mockUseJobStatus.mockReturnValue({ data: runningJob(), isLoading: false });
+    const user = userEvent.setup();
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(mockCancel).toHaveBeenCalledWith('job-1', expect.anything());
+  });
+
+  it('hides Cancel once the job is terminal', () => {
+    mockUseJobStatus.mockReturnValue({ data: failedJob(), isLoading: false });
+
+    render(<JobProgress jobId="job-1" onReset={vi.fn()} />);
+
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
   });
 });
 

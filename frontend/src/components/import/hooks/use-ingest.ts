@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
-import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
+import { uploadFile, getJobStatus, getJobStatusByDataset, retryJob, cancelJob, discoverTables, bulkRegisterTables, getUploadConfig, createVrt } from '@/api/ingest';
 import { ApiError, apiFetch } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import type { BulkRegisterRequest, VrtCreateRequest, SearchResponse } from '@/types/api';
@@ -103,6 +103,21 @@ export function useRetryJob() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: retryJob,
+    onSuccess: (_data, jobId) => {
+      qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(jobId) });
+    },
+  });
+}
+
+// fix(#1778): #1709 granted job-creator cancel server-side but shipped no
+// caller for it on the import surfaces the creator actually uses (JobProgress
+// terminates every import path) — only the admin job list and the refresh-run
+// history reached /jobs/{id}/cancel. Same shape as useCancelAdminJob
+// (hooks/use-admin.ts), scoped to the ingest job-status query import owns.
+export function useCancelJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => cancelJob(jobId),
     onSuccess: (_data, jobId) => {
       qc.invalidateQueries({ queryKey: queryKeys.ingest.jobStatus(jobId) });
     },

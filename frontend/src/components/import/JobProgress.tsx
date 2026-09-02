@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { useJobStatus, useRetryJob } from '@/components/import/hooks/use-ingest';
+import { useJobStatus, useRetryJob, useCancelJob } from '@/components/import/hooks/use-ingest';
 import { toast } from 'sonner';
 import { Copy, Download, Link2, Map } from 'lucide-react';
 import { jobStatusColors } from '@/lib/status-colors';
@@ -91,6 +91,7 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
   const { t } = useTranslation('import');
   const { data: job, isLoading, isError, error } = useJobStatus(jobId);
   const retryMutation = useRetryJob();
+  const cancelMutation = useCancelJob();
   const warningShownRef = useRef(false);
 
   // Warn before tab close / refresh while an import is still running —
@@ -163,6 +164,16 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
     }
   };
 
+  // fix(#1778): the backend already grants cancel to the job's creator
+  // (#1709) — this is the only client caller that reaches it from an import
+  // surface. One-click, matching the admin job list and the refresh-run
+  // history's cancel (feat #1677): no confirm dialog, a toast on rejection.
+  const handleCancel = () => {
+    cancelMutation.mutate(jobId, {
+      onError: () => toast.error(t('jobProgress.cancelFailed')),
+    });
+  };
+
   return (
     <Card>
       <CardContent className="space-y-4">
@@ -173,9 +184,21 @@ export function JobProgress({ jobId, onReset, isRasterEntry = false }: JobProgre
             )}
             <StatusBadge status={job.status} />
           </div>
-          {job.source_filename && (
-            <span className="text-sm text-muted-foreground">{job.source_filename}</span>
-          )}
+          <div className="flex items-center gap-2">
+            {job.source_filename && (
+              <span className="text-sm text-muted-foreground">{job.source_filename}</span>
+            )}
+            {isPolling && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCancel}
+                disabled={cancelMutation.isPending}
+              >
+                {cancelMutation.isPending ? t('jobProgress.cancelling') : t('jobProgress.cancel')}
+              </Button>
+            )}
+          </div>
         </div>
 
         {hasDeterminateProgress && (
