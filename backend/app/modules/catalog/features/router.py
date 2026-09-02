@@ -49,6 +49,8 @@ from app.modules.catalog.features.service import (
     UnwritablePropertyError,
     delete_feature,
     effective_geometry_type,
+    feature_bounds,
+    geojson_bounds,
     get_feature_by_id,
     get_features,
     get_features_geojson_z,
@@ -582,7 +584,15 @@ async def create_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    await refresh_dataset_metadata(db, dataset)
+    # fix(#1778): one row added, at a known envelope. No table scan when that
+    # envelope is already inside the stored extent.
+    await refresh_dataset_metadata(
+        db,
+        dataset,
+        count_delta=1,
+        touched_bounds=[geojson_bounds(body.geometry.model_dump())],
+        added_geometry_type=body.geometry.type,
+    )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -657,6 +667,10 @@ async def replace_single_feature(
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
 
+    # fix(#1778): read where the row is BEFORE moving it. A primary-key lookup,
+    # and it is what lets the metadata refresh skip the full-table aggregate.
+    prior_bounds = await feature_bounds(db, dataset.table_name, gid)
+
     try:
         row = await replace_feature(
             db,
@@ -688,7 +702,14 @@ async def replace_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    await refresh_dataset_metadata(db, dataset)
+    # fix(#1778): row count unchanged; the extent is unchanged too when both
+    # the old and the new envelope sit strictly inside it.
+    await refresh_dataset_metadata(
+        db,
+        dataset,
+        count_delta=0,
+        touched_bounds=[prior_bounds, geojson_bounds(body.geometry.model_dump())],
+    )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -754,6 +775,14 @@ async def patch_single_feature(
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
 
+    # fix(#1778): see replace_single_feature. Read even on a property-only
+    # PATCH is avoidable, so this runs only when the body carries geometry.
+    prior_bounds = (
+        await feature_bounds(db, dataset.table_name, gid)
+        if body.geometry is not None
+        else None
+    )
+
     try:
         row = await update_feature(
             db,
@@ -787,7 +816,13 @@ async def patch_single_feature(
 
     # Only refresh metadata if geometry changed (extent may change)
     if body.geometry is not None:
-        await refresh_dataset_metadata(db, dataset)
+        # fix(#1778): same reasoning as replace.
+        await refresh_dataset_metadata(
+            db,
+            dataset,
+            count_delta=0,
+            touched_bounds=[prior_bounds, geojson_bounds(body.geometry.model_dump())],
+        )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,
@@ -846,6 +881,9 @@ async def delete_single_feature(
     await require_dataset_editing_enabled(db)
     _require_feature_table(dataset)
 
+    # fix(#1778): see replace_single_feature; the row is gone after the delete.
+    prior_bounds = await feature_bounds(db, dataset.table_name, gid)
+
     try:
         await delete_feature(db, dataset.table_name, gid)
     except ValueError as e:
@@ -862,7 +900,11 @@ async def delete_single_feature(
         await db.rollback()
         raise _feature_write_db_error(exc)
 
-    await refresh_dataset_metadata(db, dataset)
+    # fix(#1778): one row removed. A row strictly inside the stored extent was
+    # not defining any side of it, so the extent cannot shrink.
+    await refresh_dataset_metadata(
+        db, dataset, count_delta=-1, touched_bounds=[prior_bounds]
+    )
     dataset.record.updated_by = user.id
     await audit_emit(
         db,

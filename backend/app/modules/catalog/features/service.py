@@ -15,7 +15,7 @@ from shapely.errors import GEOSException
 from shapely.geometry import shape as shapely_shape
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
-from sqlalchemy import bindparam, func, text
+from sqlalchemy import bindparam, func, select, text
 from sqlalchemy import types as sa_types
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1152,12 +1152,209 @@ async def _derive_created_geometry_type(session: AsyncSession, table_name: str) 
     return "GEOMETRY"
 
 
-async def refresh_dataset_metadata(session: AsyncSession, dataset: Dataset) -> None:
+Bounds = tuple[float, float, float, float]
+
+
+def geojson_bounds(geometry: dict | None) -> Bounds | None:
+    """The (minx, miny, maxx, maxy) envelope of a GeoJSON geometry, or None.
+
+    GeoJSON is WGS84 by spec, so the result is directly comparable with the
+    stored ``geom_4326`` extent even for a dataset whose ``geom`` column keeps
+    a projected source CRS.
+    """
+    if not geometry:
+        return None
+    try:
+        geom = shapely_shape(geometry)
+    except (GEOSException, ValueError, TypeError, AttributeError):
+        return None
+    if geom.is_empty:
+        return None
+    minx, miny, maxx, maxy = geom.bounds
+    return (float(minx), float(miny), float(maxx), float(maxy))
+
+
+async def feature_bounds(db: AsyncSession, table_name: str, gid: int) -> Bounds | None:
+    """The stored envelope of one feature, or None when it has no geometry.
+
+    A primary-key lookup, so callers can afford it on every write to learn
+    whether the row they are about to move or delete could have been defining
+    the dataset's extent.
+    """
+    result = await db.execute(
+        text(
+            f"SELECT ST_XMin(geom_4326), ST_YMin(geom_4326), "
+            f"ST_XMax(geom_4326), ST_YMax(geom_4326) "
+            f"FROM {get_catalog_port().quote_table(table_name)} WHERE gid = :gid"
+        ).bindparams(gid=gid)
+    )
+    row = result.first()
+    if row is None or any(v is None for v in row):
+        return None
+    return (float(row[0]), float(row[1]), float(row[2]), float(row[3]))
+
+
+async def _stored_extent_box(session: AsyncSession, dataset: Dataset) -> Bounds | None:
+    """The dataset's stored extent as a box, when reasoning about it is sound.
+
+    None unless the stored extent is a simple POLYGON. An antimeridian-crossing
+    dataset stores the two-ring MULTIPOLYGON `seam_extent_wkt_for_table`
+    produces (fix(#934)), whose ST_XMin/ST_XMax are -180/180: a longitude in
+    the gap would test as inside a box the geometry never occupies.
+    """
+    from app.modules.catalog.datasets.domain.models import Record
+
+    result = await session.execute(
+        select(
+            func.GeometryType(Record.spatial_extent),
+            func.ST_XMin(Record.spatial_extent),
+            func.ST_YMin(Record.spatial_extent),
+            func.ST_XMax(Record.spatial_extent),
+            func.ST_YMax(Record.spatial_extent),
+        ).where(Record.id == dataset.record_id)
+    )
+    row = result.first()
+    if row is None or row[0] != "POLYGON" or any(v is None for v in row[1:]):
+        return None
+    return (float(row[1]), float(row[2]), float(row[3]), float(row[4]))
+
+
+def _strictly_inside(inner: Bounds, outer: Bounds) -> bool:
+    """True when `inner` sits strictly within `outer` on all four sides.
+
+    Strict on purpose, and the same test for a row being added, removed or
+    moved. A row that only touches the boundary may be the row that DEFINES
+    that side, so removing or moving it can shrink the extent; a row strictly
+    inside cannot change it whichever way it is written.
+    """
+    return (
+        outer[0] < inner[0]
+        and outer[1] < inner[1]
+        and inner[2] < outer[2]
+        and inner[3] < outer[3]
+    )
+
+
+def _merged_created_geometry_type(current: str | None, added: str | None) -> str | None:
+    """The display geometry_type after ONE geometry of `added` type is inserted.
+
+    Mirrors `_derive_created_geometry_type`'s rules over the row types it would
+    see, without the DISTINCT scan. None when the answer is not decidable from
+    the stored value alone, which sends the caller back to the scan.
+
+    Insert only. A delete or a moved geometry can NARROW the derived type (the
+    last polygon leaving a mixed layer), and no merge of the stored value can
+    see that.
+    """
+    if not current or not added:
+        return None
+    current = current.strip().upper()
+    added = added.strip().upper()
+    if added not in _CONCRETE_GEOMETRY_TYPES:
+        return None
+    if current == "GEOMETRY":
+        # Already the honest fallback for a cross-family mix; one more row
+        # cannot make it narrower.
+        return "GEOMETRY"
+    if current not in _CONCRETE_GEOMETRY_TYPES:
+        return None
+    if current == added:
+        return current
+    if current.removeprefix("MULTI") == added.removeprefix("MULTI"):
+        family = current.removeprefix("MULTI")
+        return (
+            f"MULTI{family}" if family in ("POINT", "LINESTRING", "POLYGON") else None
+        )
+    return "GEOMETRY"
+
+
+async def _apply_incremental_metadata(
+    session: AsyncSession,
+    dataset: Dataset,
+    *,
+    count_delta: int,
+    touched_bounds: Sequence[Bounds | None],
+    added_geometry_type: str | None,
+) -> bool:
+    """Update feature_count alone when the write provably left the extent alone.
+
+    Returns False when the fast path does not apply, and the caller falls back
+    to the full recompute.
+
+    fix(#1778): `_refresh_count_and_extent` runs one unqualified
+    COUNT(*) + ST_Extent over the whole table, so every single-feature edit
+    seq-scanned the layer inside the request transaction, with a second scan
+    over `ST_ShiftLongitude(geom_4326)` whenever the naive extent is wider than
+    180 degrees and a third `SELECT DISTINCT GeometryType(...)` for created
+    datasets. There is no bulk feature endpoint, so a client digitizing 200
+    points issued 200 requests and paid it 200 times.
+    """
+    from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
+
+    if not isinstance(dataset.feature_count, int):
+        return False
+    new_count = dataset.feature_count + count_delta
+    # A layer emptied by this write must have its extent nulled, and one whose
+    # count was already wrong must be recounted rather than adjusted.
+    if new_count < 1:
+        return False
+    if not touched_bounds or any(b is None for b in touched_bounds):
+        return False
+
+    is_created_generic = dataset.source_format == "created" and (
+        await _geom_column_is_generic(session, dataset.table_name)
+    )
+    if is_created_generic:
+        # Only an insert can be settled without the DISTINCT scan.
+        if count_delta <= 0:
+            return False
+        if (
+            _merged_created_geometry_type(dataset.geometry_type, added_geometry_type)
+            != (dataset.geometry_type or "").strip().upper()
+        ):
+            return False
+
+    box = await _stored_extent_box(session, dataset)
+    if box is None:
+        return False
+    if not all(_strictly_inside(b, box) for b in touched_bounds if b is not None):
+        return False
+
+    if count_delta:
+        # SQL-side so two concurrent writes cannot both read N and write N+1.
+        dataset.feature_count = DatasetModel.feature_count + count_delta
+    await session.flush()
+    return True
+
+
+async def refresh_dataset_metadata(
+    session: AsyncSession,
+    dataset: Dataset,
+    *,
+    count_delta: int | None = None,
+    touched_bounds: Sequence[Bounds | None] | None = None,
+    added_geometry_type: str | None = None,
+) -> None:
     """Refresh feature_count and extent on a Dataset after write operations.
 
     Uses a single COUNT(*) + ST_Extent query instead of the full
     extract_metadata pipeline (which runs 5 queries).
+
+    fix(#1778): when the caller can say how many rows the write added or
+    removed and where the geometry it touched sits, and every touched envelope
+    is strictly inside the stored extent, the extent provably did not change
+    and no scan runs at all. Called with no keywords, the full recompute
+    behaviour is unchanged.
     """
+    if count_delta is not None and await _apply_incremental_metadata(
+        session,
+        dataset,
+        count_delta=count_delta,
+        touched_bounds=touched_bounds or (),
+        added_geometry_type=added_geometry_type,
+    ):
+        return
+
     feature_count, extent_wkt = await _refresh_count_and_extent(
         session, dataset.table_name
     )

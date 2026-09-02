@@ -4719,7 +4719,23 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # producer of column_info admits which names, because the fix is a
     # disagreement between two guards and a reader has to see both to keep them
     # in step. Cap 1135 -> 1187, exact.
-    "backend/app/modules/catalog/features/service.py": 1187,
+    #
+    # fix(#1778): +197 for the incremental metadata refresh.
+    # `_refresh_count_and_extent` runs one unqualified COUNT(*) + ST_Extent over
+    # the whole table on every single-feature write, plus a second scan over
+    # ST_ShiftLongitude past 180 degrees of width and a third DISTINCT
+    # GeometryType for created datasets; there is no bulk feature endpoint, so a
+    # client digitizing 200 points paid it 200 times. The new pieces are
+    # geojson_bounds / feature_bounds (where the write touched),
+    # _stored_extent_box, _strictly_inside, _merged_created_geometry_type and
+    # _apply_incremental_metadata. Most of the growth is the reasoning each of
+    # them has to carry, because every one is a claim that a scan can be
+    # skipped: why the containment test is STRICT (a row on the boundary may be
+    # the row defining it), why a two-ring seam extent cannot be read as a box
+    # at all, and why the type merge is insert-only (a delete can narrow the
+    # derived type and no merge of the stored value can see that).
+    # Cap 1187 -> 1384, exact.
+    "backend/app/modules/catalog/features/service.py": 1384,
 }
 
 
