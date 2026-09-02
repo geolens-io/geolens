@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import structlog
+from sqlalchemy import select
 
 from app.platform.dataset_origin import set_dataset_origin
 from app.processing.raster.cog import check_cog_compliance, extract_raster_metadata
@@ -391,3 +392,72 @@ async def _cleanup_orphaned_storage_keys(keys: list[str], *, job_id: str) -> Non
                 job_id=job_id,
                 storage_key=key,
             )
+
+
+async def publish_commit_landed(
+    job_uuid: uuid.UUID,
+    attempt_uuid: uuid.UUID,
+    *,
+    job_id: str,
+    task: str,
+) -> bool:
+    """Did the publishing commit durably land, despite the raise?
+
+    fix(#1778): #1708 codex r11's reasoning, applied to the raster and VRT
+    publish tails. A commit whose acknowledgement is lost — a dropped
+    connection, or the ``asyncio.CancelledError`` a cancel request delivers,
+    which is a BaseException the tails' ``except Exception`` never sees but
+    which their ``finally`` still runs through — may have been applied by
+    PostgreSQL all the same. Each tail set its "published" flag on the line
+    after that await, so a lost acknowledgement left the flag false and the
+    terminal cleanup deleted the exact object keys the committed row had just
+    been pointed at. Nothing
+    reclaims that: the superseded objects are still in the bucket but no row
+    points at them, so every tile request, download and STAC asset 404s until
+    an operator lists the prefix by hand.
+
+    So decide by OBSERVATION rather than by the await's outcome: read the job
+    row back on a FRESH session (the publishing session is mid-failure and
+    cannot be trusted to see anything) and ask whether this attempt's terminal
+    write is there. ``status == 'complete'`` for this exact ``attempt_id`` is
+    the signal all four of these tails can share, because every one of them
+    stamps it in the SAME transaction as the pointer swap: seeing it means the
+    swap is durable, and no other attempt can have produced it, because the
+    attempt token is fresh per attempt and each of these tasks is ``retry=0``.
+
+    A probe that itself fails returns True — standing down. The asymmetry is
+    deliberate and is #1708's: standing down on a false positive leaves objects
+    behind that an operator or a later sweep can still remove, while proceeding
+    on a false negative deletes the live raster.
+
+    Callers gate ONLY the orphaned-key cleanup on this. It is deliberately not
+    folded into ``final_status``, which also decides whether the uploader's
+    staged original may be deleted — standing down there would turn a probe
+    failure into a second, worse deletion.
+    """
+    # fix(#909)-style late bind so tests' engine patching is honored.
+    import app.core.db as db_module
+
+    from app.platform.jobs.models import IngestJob
+
+    try:
+        async with db_module.async_session() as probe:
+            status = (
+                await probe.execute(
+                    select(IngestJob.status).where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                    )
+                )
+            ).scalar_one_or_none()
+    except BaseException:
+        structlog.get_logger().warning(
+            "publish_commit_probe_failed", job_id=job_id, task=task
+        )
+        return True
+    landed = status == "complete"
+    if landed:
+        structlog.get_logger().warning(
+            "publish_commit_ack_lost_but_landed", job_id=job_id, task=task
+        )
+    return landed

@@ -1149,7 +1149,21 @@ async def _cleanup_staging_on_failure(
     """Roll back, drop staging table, and mark job as failed.
 
     Shared by ``reupload_file`` and ``reupload_service`` which have
-    structurally identical exception handlers.
+    structurally identical exception handlers, and — fix(#1778) — by the
+    import tasks that used to paste a narrower copy of the terminal write.
+    What the copies were missing is what makes this the one place to fail a
+    job: the
+    ``redact_url_credentials`` backstop on the persisted message, the
+    ``pending``-inclusive attempt fence (fix #1274 review: a worker-time
+    refusal that raises before the claim must still finalize the job it owns,
+    rather than leave it pending until the stale sweep), and the
+    ``ingest_failed`` notification an operator has switched on.
+
+    fix(#1778): ``staging_table`` is "" for the paths that have none (the VRT
+    tail, whose artifacts are object keys its own ``finally`` reaps). An empty
+    name skips the DROP outright, because interpolating it raises inside the
+    best-effort guard below, which would log a cleanup failure on every VRT
+    build failure and say nothing true.
     """
     from sqlalchemy import text
     from sqlalchemy import update as sa_update
@@ -1169,12 +1183,13 @@ async def _cleanup_staging_on_failure(
     error_message = redact_url_credentials(str(exc))
     await session.rollback()
     try:
-        await session.execute(
-            text(
-                f"DROP TABLE IF EXISTS {_qtable(staging_table, schema=_current_tenant_schema())}"
+        if staging_table:
+            await session.execute(
+                text(
+                    f"DROP TABLE IF EXISTS {_qtable(staging_table, schema=_current_tenant_schema())}"
+                )
             )
-        )
-        await session.commit()
+            await session.commit()
     except Exception as cleanup_exc:  # broad: cleanup is best-effort after rollback; DB may be in bad state
         structlog.get_logger().warning(
             f"Staging-table cleanup failed during {task_name} failure",

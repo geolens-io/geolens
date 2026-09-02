@@ -34,6 +34,7 @@ block, because this suite runs against the shared dev Postgres.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import io
 import json as _json
@@ -5452,3 +5453,629 @@ class TestCrsAssignmentPreservesTheSamples:
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+
+# ---------------------------------------------------------------------------
+# 10. fix(#1778): commit ambiguity on the raster and VRT publish tails
+# ---------------------------------------------------------------------------
+
+
+@contextlib.contextmanager
+def _ack_lost_on_publish(job_id: uuid.UUID, *, failure: BaseException):
+    """Make the COMMIT that publishes ``job_id`` raise AFTER it has applied.
+
+    The shape production sees when a connection drops or a cancel lands while
+    ``COMMIT`` is in flight: PostgreSQL applied the transaction, the
+    acknowledgement never arrived. It cannot be produced through a real
+    session on demand, so the seam is ``AsyncSession.commit`` itself — run the
+    real commit, ask a FRESH session whether the job is now ``complete``, and
+    raise if it is. That fires on exactly one commit per task, the publishing
+    one, whichever phase block it lives in and without the test counting
+    commits.
+
+    The patch is torn down on exit so the test's own session can commit its
+    assertions and its purge.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    real_commit = AsyncSession.commit
+    fired: dict[str, int] = {"count": 0}
+
+    async def _commit(self, *args, **kwargs):
+        await real_commit(self, *args, **kwargs)
+        if fired["count"]:
+            return
+        from app.core.db import async_session
+
+        async with async_session() as probe:
+            status = (
+                await probe.execute(
+                    select(IngestJob.status).where(IngestJob.id == job_id)
+                )
+            ).scalar_one_or_none()
+        if status == "complete":
+            fired["count"] += 1
+            raise failure
+
+    AsyncSession.commit = _commit
+    try:
+        yield fired
+    finally:
+        AsyncSession.commit = real_commit
+
+
+class TestPublishCommitLandedProbe:
+    """The probe reads the row, and the row is the whole answer.
+
+    ``publish_commit_landed`` is the shared half of the fix: every publish
+    tail stamps its job ``complete`` in the SAME transaction as the pointer
+    swap, so that one column, read on a fresh session and fenced on the
+    attempt, decides whether the objects this attempt wrote are live.
+    """
+
+    @staticmethod
+    async def _job(session, *, status: str) -> IngestJob:
+        admin_id = (
+            await session.execute(select(User.id).where(User.username == "admin"))
+        ).scalar_one()
+        job = IngestJob(
+            source_filename="probe.tif",
+            created_by=admin_id,
+            status=status,
+        )
+        session.add(job)
+        await session.commit()
+        await session.refresh(job)
+        return job
+
+    async def test_complete_row_for_this_attempt_reads_as_landed(
+        self, test_db_session
+    ) -> None:
+        from app.processing.ingest.tasks_raster_common import publish_commit_landed
+
+        job = await self._job(test_db_session, status="complete")
+        try:
+            assert (
+                await publish_commit_landed(
+                    job.id, job.attempt_id, job_id=str(job.id), task="t"
+                )
+                is True
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job.id)
+            )
+            await test_db_session.commit()
+
+    @pytest.mark.parametrize("status", ["running", "pending", "failed"])
+    async def test_non_complete_row_reads_as_not_landed(
+        self, test_db_session, status
+    ) -> None:
+        from app.processing.ingest.tasks_raster_common import publish_commit_landed
+
+        job = await self._job(test_db_session, status=status)
+        try:
+            assert (
+                await publish_commit_landed(
+                    job.id, job.attempt_id, job_id=str(job.id), task="t"
+                )
+                is False
+            ), (
+                f"a {status} row means the publishing transaction is not "
+                "durable, so the objects this attempt wrote are reapable"
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job.id)
+            )
+            await test_db_session.commit()
+
+    async def test_a_superseded_attempt_never_reads_its_successors_commit(
+        self, test_db_session
+    ) -> None:
+        """The fence is the attempt token, not the job id."""
+        from app.processing.ingest.tasks_raster_common import publish_commit_landed
+
+        job = await self._job(test_db_session, status="complete")
+        try:
+            assert (
+                await publish_commit_landed(
+                    job.id, uuid.uuid4(), job_id=str(job.id), task="t"
+                )
+                is False
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job.id)
+            )
+            await test_db_session.commit()
+
+    async def test_a_probe_that_cannot_read_stands_down(self, monkeypatch) -> None:
+        """#1708's asymmetry: an unreadable probe assumes the swap landed.
+
+        Standing down on a false positive leaves objects an operator can still
+        remove; proceeding on a false negative deletes the live raster.
+        """
+        from app.processing.ingest.tasks_raster_common import publish_commit_landed
+
+        def _no_session(*args, **kwargs):
+            raise RuntimeError("the pool is gone too")
+
+        monkeypatch.setattr("app.core.db.async_session", _no_session, raising=True)
+        assert (
+            await publish_commit_landed(
+                uuid.uuid4(), uuid.uuid4(), job_id="j", task="t"
+            )
+            is True
+        )
+
+
+class TestAckLostCommitDoesNotDeleteThePublishedRaster:
+    """fix(#1778): the audit's only irrecoverable data-loss path.
+
+    Every publish tail set its "published" flag on the line AFTER
+    ``await session.commit()``, and the terminal cleanup read that flag. A
+    commit whose acknowledgement was lost therefore reached the cleanup with
+    the flag false, and the cleanup deleted the exact object keys the
+    committed row had just been pointed at. The superseded objects are not
+    restored — the reaper of the OLD keys never ran — so nothing in the
+    product can recover the dataset.
+    """
+
+    @staticmethod
+    async def _admin(session) -> uuid.UUID:
+        return (
+            await session.execute(select(User.id).where(User.username == "admin"))
+        ).scalar_one()
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            ConnectionResetError("the connection dropped inside COMMIT"),
+            # #1709 delivers this on demand through `abort=True`, and it is a
+            # BaseException the tails' `except Exception` never sees.
+            asyncio.CancelledError(),
+        ],
+        ids=["connection-loss", "cancellation"],
+    )
+    async def test_replace_keeps_the_cog_the_committed_row_names(
+        self, test_db_session, raster_storage, tmp_path, failure
+    ) -> None:
+        admin_id = await self._admin(test_db_session)
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=91))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        try:
+            with _ack_lost_on_publish(job_id, failure=failure) as fired:
+                with pytest.raises(type(failure)):
+                    await reupload_raster.func(
+                        job_id=str(job_id),
+                        dataset_id=str(dataset_id),
+                        file_path=str(source),
+                        user_id=str(admin_id),
+                        attempt_id=str(attempt_id),
+                    )
+            assert fired["count"] == 1, "the publishing commit never fired"
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            assert asset.asset_uri != live.cog_key, (
+                "precondition: the swap is durable, so the row names the new COG"
+            )
+            for key in (
+                asset.asset_uri,
+                asset.quicklook_256_uri,
+                asset.quicklook_512_uri,
+            ):
+                assert await raster_storage.exists(key), (
+                    f"{key} was deleted after the commit that published it. "
+                    "The dataset now points at bytes that do not exist and "
+                    "nothing in the product can restore them."
+                )
+
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished.status == "complete", (
+                "the terminal write landed with the swap, and the failure "
+                "handler is fenced on `running`, so it cannot overwrite it"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_a_probe_that_observes_no_commit_still_reaps(
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
+    ) -> None:
+        """The counterfactual, and the other half of the contract.
+
+        With the probe answering "not committed" — which is what it really
+        answers whenever the row is not ``complete`` for this attempt, pinned
+        above — the tail must reap exactly as it did before, or GAP-017's
+        orphaned bytes come back. It is also the shape the assertions above
+        would have had before the fix, which is what makes them load-bearing.
+        """
+        admin_id = await self._admin(test_db_session)
+        live = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        dataset_id = live.dataset.id
+        record_id = live.dataset.record_id
+
+        source = tmp_path / "replacement.tif"
+        source.write_bytes(_geotiff_bytes(seed=92))
+        job = await _queue_replace_job(
+            test_db_session,
+            dataset_id=dataset_id,
+            user_id=admin_id,
+            file_path=str(source),
+        )
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        async def _observes_nothing(*args, **kwargs) -> bool:
+            return False
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_raster_replace.publish_commit_landed",
+            _observes_nothing,
+            raising=True,
+        )
+
+        try:
+            with _ack_lost_on_publish(job_id, failure=ConnectionResetError("dropped")):
+                with pytest.raises(ConnectionResetError):
+                    await reupload_raster.func(
+                        job_id=str(job_id),
+                        dataset_id=str(dataset_id),
+                        file_path=str(source),
+                        user_id=str(admin_id),
+                        attempt_id=str(attempt_id),
+                    )
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            assert not await raster_storage.exists(asset.asset_uri), (
+                "with the commit observed as not durable the newly written "
+                "keys are orphans, and GAP-017 requires them reaped"
+            )
+        finally:
+            await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
+
+    async def test_first_ingest_keeps_the_cog_the_committed_row_names(
+        self, test_db_session, raster_storage, tmp_path
+    ) -> None:
+        """``ingest_raster``: same tail, and its reap used to key off
+        ``final_status``, which the broad handler sets to "failed" even when
+        the failure happened after the swap was durable."""
+        from app.processing.ingest.tasks_raster import ingest_raster
+
+        admin_id = await self._admin(test_db_session)
+        source = tmp_path / "first.tif"
+        source.write_bytes(_geotiff_bytes(seed=93))
+        job = IngestJob(
+            source_filename="first.tif",
+            file_path=str(source),
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"file_type": "raster", "title": "Ack-lost first ingest"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        dataset_id = record_id = None
+        try:
+            with _ack_lost_on_publish(
+                job_id, failure=ConnectionResetError("dropped")
+            ) as fired:
+                with pytest.raises(ConnectionResetError):
+                    await ingest_raster.func(
+                        job_id=str(job_id),
+                        file_path=str(source),
+                        user_id=str(admin_id),
+                        attempt_id=str(attempt_id),
+                    )
+            assert fired["count"] == 1, "the publishing commit never fired"
+
+            test_db_session.expire_all()
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished.status == "complete"
+            dataset_id = finished.dataset_id
+            assert dataset_id is not None, "the publish transaction created the row"
+            record_id = (
+                await test_db_session.execute(
+                    select(Dataset.record_id).where(Dataset.id == dataset_id)
+                )
+            ).scalar_one()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == dataset_id)
+                )
+            ).scalar_one()
+            for key in (
+                asset.asset_uri,
+                asset.quicklook_256_uri,
+                asset.quicklook_512_uri,
+            ):
+                assert await raster_storage.exists(key), (
+                    f"{key} was deleted after the commit that published it"
+                )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job_id)
+            )
+            await test_db_session.commit()
+            if dataset_id is not None and record_id is not None:
+                await _purge(
+                    test_db_session, dataset_id=dataset_id, record_id=record_id
+                )
+
+    async def test_vrt_regeneration_keeps_the_generation_it_published(
+        self, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        from app.processing.ingest.tasks_vrt import regenerate_vrt
+        from app.processing.raster.models import VrtGeneration
+
+        # `regenerate_vrt` binds get_storage at module import, so the fixture's
+        # patch of `app.platform.storage.get_storage` never reaches its puts.
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_vrt.get_storage",
+            lambda: raster_storage,
+            raising=True,
+        )
+        admin_id = await self._admin(test_db_session)
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        parent_id = parent.dataset.id
+        prior_key = parent.cog_key
+
+        generation_id = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=parent_id,
+            source_filename="regen",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"vrt_regenerate": True},
+        )
+        test_db_session.add(job)
+        test_db_session.add(
+            VrtGeneration(
+                id=generation_id,
+                vrt_dataset_id=parent_id,
+                status="pending",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.raster_assets "
+                "SET current_generation_id = :gen, status = 'regenerating' "
+                "WHERE dataset_id = :id"
+            ),
+            {"gen": generation_id, "id": parent_id},
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        try:
+            with _ack_lost_on_publish(
+                job_id, failure=ConnectionResetError("dropped")
+            ) as fired:
+                with pytest.raises(ConnectionResetError):
+                    await regenerate_vrt.func(
+                        job_id=str(job_id),
+                        vrt_dataset_id=str(parent_id),
+                        attempt_id=str(attempt_id),
+                        generation_id=str(generation_id),
+                    )
+            assert fired["count"] == 1, "the publishing commit never fired"
+
+            test_db_session.expire_all()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == parent_id)
+                )
+            ).scalar_one()
+            assert asset.asset_uri != prior_key, (
+                "precondition: the generation swap is durable"
+            )
+            assert await raster_storage.exists(asset.asset_uri), (
+                f"{asset.asset_uri} was deleted after the commit that "
+                "published it — the VRT dataset now serves nothing"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
+    async def test_vrt_creation_keeps_the_artifact_it_published(
+        self, test_db_session, raster_storage
+    ) -> None:
+        """``ingest_vrt`` shares the tail even though the audit excerpt stopped
+        at the regenerate one: the dataset row and the VRT object become
+        visible in the same transaction, so a lost acknowledgement deletes
+        exactly what the committed row names."""
+        from pathlib import Path as _P
+
+        from app.processing.ingest.tasks_vrt import ingest_vrt, resolve_vrt_source_path
+
+        admin_id = await self._admin(test_db_session)
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        member_path = _P(
+            resolve_vrt_source_path(member.asset.asset_uri, tenant_id=None)
+        )
+        member_path.parent.mkdir(parents=True, exist_ok=True)
+        member_path.write_bytes(_geotiff_bytes(seed=1))
+        # Read before the expire_all below: an expired attribute lazy-loads,
+        # and under AnyIO that raises MissingGreenlet (see _purge_vrt).
+        member_ds = member.dataset.id
+        member_rec = member.dataset.record_id
+
+        job = IngestJob(
+            source_filename="mosaic.vrt",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"title": "Ack-lost mosaic", "visibility": "public"},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        vrt_ds = vrt_rec = None
+        try:
+            with _ack_lost_on_publish(
+                job_id, failure=ConnectionResetError("dropped")
+            ) as fired:
+                with pytest.raises(ConnectionResetError):
+                    await ingest_vrt.func(
+                        job_id=str(job_id),
+                        source_dataset_ids=_json.dumps([str(member_ds)]),
+                        user_id=str(admin_id),
+                        attempt_id=str(attempt_id),
+                        vrt_type="mosaic",
+                        resolution_strategy="finest",
+                    )
+            assert fired["count"] == 1, "the publishing commit never fired"
+
+            test_db_session.expire_all()
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished.status == "complete"
+            vrt_ds = finished.dataset_id
+            assert vrt_ds is not None
+            vrt_rec = (
+                await test_db_session.execute(
+                    select(Dataset.record_id).where(Dataset.id == vrt_ds)
+                )
+            ).scalar_one()
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == vrt_ds)
+                )
+            ).scalar_one()
+            assert await raster_storage.exists(asset.asset_uri), (
+                f"{asset.asset_uri} was deleted after the commit that published it"
+            )
+        finally:
+            await test_db_session.execute(
+                delete(IngestJob).where(IngestJob.id == job_id)
+            )
+            await test_db_session.commit()
+            if vrt_ds is not None and vrt_rec is not None:
+                await _purge_vrt(
+                    test_db_session,
+                    ids=(vrt_ds, vrt_rec, member_ds, member_rec),
+                )
+            else:
+                await _purge(
+                    test_db_session, dataset_id=member_ds, record_id=member_rec
+                )
+
+    def test_every_publish_tail_gates_its_reap_on_the_probe(self) -> None:
+        """Structural, because the finding is a SHAPE.
+
+        Each tail's orphan reap must be gated on a name the probe assigns, not
+        on a flag set after the commit returned. A fifth tail written the old
+        way, or a revert of one of these four, fails here.
+        """
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_raster, tasks_raster_replace, tasks_vrt
+
+        checked = 0
+        for module in (tasks_raster, tasks_raster_replace, tasks_vrt):
+            tree = ast.parse(inspect.getsource(module))
+            for func in ast.walk(tree):
+                if not isinstance(func, (ast.AsyncFunctionDef, ast.FunctionDef)):
+                    continue
+                probed = {
+                    target.id
+                    for node in ast.walk(func)
+                    if isinstance(node, ast.Assign)
+                    and isinstance(node.value, ast.Await)
+                    and isinstance(node.value.value, ast.Call)
+                    and getattr(node.value.value.func, "id", None)
+                    == "publish_commit_landed"
+                    for target in node.targets
+                    if isinstance(target, ast.Name)
+                }
+                for node in ast.walk(func):
+                    if not isinstance(node, ast.Try) or not node.finalbody:
+                        continue
+                    for stmt in node.finalbody:
+                        for guard in ast.walk(stmt):
+                            if not isinstance(guard, ast.If):
+                                continue
+                            reaps = any(
+                                isinstance(call, ast.Call)
+                                and getattr(call.func, "id", None)
+                                == "_cleanup_orphaned_storage_keys"
+                                for body in guard.body
+                                for call in ast.walk(body)
+                            )
+                            if not reaps:
+                                continue
+                            names = {
+                                n.id
+                                for n in ast.walk(guard.test)
+                                if isinstance(n, ast.Name)
+                            }
+                            assert names & probed, (
+                                f"{module.__name__}.{func.name} reaps written "
+                                "storage keys behind a guard the commit probe "
+                                f"never wrote (guard reads {sorted(names)}, "
+                                f"probe assigns {sorted(probed)})"
+                            )
+                            checked += 1
+        assert checked == 4, (
+            f"expected the four publish tails, walked {checked} — a tail was "
+            "added or removed without updating this gate"
+        )

@@ -38,8 +38,10 @@ from app.platform.storage import get_storage
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    _cleanup_staging_on_failure,
     task_app,
 )
+from app.processing.ingest.tasks_raster_common import publish_commit_landed
 
 
 def _prior_generation_storage_keys_to_reap(
@@ -401,7 +403,13 @@ async def ingest_vrt(
     # later phase-2 step) reaps the VRT + quicklook bytes instead of orphaning
     # them forever — the GAP-017 guard ingest_raster already has.
     written_storage_keys: list[str] = []
-    final_status = "failed"
+    # fix(#1778): "the VRT and its quicklooks are published", set at the
+    # terminal commit and nowhere else. It replaces the `final_status` string
+    # this reap used to read, because that string was set on the line after the
+    # commit: a commit whose acknowledgement was lost left it "failed" and the
+    # reap deleted the artifact a durably committed RasterAsset names. See
+    # `publish_commit_landed`.
+    publish_committed: bool = False
     heartbeat_task: asyncio.Task[None] | None = None
 
     try:
@@ -613,8 +621,14 @@ async def ingest_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
-                await session.commit()
-                final_status = "complete"
+                try:
+                    await session.commit()
+                except BaseException:
+                    publish_committed = await publish_commit_landed(
+                        job_uuid, attempt_uuid, job_id=job_id, task="ingest_vrt"
+                    )
+                    raise
+                publish_committed = True
 
                 # Invalidate cache
                 await invalidate_catalog_cache()
@@ -630,36 +644,44 @@ async def ingest_vrt(
                 raise
 
     except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
-        structlog.get_logger().exception(
-            "Ingest task failed",
-            extra={"job_id": job_id, "task": "ingest_vrt"},
-        )
-        # Write failure status via a fresh session.
+        # fix(#1778): write failure status via a fresh session, through the
+        # same shared helper the re-upload doors use. This tail used to paste a
+        # narrower copy of the UPDATE and emitted no `ingest_failed`
+        # notification, so a VRT build failure was silent to an operator who
+        # had failure mail on. `staging_table=""` because a VRT build has no
+        # staging table — its artifacts are the object keys the `finally`
+        # below reaps.
         async with async_session() as err_session:
-            from sqlalchemy import update as sa_update
-
-            await err_session.execute(
-                sa_update(IngestJob)
-                .where(
-                    IngestJob.id == job_uuid,
-                    IngestJob.attempt_id == attempt_uuid,
-                    IngestJob.status == "running",
+            err_job = (
+                await err_session.execute(
+                    select(IngestJob).where(
+                        IngestJob.id == job_uuid,
+                        IngestJob.attempt_id == attempt_uuid,
+                    )
                 )
-                .values(
-                    status="failed",
-                    error_message=str(exc),
-                    completed_at=datetime.now(timezone.utc),
+            ).scalar_one_or_none()
+            if err_job is not None:
+                await _cleanup_staging_on_failure(
+                    err_session,
+                    staging_table="",
+                    job=err_job,
+                    exc=exc,
+                    task_name="ingest_vrt",
+                    attempt_id=attempt_uuid,
                 )
-            )
-            await err_session.commit()
+            else:
+                structlog.get_logger().exception(
+                    "Ingest task failed",
+                    extra={"job_id": job_id, "task": "ingest_vrt"},
+                )
         raise
     finally:
         await stop_ingest_job_heartbeat(heartbeat_task)
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        # fix(#430 BA-30): reap storage bytes written before a non-complete terminal
-        # status (mirrors ingest_raster's GAP-017 guard).
-        if final_status != "complete" and written_storage_keys:
+        # fix(#430 BA-30): reap storage bytes written before a terminal commit
+        # that never became durable (mirrors ingest_raster's GAP-017 guard).
+        if not publish_committed and written_storage_keys:
             from app.processing.ingest.tasks_raster import (
                 _cleanup_orphaned_storage_keys,
             )
@@ -754,7 +776,11 @@ async def regenerate_vrt(
     generation_heartbeat_task: asyncio.Task[None] | None = None
     written_storage_keys: list[str] = []
     prior_storage_keys: list[str] = []
-    final_status = "failed"
+    # fix(#1778): same fence as `ingest_vrt` above, for the same reason — the
+    # generation swap and the job's terminal write share one transaction, so a
+    # lost acknowledgement must not let the reap delete the generation the
+    # RasterAsset now points at. See `publish_commit_landed`.
+    publish_committed: bool = False
 
     try:
         # ----------------------------------------------------------------- #
@@ -1222,8 +1248,14 @@ async def regenerate_vrt(
                         "completed_at": datetime.now(timezone.utc),
                     },
                 )
-                await session.commit()
-                final_status = "complete"
+                try:
+                    await session.commit()
+                except BaseException:
+                    publish_committed = await publish_commit_landed(
+                        job_uuid, attempt_uuid, job_id=job_id, task="regenerate_vrt"
+                    )
+                    raise
+                publish_committed = True
 
                 from app.processing.ingest.tasks_raster import (
                     _cleanup_orphaned_storage_keys,
@@ -1302,7 +1334,7 @@ async def regenerate_vrt(
         await stop_ingest_job_heartbeat(heartbeat_task)
         if tmp_dir:
             shutil.rmtree(tmp_dir, ignore_errors=True)
-        if final_status != "complete" and written_storage_keys:
+        if not publish_committed and written_storage_keys:
             from app.processing.ingest.tasks_raster import (
                 _cleanup_orphaned_storage_keys,
             )

@@ -73,6 +73,7 @@ from app.processing.ingest.tasks_raster_common import (
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
     extract_source_raster_metadata,
+    publish_commit_landed,
 )
 from app.processing.ingest.tasks_raster_swap import (
     _prior_asset_keys_to_reap,
@@ -684,7 +685,18 @@ async def reupload_raster(
                 schema_diff=None,
                 contacted_origin=False,
             )
-            await session.commit()
+            try:
+                await session.commit()
+            except BaseException:
+                # fix(#1778): the one await on this path whose outcome is
+                # genuinely unknown — see `publish_commit_landed`. A lost
+                # acknowledgement left the flag below false, and the terminal
+                # cleanup then deleted the three keys the committed
+                # RasterAsset had just been pointed at.
+                swap_committed = await publish_commit_landed(
+                    job_uuid, attempt_uuid, job_id=job_id, task="reupload_raster"
+                )
+                raise
             # fix(#1290 review): set in the same breath as the commit, and read
             # by the terminal cleanup instead of `final_status`. These are two
             # different facts and the cleanup needs this one: "the replacement
