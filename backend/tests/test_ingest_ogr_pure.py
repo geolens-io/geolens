@@ -1066,6 +1066,16 @@ class TestFriendlyOpenFailureMessage:
         assert "/app/staging" not in msg
 
 
+def _sanitize(value: "str | None") -> "str | None":
+    """`_sanitize_authorization_token` for a WFS job (fix(#1746 B2b r3)).
+
+    The format only selects the builder's allowlist branch, and both
+    header-auth formats compose an identical bearer line, so every case below
+    reads the same for `ogcapi_features`.
+    """
+    return _sanitize_authorization_token(value, service_format="wfs")
+
+
 class TestSecFu04SanitizeAuthorizationToken:
     """SEC-FU-04: the credential header LINE filter, before the header file.
 
@@ -1085,7 +1095,7 @@ class TestSecFu04SanitizeAuthorizationToken:
             "Authorization: Bearer "
             "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_value-"
         )
-        assert _sanitize_authorization_token(line) == line
+        assert _sanitize(line) == line
 
     def test_sec_fu_04_a_basic_line_passes_through_unchanged(self):
         """The encoded output of a validated username and password.
@@ -1095,46 +1105,64 @@ class TestSecFu04SanitizeAuthorizationToken:
         alone rather than to every line.
         """
         line = "Authorization: Basic dXNlcjpwYSsvd29yZA=="
-        assert _sanitize_authorization_token(line) == line
+        assert _sanitize(line) == line
 
     def test_sec_fu_04_a_named_api_key_line_passes_through_unchanged(self):
         line = "X-Api-Key: not-a-real-key-value"
-        assert _sanitize_authorization_token(line) == line
+        assert _sanitize(line) == line
 
     def test_sec_fu_04_crlf_injection_raises_value_error(self):
         """A line carrying CR/LF raises ValueError naming SEC-FU-04."""
         line = "Authorization: Bearer valid.jwt.sig\r\nX-Smuggled-Header: evil"
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(line)
+            _sanitize(line)
         msg = str(exc_info.value)
         assert "SEC-FU-04" in msg
 
     def test_sec_fu_04_a_second_separator_raises_value_error(self):
         """Two ``: `` separators are two headers, whatever the writer intended."""
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("X-Api-Key: a: b")
+            _sanitize("X-Api-Key: a: b")
         assert "SEC-FU-04" in str(exc_info.value)
 
-    def test_sec_fu_04_a_bare_token_raises_value_error(self):
-        """The pre-D9 wire value is not a line, and is refused as one.
+    def test_sec_fu_04_a_legacy_bare_token_becomes_its_line(self):
+        """fix(#1746 B2b review r3): the pre-#1770 wire value keeps working.
 
-        Named rather than incidental: a rolling deploy in which an old API
-        dispatches a bare token to a new worker fails here, loudly, rather
-        than writing a header file with no field name in it.
+        A worker that starts while authenticated WFS or OGC API jobs are
+        already queued reads a bare bearer token out of the queue row, or out
+        of the credential store behind a reference the old door stashed.
+        Refusing it would fail every one of those deterministically at the
+        next deploy or restart, and would spend the single-use credential
+        before ogr2ogr started. It is composed into the line the current door
+        would have produced, by the same builder.
         """
-        with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig")
-        assert "SEC-FU-04" in str(exc_info.value)
+        token = "not-a-real-legacy-token"
+        assert _sanitize(token) == f"Authorization: Bearer {token}"
+
+    def test_sec_fu_04_a_legacy_token_outside_the_charset_still_raises(self):
+        """Neither a valid line nor a value the previous version dispatched.
+
+        The old door enforced the base64url charset and the length floor on
+        this exact value, so a token failing them was never dispatchable and
+        the compatibility branch must not widen what is accepted.
+        """
+        for bad in ("short", "has spaces here", "plus+slash/", "sig\r\nX-Evil: 1"):
+            with pytest.raises(ValueError) as exc_info:
+                _sanitize(bad)
+            assert "SEC-FU-04" in str(exc_info.value)
+            # Policy-only: from here a bad line and a bad legacy token are
+            # indistinguishable, and neither names the value.
+            assert bad not in str(exc_info.value)
 
     def test_sec_fu_04_an_invalid_field_name_raises_value_error(self):
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("Bad Name: value")
+            _sanitize("Bad Name: value")
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_whitespace_in_the_bearer_token_raises_value_error(self):
         """A space inside the token is refused by the bearer charset."""
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("Authorization: Bearer valid jwt sig")
+            _sanitize("Authorization: Bearer valid jwt sig")
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_unicode_raises_value_error(self):
@@ -1145,18 +1173,18 @@ class TestSecFu04SanitizeAuthorizationToken:
         been claimed.
         """
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("X-Api-Key: signaturé")  # U+00E9
+            _sanitize("X-Api-Key: signaturé")  # U+00E9
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_empty_string_raises_value_error(self):
         """Empty string raises ValueError (operator misconfiguration guard)."""
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("")
+            _sanitize("")
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_none_returns_none(self):
         """None passes through unchanged (the no-token path from the calling code)."""
-        assert _sanitize_authorization_token(None) is None
+        assert _sanitize(None) is None
 
     def test_sec_fu_04_only_the_bearer_branch_names_a_character(self):
         """fix(#1746): the message is policy-only for every other method.
@@ -1169,10 +1197,10 @@ class TestSecFu04SanitizeAuthorizationToken:
         """
         password_char = "é"
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(f"Authorization: Basic dXNlcj{password_char}")
+            _sanitize(f"Authorization: Basic dXNlcj{password_char}")
         assert password_char not in str(exc_info.value)
         assert "{" not in str(exc_info.value)
 
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token("Authorization: Bearer valid.jwt.sig!")
+            _sanitize("Authorization: Bearer valid.jwt.sig!")
         assert "!" in str(exc_info.value)

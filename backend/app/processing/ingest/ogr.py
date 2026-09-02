@@ -19,6 +19,10 @@ from app.core.service_tokens import (
     HEADER_NAME_CHARSET,
     HEADER_TOKEN_CHARSET,
     HEADER_TOKEN_MIN_LENGTH,
+    CredentialMethod,
+    ServiceCredential,
+    build_credential_header,
+    credential_header_line,
 )
 from app.core.url_redaction import redact_url_credentials
 
@@ -141,7 +145,39 @@ HEADER_LINE_VALUE_POLICY = (
 )
 
 
-def _sanitize_authorization_token(header_line: "str | None") -> "str | None":
+def _legacy_bearer_line(token: str, service_format: str) -> str:
+    """The line a pre-#1770 queued job's bare bearer token would have become.
+
+    Composed by ``build_credential_header``, not here: this module writes the
+    header file and validates what it is given, and the single-producer rule
+    (``tests/test_credential_producer_structural.py``) exists so no second
+    place in the tree can grow a prefix of its own. The builder applies the
+    same base64url charset and length floor the previous version enforced on
+    this exact value, so a token it refuses was never dispatchable anyway and
+    the answer is the shape policy rather than a bearer-specific message: from
+    here the two cases are indistinguishable, and the value is not named.
+    """
+    try:
+        pair = build_credential_header(
+            ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format=service_format,
+                token=token,
+            )
+        )
+    except ValueError:
+        raise ValueError(HEADER_LINE_SHAPE_POLICY) from None
+    if pair is None:
+        # A service format that carries no header at all. The caller gates on
+        # the two that do, so this is unreachable from the one call site and
+        # exists because a silent empty line would be worse than a refusal.
+        raise ValueError(HEADER_LINE_SHAPE_POLICY)
+    return credential_header_line(pair)
+
+
+def _sanitize_authorization_token(
+    header_line: "str | None", *, service_format: str
+) -> "str | None":
     """SEC-FU-04: pin the credential header line to the shared policy.
 
     What crosses from the door to this worker is one finished header line
@@ -173,13 +209,34 @@ def _sanitize_authorization_token(header_line: "str | None") -> "str | None":
     character of a password across all four sinks is not a debugging aid worth
     having.
 
-    Returns the line unchanged when it satisfies the policy, raises ValueError
-    with a SEC-FU-04-prefixed message otherwise. None passes through.
+    fix(#1746 B2b review r3): a value with no separator is the PRE-#1770 wire
+    format, and it has to keep working. A worker that starts while
+    authenticated WFS or OGC API jobs are already queued reads a bare bearer
+    token out of ``procrastinate_jobs.args``, or out of the credential store
+    behind a reference the old door stashed. Refusing it would fail every one
+    of those deterministically at the next deploy or restart, which is worse
+    than the skew #1689 accepted at this door: that one degraded to a 401 the
+    operator could retry, and this would spend the single-use credential and
+    fail before ogr2ogr started. So a bare value that satisfies the charset the
+    previous version enforced is composed into the line it would have produced,
+    through the same builder every other caller uses rather than by a second
+    prefix in this module. Anything that is neither a valid line nor a valid
+    bare token still raises the shape policy.
+
+    ``service_format`` selects the builder's allowlist branch. Both header-auth
+    formats compose an identical bearer line, so it changes no output; passing
+    the caller's real value rather than a constant is what keeps the builder
+    the authority on which formats may carry a header at all.
+
+    Returns the line the file should hold, raises ValueError with a
+    SEC-FU-04-prefixed message otherwise. None passes through.
     """
     if header_line is None:
         return None
     name, separator, value = header_line.partition(HEADER_LINE_SEPARATOR)
-    if not separator or not value or HEADER_LINE_SEPARATOR in value:
+    if not separator:
+        return _legacy_bearer_line(header_line, service_format)
+    if not value or HEADER_LINE_SEPARATOR in value:
         raise ValueError(HEADER_LINE_SHAPE_POLICY)
     if not name or any(character not in HEADER_NAME_CHARSET for character in name):
         # The field-name GRAMMAR, and deliberately not the door's denylist of
@@ -1099,7 +1156,7 @@ async def run_ogr2ogr_service(
             # log like a credential problem rather than a bug. The one composer
             # is `build_credential_header`, and it ran at the door.
             header_line = _sanitize_authorization_token(
-                token
+                token, service_format=service_type
             )  # SEC-FU-04: raises ValueError before subprocess
             # Write the header to a 0600 tempfile under the staging dir
             # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600

@@ -48,6 +48,7 @@ from app.modules.catalog.sources.adapters.wfs import probe_wfs
 from app.platform import security
 from app.platform.security import SSRFError, make_safe_client
 from app.processing.ingest import tasks_vector
+from app.processing.ingest import ogr as ogr_mod
 from app.processing.ingest.ogr import run_ogr2ogr_service
 
 # fix(#1746 codex r2): autouse where imported — the credential header lands in
@@ -893,3 +894,98 @@ class TestAPreviewFailureCarriesNoCredential:
         assert blob not in str(captured)
         # And the chained original cannot carry it either.
         assert raised.value.__cause__ is None
+
+
+# ---------------------------------------------------------------------------
+# The queue this worker inherits from the version before it
+# ---------------------------------------------------------------------------
+
+
+class TestALegacyQueuedTokenStillImports:
+    """fix(#1746 B2b review r3): a deploy must not fail the jobs already in flight.
+
+    Plan D9 changed what travels under the `token` kwarg from a bare bearer
+    token to a finished header line. A worker that starts while authenticated
+    WFS or OGC API jobs are already queued reads the OLD shape, out of
+    `procrastinate_jobs.args` or out of the credential store behind a reference
+    the previous door stashed. Refusing it would fail every one of those
+    deterministically at the next deploy or restart, and would spend the
+    single-use credential before ogr2ogr started, which is worse than the skew
+    #1689 accepted here: that one degraded to a 401 the operator could retry.
+
+    The compatibility branch is exactly as wide as the old door was, and the
+    line it produces comes from the same builder as every other line.
+    """
+
+    @pytest.mark.parametrize("service_type", ["wfs", "ogcapi_features"])
+    async def test_a_bare_token_reaches_ogr2ogr_as_the_composed_line(
+        self, monkeypatch, service_type
+    ) -> None:
+        token = "tok" + _value()
+        capture = _CapturedRun()
+        _capture_subprocess(monkeypatch, capture, payload=None)
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_WFS_URL}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type=service_type,
+            # The pre-#1770 wire value, exactly as the old door dispatched it.
+            token=token,
+            schema="data",
+        )
+
+        assert capture.header_bytes == (
+            f"Authorization: Bearer {token}\n".encode("ascii")
+        )
+        assert _DOUBLE_PREFIX not in capture.header_bytes.decode("ascii")
+        assert capture.env[_REDIRECT_PIN] == "NO"
+
+    async def test_a_value_that_is_neither_shape_still_refuses(
+        self, monkeypatch
+    ) -> None:
+        """The branch widens compatibility, not what may reach libcurl."""
+        from app.processing.ingest.ogr import HEADER_LINE_SHAPE_POLICY
+
+        spawned: list = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            spawned.append(cmd)
+            raise AssertionError("ogr2ogr must not be spawned for a refused value")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ValueError) as raised:
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_WFS_URL}",
+                layer_name="topp:parcels",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                # Not a line, and outside the charset the old door enforced.
+                token="plus+slash/" + _value(),
+                schema="data",
+            )
+
+        assert str(raised.value) == HEADER_LINE_SHAPE_POLICY
+        assert spawned == []
+
+    def test_the_compatibility_branch_composes_nothing_of_its_own(self) -> None:
+        """The single-producer rule holds through the legacy path.
+
+        A prefix written here would be a second producer in the module the
+        whole gate exists to keep clean, and it would be invisible to the AST
+        rule because this module's write site is allowlisted for a different
+        reason (the line arrives as a task argument).
+        """
+        source = inspect.getsource(ogr_mod._legacy_bearer_line)
+        assert "build_credential_header(" in source
+        assert "credential_header_line(" in source
+        assert "Bearer" not in source

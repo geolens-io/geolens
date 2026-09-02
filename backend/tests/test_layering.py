@@ -4115,3 +4115,3409 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # preview door converts its own `auth` object the way the four siblings
     # do. Cap 1294 -> 1306, exact.
     "backend/app/modules/catalog/datasets/api/router_reupload.py": 1306,
+    # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
+    # other creation path, so a post-migration VRT does not report null while
+    # a backfilled one carries a timestamp, with a note on why it is a Python
+    # datetime and not func.now(). Cap 1071 -> 1078, exact.
+    # fix(#1290 review): +28 — `last_regenerated_at` is stamped with the instant
+    # the member snapshot was READ rather than the instant the VRT was
+    # published. Most of the added lines are the comment: the field names the
+    # state the artifact was built FROM, so a member replaced during the build
+    # now reports stale instead of being vouched for as healthy, and the
+    # clock-authority finding (both sides are app-side UTC, so no DB round trip
+    # is needed and moving one side alone would break it) has to be written
+    # down where the next reader will look. Cap 1078 -> 1106, exact.
+    # fix(#1290 review, round 10): +12 net — snapshot_member_sources extracted
+    # so BOTH VRT tails read their members through one function that stamps
+    # before it reads. The creation tail had no snapshot at all and the
+    # regenerate tail captured one after its query; putting the order inside
+    # the only function that does the read makes the wrong order unwritable
+    # rather than merely discouraged. Cap 1106 -> 1118, exact.
+    # fix(#1290 review, round 12): +22 — built_from_map plus its persistence in
+    # both tails. Staleness stopped being a timestamp comparison and became a
+    # state one: the published VRT records the member URIs it was assembled
+    # from, and health compares what-is against what-was-built-from. Postgres
+    # cannot stamp commit time from inside a transaction, so no clock scheme
+    # could express "committed after my snapshot" — three rounds of timestamp
+    # fixes each left a window. Cap 1118 -> 1140, exact.
+    # feat(#1267): +10 — the dataset's last_refreshed_at is stamped at the
+    # generation's own completed_at instant, in the same transaction as the
+    # generation swap, so source_freshness (#1224) reads a live signal for a
+    # VRT instead of the creation-time floor forever. Most of the lines are
+    # the comment recording why it reuses generation.completed_at rather than
+    # a fresh now() call. Cap 1140 -> 1150, exact.
+    # fix(#1327): +150 — the compensable-links pattern lives here: two helpers
+    # (staged_source_ids_or_none, apply_staged_source_links) plus the phase-1
+    # switch to the staged member set, the member-still-exists check that fails
+    # a run whose staged source vanished, and the apply inside the publish
+    # transaction. Most of the lines are the reasoning: why NULL means "changes
+    # no membership", why apply is an upsert rather than delete-and-insert, and
+    # why the applied list is the one the build read. Cap 1150 -> 1300, exact.
+    # fix(#1327 codex P1): +44 — a second registered task name,
+    # `regenerate_vrt_staged`, that forwards to the same body. It is the
+    # rolling-deploy gate: a pre-#1327 worker has no such task and fails the
+    # job (procrastinate TaskNotFound) instead of rebuilding from the live
+    # links and reporting success, which would silently drop an accepted add or
+    # remove. Nearly all of the lines are the comment recording why a marker
+    # KWARG could not do this (the old signature ends in `**kwargs`, so an
+    # unknown keyword is swallowed) and where the refused delivery lands.
+    # Cap 1300 -> 1344, exact.
+    # fix(#1329 follow-up): +10 — bump tile_cache_version in the VRT swap
+    # transaction; the third pointer-swap door finally rolls the version.
+    # fix(#1778): +32 — both VRT tails guard their publishing COMMIT with the
+    # shared `publish_commit_landed` probe and reap on what it observed rather
+    # than on a flag set after the await returned, and `ingest_vrt`'s terminal
+    # failure write moves to the shared `_cleanup_staging_on_failure` so a
+    # failed build finally emits `ingest_failed`. The dead `final_status`
+    # string both functions no longer read is gone. Cap 1354 -> 1386, exact.
+    # fix(#1778 codex r1): +56 — both VRT tails STAND DOWN on an observed
+    # publish (return instead of re-raising) and both failure handlers refuse
+    # to run at all once the publish is durable, because the generation write
+    # is not fenced the way the job and asset writes are and `get_vrt_status`
+    # plus the stale-generation sweep read what it stamps. The generation
+    # update also gained its own `status != 'completed'` fence, so the rule is
+    # stated at the write and not only at the caller. Most of the lines are the
+    # two handler comments naming the reader each false failure reaches.
+    # Cap 1386 -> 1442, exact.
+    # fix(#1778 codex r2): +38 — the superseded-generation reap is a named
+    # helper called from both the success path and the stand-down, because it
+    # is the only deletion of the previous generation's artifact and a
+    # stand-down that skipped it stranded bytes no row references and no quota
+    # counts. `ingest_vrt` records that it has nothing to reap on that path.
+    # Cap 1442 -> 1480, exact.
+    # fix(#1778): +16. The storage keys are registered before their puts
+    # rather than after (a cancelled put can have completed), the two in-thread
+    # source reads go through the safe-open-env wrappers in `raster/vrt.py`, and
+    # `create_vrt_dataset` accepts a caller-chosen dataset id so the manifest
+    # tail can name its object keys before phase 2 opens. Cap 1480 -> 1496.
+    # fix(#1778 codex r3): +34. The two safe-env wrappers moved here from
+    # `raster/vrt.py` and call `extract_raster_metadata` / `generate_quicklook`
+    # through this module's globals. Those two names are patch targets for the
+    # VRT integration and source-management suites, and putting the wrappers in
+    # `raster/vrt.py` with function-level imports removed the attributes AND
+    # would have made the patches no-ops once restored. The docstrings say so,
+    # because the next reader will want to move them back. Cap 1496 -> 1530.
+    # fix(#1778 codex r4): +38. `ingest_vrt` puts the VRT and its quicklooks
+    # before the terminal commit and recorded nothing, so a kill in between
+    # lost `written_storage_keys` with the process AND rolled back the dataset
+    # id the keys embed. It now preselects that id and records the intended
+    # keys on the job row first, the way `ingest_raster` does. Most of the
+    # growth is the comment saying why the id is decided outside phase 2.
+    # Cap 1530 -> 1568, exact.
+    # fix(#1778 audit): +7. record_unpublished_storage_keys now reports a
+    # confirmed fence miss rather than silently committing nothing, and this
+    # call site checks it: a miss means a retry has already superseded this
+    # attempt, so it returns before generating quicklooks or ever reaching
+    # phase 2, instead of relying on phase 2's own attempt-fenced load to
+    # catch it downstream. Cap 1568 -> 1575, exact.
+    # fix(#1778 audit r11): +25. Neither of this file's two "phase 2" blocks
+    # goes through `_job_phase_session` (they predate the helper and match
+    # the fence by hand), so both gain `IngestJob.status == "running"`
+    # directly in their own SELECT, matching the sibling tails. The
+    # `ingest_vrt` one closes the same object-storage leak the other raster
+    # tails' phase 2 does; the `regenerate_vrt` one closes a job-completion
+    # race the existing `current_generation_id` check does not cover, since
+    # that field lives on a different row than `ingest_jobs.status` and the
+    # sweep never touches it. Cap 1575 -> 1600, exact.
+    # fix(#1778 audit r12): +28. `ingest_vrt`'s hand-matched phase-2 SELECT
+    # gains `.with_for_update(key_share=True)`, the same TOCTOU close as the
+    # other two raster tails, since its puts sit inside this same session
+    # exactly like theirs do. `regenerate_vrt`'s own phase-2 SELECT is
+    # deliberately left unlocked -- most of the growth here is the comment
+    # explaining why: it loads the job row before a RasterAsset row a few
+    # lines down, and `cancel_job` locks those two in the opposite order for
+    # a vrt_regenerate job specifically to avoid an AB-BA deadlock with this
+    # worker, so locking the job row here first would reopen that cycle. Cap
+    # 1600 -> 1628, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1628,
+    # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
+    # A completed presigned job points file_path at its frozen copy, so this
+    # reaper never touched the key the client's PUT URL can still recreate.
+    # Ownership comes from owned_presigned_staging_key, which refuses a
+    # fan-out child's inherited parent key. Cap 1058 -> 1087, exact.
+    # fix(#1202 review r5b): -12 — that block moved to
+    # `tasks_common.reap_presigned_staging_object` so the raster tail could
+    # share it. Ratchet DOWN in the same commit, per the no-headroom rule.
+    # Cap 1087 -> 1075, exact.
+    # fix(#1207): +1 — the reap call gained the final_status keyword when the
+    # terminal-status guard moved into the shared helper.
+    # fix(#1213 review r2): -16 — the inline BA-09 block became a call to the
+    # shared helper. Ratchet DOWN in the same commit.
+    # fix(#1213 review r4): -1 — the now-dead file_path argument dropped from
+    # the call. Ratchet DOWN in the same commit.
+    # fix(#1213 review r6): +4 — the caller states its retry semantics.
+    # feat(#1218): +11 — both finalize call sites now pass their origin_ref.
+    # The service one keeps the base URL and layer id as separate keys so a
+    # refresh can re-address the layer without re-parsing the enriched URI.
+    # Cap 1063 -> 1074, exact.
+    # fix(#1218 review r3): +16 — the service ref records the SERVICE-NATIVE
+    # layer identifier via service_layer_identity, so WFS/OGC rows name their
+    # typename instead of storing nothing. Most of it is the comment recording
+    # that build_gdal_source makes id and name mutually exclusive per service,
+    # which is why one key suffices. Cap 1074 -> 1090, exact.
+    # fix: +3 — pass original_filename (job.source_filename) to run_ogrinfo
+    # and run_ogr2ogr so a corrupt vector upload gets a friendly message
+    # instead of GDAL's raw driver-enumeration stderr. Cap 1090 -> 1093, exact.
+    # fix(#1675): -10 — the inline paged loop moved to tasks_common's shared
+    # run_paged_arcgis_service_fetch. Cap 1093 -> 1083, exact.
+    # feat(tier-1 vector import): +2 — source_format is resolved once, before
+    # step 3b instead of after it, because the DBF field-name-truncation
+    # warning is Shapefile-only and a File Geodatabase now arrives in a .zip
+    # too. The derivation itself moved out to ingest/source_format.py, shared
+    # with the reupload path. Cap 1083 -> 1085, exact.
+    # feat(#1676): +32 — `ingest_service` accepts a `credential_ref` and
+    # redeems it once. Nearly all of it is two comments: why the claim sits
+    # AFTER phase 1 (the failure write below is fenced on `status == 'running'`,
+    # which phase 1 is what sets, so claiming earlier would leave a
+    # `credential_expired` failure unrecorded and the job pending until the
+    # stale sweep), and why the failure handler now scrubs the claimed secret
+    # by exact value the way `reupload_service` does — this task holds the
+    # value now, and the pattern layers only match tokens shaped like URLs.
+    # Cap 1085 -> 1117, exact.
+    # fix(#1746): +9 — `ingest_service` takes `pass_context=True` (the only
+    # way a task can learn its own queue-row id) and the
+    # `purge_token_on_failure` wrapper, plus the comment saying what the
+    # context is for. Cap 1117 -> 1126, exact.
+    # fix(#1746): +8 — the auth_required marker on a first service import's
+    # origin_ref, so a token-bearing import is refusable at the refresh door.
+    # One key and the comment saying why the value is True-or-None: absent
+    # means "not known to need auth", which is where every dataset imported
+    # before the marker sits. Cap 1126 -> 1134, exact.
+    # fix(#1746 codex r1): +9 — same narrowing of the marker comment, plus the
+    # note that the refresh door treats the key as a gate and not a verdict.
+    # Cap 1134 -> 1143, exact.
+    # fix(#1778): +18 — the upload-safety exit stops unlinking the file (the
+    # #1290 correction the two raster tails already carry), and both terminal
+    # failure writes move to the shared `_cleanup_staging_on_failure`, so a
+    # failed file or service import emits `ingest_failed` and persists a
+    # redacted message. Net of two hand-rolled UPDATE blocks and two now-unused
+    # IngestJob imports removed; the rest is the comment saying which exit owns
+    # the unlink decision. Cap 1143 -> 1161, exact.
+    # fix(#1778): +48 — `_heartbeat_service_import_progress`'s per-tick session
+    # open/write/commit/close now runs under `asyncio.shield`, split into its
+    # own `_service_import_heartbeat_tick` helper so the loop can shield the
+    # whole thing. A `.cancel()` used to be able to land mid-connect or
+    # mid-commit; asyncpg does not always finish tearing a connection down
+    # cleanly when that happens, and the leftover surfaced later, against
+    # unrelated work, as `ConnectionError: unexpected connection_lost() call`
+    # (test_ingest_progress.py's service-worker-progress test, seen in the
+    # merge queue). Cancellation can now only land at the `asyncio.sleep`
+    # between ticks. Cap 1161 -> 1209, exact.
+    # fix(#1778 codex r2): +36 — the shield alone bounded WHERE a cancel could
+    # land, not HOW LONG draining one could take: a tick stuck on something
+    # with no timeout of its own (another transaction's row lock inside
+    # `session.commit()`) could hang the drain, and with it `ingest_service`'s
+    # own `finally`, forever. `_SERVICE_IMPORT_HEARTBEAT_DRAIN_TIMEOUT_SECONDS`
+    # bounds it; `asyncio.shield` still keeps the tick itself running in the
+    # background on a timeout rather than cancelling it, so its connection
+    # still gets to close cleanly. Cap 1209 -> 1245, exact.
+    # fix(#1778 codex r3): +36 — round 2's drain deadline bounded how long the
+    # caller would WAIT for a stuck tick, but the tick's own connection stayed
+    # checked out and blocked until whatever held the lock let go, so
+    # repeated stalls could still exhaust the pool. `_service_import_
+    # heartbeat_tick` now sets `lock_timeout`/`statement_timeout` on its own
+    # transaction, so a blocked commit fails INSIDE Postgres within a few
+    # seconds and releases its connection the ordinary way; the drain deadline
+    # survives only as a safety net for what a DB-side timeout cannot cover.
+    # Cap 1245 -> 1281, exact.
+    # fix(#1778 codex r6): +3 — the timeouts move into
+    # `_job_phase_session(lock_and_statement_timeout_ms=...)` so they also
+    # cover that helper's own initial SELECT, which used to run before this
+    # function's own `SET LOCAL` calls and could stall behind a lock the row
+    # never got far enough to hit. Cap 1281 -> 1284, exact.
+    # fix(#1778 codex r11): +49 — the tick's own SELECT is a snapshot, not a
+    # lock: if this shielded tick's connection stalls past the caller's
+    # cancellation drain, the caller moves on while the tick is still alive,
+    # and `_finalize_ingest` can commit status="complete"/progress=1.0 (or a
+    # retry can rotate attempt_id) before the tick's own commit runs. An
+    # unconditional ORM commit would then overwrite that finalized row by
+    # primary key with a stale progress. The write is now a single UPDATE
+    # gated on id + attempt_id + status="running" + current_step="ogr2ogr" +
+    # progress still below what it is about to write, matching the
+    # attempt-fenced shape `_finalize_ingest` already uses via
+    # `require_ingest_job_update`; zero rows affected logs at debug and does
+    # nothing. Cap 1284 -> 1333, exact.
+    # fix(#1778 audit r11): +23, rebased onto the above rather than the 1161
+    # baseline it was originally measured against. Both of this file's
+    # "phase 2" call sites (`ingest_file`, `ingest_service`) gain
+    # `require_status="running"` on their `_job_phase_session` load. Neither
+    # writes an untracked storage object -- each phase's own terminal write
+    # already fences on status via `require_ingest_job_update`, so a
+    # fenced-out attempt cannot resurrect a failed row -- but this stops a
+    # paused, not-dead worker from running the whole finalize pipeline
+    # against a doomed row in the first place, for consistency with the
+    # raster tails. Cap 1333 -> 1356, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1356,
+    # --- entered by the inclusion rule ------------------------------------
+    # Crossed 1000 lines adding the "unable to open datasource" friendly-
+    # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
+    # regexes (GDAL's driver-enumeration line and SQLite's own "file is not
+    # a database"), the per-extension format-label table, and the message
+    # builder, plus the log-then-raise branch duplicated at both call sites'
+    # failure handling (ogrinfo's text-fallback raise and ogr2ogr's raise).
+    # Exact line count at entry.
+    # fix(codex review, #1640): +16 — a third pattern, SQLite's "database
+    # disk image is malformed" (a valid header with a corrupt interior
+    # b-tree page — distinct from "file is not a database", which is a
+    # corrupt header). Empirically confirmed against a real GPKG with a
+    # byte-flipped leaf page. Cap 1073 -> 1089, exact.
+    # fix(#1746): +7 — the GDAL bearer-header tempfile now pins dir=
+    # settings.upload_staging_dir (plus an os.makedirs and a comment
+    # explaining why) so it lands on the staging volume the stale-file
+    # sweep can reach, instead of the system tempdir. Cap 1089 -> 1096, exact.
+    # fix(#1746 codex r2): +8 — that dir is now gdal_header_dir(), the
+    # container tmpfs, not the backed-up staging volume; the os.makedirs went
+    # with it (the helper owns creating its own 0700 directory) and the rest is
+    # the comment saying why a credential file does not belong on a volume
+    # scripts/backup-entrypoint.sh archives. Cap 1096 -> 1104, exact.
+    # feat(#1746 B2b): +74. `_sanitize_authorization_token` became a header
+    # LINE validator, because under plan D9 what crosses the queue is the
+    # finished line rather than a bare token: it checks the shape, the field
+    # name and the value charset, and keeps the base64url charset and the
+    # length floor on the bearer branch alone. Most of the lines are the three
+    # policy constants (each a full sentence, none of them naming any part of
+    # a credential) and the docstring recording which branch may still name an
+    # offending character and why the other branches may not. The rest is the
+    # writer dropping its own `Authorization: Bearer ` prefix and pinning the
+    # Authorization redirect rule on the env that carries the header file.
+    # Cap 1104 -> 1178, exact.
+    # fix(#1746 B2b review r3): +57. A value with no separator is the
+    # PRE-#1770 wire format, and a worker starting on a queue that already
+    # holds authenticated jobs reads exactly that; refusing it would fail every
+    # one of them deterministically at the next deploy and spend the
+    # single-use credential before ogr2ogr started. `_legacy_bearer_line`
+    # composes it through `build_credential_header`, so this module still
+    # produces no header of its own, and the charset it accepts is the one the
+    # previous version already enforced. Most of the lines are the two
+    # docstrings recording that and the `service_format` parameter that keeps
+    # the builder the authority on which formats may carry a header.
+    # Cap 1178 -> 1235, exact.
+    "backend/app/processing/ingest/ogr.py": 1235,
+    # fix(#1778): +157 for two audit findings that both land in JIT
+    # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
+    # class, so enabling a provider stops being a way to reopen signup while
+    # the Settings screen still reads "off". The other is
+    # _reconcile_mapped_role, which re-applies group_role_mapping on a
+    # returning user's login -- the mapping used to run only on the login that
+    # created the account, so it could grant a role and never revoke one. Most
+    # of the lines are the docstring on that helper stating its four
+    # preconditions, each of which is what stops a login from taking away a
+    # role the IdP said nothing about. Cap 1031 -> 1188, exact.
+    # fix(#1778 codex r1): +61 for three round-1 P1s in the same function. The
+    # role change now goes through AdminService.set_role_from_identity_provider,
+    # so it inherits the last-admin invariant and the key_epoch bump instead of
+    # assigning user.roles directly; a refused demotion writes its own audit row
+    # and the login continues. The verified-email linking branch gets the same
+    # reconciliation the subject-link branch had, and the function docstring
+    # enumerates all three return paths so the next one added cannot miss it.
+    # Cap 1188 -> 1249, exact.
+    # fix(#1778 codex r5): +12. The audit event now fires only on a real change
+    # and carries the previous roles the role update actually started from,
+    # rather than a snapshot this coroutine took before waiting for the lock.
+    # Cap 1249 -> 1261, exact.
+    "backend/app/modules/auth/oauth/service.py": 1261,
+    # fix(#1778 codex r1): first entry, crossed _RATCHET_INCLUSION_LOC on the
+    # change that added set_role_from_identity_provider, the public seam the
+    # OAuth group-role reconciliation applies a mapped role through. It exists
+    # so that path is the SAME role change the admin router makes rather than a
+    # second, weaker copy: the admin-lifecycle advisory lock, the last-admin
+    # rule and the key_epoch bump all come from _ensure_not_last_admin and
+    # _update_user_role, which stay private. Most of the lines are the docstring
+    # saying which invariants were missing and why a refusal is not an error for
+    # an IdP-driven caller. 992 -> 1036, exact.
+    # fix(#1778 codex r4): +19. The advisory lock now covers the PROMOTION
+    # branch too. Skipping it was justified by "a promotion cannot threaten the
+    # last-admin invariant", which is true and beside the point: two OAuth
+    # callbacks for one account both entered it unserialized, and
+    # _update_user_role's delete-then-insert collided on the (user_id, role_id)
+    # primary key, failing an otherwise valid login. Cap 1036 -> 1055, exact.
+    # fix(#1778 codex r5): +43 for IdentityRoleOutcome and its docstring.
+    # set_role_from_identity_provider returned a bare bool, so a caller could
+    # not tell "applied" from "was already correct", and the loser of two
+    # concurrent promotions reported a change it had not made. It now reports
+    # applied/changed plus the previous roles read UNDER the lock, which is what
+    # lets the caller audit only a real transition. Cap 1055 -> 1098, exact.
+    "backend/app/modules/admin/service.py": 1098,
+    # fix(#1113 review): +15 — register_existing_table linearizes a
+    # pre-existing geom_4326 (savepoint + error contract mirroring the
+    # add_4326_column branch beside it); see linearize_existing_4326.
+    # Cap 1017 -> 1032, still exact.
+    # fix(#1114): +12 — register_existing_table docstring records the
+    # registered-table linear-geometry contract (linearize once at
+    # registration, no post-registration policing). Cap 1032 -> 1044.
+    # feat(#1218): +7 — register_existing_table stamps the postgis origin
+    # pointer (schema-qualified table, no connection detail: gate 2 keeps
+    # external federation out of v1). The URI and the ref's table_name are two
+    # spellings of one fact, so set_postgis_origin composes both and this call
+    # site stays one line. Cap 1044 -> 1051, exact.
+    # fix(#1218 review r2): +8 — the call site passes the _schema it resolved
+    # from the active tenant context instead of dataset.tenant_id, which is
+    # NULL on the ORM instance because the insert trigger fills that column in
+    # the database. The comment records why, so nobody "simplifies" it back to
+    # reading the row. Cap 1051 -> 1059, exact.
+    # fix(#1290 review): +14 — safe_upload_basename, extracted from the two
+    # inline `Path(x).name` copies inside save_upload_file so the
+    # archived-original key derives from the SAME normalization the upload path
+    # applies. Deriving from the raw filename split the key: the logical URI
+    # kept a path component the write stripped, so the counted row pointed at
+    # nothing. Cap 1059 -> 1073, exact.
+    # fix(#1359): +4 — register_existing_table now derives metadata for every
+    # table it registers instead of only the spatial ones, so a non-spatial
+    # registration stops landing with column_info and feature_count NULL. The
+    # added lines are the comment explaining why the branch is gone.
+    # Cap 1073 -> 1077, exact.
+    # fix(#1443): +21 — generate_table_name gains a third collision probe,
+    # against the retired-names table. The two it already had ask what exists
+    # NOW, and a delete clears both, so a deleted dataset's table name was
+    # handed straight to its successor while a tile worker could still be
+    # holding the predecessor's authorization snapshot under that name. Most of
+    # the added lines are the comment carrying that reasoning plus why the
+    # probe is unscoped by tenant (it has to agree with the catalog probe
+    # beside it, and over-collision only costs a suffix). Cap 1077 -> 1098,
+    # exact.
+    # fix(#1444 review): +21 — the same probe repeated in
+    # register_existing_table, which is the one path that takes a table name
+    # from the caller instead of generating it. Without it the whole guarantee
+    # is bypassable through the front door: recreate a physical table under a
+    # deleted public dataset's name, register it as private, and a worker still
+    # holding the predecessor's metadata authorizes anonymously against
+    # `public` while querying the successor's rows. The comment carries why it
+    # refuses rather than renaming the caller's own table. Cap 1098 -> 1119,
+    # exact.
+    # fix(#1444 review round 2): +47 — the suffix walk now keeps every candidate
+    # inside PostgreSQL's 63-byte identifier limit. Retired names accumulate
+    # forever, so a 60-char base genuinely reaches `_100`, which is 64 bytes;
+    # Postgres truncates that onto the same relation as `_10` while the catalog
+    # keeps both untruncated strings, putting two logical names on one table.
+    # The lines are `_with_collision_suffix`, three constants, the bound that
+    # refuses an exhausted namespace instead of emitting a truncatable name,
+    # and the probe prefix that has to be short enough to match a candidate
+    # whose base was trimmed — plus the comments tying those last two together,
+    # because they are only correct as a pair. Cap 1119 -> 1166, exact.
+    # fix(#1444 review round 3): +33 — the retirement probes are tenant-scoped,
+    # mirroring migration 0020's per-tenant uniqueness on datasets.table_name.
+    # Unscoped, one tenant's deletions cost every other tenant suffixes, and
+    # once the round-2 bound landed they could exhaust a shared budget and
+    # refuse a title outright. `_retired_tenant_scope` (own tenant plus the NULL
+    # scope, with the string->UUID coercion made explicit because a
+    # never-matching comparison reads as "nothing is retired") is applied at
+    # both probe sites. The comments carry why NULL binds everywhere: it is the
+    # single-tenant namespace, and where a row retired before a single -> multi
+    # transition sits, since nothing back-stamps this table. Cap 1166 -> 1199,
+    # exact.
+    # fix(#1452): +12 — the `managed` keyword and the docstring paragraph that
+    # says why it is an explicit argument rather than a guess. Registration is
+    # called both by an operator handing over a table they own and by the
+    # analysis materialize path handing over one it just CTAS'd, and delete now
+    # drops only the second; the caller is the only place that knows which.
+    # Cap 1199 -> 1211, exact.
+    # feat(#1676): +48 — `queue_ingest_job`'s service branch leases the token
+    # rather than dispatching it. The 503 branch is the bulk: unlike the two
+    # doors that stage before their commit, this runs after `commit_import` has
+    # already committed the job, so an unreachable store has to finalize the
+    # job row itself before raising or it strands a pending row until the stale
+    # sweep. The rest is the discard on the defer rollback and the comment
+    # saying the state-1/state-3 choice is not this door's to make.
+    # Cap 1211 -> 1259, exact.
+    # fix(#1689 codex r1): +25 — the rolling-deploy skew note. A worker from
+    # the previous generation takes `credential_ref` through `**kwargs` and
+    # discards it, and the review asked for a versioned task name to gate that.
+    # The comment records why the gate is the worse option (Procrastinate fails
+    # its own job on TaskNotFound but nothing writes the ingest_jobs row, so the
+    # user sees a hang instead of a retryable failure) and why the window is
+    # narrower here than at the refresh door, where #1220 accepted the same
+    # trade. Written down so the next review lands on the decision rather than
+    # re-deriving it. Cap 1259 -> 1284, exact.
+    # fix(#1709 review r2 P1): +133 — finalize_fan_out_parent: the fenced
+    # pending->fanned_out CAS, and the lost-CAS reconciliation that cancels
+    # the children this request queued (guarded status CAS, best-effort
+    # queue aborts, per-layer results rewritten to failed) so a cancel that
+    # beat the fan-out mid-loop cannot leave every child importing. Roughly
+    # a third of the lines are the docstring recording why the loser, not
+    # the cancel endpoint, owns that reconciliation — only this side knows
+    # the full child set. Cap 1284 -> 1417, exact.
+    # fix(#1709 review r5 P1): -41 — finalize_fan_out_parent's post-loop
+    # loser-reconciliation is DELETED, not kept as defense-in-depth: with
+    # the flip preceding every child (claim_fan_out_parent), the window it
+    # compensated — children existing while the parent CAS loses — is
+    # unreachable, and dead compensation code reads as a live invariant.
+    # Replaced by the smaller claim/restore pair, restore being the fenced
+    # CR-02 retry contract. Cap 1417 -> 1376, exact.
+    # fix(#1737): +26 for the geometry-column-name probe in
+    # register_existing_table. A spatial table whose geometry is not named
+    # `geom` used to register silently as a non-spatial attribute table; the
+    # probe tells that case apart from the deliberate no-geometry path (#1359)
+    # and refuses with the offending column name. Cap 1376 -> 1402, exact.
+    # fix(#1746): +48 — `_assert_header_token_dispatchable`, called by
+    # `queue_ingest_job` before it stashes anything, so a WFS/OGC token outside
+    # the base64url charset is refused with the same 422 the refresh door
+    # returns instead of burning its single-use credential and dying in
+    # ogr2ogr. It is a named helper rather than an inline block because inline
+    # pushed `queue_ingest_job` past ruff's C901 ceiling; most of the lines are
+    # its docstring, recording the failure it closes and why ArcGIS is exempt.
+    # Cap 1402 -> 1450, exact.
+    # feat(#1746): +15. `queue_ingest_job` takes a `ServiceCredential` in its
+    # own right, so a caller with no HTTP layer can queue an authenticated
+    # ingest without assembling a request body for a door to take apart (plan
+    # D2). Most of the lines are the docstring paragraph recording that, and
+    # why an unsupported method is refused here rather than dispatched as an
+    # anonymous fetch. Cap 1450 -> 1465, exact.
+    # fix(#1744): +17. One `job=` argument at each of this module's five
+    # `defer_with_orphan_guard` call sites, so the guard can stamp
+    # `commit_attempted_at` on the row before the task exists. The kwarg is
+    # required rather than optional precisely so a new dispatch site cannot be
+    # written past it, plus `create_fan_out_jobs` putting the same stamp in
+    # the metadata it commits for each child: that door runs inside a worker
+    # task and its child cannot be recreated by repeating a user action, so it
+    # is the one place the commit-to-dispatch window is worth closing
+    # outright. Cap 1465 -> 1482, exact.
+    # fix(#1774 review, codex P2): +18. `create_fan_out_jobs` resets the
+    # session in its per-layer failure handler. That commit now carries the
+    # child's dispatch marker as well as its row, and a transactional failure
+    # there left the session refusing every later statement, so one layer's
+    # deadlock failed every sibling and stranded the parent `fanned_out` with
+    # no child importing. Cap 1482 -> 1500, exact.
+    # fix(#1774 review r2, codex P2): +13. That reset expires the parent, and
+    # both the next layer and `restore_fan_out_parent_pending` read attributes
+    # off the same instance, so a synchronous read would raise MissingGreenlet
+    # and turn one layer's failure into a 500. The parent is reloaded in the
+    # same breath, and the log line reads a snapshotted id rather than the
+    # instance it just expired. Cap 1500 -> 1513, exact.
+    # feat(#1746 B2b): +25. `job_service_format` is extracted so the queue-time
+    # check and the composition read the same answer, and `queue_ingest_job`
+    # composes the wire value (plan D9) from whichever spelling its caller
+    # used: the structured credential of plan D2, or the flat bearer token the
+    # import-commit door still carries because `ServiceCommitRequest` has no
+    # `auth` object yet. Cap 1465 -> 1490, exact.
+    # fix(#1746 B2b review r1): +9. The legacy-token pre-check runs only when
+    # the flat token is the credential being dispatched: the signature promises
+    # the structured one wins when both are given, and the check judged the
+    # losing one, so a stale legacy token refused a valid credential. Most of
+    # the lines are the comment saying which value is judged where.
+    # Cap 1490 -> 1499, exact.
+    "backend/app/processing/ingest/service.py": 1513,
+    # --- entered by the inclusion rule, feat(#765) -------------------------
+    # First time this module crosses 1000. main sat at 994, six lines under the
+    # gate, so it was going to fire on whoever added next; it fired here.
+    # +38 — DerivedFromResponse. The provenance reference was typed
+    # dict[str, Any], which OpenAPI renders as additionalProperties: true, and
+    # both SDKs then generate an untyped map — the shape is exactly what a
+    # durable reference exists to carry, so leaving it untyped defeated the
+    # feature (#1045 review). The model's own docstring holds the part worth
+    # keeping: `params` stays untyped deliberately, because it is the
+    # operation's parameter dict AND it is redacted per requester, so a union
+    # of per-operation models would describe a shape visible_derived_from is
+    # free to punch holes in.
+    # +95 — the four analysis operations. Each one adds a value to both
+    # AnalysisOperation Literals, a params field with its bounds, and its row
+    # in _ANALYSIS_PARAM_OWNERS, which is what makes a param submitted to the
+    # wrong operation a 422 instead of a silently ignored key. 1032 -> 1127.
+    # fix(#1097 review): +6 for the mask_dataset_id description, on both
+    # request models. It said the field applied to clip and select_by_location
+    # and was an alternative to `mask`, while the validator requires it for
+    # every intersect and rejects a drawn mask there — so the generated SDK
+    # docs led clients to requests that always 422.
+    # fix(#1097 review): +5 for the match_count description, which said the
+    # field is null for anything but spatial_join and select_by_location while
+    # intersect returns it. This is the SOURCE the SDKs and the hand-typed
+    # frontend mirror are generated from or checked against, so it had been
+    # corrected in the mirror and left wrong here — backwards, and the reason
+    # the wrong text shipped into both SDKs.
+    # feat(#1070): +9 for DatasetResponse.metadata_warnings — the advisory
+    # warnings a metadata PATCH can attach (inherited-keyword disclosure at a
+    # visibility/status change). 1138 -> 1147.
+    # fix(#1178 review): +9 for the same field on StatusUpdateResponse — the
+    # publication status endpoints run the disclosure check too, so their
+    # response carries it. 1147 -> 1156.
+    # fix(#1183): +11 for the two record_status descriptions. Both said
+    # "draft, ready, published" — three values, omitting `internal`, and
+    # phrased as a closed set when `record_status` has no CHECK constraint
+    # and its values come from the workflow extension's status_order(). The
+    # wording now names the seam first and the community default second, so a
+    # reader cannot mistake the list for the contract. This is the SOURCE the
+    # SDKs and api.generated.ts are generated from, and #1184 already shipped
+    # a `^(draft|ready|published)$` validator read straight off it. 1156 ->
+    # 1167.
+    # fix(#727): +38 for AnalysisPreviewRequest.bbox — the field, its
+    # description, and the _validate_bbox field_validator (length, finiteness,
+    # ordering) that gives 422s an actionable message instead of a generic
+    # ST_MakeEnvelope failure. 1167 -> 1205.
+    #
+    # fix(#727 codex P2 round 1): +4 — source_feature_count's description now
+    # names the live-bbox-scoped-count and could-not-be-computed cases, so a
+    # reader of the schema (or the generated SDK docs) sees the same contract
+    # _resolve_bbox_source_count's docstring states. 1205 -> 1209.
+    #
+    # fix(#727 codex round 2): +6 — match_count's description now covers
+    # intersect's bbox-scoped total (it rides the same statement the
+    # geometry preview runs, unlike select_by_location's separate uncapped
+    # count query) now that the intersect branch actually receives bbox.
+    # 1209 -> 1215.
+    # feat(#1218): +56 — the eight read-only source-state fields on
+    # DatasetResponse. Seven mirror the new columns; `origin` is computed at
+    # the boundary rather than stored, so its description has to say so or a
+    # reader will go looking for the column. source_health and
+    # schema_drift_status carry the NULL -> "unknown" projection, which is
+    # only discoverable from the description. Cap 1215 -> 1271, exact.
+    # feat(#1224): +15 — the computed `source_freshness` field. The description
+    # spends its lines on the three things a reader cannot see from the type:
+    # that the value is derived from last_refreshed_at, update_frequency, and
+    # origin rather than stored (so nobody goes looking for a column); that a
+    # non-refreshable origin reads "unknown"; and that it is a different thing
+    # from the quality score's own freshness, which the frontend already
+    # computes under that word. Cap 1271 -> 1286, exact.
+    # feat(#1222): +47 — SourceHealthResponse (the probe endpoint's reply) and
+    # SOURCE_HEALTH_DETAIL_DESCRIPTION. Most of it is description text, and it
+    # earns its place twice over: the three health words have to mean the same
+    # thing here as on VrtSourceHealth or the UI cannot render one legend, and
+    # the detail description has to say OUT LOUD that the field is an
+    # enumerated GeoLens code rather than a message to show verbatim. It is
+    # built from the probe's own DETAIL_CODES instead of retyping the list, so
+    # the schema and the vocabulary cannot drift. Cap 1286 -> 1333, exact.
+    # feat(#1219, #1223): +56 — DatasetRefreshRunResponse and its list
+    # wrapper. Most of the growth is descriptions that state facts a reader
+    # cannot get from the field name: started_at is DISPATCH time (so queue
+    # wait is visible), ingest_job_id nulls out when the job is purged while
+    # the run survives, and the response docstring enumerates the five fields
+    # Decision 4e redacts for third-party readers. Cap 1333 -> 1389, exact.
+    # feat(#1219 amendment): +7 — claimed_at, the third timestamp. started_at
+    # is dispatch, claimed_at is when a worker picked the run up, finished_at
+    # is the outcome; queue wait is only measurable because all three exist
+    # separately, which the field's description has to say or a reader will
+    # assume two of them are redundant. Cap 1389 -> 1396, exact.
+    # feat(#1220): +39 — DatasetRefreshRequest and DatasetRefreshResponse.
+    # The request model is one optional field and most of its lines are the
+    # docstring stating what is NOT in it: no URL, no service type, no layer,
+    # because reading those server-side is the entire feature and a reader
+    # who assumes they were merely defaulted would add them back. The
+    # response carries the run id alongside the job id, and says why — the
+    # run is the durable history row that outlives the job the retention
+    # purge removes. Cap 1396 -> 1435, exact.
+    # feat(#1221): +5 — `stale` joins VrtSourceHealth.status, for a member
+    # whose own raster was replaced after the parent VRT was last built. The
+    # comment is the value: the member probes healthy and it is the PARENT
+    # that needs regenerating, which is the opposite of where `inaccessible`
+    # sends the reader. Cap 1435 -> 1440, exact.
+    # feat(#1316): +14 — origin_uri/origin_ref descriptions now state the
+    # owner-or-admin redaction inline (the same fact the field-level
+    # description already carries for every other gated field in this
+    # module), and DatasetVersionResponse gained a docstring for the same
+    # reason on file_hash/uploaded_by. Cap 1440 -> 1454, exact.
+    # fix(getgeolens.com#86 review): +4 — SourceHealthResponse's docstring
+    # claimed it shared ALL of VrtSourceHealth.status's values, which stopped
+    # being true when fix(#1221) added VrtSourceHealth's VRT-specific `stale`
+    # value without updating this cross-reference. Cap 1454 -> 1458, exact.
+    # fix(#1325): +7 — DatasetRefreshRunResponse.origin_kind's description now
+    # states the door-vs-origin distinction inline (a raster-replace run's
+    # door has no ORIGIN_KINDS counterpart), matching the CHECK constraint
+    # comment in platform/refresh/models.py and the ORIGIN_KINDS docstring in
+    # platform/dataset_origin.py. Cap 1458 -> 1465, exact.
+    # fix(#1325 review): +1 — codex caught the description overclaiming
+    # 'raster' as live behavior ("is the raster-replace door") when
+    # refresh/models.py's own comment on the same constraint says reserved,
+    # not live. Reworded to match: 'raster' is reserved for a future door
+    # label, today's raster-replace runs are still recorded 'upload'. Cap
+    # 1465 -> 1466, exact.
+    # fix(#1325 review round 3): +2 — codex found a second, live divergence
+    # the first reword still implied away: it said raster-replace 'upload'
+    # runs "match the dataset's origin", true only when the dataset's origin
+    # was already 'upload'. A STAC-imported raster's pending or failed
+    # replace run is recorded 'upload' while the dataset's origin stays
+    # 'stac' until the swap succeeds — reworded to drop the equality claim
+    # entirely and name that case. Cap 1466 -> 1468, exact.
+    # -16 — dead-code sweep: DatasetCreate deleted. The request schema had
+    # zero references across backend/cli/mcp/sdks/frontend — creation uses
+    # CreateEmptyDatasetRequest instead. Cap 1468 -> 1452, exact.
+    # feat(#1472): +21 — `attribution` on DatasetResponse and DatasetMeta, plus
+    # the NFC-normalization entry. The lines are mostly the note on the PATCH
+    # field's max_length: 5000 rather than the 1000 its neighbours use, because
+    # ManifestMetadata.attribution is NonEmptyString5000 and the ingest tail
+    # writes it straight to the column, so a 1000 bound here would accept a
+    # manifest value the dataset PATCH then refuses to round-trip.
+    # Cap 1452 -> 1473, exact.
+    # fix(#1472 review): +10 — the markup guard on `attribution`. It is the one
+    # field in this schema that reaches an HTML render context (MapLibre's
+    # attribution control assigns it to innerHTML, and MapLibre's own sanitizer
+    # keeps img/iframe/style), so it is the one that must stay plain text. The
+    # rule itself lives in core.text.reject_html_markup, shared with the
+    # manifest schema; these lines are the field_validator and the note saying
+    # why only this field carries it. Cap 1473 -> 1483, exact.
+    # feat(#1746): +16. The re-upload commit and refresh request models gain
+    # the `auth` object and the validator refusing a body that sets it and the
+    # deprecated `token` at once. Both are imported from the sources schema
+    # rather than restated here, so the four doors cannot describe the same
+    # credential four ways. Cap 1483 -> 1499, exact.
+    # feat(#1746 B2b): +17. `ReuploadServicePreviewRequest` is the fifth model
+    # to carry the `auth` object, declared last like the other four. #1760 left
+    # it out because no transport composed a header for the methods it adds;
+    # with one in place, leaving it out would mean a basic-protected service
+    # could be re-uploaded but not previewed first. Cap 1499 -> 1516, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1516,
+    # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
+    # tasks.py crossed 1000 for the first time here because the four operations
+    # are deliberately concentrated rather than spread: it grows by one branch
+    # per operation so the CTAS shape is decided in one place, the same reason
+    # every rendered statement lives in analysis_sql rather than in the preview
+    # path and the worker separately. Splitting either one PER CALLER would
+    # trade size for the drift both were built to prevent, so the growth is the
+    # design working.
+    #
+    # refactor(#1089): analysis_sql left this dict. It crossed 1000 in the same
+    # batch (662 -> 1173, later 1255) and carried the follow-up note this entry
+    # used to hold; the split has now happened. It is a package split by
+    # OPERATION FAMILY — overlay, measure, spatial_join, transform, over a
+    # shared core holding the OFFSET 0 fence, the measured ceilings, the
+    # antimeridian helper and the mask parser — and no file in it reaches the
+    # inclusion threshold, so nothing needs a cap. What survived the move and
+    # still binds: never split it by CALLER. Giving the preview path and the
+    # materialize worker their own rendering modules recreates exactly the
+    # drift the module exists to prevent, and the package docstring says to
+    # reject that proposal on sight. The per-family reasoning the #1097 review
+    # entries recorded here — NON_GROUPABLE_COLUMN_TYPES, INTERNAL_ALIAS_PREFIX
+    # and MAX_IDENTIFIER_LENGTH each landing where more than one guard reads
+    # them — now sits beside the constants themselves in analysis_sql/shared.py
+    # and analysis_sql/spatial_join.py, which is where an edit to them starts.
+    # tasks.py carries growth from BOTH sides of this rebase, so the number is
+    # re-measured rather than taken from either. #1012 added the scoped
+    # work_mem (the SET LOCAL, its budget arithmetic and the boot-time
+    # validator); this branch added one CTAS branch per operation. Each cap was
+    # correct for the tree that produced it and neither is correct for the
+    # merge, which is the conflict doing its job.
+    #
+    # fix(#1097 review): +40 on top of that, for
+    # _reject_ungroupable_overlay_columns — the worker half of the overlay type
+    # guard. The router validates a catalog SNAPSHOT and a re-upload can
+    # replace the overlay before the job runs, the same window
+    # _reject_output_column_collision beside it exists for. Types rather than
+    # names, because the live name list was already read there and would not
+    # have caught it: the column that breaks the CTAS has an ordinary name.
+    #
+    # fix(#1097 review): +91 for the live-schema rechecks. Two more guards (the
+    # reserved-alias prefix, and re-checking transferred join fields against the
+    # join layer's live columns) plus _resolve_and_validate_columns, which the
+    # set moved into rather than raising _materialize's C901 threshold: five
+    # checks over two layers share a subject the surrounding job bookkeeping
+    # does not.
+    #
+    # fix(#1097 review): +21 for re-applying the polygon requirement on the
+    # mask layer at resolve time. The router refuses a non-polygonal mask at
+    # enqueue and a re-upload can change that layer's geometry_type while the
+    # job waits, and nothing downstream notices: the mask matches no rows and
+    # the job dies on "produced no features", pointing the user at their data
+    # instead of at the layer that changed.
+    #
+    # fix(#1097 review): +22 for the second geometry strength. The mask must
+    # still be polygonal; the JOIN layer must only still be spatial, because a
+    # join counts in any direction — but a re-upload from a non-spatial source
+    # leaves no geom_4326 for render_spatial_join to reference.
+    #
+    # fix(#1097 review): +20 for _DRAWN_MASK_OPERATIONS and the note on why
+    # mask_source belongs to every operation that can take a drawn mask. The
+    # drawn geometry is deliberately excluded from provenance, so that
+    # discriminator is the only trace a drawn selection leaves — the constant
+    # is duplicated from schemas because PROCESS-02 forbids the import, and a
+    # test pins the two copies together.
+    #
+    # fix(#1097 review): +3 for linearizing the three pass-through CTAS
+    # geometry columns (measure, spatial_join, select_by_location) so a curved
+    # source row is stored linear — a curved geometry written into the derived
+    # table would fail that layer's tiles and feature reads later.
+    # fix(#1104): -1 — those wraps are gone again; geom_4326 is linear at
+    # ingest, so the pass-through columns read the bare column. Cap
+    # 1450 -> 1449, exact.
+    #
+    # fix(#1097 review): +62 for the array-element half of the ungroupable
+    # guards. information_schema stores an array column's data_type as
+    # 'ARRAY', so json[]/xml[] passed the exact scalar comparison and failed
+    # the CTAS with 42883 after the queue wait; _ungroupable_type_name reads
+    # udt_name ('_json') as well, and the same check now also covers
+    # dissolve's by_field, which had the identical blind spot plus no live
+    # recheck at all.
+    #
+    # fix(#1099): -36 — _reject_ungroupable_overlay_columns is retired, along
+    # with its call site in _resolve_and_validate_columns. The overlay's
+    # attributes are joined back outside the aggregate now, so a re-upload that
+    # introduces a json column has nothing left to break; leaving the recheck
+    # would have refused, after the queue wait, exactly the layers that issue
+    # set out to admit. _ungroupable_type_name and its ARRAY branch stay —
+    # dissolve's by_field really does group by a user-chosen column. Cap
+    # 1449 -> 1413, exact.
+    # fix(#1452): +7 — managed=True on the output registration, with the note
+    # that this table was CTAS'd here so delete may reclaim it. Without the
+    # flag it is indistinguishable from an operator's registered table and
+    # every analysis output would leak one on delete. Cap 1413 -> 1420, exact.
+    # fix(#1778): +42. The generated output table name is persisted to
+    # `user_metadata` in the transaction that creates the table, and the
+    # probe-then-drop the two fence-miss handlers each carried inline is now one
+    # `drop_unadopted_analysis_output` the stale-job sweeps call too. The
+    # helper's docstring and its identifier re-validation are most of the net
+    # growth; the two inlined copies came out. Cap 1420 -> 1462.
+    # fix(#1778 codex r6): +33. `drop_unadopted_analysis_output` returns what
+    # it established rather than the same None whether it dropped the table or
+    # failed to. The sweep clears the recorded name on the strength of that
+    # call, and the name is the table's last durable pointer, so a swallowed
+    # failure read as success orphaned the table permanently. The five outcomes
+    # and the note on why a raised probe is "failed" and not "adopted" are the
+    # growth. Cap 1462 -> 1495.
+    # fix(#1778 codex r7): +79. Output table names are scoped by the job that
+    # creates them, so two jobs can never hold one physical name and the sweep
+    # can verify ownership from the name alone, with no marker, registry or
+    # lock. `analysis_output_table_name` and `analysis_output_table_belongs_to`
+    # plus the ownership gate in the drop are the code; the docstring stating
+    # the interleaving that made a shared name unsafe, and why the scope is by
+    # job and not by attempt, is most of the growth. The gate is a REQUIRED
+    # keyword with no default: the in-worker handlers pass their own id either
+    # way, so an optional one would have bought nothing but a way to forget it.
+    # Cap 1495 -> 1580, exact.
+    # fix(#1778 codex r10): +122. The scope grows an attempt half — job scoping
+    # alone left a retry able to derive the same name as its predecessor, since
+    # `/jobs/{id}/retry` keeps `IngestJob.id` and only mints a new attempt
+    # token. `analysis_output_table_name` takes both now, and the record
+    # accumulates across attempts (`recorded_analysis_output_tables`,
+    # `append_analysis_output_record`) rather than overwriting, the shape
+    # `unpublished_storage_keys` took in r9 and for the same reason: overwriting
+    # a retry's own field dropped the previous attempt's pointer. The other
+    # half of the growth is `resolve_analysis_output_table`, which
+    # collision-checks the SCOPED candidate against pg_class directly —
+    # `generate_table_name`'s own `_N` walk only ever probed the unscoped base,
+    # so it could hand back a name that scoped straight onto an orphan a
+    # previous attempt of the same job left behind. Cap 1580 -> 1702, exact.
+    # fix(#1778 audit r11): +23. `analysis_output_table_name` takes an
+    # optional `collision_suffix` now instead of the caller pre-pending `_N`
+    # to `base` and calling it again -- the second trim of an already-trimmed
+    # string threw away the very characters that made one candidate differ
+    # from the next, so a `base` at or past the reservation point made every
+    # walked suffix identical and exhausted the whole `_N` walk instead of
+    # self-healing. The tag is reserved for up front, in the same limit
+    # computation as the scope, the idiom `generate_table_name`'s own
+    # `_with_collision_suffix` already uses. Cap 1702 -> 1725, exact.
+    "backend/app/processing/analysis/tasks.py": 1725,
+    # Tenant-owned media now crosses the shared logical-to-physical storage
+    # seam; explicit storage-failure responses keep the runtime/OpenAPI contract
+    # aligned. Keep the ratchet exact after the import/decorator expansion.
+    # fix(#1005): +32 — _record_image_capture, the shared write for both
+    # image-upload endpoints. Its docstring carries the part that is easy to
+    # get wrong: Map.updated_at has onupdate=func.now(), so dropping the
+    # explicit assignment does not stop the bump. Ratchet stays exact.
+    # fix(#941): +8 — the reworded add-layer history summary carries the reason
+    # the immediate-POST and save-diff writers say different things, so a later
+    # refactor does not collapse them. Ratchet stays exact.
+    # fix(getgeolens.com#86 review): +35 — five read-gated GETs (list, single
+    # map, access, thumbnail, og-image) gained per-route
+    # `responses={403: FORBIDDEN_RESPONSE}` overrides; get_map_history_endpoint
+    # keeps the router's write-flavored default since it genuinely requires
+    # edit_metadata + ownership. Cap 1425 -> 1460, exact.
+    # feat(#1691): +9 — the check_public_visibility_allowed gate on the map
+    # update route (a non-admin may not move a map TO public when
+    # restrict_public_visibility is on). Cap 1460 -> 1469, exact.
+    "backend/app/modules/catalog/maps/router.py": 1469,
+    # fix(#474): thread negotiated languages through catalog search, cache keys,
+    # and OGC record serialization; fix(#475) adds Records array-query handling,
+    # including collection IDs, plus response-header and documented 400 parity.
+    # fix(#892): +4 — the per-dataset OGC collection extent moved off a bare
+    # to_shape().bounds read onto extent_to_bbox() so a seam-crossing extent
+    # serves the RFC 7946 west > east bbox. Ratchet stays exact.
+    # fix(#886): -5 — the aggregate collection extent moved off
+    # ST_AsGeoJSON(ST_Envelope(ST_Collect(...))) plus its GeoJSON coordinate
+    # fold onto rollup_bbox_columns()/rollup_bbox(), which also retires the
+    # module's last json import. Cap lowered 1432 -> 1427, still exact.
+    # fix(#1103): +13 — the OGC record's `lineage` property is access-checked
+    # per requester now (the sentence names the titles of the datasets an
+    # analysis output was derived from). The item endpoint keeps the roles
+    # check_dataset_access_or_anonymous already resolved; the list endpoint
+    # takes the batch form, one visibility query per page. Cap 1427 -> 1440,
+    # still exact.
+    # fix(#1290 review): +10 — the public-asset-key boundary. Rows are
+    # filtered where they are FETCHED so an internal key never enters a
+    # payload structure; `GET /datasets/{id}` had been building its assets
+    # straight off the ORM rows and leaked the archived original's href and
+    # filename to every viewer. Cap 1440 -> 1450, exact.
+    # fix(#1372 codex r2): +5 — the collections-list raster tiles link carries
+    # ?v=<tile_cache_version> like every rendered raster template.
+    # fix(#1327): +13 — the OGC record item counts the VRT's live member links
+    # instead of reading the in-flight generation's intended count, so this
+    # surface reports the composition being SERVED like every other one. Most
+    # of the lines are the comment explaining why the generation's own count is
+    # a fact about the attempt, not about the dataset. Cap 1455 -> 1468, exact.
+    # fix(#1671): the two pre-#1666 search compatibility shims are sunset --
+    # `_legacy_keywords_body`, the `_LEGACY_FILTER_LANG_PARAM` fallback, and
+    # the comments that only existed to explain them. Cap lowered
+    # 1536 -> 1489, exact.
+    # fix(#1778): +4 -- deterministic ORDER BY tiebreaker on the paginated
+    # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
+    "backend/app/modules/catalog/search/router.py": 1493,
+    # fix(#474): negotiate localized STAC record text; fix(#475) adds the
+    # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
+    # validated STAC item responses wire-compatible with serializer output.
+    # STAC hardening (roadmap trust batch): collection license aggregated from
+    # member records, item-less collections hidden from the STAC surface
+    # instead of advertising a fabricated global extent, and stac-api-validator
+    # conformance (strict RFC 3339 datetime gate, bbox/intersects exclusivity,
+    # south<=north bbox check, limit clamping). Ratchet stays exact.
+    # fix(#886): -7 — both Collection extent queries drop their four repeated
+    # ST_XMin/ST_YMin/ST_XMax/ST_YMax(ST_Extent(...)) columns for one
+    # rollup_bbox_columns() splat, and _parse_extent_row folds the row through
+    # rollup_bbox(). Cap lowered 1796 -> 1789, still exact.
+    # feat(#765): +44 — _visible_derived_from_id resolves the rel="derived_from"
+    # source against the same published+visible query the item endpoints serve
+    # from, and user/user_roles are threaded to the four item builders that
+    # feed it. Cap 1789 -> 1833, still exact.
+    # fix(#1103): +10 — the STAC item's lineage property is gated the same way
+    # as its derived_from link, on the user/user_roles already threaded here.
+    # Cap 1833 -> 1843, still exact.
+    # fix(#1108 review): +27 — the two item-page loops precompute lineage
+    # visibility for the whole page (one query, mirroring PERF-5's
+    # spatial_extent_geojson) instead of one round trip per item at limit=200.
+    # Cap 1843 -> 1870, still exact.
+    # fix(#1432): -15 — the two inline bbox parsers and
+    # _require_finite_bbox collapse onto the shared parse_bbox, which now takes
+    # the POST list as well as the GET string. Cap 1870 -> 1855, still exact.
+    # refactor(stac): -1 — the raster-asset reads go through CatalogPort, so
+    # the DatasetAsset select and the deferred raster-queries import give way
+    # to port calls. Cap 1855 -> 1854, still exact.
+    # fix(#1778): +15 -- deterministic ORDER BY tiebreakers on the two
+    # paginated item queries, the open-ended interval-datetime fix, and
+    # replacing the four nested async_session() pool checkouts in
+    # get_collections with sequential reuse of the caller's own session.
+    # Cap 1854 -> 1869, exact.
+    "backend/app/standards/stac/router.py": 1869,
+    # Central tenant-bound scope resolution replaced duplicated inline logic.
+    # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
+    # pasted family literals. Same +1 on the stac and search routers.
+    # fix(#868): +3 lines for the cluster cache-key SQL-semantics version
+    # ("v2") so deploys that change cluster tile geometry invalidate Valkey.
+    # fix(#892): +2 — the raster tile-token bounds moved onto
+    # extent_to_span_bbox() so a seam-crossing extent cannot feed a negative
+    # span into the maxzoom derivation.
+    # fix(#887): +17 — extent_to_span_bbox reports -180..180 for a two-ring seam
+    # extent, which understates a Pacific raster's resolution by 36x and drops
+    # its maxzoom by five levels, so the honest width now travels alongside the
+    # bounds as an explicit `lon_span` keyword.
+    # Merge of the carve-outs: 2043 base + 3 + 1 + 2 + 17. Ratchet stays exact.
+    # fix(#929 review): -22 — _resolve_raster_access's inline RBAC mirror
+    # replaced with delegation to the permission extension via the port.
+    # fix(#939): +23 — the degrees-vs-metres decision in
+    # _native_resolution_meters moved off `epsg == 4326` onto the stored WKT
+    # (wkt_is_geographic + wkt_has_degree_unit), with the grads fall-through
+    # documented at the site. Ratchet stays exact.
+    # fix(#957): +12 — raster_auth_check dropped out of the OpenAPI schema, and
+    # the note recording that the ROUTE is vestigial while the HANDLER is on the
+    # live raster tile path sits at the decorator so nobody deletes the wrong
+    # half. Ratchet stays exact.
+    # fix(#688): +73 — the raster tile template is signed like its vector
+    # sibling (mint in _build_tile_token_for_dataset, verify in
+    # _resolve_raster_access via _has_tile_signature/_verify_raster_tile_signature).
+    # Before this a client following the contract literally received an
+    # unauthenticated template for a private raster. Ratchet stays exact.
+    # fix(#1372): +6 — the signed raster template also carries
+    # ?v=<tile_cache_version> (outside the signature, like the colormap
+    # params) so nginx's $arg_v cache-key segment rolls on replace.
+    # fix(#1372 codex r3): +19 — the auth check refuses to mark a response
+    # cacheable when its `v` mismatches the dataset's current version, so a
+    # predictable future key can never be pre-warmed with pre-replace bytes.
+    # fix(#1372 codex r4): +12 — the check mirrors nginx's $arg_v semantics
+    # (first occurrence, case-insensitive name), closing the duplicate-param
+    # and name-case parser-disagreement variants of the same pre-warm attack.
+    # fix(#1329): +64 — the raster meta cache key carries the request's `v`, so
+    # the three in-place pointer swaps (reupload, VRT regeneration, STAC
+    # moved-asset refresh) invalidate every api process's snapshot with the
+    # version bump they already do, instead of each process serving the
+    # pre-swap href for a TTL. Most of it is the note recording WHY it is the
+    # request's `v` and not the row's: the row's version arrives through the
+    # same cached snapshot, so it is exactly as stale as the href it would be
+    # guarding.
+    # fix(#1329 codex P1): +13 — the lookup key is the request's `v` but the
+    # STORE key is the resolved row's, so no caller can name the entry it
+    # writes and a predictable future `v` can no longer park a pre-swap
+    # snapshot on the key the swap is about to make legitimate.
+    # fix(#1778): +35 — `_resolve_raster_access` hands its API-pool connection
+    # back before returning, so the caller's Titiler round trip (up to three
+    # attempts at a 30s timeout plus backoff) no longer runs with the catalog
+    # read's transaction open. Most of it is the note recording that the release
+    # belongs in the resolver rather than at either call site, and the correction
+    # to the #1329 cache-key note, which priced a cache-busting `v` as one extra
+    # indexed read and left out the connection that read pinned. Four of the
+    # lines say at the `cols=` call site that the dataset's column set now gates
+    # the cache key, since the handler docstring above it is the published
+    # operation description and saying it there churns every generated SDK.
+    # fix(#1778 codex P1): +14 — that call site now hands `parse_cols_param` the
+    # zoom, the allowlist and the route mode, because validating the names was
+    # not enough: at z >= 10 the zoom default already projects every column, so
+    # every valid subset of a wide table produced one set of bytes under its own
+    # key. The key comes from the effective projection now, and each call site
+    # says which of its inputs decide that.
+    # fix(#1778 codex r2): +26 — pmin/pmax/sigma are now validated only when
+    # the ACTIVE stretch mode reads them (percentile for pmin/pmax, stddev for
+    # sigma), not whenever merely present. frontend/nginx.conf's raster
+    # proxy_cache_key blanks an inactive value out of the cache key so a
+    # random one cannot defeat the cache, and that is only safe if "inactive"
+    # means the SAME thing, ignored, on both sides — otherwise a value nginx
+    # blanks could still turn a cached 200 into what would have been a 422.
+    # Most of the growth is the docstring and Query() description updates
+    # recording that contract for both parameters and the endpoint.
+    # fix(#1778 codex r8): +41 — eff_pmin/eff_pmax/eff_sigma used to be
+    # resolved from "was the parameter merely present", independent of
+    # stretch mode, so an INACTIVE parameter's raw (unvalidated) request
+    # value still reached _fetch_band_statistics/_compute_stretch_rescale.
+    # `?stretch=stddev&pmin=1e309` (inf) reached `int(pmin)` there and
+    # raised an uncaught OverflowError, while nginx — which treats a value
+    # it blanks as harmless — found `1e309` inside its canonical float
+    # grammar and blanked it, sharing a cache key with a plain stddev
+    # request: a cached 200 once warm, a 500 cold. eff_pmin/eff_pmax/
+    # eff_sigma now gate on the SAME activity test the validation below
+    # already used, so an inactive parameter's raw value is never read by
+    # anything, and the validation itself now requires math.isfinite() on
+    # the active path explicitly rather than relying on inf/nan's
+    # comparison behavior to fail the existing bound check.
+    # Ratchet stays exact.
+    "backend/app/processing/tiles/router.py": 2706,
+    # feat(#565): the SQL sandbox validator crossed 1000 lines across the codex
+    # rounds on the query endpoint: the lexical CTE-scope fix (P1) and its
+    # pg_catalog.pg_user rationale, the declaration-order refinement (P1 r2),
+    # the transitive fan-out cost model (P1 r3) — _resolve_cte plus the
+    # rows/work graph walk that catches a CTE chain multiplying one base table
+    # to N^8 while every per-name count stays at 2 — and the per-row correlated
+    # subquery term (P1 r4, _correlated_scopes/_work_fanout) that costs a
+    # self-join hidden in a scalar/EXISTS/WHERE subquery. P1 r5 extended the
+    # per-row term to JOIN ... ON predicates (a join's ON is not a source), and
+    # P2 r5 taught _resolve_cte that a WITH can be owned by a set operation, not
+    # only a SELECT; P1 r6 unwraps exp.Lateral so a repeated table hidden in a
+    # LATERAL source is costed; P1 r7 adds a LATERAL's own internal per-row work
+    # (its excess over its row count) so a correlated subquery inside a LATERAL
+    # is bounded too; P1 r8 costs a parenthesized FROM join group's rows; and P1
+    # r9 unifies group costing (_group_work/_add_source_excess/_outermost_scopes)
+    # so a group's ON-predicate and internal LATERAL work is a first-class
+    # candidate in the statement-wide max; P1 r10 propagates a CTE reference's
+    # own internal work (an inlined / NOT MATERIALIZED CTE re-executes per outer
+    # row) through _add_source_excess; P1 r11 rejects casts to OID-alias types
+    # (regrole/regclass/…) that resolve catalog names with no table reference;
+    # and P1 r12 matches those casts by normalized name (schema-qualified
+    # pg_catalog.regrole is a DataType, not ObjectIdentifier), folds CTE
+    # identifiers per PostgreSQL quoting so "PG_USER" cannot bind an unquoted
+    # pg_user, and propagates ordinary derived-table excess; and P2 r13
+    # combines sibling per-row subquery/source work by per-table MAX rather than
+    # summing (_merge_max), so two scalar subqueries over one table no longer
+    # false-reject; and P2 r14 splits per-row work into per-INPUT (WHERE/JOIN-ON/
+    # sources) and per-OUTPUT (projection/HAVING/ORDER), collapsing the latter's
+    # multiplier for an ungrouped aggregate (_is_ungrouped_aggregate) so a
+    # projection subquery over an aggregate query is additive, not multiplied;
+    # and P1 r15 keeps a subquery beneath an aggregate ARGUMENT per-input (it
+    # runs per input row) so that reduction cannot hide it; P1 r16 costs
+    # subqueries buried in a non-scope LATERAL (VALUES/function) and adds a
+    # per-STATEMENT bucket (LIMIT/OFFSET, evaluated once, no row multiplier);
+    # and P1 r17/r18 counts a VALUES relation as a fan-out source under ONE
+    # shared key so distinct constant sources combine in the cross-product,
+    # caps VALUES cardinality, threads an endpoint-only extra-blocked-function
+    # set (output-amplifying format/replace/regexp_replace/concat + defensive
+    # siblings), and P1 r19 blocks the `||` (exp.DPipe) concatenation operator
+    # when concat is blocked (chained s||s doubling); P1 r20 adds the
+    # cross-product degree (_XPROD_KEY / _join_is_constrained: distinct tables
+    # cross-joined multiply even at per-table exponent 1) and an output-column
+    # cap (repeated projections amplify response width). P1 r21 makes the join
+    # constraint recursive (an equality inside `... OR TRUE` does not constrain)
+    # and counts composite-constructor value slots / rejects `*` for the width
+    # cap. r22 documents the runtime floor: the fan-out/width model is
+    # best-effort pre-filtering, non-security, because every executed query is
+    # runtime-bounded (advisory lock, semaphore, timeout, reader role, row+byte
+    # caps) — the module docstring and a section anchor state it so cost-model
+    # under-counts are documented, not chased. r23 folds unquoted table
+    # identifiers (DATA.ROADS → data.roads) before the access check so a
+    # PostgreSQL-valid reference is not false-404'd. Most of the added lines are
+    # that rationale. Cap at the exact size.
+    # fix(#1778): +63 — _BLOCKED_NILADIC_KEYWORDS and _check_niladic_keywords,
+    # which reject PostgreSQL's parenless identity keywords. sqlglot gives only
+    # some of them a Func subclass, so `user`, `current_role` and `system_user`
+    # parsed as columns and slipped the allowlist walk entirely; the comments
+    # record that parse-shape dependency so a sqlglot bump does not quietly
+    # reopen it. The rest is the TokenError note at the parse site. Cap
+    # 1871 -> 1934, exact.
+    "backend/app/platform/sandbox/validator.py": 1934,
+    # fix(#1778): crossed the 1000-line inclusion threshold, so it joins
+    # the ratchet at its exact size. The growth is the token accounting on
+    # the two map-generation failure exits (an exhausted or timed-out loop
+    # is billed by the provider and used to record nothing), the fixed
+    # error message replacing raw exception text in the SSE stream, and the
+    # scrubbing of dataset content in the two catalog tool results.
+    # fix(#1778 round 1): +3 - the SSE error branch passes only an explicitly
+    # constructed UserFacingAIError through, so the five deliberate refusals
+    # say so by type instead of every ValueError being trusted (
+    # OpenAICredentialDestinationError is one, and its message IS the endpoint).
+    # fix(#1778 round 2): +11 - every provider call site moved to the shared
+    # usage_accounting context manager, including the two single-round repair
+    # calls that had no failure accounting at all, and the map prompt gained
+    # the tool-result protocol that says what the fence markers mean.
+    "backend/app/processing/ai/service.py": 1019,
+    # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
+    # protocol constants and the stale-label repair in generate_distributions,
+    # plus the comment recording why the repair has to exist at all: migration
+    # 0048 is one-shot and the scripted upgrade runs it while the previous
+    # release is still writing rows (#1467), so the template is not the only
+    # place that has to know the old value.
+    # fix(#1463 codex r4): +6 — the same comment recording what the repair does
+    # NOT reach. Both refresh callers gate reconcile on a modality flip, so
+    # naming it a closer for the deploy window was wrong; the correction is
+    # worth more than the six lines. Cap at the exact size; the module is
+    # otherwise a stable set of CRUD helpers over the record's related tables
+    # and is not where new domains should land.
+    # feat(#1681): +10 — the FlatGeobuf export format joined
+    # `_DISTRIBUTION_TEMPLATES` (a download row, matching every other export
+    # format already in that table) plus a docstring update to the row count
+    # it now generates.
+    # feat(export/pmtiles): +9 — PMTiles joined `_DISTRIBUTION_TEMPLATES` the
+    # same way, plus the row-count docstring update.
+    # fix(#1778): +3 -- RecordContact.id tiebreaker on the paginated contacts
+    # list, sort_order being a non-unique server-default. Cap 1026 -> 1029,
+    # exact.
+    "backend/app/modules/catalog/records/service.py": 1029,
+    # fix(#1528): crossed the inclusion threshold, and this is the file the
+    # inclusion rule's own comment named as one of the two "routers-by-role the
+    # glob's filename match cannot see ... watched by nothing until they cross
+    # 1000". It just did.
+    #
+    # What the lines bought: HEAD and byte-range service on
+    # /datasets/{id}/download/cog. A COG exists to be read by range — client
+    # reads the header, fetches only the tiles it needs — and this endpoint
+    # served neither, so GDAL /vsicurl/ could not open it at all (measured:
+    # ERROR 4, not a slow download). The additions are the Range parser and its
+    # RFC 9110 ignore/clamp/416 rules, a chunked range streamer that keeps a
+    # multi-GB range off the heap, the 200/206/416 response shapes, and
+    # _local_cog_response, which exists because folding three representations
+    # into a handler that already branches over three storage backends put
+    # download_cog past ruff's C901 ceiling.
+    #
+    # Roughly half the diff is comment: which starlette behaviour each explicit
+    # header displaces, and why HEAD here carries a Content-Length where the
+    # export route's deliberately omits one. Cap at the exact size. The DCAT
+    # feed handlers above are the natural split if this grows again.
+    #
+    # +93 for the two fix(#1540) review findings. P1 pulled the object stat and
+    # the HEAD response out of _local_cog_response into _cog_object_size /
+    # _cog_headers / _cog_head_response so the `s3` branch can answer HEAD from
+    # metadata instead of redirecting to a URL signed for GET — sharing them is
+    # what makes HEAD provably identical on both backends, and it moved the long
+    # explanatory comments from inline into three docstrings. P2 added
+    # _range_int, which saturates every Range numeric field before int() so a
+    # 4301-digit header cannot raise ValueError into a 500.
+    #
+    # +7, all prose. The double-stat review finding DELETED code — _cog_object_size
+    # now calls size() once and maps its FileNotFoundError to 404 instead of asking
+    # exists() first — and the lines are the paragraph saying why the second
+    # head_object was worth removing: it doubled the round trips and the request
+    # charges on every /vsicurl/ probe, against a design chosen for costing one,
+    # and the gap between the two calls turned a deleted object into a 503.
+    #
+    # +90 for the range validator, which is what finishes the range feature rather
+    # than extending it. _cog_etag publishes the COG's own sha256 as a strong ETag
+    # on every stored-bytes response, and _range_bound_to_this_version evaluates
+    # If-Range so a range resumed across a raster replacement returns the whole
+    # current object instead of a 206 the client appends to a prefix of the COG it
+    # is no longer reading. Ranges without a validator are how two COGs become one
+    # corrupt file with no error anywhere, so the explanation is on the two helpers
+    # and at the branch. If this file grows again, the DCAT feed handlers remain
+    # the natural split.
+    #
+    # +111 for the two halves of that binding the first pass missed. _s3_cog_response
+    # is an extraction, not new branching: the s3 block moved out of download_cog so
+    # it could evaluate If-Range before redirecting, which it has to do because the
+    # bucket does not (MEASURED: a presigned GET answers 206 for a non-matching
+    # If-Range) and a 302 cannot strip the client's Range on the way past. The rest
+    # is _if_none_match_matches and _cog_not_modified, so the ETag this route
+    # publishes can end a revalidation with 304 instead of another multi-GB body.
+    #
+    # +7, all comment. The stale-resume fallback now streams from one get_object
+    # rather than _iter_storage_range over the whole object, which issued a ranged
+    # request per 1 MiB — 5,120 of them for a 5 GiB COG, selectable by any caller
+    # willing to send a stale validator and counted by the rate limiter as one
+    # request. The lines say which of the two streaming helpers belongs where.
+    #
+    # +4 net, and the code went DOWN: `_iter_storage_range` is deleted. Serving a
+    # range by calling get_range per 1 MiB issued an object-store request per
+    # chunk on the ORDINARY path this time, which on an S3 or Azure deployment is
+    # every managed raster's range request. Only the provider can ask for a window
+    # once and stream the answer, so `get_range_stream` is where the bound lives
+    # now; what is left here is the note saying why a helper that turns one range
+    # into N reads was removed rather than retuned.
+    #
+    # +53 for If-Match. A resuming client may spell "only if this is still my
+    # representation" as If-Match rather than If-Range, and honouring one while
+    # ignoring the other left the absent If-Range reading as permission — the
+    # same splice through the other header. _if_match_passes is strong comparison
+    # with * handling, _this_service_owns_the_bytes names the rule that already
+    # governed the remote branch's blank validator row, and the 412 carries the
+    # ETag that IS current so a refused client can restart in one round trip.
+    #
+    # +36 for the last two review findings. If-Match had to be reachable from a
+    # browser (the CORS half is enforced by a test now, not a memory), and the
+    # precondition block had to stat the object before answering: a row whose
+    # bytes are gone answers 404 unconditionally, so a 304 there told a cache its
+    # stale copy was current for a representation that no longer exists. That
+    # stat is handed down through _cog_size_once so a conditional request that
+    # goes on to transfer bytes still measures once, and _managed_key names the
+    # tenant-key seam the block now crosses in a second place.
+    #
+    # fix(#1554): +30, and 3 of them are code. `If-None-Match: *` is evaluated
+    # whatever the row's digest is, because RFC 9110 section 13.1.2 makes the
+    # wildcard a question about whether a representation EXISTS rather than
+    # about which one it is — so a row predating the sha256 column answered a
+    # revalidation by transferring the whole COG. The rest is the reasoning
+    # this route keeps needing on hand: why the wildcard is checked before the
+    # digest and the specific tags after it, why a 304 with no ETag is the
+    # right answer rather than a gap to fill, and why an unconditional 304 is
+    # licensed here at all (this path serves GET and HEAD, and the section
+    # gives `*` a different answer for anything that would create a
+    # representation). Cap 1656 -> 1686, exact.
+    # fix(#1532): -97, the first time this cap has come DOWN. The byte-range
+    # parser moved to app/platform/http/ranges.py because the export download
+    # needs the same one and lives under processing/, which may not import
+    # modules/catalog/. Nothing about the parsing changed; it is the same file's
+    # worth of reasoning, now in a place both callers can reach.
+    # fix(#1532 review r1): -18 more. `_range_bound_to_this_version` followed the
+    # parser into the shared module, because the export route has to evaluate the
+    # same If-Range precondition and a second implementation of strong comparison
+    # is how the two would drift.
+    # fix(#1532 review r9): -81 more, same reason a third time. If-Match,
+    # If-None-Match and the 304 builder went to app/platform/http/ranges.py so
+    # the export download can evaluate the same preconditions against the same
+    # kind of strong ETag. Everything seven review rounds settled travelled with
+    # them; only the home changed. Cap 1686 -> 1490, exact.
+    # fix(#1693): +48. _resolve_download_user's no-auth-signal
+    # case now returns None instead of an unconditional 401 (mirroring
+    # get_optional_user, what /export's dependency already does), so
+    # download_cog's existing check_dataset_access_or_anonymous +
+    # public-visibility gate — previously unreachable for a plain anonymous
+    # GET — actually runs. download_cog's authenticated branch also now
+    # routes its capability check through get_permission_extension() instead
+    # of inlining the matrix lookup, matching export_dataset_endpoint. The
+    # docstring (published OpenAPI description) is left untouched to avoid
+    # openapi.json/SDK/CLI churn; the new None case is explained in a plain
+    # comment instead, same as the file already does for the HEAD/GET
+    # docstring split above it. fix(#1693 codex r1): +10 more —
+    # `if qt:` -> `if qt is not None:` so a present-but-empty ?token= 401s
+    # through the existing PyJWTError path instead of falling through to the
+    # new anonymous return None as if no token were supplied. Cap
+    # 1490 -> 1548, exact.
+    # fix(#1778): +3 lines — download_cog documents the
+    # 412 its If-Match branch raises, closing a gap the repaired
+    # OpenAPI-contract gate surfaced. Cap 1548 -> 1551, exact.
+    # fix(#1778): 1551 -> 1602 -> 1632. +81 for `_cog_presign_seconds` and the
+    # note above it. The s3 branch signed the redirect for a flat 3600 seconds,
+    # which exchanged the 120-second, dataset-scoped, revocable download token
+    # SEC-04 mints for an hour-long bearer URL the bucket will honour after the
+    # grant is revoked. The last 30 are the codex r8 round, which removed the
+    # 60-second floor the first pass had put under the window: a token with one
+    # second left still bought a minute of access to a private COG. Those lines
+    # are the refusal that replaced it and the reason it has to be a refusal,
+    # quoting `require_signable_job_lifetime`, which settled the same question
+    # for the upload doors under #1235.
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1632,
+    # fix(#1532 review r29): first entry — crossed _RATCHET_INCLUSION_LOC. The
+    # export artifact cache: everything is in the key (stamp, size, digest,
+    # nonce), freshness and reclamation read one publication bound that is a
+    # pure function of the object and clamps both clocks by the edge's request
+    # budget, publication hands a lost race its incumbent, and the sweep, the
+    # budget and the contested rule all read the same listing. Most of the
+    # length is the reasoning from twenty-nine review rounds, kept next to the
+    # rules it justifies. Cap 1020, exact.
+    # fix(#1532) follow-up (#1585): +70 — the selection key becomes URL
+    # segment / version segment, so every version of one URL shares a prefix,
+    # and `url_answered_other_bytes_recently` asks that prefix whether the URL
+    # answered with different bytes inside the last TTL: for that TTL bare
+    # ranges are whole, which is what lets a fresh build honour the leading
+    # Range of a cold GDAL open without reopening the splice, on the hit path
+    # too. Cap 1020 -> 1090, exact.
+    "backend/app/processing/export/artifact_cache.py": 1090,
+    # fix(#1548 review P2): crossed the inclusion threshold. The growth is
+    # assert_domain_lock_is_enforceable — the write-side precondition that
+    # refuses a domain lock this deployment could never enforce, because
+    # PUBLIC_APP_URL ships defaulted to localhost in both compose files and the
+    # #1531 read-side fix is inert for anyone who leaves it there. Most of the
+    # lines are the docstring, and they are the point: it records why the
+    # serving origin is never INFERRED (every unconfigured source is
+    # caller-controlled, so an inferred self-origin would be satisfiable by
+    # exactly the parties a domain lock excludes) and why the refusal condition
+    # is the narrow one, naming the two weaker predicates that were tried and
+    # what each gets wrong. Cap at the exact size. This module is the embed
+    # token domain end to end — CRUD, the single policy reader both validators
+    # share, and now this precondition — and is not where new domains belong.
+    # fix(#1548 review r2): +16 — get_active_embed_token, so the PATCH handler
+    # can settle whether the token exists BEFORE applying the precondition
+    # above. Asked in the other order, a deployment-level refusal answered for
+    # a stale or concurrently revoked token id and told its owner to go
+    # reconfigure PUBLIC_APP_URL. The router and update_embed_token share the
+    # one query rather than carrying a copy each. Cap 1013 -> 1029, exact.
+    # fix(#1548 review r8): +9 — gate the self-origin candidates on
+    # is_usable_public_origin before normalizing them. The comment is most of
+    # it, and it records why the order matters: _normalize_origin PREPENDS
+    # https:// to anything without an http(s) scheme, so an environment value of
+    # ftp://maps.example.com arrived as the plausible non-loopback origin
+    # https://ftp: and convinced the domain-lock gate the deployment was
+    # configured. Cap 1029 -> 1038, exact.
+    # fix(#1548 review r9): +4 — depend on get_configured_public_app_url and
+    # bail when it is None. get_public_app_url is a RESOLVER: with PUBLIC_APP_URL
+    # unset it derives an app URL from an /api-stripped PUBLIC_API_URL, and a
+    # split app/API deployment then had the API host accepted as a self-origin,
+    # so a lock was issued that every shell request missed. Cap 1038 -> 1042.
+    # fix(#1555): +14, all comment except two lines. _is_localhost_origin now
+    # asks is_loopback_host (app/core/public_urls.py) instead of an enumerated
+    # set of three spellings, because 127.0.0.0/8 is loopback in its entirety
+    # and http://127.0.0.2:8080 was read as a routable public origin — enough
+    # for the gate to issue a domain lock every recipient resolves to their own
+    # machine. The rest records why _LOOPBACK_CLIENT_IPS stays an exact set:
+    # that one GATES the localhost bypass, so a miss there denies, while a miss
+    # in the other ISSUES an unenforceable lock. Cap 1042 -> 1056.
+    # fix(#1778): +44, almost all comment. Revocation now stamps a denial over
+    # the validation-cache entry instead of deleting it, and the validator
+    # publishes its positive entry with set_if_absent, so a request that raced
+    # an uncommitted revoke cannot re-cache the token for the rest of the TTL.
+    # The four eviction sites collapse into one _deny_revoked_embed_tokens
+    # helper; the rest records the interleaving, why deleting the key cannot
+    # close it from either side, and the fail-closed trade a rolled-back
+    # revocation makes. Cap 1056 -> 1100.
+    # fix(#1778 codex r1): +6, all comment. The denial write is
+    # set_authoritative, not set: `set` routes to whichever store the circuit
+    # breaker says is live, so a positive that landed in the in-memory fallback
+    # during an outage survived a denial written after Redis recovered.
+    # Cap 1100 -> 1106, exact.
+    # fix(#1778 codex r3): +52. The fallback and the replay queue are
+    # PROCESS-local and production runs several Uvicorn workers, so a revoke on
+    # one worker during a Redis outage reached no other. Reads and writes of the
+    # validation entry now pass security=True (never answer an authorization
+    # positive from this worker's memory), every positive is stamped with the
+    # cluster-global revocation generation and compared against it on each hit,
+    # and the revoke paths advance that generation. Most of the lines are the
+    # comment on EMBED_TOKEN_POSITIVE_TTL_SECONDS, which names the residual this
+    # bounds rather than closes, plus the note on what an unstamped pre-upgrade
+    # entry does. Cap 1106 -> 1164, exact.
+    # fix(#1778 codex r4): +10 for the comment saying why the generation bump
+    # shares the caller's transaction rather than running ahead of it, and why
+    # a failing bump must not be swallowed. Cap 1164 -> 1174, exact.
+    # fix(#1778 codex r5): +18. An unreadable counter yields a SENTINEL, not a
+    # generation, and two entries stamped with it compared EQUAL. The validator
+    # now refuses to trust or to write anything while the generation is
+    # unusable, so a positive cached during that window cannot outlive a later
+    # revocation. Cap 1174 -> 1192, exact.
+    "backend/app/modules/embed_tokens/service.py": 1192,
+    # fix(#1778): first entry for this module — it crossed the 1000-line
+    # inclusion threshold on the property-filter typing. Property filters used
+    # to bind the raw query-string value, so PostgreSQL had no
+    # `bigint = character varying` operator and every non-text filter failed
+    # with 42883, which the OGC items handler reported as a retryable 503.
+    # The growth is the pg-type -> (parser, database type) table, the parsers
+    # that reject a non-finite float / an out-of-int8-range integer / an
+    # unparseable date, and the extracted `_property_filter_predicates`
+    # (get_features was at ruff's C901 ceiling without it). Roughly half is the
+    # comment recording WHY each numeric family keeps its own database type,
+    # which is a correctness property a future reader would otherwise collapse
+    # into one Float.
+    #
+    # The clean split when it next grows is the banner already in the file:
+    # everything below "Write operations" moves to a sibling module behind a
+    # re-export facade, because `standards/ogc/router.py` and
+    # `standards/stac/router.py` may import `features.service` and nothing
+    # else under features (_STANDARDS_MODULE_IMPORT_SURFACE), and several
+    # tests reach private names through it.
+    #
+    # fix(#1778): +80 for the bounded filtered count. The cached-feature_count
+    # fast path applied only to a COMPLETELY unfiltered request, so one bbox or
+    # property filter put a full filtered COUNT(*) on EVERY page, including the
+    # keyset pages whose whole point is constant-time access. The count now runs
+    # inside a LIMIT and the planner answers past the cap. Most of the growth is
+    # the comment on _FILTERED_COUNT_CAP recording what the cap buys and why the
+    # estimate is never reported below the rows already counted (a `next` link
+    # keyed on `offset + limit < total` would otherwise truncate pagination at
+    # the cap), plus the docstring on _planner_row_estimate saying why it is
+    # deliberately not wrapped in a try/except. Cap 1055 -> 1135, exact.
+    #
+    # fix(#1778): +52 for UnwritablePropertyError and is_writable_feature_column.
+    # A key naming a real column that _COLUMN_NAME_RE rejects used to be
+    # silently skipped by the write loop, so POST and PUT answered 201/200 with
+    # the value never stored, and PUT did not even NULL the column it documents
+    # as nulled. Most of the growth is the exception's docstring listing which
+    # producer of column_info admits which names, because the fix is a
+    # disagreement between two guards and a reader has to see both to keep them
+    # in step. Cap 1135 -> 1187, exact.
+    #
+    # fix(#1778): +197 for the incremental metadata refresh.
+    # `_refresh_count_and_extent` runs one unqualified COUNT(*) + ST_Extent over
+    # the whole table on every single-feature write, plus a second scan over
+    # ST_ShiftLongitude past 180 degrees of width and a third DISTINCT
+    # GeometryType for created datasets; there is no bulk feature endpoint, so a
+    # client digitizing 200 points paid it 200 times. The new pieces are
+    # geojson_bounds / feature_bounds (where the write touched),
+    # _stored_extent_box, _strictly_inside, _merged_created_geometry_type and
+    # _apply_incremental_metadata. Most of the growth is the reasoning each of
+    # them has to carry, because every one is a claim that a scan can be
+    # skipped: why the containment test is STRICT (a row on the boundary may be
+    # the row defining it), why a two-ring seam extent cannot be read as a box
+    # at all, and why the type merge is insert-only (a delete can narrow the
+    # derived type and no merge of the stored value can see that).
+    # Cap 1187 -> 1384, exact.
+    #
+    # fix(#1778 review r1): +107 for two review findings. The page now
+    # over-fetches one row and reports `has_more`, because a `next` link
+    # decided by `offset + limit < total` disappears with a full page on screen
+    # whenever the count is the planner's estimate; whether another row exists
+    # is a fact about rows, so FeaturePage carries it and no router re-derives
+    # one. And the envelope a write overwrites is captured BY the mutating
+    # statement (DELETE ... RETURNING, and a locking CTE for UPDATE) instead of
+    # by an unlocked SELECT before it, with the record row locked before either
+    # metadata path reads the extent. The lines are the two NamedTuples, the
+    # prior-bounds SQL helpers, and the comments recording which race each
+    # closes. Cap 1384 -> 1491, exact.
+    #
+    # fix(#1778 review r2): +16 for the range checks. A caller value can be a
+    # good Python number and still be wrong for the column, and how that failed
+    # depended on which cast the compiler emitted: the property-filter path
+    # answered 200 with zero features, the CQL2 path overflowed a real cast
+    # with SQLSTATE 22003, and a pagination int outside int8 could not be
+    # encoded at all. The lines are the two check calls, the int8 bound on
+    # limit/offset/after_gid, and the comments recording which of those three
+    # shapes each one closes; the tables and the messages live in
+    # core/db/pg_ranges.py, which standards/ogc/filtering.py reads too.
+    # Cap 1491 -> 1507, exact.
+    #
+    # fix(#1778 review r3): +34 for _floor_estimated_total. The r1 floor read
+    # `offset + len(rows)` unconditionally, which invented matches out of the
+    # offset: five features asked for at offset 100 answered an empty page and
+    # reported numberMatched 100, and a keyset page borrowed an offset its own
+    # query had ignored. Extracted rather than narrowed in place, because
+    # get_features was back at ruff's C901 ceiling and because each of the
+    # three conditions is a claim about what a page can PROVE -- an exact count
+    # is never raised, an empty page proves nothing, and a keyset page can
+    # prove only the rows in hand. That reasoning is most of the added lines.
+    # Cap 1507 -> 1541, exact.
+    "backend/app/modules/catalog/features/service.py": 1541,
+}
+
+
+@pytest.mark.architecture
+def test_module_loc_caps_have_no_headroom() -> None:
+    """Every ratchet must equal its file's current LOC.
+
+    A cap above the current size is permission to grow. The audit found 13, 3, and 29
+    spare lines in the three largest routers — each one the seed of the next
+    "cap raised to N, decomposition queued" comment.
+
+    Shrinking a file fails this too. Lower the cap in the same commit.
+    """
+    drift: list[str] = []
+    for rel, cap in sorted(_MODULE_LOC_CAPS.items()):
+        actual = len(_repo_style_path(rel).read_text().splitlines())
+        if actual != cap:
+            verb = "shrank below" if actual < cap else "exceeds"
+            drift.append(f"{rel}: {actual} lines {verb} its cap of {cap}")
+
+    if drift:
+        pytest.fail(
+            "Module LOC ratchets are out of sync with the files they track. Set each "
+            "cap to the file's current line count.\n" + "\n".join(drift)
+        )
+
+
+# fix(#958): the inclusion rule, so a module's ABSENCE from _MODULE_LOC_CAPS is
+# a decision rather than an oversight.
+#
+#   Every module under backend/app/ at or above _RATCHET_INCLUSION_LOC lines
+#   that no OTHER size gate watches belongs in _MODULE_LOC_CAPS, ratcheted at
+#   its exact LOC.
+#
+# Why a rule and not another hand-picked entry. #836 added the four largest
+# non-routers by hand, which left the dict's membership a judgement nobody
+# wrote down: analysis_sql.py then grew 504 -> 651 through no gate at all, and
+# adding just that one would have ratcheted the 24th-largest ungated module
+# while five modules above 1000 lines stayed free to grow. A threshold is
+# arguable; an unwritten rule is not enforceable.
+#
+# Why 1000. It is where the modules this project has actually had to decompose
+# live (the Phase 226 / 238 / 252 splits all started past it), and the measured
+# distribution has a natural break there: a cluster at 1017-1201, then a gap
+# down to 990. A file below the line is not safe, just cheaper to fix later.
+#
+# Why "no OTHER gate" rather than unconditionally. A module a ceiling gate
+# already watches is not silent — it hits a wall, and whoever hits it ratchets
+# the file in, which is exactly how ingest/router.py got here. Ratcheting them
+# anyway would put exact caps on four routers sitting under the 1500 glob
+# ceiling and on maps/style_json.py, doubling the bookkeeping for files that
+# already fail loudly. This rule is about the modules NOTHING watches.
+#
+# The residue, recorded rather than papered over: a router.py at 1400 still has
+# 100 lines of silent runway under the glob default, and the two routers-by-role
+# the glob's filename match cannot see (datasets/api/router_export.py at 928 and
+# router_reupload.py at 922) are watched by nothing until they cross 1000. The
+# threshold catches them then. #958 also notes that any inclusion rule phrased
+# as "routers are covered by the glob" is inaccurate for exactly that reason,
+# which is why this one is phrased by size.
+_RATCHET_INCLUSION_LOC = 1000
+
+# The globs of test_decomposed_service_modules_stay_within_size_budgets, as
+# (directory, filename prefix) pairs. fix(#958 review): the prefix alone is not
+# the gate. That test globs specific directories, so a `service_*.py` anywhere
+# else is watched by nothing — and a filename-only exemption here would have let
+# such a module past 1000 lines through both gates, defeating the rule this
+# file exists to state. Mirror the directories, not just the names.
+_DECOMPOSED_MODULE_SCOPES: tuple[tuple[str, str], ...] = (
+    ("backend/app/modules/catalog/maps/", "service_"),
+    ("backend/app/modules/catalog/search/", "service_"),
+    ("backend/app/modules/catalog/datasets/domain/", "service_"),
+    ("backend/app/processing/ai/", "chat_"),
+    ("backend/app/platform/extensions/", "defaults_"),
+)
+
+
+def _is_watched_by_another_size_gate(rel: str, name: str) -> bool:
+    """True when some gate other than _MODULE_LOC_CAPS already caps this file."""
+    if name == "router.py":
+        return True  # test_router_orchestrator_modules_stay_within_loc_cap
+    for directory, prefix in _DECOMPOSED_MODULE_SCOPES:
+        # Directory, not prefix path: those globs are non-recursive.
+        if rel == f"{directory}{name}" and name.startswith(prefix):
+            return True  # test_decomposed_service_modules_stay_within_size_budgets
+    return rel in _OPEN_CORE_SIZE_CAPS
+
+
+@pytest.mark.architecture
+def test_module_loc_cap_inclusion_rule_is_complete() -> None:
+    """Nothing large is ungated by accident.
+
+    The counterpart to test_module_loc_caps_have_no_headroom: that one keeps
+    the listed files honest, this one decides which files get listed.
+    """
+    missing: list[str] = []
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        rel = _repo_style_rel(path)
+        if rel in _MODULE_LOC_CAPS or _is_watched_by_another_size_gate(rel, path.name):
+            continue
+        actual = len(path.read_text(encoding="utf-8").splitlines())
+        if actual >= _RATCHET_INCLUSION_LOC:
+            missing.append(f"{rel}: {actual} lines")
+
+    if missing:
+        pytest.fail(
+            f"These modules crossed {_RATCHET_INCLUSION_LOC} lines with no size gate "
+            "watching them. Add each to _MODULE_LOC_CAPS at its exact current line "
+            "count, with a comment saying what the growth bought — or decompose it "
+            "and stay under the threshold:\n" + "\n".join(missing)
+        )
+
+
+@pytest.mark.architecture
+def test_decomposition_prefix_exemption_matches_the_gate_that_backs_it() -> None:
+    """The exemption is a directory scope, not a filename prefix.
+
+    fix(#958 review): ``test_decomposed_service_modules_stay_within_size_budgets``
+    globs specific directories, so a ``service_*.py`` outside them is watched by
+    nothing. A filename-only exemption would have let such a module grow past
+    the inclusion threshold through both gates — the exact hole this rule was
+    written to close, wearing a different name.
+    """
+    for directory, prefix in _DECOMPOSED_MODULE_SCOPES:
+        inside = f"{directory}{prefix}example.py"
+        assert _is_watched_by_another_size_gate(inside, f"{prefix}example.py"), (
+            f"{inside} is inside a globbed directory and should read as watched"
+        )
+
+    # Same filename, a directory the gate does not glob: NOT watched, so the
+    # inclusion rule keeps it once it crosses the threshold.
+    stray = "backend/app/platform/service_orphan.py"
+    assert not _is_watched_by_another_size_gate(stray, "service_orphan.py")
+
+    # The globs are non-recursive; a subdirectory of a globbed one is not in
+    # scope either.
+    nested = "backend/app/modules/catalog/maps/nested/service_deep.py"
+    assert not _is_watched_by_another_size_gate(nested, "service_deep.py")
+
+
+@pytest.mark.architecture
+def test_open_core_decomposition_boundaries_stay_clean() -> None:
+    """Lock the shared-query, sharing, and style decompositions in place."""
+    app_root = _backend_path("app")
+    private_import_offenders: list[str] = []
+    for path in sorted(app_root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if "app.modules.catalog._ilike" in source:
+            private_import_offenders.append(
+                f"{_repo_style_rel(path)} imports removed catalog._ilike"
+            )
+
+    for domain in ("admin", "audit", "embed_tokens"):
+        root = app_root / "modules" / domain
+        for path in sorted(root.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                if not isinstance(node, ast.ImportFrom) or not node.module:
+                    continue
+                if node.module == "app.modules.catalog.maps.models":
+                    private_import_offenders.append(
+                        f"{_repo_style_rel(path)} imports catalog map ORM internals"
+                    )
+
+    if private_import_offenders:
+        pytest.fail(
+            "Cross-domain code bypassed stable text/sharing APIs:\n"
+            + "\n".join(private_import_offenders)
+        )
+
+    oversized = []
+    for rel, cap in _OPEN_CORE_SIZE_CAPS.items():
+        actual = len(_repo_style_path(rel).read_text(encoding="utf-8").splitlines())
+        if actual > cap:
+            oversized.append(f"{rel}: {actual} lines > cap {cap}")
+    if oversized:
+        pytest.fail(
+            "Decomposed modules regrew past their reviewed caps:\n"
+            + "\n".join(oversized)
+        )
+
+
+@pytest.mark.architecture
+def test_router_orchestrator_modules_stay_within_loc_cap() -> None:
+    """Phase 276 CODE-01: router and orchestrator modules stay <= 1500 LOC.
+
+    Catches regrowth of large API-edge modules toward the size cliff that
+    triggered the Phase 226 / Phase 238 / Phase 252 decompositions.
+    Allowlisted modules are ratcheted at their current size (see _MODULE_LOC_CAPS).
+
+    Scope: ``backend/app/**/router.py`` (all module + standards routers).
+    Decomposed service modules (``service_*.py``) are covered separately by
+    ``test_decomposed_service_modules_stay_within_size_budgets``; the largest
+    non-``router.py`` modules are path-ratcheted in _MODULE_LOC_CAPS (#836).
+    """
+    DEFAULT_CAP = 1500
+    allowlist = _MODULE_LOC_CAPS
+
+    violations: list[str] = []
+    for path in sorted((BACKEND_ROOT / "app").rglob("router.py")):
+        rel = _repo_style_rel(path)
+        line_count = len(path.read_text().splitlines())
+        cap = allowlist.get(rel, DEFAULT_CAP)
+        if line_count > cap:
+            violations.append(f"{rel}: {line_count} lines > cap {cap}")
+
+    if violations:
+        pytest.fail(
+            "Phase 276 CODE-01 invariant violated: router modules exceeded "
+            "their LOC cap. Either decompose the module (preferred — split "
+            "into a facade + cohesive sub-modules per Phase 226 / Phase 238 "
+            "patterns) or, if growth is intentional, raise the explicit "
+            "allowlist entry with a code review.\n" + "\n".join(violations)
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 222 AUDIT-02 invariant via grep-based guard"
+    ),
+)
+def test_no_log_action_calls_outside_audit_service() -> None:
+    """Phase 222 AUDIT-02: ``log_action()`` is called only by ``DefaultAuditSink.emit()``.
+
+    All 65 historical call sites must route through ``audit_emit()`` instead.
+    Closes the +242% ``log_action`` decentralization regression flagged in
+    ``docs-internal/audits/oc-separation-audit-20260430.md`` §5 (line 224).
+
+    Excluded paths:
+      - ``backend/app/modules/audit/service.py`` — defines ``log_action()``;
+        this is the only application-side caller permitted post-Phase-222.
+      - ``backend/app/platform/extensions/defaults_extensions.py`` —
+        ``DefaultAuditSink.emit()`` calls ``log_action()`` via deferred import
+        (Phase 222 D-04 / option a from AUDIT-02; moved from defaults.py by the
+        #836 facade split). The community-edition default sink is the SOLE
+        consumer of the preserved helper.
+      - ``backend/tests/`` — test seeds (e.g., ``test_lifecycle.py:421, 687``)
+        may construct audit_logs rows directly via ``log_action()`` for
+        deterministic fixture setup. Tests are exempt from the production-code
+        invariant (RESEARCH.md Open Question 3 (b)).
+
+    Pattern matched: ``await log_action(`` — the call shape used by every
+    historical site. The ``await`` anchor avoids tripping on the function's
+    own definition (``async def log_action(``) and on attribute references
+    like ``log_action_helper``.
+
+    Maps directly to Phase 222 ROADMAP SC#4 ("No call site in backend/app/
+    calls log_action() directly — all 65 sites route through
+    get_audit_sink().emit()") — implementation is via the ``audit_emit()``
+    facade introduced in Plan 02.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"\bawait log_action\(",
+            "--",
+            "backend/app/",
+            ":!backend/app/modules/audit/service.py",
+            ":!backend/app/platform/extensions/defaults_extensions.py",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 222 AUDIT-02 invariant violated: log_action() is called "
+            "outside backend/app/modules/audit/service.py and "
+            "backend/app/platform/extensions/defaults_extensions.py. All 65 historical "
+            "sites must use audit_emit(session, AuditEvent(...)) instead.\n"
+            f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+def test_no_core_marketplace_import() -> None:
+    """Phase 223 BILLING-02: ``app.core.marketplace`` does not exist after Phase 223.
+
+    Asserts that:
+      (a) ``import app.core.marketplace`` raises ImportError — the module file
+          ``backend/app/core/marketplace.py`` was deleted in Plan 03 (D-02).
+      (b) No surviving ``from app.core.marketplace`` reference exists anywhere
+          in ``backend/app/`` — the lifespan startup at ``api/main.py:184-203``
+          was rewritten to dispatch through ``BillingExtension.on_startup`` in
+          Plan 02; the import line at ``api/main.py:20`` was deleted in Plan 02.
+
+    The 30-line ``register_marketplace_usage`` function was relocated to the
+    enterprise overlay (geolens-enterprise/geolens_enterprise/billing/__init__.py
+    in Plan 05). The community core has zero AWS Marketplace business logic
+    after this phase.
+
+    Negative-control: any future regression that re-creates the file or
+    re-introduces a ``from app.core.marketplace`` import fails this test
+    immediately at CI time.
+    """
+    import importlib
+
+    # (a) Importing the module must fail
+    try:
+        importlib.import_module("app.core.marketplace")
+        pytest.fail(
+            "Phase 223 BILLING-02 invariant violated: app.core.marketplace was "
+            "importable. The module file backend/app/core/marketplace.py must be "
+            "deleted (Plan 03 / D-02). The 30-line register_marketplace_usage "
+            "function was relocated to the enterprise overlay's "
+            "MarketplaceBillingExtension class (Plan 05)."
+        )
+    except ImportError:
+        pass  # Expected: module was deleted
+
+    # (b) No surviving import of app.core.marketplace anywhere in backend/app/
+    # pytest.skip kept inline: must run AFTER the importlib check above (a),
+    # which is the test's primary assertion; a top-level skipif decorator
+    # would skip the importlib check too and miss regressions.
+    if not _has_git_metadata():
+        pytest.skip("git metadata unavailable; arch test only runs on full clones")
+    # pytest.skip kept inline: same reason as the git-metadata guard above —
+    # must follow part (a) of the test, not skip the entire function.
+    if not _has_pathspec_magic():
+        pytest.skip(
+            "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+            "Phase 223 BILLING-02 invariant via grep-based guard"
+        )
+
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"from app\.core\.marketplace|import app\.core\.marketplace",
+            "--",
+            "backend/app/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 223 BILLING-02 invariant violated: backend/app/ still "
+            "contains a `from app.core.marketplace` or `import app.core.marketplace` "
+            "reference. The lifespan dispatch in api/main.py must use "
+            "`get_billing_extensions()` and the AWS Marketplace business logic "
+            "lives ONLY in the enterprise overlay's MarketplaceBillingExtension. "
+            "Offending lines:\n" + result.stdout
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+def test_billing_dispatch_uses_hardcoded_timeout() -> None:
+    """Phase 223 BILLING-04 / D-11: the production dispatch loop hardcodes timeout=10.0.
+
+    D-11 deliberately rejects making the timeout configurable (no
+    ``BILLING_STARTUP_TIMEOUT_SECONDS`` env var, no per-extension override).
+    Today's value is hardcoded; preserving that as a constant in core's
+    dispatch loop is the smallest-diff option and matches the pre-phase-223
+    behavior at the now-deleted line 191 of api/main.py.
+
+    Test fixtures (test_billing_extension.py::_dispatch) accept a parameterized
+    ``timeout`` argument for fast tests, but the PRODUCTION dispatch loop (in the
+    shared ``bootstrap()`` helper since Phase 1206 WORK-01 — formerly api/main.py)
+    MUST use the literal ``timeout=10.0``. This test catches drift between the two.
+
+    Negative-control: any change that wraps the timeout in a settings field
+    or env-var lookup will fail this test (the literal will be missing).
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"asyncio\.wait_for\(ext\.on_startup\(app\), timeout=10\.0\)",
+            "--",
+            # Phase 1206 (WORK-01) collapsed the API lifespan + worker bootstrap
+            # into one shared bootstrap() helper, which is where the billing
+            # dispatch loop now lives (moved from the now-deleted api/main.py site).
+            "backend/app/platform/extensions/bootstrap.py",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 1:
+        pytest.fail(
+            "Phase 223 BILLING-04 / D-11 invariant violated: "
+            "backend/app/platform/extensions/bootstrap.py does NOT contain the "
+            "production BillingExtension dispatch loop with literal "
+            "`asyncio.wait_for(ext.on_startup(app), timeout=10.0)`. The "
+            "10-second timeout MUST be hardcoded (D-11 — YAGNI for env-var "
+            "configuration). Either the dispatch loop is missing entirely or the "
+            "literal timeout was changed. (Phase 1206 moved this from api/main.py "
+            "into the shared bootstrap() helper.)"
+        )
+    if result.returncode not in (0,):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+# fix(#435): burn-down list of function-local `app.modules.catalog` imports inside
+# `backend/app/processing/`. Every entry is a place where processing reaches past
+# ProcessingPort, so an Enterprise/Cloud overlay cannot observe or intercept the call.
+#
+# The list may SHRINK, never grow. Adding an entry means adding a new port bypass —
+# route the behavior through `app.core.processing_port` instead. See
+# `_authorize_metadata_dataset` in `processing/ai/router.py`, migrated to the port's
+# existing `get_dataset` / `check_dataset_access` methods.
+_PROCESSING_CATALOG_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "ai/chat_validation.py": {"app.modules.catalog.maps.filter_grammar"},
+    "ai/router.py": {
+        # Private cross-domain helpers. Needs behavior-level ProcessingPort methods
+        # (check_map_read_access, can_edit_map) before this edge can go.
+        "app.modules.catalog.maps._router_helpers",
+        "app.modules.catalog.maps.models",
+    },
+    "ai/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.search.service",
+    },
+    "export/router.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.features.service",
+    },
+    "ingest/manifest_service.py": {
+        "app.modules.catalog.authorization",
+    },
+    "ingest/router.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.service",
+    },
+    "ingest/service.py": {
+        "app.modules.catalog.authorization",
+    },
+    "ingest/tasks_vector.py": {
+        "app.modules.catalog.sources.adapters.arcgis",
+    },
+    "tiles/router.py": {"app.modules.catalog.datasets.domain.models"},
+}
+
+# fix(#1438 codex review): built from `_backend_path()`/`BACKEND_ROOT`, not
+# `REPO_ROOT / "backend" / ...`. `_discover_repo_roots()` returns `BACKEND_ROOT
+# == REPO_ROOT / "backend"` only in the host layout; in the backend-container
+# layout it also supports, `REPO_ROOT` is `/` and `BACKEND_ROOT` is `/app`, so
+# the `REPO_ROOT`-relative spelling resolved to a nonexistent `/backend/app/
+# processing` and every guard built on it scanned zero files and passed
+# vacuously in-container. Proven both ways: constructing the analogous
+# _STANDARDS_DIR the same (wrong) way and rglob-ing it found 0 files in a
+# simulated container layout; constructing it via BACKEND_ROOT found the
+# files. `_PLATFORM_DIR` below had the identical bug.
+_PROCESSING_DIR = _backend_path("app/processing")
+
+
+def _processing_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.*` import under processing/, at ANY scope.
+
+    fix(#1438 F17): broadened from `app.modules.catalog` so a bypass into ANY
+    product domain (auth, audit, quota, embed_tokens, ...) is visible, not just
+    catalog. `_catalog_import_edges()` and `_other_domains_import_edges()` below
+    are the two ways this gets sliced — kept as separate burndowns rather than
+    one merged list because they lead to different fixes (see
+    `_other_domains_import_edges()`'s docstring).
+
+    Handles two import-syntax gaps (fix #1438 codex review): a RELATIVE import
+    (`from ...modules.auth import X`) is resolved to its absolute path via
+    `_resolve_relative_import()` before the prefix check, rather than reading
+    `node.module` as if it were always already-absolute. And `from app.modules
+    import auth` resolves `node.module` to exactly `"app.modules"` — no
+    trailing segment — which does not itself start with `"app.modules."`;
+    falling back to each imported name as a possible extension catches the
+    target this shape actually reaches (`"app.modules.auth"`) without also
+    recording the bare, non-specific `"app.modules"` for the common shape
+    where `node.module` already spells out the full target.
+    """
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_PROCESSING_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                if resolved.startswith("app.modules."):
+                    modules = [resolved]
+                else:
+                    modules = [f"{resolved}.{alias.name}" for alias in node.names]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if module.startswith("app.modules."):
+                    key = str(path.relative_to(_PROCESSING_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
+def _catalog_import_edges() -> dict[str, set[str]]:
+    """The `app.modules.catalog.*` subset of `_processing_import_edges()`."""
+    edges: dict[str, set[str]] = {}
+    for file, modules in _processing_import_edges().items():
+        catalog_modules = {m for m in modules if m.startswith("app.modules.catalog")}
+        if catalog_modules:
+            edges[file] = catalog_modules
+    return edges
+
+
+def _other_domains_import_edges() -> dict[str, set[str]]:
+    """The non-catalog subset of `_processing_import_edges()`.
+
+    fix(#1438 F17): catalog edges are governed separately, above, by
+    `test_no_processing_imports_catalog` — whose fix directs the reader at
+    ProcessingPort (`app.core.processing_port`). That is correct for catalog:
+    ProcessingPort's surface is dataset/record/map/grant methods. It has no
+    auth, audit, quota, or embed-token surface, so an edge into one of those
+    domains needs a different fix (a scoped port method, a dependency injected
+    at the router layer, or a deferred import) — folding it into the catalog
+    burndown would point the fixer at a port that cannot serve it. Kept as a
+    parallel burndown instead, so each guard's failure message stays true for
+    every edge it lists.
+    """
+    edges: dict[str, set[str]] = {}
+    for file, modules in _processing_import_edges().items():
+        other_modules = {m for m in modules if not m.startswith("app.modules.catalog")}
+        if other_modules:
+            edges[file] = other_modules
+    return edges
+
+
+@pytest.mark.architecture
+def test_no_processing_imports_catalog() -> None:
+    """Phase 225 PROCESS-02/04: processing/ reaches catalog only through ProcessingPort.
+
+    fix(#435): this guard was a `git grep` for imports starting at column 0, so moving
+    an import inside a function body satisfied it while still bypassing the overlay
+    seam. An AST scan found 30 such function-local imports across 11 files, one
+    reaching into private router helpers and another bypassing the port for dataset
+    authorization. The guard now walks every scope, and the surviving edges are an
+    explicit burn-down list rather than an invisible exemption.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_catalog_import_edges().items()):
+        allowed = _PROCESSING_CATALOG_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/processing/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "Phase 225 PROCESS-02/04 invariant violated: backend/app/processing/ "
+            "imports app.modules.catalog.* outside the burn-down allowlist. Route the "
+            "behavior through ProcessingPort (app.core.processing_port) instead of "
+            "adding an entry to _PROCESSING_CATALOG_IMPORT_BURNDOWN.\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_processing_catalog_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _catalog_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_PROCESSING_CATALOG_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_PROCESSING_CATALOG_IMPORT_BURNDOWN lists edges that no longer exist. "
+            "Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#1438 F17): burn-down list of `app.modules.*` imports inside
+# `backend/app/processing/` that reach a product domain OTHER than catalog — the
+# same PROCESS-02/04 bypass the catalog burndown above tracks, widened to every
+# domain now that the guard sees all of `app.modules.` rather than just
+# `app.modules.catalog`. See `_other_domains_import_edges()` for why this stays a
+# separate dict instead of merging into `_PROCESSING_CATALOG_IMPORT_BURNDOWN`.
+#
+# The list may SHRINK, never grow.
+_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "ai/query_router.py": {
+        "app.modules.audit.service",
+        "app.modules.auth.dependencies",
+    },
+    "ai/router.py": {
+        "app.modules.auth.dependencies",
+    },
+    "export/router.py": {
+        "app.modules.audit.service",
+        "app.modules.auth.dependencies",
+        "app.modules.auth.permissions",
+    },
+    "ingest/manifest_router.py": {
+        "app.modules.auth.dependencies",
+    },
+    "ingest/manifest_service.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/presigned.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_common.py": {
+        "app.modules.audit.service",
+    },
+    "ingest/tasks_raster.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_raster_common.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_raster_replace.py": {
+        "app.modules.audit.service",
+    },
+    "ingest/tasks_raster_swap.py": {
+        "app.modules.quota.service",
+    },
+    "ingest/tasks_vrt.py": {
+        "app.modules.quota.service",
+    },
+    "tiles/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.embed_tokens.service",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_no_processing_imports_other_domains() -> None:
+    """Phase 225 PROCESS-02/04, broadened past catalog: processing/ reaches every
+    product domain through a port, never `app.modules.*` directly.
+
+    fix(#1438 F17): `test_no_processing_imports_catalog` held processing/ to a
+    catalog-only boundary, so an equally direct reach into auth, audit, quota, or
+    embed_tokens passed silently. processing/ has exactly one blessed
+    cross-domain seam (ProcessingPort, for catalog); every other `app.modules.*`
+    reference is the same bypass in a different domain. Walks the same
+    AST-at-any-scope collector as the catalog guard (`_processing_import_edges()`),
+    so a function-local import cannot hide from either.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_other_domains_import_edges().items()):
+        allowed = _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/processing/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "backend/app/processing/ imports app.modules.* outside the catalog "
+            "domain and outside the burn-down allowlist. Route the behavior "
+            "through a port — app.core.processing_port for catalog-shaped "
+            "access, or a scoped port method / injected dependency for auth, "
+            "audit, quota, or embed-token access — instead of adding an entry "
+            "to _PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_processing_other_domains_import_allowlist_is_current() -> None:
+    """The cross-domain burn-down list must shrink as edges are migrated.
+
+    Mirrors `test_processing_catalog_import_allowlist_is_current` for the
+    non-catalog axis — a stale entry is a silent licence to reintroduce the
+    bypass later.
+    """
+    edges = _other_domains_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_PROCESSING_OTHER_DOMAINS_IMPORT_BURNDOWN lists edges that no longer "
+            "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 230 CATPORT-04 invariant via grep-based guard"
+    ),
+)
+def test_no_catalog_imports_processing() -> None:
+    """Phase 230 CATPORT-02/04: catalog/ must not import app.processing.*.
+
+    All processing-owned helper, task, schema, and ORM-class access from
+    backend/app/modules/catalog/ must go through CatalogPort
+    (app.core.catalog_port). Strict zero-hit across module-level imports
+    and function-local imports. Pure `#` comment lines are skipped — code
+    comments may legitimately mention the module name for documentation.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"(backend\.)?app\.processing",
+            "--",
+            "backend/app/modules/catalog/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        # Filter out pure comment lines (line starts with optional whitespace + `#`).
+        # Format of git-grep -n is "path:lineno:content".
+        offending = [
+            line
+            for line in result.stdout.splitlines()
+            if (parts := line.split(":", 2))
+            and len(parts) == 3
+            and not parts[2].lstrip().startswith("#")
+        ]
+        if offending:
+            pytest.fail(
+                "Phase 230 CATPORT-02/04 invariant violated: "
+                "backend/app/modules/catalog/ contains a direct reference to "
+                "app.processing.*. All processing access must go through "
+                "CatalogPort (app.core.catalog_port). Offending lines:\n"
+                + "\n".join(offending)
+            )
+        return  # All hits were comment lines — pass.
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 226 AIEXT-03 invariant via grep-based guard"
+    ),
+)
+def test_no_hardcoded_ai_provider_branches() -> None:
+    """Phase 226 AIEXT-03/05: no hardcoded ``if provider ==`` dispatch in processing/ai/.
+
+    SC#3 binding (ROADMAP §Phase 226): ``grep -RE "if .*provider *== *['\"]
+    (anthropic|openai_compatible)" backend/app/processing/ai/`` returns zero
+    hits after the provider-seam migration. Streaming chat now dispatches
+    through ``AIProviderExtension.stream_chat_events(...)`` and metadata
+    drafts use ``AIProviderExtension.structured_complete(...)``.
+
+    Negative-control (D-14): temporarily reintroduce
+    ``if provider == "anthropic":`` in ``processing/ai/sql_generator.py``,
+    run this test, confirm it fails with the offending line surfaced.
+    Revert. Run again, confirm green.
+
+    Maps to AIEXT-03 + AIEXT-05 (REQUIREMENTS.md §Phase 226).
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"if\s+.*provider\s*==\s*['\"](?:anthropic|openai_compatible)",
+            "--",
+            "backend/app/processing/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Phase 226 AIEXT-03 invariant violated: hardcoded AI provider "
+            "dispatch (`if provider == 'anthropic'/'openai_compatible'`) found "
+            "in backend/app/processing/. Replace with "
+            "`get_ai_provider(name)` dispatch from "
+            "`app.platform.extensions`.\nOffending lines:\n" + result.stdout
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+def test_no_module_level_provider_sdk_imports_in_processing() -> None:
+    """oc-audit 2026-05-02 §5 + Phase 231: backend/app/processing/ must not have
+    module-level imports of provider SDKs (anthropic, openai).
+
+    Module-level provider-SDK imports inside ``processing/`` violate the
+    open-core boundary: they couple the AI domain to specific SDK packages
+    at import time, defeating the AIProviderExtension Protocol seam (Phase
+    226). Move imports to function-local scope when needed (mirror Phase
+    225's deferred-import discipline) or place them behind the Protocol in
+    ``app/platform/extensions/defaults.py``.
+
+    Negative-control (Phase 231 D-15): temporarily reintroduce
+    ``from openai import OpenAI`` at the top of
+    ``backend/app/processing/embeddings/helpers.py``, run this test,
+    confirm it fails with the offending line surfaced. Revert.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"^(from|import) (anthropic|openai)( |$)",
+            "--",
+            "backend/app/processing/",
+        ],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    if result.returncode == 0:
+        pytest.fail(
+            "Module-level provider-SDK import found in backend/app/processing/. "
+            "Move to function-local scope or behind the AIProviderExtension Protocol "
+            "in app/platform/extensions/defaults.py. "
+            f"Offending lines:\n{result.stdout}"
+        )
+    if result.returncode != 1:
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+
+# fix(#909): env-sensitive helpers that test fixtures redirect by assigning to
+# the module the fixture actually patches. A module-scope `from <module> import
+# <name>` snapshots the object into the importing module's own namespace, so
+# the fixture's patch never reaches it — and the test silently reads or WRITES
+# the dev database while passing (the #898 export-ogr incident). Call sites
+# must late-bind (`from <module> import <name>` inside the function) so the
+# patched module's current attribute is resolved at call time.
+#
+# Maps patched module -> redirected symbol names. Extend this when a fixture
+# starts redirecting another module-scope-importable helper.
+_FIXTURE_REDIRECTED_SYMBOLS: dict[str, frozenset[str]] = {
+    # fix(#909 codex review): engine included — the client fixture reassigns
+    # db_module.engine to the test engine, so a module-scope engine binding
+    # escapes the redirect exactly like async_session (the health-service
+    # probe was the live instance).
+    "app.core.db": frozenset({"async_session", "engine"}),
+    "app.processing.ingest.ogr": frozenset({"build_pg_conn_str"}),
+}
+
+# fix(#909 codex review): the conftest fixture patches the FAÇADE attributes
+# (`app.core.db.engine` / `.async_session`), never the origin module's, so
+# importing these from `app.core.db.session` escapes the redirect at ANY
+# scope — late-binding does not save it, because the attribute it late-binds
+# against was never patched. `app/core/db/rls.py` used to do exactly that and
+# would open a dev-database connection from inside a test. These imports are
+# therefore banned outright and must go through the façade.
+_UNPATCHED_ORIGIN_SYMBOLS: dict[str, frozenset[str]] = {
+    "app.core.db.session": frozenset({"async_session", "engine"}),
+}
+
+# The one sanctioned binding: app/core/db/__init__.py re-exports from
+# app.core.db.session, and that package attribute is exactly what the conftest
+# fixture patches (`db_module.async_session = ...`), so the façade must keep
+# its binding for the patch to have a target.
+_FIXTURE_REDIRECT_ALLOWED_FILES = frozenset({"app/core/db/__init__.py"})
+
+
+def _redirect_escaping_imports(tree: ast.AST) -> list[tuple[int, str, str, str]]:
+    """Return (lineno, origin-module, symbol, reason) for offending imports.
+
+    Two distinct failure modes:
+
+    - ``module-scope``: the symbol IS patched on this module, but a
+      module-scope ``from <origin> import <name>`` snapshots it at import
+      time. Module scope means anywhere outside a function body — class
+      bodies and conditional/try blocks at module level bind at import time
+      and escape the patch the same way. Late-binding inside the function
+      fixes these.
+    - ``unpatched-origin``: the fixture never patches this module's
+      attribute, so the import escapes at every scope. Only switching to the
+      patched façade fixes these.
+    """
+    inside_functions: set[ast.AST] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for child in ast.walk(node):
+                if child is not node:
+                    inside_functions.add(child)
+
+    offenders: list[tuple[int, str, str, str]] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.module is None:
+            continue
+        at_module_scope = node not in inside_functions
+        for forbidden, reason in (
+            (_UNPATCHED_ORIGIN_SYMBOLS.get(node.module), "unpatched-origin"),
+            (
+                _FIXTURE_REDIRECTED_SYMBOLS.get(node.module)
+                if at_module_scope
+                else None,
+                "module-scope",
+            ),
+        ):
+            if not forbidden:
+                continue
+            for alias in node.names:
+                if alias.name in forbidden:
+                    offenders.append((node.lineno, node.module, alias.name, reason))
+    # ast.walk is breadth-first, so sort for a stable, source-ordered report.
+    return sorted(offenders)
+
+
+@pytest.mark.architecture
+def test_no_imports_that_escape_the_fixture_db_redirect() -> None:
+    """fix(#909): no import path may resolve the un-patched dev-database engine.
+
+    AST-based rather than git grep so untracked files are covered and
+    multi-name import lists (`from app.core.db import async_session,
+    tenant_task`) cannot slip through.
+
+    Negative-control: temporarily add `from app.core.db import async_session`
+    at the top of any module under backend/app/, run this test, confirm it
+    fails with the offending file:line surfaced. Revert. (Automated as
+    test_fixture_redirect_guard_catches_seeded_violation below.)
+    """
+    app_root = _backend_path("app")
+    failures: list[str] = []
+    for path in sorted(app_root.rglob("*.py")):
+        rel = path.relative_to(BACKEND_ROOT).as_posix()
+        if rel in _FIXTURE_REDIRECT_ALLOWED_FILES:
+            continue
+        tree = ast.parse(path.read_text(), filename=rel)
+        for lineno, module, symbol, reason in _redirect_escaping_imports(tree):
+            failures.append(
+                f"{rel}:{lineno}: `from {module} import {symbol}` ({reason})"
+            )
+
+    assert not failures, (
+        "Import(s) that escape the test fixture's database redirect, so the "
+        "test silently reads or writes the DEV database while passing (see "
+        "#909). `module-scope`: late-bind the import inside the function. "
+        "`unpatched-origin`: import from the `app.core.db` façade, which is "
+        "what the fixture patches:\n" + "\n".join(failures)
+    )
+
+
+def test_fixture_redirect_guard_catches_seeded_violation() -> None:
+    """The guard must fail on a seeded module-scope offender (issue #909 §3)."""
+    seeded = ast.parse(
+        "import uuid\n"
+        "from app.core.db import Base, async_session\n"
+        "def ok():\n"
+        "    from app.core.db import async_session\n"
+    )
+    assert _redirect_escaping_imports(seeded) == [
+        (2, "app.core.db", "async_session", "module-scope")
+    ]
+
+
+def test_fixture_redirect_guard_catches_unpatched_origin_at_any_scope() -> None:
+    """fix(#909 codex review): late-binding does NOT rescue an import from
+    ``app.core.db.session``. conftest reassigns ``app.core.db.engine``, not
+    ``app.core.db.session.engine``, so the deferred lookup still resolves the
+    dev-database engine — the shape ``rls.apply_tenancy_rls_from_engine`` had.
+    Both scopes must be reported, and the façade equivalent must not be."""
+    seeded = ast.parse(
+        "from app.core.db.session import engine\n"
+        "def late():\n"
+        "    from app.core.db.session import engine\n"
+        "def facade():\n"
+        "    from app.core.db import engine\n"
+    )
+    assert _redirect_escaping_imports(seeded) == [
+        (1, "app.core.db.session", "engine", "unpatched-origin"),
+        (3, "app.core.db.session", "engine", "unpatched-origin"),
+    ]
+
+
+def _manifest_backend_files() -> list[Path]:
+    manifest_dir = _backend_path("app/processing/ingest")
+    return sorted(manifest_dir.glob("manifest_*.py"))
+
+
+def _iter_imported_modules(tree: ast.AST) -> list[tuple[str, int]]:
+    modules: list[tuple[str, int]] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            modules.extend((alias.name, node.lineno) for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module is not None:
+            modules.append((node.module, node.lineno))
+    return modules
+
+
+def _is_forbidden_manifest_import(module: str) -> bool:
+    normalized = _normalized_import_root(module)
+    forbidden_roots = {
+        "app_enterprise",
+        "cli",
+        "geolens",
+        "geolens_cli",
+        "geolens_sdk",
+        "geolens_enterprise",
+        "sdks",
+    }
+    if any(
+        normalized == root or normalized.startswith(f"{root}.")
+        for root in forbidden_roots
+    ):
+        return True
+    return "enterprise" in normalized.split(".")
+
+
+@pytest.mark.architecture
+def test_manifest_apply_backend_has_no_cli_sdk_or_enterprise_imports() -> None:
+    """Phase 243 INGEST-03: backend manifest apply stays backend-local.
+
+    The backend apply path must not import CLI internals, generated SDK clients,
+    or Enterprise-only modules. Community extension ports such as
+    ``app.platform.extensions`` remain allowed.
+    """
+
+    offenders: list[str] = []
+    for path in _manifest_backend_files():
+        rel = _repo_style_rel(path)
+        source = path.read_text()
+        try:
+            tree = ast.parse(source, filename=rel)
+        except SyntaxError as exc:
+            pytest.fail(f"Could not parse {rel}: {exc}")
+
+        lines = source.splitlines()
+        for module, lineno in _iter_imported_modules(tree):
+            if _is_forbidden_manifest_import(module):
+                offenders.append(f"{rel}:{lineno}:{lines[lineno - 1].strip()}")
+
+    if offenders:
+        pytest.fail(
+            "Phase 243 INGEST-03 invariant violated: backend manifest apply "
+            "imports CLI, generated SDK, or Enterprise-only modules directly. "
+            "Keep manifest apply backend-local and use existing community "
+            "extension ports. Offending lines:\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_manifest_apply_router_uses_upload_permission() -> None:
+    """Phase 243 INGEST-03: manifest apply reuses the existing upload permission."""
+
+    router_path = _backend_path("app/processing/ingest/manifest_router.py")
+    source = router_path.read_text()
+    tree = ast.parse(source, filename=_repo_style_rel(router_path))
+
+    permissions: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Name) or node.func.id != "require_permission":
+            continue
+        if not node.args or not isinstance(node.args[0], ast.Constant):
+            pytest.fail("manifest_router.py uses non-literal require_permission().")
+        permissions.append(str(node.args[0].value))
+
+    assert permissions == ["upload"]
+
+
+@pytest.mark.architecture
+def test_upload_thumbnail_route_uses_json_body() -> None:
+    """Phase 254 SDK-02: PUT /maps/{map_id}/thumbnail/ must use a JSON body
+    (Pydantic model), not a text/plain body.
+
+    openapi-python-client rejects ``text/plain`` request bodies and silently
+    drops the endpoint from the generated Python SDK (emitting
+    ``WARNING parsing PUT /maps/{map_id}/thumbnail/``). Phase 254 Plan 01
+    switched the route to a JSON body backed by ``ThumbnailUploadRequest``.
+    This guard prevents silent regression: any future change that switches
+    the route back to a non-JSON body shape fails this test BEFORE
+    ``make sdks`` runs.
+
+    Companion gate: the ``Makefile`` ``sdks:`` target also fails on any
+    ``^WARNING parsing`` line from openapi-python-client (Phase 254 Plan 02
+    Task 1). This source-shape guard fires earlier in the loop, on every
+    ``pytest tests/test_layering.py`` invocation.
+    """
+    router_path = _backend_path("app/modules/catalog/maps/router.py")
+    if not router_path.exists():
+        # Test runs from monorepo root; if path is relative-broken, skip
+        # rather than false-fail on environment misconfiguration.
+        # pytest.skip kept inline: reason interpolates router_path which is
+        # computed via _backend_path() — the resolved value depends on the
+        # test runtime layout (host vs container), so a static decorator
+        # reason cannot capture the actual missing path.
+        pytest.skip(f"router file not found at {router_path}")
+
+    source = router_path.read_text(encoding="utf-8")
+
+    # Locate the upload_thumbnail function definition. Use AST so we
+    # don't false-positive on docstrings or other strings that mention
+    # the function name.
+    tree = ast.parse(source)
+    upload_fn: ast.AsyncFunctionDef | ast.FunctionDef | None = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and node.name == "upload_thumbnail"
+        ):
+            upload_fn = node
+            break
+
+    if upload_fn is None:
+        pytest.fail(
+            "Phase 254 SDK-02 invariant violated: function "
+            "'upload_thumbnail' not found in "
+            "backend/app/modules/catalog/maps/router.py. The route was "
+            "renamed or removed; update this guard or restore the route."
+        )
+
+    # Inspect the parameter list. The route must NOT have any parameter
+    # whose default is a Body(...) call with a `media_type` keyword arg
+    # set to a non-JSON content type (typically "text/plain").
+    #
+    # Phase 254 WR-01: walk both positional defaults AND kwonly defaults,
+    # so a regression that switches `upload_thumbnail` to FastAPI's
+    # keyword-only style (e.g., `*, data_uri: str = Body(..., media_type=...)`)
+    # is also caught. Without this, kwonly args land in
+    # `fn.args.kwonlyargs` / `fn.args.kw_defaults` and slip past the guard.
+    args = upload_fn.args.args
+    defaults = upload_fn.args.defaults
+    default_idx = len(args) - len(defaults)
+    positional_pairs: list[tuple[ast.arg, ast.expr]] = [
+        (arg, defaults[arg_pos - default_idx])
+        for arg_pos, arg in enumerate(args)
+        if arg_pos >= default_idx
+    ]
+    # `kw_defaults` is parallel to `kwonlyargs`; entries are `None` when
+    # a kwonly arg has no default. Filter those out so `(arg, default)`
+    # below is always (ast.arg, ast.expr).
+    kwonly_pairs: list[tuple[ast.arg, ast.expr]] = [
+        (arg, default)
+        for arg, default in zip(
+            upload_fn.args.kwonlyargs,
+            upload_fn.args.kw_defaults,
+            strict=True,
+        )
+        if default is not None
+    ]
+    for arg, default in (*positional_pairs, *kwonly_pairs):
+        if not isinstance(default, ast.Call):
+            continue
+        func = default.func
+        func_name = (
+            func.attr
+            if isinstance(func, ast.Attribute)
+            else func.id
+            if isinstance(func, ast.Name)
+            else None
+        )
+        if func_name != "Body":
+            continue
+        for kw in default.keywords:
+            if (
+                kw.arg == "media_type"
+                and isinstance(kw.value, ast.Constant)
+                and isinstance(kw.value.value, str)
+                and kw.value.value != "application/json"
+            ):
+                pytest.fail(
+                    "Phase 254 SDK-02 invariant violated: parameter "
+                    f"'{arg.arg}' on upload_thumbnail uses "
+                    f"Body(..., media_type='{kw.value.value}'). "
+                    "openapi-python-client cannot parse non-JSON request "
+                    "bodies and will silently drop the endpoint from the "
+                    "Python SDK. Switch to a Pydantic JSON body model "
+                    "(e.g., ThumbnailUploadRequest) per Phase 254 Plan 01."
+                )
+
+
+@pytest.mark.architecture
+@pytest.mark.skipif(not _GIT_METADATA_AVAILABLE, reason=_GIT_METADATA_REASON)
+@pytest.mark.skipif(
+    not _PATHSPEC_MAGIC_AVAILABLE,
+    reason=(
+        "git < 2.13 lacks `:!` pathspec exclusion; cannot enforce "
+        "Phase 276 CODE-08 invariant via grep-based guard"
+    ),
+)
+def test_no_unjustified_broad_except_sites() -> None:
+    """Phase 276 CODE-08: every ``except Exception:`` site under backend/app/
+    must justify itself with ``# broad: <reason>`` or
+    ``# noqa: BLE001 <reason>`` on the SAME line.
+
+    Catches new unjustified broad-except sites at PR time. The intent is
+    not to forbid broad catches — they are sometimes the correct safety
+    net (audit sinks, cache decoders, optional-dependency probes,
+    third-party SDK boundaries) — but to require a one-line justification
+    at the catch site so reviewers can confirm the broad catch is
+    intentional and not accidental swallowing of a real bug.
+
+    Two acceptable styles (both already used in the codebase):
+        except Exception:  # broad: <reason>
+        except Exception:  # noqa: BLE001 <reason>
+
+    Pattern A (``# broad:``) is preferred for new annotations and matches
+    the dominant style across ~138 of 139 sites. Pattern B
+    (``# noqa: BLE001``) is reserved for sites where ruff would otherwise
+    complain about BLE001 (e.g., audit sinks).
+
+    The comment must appear on the SAME line as the ``except`` so this
+    grep-based check can find it via line-by-line scanning. Multi-line
+    comments above the except do NOT satisfy the guard.
+
+    Out of scope: ``backend/tests/`` (test code may swallow exceptions
+    for structural reasons unrelated to production safety) and
+    ``backend/app/processing/ai/router.py`` is NOT exempted — it has
+    its own justified sites.
+
+    Negative-control: temporarily reintroduce ``except Exception:`` (no
+    comment) into a sandbox file under ``backend/app/``, run this test,
+    confirm it fails with the offending line surfaced. Revert.
+
+    Maps to CODE-08 (REQUIREMENTS.md §Phase 276).
+    """
+    # Match `except Exception:` and `except Exception as foo:` lines
+    # under backend/app/ only (tests/ is out of scope).
+    # fix(#1182): runs under `-P`, so `\w` in the optional `as` group is a real
+    # word class. Under `-E` on macOS it matched nothing, so `except Exception
+    # as foo:` lines were invisible locally while CI caught them.
+    result = subprocess.run(
+        [
+            "git",
+            "grep",
+            "-n",
+            "-P",
+            r"except Exception([ \t]+as[ \t]+\w+)?:",
+            "--",
+            "backend/app/",
+        ],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    # rc=1 means "no matches" (and our codebase is expected to have
+    # matches). rc=0 means matches found — we then filter them.
+    if result.returncode not in (0, 1):
+        pytest.fail(
+            f"git grep failed unexpectedly: rc={result.returncode}\n"
+            f"stderr: {result.stderr}"
+        )
+
+    violations: list[str] = []
+    for line in result.stdout.splitlines():
+        # Each match is "<path>:<lineno>:<source>".
+        if "# broad:" in line or "# noqa: BLE001" in line:
+            continue
+        violations.append(line)
+
+    if violations:
+        pytest.fail(
+            "Phase 276 CODE-08 invariant violated: unjustified broad-except "
+            "sites found. Add `# broad: <reason>` (or `# noqa: BLE001 "
+            "<reason>`) on the SAME line as the `except`, OR tighten the "
+            "catch to a specific exception class.\n"
+            "Offending lines:\n" + "\n".join(violations)
+        )
+
+
+# fix(#435): `platform/` is the shared layer beneath `modules/`, but four files import
+# upward into product domains at module scope. Each edge means a product-layer refactor
+# can break platform imports at runtime, so they are enumerated rather than tolerated
+# silently. The list may SHRINK, never grow.
+#
+# Deferred (function-local) imports are out of scope: they are the established D-17
+# discipline for breaking these cycles, and `platform/extensions/defaults.py` is built
+# on them by design.
+_PLATFORM_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    # Bootstrap adapters: FastAPI dependency callables must be imported to be used as
+    # route dependencies. Resolvable by moving these routers under modules/.
+    "config_ops/router.py": {"app.modules.auth.dependencies"},
+    "jobs/router.py": {"app.modules.auth.dependencies"},
+    # Config import/export validates product schemas. Resolvable by moving config_ops
+    # under modules/settings/, or by passing validated DTOs across a settings port.
+    "config_ops/service.py": {
+        "app.modules.auth.oauth.schemas",
+        "app.modules.auth.permissions",
+        "app.modules.settings.schemas",
+    },
+    # The SQL sandbox enforces catalog visibility. Resolvable via CatalogPort.
+    "sandbox/validator.py": {
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.models",
+    },
+}
+
+# fix(#1438 codex review): see the comment on `_PROCESSING_DIR` above — this
+# constant had the identical `REPO_ROOT`-relative bug and is fixed the same
+# way (vacuous-pass in the backend-container layout `_discover_repo_roots()`
+# is meant to support).
+_PLATFORM_DIR = _backend_path("app/platform")
+
+
+def _platform_module_level_edges() -> dict[str, set[str]]:
+    """Module-level (column 0) `app.modules.*` imports under platform/."""
+    import ast
+
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            if node.col_offset != 0:
+                continue
+            for module in modules:
+                if module.startswith("app.modules"):
+                    key = str(path.relative_to(_PLATFORM_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
+@pytest.mark.architecture
+def test_platform_does_not_import_modules() -> None:
+    """The shared platform layer must not depend upward on product domains.
+
+    fix(#435): `platform/config_ops/service.py` reached into `modules.settings.router`
+    for the private `_ENTERPRISE_ONLY_TABS`. That constant now lives beside the
+    persistent-config registry that defines `PersistentConfig.tab`, so edition policy
+    has a stable owner and decomposing the settings router cannot break config import.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_platform_module_level_edges().items()):
+        allowed = _PLATFORM_MODULE_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/platform/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports upward into app.modules.* at module scope. Depend on a "
+            "core port or DTO, or defer the import (D-17), rather than adding an entry "
+            "to _PLATFORM_MODULE_IMPORT_BURNDOWN.\n" + "\n".join(offenders)
+        )
+
+
+# fix(#1438 F24): platform/ is not the only layer this rule protects — processing/
+# and standards/ reach into app.modules.* too, and a leading underscore is exactly
+# as fragile from either. `_STANDARDS_DIR` mirrors `_PLATFORM_DIR` / `_PROCESSING_DIR`
+# above (also reused by `_standards_module_import_edges()` further down, for the
+# F7 frozen-surface guard) — built via `_backend_path()`, not `REPO_ROOT`-relative,
+# for the same backend-container-layout reason given on `_PROCESSING_DIR`.
+_STANDARDS_DIR = _backend_path("app/standards")
+_PRIVATE_MODULE_IMPORT_ROOTS: tuple[Path, ...] = (
+    _PLATFORM_DIR,
+    _PROCESSING_DIR,
+    _STANDARDS_DIR,
+)
+
+
+def _private_module_import_edges() -> dict[str, set[str]]:
+    """Every import reaching a `_`-prefixed segment under `app.modules.*`, at ANY
+    scope, across platform/, processing/, and standards/.
+
+    Two shapes count, because a leading underscore can sit on either side of the
+    `from X import Y` boundary. `from app.modules.X import _name` marks the NAME
+    private; `from app.modules.X._mod import name` (or `import
+    app.modules.X._mod`) marks the MODULE private, and the imported name can look
+    perfectly public while still being reached through a path that can move or
+    vanish without notice. Resolving each import to its full dotted symbol path
+    and checking every segment after `app.modules` catches both shapes with one
+    rule, rather than two independent checks that could drift apart.
+
+    A RELATIVE import is resolved to its absolute path first (fix #1438 codex
+    review): `node.module` alone is only correct for a level-0 import, so
+    `from ...modules.catalog._private import x` written deep in platform/ or
+    processing/ would otherwise read as module `"modules.catalog._private"`
+    — never reaching the `"app.modules"` prefix check at all.
+    """
+    offenders: dict[str, set[str]] = {}
+    for root in _PRIVATE_MODULE_IMPORT_ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                targets: list[str] = []
+                if isinstance(node, ast.ImportFrom):
+                    resolved = _resolve_relative_import(path, node)
+                    if resolved is None or not resolved.startswith("app.modules"):
+                        continue
+                    targets.extend(f"{resolved}.{alias.name}" for alias in node.names)
+                elif isinstance(node, ast.Import):
+                    targets.extend(
+                        alias.name
+                        for alias in node.names
+                        if alias.name.startswith("app.modules")
+                    )
+                else:
+                    continue
+                for dotted in targets:
+                    # Segments after `app`, `modules` are the product-domain path;
+                    # any one of them starting with `_` is a private reach.
+                    if any(part.startswith("_") for part in dotted.split(".")[2:]):
+                        offenders.setdefault(_repo_style_rel(path), set()).add(dotted)
+    return offenders
+
+
+# fix(#1438 F24): kept separate from _PROCESSING_CATALOG_IMPORT_BURNDOWN even
+# though it lists the same import line (ai/router.py:320) — that dict tracks the
+# catalog-BOUNDARY crossing (fix: route through ProcessingPort); this one tracks
+# the PRIVATE-SYMBOL reach the same import happens to also make (fix: promote the
+# symbols to a public home). Two rules, one import, two reasons. When
+# _PROCESSING_CATALOG_IMPORT_BURNDOWN's "ai/router.py":
+# "app.modules.catalog.maps._router_helpers" entry is retired, this entry must be
+# retired in the same commit — the underlying import is gone either way.
+#
+# The list may SHRINK, never grow.
+_PRIVATE_MODULE_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "backend/app/processing/ai/router.py": {
+        "app.modules.catalog.maps._router_helpers._can_edit_map",
+        "app.modules.catalog.maps._router_helpers._check_map_read_access",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_no_private_module_imports_from_app_modules() -> None:
+    """No `_`-prefixed name or module reached from app.modules.* outside its own
+    domain, across platform/, processing/, and standards/, at any scope.
+
+    fix(#1438 F24): broadens what was `test_platform_does_not_import_private_
+    module_names` (platform/ only, name-shape only) on two axes. Directory:
+    `platform/config_ops` importing the settings router's private
+    `_ENTERPRISE_ONLY_TABS` was never a platform-only failure mode — the same
+    fragility applies wherever backend/app/ reaches into a product module's
+    internals. Shape: `processing/ai/router.py` imports two functions through
+    `app.modules.catalog.maps._router_helpers` — a private MODULE — and a
+    name-only check cannot see that the path itself, not just the names on it,
+    is marked as liable to move or vanish without notice.
+    """
+    offenders: list[str] = []
+    for file, symbols in sorted(_private_module_import_edges().items()):
+        allowed = _PRIVATE_MODULE_IMPORT_BURNDOWN.get(file, set())
+        for symbol in sorted(symbols - allowed):
+            offenders.append(f"  {file}: {symbol}")
+
+    if offenders:
+        pytest.fail(
+            "A private name or module is imported from app.modules.* outside its "
+            "own domain. Promote it to a public home (core registry, port, or "
+            "DTO) instead of adding an entry to _PRIVATE_MODULE_IMPORT_BURNDOWN.\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_private_module_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _private_module_import_edges()
+    stale: list[str] = []
+    for file, symbols in sorted(_PRIVATE_MODULE_IMPORT_BURNDOWN.items()):
+        for symbol in sorted(symbols - edges.get(file, set())):
+            stale.append(f"  {file}: {symbol}")
+
+    if stale:
+        pytest.fail(
+            "_PRIVATE_MODULE_IMPORT_BURNDOWN lists edges that no longer exist. "
+            "Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#836): the platform->processing axis, mirroring _PLATFORM_MODULE_IMPORT_BURNDOWN
+# above. `platform/extensions/defaults_*.py` delegates INTO app.processing by design
+# (the CatalogPort/AI-provider defaults carried 63 such edges at audit time), but only
+# through deferred function-local imports (D-17). The module-scope edges below are the
+# reviewed exceptions. The list may SHRINK, never grow.
+_PLATFORM_PROCESSING_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    # Upload/config API composition: these platform routers queue ingest work and
+    # reuse the export Content-Disposition sanitizer. Resolvable by moving the
+    # routers under processing/ or crossing via a core port.
+    "config_ops/router.py": {"app.processing.export.service"},
+    "jobs/router.py": {
+        "app.processing.ingest.schemas",
+        "app.processing.ingest.service",
+    },
+}
+
+
+@pytest.mark.architecture
+def test_platform_processing_imports_stay_deferred() -> None:
+    """Module-scope platform->processing imports are enumerated, not tolerated.
+
+    fix(#836): the layering guard scanned the platform->modules axis but not
+    platform->processing, so the port defaults could accrete module-load-time
+    processing dependencies unnoticed. Deferred (function-local) imports remain
+    the sanctioned mechanism, exactly as on the modules axis.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            if node.col_offset != 0:
+                continue
+            key = str(path.relative_to(_PLATFORM_DIR))
+            allowed = _PLATFORM_PROCESSING_IMPORT_BURNDOWN.get(key, set())
+            for module in modules:
+                if module.startswith("app.processing") and module not in allowed:
+                    offenders.append(f"  backend/app/platform/{key}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports app.processing.* at module scope. Defer the import "
+            "into the function body (D-17) or cross via a core port, rather than "
+            "adding an entry to _PLATFORM_PROCESSING_IMPORT_BURNDOWN.\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_platform_never_imports_processing_routers() -> None:
+    """No platform file imports a processing router module, at any scope.
+
+    fix(#836): `DefaultCatalogPort.ingest_part_size` imported PART_SIZE from
+    `app.processing.ingest.router` — importing an API-edge module executes route
+    registration as a side effect and couples the platform seam to the router's
+    import graph. Constants and helpers a port needs must live in a service or
+    schema module; only api/main.py composes routers.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for path in sorted(_PLATFORM_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if not module.startswith("app.processing"):
+                    continue
+                leaf = module.rsplit(".", 1)[-1]
+                if leaf == "router" or leaf.endswith("_router"):
+                    rel = path.relative_to(_PLATFORM_DIR)
+                    offenders.append(f"  backend/app/platform/{rel}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "platform/ imports a processing router module. Move the needed name "
+            "into a service/schema module and import that instead.\n"
+            + "\n".join(offenders)
+        )
+
+
+# fix(#1438 F7): standards/ has two import-boundary guards, and this is the
+# second. `backend/tests/test_standards_layering.py` (added by #1438) holds
+# standards -> app.processing to a strict zero, mirroring the catalog rule
+# (processing-owned ORM classes, queries, and helpers must be reached through
+# CatalogPort). standards -> app.modules got no guard at all: the STAC and OGC
+# routers construct queries directly against catalog ORM classes
+# (datasets/collections/records/search), which is a live, reviewed design
+# choice — those routers exist to expose the catalog through external
+# standards, and a port indirection would not remove the coupling, only hide
+# it. So this is NOT a burn-down toward zero the way the processing guards
+# above are: it is a FROZEN surface. Today's edges are enumerated once so the
+# surface cannot grow silently; shrinking (migrating an edge through
+# CatalogPort) is welcome but not required.
+_STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
+    # fix(#1469): the shared "what may a feed publish" helper the three
+    # DCAT-family serializers now share. Same catalog-ORM edge each of them
+    # already carries, in one file instead of three, and TYPE_CHECKING-only —
+    # it is duck-typed on the Dataset instance at runtime.
+    "distributions.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "dcat/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.records.localization",
+    },
+    "dcat_us/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "geodcat_ap/service.py": {
+        "app.modules.catalog.datasets.domain.models",
+    },
+    "ogc/filtering.py": {
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.search.schemas",
+    },
+    "ogc/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.features.schemas",
+        "app.modules.catalog.features.service",
+    },
+    "ogc/schemas.py": {
+        "app.modules.catalog.features.schemas",
+    },
+    "stac/router.py": {
+        "app.modules.auth.dependencies",
+        "app.modules.catalog.authorization",
+        "app.modules.catalog.collections.models",
+        "app.modules.catalog.datasets.domain.models",
+        "app.modules.catalog.features.service",
+        "app.modules.catalog.search.service",
+    },
+    "stac/schemas.py": {
+        "app.modules.catalog.features.schemas",
+    },
+}
+
+
+def _standards_module_import_edges() -> dict[str, set[str]]:
+    """Every `app.modules.*` import under standards/, at ANY scope.
+
+    Same two shapes handled as `_processing_import_edges()` above (fix #1438
+    codex review): a relative import is resolved to its absolute path before
+    the prefix check, and `from app.modules import X` falls back to each
+    imported name as a possible extension of the bare, non-specific
+    `"app.modules"` `node.module` resolves to.
+    """
+    edges: dict[str, set[str]] = {}
+    for path in sorted(_STANDARDS_DIR.rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                if resolved.startswith("app.modules."):
+                    modules = [resolved]
+                else:
+                    modules = [f"{resolved}.{alias.name}" for alias in node.names]
+            elif isinstance(node, ast.Import):
+                modules = [alias.name for alias in node.names]
+            else:
+                continue
+            for module in modules:
+                if module.startswith("app.modules."):
+                    key = str(path.relative_to(_STANDARDS_DIR))
+                    edges.setdefault(key, set()).add(module)
+    return edges
+
+
+@pytest.mark.architecture
+def test_standards_module_import_surface_does_not_grow() -> None:
+    """standards/ -> app.modules.* is frozen at today's edges, not banned.
+
+    fix(#1438 F7): unlike the processing/platform burndowns elsewhere in this
+    file, `_STANDARDS_MODULE_IMPORT_SURFACE` is not a to-do list — STAC/OGC/DCAT
+    exist to expose the catalog to external standards, so direct ORM access is
+    the design, not debt. What this guards against is the surface growing
+    UNREVIEWED: a new file or a new edge here should be a deliberate addition to
+    the allowlist, not a silent side effect of a router growing a new route.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_standards_module_import_edges().items()):
+        allowed = _STANDARDS_MODULE_IMPORT_SURFACE.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  backend/app/standards/{file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "backend/app/standards/ imports app.modules.* outside its reviewed "
+            "surface. If this is a deliberate, reviewed addition (mirroring the "
+            "existing STAC/OGC/DCAT catalog-ORM access), add it to "
+            "_STANDARDS_MODULE_IMPORT_SURFACE. If it is avoidable, prefer "
+            "CatalogPort (app.core.catalog_port) instead.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_standards_module_import_surface_is_current() -> None:
+    """The frozen surface must shrink (or stay flat) as edges are migrated.
+
+    A stale entry overstates today's coupling and is a silent licence to
+    reintroduce a since-removed edge later without review.
+    """
+    edges = _standards_module_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_STANDARDS_MODULE_IMPORT_SURFACE.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_STANDARDS_MODULE_IMPORT_SURFACE lists edges that no longer exist. "
+            "Delete them — the surface only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#1438 F6): widens test_platform_never_imports_processing_routers (fix #836)
+# past its original platform-only, processing-only shape. That guard stays exactly
+# as written below — it is STRICTER on its own axis (any scope, not just module
+# scope) — this one adds the coverage it never had: every package, importing a
+# router module belonging to any OTHER package.
+def _dotted_package(path: Path) -> str:
+    """The dotted `app.…` package a file lives in — its containing directory."""
+    return ".".join(path.parent.relative_to(BACKEND_ROOT).parts)
+
+
+def _module_package(dotted: str) -> str:
+    """Everything before a dotted module path's last segment — its package."""
+    return dotted.rsplit(".", 1)[0] if "." in dotted else dotted
+
+
+def _is_router_module(module: str) -> bool:
+    """True when a dotted module path's filename-equivalent leaf names a router.
+
+    Mirrors how `test_platform_never_imports_processing_routers` identifies a
+    router module (``leaf == "router"`` or ``leaf.endswith("_router")``), plus
+    the ``router_*`` prefix convention used across catalog/maps, catalog/
+    datasets/api, catalog/search, admin, and settings (router_assets.py,
+    router_export.py, router_saved.py, router_operations.py, router_public.py,
+    ...). Checked against every module in backend/app/ that actually
+    instantiates ``APIRouter(``: the three shapes below match that set exactly
+    — zero misses, zero false positives. (A private ``_router_helpers.py``
+    starts with ``_``, not ``router``, so it does not match either shape.)
+    """
+    leaf = module.rsplit(".", 1)[-1]
+    return leaf == "router" or leaf.startswith("router_") or leaf.endswith("_router")
+
+
+def _resolves_to_real_module(dotted: str) -> bool:
+    """True when a dotted `app.…` path names a real file or package under backend/.
+
+    fix(#1438 F6 codex review): distinguishes `from app.platform.jobs import
+    router` (imports the `router.py` SUBMODULE — `router` here names a real
+    file) from `from app.core.schemas import router_id_param` (imports an
+    ordinary NAME that happens to start with `router_` — no such file exists).
+    Both are the same AST shape (`ImportFrom(module=X, names=[alias(name=Y)])`);
+    only the filesystem tells them apart. Needed because `_is_router_module()`
+    is a filename heuristic — applying it to every imported NAME without this
+    check would flag the second case as a router import.
+    """
+    candidate = BACKEND_ROOT / Path(*dotted.split("."))
+    return (
+        candidate.with_suffix(".py").is_file() or (candidate / "__init__.py").is_file()
+    )
+
+
+# The aggregate composition root: app/api/router.py imports every domain's
+# router to compose api_router, and app/api/main.py imports _titiler_client
+# from app.processing.tiles.router at module scope. Both are the ONE place
+# this fan-in is supposed to happen (every other guard in this file that
+# mentions routers says the same thing: "only api/main.py composes routers").
+_ROUTER_COMPOSITION_ROOT = frozenset(
+    {"backend/app/api/router.py", "backend/app/api/main.py"}
+)
+
+
+def _cross_package_router_import_edges() -> dict[str, set[str]]:
+    """Every MODULE-SCOPE import of a router module from outside its own
+    package, across all of backend/app/.
+
+    fix(#1438 F6): importing an API-edge module runs its route registration as
+    a side effect and couples the importer to the router's whole transitive
+    import graph, just to reach one constant or helper function — the exact
+    shape fix(#836) diagnosed, but that guard could only see it for platform/
+    importing app.processing.*. The failure mode is not domain-specific: any
+    package reaching across a boundary for a name that belongs in a service or
+    schema module has the same problem.
+
+    Two import shapes reach a router submodule, and both are checked (fix
+    #1438 F6 codex review): `from app.platform.jobs.router import name` names
+    it as `node.module` directly; `from app.platform.jobs import router` names
+    it as an imported NAME, resolved against the filesystem via
+    `_resolves_to_real_module()` so an ordinary name that merely starts with
+    `router_` is not mistaken for a submodule.
+
+    Module scope only, determined by AST ancestry rather than `col_offset`
+    (fix #1438 F6 codex review): `col_offset != 0` was the established idiom
+    elsewhere in this file, but it also skips an import nested in a top-level
+    `try`/`if` block — indented, so nonzero column, but still executed at
+    module-import time. Walking function bodies to build an exclusion set
+    (mirroring `_redirect_escaping_imports()` above) excludes only imports
+    truly inside a function, which is where the D-17 deferred-import escape
+    hatch used throughout this file actually defers to — it does not run the
+    router's side effects at the importer's import time, so it does not
+    reproduce the bug this guard exists to catch.
+
+    Same-package nesting is not an edge: a domain's ``router.py`` composing
+    its own ``router_*.py`` siblings (e.g. ``catalog/maps/router.py`` including
+    ``catalog/maps/router_assets.py``) is the normal way a domain's API surface
+    is assembled, and neither file is "outside its own package" from the
+    other's perspective.
+
+    A RELATIVE import is resolved to its absolute path first (fix #1438 codex
+    review): `from ...platform.jobs.router import name`, written deep inside
+    `app/modules/catalog/collections/`, stores `node.module ==
+    "platform.jobs.router"` with `node.level == 3` — reading `node.module`
+    directly gives a string that does not start with `"app."` and is silently
+    skipped, the same equivalent-relative-syntax bypass `_resolve_relative_
+    import()` closes for the other three collectors in this file.
+    """
+    offenders: dict[str, set[str]] = {}
+    for path in sorted(_backend_path("app").rglob("*.py")):
+        rel = _repo_style_rel(path)
+        if rel in _ROUTER_COMPOSITION_ROOT:
+            continue
+        importer_package = _dotted_package(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        inside_functions: set[ast.AST] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                for child in ast.walk(node):
+                    if child is not node:
+                        inside_functions.add(child)
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                resolved = _resolve_relative_import(path, node)
+                if resolved is None:
+                    continue
+                candidates = [resolved]
+                candidates.extend(
+                    f"{resolved}.{alias.name}"
+                    for alias in node.names
+                    if _resolves_to_real_module(f"{resolved}.{alias.name}")
+                )
+            elif isinstance(node, ast.Import):
+                candidates = [alias.name for alias in node.names]
+            else:
+                continue
+            if node in inside_functions:
+                continue
+            for module in candidates:
+                if not module.startswith("app.") or not _is_router_module(module):
+                    continue
+                if _module_package(module) == importer_package:
+                    continue
+                offenders.setdefault(rel, set()).add(module)
+    return offenders
+
+
+# fix(#1438 F6): the one edge the enumeration surfaced is flagged here rather
+# than treated as routine reviewed debt. Every OTHER burndown in this file
+# traces to a fix commit that named its tradeoff and accepted it; this edge
+# predates any guard that could see it (source outside platform/, target
+# outside app.processing/ — invisible to both axes fix(#836) checked) and was
+# added in #476 ("harden lifecycle and tenant isolation"), a PR about tenant
+# isolation with nothing suggesting this coupling was a deliberate choice.
+# Seeded so the guard is actionable on today's tree rather than failing on
+# pre-existing, unrelated code — worth a follow-up to move
+# `get_retry_capability` into a plain service module, the way `sweep.py`
+# already did for this same router's other non-route helpers (see
+# app/platform/jobs/router.py's own module docstring).
+#
+# The list may SHRINK, never grow.
+_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN: dict[str, set[str]] = {
+    "backend/app/modules/admin/router.py": {"app.platform.jobs.router"},
+}
+
+
+@pytest.mark.architecture
+def test_no_cross_package_router_imports_at_module_scope() -> None:
+    """No file outside its own package imports a router module at module
+    scope, anywhere in backend/app/ — not just platform/ importing processing/.
+    """
+    offenders: list[str] = []
+    for file, modules in sorted(_cross_package_router_import_edges().items()):
+        allowed = _CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN.get(file, set())
+        for module in sorted(modules - allowed):
+            offenders.append(f"  {file}: {module}")
+
+    if offenders:
+        pytest.fail(
+            "A module imports a router module from outside its own package at "
+            "module scope. Importing an API-edge module runs its route "
+            "registration as a side effect; move the needed name into a "
+            "service or schema module instead of adding an entry to "
+            "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN. If the name is only needed "
+            "inside a function, deferring the import (D-17) avoids the side "
+            "effect without needing an allowlist entry at all.\n" + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_cross_package_router_import_allowlist_is_current() -> None:
+    """The burn-down list must shrink as edges are migrated — no stale entries.
+
+    A stale entry is a silent licence to reintroduce the bypass later.
+    """
+    edges = _cross_package_router_import_edges()
+    stale: list[str] = []
+    for file, modules in sorted(_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN.items()):
+        for module in sorted(modules - edges.get(file, set())):
+            stale.append(f"  {file}: {module}")
+
+    if stale:
+        pytest.fail(
+            "_CROSS_PACKAGE_ROUTER_IMPORT_BURNDOWN lists edges that no longer "
+            "exist. Delete them — the list only shrinks.\n" + "\n".join(stale)
+        )
+
+
+# fix(#1778 codex r3): every cache read that DECIDES ACCESS must be marked
+# security=True, so the layered provider refuses to answer it from this worker's
+# process-local fallback. The provider cannot tell an authorization decision
+# from a cached listing by looking at the value, so the marking is the contract
+# and this test is what keeps the marking honest.
+#
+# Phrased as a per-module rule rather than a repo-wide one on purpose. Sweeping
+# every `cache.get(` in backend/app/ and demanding the flag would be wrong: the
+# catalog and collection listings, the search cache and persistent config are
+# cached ANSWERS whose staleness is a correctness annoyance bounded by a TTL,
+# not a capability someone still holds. Adding a module here is the deliberate
+# act of saying "the values this module caches are decisions".
+_AUTHORIZATION_CACHE_MODULES: tuple[str, ...] = (
+    "backend/app/modules/embed_tokens/service.py",
+)
+
+
+@pytest.mark.architecture
+def test_authorization_cache_reads_are_security_scoped() -> None:
+    """Every cache get/set in an authorization module passes security=True.
+
+    ``set_authoritative`` is exempt: it is security-shaped by construction (it
+    writes a revocation into every store) and takes no flag.
+    """
+    import ast
+
+    offenders: list[str] = []
+    for rel in _AUTHORIZATION_CACHE_MODULES:
+        path = _backend_path(rel.removeprefix("backend/"))
+        source = path.read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(source)):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            if not isinstance(func, ast.Attribute):
+                continue
+            if func.attr not in {"get", "set", "set_if_absent"}:
+                continue
+            # Only calls on something named `cache`, which is what get_cache()
+            # is bound to everywhere in these modules.
+            if not (isinstance(func.value, ast.Name) and func.value.id == "cache"):
+                continue
+            flagged = any(
+                kw.arg == "security"
+                and isinstance(kw.value, ast.Constant)
+                and kw.value.value is True
+                for kw in node.keywords
+            )
+            if not flagged:
+                offenders.append(f"  {rel}:{node.lineno} cache.{func.attr}(...)")
+
+    if offenders:
+        pytest.fail(
+            "An authorization cache call is missing security=True, so a layered "
+            "provider may answer it from this worker's in-memory fallback. That "
+            "fallback cannot see a revoke another Uvicorn worker performed while "
+            "Redis was down (fix(#1778 codex r3)). Offending calls:\n"
+            + "\n".join(offenders)
+        )
+
+
+@pytest.mark.architecture
+def test_authorization_cache_guard_catches_a_seeded_violation() -> None:
+    """The guard above fails on an unflagged call, so a green run means something."""
+    import ast
+
+    seeded = "cache.get(cache_key)\ncache.set(k, v, ttl=1, security=True)\n"
+    found = []
+    for node in ast.walk(ast.parse(seeded)):
+        if not isinstance(node, ast.Call):
+            continue
+        func = node.func
+        if not isinstance(func, ast.Attribute) or func.attr not in {"get", "set"}:
+            continue
+        flagged = any(
+            kw.arg == "security"
+            and isinstance(kw.value, ast.Constant)
+            and kw.value.value is True
+            for kw in node.keywords
+        )
+        if not flagged:
+            found.append(func.attr)
+    assert found == ["get"], (
+        "the seeded unflagged call was not detected, so the real guard is inert"
+    )

@@ -231,7 +231,11 @@ HEADER_FILE_WRITE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
         "`: ` separator, an RFC 7230 field name, and the base64url charset on "
         "the bearer branch) before the write. This is the one hop that cannot "
         "compose at the write site, which is why the queue is the only place "
-        "a finished line travels",
+        "a finished line travels. fix(#1746 B2b r3): that validator also "
+        "composes the line for a PRE-#1770 queued job, whose kwarg still holds "
+        "a bare bearer token, and it does so through `build_credential_header` "
+        "in `_legacy_bearer_line` rather than by a prefix of its own, so this "
+        "module still produces no credential header itself",
     ),
 }
 
