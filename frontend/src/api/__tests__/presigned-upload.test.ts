@@ -84,4 +84,24 @@ describe('uploadChunks', () => {
     // Part 1 ran; the abort check stops part 2 from starting.
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  // fix(#1778): the retry loop only fires on a REJECTED fetch — a part PUT
+  // that stalls on a half-open TCP connection never rejects on its own, so
+  // it used to hang forever with no timeout and no way out. Previously the
+  // per-part fetch's `signal` option was undefined whenever the caller
+  // passed none; it must now always carry a real AbortSignal, so a stall can
+  // fire one.
+  it('attaches a per-part stall timeout signal even when the caller passes none', async () => {
+    const seenSignals: (AbortSignal | undefined)[] = [];
+    const fetchMock = vi.fn().mockImplementation((_url, init: RequestInit) => {
+      seenSignals.push(init.signal ?? undefined);
+      return Promise.resolve(okResponse());
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await uploadChunks(urls, file, 100);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(seenSignals.every((s) => s instanceof AbortSignal)).toBe(true);
+  });
 });

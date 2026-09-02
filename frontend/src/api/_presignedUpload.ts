@@ -29,6 +29,14 @@ export interface UploadChunksOptions {
 
 const DEFAULT_MAX_RETRIES = 3;
 
+// fix(#1778): the retry loop below only fires on a REJECTED fetch — a part
+// PUT that stalls on a half-open TCP connection never rejects, so it hung
+// forever with no timeout and no way out. 5 minutes is generous for a large
+// part on a slow connection while still recovering a genuinely stalled one;
+// a timeout DOMException is not an AbortError, so it falls through to the
+// existing retriable-network-error branch below rather than a new one.
+const PART_STALL_TIMEOUT_MS = 300_000;
+
 class UploadHttpError extends Error {}
 
 function delay(ms: number, signal?: AbortSignal): Promise<void> {
@@ -100,7 +108,10 @@ export async function uploadChunks(
         throw new DOMException('Aborted', 'AbortError');
       }
       try {
-        const resp = await fetch(urls[i], { method: 'PUT', body: chunk, signal });
+        const partSignal = signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(PART_STALL_TIMEOUT_MS)])
+          : AbortSignal.timeout(PART_STALL_TIMEOUT_MS);
+        const resp = await fetch(urls[i], { method: 'PUT', body: chunk, signal: partSignal });
         if (resp.ok) {
           const etag = resp.headers.get('ETag');
           // fix(#1778): a cross-origin PUT only exposes ETag when the bucket's
