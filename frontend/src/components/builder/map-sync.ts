@@ -702,6 +702,9 @@ export interface SourceIdLayer {
  *  - paint expressions of shape `["get", "<colname>"]` — generic catch-all
  *  - `label_config.column` — label text-field is a LAYOUT property the paint
  *    walk cannot see, which is exactly why an explicit read is required here
+ *  - `style_config.symbol.categoryColumn` (#1778): the per-category
+ *    `icon-image` match is the other data-driven LAYOUT expression, so a
+ *    category-styled symbol layer fell back to its default icon below z10
  *  - `filter` expressions (builder-audit #338 P1-03) — a filter that references a
  *    column NOT also used by paint/label would otherwise evaluate against
  *    missing properties at z<10, producing empty/inconsistent rendering.
@@ -730,6 +733,12 @@ export function getDataDrivenColumnsForLayer(
   // property — a LAYOUT expression the paint walk below cannot reach.
   const labelCol = layer.label_config?.column;
   if (typeof labelCol === 'string' && labelCol) cols.add(labelCol);
+  // fix(#1778): the symbol adapter's per-category `icon-image` is the other
+  // data-driven LAYOUT expression the paint walk below cannot reach. Merge
+  // order matches getSymbolConfig in symbol-adapter.ts so a builder-stashed
+  // config and a top-level one both resolve.
+  const symbolCol = (layer.style_config?.symbol ?? layer.style_config?.builder?.symbol)?.categoryColumn;
+  if (typeof symbolCol === 'string' && symbolCol) cols.add(symbolCol);
   // Walk MapLibre expressions for `["get", "<name>"]` / `["has", "<name>"]`
   // references — the canonical ways to read a feature property. Used for both
   // paint values AND the filter (P1-03), so filter-only columns survive the

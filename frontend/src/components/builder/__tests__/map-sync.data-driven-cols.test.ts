@@ -202,6 +202,44 @@ describe('getDataDrivenColumnsForLayer', () => {
     });
     expect(cols).toEqual([]);
   });
+
+  // fix(#1778): the symbol adapter's per-category icon-image is a data-driven
+  // LAYOUT expression, so the paint walk cannot reach it. Counterfactual: on
+  // main both cases return [] and the tile request omits the column, so every
+  // feature renders the fallback icon below z10.
+  it('extracts the symbol category column from style_config.symbol', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: {
+        render_mode: 'symbol',
+        symbol: { categoryColumn: 'facility_type', categories: [{ value: 'school', icon: 'school' }] },
+      },
+      paint: {},
+    });
+    expect(cols).toEqual(['facility_type']);
+  });
+
+  it('extracts the symbol category column stashed under style_config.builder', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: {
+        render_mode: 'symbol',
+        builder: { symbol: { categoryColumn: 'hazard_class' } },
+      },
+      paint: {},
+    });
+    expect(cols).toEqual(['hazard_class']);
+  });
+
+  it('prefers the top-level symbol config over the builder-stashed one', () => {
+    const cols = getDataDrivenColumnsForLayer({
+      style_config: {
+        render_mode: 'symbol',
+        symbol: { categoryColumn: 'top_level' },
+        builder: { symbol: { categoryColumn: 'stashed' } },
+      },
+      paint: {},
+    });
+    expect(cols).toEqual(['top_level']);
+  });
 });
 
 describe('getDataDrivenColumnsForSource', () => {
