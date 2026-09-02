@@ -1,6 +1,6 @@
 """The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1 and 2 on #1791).
+answer (#1778, codebase audit 2026-08-30; codex rounds 1-3 on #1791).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -12,42 +12,58 @@ neither -- the fragment passed to Titiler is unchanged either way. So
 byte-identical to the unfiltered tile, the same defeat #1785 closed for the
 vector tile ``cols=`` param.
 
-Round 1 blanked every inactive value unconditionally, which introduced a
-different bug: raster_tile_proxy validated pmin/pmax/sigma whenever PRESENT,
-regardless of the active stretch mode, so blanking pmin under
-``?stretch=minmax&pmin=200`` collapsed it onto the same key as a cached
-``?stretch=minmax`` and returned that entry's 200, though the API would 422
-an out-of-range pmin uncached.
-
-Round 2 changed the API side instead of chasing round 1's nginx-only fix
+Round 1 blanked every inactive value unconditionally, which could let a
+cache HIT answer with a status an uncached request would not have gotten
+(raster_tile_proxy validated pmin/pmax/sigma whenever PRESENT, regardless of
+mode). Round 2 changed the API side instead of chasing that nginx-only fix
 further: raster_tile_proxy now IGNORES pmin/pmax when stretch is not
-percentile and sigma when it is not stddev, rather than merely leaving them
-unvalidated. "Inactive" means the same thing, ignored, on both sides, so
-every map below blanks an inactive value UNCONDITIONALLY -- there is no
-verdict left to disagree with, because the value is never read. That also
-closes the residual round 1 could not: a repeated query parameter, where
-nginx's $arg_x reads the FIRST occurrence and FastAPI's scalar Query reads
-the LAST.
+percentile and sigma when it is not stddev, so blanking an inactive value
+can never disagree with the API about STATUS -- there is no verdict left to
+disagree with.
 
-One more residual survives even that change: the duplicate-parameter mismatch
-applies to `stretch` itself too. `?stretch=minmax&stretch=percentile&pmin=5`
-has nginx read stretch=minmax (blank pmin) while the API reads
-stretch=percentile (uses pmin=5) -- and because blanking makes the cache key
-depend on nginx's OWN reading of stretch, a second such request with a
-DIFFERENT pmin would collapse onto the SAME key while rendering DIFFERENT
-bytes: a collision, not just a status mismatch.
-$geolens_raster_stretch_dup detects a repeated `stretch=` in the raw query
-string and, when set, every map falls back to the raw value instead of
-blanking -- an extra cache miss, never a collision.
+Round 3 found that round 2's API change is necessary but not sufficient,
+because nginx's read of the query string and the API's read of it can
+disagree about which VALUE, or even which MODE, is in play, independent of
+what the API validates or ignores:
+
+- percent-encoding: ``stretch=%70ercentile`` decodes to the ACTIVE spelling
+  at the API (FastAPI URL-decodes query params) but nginx's raw
+  ``$arg_stretch`` never matches ``percentile`` literally. Treating "not the
+  literal active spelling" as "therefore inactive" blanked pmin here, so two
+  requests with different pmin values collapsed onto ONE key while the API
+  rendered DIFFERENT bytes for them: a cache collision, not a status
+  mismatch.
+- a case variant (``MinMax``), for the same reason (nginx's regex is
+  case-sensitive and never normalizes).
+- a malformed float (``pmin=abc``): the API's "ignore when inactive" code in
+  ``raster_tile_proxy`` never runs for this, because FastAPI's
+  ``pmin: float | None`` coerces the query param to a ``float`` BEFORE the
+  endpoint body executes at all, and ``abc`` fails that coercion with a 422
+  regardless of stretch mode. Blanking it let a cached 200 answer a request
+  the API 422s uncached.
+
+The principle that closes all three the same way: blank an argument ONLY
+when nginx can be CERTAIN blanking cannot change the outcome -- the raw
+``$arg_stretch`` is EXACTLY one of the canonical spellings this argument is
+inactive under (no percent-encoding, no case variant: PCRE matches the
+literal, decoded string only) AND the argument itself is a well-formed float
+in the range that matters in the one mode where it IS active. Everything
+else -- an unrecognized stretch spelling, a duplicated one
+($geolens_raster_stretch_dup), a malformed or merely out-of-range value -- is
+left RAW: the request misses the cache and the API decides on its own terms.
+Failing toward "keep raw" only ever costs an extra cache miss; failing
+toward "blank" risks a wrong tile or a wrong status.
 
 These are structural (they read the conf and simulate nginx's own map
 evaluation in Python, including nginx's $arg_x "first occurrence of a
-repeated key" semantics), because there is no nginx binary in this test
-environment to render and query directly. The companion API-level pin lives
-in test_raster_colormap_proxy.py::TestRasterColormapProxy::
+repeated key" semantics and its PCRE case-sensitivity), because there is no
+nginx binary in this test environment to render and query directly. The
+companion API-level pin lives in test_raster_colormap_proxy.py::
+TestRasterColormapProxy::
 test_out_of_range_bounds_are_ignored_under_an_inactive_stretch_mode, which
-confirms the API side of the contract these maps rely on: pmin/pmax/sigma are
-ignored, not validated, whenever the active stretch mode does not read them.
+confirms the API side of the contract these maps rely on: pmin/pmax/sigma
+are ignored, not validated, whenever the active stretch mode does not read
+them.
 """
 
 import re
@@ -180,7 +196,8 @@ def _evaluate_map(
     values: dict[str, str],
 ) -> str:
     """Evaluate one nginx ``map`` the way nginx itself would: try each regex
-    entry in declaration order, first match wins; ``default`` otherwise."""
+    entry in declaration order (PCRE, case-sensitive, exactly as nginx's
+    default), first match wins; ``default`` otherwise."""
     source = _expand(source_template, values)
     for pattern, template in entries:
         if re.match(pattern, source):
@@ -250,15 +267,15 @@ def test_cache_key_does_not_hold_the_raw_stretch_args():
 
 
 # ---------------------------------------------------------------------------
-# pmin / pmax: percentile is the active mode; sigma: stddev is.
-# Round 2: blank UNCONDITIONALLY when inactive -- no well-formedness check
-# needed any more, since the API ignores an inactive value regardless.
+# pmin / pmax: percentile is the active mode; sigma: stddev is. Round 3:
+# blank ONLY when stretch is an EXACT canonical inactive spelling AND the
+# value is a well-formed float in range -- everything else stays raw.
 # ---------------------------------------------------------------------------
 
 
 def test_active_mode_always_passes_the_value_through_raw():
     """Active mode: the value must vary the key regardless of content --
-    percentile/stddev genuinely read it, unchanged from before either fix."""
+    percentile/stddev genuinely read it, unchanged since round 1."""
     conf = _conf()
     for value in ("5", "200", "-1", "abc", ""):
         assert _derive(conf, "pmin", _qs(stretch="percentile", pmin=value)) == value
@@ -266,27 +283,30 @@ def test_active_mode_always_passes_the_value_through_raw():
         assert _derive(conf, "sigma", _qs(stretch="stddev", sigma=value)) == value
 
 
-def test_any_value_under_an_inactive_mode_collapses_to_one_key():
-    """fix(#1778 codex r2): unconditional blanking. Any value at all -- valid,
-    invalid, or malformed -- under an inactive stretch mode must collapse to
-    the same blank key, because the API ignores it regardless of content."""
+def test_well_formed_value_under_a_canonical_inactive_mode_collapses_to_one_key():
+    """A random but well-formed, in-range value under the exact canonical
+    inactive spelling (or absent) must still collapse -- the cache-busting
+    vector #1785's shape closed stays closed for the common case."""
     conf = _conf()
-    values = ["", "0", "50", "100", "200", "-5", "abc", "1e10", "100.5", "0.5"]
-    for param, active in (
-        ("pmin", "percentile"),
-        ("pmax", "percentile"),
-        ("sigma", "stddev"),
-    ):
-        for stretch in ("minmax", ""):
-            derived = {
-                _derive(conf, param, _qs(stretch=stretch, **{param: v})) for v in values
-            }
-            assert derived == {""}, (
-                f"{param} under stretch={stretch!r} collapsed to {derived!r}, "
-                "expected all blank -- the API ignores this value under this "
-                "mode regardless of content, so it must never defeat the cache"
-            )
-        assert active  # documents the pairing; not asserted here
+    pmin_pmax_values = ["", "0", "2", "50", "98", "99.999", "100", "100.0"]
+    sigma_values = ["", "0.5", "1", "2", "10", "0.001"]
+    for stretch in ("minmax", ""):
+        assert {
+            _derive(conf, "pmin", _qs(stretch=stretch, pmin=v))
+            for v in pmin_pmax_values
+        } == {""}
+        assert {
+            _derive(conf, "pmax", _qs(stretch=stretch, pmax=v))
+            for v in pmin_pmax_values
+        } == {""}
+    for stretch in ("minmax", "percentile", ""):
+        assert {
+            _derive(conf, "sigma", _qs(stretch=stretch, sigma=v)) for v in sigma_values
+        } == {""}
+    # stddev is the OTHER canonical inactive spelling for pmin/pmax.
+    assert {
+        _derive(conf, "pmin", _qs(stretch="stddev", pmin=v)) for v in pmin_pmax_values
+    } == {""}
 
 
 def test_sigma_still_varies_the_key_under_stddev():
@@ -306,29 +326,120 @@ def test_sigma_still_varies_the_key_under_stddev():
     )
 
 
+def test_out_of_range_value_under_a_canonical_inactive_mode_stays_raw():
+    """A value the well-formedness check rejects (out of [0, 100] for
+    pmin/pmax, not > 0 for sigma) stays RAW even under an exact canonical
+    inactive spelling -- the conservative direction the coordinator's
+    principle asks for: some legitimate-but-unusual values miss the cache
+    that technically could not have changed the answer either, in exchange
+    for never needing a more permissive, harder-to-audit numeric regex."""
+    conf = _conf()
+    for bad in ("200", "-5", "101", "100.5"):
+        assert _derive(conf, "pmin", _qs(stretch="minmax", pmin=bad)) == bad
+        assert _derive(conf, "pmax", _qs(stretch="minmax", pmax=bad)) == bad
+    for bad in ("-1", "0", "0.0", "0.000"):
+        assert _derive(conf, "sigma", _qs(stretch="minmax", sigma=bad)) == bad
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r3): the three ways nginx's raw read of the query string
+# can disagree with the API's decoded/coerced read, independent of what the
+# API validates or ignores. Each must stay raw, never blank.
+# ---------------------------------------------------------------------------
+
+
+def test_percent_encoded_active_spelling_stays_raw():
+    """`stretch=%70ercentile` decodes to `percentile` (ACTIVE) at the API,
+    which URL-decodes query params; nginx's raw $arg_stretch is the literal
+    string `%70ercentile`, which matches neither canonical inactive spelling.
+    It must stay raw so two different pmin values under this encoding get
+    two different keys, never one collapsed onto a rendering the API would
+    actually vary by pmin."""
+    conf = _conf()
+    args_5 = _qs(stretch="%70ercentile", pmin="5")
+    args_50 = _qs(stretch="%70ercentile", pmin="50")
+    derived_5 = _derive(conf, "pmin", args_5)
+    derived_50 = _derive(conf, "pmin", args_50)
+    assert derived_5 == "5"
+    assert derived_50 == "50"
+    assert derived_5 != derived_50, (
+        "a percent-encoded active stretch spelling must not let two "
+        "different pmin values collapse onto one cache key"
+    )
+
+
+def test_case_variant_of_a_canonical_spelling_stays_raw():
+    """PCRE matching here is case-sensitive by default, same as FastAPI's
+    Literal validator (which would 422 `MinMax` as an invalid literal value
+    -- not decode-and-normalize it the way percent-encoding is decoded). A
+    case variant must never be treated as the canonical inactive spelling."""
+    conf = _conf()
+    for variant in ("MinMax", "MINMAX", "Stddev", "PERCENTILE"):
+        derived = _derive(conf, "pmin", _qs(stretch=variant, pmin="5"))
+        assert derived == "5", (
+            f"stretch={variant!r} must keep pmin raw (got {derived!r}) -- "
+            "nginx must never treat a case variant as a canonical spelling"
+        )
+
+
+def test_malformed_float_under_an_inactive_mode_stays_raw():
+    """`?stretch=minmax&pmin=abc` must miss the cache, not collapse onto the
+    plain `?stretch=minmax` key. FastAPI's `pmin: float | None` coerces the
+    query param to a float BEFORE raster_tile_proxy's body runs at all --
+    round 2's "ignore pmin when inactive" code never gets a chance to run,
+    because the framework's own type coercion 422s on a non-numeric string
+    regardless of stretch mode. Blanking it here would let a cached 200
+    answer that 422.
+
+    Values chosen to be unambiguously non-numeric -- not merely large or
+    signed, both of which Python's own float() parser (and therefore
+    pydantic's coercion) accepts without a 422, and which the well-formed
+    numeric regex already keeps raw for the "out of range" reason covered
+    separately above.
+    """
+    conf = _conf()
+    for bad in ("abc", "5,6", "50:60", "1.2.3", "five"):
+        derived = _derive(conf, "pmin", _qs(stretch="minmax", pmin=bad))
+        assert derived == bad, (
+            f"pmin={bad!r} under stretch=minmax must stay RAW (got "
+            f"{derived!r}) -- FastAPI's float coercion 422s this regardless "
+            "of stretch mode, and blanking it would let a cache hit answer "
+            "a 200 for what an uncached request 422s"
+        )
+    for bad in ("abc", "1,2", "5.6.7"):
+        derived = _derive(conf, "sigma", _qs(stretch="minmax", sigma=bad))
+        assert derived == bad
+
+
 # ---------------------------------------------------------------------------
 # Duplicate `pmin`/`pmax`/`sigma`: closed by ignoring the inactive value
-# entirely, so which occurrence either side reads no longer matters.
+# entirely at the API AND requiring well-formedness at nginx, so which
+# occurrence either side reads matters only when it changes well-formedness.
 # ---------------------------------------------------------------------------
 
 
-def test_repeated_inactive_param_still_collapses_regardless_of_occurrence_order():
-    """The exact case codex found: nginx reads the FIRST occurrence, FastAPI
-    reads the LAST. Both occurrences must still blank identically, because
-    the API ignores the parameter under this mode no matter which value it
-    resolves to."""
+def test_repeated_well_formed_inactive_param_collapses_regardless_of_occurrence_order():
+    """Both duplicate occurrences are well-formed and in range, so nginx's
+    FIRST-occurrence read and the API's LAST-occurrence read are both
+    ignored identically under stretch=minmax -- collapsing is safe regardless
+    of which one nginx happens to see."""
     conf = _conf()
-    well_formed_first = _derive(
-        conf, "pmin", "stretch=minmax&pmin=5&pmin=200"
-    )  # nginx sees 5 (well-formed if it mattered), API would see 200
-    out_of_range_first = _derive(
-        conf, "pmin", "stretch=minmax&pmin=200&pmin=5"
-    )  # nginx sees 200 (would have been the round-1 residual), API sees 5
-    assert well_formed_first == out_of_range_first == "", (
-        f"got {well_formed_first!r} and {out_of_range_first!r} -- a repeated "
-        "pmin under an inactive stretch mode must blank the same way "
-        "regardless of which occurrence nginx happens to read"
-    )
+    a = _derive(conf, "pmin", "stretch=minmax&pmin=5&pmin=50")
+    b = _derive(conf, "pmin", "stretch=minmax&pmin=50&pmin=5")
+    assert a == b == "", f"got {a!r} and {b!r}, expected both blank"
+
+
+def test_repeated_param_stays_raw_when_the_first_occurrence_is_not_well_formed():
+    """codex's literal example: nginx reads the FIRST occurrence of a
+    repeated pmin. When that first occurrence is out of range or malformed,
+    nginx must keep it raw regardless of what the API's LAST-occurrence read
+    would have been -- the well-formedness gate applies to whichever
+    occurrence nginx actually sees, not to some notion of "the pair"."""
+    conf = _conf()
+    out_of_range_first = _derive(conf, "pmin", "stretch=minmax&pmin=200&pmin=5")
+    malformed_first = _derive(conf, "pmin", "stretch=minmax&pmin=abc&pmin=5")
+    assert out_of_range_first == "200"
+    assert malformed_first == "abc"
 
 
 # ---------------------------------------------------------------------------
@@ -373,8 +484,9 @@ def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
 
 def test_non_duplicated_stretch_is_unaffected_by_the_guard():
     """The guard must not blank the fast path: an ordinary, non-duplicated
-    request keeps collapsing exactly as before."""
+    request keeps collapsing exactly as before, and an out-of-range value
+    still stays raw for the reason ordinary well-formedness does."""
     conf = _conf()
     assert _derive(conf, "pmin", "stretch=minmax&pmin=5") == ""
-    assert _derive(conf, "pmin", "stretch=minmax&pmin=200") == ""
+    assert _derive(conf, "pmin", "stretch=minmax&pmin=200") == "200"
     assert _derive(conf, "pmin", "stretch=percentile&pmin=5") == "5"
