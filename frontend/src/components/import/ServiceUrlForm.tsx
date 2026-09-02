@@ -44,6 +44,15 @@ type ServiceStep =
 // service is public"), not a blank state.
 type ArcgisAuthMethod = 'none' | 'token' | 'signin';
 
+// codex review #1757 round 4 P2: the ONE margin shared by the proactive
+// timer (scheduleExpiryTimer) and the synchronous fallback (isPast,
+// checked by expireStaleTokenIfPast/isTokenExpiredOrPast). The timer
+// used to retire a token 30 seconds early while the synchronous check
+// compared against the raw expires_at, so a tab resuming inside that
+// 30-second window could still forward a token the component had
+// already decided to retire.
+const EXPIRY_MARGIN_MS = 30_000;
+
 export function ServiceUrlForm() {
   const { t } = useTranslation('import');
   const [step, setStep] = useState<ServiceStep>('idle');
@@ -108,7 +117,7 @@ export function ServiceUrlForm() {
   }, [clearExpiryTimer]);
 
   function isPast(isoTime: string): boolean {
-    return new Date(isoTime).getTime() <= Date.now();
+    return new Date(isoTime).getTime() - EXPIRY_MARGIN_MS <= Date.now();
   }
 
   // codex review #1757 round 2: the timer above is the normal path; this
@@ -150,7 +159,6 @@ export function ServiceUrlForm() {
   // cleared everything and this is a no-op.
   function scheduleExpiryTimer(expiresAt: string, generation: number): void {
     clearExpiryTimer();
-    const EXPIRY_MARGIN_MS = 30_000;
     const delay = new Date(expiresAt).getTime() - EXPIRY_MARGIN_MS - Date.now();
     const expire = () => {
       expiryTimerRef.current = null;

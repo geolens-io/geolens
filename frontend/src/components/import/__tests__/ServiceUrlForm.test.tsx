@@ -582,7 +582,15 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
   // advancing fake timers (so the scheduled expiry callback itself has
   // NOT fired) exercises exactly the throttled-background-tab path that
   // check exists for, as distinct from the timer having already run.
-  it('refuses to Probe with an already-past expiry and shows the expired message', async () => {
+  //
+  // codex review #1757 round 4 P2: the jump lands at +45s of a 60s
+  // deadline, inside the 30s margin window but short of the raw
+  // expires_at. Before the shared EXPIRY_MARGIN_MS fix, isPast compared
+  // only against the raw deadline and would have called this "not
+  // expired" yet, letting a token the timer had already meant to retire
+  // through a resumed/throttled tab. This case pins that the synchronous
+  // fallback now honours the same margin as the proactive timer.
+  it('refuses to Probe with an expiry inside the margin window and shows the expired message', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const user = userEvent.setup({ delay: null });
@@ -598,7 +606,8 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
         expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
       });
 
-      vi.setSystemTime(Date.now() + 61_000);
+      // Inside the 30s margin (30s-60s), before the raw 60s deadline.
+      vi.setSystemTime(Date.now() + 45_000);
 
       await user.click(screen.getByRole('button', { name: 'Probe →' }));
 
