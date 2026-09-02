@@ -415,69 +415,29 @@ search_router = APIRouter(prefix="/search", tags=["Search"])
 _SUPPORTED_FILTER_LANGS = ("cql2-text", "cql2-json")
 
 
-_LEGACY_FILTER_LANG_PARAM = "cql2_filter_lang"
-
-
-async def _legacy_keywords_body(request: Request) -> list[str] | None:
-    """Read ``keywords`` from a JSON request body on a GET, for older clients.
-
-    compat(#1666 codex P2): the pre-fix contract declared ``keywords`` as an
-    ``application/json`` request BODY on a GET, so that is what SDKs generated
-    before this change send — the Python client's parameter was literally named
-    ``body``. Under the old ``Depends()`` binding FastAPI consumed it, and the
-    query-string form worked only because the handler read it separately. The
-    corrected query-parameter binding reads the opposite one, so an unchanged
-    client would silently receive UNFILTERED results, which is a worse failure
-    than an error.
-
-    Deliberately not republished: a request body on a GET is the defect being
-    fixed, is not reliably forwarded by proxies and CDNs, and should be sunset.
-    This honours what old clients send without offering it to new ones.
-
-    Anything that is not a JSON array of strings is ignored rather than
-    rejected. This runs on a normal search request, and the only job here is to
-    recognise the one shape the old generator emitted.
-    """
-    if not request.headers.get("content-type", "").startswith("application/json"):
-        return None
-    try:
-        body = await request.json()
-    except Exception:  # broad: any unreadable/!JSON body simply is not the legacy shape
-        return None
-    if isinstance(body, list) and body and all(isinstance(v, str) for v in body):
-        return body
-    return None
-
-
 def _resolve_filter_lang(
     params: SearchQueryParams, request: Request
 ) -> SearchQueryParams:
     """Resolve and validate ``filter-lang``, shared by both search handlers.
 
-    Reads the wire rather than the bound value, because the two handlers bind
-    this model differently and neither binding sees both accepted spellings.
+    Always reads the wire, never ``params.cql2_filter_lang``. Both routes need
+    that: ``collection_items`` binds ``params`` via a bare ``Depends()``, under
+    which pydantic's synthesized ``__init__`` cannot bind the hyphenated alias
+    ``filter-lang`` at all, so that route's ``params.cql2_filter_lang`` field
+    falls back to binding its own Python name instead -- meaning it still
+    reads a raw ``?cql2_filter_lang=...`` query parameter, the sunset spelling
+    #1671 removes (see the comment at that call site). Trusting the bound
+    field here would leave that spelling alive on this one route.
 
-    compat(#1666 codex P2): ``cql2_filter_lang`` is still honoured. It is the
-    field's Python name, and the pre-fix contract published it — so it is what
-    every SDK generated before this change sends, and under the old
-    ``Depends()`` binding it was the only spelling that actually bound. Ignoring
-    it now would leave an older client's ``cql2-json`` filter silently parsed as
-    ``cql2-text``: a wrong grammar or a rejected request, from a caller that
-    changed nothing. ``filter-lang`` wins when both are present, and only the
-    correct spelling is published.
-
-    The field stays a bare ``str`` deliberately — tightening it to a ``Literal``
-    would route the refusal through ``RequestValidationError``, which answers
-    422 on ``/search/datasets/``, and both handlers contract to 400 here.
+    The field stays a bare ``str`` deliberately: tightening it to a
+    ``Literal`` would route the refusal through ``RequestValidationError``,
+    which answers 422 on ``/search/datasets/``, and both handlers contract to
+    400 here.
 
     An explicitly empty ``?filter-lang=`` keeps its long-standing treatment as
-    "not supplied" rather than becoming a newly-rejected request; the raw read
-    this replaced skipped its check on any falsy value.
+    "not supplied" rather than becoming a newly-rejected request.
     """
-    supplied = request.query_params.get("filter-lang") or request.query_params.get(
-        _LEGACY_FILTER_LANG_PARAM
-    )
-    lang = supplied or params.cql2_filter_lang or "cql2-text"
+    lang = request.query_params.get("filter-lang") or "cql2-text"
     if lang not in _SUPPORTED_FILTER_LANGS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -602,10 +562,6 @@ async def search_datasets_endpoint(
 ) -> OGCFeatureCollectionResponse:
     """Search datasets with text, spatial, and faceted filters."""
     params = _resolve_filter_lang(params, request)
-    if not params.keywords:
-        legacy_keywords = await _legacy_keywords_body(request)
-        if legacy_keywords:
-            params = params.model_copy(update={"keywords": legacy_keywords})
     result = await _handle_search(db, user, request, params)
     for name, value in standard_response_headers(
         list(result.links or []),
@@ -1212,13 +1168,10 @@ async def collection_items(
     # work on this route. (`filter` binds fine; its alias is a valid identifier.)
     raw_keywords = request.query_params.getlist("keywords")
     if raw_keywords:
-        # The PUBLISHED form wins. This route still binds the legacy GET body
-        # natively — it keeps `Depends()`, so FastAPI continues to populate
-        # `params.keywords` from it — and this used to be conditional on that
-        # being empty, which let the deprecated body override the query
-        # parameter. `_legacy_keywords_body` is therefore not needed here: the
-        # native binding already provides the compatibility the other route
-        # needs the shim for.
+        # The PUBLISHED form wins. This route still binds `Depends()`, so
+        # FastAPI continues to populate `params.keywords` from a GET body when
+        # one is sent; the query string form takes precedence when both are
+        # present.
         overrides["keywords"] = raw_keywords
 
     effective_params = params.model_copy(update=overrides) if overrides else params

@@ -7,6 +7,17 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Removed
+
+- **Two undocumented search compatibility forms are gone.** `?cql2_filter_lang=...`
+  (an alternate spelling of the published `filter-lang` parameter) and a JSON
+  `keywords` request body on `GET /search/datasets/` were kept working after
+  #1666 corrected the published OpenAPI contract, so a client generated from
+  the older contract would not silently break. Both were accepted but never
+  published, and the deprecation window has passed since #1666 shipped in
+  1.16.0. A client generated from a pre-1.16.0 contract must regenerate
+  against the current one. (#1671)
+
 ## [1.17.0] - 2026-08-30
 
 ### Added

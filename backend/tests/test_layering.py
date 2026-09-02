@@ -4198,7 +4198,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # surface reports the composition being SERVED like every other one. Most
     # of the lines are the comment explaining why the generation's own count is
     # a fact about the attempt, not about the dataset. Cap 1455 -> 1468, exact.
-    "backend/app/modules/catalog/search/router.py": 1536,
+    # fix(#1671): the two pre-#1666 search compatibility shims are sunset --
+    # `_legacy_keywords_body`, the `_LEGACY_FILTER_LANG_PARAM` fallback, and
+    # the comments that only existed to explain them. Cap lowered
+    # 1536 -> 1489, exact.
+    "backend/app/modules/catalog/search/router.py": 1489,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
