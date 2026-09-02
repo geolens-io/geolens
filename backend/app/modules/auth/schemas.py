@@ -62,7 +62,12 @@ class UserCreate(BaseModel):
             "Plaintext password (policy: min 12 chars, 3+ character classes, "
             "at most 72 bytes UTF-8)"
         ),
-        json_schema_extra={"example": "securePass123!"},
+        # fix(#1715 codex r1): deliberately no json_schema_extra example. This
+        # one shipped a fake-but-plausible credential into openapi.json, both
+        # SDKs and api.generated.ts, where Rule 3 forbids a published example
+        # password. The sibling username and email examples stay; for a
+        # password, no example is better than one that reads like a real value
+        # and invites copy-paste.
     )
     email: EmailStr | None = Field(
         default=None,

@@ -17904,7 +17904,6 @@
           },
           "password": {
             "description": "Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)",
-            "example": "securePass123!",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",

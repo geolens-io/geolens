@@ -19,8 +19,7 @@ class UserCreate:
     """
     Attributes:
         username (str): Unique login name Example: jdoe.
-        password (str): Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8) Example:
-            securePass123!.
+        password (str): Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)
         email (None | str | Unset): Optional email address Example: jdoe@example.com.
     """
 

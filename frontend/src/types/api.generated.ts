@@ -13313,7 +13313,6 @@ export interface components {
             /**
              * Password
              * @description Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)
-             * @example securePass123!
              */
             password: string;
             /**
