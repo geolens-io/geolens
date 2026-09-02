@@ -3043,7 +3043,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # failure write down with it and the job sat `running` with no reason. Most
     # of the lines are the docstring and comment stating that the order is the
     # contract. Cap 2395 -> 2426, exact.
-    "backend/app/processing/ingest/tasks_common.py": 2426,
+    # fix(#1778 codex r6): +21 — `_job_phase_session` takes an optional
+    # `lock_and_statement_timeout_ms`, applied via `SET LOCAL` BEFORE its own
+    # SELECT rather than leaving a caller to set it after entering the
+    # context manager, where it could not protect that SELECT from stalling
+    # behind a lock the row's own later write would never see (e.g. an
+    # ACCESS EXCLUSIVE table lock). `None` by default, so every other caller
+    # of this shared helper is unchanged. Cap 2426 -> 2447, exact.
+    "backend/app/processing/ingest/tasks_common.py": 2447,
     # --- entered by the inclusion rule, feat(#1219 x #1222) ---------------
     # tasks_reupload crossed 1000 when two independently-reviewed features
     # met in one file: #1222's failed-contact bookkeeping (spawn-armed
@@ -3873,7 +3880,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # seconds and releases its connection the ordinary way; the drain deadline
     # survives only as a safety net for what a DB-side timeout cannot cover.
     # Cap 1245 -> 1281, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1281,
+    # fix(#1778 codex r6): +3 — the timeouts move into
+    # `_job_phase_session(lock_and_statement_timeout_ms=...)` so they also
+    # cover that helper's own initial SELECT, which used to run before this
+    # function's own `SET LOCAL` calls and could stall behind a lock the row
+    # never got far enough to hit. Cap 1281 -> 1284, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1284,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern

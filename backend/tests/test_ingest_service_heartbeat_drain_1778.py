@@ -331,3 +331,101 @@ async def test_a_tick_blocked_behind_a_held_row_lock_times_out_inside_the_db_and
     finally:
         event.remove(sync_engine, "checkout", _on_checkout)
         event.remove(sync_engine, "checkin", _on_checkin)
+
+
+@pytest.mark.anyio
+async def test_a_tick_blocked_on_its_own_initial_select_times_out_inside_the_db_and_releases_its_connection(
+    test_db_session, monkeypatch
+):
+    """fix(#1778 codex r6): the row-lock test above blocks the tick's LATER
+    commit; this one blocks its FIRST statement, the SELECT
+    ``_job_phase_session`` runs internally before the caller gets control at
+    all. A ``FOR UPDATE`` row lock does not block a plain SELECT under
+    Postgres's MVCC, so it cannot exercise this path -- an
+    ``ACCESS EXCLUSIVE`` table lock does, the same class of lock a
+    ``DROP``/``ALTER``/``TRUNCATE`` (or an explicit ``LOCK TABLE``) takes.
+
+    Before fix(#1778 codex r6), ``_service_import_heartbeat_tick`` issued
+    its ``SET LOCAL lock_timeout``/``statement_timeout`` AFTER entering
+    ``_job_phase_session``'s ``async with`` block -- too late to protect the
+    SELECT that already ran to get there, so this exact scenario hung on
+    the database's server-wide default instead of the few-second budget.
+    The timeouts now go INTO ``_job_phase_session`` via
+    ``lock_and_statement_timeout_ms`` and take effect before its SELECT.
+    """
+    import app.core.db as db_module
+    from sqlalchemy import event, text
+
+    from tests.factories import get_user_id
+
+    monkeypatch.setattr(
+        tasks_vector, "_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS", 0.5
+    )
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    job = IngestJob(
+        source_filename="TableLockedHeartbeatJob",
+        created_by=admin_id,
+        status="running",
+        current_step="ogr2ogr",
+        progress=0.1,
+    )
+    test_db_session.add(job)
+    await test_db_session.flush()
+    await test_db_session.commit()
+    job_id = job.id
+    attempt_id = job.attempt_id
+
+    live = {"n": 0}
+
+    def _on_checkout(*_args):
+        live["n"] += 1
+
+    def _on_checkin(*_args):
+        live["n"] -= 1
+
+    sync_engine = db_module.engine.sync_engine
+    event.listen(sync_engine, "checkout", _on_checkout)
+    event.listen(sync_engine, "checkin", _on_checkin)
+
+    idle_baseline = live["n"]
+
+    try:
+        async with db_module.async_session() as locker_session:
+            # ACCESS EXCLUSIVE blocks EVERY other lock mode, including the
+            # ACCESS SHARE a plain SELECT takes -- unlike FOR UPDATE, which
+            # only blocks other writers/lockers of the same row.
+            await locker_session.execute(
+                text("LOCK TABLE catalog.ingest_jobs IN ACCESS EXCLUSIVE MODE")
+            )
+
+            with_locker_held = live["n"]
+            assert with_locker_held == idle_baseline + 1
+
+            with pytest.raises(Exception) as exc_info:
+                await tasks_vector._service_import_heartbeat_tick(job_id, attempt_id)
+
+            assert live["n"] == with_locker_held, (
+                f"pool checkout count drifted from {with_locker_held} (locker "
+                f"session held, tick about to run) to {live['n']} -- the "
+                "tick's connection was not released after its own "
+                "lock_timeout fired"
+            )
+            message = str(exc_info.value).lower()
+            assert "lock" in message or "canceling statement" in message, (
+                f"expected a lock/statement timeout from Postgres, got: "
+                f"{exc_info.value!r}"
+            )
+
+            await locker_session.rollback()
+
+        assert live["n"] == idle_baseline
+
+        keep_going = await tasks_vector._service_import_heartbeat_tick(
+            job_id, attempt_id
+        )
+        assert keep_going is True
+        assert live["n"] == idle_baseline
+    finally:
+        event.remove(sync_engine, "checkout", _on_checkout)
+        event.remove(sync_engine, "checkin", _on_checkin)

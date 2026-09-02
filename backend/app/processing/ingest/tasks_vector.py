@@ -136,23 +136,26 @@ async def _service_import_heartbeat_tick(
     releases this tick's connection back to the pool the ordinary way --
     the caller no longer has to choose between waiting on a stuck connection
     forever and abandoning one it can never reclaim.
+
+    fix(#1778 codex r6): those timeouts are now passed INTO
+    ``_job_phase_session`` (``lock_and_statement_timeout_ms``) rather than
+    set after entering it, so they cover the SELECT the helper runs
+    internally too -- issuing them after the ``async with`` line left that
+    initial SELECT unprotected, and a SELECT can itself stall behind a lock
+    the later UPDATE would never even see (e.g. another session's ACCESS
+    EXCLUSIVE on the table).
     """
+    _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
     async with _job_phase_session(
         job_uuid,
         phase="service_import_heartbeat",
         attempt_id=attempt_id,
+        lock_and_statement_timeout_ms=_timeout_ms,
     ) as (session, job):
         if job is None:
             return False
         if job.status != "running" or job.current_step != "ogr2ogr":
             return False
-
-        # fix(#1778 codex r3): milliseconds, integer -- `SET LOCAL` takes a
-        # literal, not a bind parameter (Postgres rejects `SET x = $1`), so
-        # this interpolates a module constant, never request-supplied data.
-        _timeout_ms = int(_SERVICE_IMPORT_HEARTBEAT_TICK_DB_TIMEOUT_SECONDS * 1000)
-        await session.execute(text(f"SET LOCAL lock_timeout = {_timeout_ms}"))
-        await session.execute(text(f"SET LOCAL statement_timeout = {_timeout_ms}"))
 
         existing_progress = (
             job.progress
