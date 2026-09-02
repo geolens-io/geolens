@@ -172,7 +172,6 @@ describe('LineGradientControls — UI', () => {
     // duplicated the endpoint (previously reproduced by click 7), rerendering
     // with each commit so liveStops actually accumulates like the real app.
     for (let i = 0; i < 7; i++) {
-      // eslint-disable-next-line no-await-in-loop -- each click depends on the previous commit's rerender
       await user.click(addButton());
       const lastBuilderCall = onBuilderChange.mock.calls[onBuilderChange.mock.calls.length - 1];
       stops = lastBuilderCall[0].lineGradient.stops;
