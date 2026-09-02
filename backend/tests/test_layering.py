@@ -2339,7 +2339,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # cancellation scope, and the identity the limits key on became the
     # token service's authority AND web-adaptor path, because two Enterprise
     # portals can share a hostname and be separate account stores.
-    # fix(#1758 codex r12-r16): +117 lines. One httpx.URL is now the single normalized
+    # fix(#1758 codex r12-r17): +149 lines. One httpx.URL is now the single normalized
     # form the scope, the delegate check and the POST destination all read,
     # because urlsplit kept dot segments that httpx removes, and a URL that
     # still argues with itself after normalization is refused rather than
@@ -2349,8 +2349,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # port zero, which is falsey and so aliased the real :443 budget. r16
     # made a redirect the SSRF hook rejects during DISCOVERY fall back rather
     # than refuse, since the hook fires on every 3xx whether or not it is
-    # followed.
-    "backend/app/modules/catalog/sources/arcgis_signin.py": 1221,
+    # followed. r17 decodes to a fixed point instead of for four passes, and
+    # refuses a stable form still carrying an encoded separator.
+    "backend/app/modules/catalog/sources/arcgis_signin.py": 1253,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against

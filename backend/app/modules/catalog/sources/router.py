@@ -1158,6 +1158,20 @@ _ARCGIS_SIGNIN_USER_LIMIT = "3/15minutes"
 _ARCGIS_SIGNIN_PORTAL_LIMIT = "3/15minutes"
 
 
+# fix(#1758 codex r17): a worker-wide ceiling on sign-ins that are inside
+# their network phases, set below the database pool so they cannot take it.
+# Production runs 10 pooled connections plus 3 overflow (13), and a sign-in
+# holds its request connection across discovery and the mint for up to the
+# 45-second budget, so 13 concurrent sign-ins for distinct scopes could
+# occupy the whole pool and time out unrelated API requests. Four leaves nine
+# for everything else.
+#
+# This BOUNDS that saturation, it does not remove it: the connection is still
+# held across external I/O. The reservation redesign that removes it is
+# tracked separately; see the PR body.
+_ARCGIS_SIGNIN_CONCURRENCY = 4
+_signin_slots = asyncio.Semaphore(_ARCGIS_SIGNIN_CONCURRENCY)
+
 _require_create_layers = require_permission("create_layers")
 
 
@@ -1276,8 +1290,20 @@ async def arcgis_signin(
     resolved_host: str | None = None
     resolved_account_key: str | None = None
     resolved_note: str | None = None
+    # fix(#1758 codex r17): refuse rather than queue. Waiting here would hold
+    # the request's own pooled connection while waiting, which is the resource
+    # this bound exists to protect; the caller gets the same 429 the attempt
+    # budget uses and the client already maps.
+    if _signin_slots.locked():
+        await _signin_refusal(
+            db,
+            user.id,
+            "unknown",
+            signin_account_key("unknown", body.username),
+            _signin_rate_limited(),
+        )
     try:
-        async with open_portal_signin(body.portal_url) as portal:
+        async with _signin_slots, open_portal_signin(body.portal_url) as portal:
             # fix(#1758 codex r3): the account lock and both budgets are keyed
             # on the ARCGIS account, not on the GeoLens caller. The username
             # reaches this line and goes no further: what is stored, locked on

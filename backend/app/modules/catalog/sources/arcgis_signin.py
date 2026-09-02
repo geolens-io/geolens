@@ -54,6 +54,7 @@ import hashlib
 import hmac
 import ipaddress
 import socket
+import string
 
 import httpx
 import idna
@@ -479,9 +480,18 @@ def _canonical_url(raw: str | httpx.URL) -> httpx.URL:
     # fix(#1758 codex r13): httpx DECODES `%2e` into `.` when it exposes the
     # path, but it removed dot segments before that decoding, so
     # `/a/%2e%2e/sharing` comes back as `/a/../sharing`. Re-parsing the
-    # decoded form resolves it. Bounded and convergent: each pass strictly
-    # shortens the path, and two are enough for anything a portal can write.
-    for _ in range(4):
+    # decoded form resolves it.
+    #
+    # fix(#1758 codex r17): to a FIXED POINT, not for a fixed four passes.
+    # Each pass peels one layer of encoding, so a path encoded ten deep still
+    # held `%2e%2e` when the old ceiling ran out; that passed every check here
+    # and went on the wire as `%252e%252e`, which a reverse proxy and the
+    # ArcGIS application then decoded back into `..` between them. `/a/` and
+    # `/b/` variants therefore reached one endpoint under two scopes and two
+    # budgets. The bound is now the input length, which is safe because a pass
+    # that changes anything strictly shortens the path (`%25` becomes `%`), so
+    # the loop cannot run longer than there are characters to remove.
+    for _ in range(len(url.path) + 1):
         reparsed = httpx.URL(f"{url.scheme}://{url.netloc.decode()}{url.path}")
         if reparsed.path == url.path:
             break
@@ -512,6 +522,28 @@ def usable_service_url(raw: str | httpx.URL) -> httpx.URL | None:
     except (httpx.InvalidURL, ArcGISSignInError, ValueError, UnicodeError):
         return None
     if url.query or url.fragment or url.userinfo:
+        return None
+    # fix(#1758 codex r17): whatever survives the fixed point above is a
+    # separator this module could not resolve and a downstream decoder still
+    # might. `%2e`, `%2f` and `%5c` are the three that change what path a
+    # request addresses, so a stable form still carrying one is refused rather
+    # than guessed at. A percent sign that is not a complete escape is refused
+    # for the same reason: two parsers will disagree about it.
+    stable_path = url.path
+    for index, character in enumerate(stable_path):
+        if character != "%":
+            continue
+        escape = stable_path[index : index + 3]
+        if len(escape) < 3 or not all(c in string.hexdigits for c in escape[1:]):
+            return None
+        if escape.lower() in ("%2e", "%2f", "%5c"):
+            return None
+    if "\\" in stable_path:
+        # httpx decodes `%5c` to a literal backslash, and IIS, which hosts a
+        # great many ArcGIS Enterprise web adaptors, reads one as a path
+        # separator. `/\\sharing` and `/sharing` would then be one endpoint
+        # under two scopes, which is the collision this whole function exists
+        # to prevent, so it goes out with the encoded forms.
         return None
     if url.port == 0:
         # fix(#1758 codex r15): port zero addresses nothing. Every request to

@@ -1500,6 +1500,114 @@ async def test_a_discovery_redirect_the_ssrf_hook_rejects_falls_back(
     assert "ssrf_blocked" not in {row.details["result"] for row in rows}
 
 
+def _nested_dot_segment(depth: int) -> str:
+    """`..` percent-encoded *depth* times over."""
+    segment = ".."
+    for _ in range(depth):
+        if "%" in segment:
+            segment = segment.replace("%", "%25")
+        else:
+            segment = segment.replace(".", "%2e")
+    return segment
+
+
+@pytest.mark.parametrize("depth", [1, 2, 3, 4, 10, 20])
+def test_nested_encodings_normalize_to_one_scope(depth):
+    """fix(#1758 codex r17): decode to a fixed point, not for four passes.
+
+    Each pass peels one layer, so a path encoded ten deep still held `%2e%2e`
+    when the old ceiling ran out. That passed every check and went on the wire
+    as `%252e%252e`, which a reverse proxy and the ArcGIS application then
+    decoded back into `..` between them, so `/a/` and `/b/` variants reached
+    one endpoint under two scopes and two budgets.
+    """
+    segment = _nested_dot_segment(depth)
+    scopes = {
+        arcgis_signin.canonical_token_service_scope(
+            f"https://gis.example.test/{prefix}/{segment}/sharing/rest/generateToken"
+        )
+        for prefix in ("a", "b")
+    }
+    assert scopes == {"gis.example.test:443/sharing/rest"}
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        # A separator this module could not resolve and a decoder still might.
+        "https://gis.example.test/%2fsharing/rest/generateToken",
+        "https://gis.example.test/%5csharing/rest/generateToken",
+        # A percent sign that is not a complete escape: two parsers will
+        # disagree about it.
+        "https://gis.example.test/shar%zzing/rest/generateToken",
+        "https://gis.example.test/sharing%/rest/generateToken",
+    ],
+)
+def test_an_unresolved_separator_is_refused_rather_than_guessed_at(raw):
+    assert arcgis_signin.usable_service_url(raw) is None
+
+
+async def test_the_worker_wide_bound_refuses_rather_than_queues(
+    client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
+):
+    """fix(#1758 codex r17): sign-ins cannot take the whole database pool.
+
+    Production runs 10 pooled connections plus 3 overflow, and a sign-in holds
+    its request connection across discovery and the mint, so thirteen
+    concurrent ones for distinct scopes could occupy the pool and time out
+    unrelated API requests. The bound is four, below the pool, and a caller
+    that arrives when it is full is refused rather than queued: waiting would
+    hold the very connection the bound protects.
+
+    Exhausting the semaphore directly is the only way to observe this from a
+    single-request test, and it is the real object the handler checks.
+    """
+    await _clear_unknown_host_rows(test_db_session)
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+    held = [
+        await sources_router._signin_slots.acquire()
+        for _ in range(sources_router._ARCGIS_SIGNIN_CONCURRENCY)
+    ]
+    assert held is not None  # the acquires above, kept for the release below
+    try:
+        with _install(exchange):
+            # A deadline, because the regression this guards against is a
+            # HANG, not a wrong answer: without the check the handler waits on
+            # `async with _signin_slots` for a slot nobody will free, holding
+            # the connection the bound exists to protect. Failing in five
+            # seconds beats burning the job's whole timeout.
+            async with asyncio.timeout(5):
+                resp = await client.post(
+                    SIGNIN_URL, json=_body(), headers=admin_auth_header
+                )
+    except TimeoutError:  # pragma: no cover - only on regression
+        pytest.fail(
+            "the sign-in queued on a full semaphore instead of refusing, "
+            "which holds a pooled connection while it waits"
+        )
+    finally:
+        for _ in range(sources_router._ARCGIS_SIGNIN_CONCURRENCY):
+            sources_router._signin_slots.release()
+
+    assert resp.status_code == 429
+    assert resp.json()["detail"]["code"] == "rate_limited"
+    # Refused before any network I/O, and nothing charged to a real account.
+    assert exchange.requests == []
+    assert await _audit_rows(test_db_session) == []
+    rows = await _audit_rows(test_db_session, host="unknown")
+    assert [row.details["result"] for row in rows] == ["rate_limited"]
+
+
+def test_the_concurrency_bound_sits_below_the_database_pool():
+    """The number is the point: above the pool it would protect nothing."""
+    assert sources_router._ARCGIS_SIGNIN_CONCURRENCY < 10 + 3
+
+
 async def test_a_refusal_is_never_retried(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):
