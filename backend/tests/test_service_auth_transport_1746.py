@@ -1872,6 +1872,17 @@ _SVC_OAPIF = f"{_SVC_ORIGIN}/oapif"
 _FOREIGN = "https://collector.example"
 
 
+def _collection_doc(items_href: str | None) -> dict:
+    """A collection document, advertising where its items are or saying nothing.
+
+    fix(#1746 B2b review r20): the materialiser reads this first now and
+    follows what it advertises, so every double that serves items has to serve
+    the document that points at them.
+    """
+    links = [] if items_href is None else [{"rel": "items", "href": items_href}]
+    return {"id": "c1", "links": links}
+
+
 def _point(feature_id: str) -> dict:
     return {
         "type": "Feature",
@@ -2258,15 +2269,16 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         assert value not in str(raised.value.detail)
         assert "collector.example" not in _hosts(recorded)
 
-    async def test_the_preview_never_follows_an_advertised_items_link(
+    async def test_the_preview_refuses_a_cross_origin_items_link(
         self, monkeypatch
     ) -> None:
-        """fix(#1746 B2b review r16): the link is not refused, it is not read.
+        """fix(#1746 B2b review r20): the link is read, and judged.
 
-        A protected collection is read in-process now, from the items path
-        under the URL the caller submitted. What the service advertises for
-        `rel=items` is never consulted, so pointing it at another origin buys
-        nothing: that origin is simply never contacted.
+        r16 stopped consulting the advertised `rel=items` link at all, which
+        made a cross-origin one harmless and a non-conventional one broken.
+        r20 follows it again, so it is refused on its merits instead: the
+        collection document chose the address, and it does not get to choose a
+        different service to be paid with this credential.
         """
         credential, _value_ = _header_key()
         recorded = self._transport(
@@ -2275,31 +2287,21 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                 f"{_FOREIGN}/oapif/collections/c54/items", collection_count=55
             ),
         )
-        spawned: list = []
 
         async def _fake_exec(*cmd, **kwargs):
-            spawned.append(cmd)
-            proc = MagicMock()
-            proc.returncode = 0
-
-            async def _communicate():
-                return (json.dumps(_EMPTY_LAYER).encode(), b"")
-
-            proc.communicate = _communicate
-            return proc
+            raise AssertionError("ogrinfo must not run for a refused collection")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
 
-        await preview_mod.run_service_preview(
-            f"OAPIF:{_SVC_OAPIF}", "c54", credential=credential
-        )
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"OAPIF:{_SVC_OAPIF}", "c54", credential=credential
+            )
 
+        assert raised.value.detail["code"] == "endpoint_check_failed"
         assert "collector.example" not in _hosts(recorded)
-        # Read from the submitted origin's own items path, and ogrinfo was
-        # handed a local file rather than the service.
-        assert [r.url.path for r in recorded] == ["/oapif/collections/c54/items"]
-        assert spawned
-        assert not any(str(part).startswith("OAPIF:") for part in spawned[0])
+        # The collection document was read, and the address it named was not.
+        assert [r.url.path for r in recorded] == ["/oapif/collections/c54"]
 
     # -- the worker ---------------------------------------------------------
 
@@ -2417,7 +2419,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             credential_line=f"{pair[0]}: {pair[1]}",
         )
 
-    async def test_the_worker_never_follows_an_advertised_items_link(
+    async def test_the_worker_refuses_a_cross_origin_items_link(
         self, monkeypatch
     ) -> None:
         """The same property on the side that actually spends the credential."""
@@ -2430,38 +2432,25 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                 f"{_FOREIGN}/oapif/collections/c54/items", collection_count=55
             ),
         )
-        spawned: list = []
 
         async def _fake_exec(*cmd, **kwargs):
-            spawned.append((cmd, dict(kwargs.get("env") or {})))
-            proc = MagicMock()
-            proc.returncode = 0
-            return proc
-
-        async def _fake_communicate(proc, timeout, tool_name):
-            return (b"", b"")
+            raise AssertionError("ogr2ogr must not run for a refused collection")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
-        monkeypatch.setattr(
-            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
-        )
 
-        await run_ogr2ogr_service(
-            gdal_source=f"OAPIF:{_SVC_OAPIF}",
-            layer_name="c54",
-            table_name="t",
-            db_conn_str="PG:dummy",
-            service_type="ogcapi_features",
-            token=f"{pair[0]}: {pair[1]}",
-            schema="data",
-        )
+        with pytest.raises(ItemFetchFailedError):
+            await run_ogr2ogr_service(
+                gdal_source=f"OAPIF:{_SVC_OAPIF}",
+                layer_name="c54",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="ogcapi_features",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+            )
 
         assert "collector.example" not in _hosts(recorded)
-        assert [r.url.path for r in recorded] == ["/oapif/collections/c54/items"]
-        argv, env = spawned[0]
-        # ogr2ogr got a local file and no credential of any kind.
-        assert not any(str(part).startswith("OAPIF:") for part in argv)
-        assert "GDAL_HTTP_HEADER_FILE" not in env
+        assert [r.url.path for r in recorded] == ["/oapif/collections/c54"]
 
     async def test_the_worker_proceeds_for_a_same_origin_service(
         self, monkeypatch
@@ -2746,6 +2735,13 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         """A handler serving one feature per page, each naming the next."""
 
         def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                # The collection document the walk reads first. It advertises
+                # the conventional layout, so what these tests exercise is the
+                # chain rather than the resolution.
+                return httpx.Response(
+                    200, json=_collection_doc(f"{_SVC_OAPIF}/collections/c1/items")
+                )
             page = int(request.url.params.get("page", 0))
             body: dict = {
                 "type": "FeatureCollection",
@@ -2785,7 +2781,8 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
         document = json.loads(pathlib.Path(path).read_text())
         assert [f["properties"]["page"] for f in document["features"]] == [0, 1, 2]
-        assert len(recorded) == 3
+        # Three pages, plus the collection document read before them.
+        assert len(recorded) == 4
         # The credential went to the service, and only to the service.
         assert {r.url.host for r in recorded} == {httpx.URL(_SVC_OAPIF).host}
         assert all(r.headers.get(pair[0]) == value for r in recorded)
@@ -2865,7 +2862,8 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
         document = json.loads(pathlib.Path(path).read_text())
         assert len(document["features"]) == 2
-        assert len(recorded) == 2
+        # Two pages, plus the collection document.
+        assert len(recorded) == 3
 
     @staticmethod
     def _endless(features_per_page: int = 0):
@@ -2873,6 +2871,8 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         base = f"{_SVC_OAPIF}/collections/c1/items"
 
         def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(base))
             page = int(request.url.params.get("page", 0))
             return _streamed(
                 {
@@ -2908,7 +2908,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
         with pytest.raises(ItemFetchFailedError):
             await self._materialise(tmp_path)
 
-        assert len(recorded) == 4
+        assert len(recorded) == 5
         # Nothing to import, which is the point: a truncated read fails loud
         # rather than arriving as data.
         assert list(tmp_path.iterdir()) == []
@@ -3053,6 +3053,9 @@ class TestOnePageCannotCostTheWholeProcess:
         parsed: list = []
 
         def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
             async def _chunks():
                 nonlocal produced
                 for _ in range(1000):
@@ -3073,8 +3076,10 @@ class TestOnePageCannotCostTheWholeProcess:
 
         # A megabyte was on offer and five kilobytes were taken.
         assert produced <= 5000
-        # And nothing was decoded, which is where the memory would have gone.
-        assert parsed == []
+        # The collection document ahead of it is parsed, as it must be. What
+        # never reaches the parser is the megabyte, which is where the memory
+        # would have gone.
+        assert [args for args in parsed if len(args[0]) > 4000] == []
         assert list(tmp_path.iterdir()) == []
 
     async def test_an_honest_content_length_is_refused_without_reading(
@@ -3084,6 +3089,9 @@ class TestOnePageCannotCostTheWholeProcess:
         produced = 0
 
         def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
             async def _chunks():
                 nonlocal produced
                 produced += 1
@@ -3101,71 +3109,81 @@ class TestOnePageCannotCostTheWholeProcess:
 
         assert produced == 0
 
-    async def test_the_file_is_never_larger_than_what_was_downloaded(
+    async def test_a_json_round_trip_that_grows_is_bounded_on_disk(
         self, monkeypatch, tmp_path
     ) -> None:
-        """fix(#1746 B2b review r19): what `MAX_BYTES` counts bounds the disk.
+        """fix(#1746 B2b review r20): the r19 "cannot grow" proof was wrong.
 
-        Escaping non-ASCII to `\\uXXXX` wrote roughly three bytes for each one
-        counted against the download cap, so a chain comfortably inside the
-        2 GiB it was asked to respect could leave three times that on a staging
-        volume shared with every other import. Writing compact UTF-8 makes the
-        download cap a true bound on the file, which is the property here: a
-        second counter against the same constant could never fire.
+        r19 removed a written-bytes counter, reasoning that compact UTF-8
+        output is a subset of the page it came from. A JSON round trip can
+        grow: `1e15` is four bytes on the wire and parses to a float whose
+        repr is `1000000000000000.0`, which is eighteen. Python only switches
+        to exponent notation at 1e16, so a page of such numbers expands more
+        than fourfold on the way to disk and a chain inside the download cap
+        could leave many gigabytes on a shared staging volume.
+
+        The bound is measured now, and this test measures the same two numbers
+        so it fails if the growth ever stops being possible rather than
+        passing vacuously.
         """
-        base = f"{_SVC_OAPIF}/collections/c1/items"
-        wire = 0
+        # Built by hand: `json.dumps` writes a float back as `1e+15`, so the
+        # compact wire form has to be authored rather than round-tripped.
+        properties = ",".join(f'"a{n}":1e15' for n in range(600))
+        raw = (
+            '{"type":"FeatureCollection","features":[{"type":"Feature",'
+            '"id":"f0","geometry":null,"properties":{' + properties + "}}],"
+            '"links":[]}'
+        ).encode()
+        wire = len(raw)
+        feature = json.loads(raw)["features"][0]
+        on_disk = len(
+            json.dumps(feature, separators=(",", ":"), ensure_ascii=False).encode()
+        )
+        # The premise, asserted rather than assumed.
+        assert wire < on_disk, (wire, on_disk)
 
         def handle(request: httpx.Request) -> httpx.Response:
-            nonlocal wire
-            page = int(request.url.params.get("page", 0))
-            body = {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "id": f"f{page}",
-                        "geometry": {"type": "Point", "coordinates": [0, 0]},
-                        # Three UTF-8 bytes each; six under the old escaping.
-                        "properties": {"name": "\u6771\u4eac" * 400},
-                    }
-                ],
-                "links": (
-                    [{"rel": "next", "href": f"{base}?page={page + 1}"}]
-                    if page < 4
-                    else []
-                ),
-            }
-            wire += len(json.dumps(body).encode())
-            return _streamed(body)
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
+
+            async def _chunks():
+                yield raw
+
+            return httpx.Response(200, content=_chunks())
 
         self._transport(monkeypatch, handle)
+        # Between the two: the download is comfortably inside the cap, and the
+        # extract is over it. Only the on-disk bound can refuse this.
+        monkeypatch.setattr(
+            "app.platform.service_items.MAX_BYTES", (wire + on_disk) // 2
+        )
 
-        path = await self._materialise(tmp_path)
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
 
-        on_disk = pathlib.Path(path).stat().st_size
-        assert on_disk <= wire, (on_disk, wire)
-        # And it really is the non-ASCII payload, so the comparison is about
-        # the encoding rather than about an empty file.
-        assert "\u6771\u4eac" in pathlib.Path(path).read_text(encoding="utf-8")
+        assert list(tmp_path.iterdir()) == []
 
     async def test_the_extract_is_utf8_not_escaped(self, monkeypatch, tmp_path) -> None:
         """The other half: what does fit is written as the bytes it came as."""
         self._transport(
             monkeypatch,
-            lambda request: _streamed(
-                {
-                    "type": "FeatureCollection",
-                    "features": [
-                        {
-                            "type": "Feature",
-                            "id": "f0",
-                            "geometry": {"type": "Point", "coordinates": [0, 0]},
-                            "properties": {"name": "\u6771\u4eac"},
-                        }
-                    ],
-                    "links": [],
-                }
+            lambda request: (
+                httpx.Response(200, json=_collection_doc(None))
+                if not request.url.path.endswith("/items")
+                else _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [
+                            {
+                                "type": "Feature",
+                                "id": "f0",
+                                "geometry": {"type": "Point", "coordinates": [0, 0]},
+                                "properties": {"name": "\u6771\u4eac"},
+                            }
+                        ],
+                        "links": [],
+                    }
+                )
             ),
         )
         path = await self._materialise(tmp_path)
@@ -3183,6 +3201,8 @@ class TestOnePageCannotCostTheWholeProcess:
 
         def handle(request: httpx.Request) -> httpx.Response:
             assert request.headers["Accept-Encoding"] == "identity"
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
             return httpx.Response(
                 200, headers={"Content-Encoding": "gzip"}, json={"features": []}
             )
@@ -3207,6 +3227,8 @@ class TestOnePageCannotCostTheWholeProcess:
         pages = 0
 
         def handle(request: httpx.Request) -> httpx.Response:
+            if not request.url.path.endswith("/items"):
+                return httpx.Response(200, json=_collection_doc(None))
             nonlocal pages
             pages += 1
             page = int(request.url.params.get("page", 0))
@@ -3706,6 +3728,8 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
 
         def handle(request: httpx.Request) -> httpx.Response:
             path = request.url.path
+            if path.endswith("/c1"):
+                return httpx.Response(200, json=_collection_doc(items))
             if path.endswith("/items"):
                 # The canonical form the service prefers.
                 return httpx.Response(301, headers={"Location": f"{items}/?limit=1000"})
@@ -3736,6 +3760,7 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
 
         # `page2` relative to `/collections/c1/items/`, not to `/collections/c1/`.
         assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
             "/oapif/collections/c1/items",
             "/oapif/collections/c1/items/",
             "/oapif/collections/c1/items/page2",
@@ -3792,3 +3817,176 @@ class TestARelativeLinkIsResolvedAgainstTheDocument:
             "/geoserver/wfs/",
         ]
         assert seen == [f"{_SVC_ORIGIN}/geoserver/wfs/deeper"]
+
+
+class TestTheItemsLinkTheCollectionAdvertises:
+    """fix(#1746 B2b review r20): where the items are is the service's to say.
+
+    r16 moved the read in-process and built `/collections/{id}/items` by hand,
+    which was a regression against the path it replaced: GDAL followed the
+    advertised `rel=items` link, and `service_endpoints` still treats advertised
+    links as authoritative, so a valid service with a non-conventional layout
+    passed the probe and then 404ed at preview and import.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return _as_stream(handler(request))
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    @staticmethod
+    def _service(links: list[dict]):
+        """A service whose items live at /data/c1/features, not the convention."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path == "/data/c1/features":
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("a")],
+                        "links": [],
+                    }
+                )
+            if path.endswith("/collections/c1"):
+                return httpx.Response(200, json={"id": "c1", "links": links})
+            # The conventional layout this service does not use.
+            return httpx.Response(404)
+
+        return handle
+
+    async def test_the_advertised_layout_is_followed(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        recorded = self._transport(
+            monkeypatch,
+            self._service(
+                [{"rel": "items", "href": f"{_SVC_OAPIF}/../data/c1/features"}]
+            ),
+        )
+
+        path = await self._materialise(tmp_path)
+
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/data/c1/features",
+        ]
+        document = json.loads(pathlib.Path(path).read_text())
+        assert [f["id"] for f in document["features"]] == ["a"]
+
+    async def test_the_page_size_rides_on_the_advertised_link(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """And whatever else the service put on its own link survives."""
+        recorded = self._transport(
+            monkeypatch,
+            self._service(
+                [{"rel": "items", "href": "/data/c1/features?f=json&limit=1"}]
+            ),
+        )
+
+        await self._materialise(tmp_path)
+
+        asked = recorded[-1].url
+        assert asked.params["f"] == "json"
+        # Ours replaces theirs rather than being appended beside it.
+        assert asked.params.get_list("limit") == ["1000"]
+
+    async def test_geojson_is_preferred_over_another_representation(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        recorded = self._transport(
+            monkeypatch,
+            self._service(
+                [
+                    {
+                        "rel": "items",
+                        "type": "text/html",
+                        "href": "/collections/c1/items",
+                    },
+                    {
+                        "rel": "items",
+                        "type": "application/geo+json",
+                        "href": "/data/c1/features",
+                    },
+                ]
+            ),
+        )
+
+        await self._materialise(tmp_path)
+
+        assert recorded[-1].url.path == "/data/c1/features"
+
+    async def test_a_document_that_advertises_nothing_falls_back(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The convention is the fallback, not the rule."""
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/items"):
+                return _streamed(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [_point("a")],
+                        "links": [],
+                    }
+                )
+            return httpx.Response(200, json=_collection_doc(None))
+
+        recorded = self._transport(monkeypatch, handle)
+
+        await self._materialise(tmp_path)
+
+        assert [r.url.path for r in recorded] == [
+            "/oapif/collections/c1",
+            "/oapif/collections/c1/items",
+        ]
+
+    async def test_a_cross_origin_items_link_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Followed means judged: the same rule `next` gets, for the same reason."""
+        recorded = self._transport(
+            monkeypatch,
+            self._service([{"rel": "items", "href": f"{_FOREIGN}/data/c1/features"}]),
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert "collector.example" not in _hosts(recorded)
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_items_link_that_will_not_parse_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        self._transport(
+            monkeypatch, self._service([{"rel": "items", "href": "http://["}])
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []

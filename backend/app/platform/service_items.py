@@ -42,7 +42,7 @@ import tempfile
 import time
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import quote, urljoin
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
 
 import httpx
 import structlog
@@ -56,6 +56,7 @@ from app.platform.security import (
     validate_url_for_ssrf,
 )
 from app.platform.service_endpoints import (
+    MAX_DOCUMENT_BYTES,
     EndpointCheckFailedError,
     read_bounded_body,
 )
@@ -66,14 +67,20 @@ logger = structlog.stdlib.get_logger(__name__)
 # bounded here rather than trusted: an endpoint that keeps answering `next`
 # forever would otherwise be an unbounded fetch holding a credential.
 #
-# fix(#1746 B2b review r17): `MAX_BYTES` counts the bytes READ, not the bytes
-# written. Counting the output measured the wrong thing, because a page is
-# decoded before any feature of it is written and the decode is where the
-# memory goes.
 # Reaching either is a refusal, never a short answer: see `_walk_pages`.
-# `MAX_BYTES` counts the bytes downloaded, and bounds what lands on the staging
-# volume with them: see the encoding comment in `_walk_pages` for why the file
-# cannot be larger than the pages it came from.
+#
+# `MAX_BYTES` bounds the bytes DOWNLOADED and, separately, the bytes WRITTEN.
+# r17 added the first because a page is decoded before any feature of it is
+# written, so counting the output missed where the memory goes. r19 then
+# removed a written-bytes counter on the reasoning that compact UTF-8 output
+# is a subset of the pages it came from and so cannot be larger. That was
+# wrong, and r20 caught it: a JSON round trip can GROW. `1e15` is four bytes
+# on the wire and parses to a float whose repr is `1000000000000000.0`, which
+# is eighteen. Python only switches to exponent notation at 1e16, so a page of
+# such numbers expands by more than four times on the way to disk, and a chain
+# comfortably inside the download cap could leave many gigabytes on a staging
+# volume shared with every other import. Both counters exist now, and the
+# written one is a real bound on disk rather than an inference from the wire.
 MAX_PAGES = 10_000
 MAX_BYTES = 2 * 1024 * 1024 * 1024
 
@@ -122,6 +129,61 @@ def _items_url(url: str, collection: str) -> str:
         f"{url.rstrip('/')}/collections/{quote(collection, safe='')}"
         f"/items?limit={PAGE_SIZE}"
     )
+
+
+# What a collection document advertises for the features themselves. Preferred
+# over the conventional layout, which is a guess, and preferred by media type
+# where the service offers more than one representation.
+_ITEMS_REL = "items"
+_ITEMS_MEDIA_TYPE = "application/geo+json"
+
+
+def _advertised_items_href(document: object, base: str) -> str | None:
+    """The collection's own ``rel=items`` link, resolved, or None.
+
+    fix(#1746 B2b review r20): fabricating ``/collections/{id}/items`` was a
+    regression against the path this replaced. GDAL followed the advertised
+    link, and `service_endpoints` still treats advertised links as the
+    authoritative statement of where a service keeps things, so a valid service
+    with a non-conventional layout passed the probe and then 404ed at preview
+    and import. What the document says wins; the convention is the fallback for
+    a document that says nothing.
+    """
+    if not isinstance(document, dict):
+        return None
+    candidates = [
+        link
+        for link in document.get("links", []) or []
+        if isinstance(link, dict) and link.get("rel") == _ITEMS_REL and link.get("href")
+    ]
+    if not candidates:
+        return None
+    chosen = next(
+        (
+            link
+            for link in candidates
+            if str(link.get("type", "")).lower().startswith(_ITEMS_MEDIA_TYPE)
+        ),
+        candidates[0],
+    )
+    try:
+        return urljoin(base, str(chosen["href"]))
+    except ValueError:
+        # Same rule as `next`: an address that will not parse cannot be shown
+        # to stay on the origin, and the href is never echoed.
+        raise ItemFetchFailedError("unparseable items link") from None
+
+
+def _with_page_size(href: str) -> str:
+    """The advertised link, asking for the page size this module wants.
+
+    Every other parameter the service put on its own link is kept: a
+    `f=json` or a fixed filter is part of where it said the items are.
+    """
+    parts = urlsplit(href)
+    query = [(key, value) for key, value in parse_qsl(parts.query) if key != "limit"]
+    query.append(("limit", str(PAGE_SIZE)))
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 def _next_href(document: object, base: str) -> str | None:
@@ -188,6 +250,41 @@ async def _fetch_page(
         raise ItemFetchFailedError(str(exc)) from None
 
 
+async def _resolve_items_url(
+    client: httpx.AsyncClient,
+    *,
+    url: str,
+    collection: str,
+    headers: dict,
+) -> tuple[str, int]:
+    """Where this collection actually keeps its items, and what asking cost.
+
+    The collection document is read first and its ``rel=items`` link is what
+    the walk follows, judged by the same rules as a ``next``: resolved against
+    the URL the document came from, refused if it leaves the submitted origin,
+    and revalidated for SSRF by `_fetch_page` before it is requested.
+
+    A document that advertises no items link falls back to the conventional
+    layout, which is what a service following the usual shape would have
+    advertised anyway.
+    """
+    document, size, from_url = await _fetch_page(
+        client,
+        f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
+        headers,
+        budget=MAX_DOCUMENT_BYTES,
+    )
+    href = _advertised_items_href(document, from_url)
+    if href is None:
+        return _items_url(url, collection), size
+    if not same_origin(url, href):
+        # The same rule the page chain gets, for the same reason: the document
+        # chose this address and does not get to choose a different service to
+        # be paid with this credential.
+        raise ItemFetchFailedError("items link leaves the origin")
+    return _with_page_size(href), size
+
+
 async def _walk_pages(
     client: httpx.AsyncClient,
     out,
@@ -201,18 +298,22 @@ async def _walk_pages(
     """Follow the chain, writing features. Returns pages read and features written."""
     written = 0
     pages = 0
-    downloaded = 0
+    on_disk = 0
+    if on_first_request is not None:
+        # fix(#1746 B2b review r17, moved r20): the origin is contacted HERE,
+        # not by the subprocess, so this is the moment a caller that dates
+        # origin contacts has to hear about. It fires before the collection
+        # document is read rather than before the first page, because that
+        # read is now the first request and a failure in it has still reached
+        # the service; leaving `last_checked_at` stale would report otherwise.
+        on_first_request()
+    first_page, downloaded = await _resolve_items_url(
+        client, url=url, collection=collection, headers=headers
+    )
     out.write(b'{"type": "FeatureCollection", "features": [')
-    page_url: str | None = _items_url(url, collection)
+    page_url: str | None = first_page
     while page_url is not None and pages < MAX_PAGES:
         pages += 1
-        if pages == 1 and on_first_request is not None:
-            # fix(#1746 B2b review r17): the origin is contacted HERE now, not
-            # by the subprocess, so this is the moment a caller that dates
-            # origin contacts has to hear about. A materialisation that fails
-            # on its first page has still reached the service, and leaving the
-            # source's `last_checked_at` stale would report the opposite.
-            on_first_request()
         document, size, from_url = await _fetch_page(
             client,
             page_url,
@@ -229,16 +330,19 @@ async def _walk_pages(
             # cap: a chain just under 2 GiB downloaded could leave ~6 GiB on a
             # staging volume shared with every other import.
             #
-            # Writing compact UTF-8 makes `MAX_BYTES` a true bound on the file
-            # as well, by construction rather than by proxy: what is written is
-            # a subset of each page (the features, without the links and the
-            # rest), re-encoded with the tightest separators, so it cannot
-            # exceed the bytes that page cost to download. A second counter
-            # against the same constant would be a guard that can never fire.
+            # fix(#1746 B2b review r20): and counted, because r19 concluded
+            # from this that the file could not exceed the download and that
+            # was wrong. A JSON round trip can grow: `1e15` is four bytes on
+            # the wire and eighteen written. The bound on disk is measured now
+            # rather than inferred.
             encoded = json.dumps(
                 feature, separators=(",", ":"), ensure_ascii=False
             ).encode("utf-8")
-            out.write(b"," + encoded if written else encoded)
+            chunk = b"," + encoded if written else encoded
+            out.write(chunk)
+            on_disk += len(chunk)
+            if on_disk > MAX_BYTES:
+                raise ItemFetchFailedError("collection exceeds the cap on disk")
             written += 1
             if feature_limit is not None and written >= feature_limit:
                 page_url = None
