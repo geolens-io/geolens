@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Globe, Check } from 'lucide-react';
@@ -63,7 +63,37 @@ export function ServiceUrlForm() {
   const [signingIn, setSigningIn] = useState(false);
   const [signinError, setSigninError] = useState<string | null>(null);
 
+  // codex review #1757 P1: a stale in-flight sign-in response must never
+  // resurrect a token or run after the auth context it belongs to is gone.
+  // Bumped on every full auth-state reset below (method switch, URL origin
+  // change, or the wizard's own reset()); handleArcgisSignin captures the
+  // value at send time and ignores its own response if it no longer matches.
+  const signinGenerationRef = useRef(0);
+  const authOrigin = originOf(url);
+  const lastAuthOriginRef = useRef(authOrigin);
+
+  // codex review #1757 P1: a credential entered for one origin must never
+  // survive being pointed at a different one, whether that's a pasted
+  // token for a non-ArcGIS URL that becomes ArcGIS, or a minted ArcGIS
+  // token for one portal surviving a swap to another. Editing only the
+  // path within the SAME origin (e.g. switching between two FeatureServer
+  // layers on one ArcGIS org) is not a credential hazard, so that alone
+  // does not reset.
+  useEffect(() => {
+    if (authOrigin === lastAuthOriginRef.current) return;
+    lastAuthOriginRef.current = authOrigin;
+    signinGenerationRef.current += 1;
+    setArcgisAuthMethod('none');
+    setToken('');
+    setPortalUrl('');
+    setUsername('');
+    setPassword('');
+    setTokenExpiresAt(null);
+    setSigninError(null);
+  }, [authOrigin]);
+
   const reset = () => {
+    signinGenerationRef.current += 1;
     setStep('idle');
     setUrl('');
     setToken('');
@@ -85,6 +115,7 @@ export function ServiceUrlForm() {
   // plan 3.4). A stale password or a stale pasted token left over from the
   // method the user just backed out of must never ride along silently.
   const handleAuthMethodChange = (next: ArcgisAuthMethod) => {
+    signinGenerationRef.current += 1;
     setArcgisAuthMethod(next);
     setToken('');
     setUsername('');
@@ -95,6 +126,16 @@ export function ServiceUrlForm() {
   };
 
   const handleArcgisSignin = async () => {
+    // codex review #1757 P1: capture the generation this request belongs to.
+    // If the auth context resets (method switch, URL origin change, or the
+    // wizard resetting) before this resolves, applying its result would
+    // resurrect a token or error message the user already backed away
+    // from, so only the token/expiry/error application below is gated on
+    // it. Clearing the password and the loading flag happens unconditionally
+    // in `finally`: this is the only sign-in that can be in flight at once
+    // (the button and the select both disable while signingIn is true), so
+    // there is never a newer request whose loading state this could stomp.
+    const generation = signinGenerationRef.current;
     setSigningIn(true);
     setSigninError(null);
     try {
@@ -103,12 +144,16 @@ export function ServiceUrlForm() {
         username: username.trim(),
         password,
       });
-      setToken(result.token);
-      setTokenExpiresAt(result.expires_at);
+      if (signinGenerationRef.current === generation) {
+        setToken(result.token);
+        setTokenExpiresAt(result.expires_at);
+      }
     } catch (err) {
-      setSigninError(
-        err instanceof ApiError ? err.message : t('serviceUrl.arcgisSigninFailed'),
-      );
+      if (signinGenerationRef.current === generation) {
+        setSigninError(
+          err instanceof ApiError ? err.message : t('serviceUrl.arcgisSigninFailed'),
+        );
+      }
     } finally {
       // Clear the password from state the instant the attempt settles,
       // success or failure alike, and never retry automatically. ArcGIS
@@ -376,6 +421,7 @@ export function ServiceUrlForm() {
               <Select
                 value={arcgisAuthMethod}
                 onValueChange={(value) => handleAuthMethodChange(value as ArcgisAuthMethod)}
+                disabled={signingIn}
               >
                 <SelectTrigger
                   id="arcgis-auth-method"
@@ -521,7 +567,7 @@ export function ServiceUrlForm() {
                       value={token}
                       className="font-mono text-sm"
                       // Same request-only-credential opt-outs as the pasted
-                      // token field above (#1746) — this one just displays
+                      // token field above (#1746); this one just displays
                       // a value GeoLens minted rather than one the user typed.
                       autoComplete="new-password"
                       data-1p-ignore

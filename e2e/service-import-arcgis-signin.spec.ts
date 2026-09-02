@@ -88,5 +88,14 @@ test.describe('ArcGIS sign-in on the import wizard', () => {
 
     await expect(page.getByLabel('Token or API key')).toHaveValue('e2e-minted-token');
     await expect(page.getByLabel('Password', { exact: true })).toHaveValue('');
+
+    // codex review #1757 P1: a minted token must not survive the service
+    // URL being pointed at a different origin.
+    await page
+      .getByPlaceholder(SERVICE_URL_PLACEHOLDER)
+      .fill('https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer');
+    await expect(page.getByRole('combobox', { name: 'Authentication' })).toHaveText(
+      'No authentication',
+    );
   });
 });

@@ -227,6 +227,63 @@ describe('ServiceUrlForm ArcGIS auth method select', () => {
     expect(screen.getByLabelText('Username')).toHaveValue('');
     expect(screen.getByLabelText('Password')).toHaveValue('');
   });
+
+  // codex review #1757 P1: a token entered for one origin (ArcGIS or not)
+  // must not survive the service URL being edited to point at a different
+  // origin, since handleConnect forwards whatever is in the token field.
+  it('clears a pasted ArcGIS token when the service URL is edited to a different origin', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    await user.type(screen.getByLabelText('Token or API key'), 'stale-token');
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('stale-token');
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    await user.clear(urlInput);
+    await user.type(
+      urlInput,
+      'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
+    );
+
+    // The method select itself resets to "no authentication" on the origin
+    // change; re-selecting Token proves the underlying state, not just the
+    // visible field, was cleared.
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('');
+  });
+
+  it('clears a token pasted for a non-ArcGIS URL once the URL is edited into an ArcGIS one', async () => {
+    const user = userEvent.setup();
+    render(<ServiceUrlForm />);
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    await user.type(urlInput, 'https://example.test/wfs');
+    await user.type(screen.getByLabelText('serviceUrl.tokenLabel'), 'stale-wfs-token');
+
+    await user.clear(urlInput);
+    await user.type(urlInput, ARCGIS_URL);
+
+    // The plain token field and the ArcGIS token-method field are the same
+    // underlying state; it must not carry the WFS-typed value across.
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('');
+  });
+
+  it('keeps the sign-in method and its fields when only the path changes within the same origin', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    // Same origin (services6.arcgis.com), different FeatureServer path.
+    await user.type(urlInput, '/1');
+
+    expect(screen.getByRole('combobox', { name: 'Authentication' })).toHaveTextContent(
+      'Sign in with username and password',
+    );
+    expect(screen.getByLabelText('Username')).toHaveValue('alice');
+  });
 });
 
 describe('ServiceUrlForm ArcGIS sign-in', () => {
@@ -297,5 +354,53 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     });
     expect(screen.getByLabelText('Password')).toHaveValue('');
     expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+  });
+
+  it('disables the Authentication select while a sign-in request is in flight', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockReturnValue(new Promise(() => {}));
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Authentication' })).toBeDisabled();
+    });
+  });
+
+  // codex review #1757 P1: the Authentication select disables itself while a
+  // request is in flight, which already closes the method-switch route to
+  // this race. The service URL field stays editable, though, so this
+  // exercises the same generation guard through the one avenue still open:
+  // editing the URL to a different origin invalidates the pending request's
+  // generation, so its late response must not resurrect a token or expiry
+  // the user already backed away from.
+  it('ignores a late sign-in response after the URL origin changes mid-flight', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    let resolveSignin: (value: { token: string; expires_at: string }) => void = () => {};
+    mockArcgisSignin.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSignin = resolve;
+      }),
+    );
+    await fillSigninForm(user);
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    await user.clear(urlInput);
+    await user.type(
+      urlInput,
+      'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
+    );
+
+    resolveSignin({ token: 'late-token', expires_at: '2026-09-01T13:00:00Z' });
+
+    // Give the resolved promise's .then a turn, then re-select Sign in and
+    // confirm no minted-token field appeared: the stale response must not
+    // have populated the token this generation's callers would forward.
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+    });
   });
 });
