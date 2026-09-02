@@ -11718,13 +11718,13 @@ export interface components {
              * @description Optional auth token for protected services. Deprecated: use the auth object with method bearer.
              */
             token?: string | null;
-            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
-            auth?: components["schemas"]["ServiceAuthRequest"] | null;
             /**
              * Object Id Field
              * @description ArcGIS OID field name used for orderByFields during preview pagination.
              */
             object_id_field?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** ServicePreviewResponse */
         ServicePreviewResponse: {

@@ -383,15 +383,21 @@ class ServicePreviewRequest(BaseModel):
         ),
     )
     _validate_token = field_validator("token")(_validate_safe_token)
-    auth: ServiceAuthRequest | None = Field(
-        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
-    )
-    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
     object_id_field: str | None = Field(
         default=None,
         max_length=200,
         description="ArcGIS OID field name used for orderByFields during preview pagination.",
     )
+    # fix(#1760 codex r2): LAST, like every other model that gained this field.
+    # The generated Python SDK gives each model field a positional slot in
+    # declaration order, so inserting `auth` ahead of `object_id_field` moved
+    # that slot and an existing positional caller would have sent its OID
+    # string as `auth` and collected a 422. Appending cannot move a slot that
+    # already exists. Pinned by test_service_auth_contract_1746.
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class ServicePreviewResponse(BaseModel):

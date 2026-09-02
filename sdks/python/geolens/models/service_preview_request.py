@@ -28,9 +28,9 @@ class ServicePreviewRequest:
         layer_id (int | None | str | Unset): ArcGIS layer ID, when applicable.
         token (None | str | Unset): Optional auth token for protected services. Deprecated: use the auth object with
             method bearer.
+        object_id_field (None | str | Unset): ArcGIS OID field name used for orderByFields during preview pagination.
         auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
             the token field.
-        object_id_field (None | str | Unset): ArcGIS OID field name used for orderByFields during preview pagination.
     """
 
     url: str
@@ -39,8 +39,8 @@ class ServicePreviewRequest:
     layer_title: None | str | Unset = UNSET
     layer_id: int | None | str | Unset = UNSET
     token: None | str | Unset = UNSET
-    auth: None | ServiceAuthRequest | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
+    auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -70,6 +70,12 @@ class ServicePreviewRequest:
         else:
             token = self.token
 
+        object_id_field: None | str | Unset
+        if isinstance(self.object_id_field, Unset):
+            object_id_field = UNSET
+        else:
+            object_id_field = self.object_id_field
+
         auth: dict[str, Any] | None | Unset
         if isinstance(self.auth, Unset):
             auth = UNSET
@@ -77,12 +83,6 @@ class ServicePreviewRequest:
             auth = self.auth.to_dict()
         else:
             auth = self.auth
-
-        object_id_field: None | str | Unset
-        if isinstance(self.object_id_field, Unset):
-            object_id_field = UNSET
-        else:
-            object_id_field = self.object_id_field
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
@@ -99,10 +99,10 @@ class ServicePreviewRequest:
             field_dict["layer_id"] = layer_id
         if token is not UNSET:
             field_dict["token"] = token
-        if auth is not UNSET:
-            field_dict["auth"] = auth
         if object_id_field is not UNSET:
             field_dict["object_id_field"] = object_id_field
+        if auth is not UNSET:
+            field_dict["auth"] = auth
 
         return field_dict
 
@@ -144,6 +144,15 @@ class ServicePreviewRequest:
 
         token = _parse_token(d.pop("token", UNSET))
 
+        def _parse_object_id_field(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
+
         def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
             if data is None:
                 return data
@@ -161,15 +170,6 @@ class ServicePreviewRequest:
 
         auth = _parse_auth(d.pop("auth", UNSET))
 
-        def _parse_object_id_field(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
-
         service_preview_request = cls(
             url=url,
             service_type=service_type,
@@ -177,8 +177,8 @@ class ServicePreviewRequest:
             layer_title=layer_title,
             layer_id=layer_id,
             token=token,
-            auth=auth,
             object_id_field=object_id_field,
+            auth=auth,
         )
 
         service_preview_request.additional_properties = d

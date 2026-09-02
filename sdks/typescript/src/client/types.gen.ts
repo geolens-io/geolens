@@ -8732,15 +8732,15 @@ export type ServicePreviewRequest = {
      */
     token?: string | null;
     /**
-     * Structured credential for a protected service. Mutually exclusive with the token field.
-     */
-    auth?: ServiceAuthRequest | null;
-    /**
      * Object Id Field
      *
      * ArcGIS OID field name used for orderByFields during preview pagination.
      */
     object_id_field?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**

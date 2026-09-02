@@ -14879,17 +14879,6 @@
             "description": "Optional auth token for protected services. Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
-          "auth": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ServiceAuthRequest"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
-          },
           "object_id_field": {
             "anyOf": [
               {
@@ -14902,6 +14891,17 @@
             ],
             "description": "ArcGIS OID field name used for orderByFields during preview pagination.",
             "title": "Object Id Field"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [

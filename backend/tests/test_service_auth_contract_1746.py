@@ -655,3 +655,70 @@ class TestServiceLayerTakesACredentialDirectly:
         first half of echoing the value it was written not to name.
         """
         assert "{" not in UNSUPPORTED_AUTH_METHOD_POLICY
+
+
+# ---------------------------------------------------------------------------
+# Field order, which is a wire contract in the generated SDK
+# ---------------------------------------------------------------------------
+
+
+class TestAuthIsDeclaredLast:
+    """fix(#1760 codex r2): appending is the only safe place to add this field.
+
+    `openapi-python-client` gives every model field a positional slot in
+    declaration order, so an optional field inserted ahead of an existing one
+    moves that one's slot. The first version of this change put `auth` between
+    `token` and `object_id_field` on `ServicePreviewRequest`, and a caller
+    already writing `ServicePreviewRequest(url, type, layer, title, id, token,
+    oid)` would then have sent its object-id string as `auth` and collected a
+    422 naming a method it never chose. Appending cannot move a slot that
+    already exists.
+
+    Stated for all four models rather than only the one that broke, because the
+    same insertion is available in each and nothing else notices it.
+    """
+
+    def test_every_model_declares_auth_last(self) -> None:
+        from app.modules.catalog.datasets.domain.schemas import (
+            DatasetRefreshRequest,
+            ReuploadCommitRequest,
+        )
+        from app.modules.catalog.sources.schemas import (
+            ProbeRequest,
+            ServicePreviewRequest,
+        )
+
+        for model in (
+            ProbeRequest,
+            ServicePreviewRequest,
+            ReuploadCommitRequest,
+            DatasetRefreshRequest,
+        ):
+            assert list(model.model_fields)[-1] == "auth", (
+                f"{model.__name__} must declare `auth` last: anywhere else "
+                "shifts the positional slot of every field after it in the "
+                "generated SDK constructor."
+            )
+
+    def test_the_generated_sdk_keeps_the_older_field_ahead_of_auth(self) -> None:
+        """The regression itself, read off the emitted client.
+
+        A rule about declaration order that never looks at what the generator
+        produced would keep passing if the generator changed how it orders
+        arguments, which is the thing the rule is really about.
+        """
+        from pathlib import Path
+
+        emitted = (
+            Path(__file__).resolve().parents[2]
+            / "sdks"
+            / "python"
+            / "geolens"
+            / "models"
+            / "service_preview_request.py"
+        ).read_text()
+        assert "object_id_field:" in emitted and "auth:" in emitted
+        assert emitted.index("object_id_field:") < emitted.index("auth:"), (
+            "The generated SDK declares `auth` before `object_id_field`, which "
+            "moves an argument callers are already passing positionally."
+        )
