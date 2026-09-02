@@ -1,4 +1,4 @@
-import { useSearchStore } from '@/stores/search-store';
+import { useSearchStore, SEARCH_PRESENTATION_PREFERENCE_KEYS } from '@/stores/search-store';
 
 const initialState = useSearchStore.getState();
 
@@ -119,15 +119,15 @@ describe('useSearchStore', () => {
   // fix(#1713): drop the typed/drawn search intent that could implicate the
   // previous identity, called from the identity-change choke point (see
   // lib/__tests__/auth-cache-reset.test.ts for that wiring).
-  it('clearIdentityScopedFilters clears only the identity-scoped fields', () => {
+  it('clearIdentityScopedFilters clears search-shaping fields', () => {
     useSearchStore.setState({
       q: 'parks',
       bbox: '1,2,3,4',
       collection_id: 'c1',
       keywords: ['water'],
       geometry: '{"type":"Point","coordinates":[0,0]}',
-      sort_by: 'name',
       srid: '4326',
+      sort_by: 'name',
     });
 
     useSearchStore.getState().clearIdentityScopedFilters();
@@ -138,9 +138,52 @@ describe('useSearchStore', () => {
     expect(state.collection_id).toBe('');
     expect(state.keywords).toEqual([]);
     expect(state.geometry).toBe('');
-    // Display preferences, not identity-scoped: left alone.
+    // fix(#1761 review round 2 P2): srid shapes the query too — reset,
+    // where round 1 wrongly left it alone.
+    expect(state.srid).toBe('');
+    // Presentation preference: survives.
     expect(state.sort_by).toBe('name');
-    expect(state.srid).toBe('4326');
+  });
+
+  /**
+   * fix(#1761 review round 2 P2): round 1's partial reset left
+   * geometry_type, source_organization, record_type, the date/vintage
+   * fields, srid, spatial_predicate, exclude_synthetic and the pagination
+   * offset untouched — all query-shaping, all exposed to the next identity
+   * via toParams()/the URL-sync hook, and a stale offset could additionally
+   * land the next identity on an empty page of their own results.
+   *
+   * This iterates every DATA key the store actually has (not a hardcoded
+   * list) so a field added to SearchState later is automatically checked
+   * against SEARCH_PRESENTATION_PREFERENCE_KEYS: either it is declared a
+   * presentation preference and this proves it survives, or it isn't and
+   * this proves it resets. Nothing can slip through unclassified.
+   */
+  it('resets every query-shaping field and preserves only the declared presentation preferences', () => {
+    const before = useSearchStore.getState();
+    const dataKeys = (Object.keys(before) as (keyof typeof before)[]).filter(
+      (key) => typeof before[key] !== 'function' && key !== 'resetEpoch',
+    );
+    const originalValues: Record<string, unknown> = {};
+    const dirtyValues: Record<string, unknown> = {};
+    for (const key of dataKeys) {
+      const current = (before as unknown as Record<string, unknown>)[key];
+      originalValues[key as string] = current;
+      dirtyValues[key as string] = makeDistinctValue(current);
+    }
+    useSearchStore.setState(dirtyValues);
+
+    useSearchStore.getState().clearIdentityScopedFilters();
+
+    const after = useSearchStore.getState() as unknown as Record<string, unknown>;
+    const preserved = new Set<string>(SEARCH_PRESENTATION_PREFERENCE_KEYS);
+    for (const key of dataKeys as string[]) {
+      if (preserved.has(key)) {
+        expect(after[key]).toEqual(dirtyValues[key]);
+      } else {
+        expect(after[key]).toEqual(originalValues[key]);
+      }
+    }
   });
 
   // fix(#1761 review P2): SearchBar keys its local input/debounce state on
@@ -165,3 +208,12 @@ describe('useSearchStore', () => {
     expect(useSearchStore.getState().resetEpoch).toBe(epoch);
   });
 });
+
+/** Produces a value of the same type as `current`, guaranteed different. */
+function makeDistinctValue(current: unknown): unknown {
+  if (typeof current === 'string') return `${current}__dirty`;
+  if (typeof current === 'number') return current + 999;
+  if (typeof current === 'boolean') return !current;
+  if (Array.isArray(current)) return [...current, '__dirty'];
+  return current;
+}

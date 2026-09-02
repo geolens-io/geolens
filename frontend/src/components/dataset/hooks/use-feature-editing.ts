@@ -253,10 +253,16 @@ export function useFeatureEditing({
     async (properties: Record<string, unknown>) => {
       const sf = useDrawingStore.getState().selectedFeature;
       if (!sf || !datasetId) return;
+      // fix(#1761 review round 2 P1): captured BEFORE the mutation's await,
+      // not re-read afterward — by the time this resolves, a second
+      // identity may have adopted its own new target, whose fresh epoch
+      // would otherwise make this stale write look current. See
+      // drawing-store.ts's setSelectedFeature doc comment.
+      const epoch = useDrawingStore.getState().sessionEpoch;
       try {
         await updateFeatureMutation.mutateAsync({ datasetId, gid: sf.gid, properties });
         toast.success(t('map.attributesUpdated'));
-        setSelectedFeature({ ...sf, properties: { ...sf.properties, ...properties } });
+        setSelectedFeature({ ...sf, properties: { ...sf.properties, ...properties } }, epoch);
         // BUG-042: the geometry handlers (handleSaveEdit/handleDeleteFeature)
         // reload tiles after a write; the attribute handler omitted it, so any
         // attribute-driven rendering kept stale values until a manual reload.
@@ -302,6 +308,11 @@ export function useFeatureEditing({
         return;
       }
 
+      // fix(#1761 review round 2 P1): captured BEFORE the fetch's await, for
+      // the same reason as handleEditAttributeSubmit above — a stale
+      // resolution here must not be accepted just because someone else's
+      // fresh target happens to make the live epoch look unchanged.
+      const epoch = useDrawingStore.getState().sessionEpoch;
       try {
         const fullFeature = await getFeature(datasetId, gid);
         clear();
@@ -327,7 +338,7 @@ export function useFeatureEditing({
 
         if (result[0]?.valid && result[0].id !== undefined) {
           const tdId = String(result[0].id);
-          setSelectedFeature({ gid, tdId, properties: fullFeature.properties });
+          setSelectedFeature({ gid, tdId, properties: fullFeature.properties }, epoch);
           tdSelectFeature(tdId);
           hideFeatureFromTiles(map, gid);
         } else {

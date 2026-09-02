@@ -51,12 +51,20 @@ interface SearchState {
   toParams: () => Record<string, string>;
   restoreParams: (params: Record<string, string>) => void;
   /**
-   * fix(#1713): drop the typed/drawn search intent that could implicate the
-   * previous identity — q, bbox, collection_id, keywords and geometry —
-   * called from the identity-change choke point in lib/auth-cache-reset.ts.
-   * Deliberately narrower than resetFilters(): the other fields (sort_by,
-   * srid, exclude_synthetic, ...) are display preferences, not something a
-   * prior identity typed or drew, so leaving them is not a residue leak.
+   * fix(#1713, then #1761 review round 2 P2): drop every query-shaping
+   * field on an identity change, called from the choke point in
+   * lib/auth-cache-reset.ts. Round 1 reset only q/bbox/collection_id/
+   * keywords/geometry, on the theory that the rest were "display
+   * preferences" — wrong for most of them: geometry_type,
+   * source_organization, record_type, srid, spatial_predicate,
+   * exclude_synthetic and the date/vintage fields all shape which records
+   * a search returns, and `toParams()` plus the URL-sync hook carry them
+   * straight to the next identity. A stale `offset` compounds this: the
+   * next identity's own query can have fewer results, landing them on an
+   * empty page with no visible reason why.
+   *
+   * See `SEARCH_PRESENTATION_PREFERENCE_KEYS` for the only fields this
+   * deliberately leaves alone, and why.
    */
   clearIdentityScopedFilters: () => void;
   /**
@@ -96,6 +104,30 @@ const initialState = {
   spatialPanelOpen: false,
 };
 
+/**
+ * fix(#1761 review round 2 P2): the ONLY fields `clearIdentityScopedFilters`
+ * preserves across an identity change — everything else in `initialState`
+ * is query-shaping and gets reset (see that method). Each one is a genuine
+ * presentation preference, not something that changes which records a
+ * search returns:
+ *   - `sort_by` — sort direction/field.
+ *   - `limit` — page size.
+ *   - `spatialPanelOpen` — whether the spatial-filter UI panel is open; a
+ *     view toggle, not a filter.
+ *
+ * Exported so search-store.test.ts can iterate the store's own keys and
+ * assert every field is classified one way or the other — a field added to
+ * `initialState` later and left out of this list is reset by default
+ * (the safe direction: reset, not leak), but the test will still show it
+ * landing in the "reset" bucket so that default is a visible choice rather
+ * than an accident.
+ */
+export const SEARCH_PRESENTATION_PREFERENCE_KEYS: readonly (keyof typeof initialState)[] = [
+  'sort_by',
+  'limit',
+  'spatialPanelOpen',
+];
+
 export const useSearchStore = create<SearchState>()((set, get) => ({
   ...initialState,
   resetEpoch: 0,
@@ -114,11 +146,12 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
 
   clearIdentityScopedFilters: () =>
     set((s) => ({
-      q: initialState.q,
-      bbox: initialState.bbox,
-      collection_id: initialState.collection_id,
-      keywords: initialState.keywords,
-      geometry: initialState.geometry,
+      ...initialState,
+      // Presentation preferences (see SEARCH_PRESENTATION_PREFERENCE_KEYS):
+      // kept as they were, not reset to their defaults.
+      sort_by: s.sort_by,
+      limit: s.limit,
+      spatialPanelOpen: s.spatialPanelOpen,
       resetEpoch: s.resetEpoch + 1,
     })),
 

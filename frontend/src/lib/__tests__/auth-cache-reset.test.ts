@@ -84,7 +84,10 @@ describe('wireAuthCacheReset', () => {
       useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
       useDrawingStore
         .getState()
-        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } });
+        .setSelectedFeature(
+          { gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } },
+          useDrawingStore.getState().sessionEpoch,
+        );
       useDrawingStore.getState().setEditDirty(true);
       expect(useDrawingStore.getState().selectedFeature).not.toBeNull();
 
@@ -132,6 +135,9 @@ describe('wireAuthCacheReset', () => {
     try {
       useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
       useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+      // Captured BEFORE the logout, the way handleEditAttributeSubmit
+      // captures it before its own await.
+      const epoch = useDrawingStore.getState().sessionEpoch;
 
       // Logout: the choke point bumps the session epoch and clears.
       useAuthStore.setState({ token: null, user: null });
@@ -140,7 +146,7 @@ describe('wireAuthCacheReset', () => {
       // the dataset route still mounted for anonymous viewing.
       useDrawingStore
         .getState()
-        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } });
+        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } }, epoch);
 
       expect(useDrawingStore.getState().selectedFeature).toBeNull();
     } finally {
@@ -154,6 +160,7 @@ describe('wireAuthCacheReset', () => {
     try {
       useAuthStore.setState({ token: 't1', user: { id: 'user-1' } as UserResponse });
       useDrawingStore.getState().setDrawing('ds-1', 'my_table', 'Polygon');
+      const epoch = useDrawingStore.getState().sessionEpoch;
 
       // User B signs in without a page reload.
       useAuthStore.setState({ token: 't2', user: { id: 'user-2' } as UserResponse });
@@ -161,7 +168,7 @@ describe('wireAuthCacheReset', () => {
       // User A's late write arrives while B is signed in.
       useDrawingStore
         .getState()
-        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } });
+        .setSelectedFeature({ gid: 1, tdId: 'td-1', properties: { name: 'user-1 row' } }, epoch);
 
       expect(useDrawingStore.getState().selectedFeature).toBeNull();
     } finally {
@@ -184,7 +191,7 @@ describe('wireAuthCacheReset', () => {
       // The target adopted before the rotation is still valid: a write for
       // it succeeds rather than being refused.
       const feature = { gid: 1, tdId: 'td-1', properties: {} };
-      useDrawingStore.getState().setSelectedFeature(feature);
+      useDrawingStore.getState().setSelectedFeature(feature, useDrawingStore.getState().sessionEpoch);
       expect(useDrawingStore.getState().selectedFeature).toEqual(feature);
     } finally {
       unsubscribe();
