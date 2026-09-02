@@ -610,6 +610,52 @@ describe('SourceRefreshAction', () => {
       });
     });
 
+    // codex #1759 round 3 P2: ArcGISSignInRequest does not strip
+    // whitespace and PortalSignIn.mint forwards the value unchanged, so a
+    // pasted username with leading/trailing whitespace would burn one of
+    // the account's limited sign-in attempts on a value that could never
+    // match. A whitespace-only value must never submit at all.
+    it('trims the username before sending it, and refuses a whitespace-only one', async () => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      mockArcgisSignIn.mockResolvedValue({ token: 'minted-token', expires_at: FAR_FUTURE_EXPIRY });
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      const usernameInput = screen.getByLabelText('Username');
+      const signInButton = screen.getByRole('button', { name: 'Sign in' });
+
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+
+      await user.type(usernameInput, '   ');
+      expect(signInButton).toBeDisabled();
+
+      await user.clear(usernameInput);
+      await user.type(usernameInput, '  alice  ');
+      expect(signInButton).not.toBeDisabled();
+      await user.click(signInButton);
+
+      await waitFor(() => {
+        expect(mockArcgisSignIn).toHaveBeenCalledWith({
+          portal_url: 'https://myorg.maps.arcgis.com',
+          username: 'alice',
+          password: 'hunter2',
+        });
+      });
+      expect(mockArcgisSignIn).not.toHaveBeenCalledWith(
+        expect.objectContaining({ username: '  alice  ' }),
+      );
+    });
+
     // codex #1759 round 3, P2: "Start refresh" clears the parent's `token`
     // state before awaiting the refresh request, win or lose. Before this
     // fix, the credential block's own `signedIn` flag did not know that --
@@ -1011,6 +1057,39 @@ describe('SourceRefreshAction', () => {
 
         // The original 422 dispatch is the only call mutateAsync ever sees --
         // the stale token is never submitted.
+        expect(mutateAsync).toHaveBeenCalledTimes(1);
+        expect(
+          await screen.findByText('The token expired. Sign in again to continue.'),
+        ).toBeInTheDocument();
+      });
+
+      // codex #1759 round 3 P2: the synchronous guard used to compare
+      // against the raw expires_at, while the scheduled timer retires the
+      // token 30s early. A tab resuming inside that last 30-second window
+      // -- past the margin cutoff but before the real expiry -- used to
+      // pass the (unmargined) guard and let handleConfirm submit a
+      // credential this component had already decided was retired.
+      it('refuses a token still inside the 30s safety margin, not just past its real expiry', async () => {
+        mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const user = userEvent.setup({ delay: null });
+        render(
+          <SourceRefreshAction
+            dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+            watch={makeWatch()}
+          />,
+        );
+
+        await signInSuccessfully(user, new Date(Date.now() + 60_000).toISOString());
+
+        // 35s elapsed: past the 30s-early margin cutoff (retires at 30s)
+        // but still short of the token's real expiry (60s). Deliberately
+        // NOT vi.advanceTimersByTimeAsync: the scheduled timer, set for
+        // ~30s from now, must never fire in this test either.
+        vi.setSystemTime(Date.now() + 35_000);
+
+        await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
         expect(mutateAsync).toHaveBeenCalledTimes(1);
         expect(
           await screen.findByText('The token expired. Sign in again to continue.'),

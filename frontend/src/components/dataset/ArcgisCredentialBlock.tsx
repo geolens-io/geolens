@@ -14,6 +14,18 @@ interface ArcgisCredentialBlockProps {
   disabled?: boolean;
 }
 
+// codex #1759 round 3 P2: the ONE margin shared by the scheduled timer
+// (handleSignIn, below) and this synchronous check -- mirrors lane A2's
+// identical fix in ServiceUrlForm.tsx (EXPIRY_MARGIN_MS, codex review
+// #1757 round 4 P2) for the same bug shape. The timer used to retire a
+// token 30 seconds before its real expiry while this check compared
+// against the raw `expires_at`, so a backgrounded tab resuming inside
+// that last 30 seconds passed the check and `handleConfirm` submitted a
+// credential this component had already decided to retire -- refresh
+// only queues the worker, so a token that thin can expire before the
+// worker ever uses it.
+const EXPIRY_SAFETY_MARGIN_MS = 30_000;
+
 // codex #1759 P2: a pure function, not a closure over `expiresAtRef`, so the
 // exact same check the render-triggered belt effect below uses is also
 // callable synchronously from SourceRefreshAction's handleConfirm (via the
@@ -22,9 +34,10 @@ interface ArcgisCredentialBlockProps {
 // expiry timer and this component's own re-renders, so the belt effect
 // never gets a chance to run before the user comes back and clicks "Start
 // refresh" -- `handleConfirm` captures `token` synchronously in the same
-// tick, ahead of any effect.
+// tick, ahead of any effect. Margined by EXPIRY_SAFETY_MARGIN_MS (above)
+// so this agrees with the timer on when a token counts as retired.
 export function isExpired(expiresAt: string | null, now: number): boolean {
-  return expiresAt !== null && now >= new Date(expiresAt).getTime();
+  return expiresAt !== null && now >= new Date(expiresAt).getTime() - EXPIRY_SAFETY_MARGIN_MS;
 }
 
 export interface ArcgisCredentialBlockHandle {
@@ -213,7 +226,13 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
     try {
       const result = await arcgisSignIn({
         portal_url: portalUrl.trim(),
-        username,
+        // codex #1759 round 3 P2: ArcGISSignInRequest does not strip
+        // whitespace and PortalSignIn.mint forwards the value unchanged,
+        // so a pasted username with leading/trailing whitespace would
+        // burn one of the ArcGIS account's limited sign-in attempts on a
+        // value that was never going to match. Mirrors the import
+        // wizard's identical `username.trim()` (ServiceUrlForm.tsx).
+        username: username.trim(),
         password,
       });
       // fix(codex #1759 round 1, P1): dropped when this attempt is stale --
@@ -243,7 +262,6 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
       // itself would refuse the token.
       clearExpiryTimer();
       const expiresAtMs = new Date(result.expires_at).getTime();
-      const EXPIRY_SAFETY_MARGIN_MS = 30_000;
       const delay = Math.max(0, expiresAtMs - Date.now() - EXPIRY_SAFETY_MARGIN_MS);
       expiryTimerRef.current = setTimeout(() => {
         if (generationRef.current !== generation) return;
@@ -268,7 +286,9 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
   };
 
   const fieldsDisabled = disabled || signInPending;
-  const canSignIn = !fieldsDisabled && portalUrl.trim() !== '' && username !== '' && password !== '';
+  // A whitespace-only username must never submit either -- it trims to
+  // '' and would otherwise still pass a bare `!== ''` check.
+  const canSignIn = !fieldsDisabled && portalUrl.trim() !== '' && username.trim() !== '' && password !== '';
 
   return (
     <div className="space-y-3 rounded-md border border-border p-3">
