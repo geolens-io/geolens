@@ -29,7 +29,14 @@ from . import publish as _publish
 from . import refresh as _refresh
 from . import replace as _replace
 from . import scan as _scan
-from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
+from ._sdk_helpers import (
+    EXIT_AUTH,
+    EXIT_GENERIC,
+    EXIT_NETWORK,
+    EXIT_USAGE,
+    call_sdk,
+    unwrap,
+)
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich", help="GeoLens CLI")
 export_app = typer.Typer(no_args_is_help=True, help="Export commands")
@@ -651,6 +658,13 @@ def publish(
     ``--wait`` (default), polls the job-status endpoint to resolve the
     dataset_id; ``--no-wait`` returns immediately with a job-search URL.
 
+    fix(#1778): with ``--wait``, a job that fails, is cancelled, or does not
+    finish within the poll window exits non-zero and prints a failure line
+    instead of "Published:"; ``--json`` carries the terminal status. A job
+    that fanned out into one import per layer is a success (exit 0), not a
+    failure — ``--json`` status is ``"fanned_out"`` and no single dataset id
+    is printed.
+
     Pitfall 6: commit is NOT idempotent. On a duplicate commit (job
     already processed), prints "already committed" and exits 1.
     """
@@ -725,23 +739,186 @@ def publish(
         # Stage 4 — Resolve dataset URL.
         progress.add_task("Resolving dataset...", total=None)
         dataset_id: Optional[str] = None
+        publish_status: Optional[str] = None
+        publish_stopped_because: Optional[str] = None
+        publish_failure: Optional[str] = None
+        publish_message: Optional[str] = None
+        publish_exit_code = EXIT_GENERIC
+        publish_extras_skipped: list[str] = []
+        wait_outcome_known = False
         if wait:
-            dataset_id = _publish.resolve_dataset_id(sdk.client, job_id)
+            outcome = _publish.resolve_dataset_id(sdk.client, job_id)
+            dataset_id = outcome.dataset_id
+            late_status: Optional[str] = None
+            if dataset_id is None and outcome.stopped_because in (
+                "timeout",
+                "poll_failed",
+            ):
+                # fix(#1778, codex round 3): resolve_dataset_id now reports
+                # WHY it stopped (outcome.stopped_because) instead of
+                # collapsing every reason into None, so the wording below no
+                # longer has to be guessed from a second, possibly-
+                # contradictory read — a transient poll failure followed by a
+                # lucky pending/running re-read used to be reported as a
+                # false "still running after 120s" timeout. This extra read
+                # is skipped for "terminal" (a terminal status cannot later
+                # gain a dataset_id) and "token_expired" (retrying the same
+                # dead token is pointless).
+                #
+                # fix(#1778, codex round 5): sdk.client's generated transport
+                # defaults to timeout=None (unbounded), so a stalled
+                # connection on THIS read would hang the command forever
+                # instead of reporting the outcome the poll already reached.
+                # Bind it to a short, named bound; if that ALSO times out,
+                # treat this one-shot diagnostic read as unreadable rather
+                # than letting the network error abort the command outright
+                # — the original outcome is still worth reporting.
+                #
+                # fix(#1778, codex round 6): `client.with_timeout()` MUTATES
+                # the already-constructed httpx transport in place before
+                # returning an "evolved" wrapper (sdks/python/geolens/
+                # client.py) — the evolved wrapper is a decoy; sdk.client's
+                # OWN transport keeps the 5s bound for the rest of the
+                # command's lifetime. Stage 5 (extras) reuses sdk.client, so
+                # that mutation silently capped every tags/collection
+                # request at 5s too. get_httpx_client() is the SDK's own
+                # public escape hatch (OCCLI-06, used the same way by
+                # upload_file() above); save its timeout, bound it for this
+                # one read, and restore it unconditionally.
+                snapshot_transport = sdk.client.get_httpx_client()
+                original_timeout = snapshot_transport.timeout
+                snapshot_transport.timeout = (
+                    _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+                )
+                try:
+                    late_status, late_dataset_id = _analysis.job_snapshot(
+                        sdk.client, job_id
+                    )
+                except typer.Exit as exc:
+                    if exc.exit_code != EXIT_NETWORK:
+                        raise
+                    late_status, late_dataset_id = None, None
+                finally:
+                    snapshot_transport.timeout = original_timeout
+                if late_dataset_id:
+                    dataset_id = late_dataset_id
+            if dataset_id is None:
+                wait_outcome_known = True
+                # fix(#1778, codex round 4): the job can finish between
+                # resolve_dataset_id's last look and now (fix(#685 review)),
+                # but it can just as well have reached a DEFINITIVE terminal
+                # status by then — failed, cancelled, or fanned out. That is
+                # real information the original poll didn't have and must
+                # win over the stale timeout/poll_failed wording; only a
+                # pending/running (or unreadable) snapshot leaves the job's
+                # fate genuinely unresolved, so only THAT keeps the original
+                # outcome's wording.
+                if late_status in _publish._TERMINAL_NO_DATASET_STATUSES:
+                    effective_status = late_status
+                    reason = "terminal"
+                else:
+                    effective_status = outcome.status
+                    reason = outcome.stopped_because
+                publish_status = effective_status
+                publish_stopped_because = reason
+                if reason == "terminal" and effective_status == "failed":
+                    publish_failure = (
+                        f"Publish job {job_id} failed. Its error is on the "
+                        f"job record: GET /jobs/{job_id}."
+                    )
+                elif reason == "terminal" and effective_status == "cancelled":
+                    publish_failure = (
+                        f"Publish job {job_id} was cancelled. "
+                        f"Check GET /jobs/{job_id}."
+                    )
+                elif reason == "terminal" and effective_status == "fanned_out":
+                    # fanned_out is TERMINAL and a SUCCESS, not a timeout —
+                    # the parent job of a multi-layer commit lands here the
+                    # moment each layer's own import is queued
+                    # (commit_fan_out, backend/app/processing/ingest/
+                    # router.py), and never gets a dataset_id of its own.
+                    publish_message = (
+                        f"Publish job {job_id} fanned out into one import "
+                        f"per layer; each layer is importing as its own "
+                        f"dataset. Check GET /jobs/{job_id} or the datasets "
+                        f"list for progress."
+                    )
+                    # fix(#1778, codex round 9): a note appended only to
+                    # publish_message was cosmetic — extras_failures stayed
+                    # empty, so Stage 5 below never ran and the command
+                    # exited 0 even though --tags/--collection were
+                    # requested and never applied. --json showed
+                    # extras_failures: [] too, telling automation nothing
+                    # was skipped. Recording the omission as an extras
+                    # failure instead routes it through the existing
+                    # extras-failure path: non-zero exit, and present in
+                    # the --json payload, same as any other partial
+                    # publish failure.
+                    if tags:
+                        publish_extras_skipped.append(
+                            "tags not applied: job fanned out into "
+                            "per-layer datasets"
+                        )
+                    if collection:
+                        publish_extras_skipped.append(
+                            "collection not applied: job fanned out into "
+                            "per-layer datasets"
+                        )
+                elif reason == "terminal":
+                    # A future terminal status this CLI has no specific
+                    # wording for yet.
+                    publish_failure = (
+                        f"Publish job {job_id} reached status "
+                        f"{effective_status!r}, which will not produce a "
+                        f"dataset. Check GET /jobs/{job_id}."
+                    )
+                elif reason == "token_expired":
+                    publish_exit_code = EXIT_AUTH
+                    publish_failure = (
+                        f"Authentication failed while reading job {job_id}'s "
+                        f"status. Run `geolens login` first."
+                    )
+                elif reason == "poll_failed":
+                    # fix(#1778, codex round 7): a poll_failed outcome
+                    # collapsed EVERY non-200 into the same generic exit
+                    # code, hiding a 5xx server outage from a script that
+                    # checks the exit code — match the same status matrix
+                    # unwrap() already uses elsewhere in this CLI.
+                    publish_exit_code = _publish.poll_failed_exit_code(
+                        outcome.http_status
+                    )
+                    publish_failure = (
+                        f"Publish job {job_id}'s status could not be read "
+                        f"({outcome.detail}). Check GET /jobs/{job_id}."
+                    )
+                else:  # "timeout"
+                    publish_failure = (
+                        f"Publish job {job_id} was still {effective_status} "
+                        f"after {int(_publish._DEFAULT_POLL_TIMEOUT_SECONDS)}s "
+                        f"and has not finished. Check GET /jobs/{job_id}."
+                    )
 
         # Stage 5 — fix(#569): apply --tags / --collection now that the
         # dataset id exists. Failures here are PARTIAL: the dataset was
         # created, so report honestly and exit non-zero below.
+        #
+        # fix(#1778): when dataset_id is still None here, wait was True (a
+        # bare --no-wait with tags/collection already exits EXIT_USAGE above)
+        # and publish_failure or publish_message is already set, explaining
+        # why. Tags/collection were never attempted against a dataset that
+        # does not exist (or does not exist as a single id, for fanned_out),
+        # so skip the API call — but fix(#1778, codex round 9):
+        # publish_extras_skipped still carries one entry per requested
+        # extra when fanned_out is the reason, so the omission still counts
+        # as an extras failure below instead of silently exiting 0.
         extras_failures: list[str] = []
-        if tags or collection:
-            if dataset_id is None:
-                extras_failures.append(
-                    "dataset id could not be resolved — tags/collection not applied"
-                )
-            else:
-                progress.add_task("Applying tags/collection...", total=None)
-                extras_failures = _publish.apply_publish_extras(
-                    sdk.client, dataset_id, tags, collection
-                )
+        if (tags or collection) and dataset_id is not None:
+            progress.add_task("Applying tags/collection...", total=None)
+            extras_failures = _publish.apply_publish_extras(
+                sdk.client, dataset_id, tags, collection
+            )
+        elif publish_extras_skipped:
+            extras_failures = publish_extras_skipped
 
     dataset_url = _publish.construct_dataset_url(
         instance,
@@ -749,11 +926,13 @@ def publish(
         job_id=str(job_id),
     )
 
+    commit_status = getattr(commit, "status", None)
     payload = {
         "dataset_url": dataset_url,
         "job_id": str(job_id),
         "dataset_id": str(dataset_id) if dataset_id else None,
-        "status": getattr(commit, "status", None),
+        "status": publish_status if wait_outcome_known else commit_status,
+        "stopped_because": publish_stopped_because,
     }
     if tags or collection:
         payload["extras_failures"] = extras_failures
@@ -761,11 +940,16 @@ def publish(
     if state.json_mode:
         state.output.json(payload)
     else:
-        state.output.success(f"Published: {dataset_url}")
+        if publish_failure:
+            state.output.error(publish_failure)
+        elif publish_message:
+            state.output.success(publish_message)
+        else:
+            state.output.success(f"Published: {dataset_url}")
         for failure in extras_failures:
             state.output.warn(f"Dataset created, but: {failure}")
-    if extras_failures:
-        raise typer.Exit(EXIT_GENERIC)
+    if publish_failure or extras_failures:
+        raise typer.Exit(publish_exit_code if publish_failure else EXIT_GENERIC)
 
 
 @app.command()
@@ -1336,52 +1520,161 @@ def analysis_materialize(
     # A float rather than an httpx.Timeout because OCCLI-06 forbids importing
     # httpx here; httpx accepts either.
     poll_client = sdk.client if timeout is None else sdk.client.with_timeout(timeout)
-    resolved = _publish.resolve_dataset_id(
+    outcome = _publish.resolve_dataset_id(
         poll_client,
         job_id,
         timeout=_analysis.POLL_FOREVER if timeout is None else timeout,
     )
+    resolved = outcome.dataset_id
+    materialize_status: Optional[str] = None
+    materialize_stopped_because: Optional[str] = None
+    materialize_failure: Optional[str] = None
+    materialize_message: Optional[str] = None
+    materialize_exit_code = EXIT_GENERIC
     if resolved is None:
-        # resolve_dataset_id returns None for BOTH a failed job and a poll
-        # that ran out, and a script that asked us to wait must not read
-        # either as success. Read the status back so the two get different
-        # sentences; both still exit non-zero, because neither produced the
-        # dataset the caller waited for.
-        status, late_dataset_id = _analysis.job_snapshot(poll_client, job_id)
-        if late_dataset_id:
-            # The job finished between the poll's last look and this one, and
-            # the status response carries the id (fix(#685 review)). Reporting
-            # a completed job as unfinished would be the worst answer of the
-            # three.
-            resolved = late_dataset_id
-        elif status == "failed":
-            state.output.error(
-                f"Analysis job {job_id} failed. Its error is on the job record: "
-                f"GET /jobs/{job_id}."
-            )
-        elif status is None:
-            # The status endpoint would not answer (auth, 404, 5xx), so the
-            # job's fate is unknown — do not assert a timeout it may not have
-            # hit (fix(#685 review)).
-            state.output.error(
-                f"Analysis job {job_id} could not be read back, so its outcome "
-                f"is unknown. Check GET /jobs/{job_id}."
-            )
-        else:
-            # Only reachable with an explicit --timeout: the default waits for
-            # a terminal state. Unfinished is not failed, and the wording says
-            # so (fix(#685 review)).
-            state.output.error(
-                f"Analysis job {job_id} was still {status} after {int(timeout or 0)}s "
-                f"and has not finished. Check GET /jobs/{job_id}."
-            )
+        late_status: Optional[str] = None
+        if outcome.stopped_because in ("timeout", "poll_failed"):
+            # fix(#1778, codex round 3): resolve_dataset_id now reports WHY
+            # it stopped instead of collapsing every reason into None — see
+            # publish()'s equivalent comment above for the bug this fixes
+            # (a transient poll failure followed by a lucky pending/running
+            # re-read used to be reported as a false timeout). This extra
+            # read is skipped for "terminal" and "token_expired" for the
+            # same reasons as there.
+            #
+            # fix(#1778, codex round 5): bind a short timeout for this
+            # one-shot diagnostic read rather than reusing poll_client
+            # as-is, which may be unbounded (the default --wait with no
+            # --timeout) or bound to a long caller-supplied --timeout —
+            # either way a stalled connection here would hang the command
+            # past the outcome it already reached. If it ALSO times out,
+            # treat the read as unreadable rather than letting the network
+            # error abort the command — see publish()'s equivalent comment.
+            #
+            # fix(#1778, codex round 6): `client.with_timeout()` MUTATES
+            # the already-constructed httpx transport in place before
+            # returning an "evolved" wrapper (sdks/python/geolens/
+            # client.py) — the evolved wrapper is a decoy. Bind sdk.client
+            # (not poll_client, so this can't alias whatever transport the
+            # explicit-timeout path above already constructed) via its own
+            # transport directly: get_httpx_client() is the SDK's public
+            # escape hatch (OCCLI-06); save its timeout, bound it for this
+            # one read, and restore it unconditionally — matching
+            # publish()'s fix, and cheap insurance against a future
+            # materialize change reusing sdk.client after this block the
+            # way publish()'s Stage 5 already does.
+            snapshot_transport = sdk.client.get_httpx_client()
+            original_timeout = snapshot_transport.timeout
+            snapshot_transport.timeout = _publish._SNAPSHOT_REQUEST_TIMEOUT_SECONDS
+            try:
+                late_status, late_dataset_id = _analysis.job_snapshot(
+                    sdk.client, job_id
+                )
+            except typer.Exit as exc:
+                if exc.exit_code != EXIT_NETWORK:
+                    raise
+                late_status, late_dataset_id = None, None
+            finally:
+                snapshot_transport.timeout = original_timeout
+            if late_dataset_id:
+                # The job finished between the poll's last look and this one
+                # (fix(#685 review)). Reporting a completed job as
+                # unfinished would be the worst answer of the bunch.
+                resolved = late_dataset_id
         if resolved is None:
-            raise typer.Exit(EXIT_GENERIC)
+            # fix(#1778, codex round 4): the job can just as well have
+            # reached a DEFINITIVE terminal status by the time of the
+            # follow-up read — failed, cancelled, or fanned out. That real
+            # information must win over the stale timeout/poll_failed
+            # wording; only a pending/running (or unreadable) snapshot
+            # leaves the job's fate genuinely unresolved, so only THAT
+            # keeps the original outcome's wording.
+            if late_status in _publish._TERMINAL_NO_DATASET_STATUSES:
+                effective_status = late_status
+                reason = "terminal"
+            else:
+                effective_status = outcome.status
+                reason = outcome.stopped_because
+            materialize_status = effective_status
+            materialize_stopped_because = reason
+            if reason == "terminal" and effective_status == "failed":
+                materialize_failure = (
+                    f"Analysis job {job_id} failed. Its error is on the job "
+                    f"record: GET /jobs/{job_id}."
+                )
+            elif reason == "terminal" and effective_status == "cancelled":
+                # fix(#1778): reachable now that resolve_dataset_id treats
+                # cancelled as terminal — say so plainly instead of falling
+                # into the "still {status}" wording below, which would
+                # wrongly imply the job might still finish.
+                materialize_failure = (
+                    f"Analysis job {job_id} was cancelled. "
+                    f"Check GET /jobs/{job_id}."
+                )
+            elif reason == "terminal" and effective_status == "fanned_out":
+                # A fanned-out job is a SUCCESS whose children each carry
+                # their own dataset — see publish()'s equivalent branch.
+                # materialize jobs are never fanned out by the current
+                # backend (fan-out is ingest-only), so this is defensive,
+                # not reachable today.
+                materialize_message = (
+                    f"Analysis job {job_id} fanned out into one import per "
+                    f"layer; check GET /jobs/{job_id} or the datasets list "
+                    f"for the resulting datasets."
+                )
+            elif reason == "terminal":
+                materialize_failure = (
+                    f"Analysis job {job_id} reached status "
+                    f"{effective_status!r}, which will not produce a "
+                    f"dataset. Check GET /jobs/{job_id}."
+                )
+            elif reason == "token_expired":
+                materialize_exit_code = EXIT_AUTH
+                materialize_failure = (
+                    f"Authentication failed while reading job {job_id}'s "
+                    f"status. Run `geolens login` first."
+                )
+            elif reason == "poll_failed":
+                # fix(#1778, codex round 7): a poll_failed outcome collapsed
+                # EVERY non-200 into the same generic exit code, hiding a
+                # 5xx server outage from a script that checks the exit code
+                # — match the same status matrix unwrap() already uses
+                # elsewhere in this CLI.
+                materialize_exit_code = _publish.poll_failed_exit_code(
+                    outcome.http_status
+                )
+                materialize_failure = (
+                    f"Analysis job {job_id}'s status could not be read "
+                    f"({outcome.detail}). Check GET /jobs/{job_id}."
+                )
+            else:
+                # Only reachable with an explicit --timeout: the default
+                # waits for a terminal state. Unfinished is not failed, and
+                # the wording says so (fix(#685 review)).
+                materialize_failure = (
+                    f"Analysis job {job_id} was still {effective_status} "
+                    f"after {int(timeout or 0)}s and has not finished. "
+                    f"Check GET /jobs/{job_id}."
+                )
 
     url = _publish.construct_dataset_url(
         instance, dataset_id=resolved, job_id=job_id
     )
+    payload = {
+        "job_id": job_id,
+        "dataset_id": resolved,
+        "url": url,
+        "status": materialize_status,
+        "stopped_because": materialize_stopped_because,
+    }
     if state.output.json_mode:
-        state.output.json({"job_id": job_id, "dataset_id": resolved, "url": url})
-        return
-    state.output.success(url)
+        state.output.json(payload)
+    else:
+        if materialize_failure:
+            state.output.error(materialize_failure)
+        elif materialize_message:
+            state.output.success(materialize_message)
+        else:
+            state.output.success(url)
+    if materialize_failure:
+        raise typer.Exit(materialize_exit_code)

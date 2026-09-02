@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import mimetypes
 import time
+from dataclasses import dataclass
 from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Optional
@@ -41,7 +42,7 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_GENERIC, call_sdk
+from ._sdk_helpers import EXIT_GENERIC, EXIT_SERVER, call_sdk
 
 # ---------------------------------------------------------------------------
 # Status-code constants — verified by Plan 04 Task 0 Q4 spike.
@@ -79,6 +80,26 @@ _DUPLICATE_DETAIL_NEEDLE = "already processed"
 
 _DEFAULT_POLL_INTERVAL_SECONDS: float = 1.0
 _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
+
+#: fix(#1778, codex round 5): bound for the ONE-SHOT follow-up read a
+#: caller makes after a "timeout" or "poll_failed" PollOutcome, to check
+#: for a dataset_id that resolved a moment too late (fix(#685 review)) or
+#: a status that has since gone terminal (fix(#1778) round 4). The SDK
+#: client's generated transport defaults to timeout=None — unbounded — so
+#: without this, a stalled connection on that read would hang the command
+#: forever instead of reporting the outcome it already has. A few seconds
+#: is enough for a status lookup; this is a diagnostic extra, not worth
+#: waiting long for.
+_SNAPSHOT_REQUEST_TIMEOUT_SECONDS: float = 5.0
+
+#: fix(#1778): job statuses that mean "this job will never produce a
+#: dataset_id through this endpoint". Previously only "failed" was terminal
+#: here, so --wait polled a cancelled job for the full timeout. "cancelled"
+#: matches refresh.wait_for_refresh's terminal set ({"failed", "cancelled"});
+#: "fanned_out" is added too because the parent of a multi-layer commit is
+#: marked fanned_out and never gets its own dataset_id (commit_fan_out,
+#: backend/app/processing/ingest/router.py).
+_TERMINAL_NO_DATASET_STATUSES = frozenset({"failed", "cancelled", "fanned_out"})
 
 # ---------------------------------------------------------------------------
 # MIME map (RESEARCH Pattern 3 lines 317-325) — informational; the backend
@@ -224,6 +245,64 @@ def _web_origin(instance: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class PollOutcome:
+    """Result of a ``resolve_dataset_id`` poll.
+
+    fix(#1778, codex round 3): the old ``Optional[str]`` return collapsed a
+    real 120s timeout, a terminal job status, a transient poll failure and
+    an expired token into the same bare ``None`` — a caller could only
+    guess which one happened by making a SECOND, independent request
+    (``analysis.job_snapshot``) and trusting ITS status, which can legally
+    disagree with what actually stopped the original poll (a transient 500
+    followed by a lucky ``pending`` re-read read as "still running after
+    120s", which was never true). This return type carries the real reason
+    instead, so callers never have to guess.
+
+    ``dataset_id`` is set only on success, in which case every other field
+    is None. Otherwise ``stopped_because`` explains why there is no
+    dataset_id:
+
+    - ``"terminal"``: the job reached a status in
+      ``_TERMINAL_NO_DATASET_STATUSES`` (failed/cancelled/fanned_out) —
+      ``status`` carries which one.
+    - ``"timeout"``: the deadline was reached while the job was still
+      pending/running — ``status`` carries the last status read.
+    - ``"token_expired"``: a job-status request came back 401/403.
+    - ``"poll_failed"``: a job-status request failed some other way (a
+      non-200/401/403 status, or a response body that could not be parsed)
+      — ``detail`` names the failure (an HTTP status or error text), and
+      ``http_status`` carries the numeric status when the failure was a
+      real HTTP response (fix(#1778, codex round 7): a caller must be able
+      to tell a 5xx from a 404 to select the CLI's own EXIT_SERVER vs
+      EXIT_GENERIC per the matrix in ``_sdk_helpers.unwrap()`` — collapsing
+      every poll_failed into EXIT_GENERIC hid a server outage from scripts
+      that check the exit code). ``None`` when there was no real response
+      to classify (an invalid job id, or a 200 with an unparseable body).
+    """
+
+    dataset_id: Optional[str] = None
+    status: Optional[str] = None
+    stopped_because: Optional[str] = None
+    detail: Optional[str] = None
+    http_status: Optional[int] = None
+
+
+def poll_failed_exit_code(http_status: Optional[int]) -> int:
+    """Exit code for a "poll_failed" PollOutcome (fix(#1778, codex round 7)).
+
+    Mirrors the status-to-exit-code matrix ``_sdk_helpers.unwrap()`` already
+    uses for every other SDK response in this CLI: 5xx maps to EXIT_SERVER,
+    anything else to EXIT_GENERIC. 401/403 never reach here — the poll
+    reports those as "token_expired", not "poll_failed" — and a missing
+    ``http_status`` (an invalid job id, or a 200 with an unparseable body)
+    has no server-error signal to preserve, so it falls back to generic.
+    """
+    if http_status is not None and 500 <= http_status <= 599:
+        return EXIT_SERVER
+    return EXIT_GENERIC
+
+
 def resolve_dataset_id(
     client: Any,
     job_id: str | UUID,
@@ -232,12 +311,14 @@ def resolve_dataset_id(
     timeout: float = _DEFAULT_POLL_TIMEOUT_SECONDS,
     sleep: Any = time.sleep,
     monotonic: Any = time.monotonic,
-) -> Optional[str]:
+) -> PollOutcome:
     """Poll ``GET /jobs/{job_id}`` until the dataset_id materializes.
 
-    Returns the dataset_id as a string when ingestion completes successfully,
-    or ``None`` on terminal failure / timeout (caller falls back to the
-    job-search URL form).
+    Returns a ``PollOutcome`` — see its docstring for the full shape. A
+    caller that must tell a real timeout apart from a transient read
+    failure or an expired token no longer has to make a second request and
+    guess: ``stopped_because`` says which one happened, from THIS poll, not
+    a possibly-contradictory follow-up read.
 
     ``sleep`` and ``monotonic`` are injectable so tests can run with zero
     real-time delay.
@@ -251,10 +332,13 @@ def resolve_dataset_id(
         try:
             uuid_arg = UUID(str(job_id))
         except ValueError:
-            return None
+            return PollOutcome(
+                stopped_because="poll_failed", detail=f"invalid job id: {job_id!r}"
+            )
     else:
         uuid_arg = job_id
 
+    last_status: Optional[str] = None
     deadline = monotonic() + timeout
     while monotonic() < deadline:
         # BUG-034: route the poll through call_sdk so a network failure during
@@ -265,23 +349,41 @@ def resolve_dataset_id(
             job_id=uuid_arg,
             client=client,
         )
-        if int(resp.status_code) != JOB_STATUS_OK_STATUS:
-            # Non-200 (auth error, server error, 404) — give up and let the
-            # caller surface a fallback URL.
-            return None
+        code = int(resp.status_code)
+        if code in (401, 403):
+            return PollOutcome(status=last_status, stopped_because="token_expired")
+        if code != JOB_STATUS_OK_STATUS:
+            # Some other non-200 (server error, 404, ...) — give up rather
+            # than spend the whole deadline retrying a status the caller
+            # should decide how to handle. http_status is carried so the
+            # caller can select EXIT_SERVER for a 5xx rather than the
+            # generic exit code (fix(#1778, codex round 7)).
+            return PollOutcome(
+                status=last_status,
+                stopped_because="poll_failed",
+                detail=f"HTTP {code}",
+                http_status=code,
+            )
         if isinstance(resp.parsed, ProblemDetail):
-            return None
+            return PollOutcome(
+                status=last_status,
+                stopped_because="poll_failed",
+                detail=resp.parsed.detail or "unexpected response body",
+            )
         parsed = resp.parsed
         status = getattr(parsed, "status", None)
         dataset_id = getattr(parsed, "dataset_id", None)
+        last_status = status
         # Terminal success: dataset_id materialized.
         if dataset_id:
-            return str(dataset_id)
-        # Terminal failure: the worker explicitly marked the job failed.
-        if status == "failed":
-            return None
+            return PollOutcome(dataset_id=str(dataset_id), status=status)
+        # fix(#1778): "cancelled" and "fanned_out" were missing from the
+        # terminal set, so --wait kept polling until timeout instead of
+        # stopping as soon as the job's fate was known.
+        if status in _TERMINAL_NO_DATASET_STATUSES:
+            return PollOutcome(status=status, stopped_because="terminal")
         sleep(interval)
-    return None  # timeout — fall back to job-search URL
+    return PollOutcome(status=last_status, stopped_because="timeout")
 
 
 # ---------------------------------------------------------------------------
