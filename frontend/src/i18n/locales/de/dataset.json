@@ -828,7 +828,7 @@
       "dialogDescription": "Die Daten dieses Datensatzes werden erneut von der ursprünglichen Importquelle abgerufen. Der Datensatz liefert weiterhin seine aktuellen Daten, bis die neuen Daten bereit sind.",
       "tokenLabel": "Zugriffstoken (optional)",
       "tokenPlaceholder": "Nur für eine geschützte Quelle erforderlich",
-      "tokenHint": "Wird einmalig für diese Aktualisierung verwendet und nie gespeichert.",
+      "tokenHint": "Wird nur für diese Aktualisierung verwendet; nicht mit dem Datensatz gespeichert.",
       "confirm": "Aktualisierung starten",
       "cancel": "Abbrechen",
       "cancelling": "Wird abgebrochen...",
@@ -836,6 +836,28 @@
       "toastAccepted": "Aktualisierung gestartet (Lauf {{runId}}).",
       "errors": {
         "unknown": "Aktualisierung fehlgeschlagen. Versuchen Sie es erneut."
+      },
+      "credential": {
+        "requiredTitle": "Diese Quelle benötigt eine Anmeldeinformation zur Aktualisierung.",
+        "arcgis": {
+          "methodLabel": "Authentifizierungsmethode",
+          "methodNone": "Keine Authentifizierung",
+          "methodToken": "Token oder API-Schlüssel einfügen",
+          "methodSignIn": "Mit Benutzername und Passwort anmelden",
+          "tokenLabel": "Token oder API-Schlüssel",
+          "tokenPlaceholder": "ArcGIS-Token oder API-Schlüssel einfügen",
+          "portalUrlLabel": "Portal-URL",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Benutzername",
+          "passwordLabel": "Passwort",
+          "signInButton": "Anmelden",
+          "signedIn": "Angemeldet. Die Aktualisierung verwendet dieses Token.",
+          "tokenExpired": "Das Token ist abgelaufen. Melden Sie sich erneut an, um fortzufahren."
+        },
+        "wfs": {
+          "intro": "Diese Quelle hat die Aktualisierung rundweg abgelehnt, da sie eine Anmeldeinformation benötigt. Senden Sie das Token unten erneut.",
+          "escapeHatch": "Falls die Quelle inzwischen öffentlich ist, importieren Sie sie über den Dialog Erneut hochladen ohne Token neu, um diese Anforderung aufzuheben."
+        }
       },
       "history": {
         "title": "Aktualisierungsverlauf",

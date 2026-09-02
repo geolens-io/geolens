@@ -828,7 +828,7 @@
       "dialogDescription": "Vuelve a extraer los datos de este conjunto desde donde se importaron originalmente. El conjunto de datos sigue sirviendo sus datos actuales hasta que los nuevos estén listos.",
       "tokenLabel": "Token de acceso (opcional)",
       "tokenPlaceholder": "Solo necesario para una fuente protegida",
-      "tokenHint": "Se usa una sola vez para esta actualización y nunca se almacena.",
+      "tokenHint": "Se usa solo para esta actualización; no se almacena con el conjunto de datos.",
       "confirm": "Iniciar actualización",
       "cancel": "Cancelar",
       "cancelling": "Cancelando...",
@@ -836,6 +836,28 @@
       "toastAccepted": "Actualización iniciada (ejecución {{runId}}).",
       "errors": {
         "unknown": "La actualización falló. Inténtalo de nuevo."
+      },
+      "credential": {
+        "requiredTitle": "Esta fuente necesita una credencial para actualizarse.",
+        "arcgis": {
+          "methodLabel": "Método de autenticación",
+          "methodNone": "Sin autenticación",
+          "methodToken": "Pegar un token o clave de API",
+          "methodSignIn": "Iniciar sesión con usuario y contraseña",
+          "tokenLabel": "Token o clave de API",
+          "tokenPlaceholder": "Pega un token o clave de API de ArcGIS",
+          "portalUrlLabel": "URL del portal",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Usuario",
+          "passwordLabel": "Contraseña",
+          "signInButton": "Iniciar sesión",
+          "signedIn": "Sesión iniciada. La actualización usará este token.",
+          "tokenExpired": "El token expiró. Inicia sesión de nuevo para continuar."
+        },
+        "wfs": {
+          "intro": "Esta fuente rechazó la actualización sin condiciones porque necesita una credencial. Vuelve a enviar el token abajo.",
+          "escapeHatch": "Si la fuente ya es pública, vuelve a importarla desde el cuadro de diálogo Volver a subir sin token para eliminar este requisito."
+        }
       },
       "history": {
         "title": "Historial de actualizaciones",

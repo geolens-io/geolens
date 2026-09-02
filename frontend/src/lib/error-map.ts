@@ -503,6 +503,20 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         values: { layers: value.unknown_layers.map(String).join(', ') },
       };
     }
+
+    // --- Lane A3 (service-auth wave, #1755 item 4): appended as its own
+    // block, ahead of the generic string-message fallback below rather than
+    // interleaved with the codes above, so this merges cleanly onto lane
+    // A2's changes elsewhere in this function. `service_token_required`'s
+    // body carries an English diagnostic sentence aimed at an API client;
+    // `SourceRefreshAction.tsx` intercepts the code before this module ever
+    // sees it and renders its own inline credential prompt instead, but this
+    // entry keeps the mapping correct for any other caller of
+    // `classifyApiError` that reaches this code without that special case.
+    if (value.code === 'service_token_required') {
+      return { key: 'errors.refreshServiceTokenRequired' };
+    }
+
     if (typeof value.message === 'string') {
       return descriptorForMessage(value.message, status);
     }

@@ -828,7 +828,7 @@
       "dialogDescription": "Récupère à nouveau les données de ce jeu de données depuis son origine d'importation. Le jeu de données continue de servir ses données actuelles jusqu'à ce que les nouvelles soient prêtes.",
       "tokenLabel": "Jeton d'accès (facultatif)",
       "tokenPlaceholder": "Nécessaire uniquement pour une source protégée",
-      "tokenHint": "Utilisé une seule fois pour cette actualisation et jamais stocké.",
+      "tokenHint": "Utilisé uniquement pour cette actualisation ; non stocké avec le jeu de données.",
       "confirm": "Démarrer l'actualisation",
       "cancel": "Annuler",
       "cancelling": "Annulation...",
@@ -836,6 +836,28 @@
       "toastAccepted": "Actualisation démarrée (exécution {{runId}}).",
       "errors": {
         "unknown": "L'actualisation a échoué. Réessayez."
+      },
+      "credential": {
+        "requiredTitle": "Cette source nécessite un identifiant pour être actualisée.",
+        "arcgis": {
+          "methodLabel": "Méthode d'authentification",
+          "methodNone": "Aucune authentification",
+          "methodToken": "Coller un jeton ou une clé API",
+          "methodSignIn": "Se connecter avec un identifiant et un mot de passe",
+          "tokenLabel": "Jeton ou clé API",
+          "tokenPlaceholder": "Collez un jeton ou une clé API ArcGIS",
+          "portalUrlLabel": "URL du portail",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Identifiant",
+          "passwordLabel": "Mot de passe",
+          "signInButton": "Se connecter",
+          "signedIn": "Connecté. L'actualisation utilisera ce jeton.",
+          "tokenExpired": "Le jeton a expiré. Reconnectez-vous pour continuer."
+        },
+        "wfs": {
+          "intro": "Cette source a refusé l'actualisation sans condition car elle nécessite un identifiant. Renvoyez le jeton ci-dessous.",
+          "escapeHatch": "Si la source est désormais publique, réimportez-la depuis la fenêtre Recharger sans jeton pour lever cette exigence."
+        }
       },
       "history": {
         "title": "Historique des actualisations",
