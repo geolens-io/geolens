@@ -1605,3 +1605,156 @@ class TestABearerTokenIsJudgedAfterDetection:
         assert resp.status_code == 403, resp.text
         # And it was actually presented, the way that transport presents one.
         assert [r for r in recorded if token in str(r.url)]
+
+
+# ---------------------------------------------------------------------------
+# The credential an ORIGIN knows is a username and a password
+# ---------------------------------------------------------------------------
+
+
+class TestTheCleartextHalvesOfABasicCredentialAreScrubbed:
+    """fix(#1746 B2b review r11): base64 matches none of what a service says.
+
+    A basic credential travels encoded, so every spelling scrubbed until now
+    was an encoded one. The origin does not know that spelling: it knows a
+    username and a password, and its own error text says so. GDAL propagates
+    that body to stderr, the preview path logs it, and the worker paths carry
+    it into `IngestJob.error_message`, the notification reason and the
+    exception the queue records.
+
+    The values here carry the characters #1749's review classes named --
+    quotes, `#`, `&`, a path delimiter, a percent -- because the variants feed
+    `str.replace`, which is literal. Nothing is compiled, so no value can
+    change what matches; asserting that is what keeps a future rewrite from
+    reaching for a regex.
+    """
+
+    @staticmethod
+    def _awkward_basic() -> tuple[ServiceCredential, str, str, str]:
+        """A credential whose halves exercise the redaction review classes."""
+        username = "al'ice#" + _value()
+        password = 'p&ss/"word%' + _value()
+        credential = ServiceCredential(
+            method=CredentialMethod.BASIC,
+            service_format="wfs",
+            username=username,
+            password=password,
+        )
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return credential, username, password, f"{pair[0]}: {pair[1]}"
+
+    async def test_the_preview_path_scrubs_both_halves(self, monkeypatch) -> None:
+        """The reported case, on the door path that logs stderr."""
+        credential, username, password, line = self._awkward_basic()
+        blob = line.rsplit(" ", 1)[1]
+
+        (
+            error,
+            captured,
+        ) = await TestAPreviewFailureCarriesNoCredential()._failing_preview(
+            monkeypatch,
+            credential,
+            # What a service actually says, in the words it knows.
+            f"ERROR 1: HTTP 401 authentication failed for user '{username}' "
+            f"(password '{password}')",
+        )
+
+        for secret in (username, password, blob, line):
+            assert secret not in str(error), secret
+            assert secret not in str(captured), secret
+
+    async def test_the_worker_failure_detail_scrubs_both_halves(
+        self, monkeypatch
+    ) -> None:
+        """The same echo on the path that PERSISTS it.
+
+        `scrub_secret_from_exception` mutates in place precisely so the job
+        row, the log record, the notification reason and the re-raise all read
+        the same text, so proving it once at that call proves it for all four.
+        """
+        from app.core.url_redaction import scrub_secret_from_exception
+        from app.processing.ingest.ogr import IngestionError
+
+        credential, username, password, line = self._awkward_basic()
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 1
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (
+                b"",
+                f"ERROR 1: rejected credentials for {username} / {password}".encode(),
+            )
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        with pytest.raises(IngestionError) as raised:
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_WFS_URL}",
+                layer_name="topp:parcels",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                token=line,
+                schema="data",
+            )
+
+        # Before the scrub the worker's own message still carries it: the
+        # pattern-based redactor cannot see a credential in prose, which is
+        # why the exact-value scrub exists at all.
+        scrub_secret_from_exception(raised.value, line)
+        assert username not in str(raised.value)
+        assert password not in str(raised.value)
+
+    def test_a_blob_that_cannot_be_decoded_scrubs_what_it_can(self) -> None:
+        """Never raise: the value reaching the scrub is whatever was handed over.
+
+        A truncated, re-encoded or simply non-base64 blob has to degrade to
+        "nothing extra to scrub" rather than replacing a failure message with a
+        decoder traceback, and the line itself must still be scrubbed.
+        """
+        from app.core.url_redaction import scrub_secret_value
+
+        for blob in ("!!! not base64 !!!", "dXNlcg", "", "=", "AAAA"):
+            line = f"Authorization: Basic {blob}"
+            scrubbed = scrub_secret_value(f"ERROR 1: sent {line}", line)
+            assert line not in scrubbed
+            assert "***" in scrubbed
+
+    def test_the_halves_are_matched_literally_not_as_a_pattern(self) -> None:
+        """#1749's review classes, asked directly.
+
+        `scrub_secret_value` replaces with `str.replace`, so a credential
+        containing regex metacharacters, quotes or a path delimiter is matched
+        as itself. A future rewrite to a compiled pattern would fail here
+        rather than in production.
+        """
+        from app.core.url_redaction import scrub_secret_value
+
+        _credential, username, password, line = self._awkward_basic()
+        for secret in (username, password):
+            assert (
+                scrub_secret_value(f"said {secret} loudly", line) == "said *** loudly"
+            )
+        # A metacharacter-only neighbour is untouched, which a pattern built
+        # from these values would not manage.
+        assert scrub_secret_value("a.*b", line) == "a.*b"
+
+    def test_the_counterfactual_on_the_decode_step(self, monkeypatch) -> None:
+        """The assertions above pass because of the decode, not by accident."""
+        from app.core import url_redaction
+
+        _credential, username, password, line = self._awkward_basic()
+        monkeypatch.setattr(url_redaction, "_basic_cleartext", lambda blob: set())
+
+        scrubbed = url_redaction.scrub_secret_value(
+            f"user {username} pw {password}", line
+        )
+        assert username in scrubbed
+        assert password in scrubbed

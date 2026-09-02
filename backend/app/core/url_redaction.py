@@ -11,6 +11,7 @@ recognise as a URL at all.
 
 from __future__ import annotations
 
+import base64
 import re
 import unicodedata
 from urllib.parse import (
@@ -23,7 +24,7 @@ from urllib.parse import (
     urlunsplit,
 )
 
-from app.core.service_tokens import HEADER_LINE_SEPARATOR
+from app.core.service_tokens import BASIC_SCHEME, HEADER_LINE_SEPARATOR
 
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
@@ -321,6 +322,41 @@ def redact_url_credentials(url: str) -> str:
     )
 
 
+def _basic_cleartext(blob: str) -> set[str]:
+    """The username and password inside a base64 basic credential.
+
+    fix(#1746 B2b review r11). Empty on anything it cannot read, and it never
+    raises: the value reaching here is whatever a worker was handed, so a blob
+    that is truncated, re-encoded, not base64 at all, or not a colon-separated
+    pair must degrade to "nothing extra to scrub" rather than replacing a
+    failure message with a decoder traceback.
+
+    Padding is restored before decoding because a caller that stripped it is
+    the ordinary case for base64 carried in text, and ``validate=True`` so a
+    blob with characters outside the alphabet is refused here rather than
+    silently decoding to something that is not the credential.
+
+    Nothing is logged, here or by the caller. The whole point of the return
+    value is that it is a secret; a decode failure that named the blob would
+    put a credential in a log line to explain why it could not be kept out of
+    one.
+    """
+    try:
+        decoded = base64.b64decode(blob + "=" * (-len(blob) % 4), validate=True).decode(
+            "utf-8"
+        )
+    except (ValueError, TypeError):
+        # binascii.Error and UnicodeDecodeError are both ValueError subclasses;
+        # TypeError is belt to those braces for a non-str blob.
+        return set()
+    username, separator, password = decoded.partition(":")
+    if not separator:
+        return set()
+    # Empties dropped: a blank half scrubs nothing and `str.replace` with an
+    # empty needle would insert the marker between every character.
+    return {half for half in (username, password) if half}
+
+
 def _secret_variants(secret: str) -> list[str]:
     """Every spelling of *secret* that could appear in a captured string.
 
@@ -345,6 +381,15 @@ def _secret_variants(secret: str) -> list[str]:
     A secret containing ``": "`` is a line by construction — a username,
     password, header value and bearer token may none of them contain
     whitespace — so this cannot mistake a bare credential for one.
+
+    fix(#1746 B2b review r11): and for basic authentication the encoded blob is
+    not the only spelling that can come back. The credential the ORIGIN knows
+    is a username and a password, so its own error text says so: "authentication
+    failed for user alice", "bad password for alice". GDAL propagates that body
+    to stderr, the preview path logs it and the worker paths carry it into
+    ``IngestJob.error_message`` and the queue's recorded exception, and base64
+    of the pair matches none of it. So the pair is decoded and both halves join
+    the variants, alongside every encoded form.
     """
     forms = {secret}
     _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
@@ -353,6 +398,8 @@ def _secret_variants(secret: str) -> list[str]:
         _, space, rest = tail.partition(" ")
         if space and rest:
             forms.add(rest)
+        if tail.startswith(BASIC_SCHEME):
+            forms.update(_basic_cleartext(tail[len(BASIC_SCHEME) :]))
     variants = set()
     for form in forms:
         variants.update({form, quote(form, safe=""), quote_plus(form)})

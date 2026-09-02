@@ -137,6 +137,12 @@ HEADER_LINE_SEPARATOR = ": "
 # recognizes to decide that the stricter base64url charset applies.
 BEARER_SCHEME = "Bearer "
 
+# The basic branch's, named for the same reason: the redactor recognizes it to
+# decide that what follows is base64 of a username and password, and so has a
+# cleartext form an origin can echo back
+# (fix(#1746 B2b review r11), core/url_redaction.py).
+BASIC_SCHEME = "Basic "
+
 # Header names a caller may not send a credential under. Compared
 # case-insensitively, because HTTP field names are case-insensitive and a
 # reviewer will try ``AUTHORIZATION``. Two groups, for two different reasons.
@@ -349,7 +355,7 @@ def build_credential_header(
         if ":" in username:
             raise ValueError(BASIC_USERNAME_POLICY)
         encoded = base64.b64encode(f"{username}:{password}".encode("ascii"))
-        return ("Authorization", f"Basic {encoded.decode('ascii')}")
+        return ("Authorization", f"{BASIC_SCHEME}{encoded.decode('ascii')}")
 
     if method == CredentialMethod.HEADER_KEY:
         name = auth.header_name
