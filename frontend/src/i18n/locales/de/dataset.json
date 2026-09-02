@@ -853,7 +853,7 @@
           "usernameLabel": "Benutzername",
           "passwordLabel": "Passwort",
           "signInButton": "Anmelden",
-          "signedIn": "Angemeldet. Das Token unten ist einsatzbereit.",
+          "signedIn": "Angemeldet. Die Aktualisierung verwendet dieses Token.",
           "tokenExpired": "Das Token ist abgelaufen. Melden Sie sich erneut an, um fortzufahren."
         },
         "wfs": {

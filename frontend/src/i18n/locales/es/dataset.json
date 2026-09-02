@@ -853,7 +853,7 @@
           "usernameLabel": "Usuario",
           "passwordLabel": "Contraseña",
           "signInButton": "Iniciar sesión",
-          "signedIn": "Sesión iniciada. El token de abajo ya está listo para usarse.",
+          "signedIn": "Sesión iniciada. La actualización usará este token.",
           "tokenExpired": "El token expiró. Inicia sesión de nuevo para continuar."
         },
         "wfs": {

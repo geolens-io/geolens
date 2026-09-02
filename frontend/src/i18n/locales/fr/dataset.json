@@ -853,7 +853,7 @@
           "usernameLabel": "Identifiant",
           "passwordLabel": "Mot de passe",
           "signInButton": "Se connecter",
-          "signedIn": "Connecté. Le jeton ci-dessous est prêt à l'emploi.",
+          "signedIn": "Connecté. L'actualisation utilisera ce jeton.",
           "tokenExpired": "Le jeton a expiré. Reconnectez-vous pour continuer."
         },
         "wfs": {

@@ -592,7 +592,7 @@ describe('SourceRefreshAction', () => {
       await user.type(screen.getByLabelText('Password'), 'hunter2');
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
 
-      await screen.findByText('Signed in. The token below is ready to use.');
+      await screen.findByText('Signed in. The refresh will use this token.');
       expect(mockArcgisSignIn).toHaveBeenCalledWith({
         portal_url: 'https://myorg.maps.arcgis.com',
         username: 'alice',
@@ -687,7 +687,7 @@ describe('SourceRefreshAction', () => {
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
-      await screen.findByText('Signed in. The token below is ready to use.');
+      await screen.findByText('Signed in. The refresh will use this token.');
 
       // The refresh itself is refused (a transient 503 here; an invalid or
       // expired token on the origin's own side reads the same way to this
@@ -696,7 +696,7 @@ describe('SourceRefreshAction', () => {
 
       await waitFor(() => {
         expect(
-          screen.queryByText('Signed in. The token below is ready to use.'),
+          screen.queryByText('Signed in. The refresh will use this token.'),
         ).not.toBeInTheDocument();
       });
       // Still offering the sign-in method -- not reset to the taxonomy's
@@ -933,14 +933,14 @@ describe('SourceRefreshAction', () => {
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
-      await screen.findByText('Signed in. The token below is ready to use.');
+      await screen.findByText('Signed in. The refresh will use this token.');
 
       // Edit a field but do NOT attempt sign-in again -- the field-change
       // handler itself, not only the next attempt's start, must drop the
       // token that no longer describes what's typed.
       await user.type(screen.getByLabelText('Username'), 'x');
       expect(
-        screen.queryByText('Signed in. The token below is ready to use.'),
+        screen.queryByText('Signed in. The refresh will use this token.'),
       ).not.toBeInTheDocument();
 
       await user.click(screen.getByRole('button', { name: 'Start refresh' }));
@@ -971,7 +971,7 @@ describe('SourceRefreshAction', () => {
       await user.type(screen.getByLabelText('Username'), 'alice');
       await user.type(screen.getByLabelText('Password'), 'hunter2');
       await user.click(screen.getByRole('button', { name: 'Sign in' }));
-      await screen.findByText('Signed in. The token below is ready to use.');
+      await screen.findByText('Signed in. The refresh will use this token.');
 
       // Editing a field after a successful mint invalidates that token --
       // the fields no longer describe the account it was minted for.
@@ -1008,7 +1008,7 @@ describe('SourceRefreshAction', () => {
         await user.type(screen.getByLabelText('Username'), 'alice');
         await user.type(screen.getByLabelText('Password'), 'hunter2');
         await user.click(screen.getByRole('button', { name: 'Sign in' }));
-        await screen.findByText('Signed in. The token below is ready to use.');
+        await screen.findByText('Signed in. The refresh will use this token.');
       }
 
       it('expires a minted token while the dialog stays open, clearing it and swapping the copy', async () => {
@@ -1036,7 +1036,7 @@ describe('SourceRefreshAction', () => {
         });
 
         expect(
-          screen.queryByText('Signed in. The token below is ready to use.'),
+          screen.queryByText('Signed in. The refresh will use this token.'),
         ).not.toBeInTheDocument();
         expect(
           await screen.findByText('The token expired. Sign in again to continue.'),
