@@ -4314,7 +4314,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `_legacy_keywords_body`, the `_LEGACY_FILTER_LANG_PARAM` fallback, and
     # the comments that only existed to explain them. Cap lowered
     # 1536 -> 1489, exact.
-    "backend/app/modules/catalog/search/router.py": 1489,
+    # fix(#1778): +4 -- deterministic ORDER BY tiebreaker on the paginated
+    # per-dataset OGC collections query. Cap 1489 -> 1493, exact.
+    "backend/app/modules/catalog/search/router.py": 1493,
     # fix(#474): negotiate localized STAC record text; fix(#475) adds the
     # unassigned Collection and matching HTTP Link navigation. fix(#506): keep
     # validated STAC item responses wire-compatible with serializer output.
@@ -4484,7 +4486,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # it now generates.
     # feat(export/pmtiles): +9 — PMTiles joined `_DISTRIBUTION_TEMPLATES` the
     # same way, plus the row-count docstring update.
-    "backend/app/modules/catalog/records/service.py": 1026,
+    # fix(#1778): +3 -- RecordContact.id tiebreaker on the paginated contacts
+    # list, sort_order being a non-unique server-default. Cap 1026 -> 1029,
+    # exact.
+    "backend/app/modules/catalog/records/service.py": 1029,
     # fix(#1528): crossed the inclusion threshold, and this is the file the
     # inclusion rule's own comment named as one of the two "routers-by-role the
     # glob's filename match cannot see ... watched by nothing until they cross

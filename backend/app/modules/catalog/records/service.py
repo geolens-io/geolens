@@ -116,8 +116,11 @@ async def list_contacts(
     """List contacts for a record, ordered by sort_order, with pagination."""
     result = await session.execute(
         select(RecordContact)
+        # fix(#1778): sort_order server-defaults to 0, so contacts added
+        # without an explicit order tie on it -- OFFSET/LIMIT paging over
+        # the tie had no defined row order. RecordContact.id is unique.
         .where(RecordContact.record_id == record_id)
-        .order_by(RecordContact.sort_order)
+        .order_by(RecordContact.sort_order, RecordContact.id)
         .offset(skip)
         .limit(limit)
     )

@@ -1042,6 +1042,12 @@ async def get_collection_items(
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Paginate
+    # fix(#1778): no ORDER BY meant OFFSET/LIMIT paging had no defined row
+    # order -- a plan change between page fetches could duplicate or drop
+    # items across the rel=next chain. Record.created_at is a non-unique
+    # server-default, so add Dataset.id as a tiebreaker, matching the
+    # convention _resolve_sort_order already uses for dataset listings.
+    stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
@@ -1516,6 +1522,9 @@ async def _execute_search(
     total = (await db.execute(count_stmt)).scalar() or 0
 
     # Apply pagination
+    # fix(#1778): same missing-ORDER-BY hazard as get_collection_items -- add
+    # a deterministic tiebreaker before paging.
+    stmt = stmt.order_by(Record.created_at.desc(), Dataset.id.desc())
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     datasets = result.unique().scalars().all()
