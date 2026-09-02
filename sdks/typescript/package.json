@@ -31,7 +31,7 @@
     "generate": "openapi-ts",
     "build": "tsc && node scripts/fix-esm-extensions.mjs",
     "verify:esm": "node -e \"import('./dist/index.js').then(m => { if (typeof m.createGeolensClient !== 'function') throw new Error('createGeolensClient export missing'); console.log('esm import ok'); })\"",
-    "test": "node --test test/auth_stale_headers.test.mjs test/prototype_substitution.test.mjs",
+    "test": "node --test test/auth_stale_headers.test.mjs test/auth_concurrent_clients.test.mjs test/prototype_substitution.test.mjs",
     "prepublishOnly": "npm run build && npm run verify:esm"
   },
   "dependencies": {

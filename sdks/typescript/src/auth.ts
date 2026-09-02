@@ -13,7 +13,7 @@
  * The query-parameter `?api_key=<key>` fallback that the backend supports
  * for browser/embed contexts is NOT exposed by this SDK wrapper (D-11).
  */
-import { client } from './client/client.gen.js';
+import { createClient, createConfig, type Client } from './client/client/index.js';
 
 export interface GeolensClientOptions {
   /**
@@ -32,8 +32,8 @@ export interface GeolensClient {
   baseUrl: string;
   /** The headers used for every request. */
   headers: Record<string, string>;
-  /** The underlying generated @hey-api client (configured). */
-  client: typeof client;
+  /** The underlying generated @hey-api client, scoped to this call only. */
+  client: Client;
 }
 
 /**
@@ -60,38 +60,29 @@ export const createGeolensClient = (
     );
   }
 
-  // BUG-023: explicitly clear headers that are NOT provided so that a prior
-  // call's credentials do not persist on the shared singleton. The
-  // @hey-api/client-fetch mergeHeaders implementation deletes a header when
-  // its value is null — passing null removes a previously-set header.
-  const headers: Record<string, string | null> = {
-    Authorization: null,
-    'X-API-Key': null,
-  };
-
-  const publicHeaders: Record<string, string> = {};
+  const headers: Record<string, string> = {};
 
   if (opts.bearerToken) {
     headers['Authorization'] = `Bearer ${opts.bearerToken}`;
-    publicHeaders['Authorization'] = `Bearer ${opts.bearerToken}`;
   }
   if (opts.apiKey) {
     headers['X-API-Key'] = opts.apiKey;
-    publicHeaders['X-API-Key'] = opts.apiKey;
   }
 
-  // Configure the generated singleton client so all generated SDK
-  // function calls inherit the auth headers + base URL.
-  // We pass the full headers (with nulls) to setConfig so stale entries
-  // are removed, but return only non-null headers in the public surface.
-  client.setConfig({
+  // fix(#1778): build a client scoped to this call instead of mutating the
+  // generated module's shared singleton. Two concurrent
+  // createGeolensClient() calls (e.g. one per request in a Node server)
+  // used to reconfigure the same underlying client object, so the
+  // credentials of whichever call ran last leaked onto every other call's
+  // in-flight and subsequent requests.
+  const scopedClient = createClient(createConfig({
     baseUrl: opts.baseUrl,
     headers,
-  });
+  }));
 
   return {
     baseUrl: opts.baseUrl,
-    headers: publicHeaders,
-    client,
+    headers,
+    client: scopedClient,
   };
 };
