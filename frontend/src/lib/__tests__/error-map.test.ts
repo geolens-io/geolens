@@ -214,16 +214,19 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.rateLimited' });
   });
 
-  // fix(service-auth wave, lane A1 contract update, head dadce550f): the
-  // shared-DB attempt counter reworded this message; the fallback above
-  // does not read the message text for this code, so the reword changes
+  // fix(service-auth wave, lane A1 contract update, head 85c5fc282): the
+  // limiter's own message names the ArcGIS account, not GeoLens or the
+  // portal (the limit is keyed on the target account: three attempts per
+  // fifteen minutes per ArcGIS account shared across all GeoLens users,
+  // plus three per GeoLens user and portal). The fallback below does not
+  // read the message text for this code, so this rewording changes
   // nothing here, and this test pins that.
   it('still falls back a reworded rate_limited message to the generic 429 key', () => {
     expect(
       classifyApiError(
         {
           code: 'rate_limited',
-          message: 'Too many sign-in attempts for this account across all sessions',
+          message: 'Too many sign-in attempts for that ArcGIS account. Wait fifteen minutes before trying again. ArcGIS locks an account after five failed attempts, so GeoLens stops short of that on purpose.',
           field: 'credential',
         },
         429,
@@ -231,15 +234,16 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.rateLimited' });
   });
 
-  // fix(service-auth wave, lane A1 contract update, head dadce550f):
+  // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
   // arcgis_signin_in_progress replaced a 429 rate_limited response for the
-  // same-account-concurrency case.
+  // same-account-concurrency case (one ArcGIS sign-in per account at a
+  // time, distinct from the attempt-count limiter above).
   it('maps arcgis_signin_in_progress to its own key', () => {
     expect(
       classifyApiError(
         {
           code: 'arcgis_signin_in_progress',
-          message: 'a sign-in for this account is already running',
+          message: 'A sign-in to that ArcGIS account is already in progress. Wait for it to finish before trying again.',
           field: 'credential',
         },
         409,
@@ -247,7 +251,7 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisSigninInProgress' });
   });
 
-  // fix(service-auth wave, lane A1 contract update, head dadce550f):
+  // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
   // arcgis_portal_not_https is a 422 with the SAME structured
   // {code, message, field} shape as the rest of this taxonomy, not
   // FastAPI's list-shaped validation 422 handled by validationDescriptor,

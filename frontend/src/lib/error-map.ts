@@ -469,15 +469,15 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'network_error') {
       return { key: 'errors.couldNotReachService' };
     }
-    // fix(service-auth wave, lane A1 contract update, head dadce550f):
-    // arcgis_signin_in_progress replaced a 429 rate_limited response for
-    // the same-account-concurrency case (a real 429 rate_limited still
-    // happens separately, from the per-user/per-portal limiter, and is
-    // deliberately left unmapped here: the object branch falls through to
-    // its message, then to the generic 429 status key, so a wording change
-    // on that message needs no update in this file). This is a 409, not a
-    // retry-safe state, so the copy says wait rather than anything
-    // implying the caller should act.
+    // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
+    // arcgis_signin_in_progress is a 409 for one ArcGIS sign-in already
+    // running for that account. A real 429 rate_limited still happens
+    // separately, from the attempt-count limiter (keyed on the ArcGIS
+    // account itself, shared across every GeoLens user, plus a second
+    // count per GeoLens user and portal); it is deliberately left
+    // unmapped here, since the object branch falls through to its
+    // message and then to the generic 429 status key, so a wording
+    // change on that message needs no update in this file.
     if (value.code === 'arcgis_signin_in_progress') {
       return { key: 'errors.arcgisSigninInProgress' };
     }
