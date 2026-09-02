@@ -1,6 +1,6 @@
 """The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1-6 on #1791).
+answer (#1778, codebase audit 2026-08-30; codex rounds 1-7 on #1791).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -82,6 +82,30 @@ bypass skips the lookup and no_cache skips the store, and nothing about
 that request -- credential included -- is ever written to the cache at
 all. $geolens_raster_cache_extra and its map are gone.
 
+Round 7 found round 4's name-only check left a gap on the VALUE side:
+$geolens_raster_noncanonical never inspected pmin/pmax/sigma's raw value,
+only the parameter names. nginx never decodes $arg_pmin/$arg_pmax/$arg_sigma
+either, so a percent-encoded (`pmin=%31`) or `+`-encoded (`pmin=+1`,
+which Starlette's query-string unescaping turns into a space before
+float() parses it) value reaches this config as its own literal bytes
+while decoding to an ordinary, valid float at FastAPI -- every distinct
+encoding of the same float minted a distinct one-hour cache entry for one
+identical tile, the same amplification vector round 4 closed for names,
+reopened on values.
+
+The round-7 rule: $geolens_raster_noncanonical is now the OR of two
+checks -- the round-4 name check plus a new value check requiring pmin,
+pmax, and sigma to each be either empty or an exact, undecorated float
+(`-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?`, no `%`, no `+`, no whitespace). Any
+render-parameter value outside that grammar makes the WHOLE request
+non-canonical, the same treatment a malformed NAME already gets, so it
+bypasses the cache via the existing proxy_cache_bypass/proxy_no_cache
+rather than being keyed on anything. This closes the gap for an ACTIVE
+value too, not just an inactive one that would otherwise blank: two
+different raw spellings of the identical semantic float (`pmin=1` vs
+`pmin=%31`) must not sit unmodified in the cache key and mint two entries
+for one tile.
+
 These are structural (they read the conf and simulate nginx's own map
 evaluation in Python), because there is no nginx binary in this test
 environment to render and query directly. The simulation models nginx's
@@ -130,7 +154,21 @@ _MAPS: dict[str, tuple[str, str]] = {
         "$geolens_raster_sigma",
     ),
 }
-_NONCANONICAL_MAP: tuple[str, str] = ("$args", "$geolens_raster_noncanonical")
+# fix(#1778 codex r7): $geolens_raster_noncanonical is now the OR of three
+# chained maps -- a name-based check ($args), a value-based check
+# ($arg_pmin:$arg_pmax:$arg_sigma), and a combiner over the two results.
+_NONCANONICAL_NAME_MAP: tuple[str, str] = (
+    "$args",
+    "$geolens_raster_noncanonical_name",
+)
+_NONCANONICAL_VALUE_MAP: tuple[str, str] = (
+    "$arg_pmin:$arg_pmax:$arg_sigma",
+    "$geolens_raster_noncanonical_value",
+)
+_NONCANONICAL_COMBINE_MAP: tuple[str, str] = (
+    "$geolens_raster_noncanonical_name:$geolens_raster_noncanonical_value",
+    "$geolens_raster_noncanonical",
+)
 
 
 def _without_comments(text: str) -> str:
@@ -264,12 +302,47 @@ def _conf() -> str:
 
 
 def _noncanonical(conf: str, args_string: str) -> str:
-    """``$geolens_raster_noncanonical`` for a raw query string."""
-    source_expr, dest_var = _NONCANONICAL_MAP
-    entries, default_value = _map_entries_ordered(
-        _map_body(conf, source_expr, dest_var)
+    """``$geolens_raster_noncanonical`` for a raw query string -- the OR of
+    the name-based map (round 4) and the value-based map (round 7), each
+    evaluated the way nginx itself would and then combined through the
+    third, combiner map, exactly as the three chained `map` directives in
+    the conf resolve it."""
+    name_source, name_dest = _NONCANONICAL_NAME_MAP
+    name_entries, name_default = _map_entries_ordered(
+        _map_body(conf, name_source, name_dest)
     )
-    return _evaluate_map(source_expr, entries, default_value, {"args": args_string})
+    name_result = _evaluate_map(
+        name_source, name_entries, name_default, {"args": args_string}
+    )
+
+    value_source, value_dest = _NONCANONICAL_VALUE_MAP
+    value_entries, value_default = _map_entries_ordered(
+        _map_body(conf, value_source, value_dest)
+    )
+    value_result = _evaluate_map(
+        value_source,
+        value_entries,
+        value_default,
+        {
+            "arg_pmin": _nginx_arg(args_string, "pmin"),
+            "arg_pmax": _nginx_arg(args_string, "pmax"),
+            "arg_sigma": _nginx_arg(args_string, "sigma"),
+        },
+    )
+
+    combine_source, combine_dest = _NONCANONICAL_COMBINE_MAP
+    combine_entries, combine_default = _map_entries_ordered(
+        _map_body(conf, combine_source, combine_dest)
+    )
+    return _evaluate_map(
+        combine_source,
+        combine_entries,
+        combine_default,
+        {
+            "geolens_raster_noncanonical_name": name_result,
+            "geolens_raster_noncanonical_value": value_result,
+        },
+    )
 
 
 def _derive(conf: str, param: str, args_string: str) -> str:
@@ -465,9 +538,17 @@ def test_out_of_range_but_syntactically_valid_value_under_a_canonical_inactive_m
     cache-amplification vector this whole fix exists to close, reopened
     through a side door. Range is irrelevant for an inactive parameter;
     only a value FastAPI cannot parse as a float AT ALL stays raw (see
-    test_malformed_float_under_an_inactive_mode_stays_raw right below)."""
+    test_malformed_float_under_an_inactive_mode_stays_raw right below).
+
+    fix(#1778 codex r7): ``+5`` used to be in this list -- round 5's
+    well-formedness grammar allowed a leading ``[+-]?`` sign, so it matched
+    and blanked like any other syntactically-valid value. It no longer
+    belongs here: a raw ``+`` is never itself part of a canonical float (see
+    test_percent_or_plus_encoded_value_is_noncanonical_and_bypasses_the_cache
+    below), so ``pmin=+5`` now makes the whole request non-canonical instead
+    of blanking under this map."""
     conf = _conf()
-    for value in ("200", "-5", "101", "100.5", "1e3", "-1e10", "+5"):
+    for value in ("200", "-5", "101", "100.5", "1e3", "-1e10"):
         assert _derive(conf, "pmin", _qs(stretch="minmax", pmin=value)) == ""
         assert _derive(conf, "pmax", _qs(stretch="minmax", pmax=value)) == ""
     for value in ("-1", "0", "0.0", "0.000", "-3.5e2"):
@@ -701,3 +782,82 @@ def test_non_duplicated_stretch_is_unaffected_by_the_guard():
     assert _derive(conf, "pmin", "stretch=minmax&pmin=5") == ""
     assert _derive(conf, "pmin", "stretch=minmax&pmin=200") == ""
     assert _derive(conf, "pmin", "stretch=percentile&pmin=5") == "5"
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778 codex r7): round 4 checked parameter NAMES for percent-encoding
+# but said nothing about pmin/pmax/sigma's VALUES. nginx never decodes
+# $arg_pmin/$arg_pmax/$arg_sigma either, so a percent-encoded or
+# `+`-encoded value reaches this config as its own literal bytes while
+# FastAPI decodes it into an ordinary, valid float -- every distinct
+# encoding of the same float is a different cache key for one identical
+# tile. A render-parameter value must match the exact float grammar
+# (`-?[0-9]+(\.[0-9]+)?([eE]-?[0-9]+)?`) or be empty, or the WHOLE request
+# is non-canonical and bypasses the cache -- the same treatment round 4
+# already gives a malformed NAME.
+# ---------------------------------------------------------------------------
+
+
+def test_percent_or_plus_encoded_value_is_noncanonical_and_bypasses_the_cache():
+    """The coordinator's named cases: %31 (percent-encoded "1"), +1 (a raw
+    `+`, which Starlette's query-string unescaping turns into a space before
+    float() parses it), %201 (percent-encoded " 1", same result via a
+    different byte sequence), and 1%2e5 (percent-encoded "1.5") each decode
+    to an ordinary valid float at FastAPI -- so the request is served and
+    cached (200) -- while nginx's raw $arg_pmin/$arg_pmax never matches the
+    strict float grammar. All four must make the request non-canonical."""
+    conf = _conf()
+    assert _noncanonical(conf, _qs(stretch="minmax", pmin="%31")) == "1"
+    assert _noncanonical(conf, _qs(stretch="minmax", pmin="+1")) == "1"
+    assert _noncanonical(conf, _qs(stretch="minmax", pmin="%201")) == "1"
+    assert _noncanonical(conf, _qs(stretch="minmax", pmax="1%2e5")) == "1"
+    # The same holds when the parameter is ACTIVE, not just when it is
+    # inactive-and-would-otherwise-blank: two different raw spellings of the
+    # identical semantic float (`pmin=1` vs `pmin=%31`) must not be allowed
+    # to sit in the cache key unmodified and mint two entries for one tile.
+    assert _noncanonical(conf, _qs(stretch="percentile", pmin="%31")) == "1"
+    assert _noncanonical(conf, _qs(stretch="stddev", sigma="+2")) == "1"
+
+
+def test_percent_or_plus_encoded_value_leaves_no_stray_cache_key():
+    """Structural companion to the assertion above: a non-canonical value
+    must actually reach the bypass/no_cache condition (not just flip
+    $geolens_raster_noncanonical in isolation), matching
+    test_noncanonical_requests_bypass_the_cache_instead_of_being_keyed_on_it."""
+    conf = _conf()
+    bypass_vars, no_cache_vars = _cache_bypass_vars(conf)
+    assert "$geolens_raster_noncanonical" in bypass_vars
+    assert "$geolens_raster_noncanonical" in no_cache_vars
+    assert _noncanonical(conf, _qs(stretch="minmax", pmin="%31")) == "1"
+
+
+def test_canonical_float_value_positive_control_stays_canonical():
+    """Positive control for the value check: an ordinary, undecorated float
+    must not itself trip the new guard -- ``pmin=1`` still blanks when
+    inactive and still passes through raw when active, exactly as every
+    other canonical value does."""
+    conf = _conf()
+    assert _noncanonical(conf, _qs(stretch="minmax", pmin="1")) == "0"
+    assert _derive(conf, "pmin", _qs(stretch="minmax", pmin="1")) == ""
+    assert _derive(conf, "pmin", _qs(stretch="percentile", pmin="1")) == "1"
+
+
+def test_empty_render_parameter_values_are_unaffected_by_the_value_check():
+    """An absent/empty pmin, pmax, or sigma must not itself trip the value
+    guard -- the combined ``$arg_pmin:$arg_pmax:$arg_sigma`` string is
+    ``::`` when none are supplied, which the value map's grammar (each field
+    independently optional) must still treat as canonical."""
+    conf = _conf()
+    assert _noncanonical(conf, _qs(stretch="minmax")) == "0"
+    assert _noncanonical(conf, _qs(stretch="stddev", pmin="1")) == "0"
+
+
+def test_a_colon_inside_a_value_cannot_forge_a_false_negative():
+    """A raw `:` inside pmin could in principle realign the combined
+    ``$arg_pmin:$arg_pmax:$arg_sigma`` string's fields. It must not be able
+    to forge a canonical-looking combination: the anchored per-field grammar
+    has no ``:`` in it, so any real colon byte makes the whole match fail
+    and falls through to the map's ``default 1`` -- fails toward
+    non-canonical, never toward canonical."""
+    conf = _conf()
+    assert _noncanonical(conf, _qs(stretch="minmax", pmin="1:2")) == "1"
