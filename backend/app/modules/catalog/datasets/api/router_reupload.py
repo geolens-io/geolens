@@ -64,6 +64,8 @@ from app.platform.extensions import get_catalog_port
 from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extensions_list
 from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
+from app.modules.catalog.sources.schemas import service_credential_from_request
+from app.platform.service_auth import bearer_token_for_credential
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -712,6 +714,11 @@ async def reupload_commit(
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadCommitResponse:
     """Commit a re-upload, queuing the background swap task."""
+    # feat(#1746): one conversion for the whole handler. `service_format` is
+    # left unset because nothing here composes a header line yet; the transport
+    # lane fills it in where the format is resolved below.
+    credential = service_credential_from_request(request.auth, request.token)
+    service_token = bearer_token_for_credential(credential)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -737,13 +744,18 @@ async def reupload_commit(
     # Merge commit request params into user_metadata, preserving existing keys.
     # Keep token + layer_name request-only from user_metadata (layer_name goes
     # into the dedicated source_layer column — see D-03 below).
+    #
+    # feat(#1746): `auth` is excluded for the same reason `token` is, and the
+    # reason is sharper for it: user_metadata is a durable JSONB column, and
+    # this model_dump is a whitelist by omission, so a nested credential object
+    # would land in it in full.
     existing_meta = dict(job.user_metadata or {})
     existing_meta.update(
-        request.model_dump(exclude_none=True, exclude={"token", "layer_name"})
+        request.model_dump(exclude_none=True, exclude={"token", "auth", "layer_name"})
     )
     existing_meta["reupload"] = True
     existing_meta["dataset_id"] = str(dataset_id)
-    if job.source_url and request.token:
+    if job.source_url and service_token:
         # Keep credentials request-only while recording that an automatic
         # retry cannot safely reproduce this authenticated request.
         existing_meta["service_auth_required"] = True
@@ -780,7 +792,7 @@ async def reupload_commit(
     # never takes the one-active-run admission slot from a refresh that can.
     # ArcGIS is exempt: its token is a urlencoded query parameter, never a
     # header line, so the strict charset would reject valid ArcGIS tokens.
-    if is_service_refresh and request.token:
+    if is_service_refresh and service_token:
         try:
             _, service_source_format = _catalog_port.resolve_service_type(
                 str((job.user_metadata or {}).get("service_type") or "")
@@ -790,7 +802,7 @@ async def reupload_commit(
             # this check does not take that decision away from it.
             service_source_format = None
         if requires_header_token_policy(service_source_format):
-            rejection = header_token_rejection_reason(request.token)
+            rejection = header_token_rejection_reason(service_token)
             if rejection is not None:
                 await db.rollback()
                 raise HTTPException(
@@ -842,11 +854,11 @@ async def reupload_commit(
     # protected re-upload on every stock install, which is the trade #1220
     # declined; see platform/refresh/credentials for the full contract.
     credential_ref: str | None = None
-    token: str | None = request.token
+    token: str | None = service_token
     if is_service_refresh:
         try:
             token, credential_ref = await resolve_dispatch_credential(
-                request.token, door="reupload_commit"
+                door="reupload_commit", credential=credential
             )
         except CredentialStoreUnavailable as exc:
             await db.rollback()

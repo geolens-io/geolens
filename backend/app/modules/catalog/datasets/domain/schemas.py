@@ -17,6 +17,12 @@ from app.core.url_redaction import has_url_credentials
 from app.core.text import normalize_nfc as _nfc
 from app.core.text import reject_html_markup as _reject_markup
 from app.modules.catalog.sources.origin_probe import DETAIL_CODES
+from app.modules.catalog.sources.schemas import (
+    DEPRECATED_TOKEN_SUFFIX,
+    SERVICE_AUTH_FIELD_DESCRIPTION,
+    ServiceAuthRequest,
+    reject_service_auth_conflict,
+)
 from app.platform.analysis_sql import MAX_SPATIAL_JOIN_FIELDS
 
 
@@ -776,9 +782,15 @@ class ReuploadPreviewRequest(BaseModel):
 
 class ReuploadCommitRequest(BaseModel):
     srid_override: int | None = Field(default=None, ge=1, le=998999)
-    token: str | None = Field(default=None, max_length=1000)
+    token: str | None = Field(
+        default=None, max_length=1000, description=DEPRECATED_TOKEN_SUFFIX.strip()
+    )
     # GPKG-01 Phase 1058: user-chosen layer for multi-layer GPKG files
     layer_name: str | None = Field(default=None, max_length=500)
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class ReuploadCommitResponse(BaseModel):
@@ -803,10 +815,14 @@ class DatasetRefreshRequest(BaseModel):
             "Transient credential for a protected service. Used for this "
             "refresh only and never persisted: it is handed to the worker "
             "through a single-use, short-lived reference and is gone once "
-            "claimed. A retry needs a new token."
+            "claimed. A retry needs a new token." + DEPRECATED_TOKEN_SUFFIX
         ),
     )
     _validate_token = field_validator("token")(_validate_safe_service_token)
+    auth: ServiceAuthRequest | None = Field(
+        default=None, description=SERVICE_AUTH_FIELD_DESCRIPTION
+    )
+    _reject_auth_conflict = model_validator(mode="after")(reject_service_auth_conflict)
 
 
 class DatasetRefreshResponse(BaseModel):

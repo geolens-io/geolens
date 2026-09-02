@@ -7418,9 +7418,11 @@ export interface components {
         DatasetRefreshRequest: {
             /**
              * Token
-             * @description Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token.
+             * @description Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.
              */
             token?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /**
          * DatasetRefreshResponse
@@ -10863,9 +10865,11 @@ export interface components {
             url: string;
             /**
              * Token
-             * @description Optional auth token for protected services (passed as query parameter or bearer token depending on service type).
+             * @description Optional auth token for protected services (passed as query parameter or bearer token depending on service type). Deprecated: use the auth object with method bearer.
              */
             token?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** ProbeResponse */
         ProbeResponse: {
@@ -11320,10 +11324,15 @@ export interface components {
         ReuploadCommitRequest: {
             /** Srid Override */
             srid_override?: number | null;
-            /** Token */
+            /**
+             * Token
+             * @description Deprecated: use the auth object with method bearer.
+             */
             token?: string | null;
             /** Layer Name */
             layer_name?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** ReuploadCommitResponse */
         ReuploadCommitResponse: {
@@ -11631,6 +11640,43 @@ export interface components {
              */
             row_count_delta: number;
         };
+        /**
+         * ServiceAuthRequest
+         * @description How one request authenticates to the remote service it names.
+         */
+        ServiceAuthRequest: {
+            /**
+             * Method
+             * @description How the credential is presented to the remote service. Omit the whole auth object for a public service.
+             * @enum {string}
+             */
+            method: "bearer" | "basic" | "header";
+            /**
+             * Token
+             * @description Bearer token or API key, for method bearer.
+             */
+            token?: string | null;
+            /**
+             * Username
+             * @description Username, for method basic.
+             */
+            username?: string | null;
+            /**
+             * Password
+             * @description Password, for method basic.
+             */
+            password?: string | null;
+            /**
+             * Header Name
+             * @description Name of the header the key is sent under, for method header.
+             */
+            header_name?: string | null;
+            /**
+             * Header Value
+             * @description Value of the header the key is sent under, for method header.
+             */
+            header_value?: string | null;
+        };
         /** ServiceHealth */
         ServiceHealth: {
             /** Status */
@@ -11669,9 +11715,11 @@ export interface components {
             layer_id?: number | string | null;
             /**
              * Token
-             * @description Optional auth token for protected services.
+             * @description Optional auth token for protected services. Deprecated: use the auth object with method bearer.
              */
             token?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
             /**
              * Object Id Field
              * @description ArcGIS OID field name used for orderByFields during preview pagination.

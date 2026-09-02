@@ -5005,8 +5005,19 @@
                 "type": "null"
               }
             ],
-            "description": "Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token.",
+            "description": "Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.",
             "title": "Token"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "title": "DatasetRefreshRequest",
@@ -12948,8 +12959,19 @@
                 "type": "null"
               }
             ],
-            "description": "Optional auth token for protected services (passed as query parameter or bearer token depending on service type).",
+            "description": "Optional auth token for protected services (passed as query parameter or bearer token depending on service type). Deprecated: use the auth object with method bearer.",
             "title": "Token"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [
@@ -13971,6 +13993,7 @@
                 "type": "null"
               }
             ],
+            "description": "Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
           "layer_name": {
@@ -13984,6 +14007,17 @@
               }
             ],
             "title": "Layer Name"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "title": "ReuploadCommitRequest",
@@ -14661,6 +14695,91 @@
         "title": "SchemaDiff",
         "type": "object"
       },
+      "ServiceAuthRequest": {
+        "description": "How one request authenticates to the remote service it names.",
+        "properties": {
+          "method": {
+            "description": "How the credential is presented to the remote service. Omit the whole auth object for a public service.",
+            "enum": [
+              "bearer",
+              "basic",
+              "header"
+            ],
+            "title": "Method",
+            "type": "string"
+          },
+          "token": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Bearer token or API key, for method bearer.",
+            "title": "Token"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Username, for method basic.",
+            "title": "Username"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Password, for method basic.",
+            "title": "Password"
+          },
+          "header_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Name of the header the key is sent under, for method header.",
+            "title": "Header Name"
+          },
+          "header_value": {
+            "anyOf": [
+              {
+                "maxLength": 1000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Value of the header the key is sent under, for method header.",
+            "title": "Header Value"
+          }
+        },
+        "required": [
+          "method"
+        ],
+        "title": "ServiceAuthRequest",
+        "type": "object"
+      },
       "ServiceHealth": {
         "properties": {
           "status": {
@@ -14757,8 +14876,19 @@
                 "type": "null"
               }
             ],
-            "description": "Optional auth token for protected services.",
+            "description": "Optional auth token for protected services. Deprecated: use the auth object with method bearer.",
             "title": "Token"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           },
           "object_id_field": {
             "anyOf": [

@@ -2960,9 +2960,13 @@ export type DatasetRefreshRequest = {
     /**
      * Token
      *
-     * Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token.
+     * Transient credential for a protected service. Used for this refresh only and never persisted: it is handed to the worker through a single-use, short-lived reference and is gone once claimed. A retry needs a new token. Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -7558,9 +7562,13 @@ export type ProbeRequest = {
     /**
      * Token
      *
-     * Optional auth token for protected services (passed as query parameter or bearer token depending on service type).
+     * Optional auth token for protected services (passed as query parameter or bearer token depending on service type). Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -8180,12 +8188,18 @@ export type ReuploadCommitRequest = {
     srid_override?: number | null;
     /**
      * Token
+     *
+     * Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
     /**
      * Layer Name
      */
     layer_name?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**
@@ -8616,6 +8630,50 @@ export type SchemaDiff = {
 };
 
 /**
+ * ServiceAuthRequest
+ *
+ * How one request authenticates to the remote service it names.
+ */
+export type ServiceAuthRequest = {
+    /**
+     * Method
+     *
+     * How the credential is presented to the remote service. Omit the whole auth object for a public service.
+     */
+    method: 'bearer' | 'basic' | 'header';
+    /**
+     * Token
+     *
+     * Bearer token or API key, for method bearer.
+     */
+    token?: string | null;
+    /**
+     * Username
+     *
+     * Username, for method basic.
+     */
+    username?: string | null;
+    /**
+     * Password
+     *
+     * Password, for method basic.
+     */
+    password?: string | null;
+    /**
+     * Header Name
+     *
+     * Name of the header the key is sent under, for method header.
+     */
+    header_name?: string | null;
+    /**
+     * Header Value
+     *
+     * Value of the header the key is sent under, for method header.
+     */
+    header_value?: string | null;
+};
+
+/**
  * ServiceHealth
  */
 export type ServiceHealth = {
@@ -8670,9 +8728,13 @@ export type ServicePreviewRequest = {
     /**
      * Token
      *
-     * Optional auth token for protected services.
+     * Optional auth token for protected services. Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
     /**
      * Object Id Field
      *
