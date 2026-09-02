@@ -663,6 +663,7 @@
       "userinfoUrl": "URL de l'API utilisateur (facultatif)",
       "scopes": "Portées",
       "defaultRole": "Rôle par défaut",
+      "defaultRoleHint": "Attribué aux comptes créés par ce fournisseur. Les comptes ne sont créés que si l'inscription en libre-service est activée ; sinon, une connexion sans compte ici est refusée et un administrateur crée le compte.",
       "groupClaim": "Claim de groupe",
       "groupClaimHint": "Claim JWT contenant les appartenances aux groupes.",
       "groupRoleMapping": "Mappage des rôles de groupe (JSON)",

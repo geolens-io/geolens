@@ -704,6 +704,7 @@
       "userinfoUrl": "User API URL (optional)",
       "scopes": "Scopes",
       "defaultRole": "Default Role",
+      "defaultRoleHint": "Given to accounts this provider creates. Accounts are only created when self-serve registration is on; with it off, a sign-in that has no account here is refused and an administrator creates the account instead.",
       "groupClaim": "Group Claim",
       "groupClaimHint": "JWT claim containing user group memberships for automatic role mapping.",
       "groupRoleMapping": "Group Role Mapping (JSON)",

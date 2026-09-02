@@ -369,16 +369,45 @@ async def oauth_callback(
     except HTTPException:
         raise  # Let 404s from build_oauth_client pass through
     except Exception as exc:  # broad: OAuth provider can return arbitrary errors; map to redirect with correlation_id
-        # Phase 268 H-30: surface email-not-verified collisions explicitly.
+        # Refusals the caller is told about by name, rather than through the
+        # generic "OAuth callback failed" below: Phase 268 H-30's
+        # email-not-verified collision, DOMAIN-03's allowlist rejection, and
+        # fix(#1778)'s registration-disabled gate.
+        #
+        # Each of the three does exactly the same thing, so they share one loop
+        # (fix(#1778): they were three copies of this block, and the third would
+        # have been a fourth). DOMAIN-03 (T-1236-04): the log records the
+        # provider slug and correlation_id ONLY -- never the attempted email
+        # address or subject (information-disclosure mitigation).
         from app.modules.auth.oauth.service import (
             OAuthDomainNotAllowedError,
             OAuthEmailUnverifiedError,
+            OAuthRegistrationDisabledError,
         )
 
-        if isinstance(exc, OAuthEmailUnverifiedError):
+        named_refusals: tuple[tuple[type[Exception], str, str], ...] = (
+            (
+                OAuthEmailUnverifiedError,
+                "email_not_verified",
+                "OAuth callback refused: unverified email collision",
+            ),
+            (
+                OAuthDomainNotAllowedError,
+                "domain_not_allowed",
+                "OAuth callback refused: email domain not in allowlist",
+            ),
+            (
+                OAuthRegistrationDisabledError,
+                "registration_disabled",
+                "OAuth callback refused: self-serve registration is disabled",
+            ),
+        )
+        for refusal_type, outcome, log_message in named_refusals:
+            if not isinstance(exc, refusal_type):
+                continue
             # Reuse the threaded correlation_id — do NOT mint a new one.
             logger.warning(
-                "OAuth callback refused: unverified email collision",
+                log_message,
                 provider=provider_slug,
                 correlation_id=correlation_id,
             )
@@ -393,7 +422,7 @@ async def oauth_callback(
                     details={
                         "provider_slug": provider_slug,
                         "correlation_id": correlation_id,
-                        "outcome": "email_not_verified",
+                        "outcome": outcome,
                     },
                     ip_address=get_client_ip(request),
                 ),
@@ -408,49 +437,7 @@ async def oauth_callback(
                 )
             error_url = (
                 f"{frontend_url}/oauth/callback"
-                f"#error=email_not_verified&correlation_id={correlation_id}"
-            )
-            # SEC-13: same Referrer-Policy override as success path
-            return RedirectResponse(
-                url=error_url,
-                status_code=302,
-                headers={"Referrer-Policy": "no-referrer"},
-            )
-        # DOMAIN-03 (T-1236-04): log provider + correlation_id only — do NOT
-        # log the attempted email address (information-disclosure mitigation).
-        if isinstance(exc, OAuthDomainNotAllowedError):
-            # Reuse the threaded correlation_id — do NOT mint a new one.
-            logger.warning(
-                "OAuth callback refused: email domain not in allowlist",
-                provider=provider_slug,
-                correlation_id=correlation_id,
-            )
-            # HARDEN-04: emit failure audit entry for domain rejection.
-            await audit_emit(
-                db,
-                AuditEvent(
-                    user_id=None,
-                    action="oauth.login.failure",
-                    resource_type="oauth_provider",
-                    details={
-                        "provider_slug": provider_slug,
-                        "correlation_id": correlation_id,
-                        "outcome": "domain_not_allowed",
-                    },
-                    ip_address=get_client_ip(request),
-                ),
-            )
-            try:
-                await db.commit()
-            except Exception:  # broad: defensive log-and-continue — an audit/rollback write must never break the OAuth redirect flow
-                logger.exception(
-                    "Failed to commit oauth.login.failure audit row; continuing",
-                    provider=provider_slug,
-                    correlation_id=correlation_id,
-                )
-            error_url = (
-                f"{frontend_url}/oauth/callback"
-                f"#error=domain_not_allowed&correlation_id={correlation_id}"
+                f"#error={outcome}&correlation_id={correlation_id}"
             )
             # SEC-13: same Referrer-Policy override as success path
             return RedirectResponse(

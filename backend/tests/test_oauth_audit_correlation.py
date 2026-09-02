@@ -315,6 +315,50 @@ async def test_callback_domain_not_allowed_emits_failure_audit(
 
 
 # ---------------------------------------------------------------------------
+# Test 5b: fix(#1778): OAuthRegistrationDisabledError gets the same treatment
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_callback_registration_disabled_emits_failure_audit(
+    client, client_session, _ensure_public_app_url
+):
+    """registration_disabled failure branch emits oauth.login.failure and
+    redirects with the matching fragment, so the operator can see why a sign-in
+    was refused rather than reading it as a generic failure."""
+    from app.modules.auth.oauth.service import OAuthRegistrationDisabledError
+
+    provider = await _create_test_provider(client_session)
+    slug = provider.slug
+
+    mock_client = MagicMock()
+    mock_client.authorize_access_token = AsyncMock(
+        side_effect=OAuthRegistrationDisabledError("registration off")
+    )
+
+    with patch(
+        "app.modules.auth.oauth.router.build_oauth_client",
+        AsyncMock(return_value=(mock_client, provider)),
+    ):
+        resp = await client.get(f"/auth/oauth/{slug}/callback", follow_redirects=False)
+
+    assert resp.status_code in (302, 307)
+    location = resp.headers.get("location", "")
+    assert "registration_disabled" in location
+
+    result = await client_session.execute(
+        select(AuditLog)
+        .where(AuditLog.action == "oauth.login.failure")
+        .order_by(AuditLog.created_at.desc())
+    )
+    rows = result.scalars().all()
+    assert rows, "Expected oauth.login.failure audit row for registration_disabled"
+    row = rows[0]
+    assert row.details is not None
+    assert row.details.get("outcome") == "registration_disabled"
+
+
+# ---------------------------------------------------------------------------
 # Test 6: FIX-C — generic exception mid-provisioning rolls back partial User;
 # only the failure-audit row is persisted (Codex P2).
 # ---------------------------------------------------------------------------

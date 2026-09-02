@@ -4037,7 +4037,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the comment saying why a credential file does not belong on a volume
     # scripts/backup-entrypoint.sh archives. Cap 1096 -> 1104, exact.
     "backend/app/processing/ingest/ogr.py": 1104,
-    "backend/app/modules/auth/oauth/service.py": 1031,
+    # fix(#1778): +157 for two audit findings that both land in JIT
+    # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
+    # class, so enabling a provider stops being a way to reopen signup while
+    # the Settings screen still reads "off". The other is
+    # _reconcile_mapped_role, which re-applies group_role_mapping on a
+    # returning user's login -- the mapping used to run only on the login that
+    # created the account, so it could grant a role and never revoke one. Most
+    # of the lines are the docstring on that helper stating its four
+    # preconditions, each of which is what stops a login from taking away a
+    # role the IdP said nothing about. Cap 1031 -> 1188, exact.
+    "backend/app/modules/auth/oauth/service.py": 1188,
     # fix(#1113 review): +15 — register_existing_table linearizes a
     # pre-existing geom_4326 (savepoint + error contract mirroring the
     # add_4326_column branch beside it); see linearize_existing_4326.

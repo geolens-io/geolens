@@ -684,6 +684,22 @@ class TestOAuthSchemas:
 class TestFindOrCreateOAuthUser:
     """Test user find-or-create logic for OAuth login."""
 
+    @pytest.fixture(autouse=True)
+    def _registration_on(self, monkeypatch):
+        """fix(#1778): JIT provisioning now honours REGISTRATION_ENABLED, whose
+        shipped default is False. These cases are about the provisioning logic
+        itself, so they run with the operator switch on; the gate has its own
+        tests in tests/test_oauth_registration_gate_1778.py."""
+        from unittest.mock import AsyncMock
+
+        from app.modules.auth.oauth import service as oauth_service
+
+        monkeypatch.setattr(
+            oauth_service.REGISTRATION_ENABLED,
+            "get_uncached",
+            AsyncMock(return_value=True),
+        )
+
     async def _create_test_provider(self, db, **overrides):
         """Helper: create an OAuthProvider in the test DB."""
         from app.modules.auth.oauth.schemas import OAuthProviderCreate

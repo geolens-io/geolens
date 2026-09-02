@@ -663,6 +663,7 @@
       "userinfoUrl": "Benutzer-API-URL (optional)",
       "scopes": "Bereiche",
       "defaultRole": "Standardrolle",
+      "defaultRoleHint": "Wird Konten zugewiesen, die dieser Anbieter anlegt. Konten werden nur angelegt, wenn die Selbstregistrierung aktiviert ist; ist sie aus, wird eine Anmeldung ohne Konto abgelehnt und eine Administratorin oder ein Administrator legt das Konto an.",
       "groupClaim": "Gruppen-Claim",
       "groupClaimHint": "JWT-Claim mit Gruppenmitgliedschaften des Benutzers.",
       "groupRoleMapping": "Gruppen-Rollen-Zuordnung (JSON)",

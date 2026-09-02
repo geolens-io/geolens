@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer_group
 
 from app.core.edition import is_enterprise
-from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS
+from app.core.persistent_config import ALLOWED_EMAIL_DOMAINS, REGISTRATION_ENABLED
 from app.modules.auth.domain_validation import is_email_allowed
 from app.modules.auth.models import Role, User, UserRole
 from app.modules.auth.oauth.encryption import encrypt_secret
@@ -358,6 +358,39 @@ class OAuthDomainNotAllowedError(Exception):
     """
 
 
+class OAuthRegistrationDisabledError(Exception):
+    """fix(#1778): raised when an unknown OAuth identity would be provisioned
+    while self-serve registration is switched off.
+
+    Codebase audit 2026-08-30, "Enabling any OAuth provider silently overrides
+    the operator's 'registration disabled' switch and auto-provisions active
+    accounts". ``registration_enabled`` defaults to False, and the password
+    path honours it, but JIT provisioning never read it. An operator who added
+    a Google or generic-OIDC provider through the admin UI without also filling
+    in ``allowed_email_domains`` therefore had open signup: any account at that
+    IdP reaching ``/auth/oauth/{slug}/login`` was provisioned active with the
+    provider's ``default_role``, which is ``viewer`` by default, and ``viewer``
+    can list and export every ``internal`` dataset. The Settings screen still
+    read "Registration enabled: off".
+
+    Only NEW identities are refused. A returning user with an existing
+    OAuthAccount link, and an identity that matches an existing account by
+    verified email, both still sign in -- the gate is about creating accounts,
+    not about locking out the people who already have one.
+
+    The router translates this into a redirect with an
+    ``error=registration_disabled`` fragment and an audit row naming the same
+    reason. No email or subject is logged.
+
+    Scope note: the SAML overlay provisions through this same function
+    (``IdentityExtension`` in app/core/identity.py names it), so the gate
+    applies there too. That is deliberate -- the switch says whether a sign-in
+    may create an account, and it should not answer differently depending on
+    which protocol carried the assertion -- but an operator who relied on SSO
+    to onboard has to turn registration on, or add the accounts first.
+    """
+
+
 async def create_provider(
     db: AsyncSession,
     data: OAuthProviderCreate,
@@ -682,6 +715,110 @@ def _resolve_role(
     return default
 
 
+async def _reconcile_mapped_role(
+    db: AsyncSession,
+    provider: OAuthProvider,
+    user: User,
+    groups: list[str] | None,
+) -> None:
+    """fix(#1778): re-apply ``group_role_mapping`` on a returning user's login.
+
+    Codebase audit 2026-08-30, "OAuth role is bound once at JIT creation and
+    never re-evaluated -- ``group_role_mapping`` can grant a role but can never
+    revoke one". The mapping ran only on the login that created the account, so
+    removing someone from the IdP group never demoted them; the role granted on
+    day one stood until an admin edited it by hand. The field's own description
+    ("JSON object mapping IdP group names to GeoLens roles. First match wins")
+    and the two UI hints all read as a live mapping, while ``default_role``'s
+    description does say "assigned to new users" -- so the field documented as
+    one-shot behaved that way and the field that read as continuous did not.
+
+    Four preconditions, each load-bearing, and all four have to hold before a
+    single role is touched:
+
+    * ``is_enterprise()`` -- group mapping is an enterprise capability, and the
+      JIT path already ignores the column outside it.
+    * a NON-EMPTY mapping -- with no mapping configured the operator has said
+      nothing about roles, so GeoLens is the system of record and an admin who
+      was promoted here keeps that. This is the precondition that keeps a local
+      promotion from being undone by a login.
+    * the groups claim is PRESENT -- ``_resolve_role(None, mapping, default)``
+      returns ``default_role``, so an IdP that omits the claim on one login
+      would otherwise demote every user who signed in during the omission. No
+      assertion means no evidence, not evidence of no membership. An IdP that
+      asserts an EMPTY list has said something, and that resolves to the
+      default.
+    * the account is OAuth-provisioned -- a local account that an OAuth
+      identity linked to by verified email keeps the roles the GeoLens admin
+      gave it.
+
+    Every change is recorded: a structured log line and an ``oauth.role.changed``
+    audit row carrying the provider slug, both role names, and no claim values.
+    """
+    if not is_enterprise():
+        return
+    mapping = provider.group_role_mapping
+    if not mapping:
+        return
+    if groups is None:
+        return
+    if user.auth_provider != "oauth":
+        return
+
+    resolved = _resolve_role(groups, mapping, provider.default_role)
+
+    current = list(user.roles)
+    if len(current) == 1 and current[0].name == resolved:
+        return
+
+    role_result = await db.execute(select(Role).where(Role.name == resolved))
+    role = role_result.scalar_one_or_none()
+    if role is None:
+        # The mapping names a role this deployment does not have. Refusing to
+        # act is the safe answer: dropping to viewer would be a demotion the
+        # operator never asked for, and inventing the role is not this
+        # function's call.
+        logger.warning(
+            "OAuth login: mapped role does not exist, leaving roles unchanged",
+            provider=provider.slug,
+            user_id=str(user.id),
+            mapped_role=resolved,
+        )
+        return
+
+    previous = sorted(r.name for r in current)
+    # Assign through the relationship rather than editing UserRole rows by hand,
+    # so the association rows and the in-session collection stay in step.
+    user.roles = [role]
+    await db.flush()
+
+    logger.info(
+        "OAuth login: role re-evaluated from IdP group mapping",
+        provider=provider.slug,
+        user_id=str(user.id),
+        previous_roles=previous,
+        new_role=resolved,
+    )
+
+    from app.modules.audit.service import AuditEvent, audit_emit  # noqa: PLC0415
+
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="oauth.role.changed",
+            resource_type="user",
+            resource_id=user.id,
+            details={
+                "provider_slug": provider.slug,
+                "previous_roles": previous,
+                "new_role": resolved,
+                "reason": "group_role_mapping",
+            },
+        ),
+    )
+
+
 _AZURE_MULTITENANT_AUTHORITIES = ("/common/", "/organizations/")
 
 
@@ -849,6 +986,8 @@ async def find_or_create_oauth_user(
             returning_user.email_verified = True
             await db.flush()
 
+        await _reconcile_mapped_role(db, provider, returning_user, groups)
+
         logger.info(
             "OAuth login: existing link found",
             provider=provider.slug,
@@ -959,6 +1098,24 @@ async def find_or_create_oauth_user(
             email=email,
         )
         email = None
+
+    # fix(#1778): the operator's self-serve-registration switch gates this path
+    # too. Everything above either returned an existing account (Step 1's link,
+    # Step 2's verified-email match) or refused, so reaching here means a NEW
+    # account is about to be created -- which is the thing REGISTRATION_ENABLED
+    # decides. Placed after the domain and email-verification checks so a
+    # refusal here cannot be used to probe which of the gates an identity trips.
+    #
+    # Cache-bypass for the same reason the domain gate uses it: enforcement
+    # reads committed state, so an operator who has just switched registration
+    # off is not overruled by a cached value.
+    if not await REGISTRATION_ENABLED.get_uncached(db):
+        raise OAuthRegistrationDisabledError(
+            "Self-serve registration is disabled, so a new account cannot be "
+            "created for this identity. An administrator must create the "
+            "account first; signing in through this provider will then link to "
+            "it."
+        )
 
     # Step 3: Auto-create new user
     base_username = _generate_username(display_name, email)
