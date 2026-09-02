@@ -781,7 +781,7 @@
       "dialogDescription": "Re-pull this dataset's data from where it was originally imported. The dataset keeps serving its current data until the new data is ready.",
       "tokenLabel": "Access token (optional)",
       "tokenPlaceholder": "Only needed for a protected source",
-      "tokenHint": "Used once for this refresh and never stored.",
+      "tokenHint": "Used for this refresh only; not stored with the dataset.",
       "confirm": "Start refresh",
       "cancel": "Cancel",
       "cancelling": "Cancelling...",
@@ -789,6 +789,34 @@
       "toastAccepted": "Refresh started (run {{runId}}).",
       "errors": {
         "unknown": "Refresh failed. Try again."
+      },
+      "credential": {
+        "requiredTitle": "This source needs a credential to refresh.",
+        "arcgis": {
+          "methodLabel": "Authentication method",
+          "methodNone": "No authentication",
+          "methodToken": "Paste a token or API key",
+          "methodSignIn": "Sign in with username and password",
+          "tokenLabel": "Token or API key",
+          "tokenPlaceholder": "Paste an ArcGIS token or API key",
+          "portalUrlLabel": "Portal URL",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Username",
+          "passwordLabel": "Password",
+          "signInButton": "Sign in",
+          "signedIn": "Signed in. The token below is ready to use.",
+          "errors": {
+            "arcgisSigninRejected": "ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.",
+            "arcgisSsoAccount": "This account signs in through your organization's identity provider, or has multifactor authentication turned on. Username and password sign-in will not work here. Paste a token or API key instead.",
+            "ssrfRefused": "GeoLens cannot reach a portal on a private network address from here.",
+            "networkError": "Could not reach the portal. Check the URL and try again.",
+            "rateLimited": "Too many sign-in attempts. Wait a few minutes, then try again."
+          }
+        },
+        "wfs": {
+          "intro": "This source refused the refresh outright because it needs a credential. Send the token again below.",
+          "escapeHatch": "If the source is public now, re-import it through the Re-Upload dialog with no token to clear this requirement."
+        }
       },
       "history": {
         "title": "Refresh history",

@@ -184,6 +184,7 @@
     "arcgisSigninInProgress": "Une autre connexion pour ce compte est déjà en cours. Réessayez dans un instant.",
     "arcgisPortalNotHttps": "Ce portail, ou le service de jetons qu'il indique, n'utilise pas HTTPS. GeoLens n'enverra pas de mot de passe en HTTP non chiffré ; utilisez une URL de portail en https://.",
     "arcgisPortalHostInvalid": "Cette adresse de portail n'est pas un nom d'hôte utilisable. Vérifiez l'URL, par exemple https://votre-org.maps.arcgis.com.",
+    "refreshServiceTokenRequired": "La source de ce jeu de données nécessite un identifiant de service pour être actualisée. Fournissez-en un ci-dessous pour continuer.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
     "unknownLayers": "Ces couches sont introuvables dans le fichier importé : {{layers}}.",
     "sourceValidationCrsMismatch": "Le système de référence de coordonnées de la source {{source}} ne correspond pas aux autres sources.",

@@ -830,7 +830,7 @@
       "dialogDescription": "Die Daten dieses Datensatzes werden erneut von der ursprünglichen Importquelle abgerufen. Der Datensatz liefert weiterhin seine aktuellen Daten, bis die neuen Daten bereit sind.",
       "tokenLabel": "Zugriffstoken (optional)",
       "tokenPlaceholder": "Nur für eine geschützte Quelle erforderlich",
-      "tokenHint": "Wird einmalig für diese Aktualisierung verwendet und nie gespeichert.",
+      "tokenHint": "Wird nur für diese Aktualisierung verwendet; nicht mit dem Datensatz gespeichert.",
       "confirm": "Aktualisierung starten",
       "cancel": "Abbrechen",
       "cancelling": "Wird abgebrochen...",
@@ -838,6 +838,34 @@
       "toastAccepted": "Aktualisierung gestartet (Lauf {{runId}}).",
       "errors": {
         "unknown": "Aktualisierung fehlgeschlagen. Versuchen Sie es erneut."
+      },
+      "credential": {
+        "requiredTitle": "Diese Quelle benötigt eine Anmeldeinformation zur Aktualisierung.",
+        "arcgis": {
+          "methodLabel": "Authentifizierungsmethode",
+          "methodNone": "Keine Authentifizierung",
+          "methodToken": "Token oder API-Schlüssel einfügen",
+          "methodSignIn": "Mit Benutzername und Passwort anmelden",
+          "tokenLabel": "Token oder API-Schlüssel",
+          "tokenPlaceholder": "ArcGIS-Token oder API-Schlüssel einfügen",
+          "portalUrlLabel": "Portal-URL",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Benutzername",
+          "passwordLabel": "Passwort",
+          "signInButton": "Anmelden",
+          "signedIn": "Angemeldet. Das Token unten ist einsatzbereit.",
+          "errors": {
+            "arcgisSigninRejected": "ArcGIS hat diese Anmeldung nicht akzeptiert. Prüfen Sie Benutzername und Passwort, einschließlich Groß- und Kleinschreibung. Zu viele fehlgeschlagene Versuche sperren zudem vorübergehend ein ArcGIS-Konto.",
+            "arcgisSsoAccount": "Dieses Konto meldet sich über den Identitätsanbieter Ihrer Organisation an oder hat Multi-Faktor-Authentifizierung aktiviert. Die Anmeldung mit Benutzername und Passwort funktioniert hier nicht. Fügen Sie stattdessen ein Token oder einen API-Schlüssel ein.",
+            "ssrfRefused": "GeoLens kann von hier aus kein Portal unter einer privaten Netzwerkadresse erreichen.",
+            "networkError": "Das Portal konnte nicht erreicht werden. Prüfen Sie die URL und versuchen Sie es erneut.",
+            "rateLimited": "Zu viele Anmeldeversuche. Warten Sie einige Minuten und versuchen Sie es erneut."
+          }
+        },
+        "wfs": {
+          "intro": "Diese Quelle hat die Aktualisierung rundweg abgelehnt, da sie eine Anmeldeinformation benötigt. Senden Sie das Token unten erneut.",
+          "escapeHatch": "Falls die Quelle inzwischen öffentlich ist, importieren Sie sie über den Dialog Erneut hochladen ohne Token neu, um diese Anforderung aufzuheben."
+        }
       },
       "history": {
         "title": "Aktualisierungsverlauf",

@@ -87,6 +87,7 @@ const IDENTICAL_ACROSS_LOCALES = new Set([
   'dataset:schema.columnNamePlaceholder', // column_name
   'import:urlImport.placeholder', // https://data.source.coop/…/buildings.parquet
   'import:urlImport.filenamePlaceholder', // buildings.parquet
+  'dataset:sourcePanel.refresh.credential.arcgis.portalUrlPlaceholder', // https://www.arcgis.com
 ]);
 
 const translatedLngs = supportedLngs.filter((lng) => lng !== fallbackLng);

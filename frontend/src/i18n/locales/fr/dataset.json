@@ -830,7 +830,7 @@
       "dialogDescription": "Récupère à nouveau les données de ce jeu de données depuis son origine d'importation. Le jeu de données continue de servir ses données actuelles jusqu'à ce que les nouvelles soient prêtes.",
       "tokenLabel": "Jeton d'accès (facultatif)",
       "tokenPlaceholder": "Nécessaire uniquement pour une source protégée",
-      "tokenHint": "Utilisé une seule fois pour cette actualisation et jamais stocké.",
+      "tokenHint": "Utilisé uniquement pour cette actualisation ; non stocké avec le jeu de données.",
       "confirm": "Démarrer l'actualisation",
       "cancel": "Annuler",
       "cancelling": "Annulation...",
@@ -838,6 +838,34 @@
       "toastAccepted": "Actualisation démarrée (exécution {{runId}}).",
       "errors": {
         "unknown": "L'actualisation a échoué. Réessayez."
+      },
+      "credential": {
+        "requiredTitle": "Cette source nécessite un identifiant pour être actualisée.",
+        "arcgis": {
+          "methodLabel": "Méthode d'authentification",
+          "methodNone": "Aucune authentification",
+          "methodToken": "Coller un jeton ou une clé API",
+          "methodSignIn": "Se connecter avec un identifiant et un mot de passe",
+          "tokenLabel": "Jeton ou clé API",
+          "tokenPlaceholder": "Collez un jeton ou une clé API ArcGIS",
+          "portalUrlLabel": "URL du portail",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Identifiant",
+          "passwordLabel": "Mot de passe",
+          "signInButton": "Se connecter",
+          "signedIn": "Connecté. Le jeton ci-dessous est prêt à l'emploi.",
+          "errors": {
+            "arcgisSigninRejected": "ArcGIS n'a pas accepté cette connexion. Vérifiez l'identifiant et le mot de passe, y compris la casse. Trop de tentatives échouées verrouillent aussi temporairement un compte ArcGIS.",
+            "arcgisSsoAccount": "Ce compte se connecte via le fournisseur d'identité de votre organisation, ou a l'authentification multifacteur activée. La connexion par identifiant et mot de passe ne fonctionnera pas ici. Collez plutôt un jeton ou une clé API.",
+            "ssrfRefused": "GeoLens ne peut pas atteindre un portail sur une adresse réseau privée depuis ici.",
+            "networkError": "Impossible de joindre le portail. Vérifiez l'URL et réessayez.",
+            "rateLimited": "Trop de tentatives de connexion. Attendez quelques minutes, puis réessayez."
+          }
+        },
+        "wfs": {
+          "intro": "Cette source a refusé l'actualisation sans condition car elle nécessite un identifiant. Renvoyez le jeton ci-dessous.",
+          "escapeHatch": "Si la source est désormais publique, réimportez-la depuis la fenêtre Recharger sans jeton pour lever cette exigence."
+        }
       },
       "history": {
         "title": "Historique des actualisations",

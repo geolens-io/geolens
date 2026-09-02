@@ -309,6 +309,7 @@
     "arcgisSigninInProgress": "Another sign-in for this account is already running. Try again in a moment.",
     "arcgisPortalNotHttps": "This portal, or the token service it points to, doesn't use HTTPS. GeoLens won't send a password over plain HTTP; use an https:// portal URL.",
     "arcgisPortalHostInvalid": "That portal address isn't a usable hostname. Check the URL, for example https://your-org.maps.arcgis.com.",
+    "refreshServiceTokenRequired": "This dataset's source needs a service credential to refresh. Provide one below to continue.",
     "refreshSourceUrlBlocked": "This dataset's stored source URL failed a safety check and can't be refreshed automatically. Contact an administrator.",
     "unknownLayers": "These layers were not found in the uploaded file: {{layers}}.",
     "sourceValidationCrsMismatch": "Source {{source}}'s coordinate reference system doesn't match the other sources.",

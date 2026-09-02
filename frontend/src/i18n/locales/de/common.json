@@ -184,6 +184,7 @@
     "arcgisSigninInProgress": "Für dieses Konto läuft bereits eine andere Anmeldung. Versuchen Sie es gleich noch einmal.",
     "arcgisPortalNotHttps": "Dieses Portal oder der von ihm angegebene Token-Dienst verwendet kein HTTPS. GeoLens sendet kein Passwort über unverschlüsseltes HTTP; verwenden Sie eine https://-Portal-URL.",
     "arcgisPortalHostInvalid": "Diese Portaladresse ist kein verwendbarer Hostname. Überprüfen Sie die URL, zum Beispiel https://ihre-org.maps.arcgis.com.",
+    "refreshServiceTokenRequired": "Die Quelle dieses Datensatzes benötigt eine Dienst-Anmeldeinformation zur Aktualisierung. Geben Sie unten eine an, um fortzufahren.",
     "refreshSourceUrlBlocked": "Die gespeicherte Quell-URL dieses Datensatzes hat eine Sicherheitsprüfung nicht bestanden und kann nicht automatisch aktualisiert werden. Wenden Sie sich an einen Administrator.",
     "unknownLayers": "Diese Layer wurden in der hochgeladenen Datei nicht gefunden: {{layers}}.",
     "sourceValidationCrsMismatch": "Das Koordinatenreferenzsystem der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",

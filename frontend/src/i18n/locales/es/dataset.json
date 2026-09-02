@@ -830,7 +830,7 @@
       "dialogDescription": "Vuelve a extraer los datos de este conjunto desde donde se importaron originalmente. El conjunto de datos sigue sirviendo sus datos actuales hasta que los nuevos estén listos.",
       "tokenLabel": "Token de acceso (opcional)",
       "tokenPlaceholder": "Solo necesario para una fuente protegida",
-      "tokenHint": "Se usa una sola vez para esta actualización y nunca se almacena.",
+      "tokenHint": "Se usa solo para esta actualización; no se almacena con el conjunto de datos.",
       "confirm": "Iniciar actualización",
       "cancel": "Cancelar",
       "cancelling": "Cancelando...",
@@ -838,6 +838,34 @@
       "toastAccepted": "Actualización iniciada (ejecución {{runId}}).",
       "errors": {
         "unknown": "La actualización falló. Inténtalo de nuevo."
+      },
+      "credential": {
+        "requiredTitle": "Esta fuente necesita una credencial para actualizarse.",
+        "arcgis": {
+          "methodLabel": "Método de autenticación",
+          "methodNone": "Sin autenticación",
+          "methodToken": "Pegar un token o clave de API",
+          "methodSignIn": "Iniciar sesión con usuario y contraseña",
+          "tokenLabel": "Token o clave de API",
+          "tokenPlaceholder": "Pega un token o clave de API de ArcGIS",
+          "portalUrlLabel": "URL del portal",
+          "portalUrlPlaceholder": "https://www.arcgis.com",
+          "usernameLabel": "Usuario",
+          "passwordLabel": "Contraseña",
+          "signInButton": "Iniciar sesión",
+          "signedIn": "Sesión iniciada. El token de abajo ya está listo para usarse.",
+          "errors": {
+            "arcgisSigninRejected": "ArcGIS no aceptó ese inicio de sesión. Comprueba el usuario y la contraseña, incluidas las mayúsculas. Demasiados intentos fallidos también bloquean temporalmente una cuenta de ArcGIS.",
+            "arcgisSsoAccount": "Esta cuenta inicia sesión mediante el proveedor de identidad de tu organización, o tiene activada la autenticación multifactor. El inicio de sesión con usuario y contraseña no funcionará aquí. Pega un token o clave de API en su lugar.",
+            "ssrfRefused": "GeoLens no puede alcanzar un portal en una dirección de red privada desde aquí.",
+            "networkError": "No se pudo contactar con el portal. Comprueba la URL e inténtalo de nuevo.",
+            "rateLimited": "Demasiados intentos de inicio de sesión. Espera unos minutos e inténtalo de nuevo."
+          }
+        },
+        "wfs": {
+          "intro": "Esta fuente rechazó la actualización sin condiciones porque necesita una credencial. Vuelve a enviar el token abajo.",
+          "escapeHatch": "Si la fuente ya es pública, vuelve a importarla desde el cuadro de diálogo Volver a subir sin token para eliminar este requisito."
+        }
       },
       "history": {
         "title": "Historial de actualizaciones",
