@@ -10,7 +10,7 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { UrlImportForm } from '../UrlImportForm';
 import type { CommitImportRequest } from '@/types/api';
-import { clearUrlImport } from '@/api/url-import-session';
+import { clearUrlImport, peekUrlImport } from '@/api/url-import-session';
 
 const mockUploadFromUrl = vi.fn();
 const mockPreviewFile = vi.fn();
@@ -152,6 +152,23 @@ describe('UrlImportForm', () => {
     // Back on the idle form.
     expect(screen.getByLabelText('urlImport.label')).toBeInTheDocument();
     expect(mockPreviewFile).not.toHaveBeenCalled();
+  });
+
+  // fix(#1778): the fetch-failure branch releases the module session
+  // (clearUrlImport); the preview-failure branch did not, so a later mount's
+  // peekUrlImport() re-adopted the dead job and replayed the same failing
+  // preview POST every time the URL tab was revisited.
+  test('preview failure releases the module session like fetch failure does', async () => {
+    mockUploadFromUrl.mockResolvedValue({ job_id: 'job-1', status: 'pending' });
+    mockPreviewFile.mockRejectedValue(new Error('bad file'));
+
+    render(<UrlImportForm />);
+    await fetchUrl('https://files.example.test/roads.geojson');
+
+    await waitFor(() =>
+      expect(screen.getByText('urlImport.previewFailed')).toBeInTheDocument(),
+    );
+    expect(peekUrlImport()).toBeNull();
   });
 
   test('multi-layer preview shows the layer picker and threads layer_name', async () => {

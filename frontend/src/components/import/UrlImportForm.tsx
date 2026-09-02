@@ -153,6 +153,11 @@ export function UrlImportForm() {
         setError(msg);
         setStep('idle');
         toast.error(msg);
+        // fix(#1778): the fetch-failure branch above already releases the
+        // session; without this, `idle` renders no Start Over control, so a
+        // later mount's peekUrlImport() re-adopts this dead job and replays
+        // the same failing preview POST every time the URL tab is revisited.
+        clearUrlImport();
       }
     },
     [t],
