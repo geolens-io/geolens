@@ -182,6 +182,11 @@ export async function getDatasetHistory(
   return apiFetch<AuditLogListResponse>(`/datasets/${id}/history${qs ? `?${qs}` : ''}`);
 }
 
+// fix(#1778): apiFetch's 30s default aborts a large (up to 500 MB) re-upload
+// body before the transfer can complete, losing the staged job. Match the
+// budget uploadFromUrl already uses for the same reason (api/ingest.ts).
+const REUPLOAD_TIMEOUT_MS = 630_000;
+
 export async function reuploadDataset(
   datasetId: string,
   file: File,
@@ -192,6 +197,7 @@ export async function reuploadDataset(
   return apiFetch<ReuploadResponse>(`/datasets/${datasetId}/reupload`, {
     method: 'POST',
     body: formData,
+    timeoutMs: REUPLOAD_TIMEOUT_MS,
   });
 }
 
