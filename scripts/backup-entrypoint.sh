@@ -97,9 +97,11 @@ run_backup() {
     # would accumulate forever; a new cycle starting means no dump is in
     # flight, so any leftover .tmp is garbage. fix(#995): the globals dump
     # writes through the same .tmp-then-rename path, in both directories, and
-    # needs the same sweep.
+    # needs the same sweep. fix(#1778): the weekly dump copy and both staging
+    # archive locations now write through the same path too.
     rm -f "${DAILY_DIR}"/*.dump.tmp "${DAILY_DIR}"/globals-*.sql.tmp \
-        "${WEEKLY_DIR}"/globals-*.sql.tmp
+        "${WEEKLY_DIR}"/globals-*.sql.tmp "${WEEKLY_DIR}"/*.dump.tmp \
+        "${DAILY_DIR}"/staging-*.tar.gz.tmp "${WEEKLY_DIR}"/staging-*.tar.gz.tmp
 
     log "Starting backup: ${filename}"
 
@@ -141,7 +143,17 @@ run_backup() {
 
     # Weekly copy on Sundays
     if [ "$CYCLE_IS_WEEKLY" -eq 1 ]; then
-        cp "$filepath" "${WEEKLY_DIR}/${filename}"
+        # fix(#1778): same .tmp-then-rename as the daily dump and the weekly
+        # globals copy — a container killed mid-cp (OOM, `compose stop`,
+        # ENOSPC) would otherwise leave a truncated file under the final
+        # weekly dump name, indistinguishable from a good one until a
+        # restore months later tries to read it.
+        if ! cp "$filepath" "${WEEKLY_DIR}/${filename}.tmp" \
+            || ! mv "${WEEKLY_DIR}/${filename}.tmp" "${WEEKLY_DIR}/${filename}"; then
+            log "ERROR: could not write the weekly dump copy to ${WEEKLY_DIR}"
+            rm -f "${WEEKLY_DIR}/${filename}.tmp"
+            return 1
+        fi
         log "Weekly copy saved: ${filename}"
     fi
 
@@ -245,7 +257,12 @@ backup_staging() {
     # container log instead of vanishing.
     log "Archiving object storage: $(basename "$archive")" >&2
     local tar_rc=0
-    tar czf "$archive" -C "$STAGING_DIR" . || tar_rc=$?
+    # fix(#1778): write to .tmp and rename on success, same as the dump — a
+    # container killed mid-tar (OOM, `compose stop`, disk full) would
+    # otherwise leave a truncated archive under the final name, unverified
+    # and indistinguishable from a good one until restore.sh tries to
+    # extract it.
+    tar czf "${archive}.tmp" -C "$STAGING_DIR" . || tar_rc=$?
     # fix(#843): GNU tar exit 1 means "some files differ" — api/worker wrote
     # to staging mid-archive. The archive IS written and every quiescent file
     # in it is sound; only files caught mid-write are fuzzy and re-archive
@@ -255,17 +272,40 @@ backup_staging() {
     # (fatal tar error) fails the cycle.
     if [ "$tar_rc" -ge 2 ]; then
         log "ERROR: object-storage archive failed — this cycle will be reported as failed" >&2
-        rm -f "$archive"
+        rm -f "${archive}.tmp"
         return 1
     fi
     if [ "$tar_rc" -eq 1 ]; then
         log "WARNING: staging changed during archiving (tar exit 1) — archive kept; changed files re-archive next cycle" >&2
     fi
+    # fix(#1778): verify the archive is a well-formed, fully readable tar
+    # stream before publishing it under its final name — the tar-side
+    # analogue of the dump's `pg_restore -f /dev/null` check. Neither tar exit
+    # code above (0 or 1) catches a truncated gzip member from a disk that
+    # filled mid-write.
+    if ! tar tzf "${archive}.tmp" > /dev/null 2>&1; then
+        log "ERROR: ${archive}.tmp failed verification (tar could not read it) — discarding the corrupt archive" >&2
+        rm -f "${archive}.tmp"
+        return 1
+    fi
+    if ! mv "${archive}.tmp" "$archive"; then
+        log "ERROR: could not publish $(basename "$archive") — is the backup volume writable and not full?" >&2
+        rm -f "${archive}.tmp"
+        return 1
+    fi
     local size
     size="$(du -h "$archive" | cut -f1)"
     log "Object-storage archive complete: $(basename "$archive") (${size})" >&2
     if [ "${CYCLE_IS_WEEKLY:-0}" -eq 1 ]; then
-        cp "$archive" "${WEEKLY_DIR}/$(basename "$archive")"
+        # Same .tmp-then-rename as the weekly dump/globals copies, and for the
+        # same reason: a container killed mid-cp must never leave a truncated
+        # file under the final weekly archive name.
+        if ! cp "$archive" "${WEEKLY_DIR}/$(basename "$archive").tmp" \
+            || ! mv "${WEEKLY_DIR}/$(basename "$archive").tmp" "${WEEKLY_DIR}/$(basename "$archive")"; then
+            log "ERROR: could not write the weekly object-storage copy to ${WEEKLY_DIR}" >&2
+            rm -f "${WEEKLY_DIR}/$(basename "$archive").tmp"
+            return 1
+        fi
         log "Weekly object-storage copy saved: $(basename "$archive")" >&2
     fi
     printf '%s\n' "$archive"
