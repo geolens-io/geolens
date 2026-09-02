@@ -37,6 +37,23 @@ class InMemoryCacheProvider:
         while len(self._store) > self._max_entries:
             self._store.popitem(last=False)  # evict least-recently-used
 
+    async def set_if_absent(self, key: str, value: Any, ttl: int = 300) -> bool:
+        """fix(#1778): store only when the key is unset. True if stored.
+
+        No await between the presence check and the write, so on a single event
+        loop no other coroutine can interleave -- the same reasoning
+        ``delete_many`` relies on. An entry whose TTL has passed counts as
+        absent: ``get`` would evict it anyway.
+        """
+        entry = self._store.get(key)
+        if entry is not None and time.monotonic() <= entry[1]:
+            return False
+        self._store[key] = (value, time.monotonic() + ttl)
+        self._store.move_to_end(key)
+        while len(self._store) > self._max_entries:
+            self._store.popitem(last=False)
+        return True
+
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 

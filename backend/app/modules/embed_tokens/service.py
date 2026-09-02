@@ -36,6 +36,39 @@ from app.platform.extensions import get_processing_port
 logger = structlog.stdlib.get_logger(__name__)
 
 
+# fix(#1778): codebase audit 2026-08-30, "Embed-token revocation invalidates the
+# Redis positive cache BEFORE the caller's commit, so a concurrent request can
+# re-cache the still-active token and keep it serving for 300s".
+#
+# Every revoke path here flips ``is_active`` and evicts the positive entry while
+# its caller's transaction is still open; the caller commits later (a share
+# revoke commits 17 lines further down router_sharing.py). In that window a tile
+# or feature request for the same token misses the cache, SELECTs the row --
+# which a plain READ COMMITTED read still sees as active, because it does not
+# block on the revoking transaction -- and writes a fresh positive entry that
+# outlives the commit. The cache-hit path re-checks only ``expires_at``
+# (SEC-014), so every subsequent request off that entry is granted, for up to
+# the full TTL. That is exactly what builder-audit #338 P0-01 set out to remove.
+#
+# Deleting the key cannot close that window from either side: the reader's write
+# lands after the deleter's delete. So a revocation writes a DENIAL under the
+# key instead of removing it, and the reader publishes its positive entry with
+# ``set_if_absent`` rather than ``set``. Whichever of the two lands first, the
+# denial is what survives: if the denial is already there the reader's NX write
+# is refused, and if the reader got there first the denial overwrites it. The
+# request that raced still completes -- it read a committed-active row and
+# nothing about it was wrong at the time -- but it leaves nothing behind.
+#
+# The denial's TTL must cover the longest positive entry a racer could have
+# tried to write, which is the 300s cap in validate_embed_token_access.
+#
+# The trade: a revoking transaction that ROLLS BACK leaves its denial in place,
+# so a token that is still active is refused until the entry expires and the
+# next request reads the database again. That direction is fail-closed and
+# self-healing, and it is the one to be wrong in.
+EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS = 300
+
+
 def _embed_token_cache_key(token_hash: str) -> str:
     """Return the active tenant's validation-cache key.
 
@@ -45,6 +78,28 @@ def _embed_token_cache_key(token_hash: str) -> str:
     single-tenant mode and fails closed without a hosted tenant context.
     """
     return tenant_cache_key(f"embed_token:{token_hash}")
+
+
+async def _deny_revoked_embed_tokens(*token_hashes: str) -> None:
+    """Stamp a denial over each revoked token's validation-cache entry.
+
+    Best-effort, like the eviction it replaces: a cache failure must not break
+    the revocation, which is what the database row records. See the module note
+    on EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS for why this writes a denial
+    rather than deleting the key.
+    """
+    if not token_hashes:
+        return
+    try:
+        cache = get_cache()
+        for token_hash in token_hashes:
+            await cache.set(
+                _embed_token_cache_key(token_hash),
+                {"is_valid": False},
+                ttl=EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS,
+            )
+    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
+        logger.error("Cache invalidation failed for embed token", exc_info=True)
 
 
 # Phase 268 H-31: loopback IP set used to gate the localhost-Origin bypass.
@@ -459,13 +514,7 @@ async def create_embed_token(
         revoked_hashes.append(old_token.token_hash)
 
     # Best-effort cache invalidation for revoked tokens
-    if revoked_hashes:
-        try:
-            cache = get_cache()
-            for h in revoked_hashes:
-                await cache.delete(_embed_token_cache_key(h))
-        except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
-            logger.error("Cache invalidation failed for embed token", exc_info=True)
+    await _deny_revoked_embed_tokens(*revoked_hashes)
 
     # Generate raw token
     raw_token = "et_" + secrets.token_urlsafe(32)
@@ -540,11 +589,7 @@ async def revoke_embed_token(
     await db.flush()
 
     # Best-effort cache invalidation
-    try:
-        cache = get_cache()
-        await cache.delete(_embed_token_cache_key(token.token_hash))
-    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
-        logger.error("Cache invalidation failed for embed token", exc_info=True)
+    await _deny_revoked_embed_tokens(token.token_hash)
 
     return token
 
@@ -585,12 +630,7 @@ async def revoke_embed_tokens_by_map(
     # Best-effort cache invalidation — a cached positive entry must not outlive
     # the revocation (builder-audit #338 P0-01 acceptance: Redis positive cache does
     # not extend access).
-    try:
-        cache = get_cache()
-        for token in tokens:
-            await cache.delete(_embed_token_cache_key(token.token_hash))
-    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
-        logger.error("Cache invalidation failed for embed token", exc_info=True)
+    await _deny_revoked_embed_tokens(*(token.token_hash for token in tokens))
 
     return len(tokens)
 
@@ -806,9 +846,18 @@ async def validate_embed_token_access(
         # re-check expiry (SEC-014). Include tenant_id for EMBED-02 cache-hit
         # path so validate_embed_token_access can check tenant equality without
         # re-querying the EmbedToken row (Phase 1212).
+        #
+        # fix(#1778): set_if_absent, not set. The row this was read from is
+        # committed-active, but a revocation may be open on it right now (a
+        # plain READ COMMITTED select does not block on the revoking
+        # transaction's lock), and that revocation has already stamped its
+        # denial under this key. Overwriting it would restore the token for the
+        # rest of this entry's TTL, which is the window builder-audit #338
+        # P0-01 exists to close. See the module note on
+        # EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS.
         seconds_until_expiry = (token.expires_at - now).total_seconds()
         cache_ttl = int(min(300, max(0, seconds_until_expiry)))
-        await cache.set(
+        await cache.set_if_absent(
             cache_key,
             {
                 "is_valid": True,
@@ -1046,11 +1095,6 @@ async def bulk_revoke_embed_tokens(
     await db.flush()
 
     # Best-effort cache invalidation
-    try:
-        cache = get_cache()
-        for token in tokens:
-            await cache.delete(_embed_token_cache_key(token.token_hash))
-    except Exception:  # broad: cache invalidation must not break callers; redis can throw varied pool/timeout errors
-        logger.error("Cache invalidation failed for embed token", exc_info=True)
+    await _deny_revoked_embed_tokens(*(token.token_hash for token in tokens))
 
     return len(tokens)

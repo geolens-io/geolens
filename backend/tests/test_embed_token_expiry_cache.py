@@ -44,6 +44,13 @@ class FakeCache:
     async def set(self, key: str, value, ttl: int = 300) -> None:
         self._store[key] = value
 
+    async def set_if_absent(self, key: str, value, ttl: int = 300) -> bool:
+        """fix(#1778): mirrors the provider contract: never overwrite."""
+        if key in self._store:
+            return False
+        self._store[key] = value
+        return True
+
     async def delete(self, key: str) -> None:
         self._store.pop(key, None)
 

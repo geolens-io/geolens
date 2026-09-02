@@ -90,6 +90,28 @@ class RedisCacheProvider:
             self._record_failure()
             await self._fallback.set(key, value, ttl)
 
+    async def set_if_absent(self, key: str, value: Any, ttl: int = 300) -> bool:
+        """fix(#1778): SET NX. True when this call is the one that stored it.
+
+        A Redis error answers False rather than falling back to the in-memory
+        store: the caller is publishing a value it wants a concurrent writer to
+        be able to override, and a copy in a process-local dict that no other
+        process can override is not that. False means "not published", which is
+        a cache miss next time -- the safe direction.
+        """
+        if self._is_circuit_open():
+            return await self._fallback.set_if_absent(key, value, ttl)
+        try:
+            stored = await self._client.set(
+                key, json.dumps(value, default=str), ex=ttl, nx=True
+            )
+            self._record_success()
+            return bool(stored)
+        except Exception:  # broad: redis circuit breaker — any Redis error falls back to in-memory cache
+            logger.warning("redis_cache_set_if_absent_failed", key=key, exc_info=True)
+            self._record_failure()
+            return False
+
     # fix(#1778): codebase audit 2026-08-30, "Cache invalidation never reaches
     # the in-memory fallback, so a revoked embed token can be served as valid
     # during the next Redis blip".

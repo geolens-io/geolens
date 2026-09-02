@@ -100,9 +100,14 @@ async def test_revoke_by_map_denies_validation_and_clears_cache(
     await test_db_session.commit()
     assert revoked == 1
 
-    # The positive cache entry must be gone (cannot outlive the revocation).
-    assert await cache.get(_cache_key(raw)) is None, (
-        "P0-01: revoke_embed_tokens_by_map must purge the Redis positive cache."
+    # The positive cache entry must not outlive the revocation.
+    # fix(#1778): the entry is REPLACED by a denial rather than deleted, so a
+    # request that raced the revoke cannot re-publish a positive under the same
+    # key. See the module note on EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS in
+    # app/modules/embed_tokens/service.py.
+    assert await cache.get(_cache_key(raw)) == {"is_valid": False}, (
+        "P0-01: revoke_embed_tokens_by_map must replace the Redis positive "
+        "cache entry with a denial."
     )
 
     # 3. Validation now fails immediately (DB is_active=False -> deny).

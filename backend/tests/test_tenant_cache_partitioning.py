@@ -93,6 +93,13 @@ class _MemoryCache:
     async def set(self, key: str, value: object, *, ttl: int):
         self.values[key] = value
 
+    async def set_if_absent(self, key: str, value: object, ttl: int = 300) -> bool:
+        """fix(#1778): mirrors the provider contract: never overwrite."""
+        if key in self.values:
+            return False
+        self.values[key] = value
+        return True
+
     async def delete(self, key: str):
         self.values.pop(key, None)
 
@@ -521,5 +528,8 @@ async def test_embed_token_invalidation_is_tenant_local(
         current_tenant_var.reset(tenant_a_token)
 
     assert revoked is token_record
-    assert keys[TENANT_A] not in cache.values
-    assert keys[TENANT_B] in cache.values
+    # fix(#1778): the revoking tenant's entry is REPLACED by a denial rather
+    # than deleted, so a request that raced the revoke cannot re-publish a
+    # positive under the same key. The other tenant's entry is untouched.
+    assert cache.values[keys[TENANT_A]] == {"is_valid": False}
+    assert cache.values[keys[TENANT_B]] == {"is_valid": True}

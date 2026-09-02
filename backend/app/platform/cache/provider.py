@@ -25,6 +25,23 @@ class CacheProvider(Protocol):
         """Store value with TTL in seconds."""
         ...
 
+    async def set_if_absent(self, key: str, value: Any, ttl: int = 300) -> bool:
+        """Store value with TTL only when *key* has no entry. True if stored.
+
+        fix(#1778): the contract is "do not overwrite", which is what lets a
+        caller publish a result it computed from a snapshot without clobbering
+        a decision another writer has made in the meantime. The embed-token
+        validator uses it to write its positive entry: a concurrent revocation
+        stamps a denial under the same key, and whichever of the two lands
+        first, the denial is what survives. A plain ``set`` there re-cached a
+        token the revoke had already invalidated.
+
+        Must be atomic against a concurrent writer of the same key -- Redis
+        ``SET NX``, or a presence check with no await between the read and the
+        write.
+        """
+        ...
+
     async def delete(self, key: str) -> None:
         """Delete key. No error if missing."""
         ...

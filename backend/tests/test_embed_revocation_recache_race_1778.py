@@ -1,0 +1,170 @@
+"""fix(#1778): a request that races a revoke must not re-cache the token.
+
+Codebase audit 2026-08-30, "Embed-token revocation invalidates the Redis
+positive cache BEFORE the caller's commit, so a concurrent request can re-cache
+the still-active token and keep it serving for 300s".
+
+The interleaving, in full:
+
+  1. A tile request for embed token T misses the validation cache.
+  2. It SELECTs T's row. In READ COMMITTED a plain select does not block on the
+     revoking transaction's lock, so the row still reads is_active = True.
+  3. The revoke flushes is_active = False and invalidates the cache entry. Its
+     caller has not committed yet (a share revoke commits 17 lines further down
+     router_sharing.py).
+  4. The tile request publishes its positive entry, TTL up to 300 seconds.
+  5. The revoke commits.
+
+Every later request is served from step 4's entry, because the cache-hit path
+re-checks only expires_at (SEC-014), never is_active. Deleting the key at step 3
+cannot help: step 4 writes after it.
+
+So the revoke stamps a DENIAL under the key and the validator publishes with
+set_if_absent. Whichever lands first, the denial survives.
+
+The tests below reproduce step 4 exactly: the cache double answers the FIRST
+get with a miss while the store already holds the revocation's denial, which is
+the same state the racing request sees.
+
+Counterfactual: change set_if_absent back to set in
+validate_embed_token_access and test_a_racing_validation_cannot_overwrite_the_
+denial fails with the positive entry back in the store.
+"""
+
+import hashlib
+import uuid
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
+from app.modules.embed_tokens.service import (
+    EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS,
+    validate_embed_token_access,
+)
+from app.platform.cache.memory import InMemoryCacheProvider
+
+pytestmark = pytest.mark.anyio
+
+
+def _raw_token() -> str:
+    import secrets
+
+    return "et_" + secrets.token_urlsafe(32)
+
+
+def _cache_key(raw_token: str) -> str:
+    return f"embed_token:{hashlib.sha256(raw_token.encode()).hexdigest()}"
+
+
+class RaceCache(InMemoryCacheProvider):
+    """A store whose first read misses even though the denial is already in it.
+
+    That is the racing request's view: its cache read happened before the
+    revocation stamped the denial, and its write happens after.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.first_get_done = False
+
+    async def get(self, key: str):
+        if not self.first_get_done:
+            self.first_get_done = True
+            return None
+        return await super().get(key)
+
+
+def _active_token_row(map_id: uuid.UUID, dataset_id: uuid.UUID):
+    """The row the racing select reads: still committed-active."""
+    return MagicMock(
+        id=uuid.uuid4(),
+        map_id=map_id,
+        token_hash="unused",
+        allowed_origins=None,
+        scoped_dataset_ids=[str(dataset_id)],
+        expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        tenant_id=None,
+    )
+
+
+async def _validate_with(cache, raw, dataset_id, map_id) -> bool:
+    result = MagicMock()
+    result.scalar_one_or_none.return_value = _active_token_row(map_id, dataset_id)
+    db = AsyncMock()
+    db.execute.return_value = result
+
+    with (
+        patch("app.modules.embed_tokens.service.get_cache", return_value=cache),
+        patch(
+            "app.modules.embed_tokens.service.map_contains_dataset",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.modules.embed_tokens.service._request_origin_is_allowed",
+            AsyncMock(return_value=True),
+        ),
+        patch(
+            "app.modules.embed_tokens.service.asyncio.create_task",
+            MagicMock(),
+        ),
+    ):
+        return await validate_embed_token_access(raw, dataset_id, db)
+
+
+async def test_a_racing_validation_cannot_overwrite_the_denial():
+    raw = _raw_token()
+    dataset_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    cache = RaceCache()
+    key = _cache_key(raw)
+
+    # The revoke has already stamped its denial; the racing request's own read
+    # happened before that, so it will miss.
+    await cache.set(key, {"is_valid": False}, EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS)
+
+    # The racing request completes -- it read a committed-active row and nothing
+    # about it was wrong at the time. What matters is what it leaves behind.
+    await _validate_with(cache, raw, dataset_id, map_id)
+
+    assert await cache.get(key) == {"is_valid": False}, (
+        "the racing validation re-published a positive entry over the "
+        "revocation's denial; every later request would be served from it"
+    )
+
+
+async def test_a_first_validation_still_publishes_its_positive_entry():
+    """The guard must refuse only an overwrite, not every cache write."""
+    raw = _raw_token()
+    dataset_id = uuid.uuid4()
+    map_id = uuid.uuid4()
+    cache = RaceCache()
+    key = _cache_key(raw)
+
+    assert await _validate_with(cache, raw, dataset_id, map_id) is True
+
+    cached = await cache.get(key)
+    assert cached is not None, "a clean cache miss must still prime the cache"
+    assert cached["is_valid"] is True
+    assert cached["scoped_dataset_ids"] == [str(dataset_id)]
+
+
+class TestSetIfAbsent:
+    """The primitive the fix rests on."""
+
+    async def test_stores_when_absent(self):
+        cache = InMemoryCacheProvider()
+        assert await cache.set_if_absent("k", "first", 300) is True
+        assert await cache.get("k") == "first"
+
+    async def test_refuses_when_present(self):
+        cache = InMemoryCacheProvider()
+        await cache.set("k", {"is_valid": False}, 300)
+        assert await cache.set_if_absent("k", {"is_valid": True}, 300) is False
+        assert await cache.get("k") == {"is_valid": False}
+
+    async def test_an_expired_entry_counts_as_absent(self):
+        cache = InMemoryCacheProvider()
+        await cache.set("k", "stale", 0)
+        assert await cache.set_if_absent("k", "fresh", 300) is True
+        assert await cache.get("k") == "fresh"

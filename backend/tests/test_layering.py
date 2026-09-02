@@ -4903,7 +4903,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # machine. The rest records why _LOOPBACK_CLIENT_IPS stays an exact set:
     # that one GATES the localhost bypass, so a miss there denies, while a miss
     # in the other ISSUES an unenforceable lock. Cap 1042 -> 1056.
-    "backend/app/modules/embed_tokens/service.py": 1056,
+    # fix(#1778): +44, almost all comment. Revocation now stamps a denial over
+    # the validation-cache entry instead of deleting it, and the validator
+    # publishes its positive entry with set_if_absent, so a request that raced
+    # an uncommitted revoke cannot re-cache the token for the rest of the TTL.
+    # The four eviction sites collapse into one _deny_revoked_embed_tokens
+    # helper; the rest records the interleaving, why deleting the key cannot
+    # close it from either side, and the fail-closed trade a rolled-back
+    # revocation makes. Cap 1056 -> 1100.
+    "backend/app/modules/embed_tokens/service.py": 1100,
     # fix(#1778): first entry for this module — it crossed the 1000-line
     # inclusion threshold on the property-filter typing. Property filters used
     # to bind the raw query-string value, so PostgreSQL had no
