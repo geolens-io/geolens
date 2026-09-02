@@ -35,8 +35,10 @@ documentation.
 > tooling: logical dumps cannot participate in WAL replay, so point-in-time
 > recovery requires physical backup plus WAL archiving, which the bundled stack
 > does **not** configure (see [§ 3](#optional-point-in-time-recovery-pitr-with-wal-archiving)).
-> Shorten the exposure with a more frequent `BACKUP_SCHEDULE`, or use a managed
-> database, where the provider's native PITR applies.
+> `BACKUP_SCHEDULE` only accepts a single fixed daily time (`M H * * *`), so
+> this 24-hour floor cannot be shortened by changing it. For a tighter RPO,
+> configure [PITR](#optional-point-in-time-recovery-pitr-with-wal-archiving)
+> or use a managed database, where the provider's native PITR applies.
 
 ### Automated backups are on by default
 
@@ -1675,9 +1677,9 @@ cycle later, and `docker compose ps` shows it — no monitoring stack required.
 
 Tuning and edge behavior:
 
-- **Non-daily schedule?** Set `BACKUP_MAX_AGE_MINUTES` in `.env` to ~1.5× your
-  `BACKUP_SCHEDULE` interval (e.g. every 12 h → `1080`), then re-create the
-  service: `docker compose up -d backup`.
+- **Changed only the time of day?** `BACKUP_SCHEDULE` accepts a single fixed
+  daily time only (`M H * * *`); every valid schedule runs once a day, so the
+  default `BACKUP_MAX_AGE_MINUTES` already covers it and needs no adjustment.
 - **First install / new volume:** no marker exists yet, so the service reports
   `starting` until the initial on-startup backup succeeds — seconds on a fresh
   database. If no backup succeeds within the 10-minute `start_period`, it turns
