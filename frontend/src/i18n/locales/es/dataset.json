@@ -854,6 +854,7 @@
           "passwordLabel": "Contraseña",
           "signInButton": "Iniciar sesión",
           "signedIn": "Sesión iniciada. El token de abajo ya está listo para usarse.",
+          "tokenExpired": "El token expiró. Inicia sesión de nuevo para continuar.",
           "errors": {
             "arcgisSigninRejected": "ArcGIS no aceptó ese inicio de sesión. Comprueba el usuario y la contraseña, incluidas las mayúsculas. Demasiados intentos fallidos también bloquean temporalmente una cuenta de ArcGIS.",
             "arcgisSsoAccount": "Esta cuenta inicia sesión mediante el proveedor de identidad de tu organización, o tiene activada la autenticación multifactor. El inicio de sesión con usuario y contraseña no funcionará aquí. Pega un token o clave de API en su lugar.",

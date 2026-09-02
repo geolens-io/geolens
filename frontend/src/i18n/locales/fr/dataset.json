@@ -854,6 +854,7 @@
           "passwordLabel": "Mot de passe",
           "signInButton": "Se connecter",
           "signedIn": "Connecté. Le jeton ci-dessous est prêt à l'emploi.",
+          "tokenExpired": "Le jeton a expiré. Reconnectez-vous pour continuer.",
           "errors": {
             "arcgisSigninRejected": "ArcGIS n'a pas accepté cette connexion. Vérifiez l'identifiant et le mot de passe, y compris la casse. Trop de tentatives échouées verrouillent aussi temporairement un compte ArcGIS.",
             "arcgisSsoAccount": "Ce compte se connecte via le fournisseur d'identité de votre organisation, ou a l'authentification multifacteur activée. La connexion par identifiant et mot de passe ne fonctionnera pas ici. Collez plutôt un jeton ou une clé API.",

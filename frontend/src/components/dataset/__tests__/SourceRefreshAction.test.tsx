@@ -449,6 +449,14 @@ describe('SourceRefreshAction', () => {
     });
   }
 
+  // codex #1759 round 2: the ArcGIS credential block now schedules a clear
+  // for `expires_at` minus a safety margin, so any test that mints a token
+  // without exercising expiry itself needs an `expires_at` safely in the
+  // future relative to whenever the suite actually runs -- a fixed literal
+  // date goes stale (and the timer fires almost immediately, wiping the
+  // "Signed in" state before an assertion ever sees it).
+  const FAR_FUTURE_EXPIRY = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
   describe('service_token_required credential prompt', () => {
     it('keeps the dialog open on the 422 and never echoes the raw response text into the DOM', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
@@ -551,7 +559,7 @@ describe('SourceRefreshAction', () => {
         });
       mockArcgisSignIn.mockResolvedValue({
         token: 'minted-token-xyz',
-        expires_at: '2026-09-01T13:00:00Z',
+        expires_at: FAR_FUTURE_EXPIRY,
       });
       const user = userEvent.setup();
       render(
@@ -660,7 +668,7 @@ describe('SourceRefreshAction', () => {
 
       // The response lands after close.
       await act(async () => {
-        resolveSignIn({ token: 'late-minted-token', expires_at: '2026-09-01T13:00:00Z' });
+        resolveSignIn({ token: 'late-minted-token', expires_at: FAR_FUTURE_EXPIRY });
         await Promise.resolve();
         await Promise.resolve();
       });
@@ -675,7 +683,7 @@ describe('SourceRefreshAction', () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
       mockArcgisSignIn.mockResolvedValue({
         token: 'first-token',
-        expires_at: '2026-09-01T13:00:00Z',
+        expires_at: FAR_FUTURE_EXPIRY,
       });
       const user = userEvent.setup();
       render(
@@ -713,7 +721,7 @@ describe('SourceRefreshAction', () => {
     it('clears a previously minted token once a sign-in field changes, so a rejected retry submits nothing', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
       mockArcgisSignIn
-        .mockResolvedValueOnce({ token: 'first-token', expires_at: '2026-09-01T13:00:00Z' })
+        .mockResolvedValueOnce({ token: 'first-token', expires_at: FAR_FUTURE_EXPIRY })
         .mockRejectedValueOnce(
           new ApiError('arcgis_signin_rejected', 400, { code: 'arcgis_signin_rejected', message: 'raw' }),
         );
@@ -750,6 +758,101 @@ describe('SourceRefreshAction', () => {
 
       await waitFor(() => {
         expect(mutateAsync).toHaveBeenLastCalledWith({ datasetId: 'dataset-1', token: undefined });
+      });
+    });
+
+    // codex #1759 round 2: the refresh door only stages a credential and
+    // queues the worker, so a dialog left open past the minted token's
+    // lifetime would otherwise submit one already dead on the wire, and
+    // the failure would only surface later in the background.
+    describe('ArcGIS token expiry', () => {
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      async function signInSuccessfully(user: ReturnType<typeof userEvent.setup>, expiresAt: string) {
+        mockArcgisSignIn.mockResolvedValue({ token: 'short-lived-token', expires_at: expiresAt });
+        await openDialog(user);
+        await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+        const methodSelect = await screen.findByLabelText('Authentication method');
+        await user.selectOptions(methodSelect, 'signin');
+        await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+        await user.type(screen.getByLabelText('Username'), 'alice');
+        await user.type(screen.getByLabelText('Password'), 'hunter2');
+        await user.click(screen.getByRole('button', { name: 'Sign in' }));
+        await screen.findByText('Signed in. The token below is ready to use.');
+      }
+
+      it('expires a minted token while the dialog stays open, clearing it and swapping the copy', async () => {
+        mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+        // fix(#831 precedent, VerifyEmailPage.test.tsx): shouldAdvanceTime
+        // keeps the mocked arcgisSignIn promise progressing while fake
+        // timers also control the scheduled expiry; delay: null keeps
+        // userEvent synchronous under them.
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const user = userEvent.setup({ delay: null });
+        render(
+          <SourceRefreshAction
+            dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+            watch={makeWatch()}
+          />,
+        );
+
+        await signInSuccessfully(user, new Date(Date.now() + 60_000).toISOString());
+
+        // Past expires_at minus the 30s safety margin, but before the raw
+        // expiry itself -- proves the margin, not just the raw timestamp,
+        // drives the clear.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(31_000);
+        });
+
+        expect(
+          screen.queryByText('Signed in. The token below is ready to use.'),
+        ).not.toBeInTheDocument();
+        expect(
+          await screen.findByText('The token expired. Sign in again to continue.'),
+        ).toBeInTheDocument();
+
+        await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+        await waitFor(() => {
+          expect(mutateAsync).toHaveBeenLastCalledWith({ datasetId: 'dataset-1', token: undefined });
+        });
+      });
+
+      it('clears the scheduled expiry timer when the dialog closes, so it never fires', async () => {
+        mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const user = userEvent.setup({ delay: null });
+        const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
+        const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
+        render(
+          <SourceRefreshAction
+            dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+            watch={makeWatch()}
+          />,
+        );
+
+        // A long-lived token so the expiry timer's delay (minutes) is
+        // unambiguous against whatever short-delay timers userEvent/jsdom
+        // themselves schedule under fake timers.
+        await signInSuccessfully(user, new Date(Date.now() + 60 * 60 * 1000).toISOString());
+
+        const expiryTimerCallIndex = setTimeoutSpy.mock.calls.findIndex(
+          ([, delay]) => typeof delay === 'number' && delay > 10_000,
+        );
+        expect(expiryTimerCallIndex).toBeGreaterThanOrEqual(0);
+        const expiryTimerId = setTimeoutSpy.mock.results[expiryTimerCallIndex]?.value;
+
+        await user.click(screen.getByRole('button', { name: 'Cancel' }));
+        // Not just "cleared something" -- cleared THIS timer specifically.
+        expect(clearTimeoutSpy).toHaveBeenCalledWith(expiryTimerId);
+
+        // Advancing well past the original expiry raises nothing further --
+        // the block that owned the timer is gone.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
+        });
       });
     });
   });

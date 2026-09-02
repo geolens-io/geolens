@@ -854,6 +854,7 @@
           "passwordLabel": "Passwort",
           "signInButton": "Anmelden",
           "signedIn": "Angemeldet. Das Token unten ist einsatzbereit.",
+          "tokenExpired": "Das Token ist abgelaufen. Melden Sie sich erneut an, um fortzufahren.",
           "errors": {
             "arcgisSigninRejected": "ArcGIS hat diese Anmeldung nicht akzeptiert. Prüfen Sie Benutzername und Passwort, einschließlich Groß- und Kleinschreibung. Zu viele fehlgeschlagene Versuche sperren zudem vorübergehend ein ArcGIS-Konto.",
             "arcgisSsoAccount": "Dieses Konto meldet sich über den Identitätsanbieter Ihrer Organisation an oder hat Multi-Faktor-Authentifizierung aktiviert. Die Anmeldung mit Benutzername und Passwort funktioniert hier nicht. Fügen Sie stattdessen ein Token oder einen API-Schlüssel ein.",

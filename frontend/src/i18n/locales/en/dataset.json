@@ -805,6 +805,7 @@
           "passwordLabel": "Password",
           "signInButton": "Sign in",
           "signedIn": "Signed in. The token below is ready to use.",
+          "tokenExpired": "The token expired. Sign in again to continue.",
           "errors": {
             "arcgisSigninRejected": "ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.",
             "arcgisSsoAccount": "This account signs in through your organization's identity provider, or has multifactor authentication turned on. Username and password sign-in will not work here. Paste a token or API key instead.",

@@ -54,10 +54,26 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   const [signInPending, setSignInPending] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
-  // Bookkeeping only -- nothing renders the expiry, so a ref avoids an
-  // extra re-render on every mint/clear. Still explicitly cleared
-  // alongside `signedIn` and the token itself (codex #1759 round 1, P2).
+  // Bookkeeping only for the raw value; a ref avoids an extra re-render
+  // on every mint/clear. Still explicitly cleared alongside `signedIn` and
+  // the token itself (codex #1759 round 1, P2).
   const expiresAtRef = useRef<string | null>(null);
+  // codex #1759 round 2: distinct from `signInError` -- an expiry is not a
+  // rejected sign-in, it is a credential that WAS valid going stale while
+  // the dialog sat open. Drives the "Token expired" copy in place of
+  // "Signed in".
+  const [tokenExpired, setTokenExpired] = useState(false);
+  const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearExpiryTimer = () => {
+    if (expiryTimerRef.current !== null) {
+      clearTimeout(expiryTimerRef.current);
+      expiryTimerRef.current = null;
+    }
+  };
+
+  const isPastExpiry = () =>
+    expiresAtRef.current !== null && Date.now() >= new Date(expiresAtRef.current).getTime();
   // fix(codex #1759 round 1, P1/P2): a generation counter, not just a
   // boolean, so a stale attempt's response is dropped even when a NEWER
   // attempt is already in flight (not only on unmount). Bumped on unmount
@@ -71,8 +87,26 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   useEffect(() => {
     return () => {
       generationRef.current += 1;
+      clearExpiryTimer();
     };
   }, []);
+
+  // codex #1759 round 2, belt: the scheduled timer above is the primary
+  // mechanism, but re-verify on every render too (method switch, a field
+  // edit, the `disabled` prop flipping when "Start refresh" is clicked) in
+  // case the timer fires late -- background-tab throttling can delay a
+  // `setTimeout` well past its nominal delay. Deliberately has no
+  // dependency array so it runs after EVERY render, not only when
+  // `signedIn` changes -- that is the whole point of a render-triggered
+  // recheck. Self-heals by running the exact same clear the timer runs;
+  // does nothing once `signedIn` is already false, so this cannot loop.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (signedIn && isPastExpiry()) {
+      clearMintedCredential();
+      setTokenExpired(true);
+    }
+  });
 
   // fix(codex #1759 round 1, P2): a minted token describes the fields it
   // was minted from. Once any of those fields changes, or a new attempt
@@ -82,6 +116,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   const clearMintedCredential = () => {
     setSignedIn(false);
     expiresAtRef.current = null;
+    clearExpiryTimer();
     onTokenChange('');
   };
 
@@ -89,6 +124,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
     const next = value as ArcgisAuthMethod;
     setMethod(next);
     setSignInError(null);
+    setTokenExpired(false);
     clearMintedCredential();
     if (next !== 'signin') {
       setPortalUrl('');
@@ -99,16 +135,19 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
 
   const handlePortalUrlChange = (value: string) => {
     setPortalUrl(value);
+    setTokenExpired(false);
     clearMintedCredential();
   };
 
   const handleUsernameChange = (value: string) => {
     setUsername(value);
+    setTokenExpired(false);
     clearMintedCredential();
   };
 
   const handlePasswordChange = (value: string) => {
     setPassword(value);
+    setTokenExpired(false);
     clearMintedCredential();
   };
 
@@ -121,6 +160,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
     // submit (fix P2).
     const generation = (generationRef.current += 1);
     setSignInError(null);
+    setTokenExpired(false);
     clearMintedCredential();
     setSignInPending(true);
     try {
@@ -144,6 +184,24 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       // The password has finished its one job -- minting the token -- and
       // must not linger in state any longer than that took.
       setPassword('');
+
+      // codex #1759 round 2: the refresh door only stages this credential
+      // and queues the worker -- it does not use it synchronously -- so a
+      // dialog left open past the token's lifetime would otherwise submit
+      // one already-dead on the wire, and the failure would only surface
+      // later in the background. Schedule the clear for a safety margin
+      // BEFORE the real expiry, not at it, so a slow clock or a slightly
+      // stale local view of `expires_at` still clears before the origin
+      // itself would refuse the token.
+      clearExpiryTimer();
+      const expiresAtMs = new Date(result.expires_at).getTime();
+      const EXPIRY_SAFETY_MARGIN_MS = 30_000;
+      const delay = Math.max(0, expiresAtMs - Date.now() - EXPIRY_SAFETY_MARGIN_MS);
+      expiryTimerRef.current = setTimeout(() => {
+        if (generationRef.current !== generation) return;
+        clearMintedCredential();
+        setTokenExpired(true);
+      }, delay);
     } catch (err) {
       if (generationRef.current !== generation) return;
       setSignedIn(false);
@@ -271,6 +329,11 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
           {signedIn && !signInError && (
             <p className="text-xs text-muted-foreground">
               {t('sourcePanel.refresh.credential.arcgis.signedIn')}
+            </p>
+          )}
+          {tokenExpired && !signInError && (
+            <p className="text-sm text-destructive">
+              {t('sourcePanel.refresh.credential.arcgis.tokenExpired')}
             </p>
           )}
           {signInError && <p className="text-sm text-destructive">{signInError}</p>}
