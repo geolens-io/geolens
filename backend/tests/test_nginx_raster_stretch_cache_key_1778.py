@@ -1,6 +1,6 @@
 """The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1-3 on #1791).
+answer (#1778, codebase audit 2026-08-30; codex rounds 1-4 on #1791).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -13,52 +13,52 @@ byte-identical to the unfiltered tile, the same defeat #1785 closed for the
 vector tile ``cols=`` param.
 
 Round 1 blanked every inactive value unconditionally, which could let a
-cache HIT answer with a status an uncached request would not have gotten
-(raster_tile_proxy validated pmin/pmax/sigma whenever PRESENT, regardless of
-mode). Round 2 changed the API side instead of chasing that nginx-only fix
-further: raster_tile_proxy now IGNORES pmin/pmax when stretch is not
-percentile and sigma when it is not stddev, so blanking an inactive value
-can never disagree with the API about STATUS -- there is no verdict left to
-disagree with.
+cache HIT answer with a status an uncached request would not have gotten.
+Round 2 made raster_tile_proxy IGNORE pmin/pmax when stretch is not
+percentile and sigma when it is not stddev, instead of merely leaving them
+unvalidated, so blanking an inactive value can no longer disagree with the
+API about STATUS. Round 3 found nginx's raw read of the query string can
+still disagree with the API's decoded read about VALUE or MODE independent
+of validation (percent-encoded or case-varied `stretch`, a malformed float),
+and required an EXACT canonical spelling plus well-formedness before
+blanking.
 
-Round 3 found that round 2's API change is necessary but not sufficient,
-because nginx's read of the query string and the API's read of it can
-disagree about which VALUE, or even which MODE, is in play, independent of
-what the API validates or ignores:
+Round 4 found round 3's exact-spelling check assumed nginx's own $arg_NAME
+lookup is case-sensitive on the parameter NAME. It is not: nginx's arg
+matcher (ngx_http_arg -> ngx_strlcasestrn) is case-INSENSITIVE on the name,
+so $arg_stretch resolves from `Stretch=`, `STRETCH=`, etc, while FastAPI's
+query-param binding is exact-case. `?Stretch=minmax&stretch=percentile&pmin=5`
+had nginx read stretch=minmax (the first case-insensitive match, "inactive",
+blank pmin) while the API read stretch=percentile (the only EXACT-case
+match, active, uses pmin=5) -- a cache collision, not a status mismatch,
+because round 3's duplicate detector was itself case-sensitive-only and
+never saw this as a duplicate at all.
 
-- percent-encoding: ``stretch=%70ercentile`` decodes to the ACTIVE spelling
-  at the API (FastAPI URL-decodes query params) but nginx's raw
-  ``$arg_stretch`` never matches ``percentile`` literally. Treating "not the
-  literal active spelling" as "therefore inactive" blanked pmin here, so two
-  requests with different pmin values collapsed onto ONE key while the API
-  rendered DIFFERENT bytes for them: a cache collision, not a status
-  mismatch.
-- a case variant (``MinMax``), for the same reason (nginx's regex is
-  case-sensitive and never normalizes).
-- a malformed float (``pmin=abc``): the API's "ignore when inactive" code in
-  ``raster_tile_proxy`` never runs for this, because FastAPI's
-  ``pmin: float | None`` coerces the query param to a ``float`` BEFORE the
-  endpoint body executes at all, and ``abc`` fails that coercion with a 422
-  regardless of stretch mode. Blanking it let a cached 200 answer a request
-  the API 422s uncached.
-
-The principle that closes all three the same way: blank an argument ONLY
-when nginx can be CERTAIN blanking cannot change the outcome -- the raw
-``$arg_stretch`` is EXACTLY one of the canonical spellings this argument is
-inactive under (no percent-encoding, no case variant: PCRE matches the
-literal, decoded string only) AND the argument itself is a well-formed float
-in the range that matters in the one mode where it IS active. Everything
-else -- an unrecognized stretch spelling, a duplicated one
-($geolens_raster_stretch_dup), a malformed or merely out-of-range value -- is
-left RAW: the request misses the cache and the API decides on its own terms.
-Failing toward "keep raw" only ever costs an extra cache miss; failing
-toward "blank" risks a wrong tile or a wrong status.
+The round-4 rule: blanking is allowed ONLY when $args is in STRICT CANONICAL
+FORM -- each of stretch/pmin/pmax/sigma appears at most once (checked
+CASE-INSENSITIVELY), every occurrence of each is spelled EXACTLY lowercase,
+and none is percent-encoded. $geolens_raster_noncanonical checks this
+directly against the raw $args string (not derived from any single $arg_*
+lookup, so it cannot inherit nginx's own case-insensitivity or decoding
+blind spots). When non-canonical, $geolens_raster_cache_extra folds the
+ENTIRE raw $args into the cache key, so correctness there is independent of
+any per-parameter reasoning: two requests share a key in the non-canonical
+case if and only if their raw query strings are identical.
 
 These are structural (they read the conf and simulate nginx's own map
-evaluation in Python, including nginx's $arg_x "first occurrence of a
-repeated key" semantics and its PCRE case-sensitivity), because there is no
-nginx binary in this test environment to render and query directly. The
-companion API-level pin lives in test_raster_colormap_proxy.py::
+evaluation in Python), because there is no nginx binary in this test
+environment to render and query directly. The simulation models nginx's
+actual matching semantics precisely where it matters here:
+  - $arg_NAME lookup is case-INSENSITIVE on the name (see _nginx_arg).
+  - map regex matching searches the WHOLE string (like re.search), not
+    anchored at position 0 (like re.match) -- a pattern such as
+    ``(?:^|&)stretch=.*(?:^|&)stretch=`` must still find a duplicate whose
+    first occurrence is not at the very start of $args.
+  - a map entry's regex can independently be case-sensitive (``~pattern``)
+    or case-insensitive (``~*pattern``), exactly as nginx's map directive
+    supports per entry.
+
+The companion API-level pin lives in test_raster_colormap_proxy.py::
 TestRasterColormapProxy::
 test_out_of_range_bounds_are_ignored_under_an_inactive_stretch_mode, which
 confirms the API side of the contract these maps rely on: pmin/pmax/sigma
@@ -81,19 +81,23 @@ _PROXY_CACHE_KEY = re.compile(r'^\s*proxy_cache_key\s+"([^"]+)"\s*;', re.M)
 # (unquoted source template, dest var) for each per-parameter map.
 _MAPS: dict[str, tuple[str, str]] = {
     "pmin": (
-        "$geolens_raster_stretch_dup:$arg_stretch:$arg_pmin",
+        "$geolens_raster_noncanonical:$arg_stretch:$arg_pmin",
         "$geolens_raster_pmin",
     ),
     "pmax": (
-        "$geolens_raster_stretch_dup:$arg_stretch:$arg_pmax",
+        "$geolens_raster_noncanonical:$arg_stretch:$arg_pmax",
         "$geolens_raster_pmax",
     ),
     "sigma": (
-        "$geolens_raster_stretch_dup:$arg_stretch:$arg_sigma",
+        "$geolens_raster_noncanonical:$arg_stretch:$arg_sigma",
         "$geolens_raster_sigma",
     ),
 }
-_DUP_MAP: tuple[str, str] = ("$args", "$geolens_raster_stretch_dup")
+_NONCANONICAL_MAP: tuple[str, str] = ("$args", "$geolens_raster_noncanonical")
+_CACHE_EXTRA_MAP: tuple[str, str] = (
+    "$geolens_raster_noncanonical:$args",
+    "$geolens_raster_cache_extra",
+)
 
 
 def _without_comments(text: str) -> str:
@@ -139,16 +143,21 @@ def _map_body(text: str, source_expr: str, dest_var: str) -> str:
     )
 
 
-def _map_entries_ordered(body: str) -> tuple[list[tuple[str, str]], str]:
-    """``([(pattern_without_tilde, value_template), ...], default_template)``.
+def _map_entries_ordered(
+    body: str,
+) -> tuple[list[tuple[str, bool, str]], str]:
+    """``([(pattern_without_prefix, case_insensitive, value_template), ...],
+    default_template)``.
 
     Declaration order is preserved, since nginx tries regex entries in the
-    order they were written and the first match wins. Asserts every non-default
-    entry is a regex (``~``-prefixed) -- a literal entry slipping in would be
-    matched by nginx's hash lookup instead, which this simulation does not
-    model, and a silent mismatch there is worse than a loud assertion here.
+    order they were written and the first match wins. Each entry's prefix is
+    either ``~`` (case-sensitive) or ``~*`` (case-insensitive), exactly as
+    nginx's map directive supports per entry -- a literal (non-regex) entry
+    slipping in would be matched by nginx's hash lookup instead, which this
+    simulation does not model, and a silent mismatch there is worse than a
+    loud assertion here.
     """
-    entries: list[tuple[str, str]] = []
+    entries: list[tuple[str, bool, str]] = []
     default_value: str | None = None
     for line in body.splitlines():
         line = line.strip().rstrip(";")
@@ -159,22 +168,26 @@ def _map_entries_ordered(body: str) -> tuple[list[tuple[str, str]], str]:
         value = value.strip().strip('"')
         if key == "default":
             default_value = value
+        elif key.startswith("~*"):
+            entries.append((key[2:], True, value))
+        elif key.startswith("~"):
+            entries.append((key[1:], False, value))
         else:
-            assert key.startswith("~"), f"expected a regex map entry, got {key!r}"
-            entries.append((key[1:], value))
+            raise AssertionError(f"expected a regex map entry, got {key!r}")
     assert default_value is not None, "map has no default entry"
     return entries, default_value
 
 
 def _nginx_arg(args_string: str, name: str) -> str:
     """nginx's ``$arg_NAME``: the value of the FIRST occurrence of ``name`` in
-    the raw query string, or "" if absent. nginx does not URL-decode $arg_*,
-    and neither does this."""
+    the raw query string, matched CASE-INSENSITIVELY on the name (nginx's
+    ngx_http_arg uses ngx_strlcasestrn, fix(#1778 codex r4)) -- and never
+    URL-decoded."""
     for pair in args_string.split("&"):
         if not pair:
             continue
         key, _, value = pair.partition("=")
-        if key == name:
+        if key.lower() == name.lower():
             return value
     return ""
 
@@ -191,16 +204,24 @@ def _expand(template: str, values: dict[str, str]) -> str:
 
 def _evaluate_map(
     source_template: str,
-    entries: list[tuple[str, str]],
+    entries: list[tuple[str, bool, str]],
     default_value: str,
     values: dict[str, str],
 ) -> str:
     """Evaluate one nginx ``map`` the way nginx itself would: try each regex
-    entry in declaration order (PCRE, case-sensitive, exactly as nginx's
-    default), first match wins; ``default`` otherwise."""
+    entry in declaration order, first match wins; ``default`` otherwise.
+
+    Uses ``re.search``, not ``re.match``: nginx's map regex testing searches
+    the whole string rather than anchoring at position 0, so a pattern like
+    ``(?:^|&)stretch=.*(?:^|&)stretch=`` must find a duplicate even when the
+    first occurrence of the name is not at the very start of $args. A
+    genuinely anchored pattern (``^...$``) behaves identically under either,
+    since ``^``/``$`` still assert the true start/end of the string.
+    """
     source = _expand(source_template, values)
-    for pattern, template in entries:
-        if re.match(pattern, source):
+    for pattern, case_insensitive, template in entries:
+        flags = re.IGNORECASE if case_insensitive else 0
+        if re.search(pattern, source, flags):
             return _expand(template, values)
     return _expand(default_value, values)
 
@@ -209,25 +230,39 @@ def _conf() -> str:
     return _without_comments(NGINX_CONF.read_text())
 
 
-def _stretch_dup(conf: str, args_string: str) -> str:
-    """``$geolens_raster_stretch_dup`` for a raw query string."""
-    source_expr, dest_var = _DUP_MAP
+def _noncanonical(conf: str, args_string: str) -> str:
+    """``$geolens_raster_noncanonical`` for a raw query string."""
+    source_expr, dest_var = _NONCANONICAL_MAP
     entries, default_value = _map_entries_ordered(
         _map_body(conf, source_expr, dest_var)
     )
     return _evaluate_map(source_expr, entries, default_value, {"args": args_string})
 
 
+def _cache_extra(conf: str, args_string: str) -> str:
+    """``$geolens_raster_cache_extra`` for a raw query string."""
+    source_expr, dest_var = _CACHE_EXTRA_MAP
+    entries, default_value = _map_entries_ordered(
+        _map_body(conf, source_expr, dest_var)
+    )
+    values = {
+        "geolens_raster_noncanonical": _noncanonical(conf, args_string),
+        "args": args_string,
+    }
+    return _evaluate_map(source_expr, entries, default_value, values)
+
+
 def _derive(conf: str, param: str, args_string: str) -> str:
     """The cache-key value nginx would compute for ``param`` given the raw
-    query string ``args_string`` -- $arg_x's first-occurrence semantics and
-    the duplicate-stretch guard both apply, exactly as nginx would."""
+    query string ``args_string`` -- $arg_x's case-insensitive,
+    first-occurrence semantics and the canonical-form guard both apply,
+    exactly as nginx would."""
     source_template, dest_var = _MAPS[param]
     entries, default_value = _map_entries_ordered(
         _map_body(conf, source_template, dest_var)
     )
     values = {
-        "geolens_raster_stretch_dup": _stretch_dup(conf, args_string),
+        "geolens_raster_noncanonical": _noncanonical(conf, args_string),
         "arg_stretch": _nginx_arg(args_string, "stretch"),
         f"arg_{param}": _nginx_arg(args_string, param),
     }
@@ -246,7 +281,8 @@ def _qs(**params: str) -> str:
 
 def test_cache_key_does_not_hold_the_raw_stretch_args():
     """The raw args must not appear in proxy_cache_key at all -- only the
-    mapped variables that blank what the active stretch mode ignores."""
+    mapped variables that blank what the active stretch mode ignores, plus
+    the non-canonical escape hatch."""
     conf = _conf()
     match = _PROXY_CACHE_KEY.search(_location_block(conf, RASTER_TILES_LOCATION))
     assert match, "expected a proxy_cache_key in the /raster-tiles/ location"
@@ -262,14 +298,15 @@ def test_cache_key_does_not_hold_the_raw_stretch_args():
         "$geolens_raster_pmin",
         "$geolens_raster_pmax",
         "$geolens_raster_sigma",
+        "$geolens_raster_cache_extra",
     ):
         assert mapped_var in key, f"expected {mapped_var} in proxy_cache_key: {key!r}"
 
 
 # ---------------------------------------------------------------------------
-# pmin / pmax: percentile is the active mode; sigma: stddev is. Round 3:
-# blank ONLY when stretch is an EXACT canonical inactive spelling AND the
-# value is a well-formed float in range -- everything else stays raw.
+# pmin / pmax: percentile is the active mode; sigma: stddev is. Blank ONLY
+# when stretch is an EXACT canonical inactive spelling AND the value is a
+# well-formed float in range -- everything else stays raw (round 3).
 # ---------------------------------------------------------------------------
 
 
@@ -303,10 +340,13 @@ def test_well_formed_value_under_a_canonical_inactive_mode_collapses_to_one_key(
         assert {
             _derive(conf, "sigma", _qs(stretch=stretch, sigma=v)) for v in sigma_values
         } == {""}
-    # stddev is the OTHER canonical inactive spelling for pmin/pmax.
     assert {
         _derive(conf, "pmin", _qs(stretch="stddev", pmin=v)) for v in pmin_pmax_values
     } == {""}
+    for value in pmin_pmax_values:
+        assert _cache_extra(conf, _qs(stretch="minmax", pmin=value)) == "", (
+            "a canonical request must not add anything to the cache key"
+        )
 
 
 def test_sigma_still_varies_the_key_under_stddev():
@@ -329,10 +369,7 @@ def test_sigma_still_varies_the_key_under_stddev():
 def test_out_of_range_value_under_a_canonical_inactive_mode_stays_raw():
     """A value the well-formedness check rejects (out of [0, 100] for
     pmin/pmax, not > 0 for sigma) stays RAW even under an exact canonical
-    inactive spelling -- the conservative direction the coordinator's
-    principle asks for: some legitimate-but-unusual values miss the cache
-    that technically could not have changed the answer either, in exchange
-    for never needing a more permissive, harder-to-audit numeric regex."""
+    inactive spelling."""
     conf = _conf()
     for bad in ("200", "-5", "101", "100.5"):
         assert _derive(conf, "pmin", _qs(stretch="minmax", pmin=bad)) == bad
@@ -342,9 +379,10 @@ def test_out_of_range_value_under_a_canonical_inactive_mode_stays_raw():
 
 
 # ---------------------------------------------------------------------------
-# fix(#1778 codex r3): the three ways nginx's raw read of the query string
-# can disagree with the API's decoded/coerced read, independent of what the
-# API validates or ignores. Each must stay raw, never blank.
+# fix(#1778 codex r3): percent-encoded/case-varied VALUES of stretch, and
+# malformed float values, must stay raw. These are canonical-form requests
+# (one exact-lowercase name each), so $geolens_raster_cache_extra is empty
+# for them -- the per-parameter fallback alone closes these.
 # ---------------------------------------------------------------------------
 
 
@@ -362,103 +400,166 @@ def test_percent_encoded_active_spelling_stays_raw():
     derived_50 = _derive(conf, "pmin", args_50)
     assert derived_5 == "5"
     assert derived_50 == "50"
-    assert derived_5 != derived_50, (
-        "a percent-encoded active stretch spelling must not let two "
-        "different pmin values collapse onto one cache key"
-    )
-
-
-def test_case_variant_of_a_canonical_spelling_stays_raw():
-    """PCRE matching here is case-sensitive by default, same as FastAPI's
-    Literal validator (which would 422 `MinMax` as an invalid literal value
-    -- not decode-and-normalize it the way percent-encoding is decoded). A
-    case variant must never be treated as the canonical inactive spelling."""
-    conf = _conf()
-    for variant in ("MinMax", "MINMAX", "Stddev", "PERCENTILE"):
-        derived = _derive(conf, "pmin", _qs(stretch=variant, pmin="5"))
-        assert derived == "5", (
-            f"stretch={variant!r} must keep pmin raw (got {derived!r}) -- "
-            "nginx must never treat a case variant as a canonical spelling"
-        )
+    assert derived_5 != derived_50
 
 
 def test_malformed_float_under_an_inactive_mode_stays_raw():
-    """`?stretch=minmax&pmin=abc` must miss the cache, not collapse onto the
-    plain `?stretch=minmax` key. FastAPI's `pmin: float | None` coerces the
-    query param to a float BEFORE raster_tile_proxy's body runs at all --
-    round 2's "ignore pmin when inactive" code never gets a chance to run,
-    because the framework's own type coercion 422s on a non-numeric string
-    regardless of stretch mode. Blanking it here would let a cached 200
-    answer that 422.
-
-    Values chosen to be unambiguously non-numeric -- not merely large or
-    signed, both of which Python's own float() parser (and therefore
-    pydantic's coercion) accepts without a 422, and which the well-formed
-    numeric regex already keeps raw for the "out of range" reason covered
-    separately above.
-    """
+    """`?stretch=minmax&pmin=abc` must miss the cache. FastAPI's
+    `pmin: float | None` coerces the query param to a float BEFORE
+    raster_tile_proxy's body runs at all, and `abc` fails that coercion with
+    a 422 regardless of stretch mode."""
     conf = _conf()
     for bad in ("abc", "5,6", "50:60", "1.2.3", "five"):
         derived = _derive(conf, "pmin", _qs(stretch="minmax", pmin=bad))
-        assert derived == bad, (
-            f"pmin={bad!r} under stretch=minmax must stay RAW (got "
-            f"{derived!r}) -- FastAPI's float coercion 422s this regardless "
-            "of stretch mode, and blanking it would let a cache hit answer "
-            "a 200 for what an uncached request 422s"
-        )
+        assert derived == bad
     for bad in ("abc", "1,2", "5.6.7"):
         derived = _derive(conf, "sigma", _qs(stretch="minmax", sigma=bad))
         assert derived == bad
 
 
 # ---------------------------------------------------------------------------
-# Duplicate `pmin`/`pmax`/`sigma`: closed by ignoring the inactive value
-# entirely at the API AND requiring well-formedness at nginx, so which
-# occurrence either side reads matters only when it changes well-formedness.
+# fix(#1778 codex r4): the four names are matched CASE-INSENSITIVELY by
+# nginx's own $arg_NAME lookup, and a case variant or percent-encoded name
+# anywhere makes the WHOLE request non-canonical -- $geolens_raster_
+# cache_extra then folds the entire raw $args into the key, independent of
+# what any single per-parameter map would have derived.
 # ---------------------------------------------------------------------------
 
 
-def test_repeated_well_formed_inactive_param_collapses_regardless_of_occurrence_order():
-    """Both duplicate occurrences are well-formed and in range, so nginx's
-    FIRST-occurrence read and the API's LAST-occurrence read are both
-    ignored identically under stretch=minmax -- collapsing is safe regardless
-    of which one nginx happens to see."""
+def test_mixed_case_duplicate_is_noncanonical_and_the_whole_args_breaks_the_tie():
+    """codex round 4's exact finding: nginx's $arg_stretch is case-
+    INSENSITIVE, so it resolves `Stretch=minmax` (the first case-insensitive
+    match) while FastAPI's exact-case binding resolves the later
+    `stretch=percentile` -- a mode disagreement round 3's case-sensitive-only
+    duplicate detector could not see. Two requests differing only in pmin
+    must not share a key."""
     conf = _conf()
-    a = _derive(conf, "pmin", "stretch=minmax&pmin=5&pmin=50")
-    b = _derive(conf, "pmin", "stretch=minmax&pmin=50&pmin=5")
-    assert a == b == "", f"got {a!r} and {b!r}, expected both blank"
+    args_5 = "Stretch=minmax&stretch=percentile&pmin=5"
+    args_50 = "Stretch=minmax&stretch=percentile&pmin=50"
+    assert _noncanonical(conf, args_5) == "1"
+    assert _noncanonical(conf, args_50) == "1"
+    extra_5 = _cache_extra(conf, args_5)
+    extra_50 = _cache_extra(conf, args_50)
+    assert extra_5 == args_5
+    assert extra_50 == args_50
+    assert extra_5 != extra_50, (
+        "a mixed-case duplicated stretch must not let two different pmin "
+        "values collapse onto one cache key"
+    )
+
+
+def test_mixed_case_single_occurrence_is_noncanonical():
+    """No duplicate at all -- just one `Stretch=minmax` -- but FastAPI
+    ignores it entirely (exact-case key lookup finds nothing named
+    `stretch`) while nginx's case-insensitive $arg_stretch still resolves
+    it. Must stay non-canonical regardless of the specific value, so this
+    class cannot recur through a future change in what the API's absent-
+    stretch default happens to render."""
+    conf = _conf()
+    args = "Stretch=minmax&pmin=5"
+    assert _noncanonical(conf, args) == "1"
+    assert _cache_extra(conf, args) == args
+
+
+def test_encoded_name_is_noncanonical():
+    """`%73tretch=percentile` decodes to the key `stretch` at the API
+    (FastAPI URL-decodes query keys) but nginx never decodes $arg_* keys, so
+    $arg_stretch resolves to "" here (no literal `stretch=` substring) --
+    the API's real active mode is invisible to nginx entirely."""
+    conf = _conf()
+    args = "%73tretch=percentile&pmin=5"
+    assert _noncanonical(conf, args) == "1"
+    assert _cache_extra(conf, args) == args
+
+
+def test_uppercase_and_all_caps_variants_of_every_name_are_noncanonical():
+    conf = _conf()
+    for variant_args in (
+        "STRETCH=minmax&pmin=5",
+        "stretch=minmax&PMIN=5",
+        "stretch=minmax&Pmax=5",
+        "stretch=stddev&SIGMA=2",
+    ):
+        assert _noncanonical(conf, variant_args) == "1", variant_args
+
+
+def test_case_insensitive_duplicate_of_pmin_pmax_sigma_is_noncanonical():
+    """The duplicate check itself must be case-insensitive for all four
+    names, not just stretch."""
+    conf = _conf()
+    for variant_args in (
+        "stretch=minmax&pmin=5&Pmin=200",
+        "stretch=minmax&pmax=5&PMAX=200",
+        "stretch=stddev&sigma=2&Sigma=200",
+    ):
+        assert _noncanonical(conf, variant_args) == "1", variant_args
+
+
+def test_ordinary_canonical_request_is_unaffected():
+    """The guard must not fire on the common path: exact lowercase names,
+    each at most once, well-formed values."""
+    conf = _conf()
+    for args in (
+        "stretch=minmax&pmin=5",
+        "stretch=percentile&pmin=5&pmax=95",
+        "stretch=stddev&sigma=3",
+        "z=1",  # no stretch/pmin/pmax/sigma at all
+    ):
+        assert _noncanonical(conf, args) == "0", args
+        assert _cache_extra(conf, args) == "", args
+
+
+def test_duplicate_detection_finds_a_duplicate_not_starting_at_position_zero():
+    """Regression guard for the simulation itself (fix(#1778 codex r4)): the
+    map regex must be evaluated as an unanchored SEARCH, matching nginx's own
+    semantics, not a Python re.match anchored at position 0 -- otherwise a
+    duplicate whose first occurrence isn't the very first key in $args would
+    be silently missed by this test suite while nginx itself still finds
+    it."""
+    conf = _conf()
+    assert _noncanonical(conf, "pmin=5&stretch=minmax&stretch=percentile") == "1"
+    assert _noncanonical(conf, "colormap_name=x&pmin=5&Pmin=200") == "1"
+
+
+# ---------------------------------------------------------------------------
+# Duplicate `pmin`/`pmax`/`sigma` (exact lowercase, round 2/3): closed by
+# ignoring the inactive value entirely at the API AND requiring
+# well-formedness at nginx, so which occurrence either side reads matters
+# only when it changes well-formedness.
+# ---------------------------------------------------------------------------
+
+
+def test_a_repeated_pmin_is_noncanonical_even_when_both_occurrences_are_well_formed():
+    """fix(#1778 codex r4): strict canonical form requires each of the four
+    names to appear AT MOST ONCE, full stop -- not merely "blank is safe
+    here" reasoning about what the duplicate values happen to be. A
+    repeated pmin, even same-case and even with both occurrences well-formed
+    and in range, is therefore non-canonical and stays raw: nginx's own
+    first-occurrence reading differs between these two requests (5 vs 50),
+    so they get different keys either way -- safe by keeping raw, not by
+    collapsing."""
+    conf = _conf()
+    args_a = "stretch=minmax&pmin=5&pmin=50"
+    args_b = "stretch=minmax&pmin=50&pmin=5"
+    assert _noncanonical(conf, args_a) == "1"
+    assert _noncanonical(conf, args_b) == "1"
+    a = _derive(conf, "pmin", args_a)
+    b = _derive(conf, "pmin", args_b)
+    assert a == "5"
+    assert b == "50"
+    assert a != b
 
 
 def test_repeated_param_stays_raw_when_the_first_occurrence_is_not_well_formed():
     """codex's literal example: nginx reads the FIRST occurrence of a
     repeated pmin. When that first occurrence is out of range or malformed,
     nginx must keep it raw regardless of what the API's LAST-occurrence read
-    would have been -- the well-formedness gate applies to whichever
-    occurrence nginx actually sees, not to some notion of "the pair"."""
+    would have been."""
     conf = _conf()
     out_of_range_first = _derive(conf, "pmin", "stretch=minmax&pmin=200&pmin=5")
     malformed_first = _derive(conf, "pmin", "stretch=minmax&pmin=abc&pmin=5")
     assert out_of_range_first == "200"
     assert malformed_first == "abc"
-
-
-# ---------------------------------------------------------------------------
-# Duplicate `stretch`: nginx and the API can disagree about which mode is
-# ACTIVE. $geolens_raster_stretch_dup detects this and falls back to raw.
-# ---------------------------------------------------------------------------
-
-
-def test_stretch_dup_detects_a_repeated_stretch_key():
-    conf = _conf()
-    assert _stretch_dup(conf, "stretch=minmax&pmin=5") == "0"
-    assert _stretch_dup(conf, "pmin=5") == "0"
-    assert _stretch_dup(conf, "stretch=percentile") == "0"
-    assert _stretch_dup(conf, "stretch=minmax&stretch=percentile&pmin=5") == "1"
-    assert _stretch_dup(conf, "stretch=percentile&pmin=5&stretch=minmax") == "1"
-    # A repeat of the SAME value is still a repeat -- harmless (nginx and the
-    # API necessarily agree), but detected the same way; the raw-fallback
-    # this triggers is safe either way, just occasionally unnecessary.
-    assert _stretch_dup(conf, "stretch=minmax&stretch=minmax&pmin=5") == "1"
 
 
 def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
@@ -472,14 +573,8 @@ def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
     conf = _conf()
     args_a = "stretch=minmax&stretch=percentile&pmin=5"
     args_b = "stretch=minmax&stretch=percentile&pmin=50"
-    derived_a = _derive(conf, "pmin", args_a)
-    derived_b = _derive(conf, "pmin", args_b)
-    assert derived_a == "5"
-    assert derived_b == "50"
-    assert derived_a != derived_b, (
-        "a duplicated stretch must not let two different pmin values "
-        "collapse onto one cache key"
-    )
+    assert _noncanonical(conf, args_a) == "1"
+    assert _cache_extra(conf, args_a) != _cache_extra(conf, args_b)
 
 
 def test_non_duplicated_stretch_is_unaffected_by_the_guard():
