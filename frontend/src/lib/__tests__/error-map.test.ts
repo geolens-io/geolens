@@ -167,6 +167,53 @@ describe('API error localization boundary', () => {
     );
   });
 
+  // Lane A2 (service-auth wave): POST /services/arcgis/signin/'s refusal
+  // taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+  it('maps the ArcGIS sign-in refusal taxonomy to distinct static keys', () => {
+    expect(
+      classifyApiError(
+        { code: 'arcgis_signin_rejected', message: 'invalid credentials', field: 'credential' },
+        400,
+      ),
+    ).toEqual({ key: 'errors.arcgisSigninRejected' });
+
+    expect(
+      classifyApiError(
+        { code: 'arcgis_sso_account', message: 'federated identity', field: 'credential' },
+        400,
+      ),
+    ).toEqual({ key: 'errors.arcgisSsoAccount' });
+
+    expect(
+      classifyApiError(
+        { code: 'ssrf_refused', message: 'blocked private address', field: 'url' },
+        400,
+      ),
+    ).toEqual({ key: 'errors.arcgisPortalUnreachable' });
+
+    // network_error covers both the 502 (unreachable) and 504 (timeout)
+    // cases the endpoint can raise; it reuses the existing generic copy
+    // rather than a new key.
+    expect(
+      classifyApiError({ code: 'network_error', message: 'connection refused', field: 'url' }, 502),
+    ).toEqual({ key: 'errors.couldNotReachService' });
+    expect(
+      classifyApiError({ code: 'network_error', message: 'timed out', field: 'url' }, 504),
+    ).toEqual({ key: 'errors.couldNotReachService' });
+  });
+
+  it('falls back the ArcGIS sign-in rate limit to the generic 429 key, unmapped by code', () => {
+    // rate_limited carries no dedicated entry: the object branch falls
+    // through to its message, which in turn falls through to the generic
+    // 429 status key — the same path #774 already relies on.
+    expect(
+      classifyApiError(
+        { code: 'rate_limited', message: 'Too many sign-in attempts', field: 'credential' },
+        429,
+      ),
+    ).toEqual({ key: 'errors.rateLimited' });
+  });
+
   it('drops the dynamic SSRF diagnostic suffix from the refresh URL refusal', () => {
     expect(
       translateApiErrorDetail(

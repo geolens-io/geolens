@@ -14,15 +14,18 @@ import { render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import type { ProbeResponse } from '@/types/api';
+import { ApiError } from '@/api/client';
 
 const mockProbeService = vi.fn();
 const mockPreviewServiceLayer = vi.fn();
 const mockCommitImport = vi.fn();
+const mockArcgisSignin = vi.fn();
 
 vi.mock('@/api/ingest', () => ({
   probeService: (...args: unknown[]) => mockProbeService(...args),
   previewServiceLayer: (...args: unknown[]) => mockPreviewServiceLayer(...args),
   commitImport: (...args: unknown[]) => mockCommitImport(...args),
+  arcgisSignin: (...args: unknown[]) => mockArcgisSignin(...args),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -45,6 +48,13 @@ vi.mock('../JobProgress', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+// Radix Select needs these in jsdom.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 const DUPLICATE_NAME_PROBE: ProbeResponse = {
@@ -167,5 +177,125 @@ describe('ServiceUrlForm layer picker with a shared layer name', () => {
         expect.objectContaining({ layer_id: 17 }),
       ),
     );
+  });
+});
+
+/**
+ * Lane A2 (service-auth wave): ArcGIS auth method select. An ArcGIS-shaped
+ * URL (matching /(FeatureServer|MapServer)/, mirroring the backend adapter's
+ * own detection) swaps the plain optional token field for a three-way
+ * Authentication select: no authentication, sign in, or paste a token.
+ */
+const ARCGIS_URL = 'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer';
+
+async function typeArcGisUrl(user: ReturnType<typeof userEvent.setup>) {
+  render(<ServiceUrlForm />);
+  await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+  return user;
+}
+
+async function chooseAuthMethod(user: ReturnType<typeof userEvent.setup>, optionName: string) {
+  await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+  await user.click(await screen.findByRole('option', { name: optionName }));
+}
+
+describe('ServiceUrlForm ArcGIS auth method select', () => {
+  it('discards a pasted token when switching to Sign in and back', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    const tokenInput = screen.getByLabelText('Token or API key');
+    await user.type(tokenInput, 'my-pasted-token');
+    expect(tokenInput).toHaveValue('my-pasted-token');
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await chooseAuthMethod(user, 'Paste a token or API key');
+
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('');
+  });
+
+  it('discards sign-in fields when switching to Paste a token', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+    await user.type(screen.getByLabelText('Password'), 'hunter2');
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    await chooseAuthMethod(user, 'Sign in with username and password');
+
+    expect(screen.getByLabelText('Username')).toHaveValue('');
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+  });
+});
+
+describe('ServiceUrlForm ArcGIS sign-in', () => {
+  async function fillSigninForm(user: ReturnType<typeof userEvent.setup>) {
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+    await user.type(screen.getByLabelText('Password'), 'hunter2');
+  }
+
+  it('disables the Sign in button while the request is in flight', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    let resolveSignin: (value: { token: string; expires_at: string }) => void = () => {};
+    mockArcgisSignin.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSignin = resolve;
+      }),
+    );
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
+    });
+
+    resolveSignin({ token: 'minted-token', expires_at: '2026-09-01T13:00:00Z' });
+
+    // The request has settled — the button is out of its loading state.
+    // (It stays disabled once settled, but now because the password field
+    // was cleared on success, a separate, already-covered behavior below.)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+  });
+
+  it('clears the password and fills the token field on a successful sign-in', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockResolvedValue({
+      token: 'minted-token',
+      expires_at: '2026-09-01T13:00:00Z',
+    });
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+    });
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+  });
+
+  it('clears the password and shows the rejection anchored to the credential block on a failed sign-in', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockRejectedValue(
+      new ApiError(
+        'ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.',
+        400,
+        { code: 'arcgis_signin_rejected', message: 'invalid credentials', field: 'credential' },
+      ),
+    );
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/ArcGIS did not accept that sign-in/)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
   });
 });

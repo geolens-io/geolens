@@ -444,6 +444,31 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         values: { message: value.message },
       };
     }
+    // fix(service-auth wave, lane A2): POST /services/arcgis/signin/'s own
+    // refusal taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+    // arcgis_signin_rejected deliberately collapses "wrong password" and
+    // "account locked" into one message. Telling the caller which of the
+    // two happened would let a GeoLens user use this form as an oracle for
+    // whether a colleague's ArcGIS account exists and is being guessed at.
+    // arcgis_sso_account is the one deliberate exception: it names a real,
+    // unfixable-by-retry cause (federated identity or MFA) and points at the
+    // paste-a-token path, because collapsing it would leave that class of
+    // user with an unexplainable rejection and no way forward. ssrf_refused
+    // reuses the same code name a later probe-reason-code door (plan 3.6,
+    // not built yet) may also emit; if that lands with different intended
+    // copy for the same code, reconcile then rather than here.
+    if (value.code === 'arcgis_signin_rejected') {
+      return { key: 'errors.arcgisSigninRejected' };
+    }
+    if (value.code === 'arcgis_sso_account') {
+      return { key: 'errors.arcgisSsoAccount' };
+    }
+    if (value.code === 'ssrf_refused') {
+      return { key: 'errors.arcgisPortalUnreachable' };
+    }
+    if (value.code === 'network_error') {
+      return { key: 'errors.couldNotReachService' };
+    }
     if (Array.isArray(value.unknown_layers) && value.unknown_layers.length > 0) {
       return {
         key: 'errors.unknownLayers',

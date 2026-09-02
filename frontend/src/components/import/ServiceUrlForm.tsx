@@ -3,8 +3,9 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Globe, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { formatDateTimeSmart } from '@/lib/format';
 import { ApiError } from '@/api/client';
-import { probeService, previewServiceLayer, commitImport } from '@/api/ingest';
+import { probeService, previewServiceLayer, commitImport, arcgisSignin } from '@/api/ingest';
 import type {
   ProbeResponse,
   LayerInfo,
@@ -18,7 +19,15 @@ import { JobProgress } from './JobProgress';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { TypeTag } from './TypeTag';
+import { looksLikeArcGisServiceUrl, originOf } from './utils';
 
 type ServiceStep =
   | 'idle'
@@ -28,6 +37,12 @@ type ServiceStep =
   | 'review'
   | 'committing'
   | 'tracking';
+
+// Plan section 3.1: for an ArcGIS FeatureServer/MapServer URL, the import
+// wizard offers a three-way authentication choice instead of one optional
+// token field. 'none' is the default and is an explicit choice ("this
+// service is public"), not a blank state.
+type ArcgisAuthMethod = 'none' | 'token' | 'signin';
 
 export function ServiceUrlForm() {
   const { t } = useTranslation('import');
@@ -39,6 +54,15 @@ export function ServiceUrlForm() {
   const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // ArcGIS sign-in (plan 3.2 / lane A2).
+  const [arcgisAuthMethod, setArcgisAuthMethod] = useState<ArcgisAuthMethod>('none');
+  const [portalUrl, setPortalUrl] = useState('');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [tokenExpiresAt, setTokenExpiresAt] = useState<string | null>(null);
+  const [signingIn, setSigningIn] = useState(false);
+  const [signinError, setSigninError] = useState<string | null>(null);
+
   const reset = () => {
     setStep('idle');
     setUrl('');
@@ -47,6 +71,52 @@ export function ServiceUrlForm() {
     setPreviewData(null);
     setJobId(null);
     setError(null);
+    setArcgisAuthMethod('none');
+    setPortalUrl('');
+    setUsername('');
+    setPassword('');
+    setTokenExpiresAt(null);
+    setSigningIn(false);
+    setSigninError(null);
+  };
+
+  // Switching methods discards the other branch's fields rather than
+  // half-honouring them (mirrors the backend's own `auth` object rule,
+  // plan 3.4). A stale password or a stale pasted token left over from the
+  // method the user just backed out of must never ride along silently.
+  const handleAuthMethodChange = (next: ArcgisAuthMethod) => {
+    setArcgisAuthMethod(next);
+    setToken('');
+    setUsername('');
+    setPassword('');
+    setTokenExpiresAt(null);
+    setSigninError(null);
+    setPortalUrl(next === 'signin' ? originOf(url) : '');
+  };
+
+  const handleArcgisSignin = async () => {
+    setSigningIn(true);
+    setSigninError(null);
+    try {
+      const result = await arcgisSignin({
+        portal_url: portalUrl.trim(),
+        username: username.trim(),
+        password,
+      });
+      setToken(result.token);
+      setTokenExpiresAt(result.expires_at);
+    } catch (err) {
+      setSigninError(
+        err instanceof ApiError ? err.message : t('serviceUrl.arcgisSigninFailed'),
+      );
+    } finally {
+      // Clear the password from state the instant the attempt settles,
+      // success or failure alike, and never retry automatically. ArcGIS
+      // locks an account after five failed sign-ins in fifteen minutes, and
+      // a retry loop here could do that to a real customer's account.
+      setPassword('');
+      setSigningIn(false);
+    }
   };
 
   const handleConnect = async (e: React.FormEvent) => {
@@ -297,28 +367,203 @@ export function ServiceUrlForm() {
           </div>
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="access-token" className="text-xs text-muted-foreground">
-            {t('serviceUrl.tokenLabel')}
-          </Label>
-          <Input
-            id="access-token"
-            type="password"
-            placeholder={t('serviceUrl.tokenPlaceholder')}
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            className="font-mono text-sm"
-            // fix(#1746): this is a request-only service token, not a login
-            // credential — autocomplete="off" alone does not stop Chrome from
-            // offering a saved password here, so opt out of every password
-            // manager explicitly.
-            autoComplete="new-password"
-            data-1p-ignore
-            data-lpignore="true"
-            data-bwignore
-          />
-          <p className="text-xs text-muted-foreground">{t('serviceUrl.tokenHelpText')}</p>
-        </div>
+        {looksLikeArcGisServiceUrl(url) ? (
+          <div className="space-y-3" data-testid="arcgis-auth-block">
+            <div className="space-y-2">
+              <Label htmlFor="arcgis-auth-method" className="text-xs text-muted-foreground">
+                {t('serviceUrl.authMethodLabel', { defaultValue: 'Authentication' })}
+              </Label>
+              <Select
+                value={arcgisAuthMethod}
+                onValueChange={(value) => handleAuthMethodChange(value as ArcgisAuthMethod)}
+              >
+                <SelectTrigger
+                  id="arcgis-auth-method"
+                  aria-label={t('serviceUrl.authMethodLabel', { defaultValue: 'Authentication' })}
+                  className="w-full"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">
+                    {t('serviceUrl.authMethodNone', { defaultValue: 'No authentication' })}
+                  </SelectItem>
+                  <SelectItem value="signin">
+                    {t('serviceUrl.authMethodSignin', {
+                      defaultValue: 'Sign in with username and password',
+                    })}
+                  </SelectItem>
+                  <SelectItem value="token">
+                    {t('serviceUrl.authMethodToken', { defaultValue: 'Paste a token or API key' })}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {arcgisAuthMethod === 'token' && (
+              <div className="space-y-2">
+                <Label htmlFor="access-token" className="text-xs text-muted-foreground">
+                  {t('serviceUrl.arcgisTokenFieldLabel', { defaultValue: 'Token or API key' })}
+                </Label>
+                <Input
+                  id="access-token"
+                  type="password"
+                  placeholder={t('serviceUrl.tokenPlaceholder')}
+                  value={token}
+                  onChange={(e) => setToken(e.target.value)}
+                  className="font-mono text-sm"
+                  // fix(#1746): this is a request-only service token, not a
+                  // login credential, and autocomplete="off" alone does not
+                  // stop Chrome from offering a saved password here, so opt
+                  // out of every password manager explicitly.
+                  autoComplete="new-password"
+                  data-1p-ignore
+                  data-lpignore="true"
+                  data-bwignore
+                />
+                <p className="text-xs text-muted-foreground">
+                  {t('serviceUrl.arcgisTokenHelpText', {
+                    defaultValue:
+                      "Use an API key if your account can create one; Viewer accounts and accounts using single sign-on or multi-factor authentication can't. Otherwise, generate one from your portal's Sharing API with client=referer. Tokens last at most 15 days.",
+                  })}
+                </p>
+              </div>
+            )}
+
+            {arcgisAuthMethod === 'signin' && (
+              <div className="space-y-3 rounded-lg border border-border bg-surface-0 p-3.5">
+                <div className="space-y-2">
+                  <Label htmlFor="arcgis-portal-url" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.portalUrlLabel', { defaultValue: 'Portal URL' })}
+                  </Label>
+                  <Input
+                    id="arcgis-portal-url"
+                    type="url"
+                    placeholder={t('serviceUrl.portalUrlPlaceholder', {
+                      defaultValue: 'https://your-org.maps.arcgis.com',
+                    })}
+                    value={portalUrl}
+                    onChange={(e) => setPortalUrl(e.target.value)}
+                    className="font-mono text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="arcgis-username" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.usernameLabel', { defaultValue: 'Username' })}
+                  </Label>
+                  <Input
+                    id="arcgis-username"
+                    type="text"
+                    autoComplete="username"
+                    placeholder={t('serviceUrl.usernamePlaceholder', { defaultValue: 'Username' })}
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="arcgis-password" className="text-xs text-muted-foreground">
+                    {t('serviceUrl.passwordLabel', { defaultValue: 'Password' })}
+                  </Label>
+                  <Input
+                    id="arcgis-password"
+                    type="password"
+                    placeholder={t('serviceUrl.passwordPlaceholder', { defaultValue: 'Password' })}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="text-sm"
+                    // This is a genuine third-party ArcGIS login, not a
+                    // GeoLens one, and a password manager offering to save it
+                    // would save it against the GeoLens origin, which is
+                    // misleading, so opt every manager out the same way the
+                    // token field does (#1750).
+                    autoComplete="new-password"
+                    data-1p-ignore
+                    data-lpignore="true"
+                    data-bwignore
+                  />
+                </div>
+
+                {signinError && (
+                  <p className="text-sm text-destructive">{signinError}</p>
+                )}
+
+                <div className="flex flex-wrap items-center gap-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={signingIn || !portalUrl.trim() || !username.trim() || !password}
+                    onClick={handleArcgisSignin}
+                  >
+                    {signingIn
+                      ? t('serviceUrl.signingIn', { defaultValue: 'Signing in...' })
+                      : t('serviceUrl.signinButton', { defaultValue: 'Sign in' })}
+                  </Button>
+                  {token && tokenExpiresAt && (
+                    <span className="text-xs text-muted-foreground">
+                      {t('serviceUrl.tokenValidUntil', {
+                        time: formatDateTimeSmart(tokenExpiresAt),
+                        defaultValue: `Token valid until ${formatDateTimeSmart(tokenExpiresAt)}`,
+                      })}
+                    </span>
+                  )}
+                </div>
+
+                {token && (
+                  <div className="space-y-2">
+                    <Label htmlFor="arcgis-minted-token" className="text-xs text-muted-foreground">
+                      {t('serviceUrl.arcgisTokenFieldLabel', { defaultValue: 'Token or API key' })}
+                    </Label>
+                    <Input
+                      id="arcgis-minted-token"
+                      type="password"
+                      readOnly
+                      value={token}
+                      className="font-mono text-sm"
+                      // Same request-only-credential opt-outs as the pasted
+                      // token field above (#1746) — this one just displays
+                      // a value GeoLens minted rather than one the user typed.
+                      autoComplete="new-password"
+                      data-1p-ignore
+                      data-lpignore="true"
+                      data-bwignore
+                    />
+                  </div>
+                )}
+
+                <p className="text-xs text-muted-foreground">
+                  {t('serviceUrl.signinHelpText', {
+                    defaultValue:
+                      "Signing in mints a token valid for 60 minutes; an import that runs longer will need a new one. This won't reach a portal on a private network, so paste a token instead if yours is private.",
+                  })}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Label htmlFor="access-token" className="text-xs text-muted-foreground">
+              {t('serviceUrl.tokenLabel')}
+            </Label>
+            <Input
+              id="access-token"
+              type="password"
+              placeholder={t('serviceUrl.tokenPlaceholder')}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              className="font-mono text-sm"
+              // fix(#1746): this is a request-only service token, not a login
+              // credential — autocomplete="off" alone does not stop Chrome from
+              // offering a saved password here, so opt out of every password
+              // manager explicitly.
+              autoComplete="new-password"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore
+            />
+            <p className="text-xs text-muted-foreground">{t('serviceUrl.tokenHelpText')}</p>
+          </div>
+        )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
       </form>

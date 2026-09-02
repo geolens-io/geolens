@@ -1734,6 +1734,21 @@ export interface ServicePreviewResponse {
   layer_name: string;
 }
 
+// fix(service-auth wave, lane A2): hand-typed ahead of the SDK regen. The
+// ArcGIS sign-in endpoint (lane A1, POST /services/arcgis/signin/) isn't in
+// the OpenAPI snapshot yet; this mirror should be replaced by the generated
+// shape in api.generated.ts once that lane merges and `make sdks` runs.
+export interface ArcgisSigninRequest {
+  portal_url: string;
+  username: string;
+  password: string;
+}
+
+export interface ArcgisSigninResponse {
+  token: string;
+  expires_at: string;
+}
+
 // Bulk upload types
 export type FileEntryStatus =
   | 'uploading'

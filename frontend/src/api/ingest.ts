@@ -22,6 +22,8 @@ import type {
   PresignedUploadResponse,
   VrtCreateRequest,
   VrtCreateResponse,
+  ArcgisSigninRequest,
+  ArcgisSigninResponse,
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
@@ -268,6 +270,22 @@ export async function previewServiceLayer(
   request: ServicePreviewRequest,
 ): Promise<ServicePreviewResponse> {
   return apiFetch<ServicePreviewResponse>('/services/preview/', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+// fix(service-auth wave, lane A2): mints a short-lived (60 min) ArcGIS token
+// from a username and password so the import wizard never has to hold that
+// password any longer than this one request. The caller clears its own
+// password state as soon as this settles, success or failure alike; this
+// function never retries, because ArcGIS locks an account after five failed
+// sign-ins in fifteen minutes, and a retry loop here could do that to a
+// real customer account.
+export async function arcgisSignin(
+  request: ArcgisSigninRequest,
+): Promise<ArcgisSigninResponse> {
+  return apiFetch<ArcgisSigninResponse>('/services/arcgis/signin/', {
     method: 'POST',
     body: JSON.stringify(request),
   });

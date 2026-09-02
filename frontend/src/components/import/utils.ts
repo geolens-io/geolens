@@ -62,3 +62,24 @@ export function kindFromEntry(entry: Pick<FileEntry, 'previewData' | 'fileName'>
   }
   return kindFromExtension(fileExt(entry.fileName));
 }
+
+/**
+ * Client-side heuristic mirroring the backend ArcGIS adapter's own layer-URL
+ * detection (`adapters/arcgis.py`, matching `/(FeatureServer|MapServer)/`).
+ * The import wizard needs to know whether to show the ArcGIS auth method
+ * select before the URL is ever probed, since sign-in has to happen before
+ * the probe call itself, so there is no server round-trip yet to ask what
+ * type of service this is.
+ */
+export function looksLikeArcGisServiceUrl(url: string): boolean {
+  return /\/(FeatureServer|MapServer)\b/i.test(url);
+}
+
+/** Origin of a service URL, used to prefill the ArcGIS sign-in portal URL. */
+export function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
+}
