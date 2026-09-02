@@ -862,6 +862,14 @@ def publish(
                         f"status. Run `geolens login` first."
                     )
                 elif reason == "poll_failed":
+                    # fix(#1778, codex round 7): a poll_failed outcome
+                    # collapsed EVERY non-200 into the same generic exit
+                    # code, hiding a 5xx server outage from a script that
+                    # checks the exit code — match the same status matrix
+                    # unwrap() already uses elsewhere in this CLI.
+                    publish_exit_code = _publish.poll_failed_exit_code(
+                        outcome.http_status
+                    )
                     publish_failure = (
                         f"Publish job {job_id}'s status could not be read "
                         f"({outcome.detail}). Check GET /jobs/{job_id}."
@@ -1606,6 +1614,14 @@ def analysis_materialize(
                     f"status. Run `geolens login` first."
                 )
             elif reason == "poll_failed":
+                # fix(#1778, codex round 7): a poll_failed outcome collapsed
+                # EVERY non-200 into the same generic exit code, hiding a
+                # 5xx server outage from a script that checks the exit code
+                # — match the same status matrix unwrap() already uses
+                # elsewhere in this CLI.
+                materialize_exit_code = _publish.poll_failed_exit_code(
+                    outcome.http_status
+                )
                 materialize_failure = (
                     f"Analysis job {job_id}'s status could not be read "
                     f"({outcome.detail}). Check GET /jobs/{job_id}."

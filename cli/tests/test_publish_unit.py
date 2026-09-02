@@ -1010,7 +1010,12 @@ class TestPublishWaitTerminalOutcomes:
         )
 
         result = runner.invoke(app, ["publish", str(sample_geojson)])
-        assert result.exit_code == 1, result.output
+        # fix(#1778, codex round 7): 500 is a 5xx, so this now maps to
+        # EXIT_SERVER rather than the old hard-coded EXIT_GENERIC — see
+        # TestPublishPollFailedExitCodes below for the dedicated coverage.
+        from geolens_cli._sdk_helpers import EXIT_SERVER
+
+        assert result.exit_code == EXIT_SERVER, result.output
         assert "Published:" not in result.output
         assert "could not be read" in result.output
         assert "HTTP 500" in result.output
@@ -1040,7 +1045,11 @@ class TestPublishWaitTerminalOutcomes:
         )
 
         result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
-        assert result.exit_code == 1, result.output
+        # fix(#1778, codex round 7): 500 is a 5xx, so this now maps to
+        # EXIT_SERVER rather than the old hard-coded EXIT_GENERIC.
+        from geolens_cli._sdk_helpers import EXIT_SERVER
+
+        assert result.exit_code == EXIT_SERVER, result.output
         payload = json.loads(result.output)
         assert payload["stopped_because"] == "poll_failed"
         assert payload["dataset_id"] is None
@@ -1415,6 +1424,69 @@ class TestPublishWaitTerminalOutcomes:
         assert "00000000-0000-0000-0000-000000000042" in result.output
 
 
+class TestPublishPollFailedExitCodes:
+    """fix(#1778, codex round 7): a poll_failed outcome must select the
+    CLI's established exit code for the HTTP status that caused it — a
+    5xx (server outage) is EXIT_SERVER, anything else is the pre-existing
+    EXIT_GENERIC — matching the matrix `_sdk_helpers.unwrap()` already
+    uses. Previously every poll_failed exited 1 regardless of status,
+    hiding a server outage from a script checking the exit code."""
+
+    def test_503_poll_exits_exit_server_with_poll_failed_wording(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli._sdk_helpers import EXIT_SERVER
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(), preview=_ok_preview(), commit=_ok_commit()
+        )
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            lambda **kw: MagicMock(
+                status_code=HTTPStatus.SERVICE_UNAVAILABLE, parsed=None
+            ),
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == EXIT_SERVER, result.output
+        assert "could not be read" in result.output
+        assert "HTTP 503" in result.output
+
+    def test_404_poll_exits_generic_with_poll_failed_wording(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli._sdk_helpers import EXIT_GENERIC
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(), preview=_ok_preview(), commit=_ok_commit()
+        )
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            lambda **kw: MagicMock(status_code=HTTPStatus.NOT_FOUND, parsed=None),
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == EXIT_GENERIC, result.output
+        assert "could not be read" in result.output
+        assert "HTTP 404" in result.output
+
+
 class TestResolveDatasetIdTerminalStatuses:
     """Unit-level: resolve_dataset_id stops polling as soon as the job status
     is terminal, rather than sleeping and re-polling until timeout, and
@@ -1518,6 +1590,18 @@ class TestResolveDatasetIdPollOutcomeShape:
         assert outcome.stopped_because == "poll_failed"
         assert outcome.detail == "HTTP 500"
         assert outcome.status == "running"
+        assert outcome.http_status == 500
+
+    def test_poll_failed_exit_code_maps_5xx_to_exit_server(self) -> None:
+        from geolens_cli import publish as _publish
+        from geolens_cli._sdk_helpers import EXIT_GENERIC, EXIT_SERVER
+
+        assert _publish.poll_failed_exit_code(500) == EXIT_SERVER
+        assert _publish.poll_failed_exit_code(503) == EXIT_SERVER
+        assert _publish.poll_failed_exit_code(599) == EXIT_SERVER
+        assert _publish.poll_failed_exit_code(404) == EXIT_GENERIC
+        assert _publish.poll_failed_exit_code(499) == EXIT_GENERIC
+        assert _publish.poll_failed_exit_code(None) == EXIT_GENERIC
 
     def test_token_expired_stops_polling_immediately(self, monkeypatch) -> None:
         from geolens_cli import publish as _publish

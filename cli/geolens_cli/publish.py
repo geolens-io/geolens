@@ -42,7 +42,7 @@ from uuid import UUID
 
 import typer
 
-from ._sdk_helpers import EXIT_GENERIC, call_sdk
+from ._sdk_helpers import EXIT_GENERIC, EXIT_SERVER, call_sdk
 
 # ---------------------------------------------------------------------------
 # Status-code constants — verified by Plan 04 Task 0 Q4 spike.
@@ -271,13 +271,36 @@ class PollOutcome:
     - ``"token_expired"``: a job-status request came back 401/403.
     - ``"poll_failed"``: a job-status request failed some other way (a
       non-200/401/403 status, or a response body that could not be parsed)
-      — ``detail`` names the failure (an HTTP status or error text).
+      — ``detail`` names the failure (an HTTP status or error text), and
+      ``http_status`` carries the numeric status when the failure was a
+      real HTTP response (fix(#1778, codex round 7): a caller must be able
+      to tell a 5xx from a 404 to select the CLI's own EXIT_SERVER vs
+      EXIT_GENERIC per the matrix in ``_sdk_helpers.unwrap()`` — collapsing
+      every poll_failed into EXIT_GENERIC hid a server outage from scripts
+      that check the exit code). ``None`` when there was no real response
+      to classify (an invalid job id, or a 200 with an unparseable body).
     """
 
     dataset_id: Optional[str] = None
     status: Optional[str] = None
     stopped_because: Optional[str] = None
     detail: Optional[str] = None
+    http_status: Optional[int] = None
+
+
+def poll_failed_exit_code(http_status: Optional[int]) -> int:
+    """Exit code for a "poll_failed" PollOutcome (fix(#1778, codex round 7)).
+
+    Mirrors the status-to-exit-code matrix ``_sdk_helpers.unwrap()`` already
+    uses for every other SDK response in this CLI: 5xx maps to EXIT_SERVER,
+    anything else to EXIT_GENERIC. 401/403 never reach here — the poll
+    reports those as "token_expired", not "poll_failed" — and a missing
+    ``http_status`` (an invalid job id, or a 200 with an unparseable body)
+    has no server-error signal to preserve, so it falls back to generic.
+    """
+    if http_status is not None and 500 <= http_status <= 599:
+        return EXIT_SERVER
+    return EXIT_GENERIC
 
 
 def resolve_dataset_id(
@@ -332,11 +355,14 @@ def resolve_dataset_id(
         if code != JOB_STATUS_OK_STATUS:
             # Some other non-200 (server error, 404, ...) — give up rather
             # than spend the whole deadline retrying a status the caller
-            # should decide how to handle.
+            # should decide how to handle. http_status is carried so the
+            # caller can select EXIT_SERVER for a 5xx rather than the
+            # generic exit code (fix(#1778, codex round 7)).
             return PollOutcome(
                 status=last_status,
                 stopped_because="poll_failed",
                 detail=f"HTTP {code}",
+                http_status=code,
             )
         if isinstance(resp.parsed, ProblemDetail):
             return PollOutcome(

@@ -769,6 +769,85 @@ class TestAnalysisMaterializeCli:
         assert "still pending" not in result.output
         assert "has not finished" not in result.output
 
+    def test_503_poll_exits_exit_server_with_poll_failed_wording(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778, codex round 7): a poll_failed outcome must select
+        EXIT_SERVER for a 5xx, matching the matrix `_sdk_helpers.unwrap()`
+        already uses — previously every poll_failed exited 1 regardless of
+        status, hiding a server outage from a script checking the exit
+        code. Drives the REAL resolve_dataset_id (only the underlying SDK
+        call is mocked) so the http_status classification is genuinely
+        exercised end to end, not asserted against a hand-built
+        PollOutcome."""
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXIT_SERVER
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        # A real UUID string: resolve_dataset_id coerces job_id to UUID
+        # before ever making a request, and the default _FakeJob "job-1"
+        # is not one, so the mocked SDK call below would never be reached.
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize",
+            lambda c, d, r: _FakeJob(job_id="00000000-0000-0000-0000-000000000099"),
+        )
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            lambda **kw: MagicMock(status_code=503, parsed=None),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == EXIT_SERVER, result.output
+        assert "could not be read" in result.output
+        assert "HTTP 503" in result.output
+
+    def test_404_poll_exits_generic_with_poll_failed_wording(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from unittest.mock import MagicMock
+
+        from geolens_cli._sdk_helpers import EXIT_GENERIC
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize",
+            lambda c, d, r: _FakeJob(job_id="00000000-0000-0000-0000-000000000099"),
+        )
+        monkeypatch.setattr(
+            "geolens.api.admin.get_job_status_jobs_job_id_get.sync_detailed",
+            lambda **kw: MagicMock(status_code=404, parsed=None),
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == EXIT_GENERIC, result.output
+        assert "could not be read" in result.output
+        assert "HTTP 404" in result.output
+
     def test_a_token_expired_mid_poll_exits_auth(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
