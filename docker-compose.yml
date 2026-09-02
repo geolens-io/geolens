@@ -308,6 +308,7 @@ services:
       - ./README.es.md:/app/README.es.md:ro
       - ./README.fr.md:/app/README.fr.md:ro
       - ./README.md:/app/README.md:ro
+      - ./RUNBOOK.md:/app/RUNBOOK.md:ro
       - ./SUPPORT.md:/app/SUPPORT.md:ro
       - ./backend/app:/app/app
       - ./backend/alembic:/app/alembic
@@ -316,11 +317,26 @@ services:
       - ./cli:/app/cli:ro
       - ./db:/app/db:ro
       - ./deployment:/app/deployment:ro
+      - ./docker-compose.prod.yml:/app/docker-compose.prod.yml:ro
       - ./docker-compose.yml:/app/docker-compose.yml:ro
       - ./e2e:/app/e2e:ro
       - ./examples:/app/examples:ro
       - ./frontend:/app/frontend:ro
+      - ./frontend/src/types/api.ts:/app/frontend/src/types/api.ts:ro
+      # fix(#1745): individual files/subdirs, never the whole ./scripts tree —
+      # backend/scripts/ is baked into /app/scripts by the image build
+      # (api-entrypoint.sh, worker-entrypoint.sh, dump_openapi.py live there),
+      # and a whole-directory mount of the repo-root scripts/ at the same
+      # /app/scripts path would shadow that baked content and break both
+      # entrypoints on next recreate. scripts/lib and scripts/tests have no
+      # same-named counterpart under backend/scripts, so those two are safe
+      # to mount as directories.
+      - ./scripts/flatten_openapi_defs.py:/app/scripts/flatten_openapi_defs.py:ro
+      - ./scripts/init-db.sh:/app/scripts/init-db.sh:ro
+      - ./scripts/lib:/app/scripts/lib:ro
+      - ./scripts/restore.sh:/app/scripts/restore.sh:ro
       - ./scripts/seed-showcase.py:/app/scripts/seed-showcase.py:ro
+      - ./scripts/tests:/app/scripts/tests:ro
       - ./sdks:/app/sdks:ro
       # GAP-022: SHARED-STAGING CONTRACT. The api, worker, and titiler services
       # all mount this one named volume at the FIXED path /app/staging and MUST
