@@ -836,6 +836,9 @@ async def export_dataset_endpoint(
                 dataset_title,
                 schema=data_schema,
                 plan=parquet_plan,
+                # fix(#1778): bound the row stream by the edge window the same
+                # way the ogr2ogr formats below are bounded.
+                deadline=request_deadline,
             )
         else:
             pmtiles_maxzoom = None

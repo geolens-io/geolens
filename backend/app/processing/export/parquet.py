@@ -11,6 +11,7 @@ The router rejects a non-4326 ``target_crs`` for parquet, so no reprojection or
 embedded PROJJSON is needed here.
 """
 
+import asyncio
 import json
 import os
 import shutil
@@ -25,7 +26,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
-from app.processing.export.ogr import bbox_where_sql
+from app.processing.export.ogr import (
+    ExportError,
+    bbox_where_sql,
+    export_subprocess_timeout_seconds,
+)
 from app.processing.export.service import export_descriptor, validate_where_clause
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info
@@ -238,6 +243,32 @@ async def plan_parquet_export(
     return ParquetExportPlan(attr_names, where_sql, params)
 
 
+async def _stream_rows(
+    db: AsyncSession,
+    sql: str,
+    params: dict,
+    attr_names: list[str],
+    geom_idx: int,
+) -> tuple[list[bytes | None], dict[str, list]]:
+    """Read every row of the planned selection into columnar Python lists.
+
+    Split out of ``export_parquet`` so ``asyncio.wait_for`` there bounds
+    exactly this — the row source — rather than the query construction and
+    file setup around it.
+    """
+    geom: list[bytes | None] = []
+    cols: dict[str, list] = {name: [] for name in attr_names}
+
+    result = await db.stream(text(sql).bindparams(**params))
+    async for row in result:
+        for i, name in enumerate(attr_names):
+            cols[name].append(row[i])
+        wkb = row[geom_idx]
+        geom.append(bytes(wkb) if wkb is not None else None)
+
+    return geom, cols
+
+
 async def export_parquet(
     db: AsyncSession,
     table_name: str,
@@ -245,6 +276,7 @@ async def export_parquet(
     *,
     schema: str,
     plan: ParquetExportPlan,
+    deadline: float | None = None,
 ) -> tuple[str, str, str]:
     """Write the planned selection to a GeoParquet file.
 
@@ -259,6 +291,19 @@ async def export_parquet(
     Builds the whole selection in memory before writing one Parquet file.
     Bounded by the plan's count check; switch to a fixed-schema batched
     ParquetWriter if that ceiling ever needs raising.
+
+    deadline: ``time.monotonic()`` stamp by which the whole request must be
+        answered, from the route's entry. The ogr2ogr formats bound their
+        subprocess wall clock and libpq ``statement_timeout`` by what is left
+        of this (fix(#1778), ``export_subprocess_timeout_seconds``); this
+        format has no subprocess, but an unindexed table or a wide selection
+        can stream rows past the same edge-proxy window with nothing to stop
+        it. Reuses that helper rather than deriving a second bound, and raises
+        the same ``ExportError`` the ogr2ogr timeout raises, so the router's
+        ``except ExportError`` handling — one 500, not a response nginx has
+        already severed — is identical for every format. ``None`` for a
+        caller outside a request, which is the same arithmetic with an
+        elapsed time of zero.
     """
     attr_names, where_sql, params = plan
 
@@ -274,17 +319,19 @@ async def export_parquet(
         f"SELECT {', '.join(select_parts)} "
         f"FROM {_qtable(table_name, schema=schema)} t WHERE {where_sql}"
     )
-
-    geom: list[bytes | None] = []
-    cols: dict[str, list] = {name: [] for name in attr_names}
     geom_idx = len(attr_names)
 
-    result = await db.stream(text(sql).bindparams(**params))
-    async for row in result:
-        for i, name in enumerate(attr_names):
-            cols[name].append(row[i])
-        wkb = row[geom_idx]
-        geom.append(bytes(wkb) if wkb is not None else None)
+    row_stream_timeout = export_subprocess_timeout_seconds(deadline)
+    try:
+        geom, cols = await asyncio.wait_for(
+            _stream_rows(db, sql, params, attr_names, geom_idx),
+            timeout=row_stream_timeout,
+        )
+    except asyncio.TimeoutError:
+        raise ExportError(
+            f"GeoParquet export timed out after {int(row_stream_timeout)}s "
+            "— the row source is too slow"
+        )
 
     exports_root = ensure_staging_ready(
         os.path.join(settings.upload_staging_dir, "exports")
