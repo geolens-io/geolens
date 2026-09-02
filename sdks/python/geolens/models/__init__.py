@@ -626,6 +626,8 @@ from .search_datasets_endpoint_search_datasets_get_spatial_predicate import (
 from .search_facets_endpoint_search_facets_get_spatial_predicate import (
     SearchFacetsEndpointSearchFacetsGetSpatialPredicate,
 )
+from .service_auth_request import ServiceAuthRequest
+from .service_auth_request_method import ServiceAuthRequestMethod
 from .service_health import ServiceHealth
 from .service_preview_request import ServicePreviewRequest
 from .service_preview_response import ServicePreviewResponse
@@ -1201,6 +1203,8 @@ __all__ = (
     "SchemaDiff",
     "SearchDatasetsEndpointSearchDatasetsGetSpatialPredicate",
     "SearchFacetsEndpointSearchFacetsGetSpatialPredicate",
+    "ServiceAuthRequest",
+    "ServiceAuthRequestMethod",
     "ServiceHealth",
     "ServicePreviewRequest",
     "ServicePreviewResponse",

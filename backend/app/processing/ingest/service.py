@@ -22,6 +22,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.identity import Identity
 from app.core.config import settings
 from app.core.service_tokens import (
+    ServiceCredential,
     header_token_rejection_reason,
     requires_header_token_policy,
 )
@@ -1271,6 +1272,7 @@ async def queue_ingest_job(
     *,
     db: AsyncSession,
     token: str | None = None,
+    credential: ServiceCredential | None = None,
 ) -> None:
     """Route a committed ingest job to the right Procrastinate task.
 
@@ -1290,8 +1292,21 @@ async def queue_ingest_job(
     Raises ``HTTPException 503`` when Procrastinate is unreachable, or when a
     configured credential store cannot be reached to stage a service token
     (feat(#1676) — see ``resolve_dispatch_credential``).
+
+    feat(#1746) D2: ``credential`` is the structured spelling of the same
+    thing, and it is a parameter in its own right so a caller with no HTTP
+    layer, an overlay scheduler that has resolved a stored credential, can
+    queue an authenticated ingest without assembling a request body for a door
+    to take apart. It wins over ``token`` when both are set, and a method this
+    build cannot send is refused here with 422 ``unsupported_auth_method``
+    rather than dispatched as an unauthenticated fetch.
     """
     import os
+
+    from app.platform.service_auth import bearer_token_for_credential
+
+    if credential is not None:
+        token = bearer_token_for_credential(credential)
 
     from app.platform.refresh.credentials import (
         CredentialStoreUnavailable,

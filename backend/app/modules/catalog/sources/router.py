@@ -41,7 +41,9 @@ from app.modules.catalog.sources.schemas import (
     ProbeResponse,
     ServicePreviewRequest,
     ServicePreviewResponse,
+    service_credential_from_request,
 )
+from app.platform.service_auth import bearer_token_for_credential
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
@@ -624,6 +626,12 @@ async def probe_service_url(
     Validates the URL against SSRF, detects whether it is a WFS or ArcGIS
     service, and returns a unified layer list. All attempts are audit-logged.
     """
+    # feat(#1746): the structured credential is what the layers below take;
+    # the flat `token` is its deprecated bearer spelling. Refused first, so a
+    # method this build cannot send never reaches the network or the audit log.
+    service_token = bearer_token_for_credential(
+        service_credential_from_request(request.auth, request.token)
+    )
     safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
     try:
@@ -647,7 +655,7 @@ async def probe_service_url(
     try:
         async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
             response = await detect_service_type(
-                request.url, client, token=request.token
+                request.url, client, token=service_token
             )
 
     except httpx.TimeoutException:
@@ -760,6 +768,12 @@ async def preview_service_layer(
     runs ogrinfo to extract metadata and sample rows, then creates an IngestJob
     ready for the existing commit flow.
     """
+    # feat(#1746): see `probe_service_url`. One conversion, before anything
+    # else, so an unsupported method is answered without a preview job or an
+    # audit row.
+    service_token = bearer_token_for_credential(
+        service_credential_from_request(request.auth, request.token)
+    )
     safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
     try:
@@ -900,7 +914,7 @@ async def preview_service_layer(
                     arcgis_base,
                     arcgis_layer_id,
                     client,
-                    token=request.token,
+                    token=service_token,
                 )
         except ArcGISTokenError as exc:
             logger.warning("ArcGIS preview token error", url=safe_url, error=str(exc))
@@ -954,7 +968,7 @@ async def preview_service_layer(
             request.url,
             request.layer_name,
             request.layer_id,
-            token=request.token,
+            token=service_token,
             order_field=None,
             result_limit=5,
         )
@@ -985,7 +999,7 @@ async def preview_service_layer(
     # Step 3: Run ogrinfo preview
     try:
         preview_data = await run_service_preview(
-            gdal_source, layer_arg, token=request.token
+            gdal_source, layer_arg, token=service_token
         )
     except IngestionError:
         # Step 4: WFS namespace retry -- if layer_name has a colon prefix, retry without it
@@ -1002,12 +1016,12 @@ async def preview_service_layer(
                     request.url,
                     unqualified,
                     request.layer_id,
-                    token=request.token,
+                    token=service_token,
                     order_field=None,
                     result_limit=5,
                 )
                 preview_data = await run_service_preview(
-                    retry_source, retry_layer, token=request.token
+                    retry_source, retry_layer, token=service_token
                 )
             except (IngestionError, ValueError):
                 logger.warning(
@@ -1061,7 +1075,7 @@ async def preview_service_layer(
     # EPSG code instead of "Unknown + required override".
     if preview_data.get("srid") is None and request.service_type == "OGC API Features":
         fallback_srid = await _fetch_ogcapi_collection_srid(
-            request.url, request.layer_name, request.token
+            request.url, request.layer_name, service_token
         )
         if fallback_srid is not None:
             preview_data["srid"] = fallback_srid

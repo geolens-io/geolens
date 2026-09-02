@@ -85,6 +85,9 @@ from typing import Any, Protocol
 import structlog
 from sqlalchemy import text
 
+from app.core.service_tokens import ServiceCredential
+from app.platform.service_auth import bearer_token_for_credential
+
 logger = structlog.get_logger(__name__)
 
 # fix(#1277 review round 2): the TTL is bounded by RENEWAL, not by a constant.
@@ -390,9 +393,12 @@ async def resolve_worker_credential(
 
 
 async def resolve_dispatch_credential(
-    token: str | None, *, door: str
+    token: str | None = None,
+    *,
+    door: str,
+    credential: ServiceCredential | None = None,
 ) -> tuple[str | None, str | None]:
-    """Decide how *token* reaches the worker. Returns ``(token, ref)``.
+    """Decide how the caller's credential reaches the worker. Returns ``(token, ref)``.
 
     feat(#1676). The single decision point for the three states in this
     module's docstring, so the three doors cannot answer it three ways:
@@ -418,7 +424,17 @@ async def resolve_dispatch_credential(
     answer it from logs instead of from settings archaeology. The log line
     carries the DOOR, never the token and never the reference — a reference is
     harmless after its claim but not before it, and log sinks outlive TTLs.
+
+    feat(#1746) D2: ``credential`` is the structured spelling and the one an
+    in-process caller uses. A scheduler that has resolved a stored credential
+    calls this with a :class:`ServiceCredential` rather than assembling an HTTP
+    request for a door to take apart again, which is the seam Phase 1 owes the
+    overlay. ``token`` stays as the positional bearer form the existing callers
+    pass; supplying both would be describing the same thing twice, so the
+    structured one wins and the flat one is ignored.
     """
+    if credential is not None:
+        token = bearer_token_for_credential(credential)
     if not token:
         return None, None
     if not credential_store_available():

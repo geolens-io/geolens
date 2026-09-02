@@ -59,7 +59,9 @@ from app.modules.catalog.datasets.domain.schemas import (
 )
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.modules.catalog.sources.stac_resolve import states_verifiable_identity
+from app.platform.service_auth import bearer_token_for_credential
 from app.modules.catalog.sources.origin_probe import (
     AUTH_CHALLENGE_DETAILS,
     probe_arcgis_origin,
@@ -934,6 +936,13 @@ async def refresh_dataset(
     simultaneous clicks cannot both be admitted.
     """
     body = request or DatasetRefreshRequest()
+    # feat(#1746): the structured credential is what the service layer takes;
+    # `body.token` is its deprecated bearer spelling. Converted once, ahead of
+    # every branch below, so a method this build cannot carry is refused before
+    # any origin is contacted and before any row is written.
+    service_token = bearer_token_for_credential(
+        service_credential_from_request(body.auth, body.token)
+    )
 
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -957,7 +966,7 @@ async def refresh_dataset(
             dataset=dataset,
             dataset_id=dataset_id,
             user=user,
-            token=body.token,
+            token=service_token,
         )
     if origin_kind == "stac":
         return await _dispatch_stac_refresh(
@@ -965,7 +974,7 @@ async def refresh_dataset(
             dataset=dataset,
             dataset_id=dataset_id,
             user=user,
-            token=body.token,
+            token=service_token,
         )
 
     # Record-type eligibility is not checked separately here, deliberately.
@@ -1030,14 +1039,14 @@ async def refresh_dataset(
     # ArcGIS path re-reads the row.
     marked_before = service_auth_required(dataset.origin_ref)
     dataset = await _require_service_token_if_marked(
-        db, dataset, dataset_id, body.token
+        db, dataset, dataset_id, service_token
     )
 
     # Refuse a credentialed refresh we cannot carry out, before writing
     # anything. Without a shared store the secret cannot reach the worker at
     # all, and dispatching anyway would produce a `credential_expired` failure
     # an hour later whose real cause is a missing setting.
-    if body.token and not credential_store_available():
+    if service_token and not credential_store_available():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={
@@ -1164,7 +1173,7 @@ async def refresh_dataset(
     # window marks the dataset without moving its origin, so the check above
     # passes and only this one notices.
     await _recheck_service_token_after_reservation(
-        db, dataset, body.token, marked_before=marked_before
+        db, dataset, service_token, marked_before=marked_before
     )
 
     # fix(#1277 review): read after the reservation too, for the same reason
@@ -1197,8 +1206,8 @@ async def refresh_dataset(
     # Before the stash, so a rejected token never burns a credential — which is
     # the whole failure this closes: a 202 followed by a deterministic
     # background failure and a spent single-use secret.
-    if body.token and requires_header_token_policy(origin.source_format):
-        rejection = header_token_rejection_reason(body.token)
+    if service_token and requires_header_token_policy(origin.source_format):
+        rejection = header_token_rejection_reason(service_token)
         if rejection is not None:
             await db.rollback()
             raise HTTPException(
@@ -1231,7 +1240,7 @@ async def refresh_dataset(
         # Records that this job's credential was request-scoped, so a
         # retry cannot reproduce the authenticated fetch. Same marker the
         # commit door writes; the value is a boolean, never the token.
-        **({"service_auth_required": True} if body.token else {}),
+        **({"service_auth_required": True} if service_token else {}),
         # Distinguishes a server-side refresh from a dialog-driven
         # re-upload in the job list, where both are `reupload: True`.
         "refresh": True,
@@ -1248,9 +1257,9 @@ async def refresh_dataset(
     # after this point strands the credential, which is why the TTL exists
     # and why nothing depends on the discard below actually running.
     credential_ref: str | None = None
-    if body.token:
+    if service_token:
         try:
-            credential_ref = await stash_service_credential(body.token)
+            credential_ref = await stash_service_credential(service_token)
         except CredentialStoreUnavailable as exc:
             await db.rollback()
             raise HTTPException(

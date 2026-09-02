@@ -3129,7 +3129,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # ArcGIS probe is not overturned with no new evidence. Most of the addition
     # is the docstring saying why it is not folded into the binding check and
     # why it does not probe. Cap 1282 -> 1344, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1344,
+    # feat(#1746): +9. The refresh body's structured `auth` object is converted
+    # to one credential at the top of the handler, so every branch below reads
+    # the same value and a method this build cannot carry is refused before any
+    # origin is contacted. Two of the lines are the import and the rest is the
+    # comment saying why the conversion is first. Cap 1344 -> 1353, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1353,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,
@@ -3637,7 +3642,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # are the comment saying why the check sits ahead of `create_pending_run`
     # (a token that cannot work must not take the one-active-run admission
     # slot) and why ArcGIS is exempt. Cap 1244 -> 1282, exact.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1282,
+    # feat(#1746): +12. The commit body's structured `auth` object becomes one
+    # credential at the top of the handler and is passed to
+    # `resolve_dispatch_credential` as a credential rather than a bare token.
+    # The rest is the note on why `auth` joins `token` in the model_dump
+    # exclusion: user_metadata is a durable JSONB column and that dump is a
+    # whitelist by omission. Cap 1282 -> 1294, exact.
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1294,
     # fix(#1218 review): +5 — VRT assembly stamps last_refreshed_at like every
     # other creation path, so a post-migration VRT does not report null while
     # a backfilled one carries a timestamp, with a note on why it is a Python
@@ -3887,7 +3898,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # pushed `queue_ingest_job` past ruff's C901 ceiling; most of the lines are
     # its docstring, recording the failure it closes and why ArcGIS is exempt.
     # Cap 1402 -> 1450, exact.
-    "backend/app/processing/ingest/service.py": 1450,
+    # feat(#1746): +15. `queue_ingest_job` takes a `ServiceCredential` in its
+    # own right, so a caller with no HTTP layer can queue an authenticated
+    # ingest without assembling a request body for a door to take apart (plan
+    # D2). Most of the lines are the docstring paragraph recording that, and
+    # why an unsupported method is refused here rather than dispatched as an
+    # anonymous fetch. Cap 1450 -> 1465, exact.
+    "backend/app/processing/ingest/service.py": 1465,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
@@ -4034,7 +4051,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rule itself lives in core.text.reject_html_markup, shared with the
     # manifest schema; these lines are the field_validator and the note saying
     # why only this field carries it. Cap 1473 -> 1483, exact.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 1483,
+    # feat(#1746): +16. The re-upload commit and refresh request models gain
+    # the `auth` object and the validator refusing a body that sets it and the
+    # deprecated `token` at once. Both are imported from the sources schema
+    # rather than restated here, so the four doors cannot describe the same
+    # credential four ways. Cap 1483 -> 1499, exact.
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 1499,
     # --- entered by the inclusion rule, feat(#953/#954/#955/#956) ----------
     # tasks.py crossed 1000 for the first time here because the four operations
     # are deliberately concentrated rather than spread: it grows by one branch

@@ -223,8 +223,14 @@ class TestRequestCarriesNoPointer:
         A handler that reads the binding while the model still ACCEPTS a url
         is one careless line from honouring it. The guarantee worth having is
         that there is nowhere to put one.
+
+        feat(#1746) added ``auth``, the structured spelling of the same
+        transient credential ``token`` already carried. It says how to present
+        a credential and never where the data comes from, so the property this
+        test exists for is unchanged and the set is stated exactly rather than
+        loosened to a subset check.
         """
-        assert set(DatasetRefreshRequest.model_fields) == {"token"}
+        assert set(DatasetRefreshRequest.model_fields) == {"token", "auth"}
 
     def test_unknown_source_fields_are_not_silently_accepted(self) -> None:
         parsed = DatasetRefreshRequest.model_validate(

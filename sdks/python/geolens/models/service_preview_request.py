@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -9,6 +9,9 @@ from attrs import field as _attrs_field
 from ..types import UNSET, Unset
 
 from typing import cast
+
+if TYPE_CHECKING:
+    from ..models.service_auth_request import ServiceAuthRequest
 
 
 T = TypeVar("T", bound="ServicePreviewRequest")
@@ -23,8 +26,11 @@ class ServicePreviewRequest:
         layer_name (str): Name of the specific layer to preview, from the probe layers list.
         layer_title (None | str | Unset): Human-readable layer title from the probe LayerInfo.
         layer_id (int | None | str | Unset): ArcGIS layer ID, when applicable.
-        token (None | str | Unset): Optional auth token for protected services.
+        token (None | str | Unset): Optional auth token for protected services. Deprecated: use the auth object with
+            method bearer.
         object_id_field (None | str | Unset): ArcGIS OID field name used for orderByFields during preview pagination.
+        auth (None | ServiceAuthRequest | Unset): Structured credential for a protected service. Mutually exclusive with
+            the token field.
     """
 
     url: str
@@ -34,9 +40,12 @@ class ServicePreviewRequest:
     layer_id: int | None | str | Unset = UNSET
     token: None | str | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
+    auth: None | ServiceAuthRequest | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.service_auth_request import ServiceAuthRequest
+
         url = self.url
 
         service_type = self.service_type
@@ -67,6 +76,14 @@ class ServicePreviewRequest:
         else:
             object_id_field = self.object_id_field
 
+        auth: dict[str, Any] | None | Unset
+        if isinstance(self.auth, Unset):
+            auth = UNSET
+        elif isinstance(self.auth, ServiceAuthRequest):
+            auth = self.auth.to_dict()
+        else:
+            auth = self.auth
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -84,11 +101,15 @@ class ServicePreviewRequest:
             field_dict["token"] = token
         if object_id_field is not UNSET:
             field_dict["object_id_field"] = object_id_field
+        if auth is not UNSET:
+            field_dict["auth"] = auth
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.service_auth_request import ServiceAuthRequest
+
         d = dict(src_dict)
         url = d.pop("url")
 
@@ -132,6 +153,23 @@ class ServicePreviewRequest:
 
         object_id_field = _parse_object_id_field(d.pop("object_id_field", UNSET))
 
+        def _parse_auth(data: object) -> None | ServiceAuthRequest | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                auth_type_0 = ServiceAuthRequest.from_dict(data)
+
+                return auth_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | ServiceAuthRequest | Unset, data)
+
+        auth = _parse_auth(d.pop("auth", UNSET))
+
         service_preview_request = cls(
             url=url,
             service_type=service_type,
@@ -140,6 +178,7 @@ class ServicePreviewRequest:
             layer_id=layer_id,
             token=token,
             object_id_field=object_id_field,
+            auth=auth,
         )
 
         service_preview_request.additional_properties = d
