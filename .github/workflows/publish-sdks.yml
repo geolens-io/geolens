@@ -77,10 +77,21 @@ jobs:
         with:
           python-version: "3.14"
 
-      - name: Assert tag matches package version (tag push only)
-        if: ${{ github.event_name == 'push' }}
+      # fix(#1778): every publishing run must come from a tag ref, and this is
+      # a hard failure rather than a skipped check, same as publish-mcp.yml's
+      # #1623 guard: a manual dispatch defaults to the branch selected in the
+      # Actions UI, and the repo sits at the last released version between
+      # bumps, so a branch run would happily publish that branch's current
+      # pyproject version as metadata for an already-released PyPI artifact.
+      # Dry runs are exempt — they only build.
+      - name: Require a tag ref, and assert it matches the package version
+        if: ${{ !inputs.dry_run }}
         working-directory: sdks/python
         run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::publishing requires a tag ref; got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'. Re-run with --ref vX.Y.Z"
+            exit 1
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(python - <<'PY'
           import tomllib
@@ -169,9 +180,20 @@ jobs:
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
-      - name: Assert tag matches package version (tag push only)
-        if: ${{ github.event_name == 'push' }}
+      # fix(#1778): every publishing run must come from a tag ref, and this is
+      # a hard failure rather than a skipped check, same as publish-mcp.yml's
+      # #1623 guard: a manual dispatch defaults to the branch selected in the
+      # Actions UI, and the repo sits at the last released version between
+      # bumps, so a branch run would happily publish that branch's current
+      # package.json version as metadata for an already-released npm
+      # artifact. Dry runs are exempt — they only build.
+      - name: Require a tag ref, and assert it matches the package version
+        if: ${{ !inputs.dry_run }}
         run: |
+          if [ "${GITHUB_REF_TYPE}" != "tag" ]; then
+            echo "::error::publishing requires a tag ref; got ${GITHUB_REF_TYPE} '${GITHUB_REF_NAME}'. Re-run with --ref vX.Y.Z"
+            exit 1
+          fi
           TAG="${GITHUB_REF_NAME#v}"
           PKG=$(node -p "require('./sdks/typescript/package.json').version")
           if [ "${TAG}" != "${PKG}" ]; then

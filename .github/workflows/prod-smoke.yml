@@ -60,8 +60,13 @@ jobs:
       # "Assert semver-shaped tag" guard (keep the two in sync). A red run on a
       # junk tag is correct and cheap: release.yml fires only on this
       # workflow's SUCCESS, so nothing downstream advances.
+      #
+      # fix(#1778): gate on ref_type, not event_name. A workflow_dispatch run
+      # from a tag ref (`gh workflow run prod-smoke.yml --ref vX.Y.Z`) must be
+      # held to the same semver check as a tag push, or a re-smoke of a junk
+      # tag would skip straight past this and into the pull-retry loop below.
       - name: Assert semver release tag
-        if: github.event_name == 'push'
+        if: github.ref_type == 'tag'
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -80,9 +85,17 @@ jobs:
           # the script body, where it would be evaluated as shell.
           INPUT_VERSION: ${{ github.event.inputs.version }}
         run: |
-          # On a tag push, github.ref_name is the tag (vX.Y.Z). On manual
-          # dispatch, use the input (default latest).
-          if [ "${{ github.event_name }}" = "push" ]; then
+          # fix(#1778): bind the smoked artifact to the ref, not the event.
+          # On ANY run from a tag ref — a tag push, or a workflow_dispatch
+          # re-run from that tag — github.ref_name IS the tag (vX.Y.Z), so
+          # ignore INPUT_VERSION and smoke that tag's own images. A dispatch
+          # defaults INPUT_VERSION to "latest", which is the PREVIOUS GA's
+          # images; using it here would let a re-smoke of a red tag pass by
+          # smoking a different artifact than the one release.yml is about to
+          # release (the tag it fires on is bound to THIS run's ref, not to
+          # VER). Only a dispatch from a branch (no tag to bind to) falls back
+          # to the input.
+          if [ "${{ github.ref_type }}" = "tag" ]; then
             VER="${{ github.ref_name }}"
           else
             VER="$INPUT_VERSION"
