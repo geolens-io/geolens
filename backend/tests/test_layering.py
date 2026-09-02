@@ -3925,7 +3925,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # task and its child cannot be recreated by repeating a user action, so it
     # is the one place the commit-to-dispatch window is worth closing
     # outright. Cap 1465 -> 1482, exact.
-    "backend/app/processing/ingest/service.py": 1482,
+    # fix(#1774 review, codex P2): +18. `create_fan_out_jobs` resets the
+    # session in its per-layer failure handler. That commit now carries the
+    # child's dispatch marker as well as its row, and a transactional failure
+    # there left the session refusing every later statement, so one layer's
+    # deadlock failed every sibling and stranded the parent `fanned_out` with
+    # no child importing. Cap 1482 -> 1500, exact.
+    "backend/app/processing/ingest/service.py": 1500,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

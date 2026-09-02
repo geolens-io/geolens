@@ -1137,6 +1137,24 @@ async def create_fan_out_jobs(
                 original_job_id=str(original_job.id),
                 error=str(exc),
             )
+        # fix(#1774 review, codex P2): reset the session before returning. The
+        # commit above carries this child's row AND its dispatch marker, and a
+        # transactional failure there leaves the session refusing every later
+        # statement. The caller loops over the remaining layers on this same
+        # session and then runs `restore_fan_out_parent_pending`, so without
+        # the reset one layer's deadlock fails every sibling and strands the
+        # parent `fanned_out` with no child importing. Nothing is discarded:
+        # a landed commit makes this a no-op, and a failed one had nothing to
+        # keep.
+        try:
+            await session.rollback()
+        except Exception:  # broad: a dead connection cannot be reset here
+            if logger:
+                logger.warning(
+                    "Fan-out layer session reset failed",
+                    layer_name=layer.layer_name,
+                    original_job_id=str(original_job.id),
+                )
         from app.processing.ingest.schemas import FanOutLayerResult
 
         return FanOutLayerResult(
