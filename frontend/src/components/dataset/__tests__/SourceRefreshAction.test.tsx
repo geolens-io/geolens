@@ -728,6 +728,43 @@ describe('SourceRefreshAction', () => {
       expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
     });
 
+    // codex #1759 round 3, P2: ArcGISSignInRequest rejects input -- a
+    // scheme-less portal URL, one carrying credentials, an overlong field --
+    // before the route runs. That is a FastAPI/pydantic validation array in
+    // err.body, not this endpoint's {code, message} shape, so it has no
+    // `.code` and must not fall through to the generic "could not reach the
+    // portal" copy: the request never reached the network.
+    it('shows the client-translated validation message for input the endpoint rejects before the route runs', async () => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      mockArcgisSignIn.mockRejectedValue(
+        new ApiError('portal_url: value is not a valid URL', 422, [
+          { loc: ['body', 'portal_url'], msg: 'value is not a valid URL', type: 'value_error' },
+        ]),
+      );
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'not-a-url');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      expect(await screen.findByText('portal_url: value is not a valid URL')).toBeInTheDocument();
+      // Never the generic fallback: this never reached the network.
+      expect(
+        screen.queryByText('Could not reach the portal. Check the URL and try again.'),
+      ).not.toBeInTheDocument();
+    });
+
     // codex #1759 round 1, P1: a late arcgisSignIn response landing after
     // the dialog (and this credential block, which SourceRefreshAction
     // unmounts on close) is dismissed must not resurrect a token the user
@@ -951,6 +988,39 @@ describe('SourceRefreshAction', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2 * 60 * 60 * 1000);
         });
+      });
+
+      // codex #1759 P2: the scheduled timer and the render-triggered belt
+      // effect are both suspended exactly like any other browser timer by a
+      // backgrounded tab or a system sleep. This proves the submit path
+      // catches an already-expired token on its own, without either of
+      // those ever getting a chance to run -- the clock is moved past
+      // expiry directly, and no fake timer is ever advanced.
+      it('recognizes an already-expired token synchronously at submit time, even if the scheduled timer never fires', async () => {
+        mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        const user = userEvent.setup({ delay: null });
+        render(
+          <SourceRefreshAction
+            dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+            watch={makeWatch()}
+          />,
+        );
+
+        await signInSuccessfully(user, new Date(Date.now() + 60_000).toISOString());
+
+        // Jump the clock past expiry. Deliberately NOT vi.advanceTimersByTimeAsync:
+        // the scheduled expiry timer must never fire in this test.
+        vi.setSystemTime(Date.now() + 61_000);
+
+        await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+        // The original 422 dispatch is the only call mutateAsync ever sees --
+        // the stale token is never submitted.
+        expect(mutateAsync).toHaveBeenCalledTimes(1);
+        expect(
+          await screen.findByText('The token expired. Sign in again to continue.'),
+        ).toBeInTheDocument();
       });
     });
   });

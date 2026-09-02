@@ -34,11 +34,21 @@ export interface ArcgisSignInResponse {
   expires_at: string;
 }
 
+// codex #1759 P2: apiFetch's default (REQUEST_TIMEOUT_MS, 30s in client.ts)
+// is shorter than this endpoint's own advertised worst case. arcgis_signin.py
+// bounds discovery at 20s and the mint POST at 25s
+// (_DISCOVERY_DEADLINE_SECONDS, _MINT_DEADLINE_SECONDS) and sums them to "the
+// 45 seconds the endpoint has always advertised" in its own comment -- a
+// slow but legitimate sign-in past 30s would otherwise abort client-side
+// with a spurious network error while the backend was still working.
+const ARCGIS_SIGNIN_TIMEOUT_MS = 45_000;
+
 export async function arcgisSignIn(
   request: ArcgisSignInRequest,
 ): Promise<ArcgisSignInResponse> {
   return apiFetch<ArcgisSignInResponse>('/services/arcgis/signin/', {
     method: 'POST',
     body: JSON.stringify(request),
+    timeoutMs: ARCGIS_SIGNIN_TIMEOUT_MS,
   });
 }

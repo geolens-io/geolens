@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { ApiError } from '@/api/client';
@@ -13,6 +13,31 @@ interface ArcgisCredentialBlockProps {
   token: string;
   onTokenChange: (token: string) => void;
   disabled?: boolean;
+}
+
+// codex #1759 P2: a pure function, not a closure over `expiresAtRef`, so the
+// exact same check the render-triggered belt effect below uses is also
+// callable synchronously from SourceRefreshAction's handleConfirm (via the
+// imperative handle below) BEFORE it reads and submits `token`. That gap is
+// real: a background tab or a system sleep can suspend both the scheduled
+// expiry timer and this component's own re-renders, so the belt effect
+// never gets a chance to run before the user comes back and clicks "Start
+// refresh" -- `handleConfirm` captures `token` synchronously in the same
+// tick, ahead of any effect.
+export function isExpired(expiresAt: string | null, now: number): boolean {
+  return expiresAt !== null && now >= new Date(expiresAt).getTime();
+}
+
+export interface ArcgisCredentialBlockHandle {
+  /** The expiry the currently minted token carries, or null. Read this and
+   * call `isExpired` rather than trusting `token` alone to be current. */
+  getExpiresAt: () => string | null;
+  /** Transitions this block to its expired display state (clears the
+   * credential, swaps "Signed in" for "Token expired") without waiting for
+   * the timer or the belt effect. The caller is expected to have already
+   * established, via `isExpired(getExpiresAt(), Date.now())`, that this is
+   * warranted -- calling it unconditionally would clear a live token. */
+  markExpired: () => void;
 }
 
 // codex round (post-#1758 merge): lane A1's merged endpoint
@@ -32,6 +57,50 @@ const SIGNIN_ERROR_I18N_KEY: Record<string, string> = {
   arcgis_portal_host_invalid: 'sourcePanel.refresh.credential.arcgis.errors.arcgisPortalHostInvalid',
   arcgis_signin_in_progress: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSigninInProgress',
 };
+
+// codex #1759 P2: `ArcGISSignInRequest` (backend/openapi.json) rejects
+// input -- a portal URL with no scheme, one carrying userinfo, an overlong
+// field -- before the route runs at all. FastAPI reports that as the
+// standard pydantic validation array, not one of this endpoint's own
+// `{code, message}` refusals, so `err.body` there is an array and
+// `(err.body as {code?}).code` above is always undefined. Falling through
+// to `networkError` for it is actively wrong: the request never reached
+// the network, and the real, actionable problem (which of portal_url,
+// username or password failed, and why) is silently dropped.
+//
+// `ApiError.message` is already the fix, not a new translation. `apiFetch`
+// (client.ts) always runs the raw `detail` through `translateApiErrorDetail`
+// (error-map.ts) before this component ever sees it, and that function's
+// array branch (`validationDescriptor`) turns a pydantic entry into a
+// translated, field-named sentence -- exactly the shape "anchored to the
+// field" calls for, since `ArcGISSignInRequest` only has those three
+// fields to name. Reused here rather than duplicated, for the same reason
+// the codes above use a lookup table instead of hand-writing each string
+// twice: one producer.
+function resolveSignInErrorMessage(err: unknown, t: (key: string) => string): string {
+  if (err instanceof ApiError) {
+    if (err.status === 429) {
+      return t('sourcePanel.refresh.credential.arcgis.errors.rateLimited');
+    }
+    const body = err.body;
+    if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
+      const code = (body as { code?: string }).code;
+      if (code && SIGNIN_ERROR_I18N_KEY[code]) {
+        return t(SIGNIN_ERROR_I18N_KEY[code]);
+      }
+    }
+    if (body !== undefined) {
+      // A validation array, or any other detail shape this endpoint's own
+      // codes don't cover. Never the generic guess below: this has a body,
+      // so a response was received and it already carries better text.
+      return err.message;
+    }
+  }
+  // No detail payload reached the client at all: a genuine transport
+  // failure (offline, DNS, CORS, a timeout), the one case the generic copy
+  // is actually correct for.
+  return t('sourcePanel.refresh.credential.arcgis.errors.networkError');
+}
 
 /**
  * fix(#1755 item 4, plan 3.7/3.2): the refresh door's ArcGIS credential
@@ -56,7 +125,8 @@ const SIGNIN_ERROR_I18N_KEY: Record<string, string> = {
  * other branch's fields rather than half-honouring them (plan 3.4's oneOf
  * rule, applied here to component state rather than a request body).
  */
-export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: ArcgisCredentialBlockProps) {
+export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, ArcgisCredentialBlockProps>(
+  function ArcgisCredentialBlock({ token, onTokenChange, disabled }, ref) {
   const { t } = useTranslation('dataset');
   const [method, setMethod] = useState<ArcgisAuthMethod>('none');
   const [portalUrl, setPortalUrl] = useState('');
@@ -81,9 +151,6 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       expiryTimerRef.current = null;
     }
   };
-
-  const isPastExpiry = () =>
-    expiresAtRef.current !== null && Date.now() >= new Date(expiresAtRef.current).getTime();
 
   // codex #1759 round 3, P2: derived from the parent's `token` prop rather
   // than tracked in its own state. "Start refresh" (SourceRefreshAction)
@@ -122,11 +189,23 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   // does nothing once `isSignedIn` is already false, so this cannot loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (isSignedIn && isPastExpiry()) {
+    if (isSignedIn && isExpired(expiresAtRef.current, Date.now())) {
       clearMintedCredential();
       setTokenExpired(true);
     }
   });
+
+  // codex #1759 P2: exposes the synchronous pre-submit check documented on
+  // `ArcgisCredentialBlockHandle` above. `markExpired` reuses the exact
+  // clear-and-flip the timer and the belt effect both already perform, so
+  // there is still only one place that transition happens.
+  useImperativeHandle(ref, () => ({
+    getExpiresAt: () => expiresAtRef.current,
+    markExpired: () => {
+      clearMintedCredential();
+      setTokenExpired(true);
+    },
+  }));
 
   // fix(codex #1759 round 1, P2): a minted token describes the fields it
   // was minted from. Once any of those fields changes, or a new attempt
@@ -226,18 +305,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       if (generationRef.current !== generation) return;
       // No `isSignedIn` to clear: `token` was already cleared at the start
       // of this attempt, before the request, so it was already false.
-      let key = 'sourcePanel.refresh.credential.arcgis.errors.networkError';
-      if (err instanceof ApiError) {
-        if (err.status === 429) {
-          key = 'sourcePanel.refresh.credential.arcgis.errors.rateLimited';
-        } else {
-          const body = err.body as { code?: string } | undefined;
-          key = (body?.code && SIGNIN_ERROR_I18N_KEY[body.code]) || key;
-        }
-      }
-      // The error text rendered here is always this component's own copy,
-      // keyed off a stable code -- never the raw response body.
-      setSignInError(t(key));
+      setSignInError(resolveSignInErrorMessage(err, t));
     } finally {
       if (generationRef.current === generation) {
         setSignInPending(false);
@@ -362,4 +430,5 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       )}
     </div>
   );
-}
+  },
+);

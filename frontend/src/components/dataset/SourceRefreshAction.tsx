@@ -1,11 +1,15 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { ApiError } from '@/api/client';
 import { useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
 import { datasetOrigin } from '@/components/dataset/OriginBadge';
-import { ArcgisCredentialBlock } from '@/components/dataset/ArcgisCredentialBlock';
+import {
+  ArcgisCredentialBlock,
+  isExpired,
+  type ArcgisCredentialBlockHandle,
+} from '@/components/dataset/ArcgisCredentialBlock';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -78,6 +82,11 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
   // the token field above, instead of rendering that refusal as a generic
   // inline error like every other refusal on this path.
   const [serviceTokenRequired, setServiceTokenRequired] = useState(false);
+  // codex #1759 P2: read synchronously in handleConfirm, below, before this
+  // component trusts `token` at submit time -- the belt effect inside
+  // ArcgisCredentialBlock cannot be relied on to have run first (see the
+  // comment on the check itself).
+  const credentialBlockRef = useRef<ArcgisCredentialBlockHandle>(null);
   const refreshMutation = useRefreshDataset();
   // fix(#1285 codex round 3): _dispatch_postgis_refresh() (router_refresh.py)
   // rejects ANY nonempty token with 422 credential_not_applicable — a
@@ -127,6 +136,23 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
 
   const handleConfirm = async () => {
     setError(null);
+    // codex #1759 P2: recheck expiry synchronously, right here, before
+    // `token` (below) is trusted. ArcgisCredentialBlock's own belt effect
+    // (a render-triggered recheck) and its scheduled expiry timer are both
+    // suspended by a backgrounded tab or a system sleep exactly like any
+    // other browser timer -- so if the user returns and clicks this button
+    // immediately, neither has necessarily run yet, and `token` can still
+    // hold a credential that is already dead. This uses the identical
+    // `isExpired` the belt effect and the timer both call.
+    if (
+      isArcgisOrigin &&
+      credentialBlockRef.current &&
+      isExpired(credentialBlockRef.current.getExpiresAt(), Date.now())
+    ) {
+      setToken('');
+      credentialBlockRef.current.markExpired();
+      return;
+    }
     const submittedToken = token.trim() || undefined;
     // Cleared before the request settles. Once handed to mutateAsync the
     // token lives only in the in-flight request body; this component never
@@ -198,6 +224,7 @@ export function SourceRefreshAction({ dataset, watch }: SourceRefreshActionProps
                   {t('sourcePanel.refresh.credential.requiredTitle')}
                 </p>
                 <ArcgisCredentialBlock
+                  ref={credentialBlockRef}
                   token={token}
                   onTokenChange={setToken}
                   disabled={refreshMutation.isPending}
