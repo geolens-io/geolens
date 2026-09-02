@@ -1,7 +1,6 @@
 /**
- * codebase audit 2026-08-30 (8dc529f17): "The Appearance/branding toggle
- * sends `branding_show_badge`; the registry key is `branding.show_badge`,
- * so every save 400s".
+ * fix(#1778): the Appearance/branding toggle sent `branding_show_badge`;
+ * the registry key is `branding.show_badge`, so every save 400s.
  *
  * Pins the exact PUT body key `updateBranding` sends, so a future rename
  * back to the underscore spelling fails here instead of shipping a dead

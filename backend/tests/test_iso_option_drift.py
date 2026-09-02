@@ -1,9 +1,9 @@
 """Static-analysis test: the frontend ISO metadata dropdown option lists must
 be a subset of the records CHECK constraints they feed.
 
-Contract (codebase audit 2026-08-30 (8dc529f17), "The ISO metadata dropdowns
-offer four values the records CHECK constraint rejects, so picking them 500s
-the whole pending-edit batch"):
+fix(#1778): the ISO metadata dropdowns offer four values the records CHECK
+constraint rejects, so picking them 500s the whole pending-edit batch.
+
   `frontend/src/lib/iso-constants.ts` declares `UPDATE_FREQUENCY_OPTIONS` and
   `SENSITIVITY_OPTIONS`, rendered directly as `<SelectItem>` options in
   `SourceQualityTab.tsx`. Nothing validates a selection before it reaches
