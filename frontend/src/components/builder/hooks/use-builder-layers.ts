@@ -16,6 +16,7 @@ import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig,
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
+import type { SaveBaselineSync } from '@/components/builder/hooks/use-builder-save';
 import {
   buildDuplicateRenderingInput,
   removePerLayerCompanions,
@@ -80,7 +81,7 @@ export function useBuilderLayers(
   // Invoked by handleAddDataset/handleDuplicateRendering so the Save-diff
   // baseline learns about server-created layers immediately, instead of only
   // on a clean-state resync — see use-builder-save.ts for the full rationale.
-  saveBaselineSyncRef: React.MutableRefObject<(layer: MapLayerResponse) => void>,
+  saveBaselineSyncRef: React.MutableRefObject<SaveBaselineSync>,
 ) {
   const [searchParams, setSearchParams] = useSearchParams();
   const { t } = useTranslation('builder');
@@ -204,6 +205,7 @@ export function useBuilderLayers(
     localTerrainConfig,
     setLocalTerrainConfig,
     savedLayerBaselineRef,
+    saveBaselineSyncRef,
     copiedStyleRef,
     syncStyleConfigToMap,
     mvtSourceLayerPrefix,
@@ -578,6 +580,11 @@ export function useBuilderLayers(
           savedLayerBaselineRef.current = savedLayerBaselineRef.current.filter(
             (l) => l.id !== layerId,
           );
+          // fix(#1778): prune the SAVE-diff baseline too. It only refreshes
+          // while the map is clean, so a delete on an already-dirty map used to
+          // leave this id behind and the next save's diff.removed named a row
+          // the server had already dropped, a 400 the client then misread.
+          saveBaselineSyncRef.current?.remove([layerId]);
           toast.success(t('toasts.layerRemoved'));
         },
         onError: () => {
@@ -598,7 +605,7 @@ export function useBuilderLayers(
         },
       },
     );
-  }, [mapId, mapInstanceRef, removeLayerMutation, localTerrainConfig, t]);
+  }, [mapId, mapInstanceRef, removeLayerMutation, localTerrainConfig, saveBaselineSyncRef, t]);
 
   const handleAddDataset = useCallback(
     (
@@ -697,7 +704,7 @@ export function useBuilderLayers(
               }
               // fix(#392): also register the pure server layer into the Save-diff baseline so
               // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
-              saveBaselineSyncRef.current?.(createdLayer);
+              saveBaselineSyncRef.current?.add(createdLayer);
               // fix(#392): mark dirty whenever existing siblings were renumbered —
               // the non-grouped branch above renumbers every existing layer's
               // sort_order locally, but the backend does not renumber sibling rows
@@ -841,7 +848,7 @@ export function useBuilderLayers(
           ];
           // fix(#392): also register the pure server layer into the Save-diff baseline so
           // Save doesn't treat this just-created layer as diff.added and PATCH a duplicate.
-          saveBaselineSyncRef.current?.(createdLayer);
+          saveBaselineSyncRef.current?.add(createdLayer);
           // fix(#392): the splice above always renumbers the FULL local
           // array (adjacent-insert, not append) — this is a real, unpersisted
           // diff for grouped AND non-grouped duplicates alike. Mark dirty

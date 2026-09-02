@@ -58,7 +58,7 @@ function renderBuilderLayersHook(
     mutate: vi.fn(),
   } as unknown as Parameters<typeof useBuilderLayers>[4];
   // fix(#392): 6th positional param bridging into useBuilderSave's Save-diff baseline.
-  const saveBaselineSyncRef = { current: () => {} } as unknown as Parameters<typeof useBuilderLayers>[5];
+  const saveBaselineSyncRef = { current: { add: () => {}, remove: () => {} } } as unknown as Parameters<typeof useBuilderLayers>[5];
   return renderHook(() =>
     useBuilderLayers(
       mapData,

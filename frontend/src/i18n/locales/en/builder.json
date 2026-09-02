@@ -892,6 +892,8 @@
   "toasts": {
     "mapSaved": "Map saved",
     "mapSavedFullResync": "Map saved, but required a full re-sync. Please double-check layer styling.",
+    "mapSavedAfterRemoteChange": "Saved. Some layers had already changed in another session, so those edits were skipped.",
+    "saveConflictReload": "This map changed in another session. Reload the map to get the latest version, then save again.",
     "saveFailed": "Failed to save map",
     "saveFailedWithDetail": "Failed to save map: {{detail}}",
     "layerRemoved": "Layer removed",

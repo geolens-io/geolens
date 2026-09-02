@@ -13,7 +13,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { renderHook } from '@/test/test-utils';
-import { buildLayerDiff, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
+import { buildLayerDiff, reconcileLayerDiffWithServer, useBuilderSave, __resetThumbnailDebounceForTests } from '@/components/builder/hooks/use-builder-save';
 import { stampPersistedFolderGroupExpanded } from '@/components/builder/folder-groups';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import type { MapLayerResponse } from '@/types/api';
@@ -52,7 +52,11 @@ vi.mock('@/hooks/use-settings', () => ({
 
 const mockUploadThumbnail = vi.fn((..._args: unknown[]) => Promise.resolve());
 const mockUploadOgImage = vi.fn((..._args: unknown[]) => Promise.resolve());
+// fix(#1778): the stale-diff recovery refetches the map to learn which layer
+// ids the server still has.
+const mockGetMap = vi.fn();
 vi.mock('@/api/maps', () => ({
+  getMap: (...args: unknown[]) => mockGetMap(...args),
   uploadThumbnail: (...args: unknown[]) => mockUploadThumbnail(...args),
   uploadOgImage: (...args: unknown[]) => mockUploadOgImage(...args),
 }));
@@ -224,7 +228,7 @@ function makeSaveState(overrides: Partial<SaveState> = {}): SaveState {
     hasThumbnail: true,
     // fix(#392): the real MapBuilderPage owns this ref; tests that don't
     // exercise the layer-create → save-baseline bridge get a plain no-op ref.
-    saveBaselineSyncRef: { current: () => {} },
+    saveBaselineSyncRef: { current: { add: () => {}, remove: () => {} } },
     ...overrides,
   };
 }
@@ -273,6 +277,45 @@ function renderHookWithQueryClient(state: SaveState, queryClient: QueryClient) {
 }
 
 /* ── Tests ─────────────────────────────────────────── */
+
+describe('reconcileLayerDiffWithServer (#1778)', () => {
+  it('drops updated and removed ids the server no longer has', () => {
+    const out = reconcileLayerDiffWithServer(
+      {
+        added: [{ dataset_id: 'ds-new', sort_order: 0 } as never],
+        updated: [{ id: 'a', opacity: 0.5 }, { id: 'gone', opacity: 0.5 }],
+        removed: ['b', 'alsoGone'],
+      },
+      new Set(['a', 'b']),
+    );
+    expect(out.added).toHaveLength(1);
+    expect(out.updated).toEqual([{ id: 'a', opacity: 0.5 }]);
+    expect(out.removed).toEqual(['b']);
+  });
+
+  it('drops order entries the server does not have or is about to remove', () => {
+    const out = reconcileLayerDiffWithServer(
+      { removed: ['b'], order: ['a', 'b', 'gone'] },
+      new Set(['a', 'b']),
+    );
+    expect(out.order).toEqual(['a']);
+  });
+
+  it('omits order entirely when nothing survives, so the server does not renumber', () => {
+    const out = reconcileLayerDiffWithServer({ order: ['gone'] }, new Set(['a']));
+    expect(out.order).toBeUndefined();
+  });
+
+  it('never introduces a removal for a layer this session has not seen', () => {
+    // The server has a layer another session added. Rebuilding the diff from a
+    // refetched baseline would emit it as `removed`; reconciling cannot.
+    const out = reconcileLayerDiffWithServer(
+      { updated: [{ id: 'a', opacity: 0.5 }] },
+      new Set(['a', 'addedByAnotherSession']),
+    );
+    expect(out.removed).toBeUndefined();
+  });
+});
 
 describe('buildLayerDiff', () => {
   it('classifies added layers without baseline IDs', () => {
@@ -993,7 +1036,9 @@ describe('useBuilderSave', () => {
 
   it('falls back to full layer replacement when PATCH returns a structural error', async () => {
     mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
-      new ApiError('Layer order references unknown or removed layers', 400, 'Layer order references unknown or removed layers'),
+      // fix(#1778): 405 is now the only shape that escalates to a full PUT. A
+      // 400 with a diff-integrity detail is a conflict, covered separately below.
+      new ApiError('Method Not Allowed', 405, 'Method Not Allowed'),
     );
     const baseline = makeLayer({ paint: { 'fill-color': '#000000' } });
     let state = makeSaveState({ localLayers: [baseline] });
@@ -1022,7 +1067,9 @@ describe('useBuilderSave', () => {
 
   it('omits virtual folder rows from full replacement fallback payloads', async () => {
     mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
-      new ApiError('Layer order references unknown or removed layers', 400, 'Layer order references unknown or removed layers'),
+      // fix(#1778): 405 is now the only shape that escalates to a full PUT. A
+      // 400 with a diff-integrity detail is a conflict, covered separately below.
+      new ApiError('Method Not Allowed', 405, 'Method Not Allowed'),
     );
     const baseline = makeLayer({ id: 'layer-1' });
     const group = {
@@ -1059,6 +1106,157 @@ describe('useBuilderSave', () => {
         },
       },
     });
+  });
+
+  // -------------------------------------------------------------------------
+  // fix(#1778): "a stale-diff 400 from PATCH /maps/{id}/layers is misread as
+  // 'endpoint unsupported' and escalated to a full PUT that overwrites the
+  // server's layer set" (codebase audit 2026-08-30).
+  //
+  // The backend raises these exact details when the diff names layer ids the
+  // map no longer has, which means another session changed the map. The old
+  // predicate matched them with /layer|order|.../i on statuses 400/404/409/422
+  // and converted the one conflict signal into an unconditional overwrite.
+  //
+  // Counterfactual on main: every case below sees updateMap called with a
+  // `layers` array (this session's whole local list, sent as a wholesale
+  // replacement) instead of a re-diffed PATCH.
+  // -------------------------------------------------------------------------
+  it('re-diffs against the server instead of overwriting when the diff is stale', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError(
+        'Layer diff references layer ids outside this map',
+        400,
+        'Layer diff references layer ids outside this map',
+      ),
+    );
+    // The server no longer has layer-2: another session deleted it.
+    mockGetMap.mockResolvedValueOnce({ id: 'map-1', layers: [{ id: 'layer-1' }] });
+
+    const kept = makeLayer({ id: 'layer-1', paint: { 'fill-color': '#000000' } });
+    const goneElsewhere = makeLayer({ id: 'layer-2', dataset_id: 'dataset-2', sort_order: 1 });
+    let state = makeSaveState({ localLayers: [kept, goneElsewhere] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ id: 'layer-1', paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockGetMap).toHaveBeenCalledWith('map-1');
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(2);
+    // First attempt named the id the server had already dropped.
+    expect(mockPatchMapLayersMutateAsync.mock.calls[0][0].diff.removed).toEqual(['layer-2']);
+    // The retry drops it and keeps the real edit.
+    const retried = mockPatchMapLayersMutateAsync.mock.calls[1][0].diff;
+    expect(retried.removed).toBeUndefined();
+    expect(retried.updated).toEqual([{ id: 'layer-1', paint: { 'fill-color': '#ff0000' } }]);
+    // The metadata PUT carries NO layers array, so nothing is overwritten.
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
+  });
+
+  it('skips the retry PATCH when nothing survives the reconcile', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError(
+        'Layer order references unknown or removed layers',
+        400,
+        'Layer order references unknown or removed layers',
+      ),
+    );
+    mockGetMap.mockResolvedValueOnce({ id: 'map-1', layers: [] });
+
+    const goneElsewhere = makeLayer({ id: 'layer-9' });
+    let state = makeSaveState({ localLayers: [goneElsewhere] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({ localLayers: [], hasUnsavedChanges: true });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(1);
+    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
+  });
+
+  it('warns that layers changed elsewhere after a recovered save', async () => {
+    const { toast } = await import('sonner');
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError(
+        'Layer diff references layer ids outside this map',
+        400,
+        'Layer diff references layer ids outside this map',
+      ),
+    );
+    mockGetMap.mockResolvedValueOnce({ id: 'map-1', layers: [{ id: 'layer-1' }] });
+
+    let state = makeSaveState({ localLayers: [makeLayer({ id: 'layer-1' }), makeLayer({ id: 'layer-2' })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({ localLayers: [makeLayer({ id: 'layer-1' })], hasUnsavedChanges: true });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(toast.warning).toHaveBeenCalledWith('toasts.mapSavedAfterRemoteChange');
+    expect(toast.warning).not.toHaveBeenCalledWith('toasts.mapSavedFullResync');
+    expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
+  });
+
+  it('reports a conflict rather than overwriting when the recovery itself fails', async () => {
+    const { toast } = await import('sonner');
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError(
+        'Layer diff references layer ids outside this map',
+        400,
+        'Layer diff references layer ids outside this map',
+      ),
+    );
+    mockGetMap.mockRejectedValueOnce(new Error('offline'));
+
+    let state = makeSaveState({ localLayers: [makeLayer({ id: 'layer-1' }), makeLayer({ id: 'layer-2' })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({ localLayers: [makeLayer({ id: 'layer-1' })], hasUnsavedChanges: true });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith('toasts.saveConflictReload');
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(state.setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
+    expect(result.current.saveStatus).toBe('failed');
+  });
+
+  it('leaves a genuine validation rejection on the failure path', async () => {
+    const { toast } = await import('sonner');
+    // A 422 with prose the OLD predicate matched via /validation/i. It is not a
+    // stale diff and not a missing endpoint, so it must simply fail.
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError('Layer validation failed', 422, 'Layer validation failed'),
+    );
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    state = makeSaveState({
+      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockGetMap).not.toHaveBeenCalled();
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
   });
 
   it('does not clear unsaved changes when save fails', async () => {

@@ -892,6 +892,8 @@
   "toasts": {
     "mapSaved": "Karte gespeichert",
     "mapSavedFullResync": "Karte gespeichert, aber eine vollständige Neusynchronisierung war erforderlich. Bitte Layer-Stil überprüfen.",
+    "mapSavedAfterRemoteChange": "Gespeichert. Einige Layer wurden bereits in einer anderen Sitzung geändert, diese Änderungen wurden übersprungen.",
+    "saveConflictReload": "Diese Karte wurde in einer anderen Sitzung geändert. Laden Sie die Karte neu, um die aktuelle Version zu erhalten, und speichern Sie erneut.",
     "saveFailed": "Karte konnte nicht gespeichert werden",
     "saveFailedWithDetail": "Karte konnte nicht gespeichert werden: {{detail}}",
     "layerRemoved": "Layer entfernt",
