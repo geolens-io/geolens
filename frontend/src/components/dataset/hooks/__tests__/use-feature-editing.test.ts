@@ -650,4 +650,57 @@ describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 rev
 
     expect(toast.error).toHaveBeenCalledTimes(1);
   });
+
+  // fix(#1761 review round 8): the fourth catch path with the same
+  // omission — selectFeatureFromMap's catch (getFeature() rejecting) had
+  // no epoch recheck at all, unlike the mutation catch paths above, so a
+  // failed fetch always showed map.featureLoadFailed to whoever is signed
+  // in (or anonymous) when it lands, not whoever clicked the feature.
+  it('selectFeatureFromMap (selection) suppresses the error toast when the identity changed before getFeature rejected', async () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    vi.mocked(getFeature).mockReset();
+    const fetch = deferred<GeoJSONFeature>();
+    vi.mocked(getFeature).mockReturnValueOnce(fetch.promise);
+
+    const map = {
+      getLayer: vi.fn(() => true),
+      getFilter: vi.fn(() => null),
+      queryRenderedFeatures: vi.fn(() => [{ id: 99, properties: {} }]),
+      getSource: vi.fn(() => undefined),
+      setFilter: vi.fn(),
+    } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    const selecting = result.current.selectFeatureFromMap(map, FAKE_POINT);
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    fetch.reject(new Error('boom'));
+    await act(async () => {
+      await selecting;
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('selectFeatureFromMap (selection) still reports a real failure when the identity has not changed', async () => {
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    vi.mocked(getFeature).mockReset();
+    vi.mocked(getFeature).mockRejectedValueOnce(new Error('boom'));
+
+    const map = {
+      getLayer: vi.fn(() => true),
+      getFilter: vi.fn(() => null),
+      queryRenderedFeatures: vi.fn(() => [{ id: 99, properties: {} }]),
+      getSource: vi.fn(() => undefined),
+      setFilter: vi.fn(),
+    } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.selectFeatureFromMap(map, FAKE_POINT);
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
 });

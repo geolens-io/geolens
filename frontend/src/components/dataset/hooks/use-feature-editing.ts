@@ -463,6 +463,11 @@ export function useFeatureEditing({
           toast.error(t('map.featureLoadFailed'));
         }
       } catch {
+        // fix(#1761 review round 8): mirror the success branch's recheck —
+        // a failed fetch is feedback for whoever clicked the feature, not
+        // whoever is signed in (or anonymous) by the time getFeature()
+        // rejects.
+        if (isStale(epoch)) return;
         toast.error(t('map.featureLoadFailed'));
       }
     },
