@@ -1411,3 +1411,114 @@ class TestABearerTokenIsJudgedAfterDetection:
         assert recorded == []
         for secret in secrets:
             assert secret not in resp.text
+
+    async def test_a_fallback_detected_arcgis_refuses_a_method_it_cannot_carry(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """fix(#1746 B2b review r9): the probe must answer what preview will.
+
+        `url_query_token` answers None for basic and for a named API key,
+        because neither fits in a query parameter. On this path that silently
+        became an ANONYMOUS ArcGIS probe: the vanity endpoint answered 200 and
+        the caller was told their credential worked, and then preview refused
+        the same credential with `unsupported_auth_method`. The probe now
+        gives that answer itself, once the fallback has established that
+        ArcGIS is what this is.
+        """
+        secret = _value()
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            vanity,
+            {
+                "auth": {
+                    "method": "basic",
+                    "username": "u" + _value(),
+                    "password": secret,
+                }
+            },
+            handle,
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "unsupported_auth_method"
+        assert secret not in resp.text
+        # The ArcGIS request is the one that identified the service, and it is
+        # the anonymous one: a basic credential has no query spelling, which
+        # is the whole reason this refusal exists. The header-auth probes that
+        # ran before it did carry the credential, to the service's own origin,
+        # which is what they are for.
+        arcgis = [r for r in recorded if "f=json" in str(r.url)]
+        assert arcgis
+        assert all(secret not in str(r.url) for r in recorded)
+        assert all(
+            "authorization" not in {n.lower() for n in r.headers} for r in arcgis
+        )
+
+    async def test_the_same_fallback_still_succeeds_for_a_bearer_token(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The twin, so the refusal is about the method and not the path."""
+        token = "tok" + _value()
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            vanity,
+            {"auth": {"method": "bearer", "token": token}},
+            handle,
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["service_type"] == "ArcGIS FeatureServer"
+        assert [r for r in recorded if token in str(r.url)]
+
+    async def test_the_anonymous_fallback_is_untouched(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """No credential, nothing to refuse: a public vanity endpoint probes."""
+        vanity = "https://gis.example/maps/data"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "f=json" in str(request.url):
+                return httpx.Response(
+                    200,
+                    json={
+                        "currentVersion": 10.91,
+                        "layers": [{"id": 0, "name": "Parcels"}],
+                    },
+                )
+            return httpx.Response(404)
+
+        resp, _recorded = await self._probe(
+            client, admin_auth_header, vanity, {}, handle
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["service_type"] == "ArcGIS FeatureServer"

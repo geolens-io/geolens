@@ -771,14 +771,14 @@ async def probe_service_url(
         # than a guess made before detection. Same code and same policy-only
         # message the preview and commit doors return, which the client
         # already maps.
-        logger.warning("Probe credential unusable", url=safe_url)
+        logger.warning("Probe credential unusable", url=safe_url, code=exc.code)
         await _probe_audit_fail(
             db,
             user.id,
             request.url,
-            "invalid_service_token",
+            exc.code,
             status.HTTP_422_UNPROCESSABLE_CONTENT,
-            {"code": "invalid_service_token", "message": exc.policy},
+            {"code": exc.code, "message": exc.policy},
         )
 
     except SSRFError as exc:

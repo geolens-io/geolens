@@ -25,8 +25,13 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 
-from app.core.service_tokens import ServiceCredential
-from app.platform.service_auth import url_query_token
+from app.core.service_tokens import CredentialMethod, ServiceCredential
+from app.platform.service_auth import (
+    INVALID_SERVICE_TOKEN_CODE,
+    UNSUPPORTED_AUTH_METHOD_CODE,
+    UNSUPPORTED_AUTH_METHOD_POLICY,
+    url_query_token,
+)
 from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.adapters.arcgis import (
     _looks_like_arcgis,
@@ -69,8 +74,15 @@ class ServiceCredentialUnusable(Exception):
     only problem was the credential.
     """
 
-    def __init__(self, policy: str):
+    def __init__(self, policy: str, *, code: str = INVALID_SERVICE_TOKEN_CODE):
         self.policy = policy
+        # fix(#1746 B2b review r9): which refusal this is. A credential whose
+        # VALUE cannot become a header is `invalid_service_token`; a method
+        # the detected service cannot carry at all is
+        # `unsupported_auth_method`, the same code the doors return when they
+        # know the format up front. Two outcomes, one exception, because both
+        # are "detection finished and the credential cannot be sent".
+        self.code = code
         super().__init__(policy)
 
 
@@ -180,6 +192,30 @@ async def detect_service_type(
             )
             return None
 
+    def _arcgis_carries(credential_: ServiceCredential | None) -> None:
+        """Refuse a method ArcGIS cannot present, once ArcGIS is what we found.
+
+        fix(#1746 B2b review r9): `url_query_token` answers None for basic and
+        for a named API key, because neither fits in a query parameter. On the
+        fallback path that silently became an ANONYMOUS ArcGIS probe: a vanity
+        endpoint identified only by its `f=json` response answered 200 and the
+        caller was told their credential worked, and then preview refused the
+        same credential with `unsupported_auth_method`. The probe has to give
+        the answer preview will give.
+
+        Only reachable from the fallback in practice. The keyword-detected
+        branch is refused at the door, which knows the format from the URL,
+        and this says the same thing for the branch that learns it later.
+        """
+        if credential_ is None or credential_.method in (
+            CredentialMethod.NONE,
+            CredentialMethod.BEARER,
+        ):
+            return
+        raise ServiceCredentialUnusable(
+            UNSUPPORTED_AUTH_METHOD_POLICY, code=UNSUPPORTED_AUTH_METHOD_CODE
+        )
+
     # Fast path: ArcGIS URL pattern
     if looks_arcgis:
         logger.info(
@@ -188,6 +224,7 @@ async def detect_service_type(
         base_url, layer_id = normalize_arcgis_url(url)
         result = await probe_arcgis_service(base_url, client, token=token)
         if result is not None:
+            _arcgis_carries(credential)
             enriched = await enrich_arcgis_feature_counts(
                 base_url, result["layers"], client, token=token
             )
@@ -228,6 +265,7 @@ async def detect_service_type(
     base_url, layer_id = normalize_arcgis_url(url)
     arcgis_result = await probe_arcgis_service(base_url, client, token=token)
     if arcgis_result is not None:
+        _arcgis_carries(credential)
         enriched = await enrich_arcgis_feature_counts(
             base_url, arcgis_result["layers"], client, token=token
         )
