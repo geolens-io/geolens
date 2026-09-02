@@ -1827,6 +1827,17 @@ def _apply_datetime_filter(stmt, datetime_str: str):
         if start is not None:
             stmt = stmt.where(
                 (Record.temporal_end >= start)
+                # fix(#1778): a record with temporal_start set and
+                # temporal_end NULL (an open-ended/ongoing extent) fell
+                # through every arm here -- temporal_end >= start reads
+                # NULL, temporal_start >= start is false for any start in
+                # the past, and null_temporal is false since temporal_start
+                # IS set. The single-instant branch below already treats a
+                # NULL temporal_end as open (its range_contains OR-arm), so
+                # an interval query for a later instant matched fewer
+                # records than the instant alone. Mirror the end-bound
+                # clause's own open-start arm below, symmetrically.
+                | (Record.temporal_end.is_(None) & Record.temporal_start.isnot(None))
                 | (Record.temporal_start >= start)
                 | (null_temporal & (Record.created_at >= start))
             )

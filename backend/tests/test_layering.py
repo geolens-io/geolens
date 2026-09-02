@@ -4354,7 +4354,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # refactor(stac): -1 — the raster-asset reads go through CatalogPort, so
     # the DatasetAsset select and the deferred raster-queries import give way
     # to port calls. Cap 1855 -> 1854, still exact.
-    "backend/app/standards/stac/router.py": 1854,
+    # fix(#1778): +15 -- deterministic ORDER BY tiebreakers on the two
+    # paginated item queries, the open-ended interval-datetime fix, and
+    # replacing the four nested async_session() pool checkouts in
+    # get_collections with sequential reuse of the caller's own session.
+    # Cap 1854 -> 1869, exact.
+    "backend/app/standards/stac/router.py": 1869,
     # Central tenant-bound scope resolution replaced duplicated inline logic.
     # fix(#836): +1 — the RASTER_FAMILY_RECORD_TYPES import that replaces four
     # pasted family literals. Same +1 on the stac and search routers.
