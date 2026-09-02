@@ -600,7 +600,6 @@
       "continual": "Continual",
       "daily": "Daily",
       "weekly": "Weekly",
-      "fortnightly": "Fortnightly",
       "monthly": "Monthly",
       "quarterly": "Quarterly",
       "biannually": "Biannually",
@@ -611,11 +610,10 @@
       "unknown": "Unknown"
     },
     "sensitivityOptions": {
-      "unclassified": "Unclassified",
-      "restricted": "Restricted",
+      "public": "Public",
+      "internal": "Internal",
       "confidential": "Confidential",
-      "secret": "Secret",
-      "topSecret": "Top secret"
+      "restricted": "Restricted"
     },
     "themeCategories": {
       "farming": "Farming",

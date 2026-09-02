@@ -180,7 +180,9 @@ export async function getBranding(): Promise<BrandingConfig> {
 
 export async function updateBranding(data: Partial<BrandingConfig>): Promise<void> {
   const settings: Record<string, unknown> = {};
-  if (data.show_badge !== undefined) settings.branding_show_badge = data.show_badge;
+  // The registry key is dotted (`branding.show_badge` in persistent_config.py),
+  // not `branding_show_badge` -- the underscore spelling 400s on every save.
+  if (data.show_badge !== undefined) settings['branding.show_badge'] = data.show_badge;
   await updateSettings(settings);
 }
 
