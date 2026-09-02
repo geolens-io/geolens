@@ -1513,6 +1513,21 @@ class TestGeometryValidity:
         "type": "Polygon",
         "coordinates": [[[0.0, 0.0], [1.0, 1.0], [0.0, 0.0]]],
     }
+    # fix(#1778): same rectangle as POLYGON_GEOJSON, minus the closing vertex.
+    # Shapely's shape() auto-closes this and reports it valid, so it must be
+    # ACCEPTED (not rejected) — the bug was that the raw, still-open dict was
+    # the thing written to PostGIS, which does not auto-close it.
+    UNCLOSED_RING = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-73.99, 40.74],
+                [-73.98, 40.74],
+                [-73.98, 40.75],
+                [-73.99, 40.75],
+            ]
+        ],
+    }
 
     async def test_self_intersecting_polygon_rejected(
         self,
@@ -1579,6 +1594,119 @@ class TestGeometryValidity:
             headers=admin_auth_header,
         )
         assert patch.status_code == 400, patch.text
+
+    async def test_closed_ring_round_trips_unchanged(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        """fix(#1778): already-valid input keeps producing byte-identical
+        GeoJSON. Writing shapely's normalized geometry instead of the raw
+        client dict must not change the response for input that was already
+        a closed ring.
+        """
+        resp = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": POLYGON_GEOJSON, "properties": {"name": "valid"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["geometry"] == POLYGON_GEOJSON
+
+    async def test_insert_unclosed_ring_stored_closed_and_bbox_readable(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        """fix(#1778): an unclosed ring on create is stored closed, and a
+        subsequent bbox read over it returns 200 with the feature instead of
+        the pre-fix unhandled 500 (GEOS "not closed" from ST_Intersects).
+        """
+        resp = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": self.UNCLOSED_RING, "properties": {"name": "unclosed"}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 201, resp.text
+        ring = resp.json()["geometry"]["coordinates"][0]
+        assert ring[0] == ring[-1], "stored ring must be closed"
+
+        bbox_resp = await client.get(
+            f"/datasets/{polygon_layer.id}/features/?bbox=-74.1,40.6,-73.9,40.8",
+            headers=admin_auth_header,
+        )
+        assert bbox_resp.status_code == 200, bbox_resp.text
+        names = {f["properties"]["name"] for f in bbox_resp.json()["features"]}
+        assert "unclosed" in names
+
+    async def test_replace_unclosed_ring_stored_closed_and_bbox_readable(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        """fix(#1778): same guard on PUT (full replace)."""
+        create = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": POLYGON_GEOJSON, "properties": {"name": "orig"}},
+            headers=admin_auth_header,
+        )
+        assert create.status_code == 201, create.text
+        gid = create.json()["id"]
+
+        resp = await client.put(
+            f"/datasets/{polygon_layer.id}/features/{gid}",
+            json={
+                "geometry": self.UNCLOSED_RING,
+                "properties": {"name": "replaced"},
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        ring = resp.json()["geometry"]["coordinates"][0]
+        assert ring[0] == ring[-1], "stored ring must be closed"
+
+        bbox_resp = await client.get(
+            f"/datasets/{polygon_layer.id}/features/?bbox=-74.1,40.6,-73.9,40.8",
+            headers=admin_auth_header,
+        )
+        assert bbox_resp.status_code == 200, bbox_resp.text
+        names = {f["properties"]["name"] for f in bbox_resp.json()["features"]}
+        assert "replaced" in names
+
+    async def test_patch_geometry_unclosed_ring_stored_closed_and_bbox_readable(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        polygon_layer: Dataset,
+    ):
+        """fix(#1778): same guard on PATCH (partial geometry update)."""
+        create = await client.post(
+            f"/datasets/{polygon_layer.id}/features/",
+            json={"geometry": POLYGON_GEOJSON, "properties": {"name": "orig"}},
+            headers=admin_auth_header,
+        )
+        assert create.status_code == 201, create.text
+        gid = create.json()["id"]
+
+        resp = await client.patch(
+            f"/datasets/{polygon_layer.id}/features/{gid}",
+            json={"geometry": self.UNCLOSED_RING},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        ring = resp.json()["geometry"]["coordinates"][0]
+        assert ring[0] == ring[-1], "stored ring must be closed"
+
+        bbox_resp = await client.get(
+            f"/datasets/{polygon_layer.id}/features/?bbox=-74.1,40.6,-73.9,40.8",
+            headers=admin_auth_header,
+        )
+        assert bbox_resp.status_code == 200, bbox_resp.text
+        names = {f["properties"]["name"] for f in bbox_resp.json()["features"]}
+        assert "orig" in names
 
 
 # ---------------------------------------------------------------------------
