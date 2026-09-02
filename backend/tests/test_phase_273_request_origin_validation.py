@@ -9,7 +9,14 @@ public_api_url or default, NOT the attacker-controlled value.
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from app.core.public_urls import _request_origin
+from app.core.public_urls import (
+    _DEFAULT_PUBLIC_API_URL,
+    _DEFAULT_PUBLIC_APP_URL,
+    _request_origin,
+    _request_origin_decision,
+    resolve_public_api_url,
+    resolve_public_app_url,
+)
 
 
 def _mock_request(
@@ -98,3 +105,91 @@ def test_no_request_returns_none():
     with patch("app.core.public_urls.settings") as mock_settings:
         mock_settings.cors_origins_list = ["https://app.example.com"]
         assert _request_origin(None) is None
+
+
+# ---------------------------------------------------------------------------
+# fix(#1778): codebase audit 2026-08-30, "SEC-05's CORS-allowlist gate on
+# request-derived origins is bypassed two lines later by a raw Host fallback".
+#
+# _request_origin returning None was read by both resolvers as "no origin to
+# derive", so they fell through to request.url.netloc -- Starlette's read of
+# the Host header, which frontend/nginx.conf forwards verbatim from the client
+# with no server_name restriction. The allowlist decided which of two code
+# paths ran; both returned the attacker's host.
+#
+# Counterfactual: drop `and not allowlist_rejected` from either resolver and
+# the matching test below returns https://attacker.example instead of the
+# default.
+# ---------------------------------------------------------------------------
+
+
+def test_decision_distinguishes_rejection_from_absence():
+    with patch("app.core.public_urls.settings") as mock_settings:
+        mock_settings.cors_origins_list = ["https://app.example.com"]
+        rejected = _mock_request({"origin": "https://attacker.example"})
+        assert _request_origin_decision(rejected) == (None, True)
+
+        # No headers to derive anything from: absence, not rejection.
+        absent = _mock_request({}, netloc="")
+        assert _request_origin_decision(absent) == (None, False)
+
+        assert _request_origin_decision(None) == (None, False)
+
+
+def test_api_url_does_not_fall_back_to_a_rejected_host():
+    with patch("app.core.public_urls.settings") as mock_settings:
+        mock_settings.cors_origins_list = ["https://app.example.com"]
+        mock_settings.env_only_config = False
+        req = _mock_request(
+            {"host": "attacker.example"},
+            scheme="https",
+            netloc="attacker.example",
+        )
+        assert (
+            resolve_public_api_url(None, None, None, request=req)
+            == _DEFAULT_PUBLIC_API_URL
+        )
+
+
+def test_app_url_does_not_fall_back_to_a_rejected_host():
+    with patch("app.core.public_urls.settings") as mock_settings:
+        mock_settings.cors_origins_list = ["https://app.example.com"]
+        mock_settings.env_only_config = False
+        req = _mock_request(
+            {"host": "attacker.example"},
+            scheme="https",
+            netloc="attacker.example",
+        )
+        assert (
+            resolve_public_app_url(None, None, None, request=req)
+            == _DEFAULT_PUBLIC_APP_URL
+        )
+
+
+def test_an_allowlisted_host_still_resolves():
+    """The gate must refuse the rejection, not every request-derived origin."""
+    with patch("app.core.public_urls.settings") as mock_settings:
+        mock_settings.cors_origins_list = ["https://app.example.com"]
+        mock_settings.env_only_config = False
+        req = _mock_request(
+            {"host": "app.example.com", "x-forwarded-proto": "https"},
+            scheme="https",
+            netloc="app.example.com",
+        )
+        assert (
+            resolve_public_app_url(None, None, None, request=req)
+            == "https://app.example.com"
+        )
+
+
+def test_unconfigured_allowlist_keeps_the_dev_host_fallback():
+    """With CORS_ALLOWED_ORIGINS empty nothing is rejected, so the fallback that
+    makes a no-config dev stack work is untouched."""
+    with patch("app.core.public_urls.settings") as mock_settings:
+        mock_settings.cors_origins_list = []
+        mock_settings.env_only_config = False
+        req = _mock_request({}, scheme="http", netloc="localhost:8000")
+        assert (
+            resolve_public_app_url(None, None, None, request=req)
+            == "http://localhost:8000"
+        )

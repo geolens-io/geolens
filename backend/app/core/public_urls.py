@@ -389,8 +389,8 @@ def _is_env_only() -> bool:
     return settings.env_only_config
 
 
-def _request_origin(request: Request | None) -> str | None:
-    """Derive the public origin from request headers.
+def _request_origin_decision(request: Request | None) -> tuple[str | None, bool]:
+    """``(origin, allowlist_rejected)`` derived from the request headers.
 
     SEC-05 / M-67: when ``CORS_ALLOWED_ORIGINS`` is configured (non-empty),
     the resulting origin MUST be in that allowlist. This prevents an
@@ -400,9 +400,15 @@ def _request_origin(request: Request | None) -> str | None:
     When ``CORS_ALLOWED_ORIGINS`` is empty (local dev, no proxy), the
     function returns the request-derived origin unchanged — dev workflows
     (Vite proxy, localhost-only) keep working without configuration.
+
+    fix(#1778): the second element exists because "no origin to derive" and
+    "an origin was derived and the allowlist refused it" are different
+    answers, and the resolvers below must not treat them alike. Collapsing
+    both into ``None`` let the raw-Host fallback re-derive the very origin
+    this function had just rejected.
     """
     if request is None:
-        return None
+        return None, False
 
     candidate: str | None = None
 
@@ -420,7 +426,7 @@ def _request_origin(request: Request | None) -> str | None:
         scheme = request.headers.get("x-forwarded-proto", request.url.scheme)
         host = request.headers.get("x-forwarded-host", request.headers.get("host", ""))
         if not host:
-            return None
+            return None, False
         candidate = f"{scheme}://{host}"
 
     # SEC-05: enforce CORS allowlist when configured.
@@ -432,9 +438,17 @@ def _request_origin(request: Request | None) -> str | None:
             (normalize_public_url(entry) or "").lower() for entry in allowlist
         }
         if (candidate or "").lower() not in normalized_allowlist:
-            return None
+            return None, True
 
-    return candidate
+    return candidate, False
+
+
+def _request_origin(request: Request | None) -> str | None:
+    """The allowlist-approved request origin, or None. See
+    :func:`_request_origin_decision` for why callers that fall back to
+    anything else need the two-value form instead."""
+    origin, _rejected = _request_origin_decision(request)
+    return origin
 
 
 def resolve_public_api_url(
@@ -453,6 +467,17 @@ def resolve_public_api_url(
     enables auth-code theft. Caller MUST configure ``PUBLIC_APP_URL`` /
     ``PUBLIC_API_URL`` for OAuth flows; otherwise this raises
     ``PublicUrlNotConfiguredError``.
+
+    fix(#1778): the last-resort ``request.url.netloc`` fallback below runs only
+    when the allowlist did not have an opinion. It used to run whenever
+    ``_request_origin`` answered None, which included the case where the
+    allowlist had just REFUSED the derived origin -- and ``request.url.netloc``
+    is Starlette's read of the ``Host`` header, which nginx.conf forwards
+    verbatim (``proxy_set_header Host $http_host``) with no ``server_name``
+    restriction. SEC-05 therefore changed which of two code paths ran and both
+    returned the attacker's host. Giving nginx a ``server_name`` so an unknown
+    Host never reaches the app is still worth doing; this closes the app-side
+    half.
     """
     normalized_api = normalize_public_url(api_url) or normalize_public_url(
         legacy_api_url
@@ -472,7 +497,7 @@ def resolve_public_api_url(
             "X-Forwarded-Host can hijack the OAuth redirect_uri."
         )
 
-    request_origin = _request_origin(request)
+    request_origin, allowlist_rejected = _request_origin_decision(request)
     if request_origin:
         assert request is not None
         root_path = request.scope.get("root_path", "").rstrip("/")
@@ -480,7 +505,7 @@ def resolve_public_api_url(
             return request_origin + root_path
         return request_origin
 
-    if request is not None:
+    if request is not None and not allowlist_rejected:
         scheme = request.url.scheme
         host = request.url.netloc
         if host:
@@ -521,14 +546,14 @@ def resolve_public_app_url(
             "X-Forwarded-Host can hijack the OAuth redirect_uri."
         )
 
-    request_origin = _request_origin(request)
+    request_origin, allowlist_rejected = _request_origin_decision(request)
     if request_origin:
         return request_origin
 
     if normalized_api:
         return normalized_api
 
-    if request is not None:
+    if request is not None and not allowlist_rejected:
         scheme = request.url.scheme
         host = request.url.netloc
         if host:
