@@ -12,6 +12,7 @@ module, which is the kind of reach-across that makes a later split harder than
 it needs to be. They have one home now.
 """
 
+import asyncio
 import os
 import uuid
 from datetime import datetime, timezone
@@ -430,10 +431,21 @@ async def publish_commit_landed(
     behind that an operator or a later sweep can still remove, while proceeding
     on a false negative deletes the live raster.
 
-    Callers gate ONLY the orphaned-key cleanup on this. It is deliberately not
-    folded into ``final_status``, which also decides whether the uploader's
-    staged original may be deleted — standing down there would turn a probe
-    failure into a second, worse deletion.
+    fix(#1778 codex r1): a caller that gets True stands DOWN, returning
+    normally rather than re-raising into its failure handler. Gating only the
+    orphaned-key cleanup was not enough, because the handler it still entered
+    writes about a job that succeeded: ``regenerate_vrt`` reloaded the now
+    ``completed`` ``VrtGeneration`` and stamped it ``failed``, which
+    ``get_vrt_status`` reads as "this dataset has no completed generation" and
+    the stale-generation sweep reads as evidence the asset was unhealthy.
+    Nothing is lost by returning: the terminal write is durable, and the only
+    work skipped is the post-commit best-effort block those tails already
+    treat as unfailable.
+
+    What the caller must NOT do is set ``final_status`` from this. That string
+    also decides whether the uploader's staged original may be deleted, and
+    standing down there would turn a probe failure into a second, worse
+    deletion.
     """
     # fix(#909)-style late bind so tests' engine patching is honored.
     import app.core.db as db_module
@@ -461,3 +473,22 @@ async def publish_commit_landed(
             "publish_commit_ack_lost_but_landed", job_id=job_id, task=task
         )
     return landed
+
+
+def absorb_cancellation(exc: BaseException) -> None:
+    """Clear the pending cancellation a stand-down is about to stop honouring.
+
+    fix(#1778 codex r1): a tail that observes its publish landed returns
+    normally instead of re-raising, so on the cancel half of the finding it
+    swallows the ``asyncio.CancelledError`` that #1709's ``abort=True``
+    delivers. Suppressing a cancellation without saying so leaves
+    ``Task.cancelling()`` above zero, and that count is what a
+    structured-concurrency parent reads to decide whether its own body was
+    cancelled rather than merely interrupted. Every other exception type is
+    left alone, and a call outside a running task is a no-op.
+    """
+    if not isinstance(exc, asyncio.CancelledError):
+        return
+    task = asyncio.current_task()
+    if task is not None:
+        task.uncancel()

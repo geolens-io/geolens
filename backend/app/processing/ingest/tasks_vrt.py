@@ -41,7 +41,10 @@ from app.processing.ingest.tasks_common import (
     _cleanup_staging_on_failure,
     task_app,
 )
-from app.processing.ingest.tasks_raster_common import publish_commit_landed
+from app.processing.ingest.tasks_raster_common import (
+    absorb_cancellation,
+    publish_commit_landed,
+)
 
 
 def _prior_generation_storage_keys_to_reap(
@@ -623,11 +626,18 @@ async def ingest_vrt(
                 )
                 try:
                     await session.commit()
-                except BaseException:
-                    publish_committed = await publish_commit_landed(
+                except BaseException as exc:
+                    if not await publish_commit_landed(
                         job_uuid, attempt_uuid, job_id=job_id, task="ingest_vrt"
-                    )
-                    raise
+                    ):
+                        raise
+                    # fix(#1778 codex r1): stand down rather than re-raise, the
+                    # same decision `regenerate_vrt` makes below. The dataset
+                    # and its VRT object are durable, so the failure handler
+                    # would be writing about a job that succeeded.
+                    publish_committed = True
+                    absorb_cancellation(exc)
+                    return
                 publish_committed = True
 
                 # Invalidate cache
@@ -644,6 +654,20 @@ async def ingest_vrt(
                 raise
 
     except Exception as exc:  # broad: VRT pipeline includes GDAL subprocesses and rasterio — any step can fail
+        if publish_committed:
+            # fix(#1778 codex r1): the second way this handler is reached with
+            # a durable publish behind it, and the one the stand-down above
+            # cannot cover: `invalidate_catalog_cache` and `defer_embedding`
+            # run inside the same try, so a Valkey outage or a busy queue lands
+            # here after the dataset is live and the writes below would report
+            # a build that succeeded as failed.
+            structlog.get_logger().warning(
+                "vrt_post_publish_followup_failed",
+                job_id=job_id,
+                task="ingest_vrt",
+                exc_info=True,
+            )
+            return
         # fix(#1778): write failure status via a fresh session, through the
         # same shared helper the re-upload doors use. This tail used to paste a
         # narrower copy of the UPDATE and emitted no `ingest_failed`
@@ -1250,11 +1274,19 @@ async def regenerate_vrt(
                 )
                 try:
                     await session.commit()
-                except BaseException:
-                    publish_committed = await publish_commit_landed(
+                except BaseException as exc:
+                    if not await publish_commit_landed(
                         job_uuid, attempt_uuid, job_id=job_id, task="regenerate_vrt"
-                    )
-                    raise
+                    ):
+                        raise
+                    # fix(#1778 codex r1): stand down rather than re-raise. The
+                    # generation swap is durable, so every write the failure
+                    # handler would make is a statement about a job that
+                    # succeeded, and the generation row it stamps `failed` is
+                    # not fenced the way the job and asset writes are.
+                    publish_committed = True
+                    absorb_cancellation(exc)
+                    return
                 publish_committed = True
 
                 from app.processing.ingest.tasks_raster import (
@@ -1281,6 +1313,23 @@ async def regenerate_vrt(
                 raise
 
     except Exception as exc:  # broad: VRT regeneration includes GDAL subprocesses and rasterio — any step can fail
+        if publish_committed:
+            # fix(#1778 codex r1): the second way this handler is reached with
+            # a durable publish behind it, and the one the stand-down above
+            # cannot cover: the prior-key reap, `invalidate_catalog_cache` and
+            # `defer_embedding` all run inside the same try. The generation
+            # write below is not fenced the way the job and asset writes are,
+            # so reaching here after the swap stamped a `completed` generation
+            # `failed`, which `get_vrt_status` reads as "no completed
+            # generation" and the stale-generation sweep reads as evidence the
+            # asset was unhealthy.
+            structlog.get_logger().warning(
+                "vrt_post_publish_followup_failed",
+                job_id=job_id,
+                task="regenerate_vrt",
+                exc_info=True,
+            )
+            return
         structlog.get_logger().exception(
             "Ingest task failed",
             job_id=job_id,
@@ -1318,7 +1367,14 @@ async def regenerate_vrt(
                     select(VrtGeneration).where(VrtGeneration.id == generation_uuid)
                 )
                 gen = gen_result.scalar_one_or_none()
-                if gen:
+                # fix(#1778 codex r1): and the same rule stated at the write
+                # rather than only at the caller. The two guards above are
+                # local flags; this one is a property of the statement, so a
+                # future path into this handler cannot relabel a generation
+                # whose artifact is published, whatever it believes about the
+                # commit. It is the peer of the `current_generation_id` fence
+                # on the asset update and the `running` fence on the job.
+                if gen and gen.status != "completed":
                     gen.status = "failed"
                     gen.completed_at = datetime.now(timezone.utc)
                     if gen.started_at:

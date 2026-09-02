@@ -5620,6 +5620,12 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
     committed row had just been pointed at. The superseded objects are not
     restored — the reaper of the OLD keys never ran — so nothing in the
     product can recover the dataset.
+
+    fix(#1778 codex r1): observing the publish now makes the tail STAND DOWN
+    rather than re-raise, so these tasks return normally and no failure write
+    runs at all. Gating only the reap left `regenerate_vrt` stamping the
+    `completed` VrtGeneration `failed`, which `get_vrt_status` reads as "this
+    dataset has no completed generation".
     """
 
     @staticmethod
@@ -5661,14 +5667,15 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
 
         try:
             with _ack_lost_on_publish(job_id, failure=failure) as fired:
-                with pytest.raises(type(failure)):
-                    await reupload_raster.func(
-                        job_id=str(job_id),
-                        dataset_id=str(dataset_id),
-                        file_path=str(source),
-                        user_id=str(admin_id),
-                        attempt_id=str(attempt_id),
-                    )
+                # Returns rather than raising: the swap is durable, so there is
+                # no failure for the handler to report (#1778 codex r1).
+                await reupload_raster.func(
+                    job_id=str(job_id),
+                    dataset_id=str(dataset_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(attempt_id),
+                )
             assert fired["count"] == 1, "the publishing commit never fired"
 
             test_db_session.expire_all()
@@ -5697,8 +5704,20 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 )
             ).scalar_one()
             assert finished.status == "complete", (
-                "the terminal write landed with the swap, and the failure "
-                "handler is fenced on `running`, so it cannot overwrite it"
+                "the terminal write landed with the swap, and the tail stands "
+                "down instead of entering the handler that would report it "
+                "failed"
+            )
+            run = (
+                await test_db_session.execute(
+                    select(DatasetRefreshRun).where(
+                        DatasetRefreshRun.ingest_job_id == job_id
+                    )
+                )
+            ).scalar_one()
+            assert run.status == "succeeded", (
+                "the refresh history must record what happened, not what the "
+                "lost acknowledgement suggested"
             )
         finally:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
@@ -5766,12 +5785,24 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             await _purge(test_db_session, dataset_id=dataset_id, record_id=record_id)
 
     async def test_first_ingest_keeps_the_cog_the_committed_row_names(
-        self, test_db_session, raster_storage, tmp_path
+        self, test_db_session, raster_storage, tmp_path, monkeypatch
     ) -> None:
         """``ingest_raster``: same tail, and its reap used to key off
         ``final_status``, which the broad handler sets to "failed" even when
-        the failure happened after the swap was durable."""
+        the failure happened after the swap was durable. Its handler also
+        emails the operator, so standing down is what stops a durable ingest
+        being reported as a failure (#1778 codex r1)."""
+        from app.core.config import settings
+        from app.platform.notifications import events as events_mod
         from app.processing.ingest.tasks_raster import ingest_raster
+
+        emitted: list = []
+
+        async def _fake_notify(notification):
+            emitted.append(notification)
+
+        monkeypatch.setattr(settings, "notify_on_ingest_failed", True, raising=False)
+        monkeypatch.setattr(events_mod, "notify", _fake_notify)
 
         admin_id = await self._admin(test_db_session)
         source = tmp_path / "first.tif"
@@ -5794,14 +5825,16 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             with _ack_lost_on_publish(
                 job_id, failure=ConnectionResetError("dropped")
             ) as fired:
-                with pytest.raises(ConnectionResetError):
-                    await ingest_raster.func(
-                        job_id=str(job_id),
-                        file_path=str(source),
-                        user_id=str(admin_id),
-                        attempt_id=str(attempt_id),
-                    )
+                await ingest_raster.func(
+                    job_id=str(job_id),
+                    file_path=str(source),
+                    user_id=str(admin_id),
+                    attempt_id=str(attempt_id),
+                )
             assert fired["count"] == 1, "the publishing commit never fired"
+            assert [n.event_type for n in emitted] == [], (
+                "a durable ingest emailed the operator that it failed"
+            )
 
             test_db_session.expire_all()
             finished = (
@@ -5841,7 +5874,7 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                 )
 
     async def test_vrt_regeneration_keeps_the_generation_it_published(
-        self, test_db_session, raster_storage, monkeypatch
+        self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
     ) -> None:
         from app.processing.ingest.tasks_vrt import regenerate_vrt
         from app.processing.raster.models import VrtGeneration
@@ -5903,13 +5936,12 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             with _ack_lost_on_publish(
                 job_id, failure=ConnectionResetError("dropped")
             ) as fired:
-                with pytest.raises(ConnectionResetError):
-                    await regenerate_vrt.func(
-                        job_id=str(job_id),
-                        vrt_dataset_id=str(parent_id),
-                        attempt_id=str(attempt_id),
-                        generation_id=str(generation_id),
-                    )
+                await regenerate_vrt.func(
+                    job_id=str(job_id),
+                    vrt_dataset_id=str(parent_id),
+                    attempt_id=str(attempt_id),
+                    generation_id=str(generation_id),
+                )
             assert fired["count"] == 1, "the publishing commit never fired"
 
             test_db_session.expire_all()
@@ -5924,6 +5956,41 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             assert await raster_storage.exists(asset.asset_uri), (
                 f"{asset.asset_uri} was deleted after the commit that "
                 "published it — the VRT dataset now serves nothing"
+            )
+
+            # fix(#1778 codex r1). The reap was only the deletion. The failure
+            # handler this tail used to enter also relabelled the history and
+            # the asset, and those have readers.
+            assert asset.status == "ready", (
+                f"the asset is {asset.status!r}: the failure handler ran "
+                "against a published generation"
+            )
+            assert asset.current_generation_id is None, (
+                "the publish cleared the pointer and the handler put it back"
+            )
+            generation = (
+                await test_db_session.execute(
+                    select(VrtGeneration).where(VrtGeneration.id == generation_id)
+                )
+            ).scalar_one()
+            assert generation.status == "completed", (
+                f"the generation reads {generation.status!r} for a build whose "
+                "artifact the dataset is serving"
+            )
+            assert generation.error_message is None, (
+                "a completed generation carries no failure reason"
+            )
+
+            # The reader codex named: get_vrt_status derives
+            # `last_generation_at` from the latest COMPLETED generation, so a
+            # falsely failed one erases the regeneration from the UI.
+            resp = await client.get(
+                f"/datasets/{parent_id}/vrt/status/", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["last_generation_at"] is not None, (
+                "the VRT status endpoint reports no completed generation for a "
+                "dataset that just published one"
             )
         finally:
             await _purge_vrt(test_db_session, ids=ids)
@@ -5970,15 +6037,14 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             with _ack_lost_on_publish(
                 job_id, failure=ConnectionResetError("dropped")
             ) as fired:
-                with pytest.raises(ConnectionResetError):
-                    await ingest_vrt.func(
-                        job_id=str(job_id),
-                        source_dataset_ids=_json.dumps([str(member_ds)]),
-                        user_id=str(admin_id),
-                        attempt_id=str(attempt_id),
-                        vrt_type="mosaic",
-                        resolution_strategy="finest",
-                    )
+                await ingest_vrt.func(
+                    job_id=str(job_id),
+                    source_dataset_ids=_json.dumps([str(member_ds)]),
+                    user_id=str(admin_id),
+                    attempt_id=str(attempt_id),
+                    vrt_type="mosaic",
+                    resolution_strategy="finest",
+                )
             assert fired["count"] == 1, "the publishing commit never fired"
 
             test_db_session.expire_all()
@@ -6003,6 +6069,10 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             assert await raster_storage.exists(asset.asset_uri), (
                 f"{asset.asset_uri} was deleted after the commit that published it"
             )
+            assert asset.status == "ready", (
+                f"the asset is {asset.status!r}: the failure handler ran "
+                "against a published build"
+            )
         finally:
             await test_db_session.execute(
                 delete(IngestJob).where(IngestJob.id == job_id)
@@ -6018,17 +6088,29 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                     test_db_session, dataset_id=member_ds, record_id=member_rec
                 )
 
-    def test_every_publish_tail_gates_its_reap_on_the_probe(self) -> None:
+    def test_every_publish_tail_stands_down_on_an_observed_publish(self) -> None:
         """Structural, because the finding is a SHAPE.
 
-        Each tail's orphan reap must be gated on a name the probe assigns, not
-        on a flag set after the commit returned. A fifth tail written the old
-        way, or a revert of one of these four, fails here.
+        Two properties per tail, and the second is fix(#1778 codex r1): the
+        handler that probes must END the landed branch by returning, not by
+        re-raising into a failure handler that writes about a job that
+        succeeded, and it must absorb the cancellation it is choosing to stop
+        honouring. The orphan reap must still be gated on the name that
+        handler assigns rather than on a flag set after the commit returned.
+
+        A fifth tail written the old way, or a revert of any of these four,
+        fails here.
         """
         import ast
         import inspect
 
         from app.processing.ingest import tasks_raster, tasks_raster_replace, tasks_vrt
+
+        def _calls(node, name: str) -> bool:
+            return any(
+                isinstance(inner, ast.Call) and getattr(inner.func, "id", None) == name
+                for inner in ast.walk(node)
+            )
 
         checked = 0
         for module in (tasks_raster, tasks_raster_replace, tasks_vrt):
@@ -6036,17 +6118,33 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
             for func in ast.walk(tree):
                 if not isinstance(func, (ast.AsyncFunctionDef, ast.FunctionDef)):
                     continue
-                probed = {
-                    target.id
-                    for node in ast.walk(func)
-                    if isinstance(node, ast.Assign)
-                    and isinstance(node.value, ast.Await)
-                    and isinstance(node.value.value, ast.Call)
-                    and getattr(node.value.value.func, "id", None)
-                    == "publish_commit_landed"
-                    for target in node.targets
-                    if isinstance(target, ast.Name)
-                }
+                published: set[str] = set()
+                for handler in ast.walk(func):
+                    if not isinstance(handler, ast.ExceptHandler):
+                        continue
+                    if not _calls(handler, "publish_commit_landed"):
+                        continue
+                    where = f"{module.__name__}.{func.name}"
+                    assert any(
+                        isinstance(node, ast.Return) for node in ast.walk(handler)
+                    ), (
+                        f"{where} probes the commit and then re-raises. The "
+                        "publish is durable, so the failure handler it enters "
+                        "reports a job that succeeded as failed."
+                    )
+                    assert _calls(handler, "absorb_cancellation"), (
+                        f"{where} returns out of a caught BaseException "
+                        "without absorbing the cancellation it stops honouring"
+                    )
+                    published |= {
+                        target.id
+                        for node in ast.walk(handler)
+                        if isinstance(node, ast.Assign)
+                        for target in node.targets
+                        if isinstance(target, ast.Name)
+                    }
+                if not published:
+                    continue
                 for node in ast.walk(func):
                     if not isinstance(node, ast.Try) or not node.finalbody:
                         continue
@@ -6054,25 +6152,21 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                         for guard in ast.walk(stmt):
                             if not isinstance(guard, ast.If):
                                 continue
-                            reaps = any(
-                                isinstance(call, ast.Call)
-                                and getattr(call.func, "id", None)
-                                == "_cleanup_orphaned_storage_keys"
+                            if not any(
+                                _calls(body, "_cleanup_orphaned_storage_keys")
                                 for body in guard.body
-                                for call in ast.walk(body)
-                            )
-                            if not reaps:
+                            ):
                                 continue
                             names = {
                                 n.id
                                 for n in ast.walk(guard.test)
                                 if isinstance(n, ast.Name)
                             }
-                            assert names & probed, (
+                            assert names & published, (
                                 f"{module.__name__}.{func.name} reaps written "
                                 "storage keys behind a guard the commit probe "
                                 f"never wrote (guard reads {sorted(names)}, "
-                                f"probe assigns {sorted(probed)})"
+                                f"probe assigns {sorted(published)})"
                             )
                             checked += 1
         assert checked == 4, (

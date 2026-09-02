@@ -38,6 +38,7 @@ from app.processing.ingest.tasks_raster_common import (
     _is_manifest_vrt_job,
     _reject_raw_vrt_job,
     _resolve_managed_raster_storage_keys,
+    absorb_cancellation,
     create_raster_dataset,
     extract_source_raster_metadata,
     publish_commit_landed,
@@ -632,15 +633,24 @@ async def ingest_raster(
             )
             try:
                 await session.commit()
-            except BaseException:
+            except BaseException as exc:
                 # fix(#1778): the one await on this path whose outcome is
                 # genuinely unknown — see `publish_commit_landed`. A lost
                 # acknowledgement left the reap below deleting the COG and
                 # quicklooks the committed RasterAsset had just been pointed at.
-                publish_committed = await publish_commit_landed(
+                if not await publish_commit_landed(
                     job_uuid, attempt_uuid, job_id=job_id, task="ingest_raster"
-                )
-                raise
+                ):
+                    raise
+                # fix(#1778 codex r1): stand down rather than re-raise. The
+                # dataset is durable, and the handler below would send the
+                # operator an `ingest_failed` notification for an ingest that
+                # succeeded. `final_status` deliberately stays non-complete:
+                # it also licenses deleting the uploader's staged original,
+                # and a probe answer must never reach that decision.
+                publish_committed = True
+                absorb_cancellation(exc)
+                return
             publish_committed = True
             final_status = "complete"
 
@@ -684,6 +694,21 @@ async def ingest_raster(
             )
 
     except Exception as exc:  # broad: raster ingest spans GDAL/COG/Titiler — any step can fail; record failure
+        if publish_committed:
+            # fix(#1778 codex r1): the second way this handler is reached with
+            # a durable publish behind it, and the one the stand-down above
+            # cannot cover: the optional post-commit block runs inside the same
+            # try, so a Valkey outage or a busy queue lands here after the
+            # dataset is live. Everything below states that the ingest failed,
+            # including the operator's `ingest_failed` mail, and none of it is
+            # true. Log and finish.
+            structlog.get_logger().warning(
+                "raster_post_publish_followup_failed",
+                job_id=job_id,
+                task="ingest_raster",
+                exc_info=True,
+            )
+            return
         structlog.get_logger().exception(
             "Ingest task failed",
             job_id=job_id,

@@ -72,6 +72,7 @@ from app.processing.ingest.tasks_raster_common import (
     _cleanup_orphaned_storage_keys,
     _enforce_strict_cog,
     _resolve_managed_raster_storage_keys,
+    absorb_cancellation,
     extract_source_raster_metadata,
     publish_commit_landed,
 )
@@ -687,16 +688,24 @@ async def reupload_raster(
             )
             try:
                 await session.commit()
-            except BaseException:
+            except BaseException as exc:
                 # fix(#1778): the one await on this path whose outcome is
                 # genuinely unknown — see `publish_commit_landed`. A lost
                 # acknowledgement left the flag below false, and the terminal
                 # cleanup then deleted the three keys the committed
                 # RasterAsset had just been pointed at.
-                swap_committed = await publish_commit_landed(
+                if not await publish_commit_landed(
                     job_uuid, attempt_uuid, job_id=job_id, task="reupload_raster"
-                )
-                raise
+                ):
+                    raise
+                # fix(#1778 codex r1): stand down rather than re-raise, the
+                # same decision the other three tails make. `final_status`
+                # deliberately stays non-complete: it also licenses deleting
+                # the uploader's staged original, and a probe answer must
+                # never reach that decision.
+                swap_committed = True
+                absorb_cancellation(exc)
+                return
             # fix(#1290 review): set in the same breath as the commit, and read
             # by the terminal cleanup instead of `final_status`. These are two
             # different facts and the cleanup needs this one: "the replacement
@@ -735,6 +744,15 @@ async def reupload_raster(
             )
 
     except Exception as exc:  # broad: spans GDAL/COG/storage — any step can fail
+        # fix(#1778 codex r1): the other three tails guard this handler on
+        # their published flag, because each of them can reach it with a
+        # durable publish behind it and then write something untrue about it.
+        # This one carries no such write: `_run_post_swap_followups` has its
+        # own fence, so nothing between the commit and here raises, and every
+        # write below is already fenced against a completed job anyway
+        # (`update_ingest_job_for_attempt` on `running`, `record_refresh_failure`
+        # excludes terminal runs). A flag check would be a third fence with
+        # nothing left to catch.
         logger.exception("Raster replace failed", job_id=job_id, task="reupload_raster")
         async with _job_phase_session(
             job_uuid, phase="error_write", attempt_id=attempt_uuid
@@ -794,10 +812,14 @@ async def reupload_raster(
         # lossless copy, and it gets the same gate as the object-store reaper —
         # otherwise the RUNBOOK's retention promise held on S3 and quietly
         # failed on every local deployment.
-        if file_path != original_file_path:
-            Path(file_path).unlink(missing_ok=True)
-        elif final_status == "complete" and (
-            source_preserved_in_cog or lossy_original_archived
+        #
+        # One condition rather than an `if`/`elif` that repeated the same
+        # statement: the two branches always did the same thing, and merging
+        # them is what pays for the stand-down branch above without loosening
+        # the McCabe gate this function sits under.
+        if file_path != original_file_path or (
+            final_status == "complete"
+            and (source_preserved_in_cog or lossy_original_archived)
         ):
             Path(file_path).unlink(missing_ok=True)
         # fix(#1207): the client-writable staging key, which stays recreatable

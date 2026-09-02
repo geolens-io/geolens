@@ -3711,7 +3711,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # failure write moves to the shared `_cleanup_staging_on_failure` so a
     # failed build finally emits `ingest_failed`. The dead `final_status`
     # string both functions no longer read is gone. Cap 1354 -> 1386, exact.
-    "backend/app/processing/ingest/tasks_vrt.py": 1386,
+    # fix(#1778 codex r1): +56 — both VRT tails STAND DOWN on an observed
+    # publish (return instead of re-raising) and both failure handlers refuse
+    # to run at all once the publish is durable, because the generation write
+    # is not fenced the way the job and asset writes are and `get_vrt_status`
+    # plus the stale-generation sweep read what it stamps. The generation
+    # update also gained its own `status != 'completed'` fence, so the rule is
+    # stated at the write and not only at the caller. Most of the lines are the
+    # two handler comments naming the reader each false failure reaches.
+    # Cap 1386 -> 1442, exact.
+    "backend/app/processing/ingest/tasks_vrt.py": 1442,
     # fix(#1202 review r5): +29 — sweep the presigned staging key at job end.
     # A completed presigned job points file_path at its frozen copy, so this
     # reaper never touched the key the client's PUT URL can still recreate.
