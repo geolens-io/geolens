@@ -15,11 +15,22 @@ interface ArcgisCredentialBlockProps {
   disabled?: boolean;
 }
 
+// codex round (post-#1758 merge): lane A1's merged endpoint
+// (arcgis_signin.py, signin_guard.py) ships four more caller-facing codes
+// than existed when this map was first written. Confirmed against
+// backend/openapi.json and the two source modules directly -- these are
+// the complete set of codes `_signin_refusal` can raise, plus `rate_limited`
+// (handled separately below by status, since it can also arrive with a
+// plain string `detail` from the route-level slowapi limiter rather than
+// this shape).
 const SIGNIN_ERROR_I18N_KEY: Record<string, string> = {
   arcgis_signin_rejected: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSigninRejected',
   arcgis_sso_account: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSsoAccount',
   ssrf_refused: 'sourcePanel.refresh.credential.arcgis.errors.ssrfRefused',
   network_error: 'sourcePanel.refresh.credential.arcgis.errors.networkError',
+  arcgis_portal_not_https: 'sourcePanel.refresh.credential.arcgis.errors.arcgisPortalNotHttps',
+  arcgis_portal_host_invalid: 'sourcePanel.refresh.credential.arcgis.errors.arcgisPortalHostInvalid',
+  arcgis_signin_in_progress: 'sourcePanel.refresh.credential.arcgis.errors.arcgisSigninInProgress',
 };
 
 /**

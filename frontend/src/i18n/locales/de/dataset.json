@@ -860,7 +860,10 @@
             "arcgisSsoAccount": "Dieses Konto meldet sich über den Identitätsanbieter Ihrer Organisation an oder hat Multi-Faktor-Authentifizierung aktiviert. Die Anmeldung mit Benutzername und Passwort funktioniert hier nicht. Fügen Sie stattdessen ein Token oder einen API-Schlüssel ein.",
             "ssrfRefused": "GeoLens kann von hier aus kein Portal unter einer privaten Netzwerkadresse erreichen.",
             "networkError": "Das Portal konnte nicht erreicht werden. Prüfen Sie die URL und versuchen Sie es erneut.",
-            "rateLimited": "Zu viele Anmeldeversuche. Warten Sie einige Minuten und versuchen Sie es erneut."
+            "rateLimited": "Zu viele Anmeldeversuche. Warten Sie einige Minuten und versuchen Sie es erneut.",
+            "arcgisPortalNotHttps": "Die Portal-URL muss mit https beginnen. GeoLens sendet kein Passwort über eine unverschlüsselte Verbindung.",
+            "arcgisPortalHostInvalid": "Diese Portaladresse ist kein gültiger Hostname. Prüfen Sie die URL, zum Beispiel https://your-org.maps.arcgis.com.",
+            "arcgisSigninInProgress": "Für dieses ArcGIS-Konto läuft bereits eine Anmeldung. Warten Sie, bis sie abgeschlossen ist, und versuchen Sie es erneut."
           }
         },
         "wfs": {

@@ -860,7 +860,10 @@
             "arcgisSsoAccount": "Esta cuenta inicia sesión mediante el proveedor de identidad de tu organización, o tiene activada la autenticación multifactor. El inicio de sesión con usuario y contraseña no funcionará aquí. Pega un token o clave de API en su lugar.",
             "ssrfRefused": "GeoLens no puede alcanzar un portal en una dirección de red privada desde aquí.",
             "networkError": "No se pudo contactar con el portal. Comprueba la URL e inténtalo de nuevo.",
-            "rateLimited": "Demasiados intentos de inicio de sesión. Espera unos minutos e inténtalo de nuevo."
+            "rateLimited": "Demasiados intentos de inicio de sesión. Espera unos minutos e inténtalo de nuevo.",
+            "arcgisPortalNotHttps": "La URL del portal debe empezar por https. GeoLens no enviará una contraseña por una conexión sin cifrar.",
+            "arcgisPortalHostInvalid": "Esa dirección de portal no es un nombre de host válido. Comprueba la URL, por ejemplo https://your-org.maps.arcgis.com.",
+            "arcgisSigninInProgress": "Ya hay un inicio de sesión en curso para esa cuenta de ArcGIS. Espera a que termine e inténtalo de nuevo."
           }
         },
         "wfs": {

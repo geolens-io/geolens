@@ -683,6 +683,51 @@ describe('SourceRefreshAction', () => {
       expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
     });
 
+    // Post-#1758-merge: the merged endpoint (arcgis_signin.py,
+    // signin_guard.py) ships three caller-facing codes beyond the four this
+    // map originally covered. Confirmed against the merged source directly.
+    it.each([
+      [
+        'arcgis_portal_not_https',
+        422,
+        'The portal URL must start with https. GeoLens will not send a password over an unencrypted connection.',
+      ],
+      [
+        'arcgis_portal_host_invalid',
+        422,
+        'That portal address is not a usable hostname. Check the URL, for example https://your-org.maps.arcgis.com.',
+      ],
+      [
+        'arcgis_signin_in_progress',
+        409,
+        'A sign-in to that ArcGIS account is already in progress. Wait for it to finish, then try again.',
+      ],
+    ])('maps the %s sign-in refusal to its own copy', async (code, status, expected) => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      mockArcgisSignIn.mockRejectedValue(
+        new ApiError(code, status, { code, message: 'raw diagnostic text, never rendered' }),
+      );
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      expect(await screen.findByText(expected)).toBeInTheDocument();
+      expect(screen.queryByText('raw diagnostic text, never rendered')).not.toBeInTheDocument();
+    });
+
     // codex #1759 round 1, P1: a late arcgisSignIn response landing after
     // the dialog (and this credential block, which SourceRefreshAction
     // unmounts on close) is dismissed must not resurrect a token the user

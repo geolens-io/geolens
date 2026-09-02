@@ -811,7 +811,10 @@
             "arcgisSsoAccount": "This account signs in through your organization's identity provider, or has multifactor authentication turned on. Username and password sign-in will not work here. Paste a token or API key instead.",
             "ssrfRefused": "GeoLens cannot reach a portal on a private network address from here.",
             "networkError": "Could not reach the portal. Check the URL and try again.",
-            "rateLimited": "Too many sign-in attempts. Wait a few minutes, then try again."
+            "rateLimited": "Too many sign-in attempts. Wait a few minutes, then try again.",
+            "arcgisPortalNotHttps": "The portal URL must start with https. GeoLens will not send a password over an unencrypted connection.",
+            "arcgisPortalHostInvalid": "That portal address is not a usable hostname. Check the URL, for example https://your-org.maps.arcgis.com.",
+            "arcgisSigninInProgress": "A sign-in to that ArcGIS account is already in progress. Wait for it to finish, then try again."
           }
         },
         "wfs": {

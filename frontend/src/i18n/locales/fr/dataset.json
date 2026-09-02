@@ -860,7 +860,10 @@
             "arcgisSsoAccount": "Ce compte se connecte via le fournisseur d'identité de votre organisation, ou a l'authentification multifacteur activée. La connexion par identifiant et mot de passe ne fonctionnera pas ici. Collez plutôt un jeton ou une clé API.",
             "ssrfRefused": "GeoLens ne peut pas atteindre un portail sur une adresse réseau privée depuis ici.",
             "networkError": "Impossible de joindre le portail. Vérifiez l'URL et réessayez.",
-            "rateLimited": "Trop de tentatives de connexion. Attendez quelques minutes, puis réessayez."
+            "rateLimited": "Trop de tentatives de connexion. Attendez quelques minutes, puis réessayez.",
+            "arcgisPortalNotHttps": "L'URL du portail doit commencer par https. GeoLens n'enverra pas de mot de passe sur une connexion non chiffrée.",
+            "arcgisPortalHostInvalid": "Cette adresse de portail n'est pas un nom d'hôte valide. Vérifiez l'URL, par exemple https://your-org.maps.arcgis.com.",
+            "arcgisSigninInProgress": "Une connexion à ce compte ArcGIS est déjà en cours. Attendez qu'elle se termine, puis réessayez."
           }
         },
         "wfs": {
