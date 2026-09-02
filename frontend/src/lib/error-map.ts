@@ -488,6 +488,15 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     if (value.code === 'arcgis_portal_not_https') {
       return { key: 'errors.arcgisPortalNotHttps' };
     }
+    // fix(service-auth wave, post-merge rebase onto #1758): arcgis_portal_host_invalid
+    // is the sixth and last caller-facing code this endpoint returns
+    // (backend/app/modules/catalog/sources/arcgis_signin.py, HOST_INVALID),
+    // a 422 for a portal hostname that cannot be canonicalized. Same
+    // structured-422 reasoning as arcgis_portal_not_https above, and same
+    // field: 'url' anchor.
+    if (value.code === 'arcgis_portal_host_invalid') {
+      return { key: 'errors.arcgisPortalHostInvalid' };
+    }
     if (Array.isArray(value.unknown_layers) && value.unknown_layers.length > 0) {
       return {
         key: 'errors.unknownLayers',

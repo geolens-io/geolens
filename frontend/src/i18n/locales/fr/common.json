@@ -183,6 +183,7 @@
     "arcgisPortalUnreachable": "GeoLens ne peut pas joindre ce portail car il pointe vers une adresse réseau privée. Un portail hébergé sur un réseau privé ne peut pas être utilisé pour se connecter depuis ici ; utilisez plutôt un jeton ou une clé API.",
     "arcgisSigninInProgress": "Une autre connexion pour ce compte est déjà en cours. Réessayez dans un instant.",
     "arcgisPortalNotHttps": "Ce portail, ou le service de jetons qu'il indique, n'utilise pas HTTPS. GeoLens n'enverra pas de mot de passe en HTTP non chiffré ; utilisez une URL de portail en https://.",
+    "arcgisPortalHostInvalid": "Cette adresse de portail n'est pas un nom d'hôte utilisable. Vérifiez l'URL, par exemple https://votre-org.maps.arcgis.com.",
     "refreshSourceUrlBlocked": "L'URL source enregistrée de ce jeu de données a échoué à un contrôle de sécurité et ne peut pas être actualisée automatiquement. Contactez un administrateur.",
     "unknownLayers": "Ces couches sont introuvables dans le fichier importé : {{layers}}.",
     "sourceValidationCrsMismatch": "Le système de référence de coordonnées de la source {{source}} ne correspond pas aux autres sources.",

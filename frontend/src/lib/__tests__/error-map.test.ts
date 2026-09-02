@@ -270,6 +270,24 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
   });
 
+  // fix(service-auth wave, post-merge rebase onto #1758): the sixth and
+  // final caller-facing code (backend/app/modules/catalog/sources/
+  // arcgis_signin.py, HOST_INVALID), a 422 for a portal hostname that
+  // cannot be canonicalized, anchored to the same field: 'url' as
+  // arcgis_portal_not_https above.
+  it('maps arcgis_portal_host_invalid to its own key rather than the generic validation fallback', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'arcgis_portal_host_invalid',
+          message: 'That portal address is not a usable hostname.',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.arcgisPortalHostInvalid' });
+  });
+
   it('drops the dynamic SSRF diagnostic suffix from the refresh URL refusal', () => {
     expect(
       translateApiErrorDetail(

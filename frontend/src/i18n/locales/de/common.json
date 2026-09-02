@@ -183,6 +183,7 @@
     "arcgisPortalUnreachable": "GeoLens kann dieses Portal nicht erreichen, da es auf eine private Netzwerkadresse verweist. Bei einem Portal in einem privaten Netzwerk ist eine Anmeldung von hier aus nicht möglich; verwenden Sie stattdessen ein Token oder einen API-Schlüssel.",
     "arcgisSigninInProgress": "Für dieses Konto läuft bereits eine andere Anmeldung. Versuchen Sie es gleich noch einmal.",
     "arcgisPortalNotHttps": "Dieses Portal oder der von ihm angegebene Token-Dienst verwendet kein HTTPS. GeoLens sendet kein Passwort über unverschlüsseltes HTTP; verwenden Sie eine https://-Portal-URL.",
+    "arcgisPortalHostInvalid": "Diese Portaladresse ist kein verwendbarer Hostname. Überprüfen Sie die URL, zum Beispiel https://ihre-org.maps.arcgis.com.",
     "refreshSourceUrlBlocked": "Die gespeicherte Quell-URL dieses Datensatzes hat eine Sicherheitsprüfung nicht bestanden und kann nicht automatisch aktualisiert werden. Wenden Sie sich an einen Administrator.",
     "unknownLayers": "Diese Layer wurden in der hochgeladenen Datei nicht gefunden: {{layers}}.",
     "sourceValidationCrsMismatch": "Das Koordinatenreferenzsystem der Quelle {{source}} stimmt nicht mit den anderen Quellen überein.",
