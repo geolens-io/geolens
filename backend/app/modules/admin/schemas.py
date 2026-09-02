@@ -58,6 +58,18 @@ ShareTokenSortField = Literal[
 SortDirection = Literal["asc", "desc"]
 
 
+# fix(#1715): one wiring for the password policy, shared by every admin schema
+# that accepts a password. Each of these used to carry its own copy of the same
+# four-line field_validator; the reset endpoint would have made three. The rules
+# themselves live in auth/password_policy.py and are unchanged.
+def _enforce_password_policy(value: str) -> str:
+    """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
+    from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
+
+    validate_password_from_settings(value)
+    return value
+
+
 class AdminUserCreate(BaseModel):
     username: str = Field(
         min_length=3,
@@ -71,7 +83,8 @@ class AdminUserCreate(BaseModel):
         # (PASSWORD_MIN_LENGTH / PASSWORD_REQUIRE_CLASSES) is enforced by
         # validate_password below. See UserCreate docstring in auth/schemas.py.
         description=(
-            "Initial password (policy: min 12 chars, 3+ character classes). "
+            "Initial password (policy: min 12 chars, 3+ character classes, "
+            "at most 72 bytes UTF-8). "
             "The user can change this after first login."
         ),
     )
@@ -85,14 +98,9 @@ class AdminUserCreate(BaseModel):
         description="User role: 'admin', 'editor', or 'viewer'. Defaults to 'viewer'.",
     )
 
-    @field_validator("password", mode="after")
-    @classmethod
-    def validate_password(cls, v: str) -> str:
-        """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
-        from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
-
-        validate_password_from_settings(v)
-        return v
+    validate_password = field_validator("password", mode="after")(
+        _enforce_password_policy
+    )
 
     @field_validator("role")
     @classmethod
@@ -175,19 +183,40 @@ class SamlToLocalConversion(BaseModel):
         # by validate_password below (SEC-S16, Phase 1062-01).
         description=(
             "Local-password for the converted account "
-            "(policy: min 12 chars, 3+ character classes). "
-            "The user can change this after first login."
+            "(policy: min 12 chars, 3+ character classes, at most 72 bytes "
+            "UTF-8). The user can change this after first login."
         ),
     )
 
-    @field_validator("password", mode="after")
-    @classmethod
-    def validate_password(cls, v: str) -> str:
-        """Enforce the application password policy (SEC-S16, Phase 1062-01)."""
-        from app.modules.auth.password_policy import validate_password_from_settings  # noqa: PLC0415
+    validate_password = field_validator("password", mode="after")(
+        _enforce_password_policy
+    )
 
-        validate_password_from_settings(v)
-        return v
+
+class AdminPasswordReset(BaseModel):
+    """Request body for POST /admin/users/{user_id}/reset-password/.
+
+    Single-purpose for the same reason as SamlToLocalConversion above: the
+    generic UserUpdate schema has no password field, so an admin-set password
+    lands as its own audited action ('user.password_reset') rather than
+    disappearing into 'user.update'.
+    """
+
+    password: str = Field(
+        min_length=8,
+        max_length=256,
+        # min_length=8 is a fast-fail floor; the canonical policy is enforced
+        # by validate_password below (SEC-S16, Phase 1062-01).
+        description=(
+            "Replacement password for the account "
+            "(policy: min 12 chars, 3+ character classes, at most 72 bytes "
+            "UTF-8). The user can change this after their next login."
+        ),
+    )
+
+    validate_password = field_validator("password", mode="after")(
+        _enforce_password_policy
+    )
 
 
 class UserNameItem(BaseModel):

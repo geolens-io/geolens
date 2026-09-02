@@ -19,6 +19,7 @@ from starlette.responses import StreamingResponse
 from app.modules.admin.schemas import (
     AdminJobListResponse,
     AdminJobResponse,
+    AdminPasswordReset,
     AdminUserCreate,
     AIStatusResponse,
     AIStatusUpdate,
@@ -64,6 +65,7 @@ from app.platform.jobs.router import get_retry_capability
 from app.standards.ogc.errors import (
     CONFLICT_RESPONSE,
     ERROR_RESPONSES_AUTH,
+    NOT_FOUND_RESPONSE,
     QUEUE_UNAVAILABLE_RESPONSE,
 )
 
@@ -527,6 +529,64 @@ async def deactivate_user(
         AuditEvent(
             user_id=current_user.id,
             action="user.deactivate",
+            resource_type="user",
+            resource_id=user_id,
+            details={"username": user.username},
+            ip_address=ip,
+        ),
+    )
+    await db.commit()
+    return _user_response(user)
+
+
+# ROUTE-01 (Phase 1092): dual-shape decorator — see /users above.
+@router.post(
+    "/users/{user_id}/reset-password",
+    response_model=UserResponse,
+    include_in_schema=False,
+)
+@router.post(
+    "/users/{user_id}/reset-password/",
+    response_model=UserResponse,
+    responses={404: NOT_FOUND_RESPONSE},
+)
+@limiter.limit("30/minute")
+async def reset_user_password(
+    user_id: uuid.UUID,
+    body: AdminPasswordReset,
+    request: Request,
+    current_user: User = Depends(require_permission("manage_users")),
+    db: AsyncSession = Depends(get_db),
+) -> UserResponse:
+    """Set a user's password (admin only).
+
+    feat(#1715): the login page tells a locked-out user to ask an
+    administrator, and there was nothing for the administrator to do. This is
+    the recovery path, so it asks for no current password -- holding
+    manage_users is the whole authorization, and the audit row is what makes
+    the action answerable for. The submitted value reaches the hash column and
+    nowhere else: not the audit details, not a log line, not the response.
+
+    422 when the target signs in through an identity provider (no local
+    password to replace), 404 when no such user exists -- both via the shared
+    _raise_on_error mapping the sibling lifecycle routes use.
+
+    Resetting your own password is permitted and ends every session the
+    account holds, including the one making this request, because the reset
+    revokes the account's credentials. That is the same consequence
+    POST /auth/change-password/ has for the caller who invokes it.
+    """
+    service = AdminService(db)
+    try:
+        user = await service.reset_user_password(user_id, body.password)
+    except ValueError as exc:
+        _raise_on_error(exc, status.HTTP_422_UNPROCESSABLE_ENTITY)
+    ip = get_client_ip(request)
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=current_user.id,
+            action="user.password_reset",
             resource_type="user",
             resource_id=user_id,
             details={"username": user.username},

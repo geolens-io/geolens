@@ -6,17 +6,31 @@ password entry point:
   - POST /auth/change-password/
   - POST /admin/users/          (admin create)
   - POST /admin/users/{id}/convert-saml-to-local/
+  - POST /admin/users/{id}/reset-password/   (feat(#1715), admin reset)
 
 Policy (defaults, configurable via env):
   - Minimum length: 12 characters  (PASSWORD_MIN_LENGTH)
   - Character-class diversity: 3 of 4 classes  (PASSWORD_REQUIRE_CLASSES)
     Classes: lowercase [a-z], uppercase [A-Z], digit [0-9], symbol (everything else)
+  - Maximum 72 bytes once UTF-8 encoded (bcrypt's input limit; not configurable)
 
 A denylist (breached passwords) is deferred to SEC-FU Phase 1063. This module
 implements the minimum-viable policy recommended by the Phase 1062 audit.
 """
 
 from __future__ import annotations
+
+# fix(#1715 codex r1): bcrypt hashes at most 72 bytes of input, and pwdlib's
+# BcryptHasher raises ValueError rather than truncating. Every entry point above
+# accepts up to 256 CHARACTERS, so a value that satisfies the policy could still
+# reach hash_password() and blow up there: /auth/change-password/ 500ed on it
+# (the ValueError is unhandled in the router) and POST /admin/users/ turned it
+# into a 409 carrying the bcrypt library's own text. Enforcing it here means one
+# refusal shape, before any hashing, for all five entry points.
+#
+# Deliberately not configurable: it is a property of the hash function, not a
+# policy knob, and an operator cannot raise it without changing the scheme.
+BCRYPT_MAX_PASSWORD_BYTES = 72
 
 
 def validate_password_complexity(
@@ -35,7 +49,8 @@ def validate_password_complexity(
             Must be between 1 and 4 (inclusive).
 
     Raises:
-        ValueError: If the password is too short or lacks sufficient class
+        ValueError: If the password is too short, too long once UTF-8 encoded
+            (bcrypt's 72-byte input limit), or lacks sufficient class
             diversity. The message is user-facing (Pydantic re-raises it
             as-is in the 422 response body).
 
@@ -57,6 +72,16 @@ def validate_password_complexity(
     """
     if len(password) < min_length:
         raise ValueError(f"Password must be at least {min_length} characters")
+
+    # Checked before class diversity so a long multibyte password is told the
+    # real reason rather than a class-diversity message it may also trip.
+    encoded_length = len(password.encode("utf-8"))
+    if encoded_length > BCRYPT_MAX_PASSWORD_BYTES:
+        raise ValueError(
+            f"Password must be at most {BCRYPT_MAX_PASSWORD_BYTES} bytes when "
+            f"encoded as UTF-8 (this one is {encoded_length}); accented, "
+            "non-Latin and emoji characters each count as more than one byte"
+        )
 
     has_lower = any(c.islower() for c in password)
     has_upper = any(c.isupper() for c in password)

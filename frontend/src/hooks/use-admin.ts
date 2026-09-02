@@ -10,6 +10,7 @@ import {
   createUser,
   updateUser,
   deactivateUser,
+  resetUserPassword,
   deleteUser,
   approveUser,
   rejectUser,
@@ -227,6 +228,20 @@ export function useDeactivateUser() {
     // "Failed to deactivate user". ApiError.message is the translated detail.
     onError: (err) => {
       toast.error(err instanceof ApiError ? err.message : i18n.t('admin:users.deactivateDialog.error'));
+    },
+  });
+}
+
+export function useResetUserPassword() {
+  return useMutation({
+    mutationFn: ({ userId, password }: { userId: string; password: string }) =>
+      resetUserPassword(userId, password),
+    // No invalidation: a reset changes no field the user list renders.
+    onSuccess: () => { toast.success(i18n.t('admin:users.toasts.passwordReset')); },
+    // Same reasoning as useDeactivateUser: the backend reason is specific
+    // (an identity-provider account, a policy refusal), so surface it.
+    onError: (err) => {
+      toast.error(err instanceof ApiError ? err.message : i18n.t('admin:users.resetPasswordDialog.error'));
     },
   });
 }

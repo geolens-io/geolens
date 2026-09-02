@@ -68,7 +68,8 @@
     "actions": {
       "approve": "Approve",
       "reject": "Reject",
-      "deactivate": "Deactivate"
+      "deactivate": "Deactivate",
+      "resetPassword": "Reset password"
     },
     "actionsFor": "Actions for {{name}}",
     "approveDialog": {
@@ -98,6 +99,17 @@
       "deactivating": "Deactivating...",
       "deactivate": "Deactivate"
     },
+    "resetPasswordDialog": {
+      "title": "Reset password",
+      "description": "Set a new password for \"{{username}}\" and tell them what it is.",
+      "passwordLabel": "New password",
+      "passwordPlaceholder": "Minimum 12 characters",
+      "hint": "The old password stops working, and so do the account's existing sessions and API keys.",
+      "selfWarning": "This is your own account, so saving signs you out here too.",
+      "submit": "Reset password",
+      "resetting": "Resetting...",
+      "error": "Failed to reset password"
+    },
     "exportError": "Could not export users",
     "empty": {
       "noUsers": "No users yet",
@@ -111,7 +123,8 @@
       "deactivated": "User deactivated",
       "deleted": "User deleted",
       "approved": "User approved",
-      "rejected": "User rejected"
+      "rejected": "User rejected",
+      "passwordReset": "Password reset"
     }
   },
   "userCreate": {
@@ -126,7 +139,7 @@
     "placeholders": {
       "username": "Username",
       "email": "user@example.com",
-      "password": "Minimum 8 characters"
+      "password": "Minimum 12 characters"
     },
     "roles": {
       "viewer": "Viewer",

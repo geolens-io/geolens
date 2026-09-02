@@ -279,6 +279,41 @@ class AdminService:
         await self.db.refresh(user)
         return user
 
+    async def reset_user_password(self, user_id: uuid.UUID, password: str) -> User:
+        """Set another account's password (feat(#1715)), revoking its credentials.
+
+        The recovery path for a locked-out user, so it deliberately does not
+        ask for the old value the way POST /auth/change-password/ does. What it
+        does mirror is that endpoint's aftermath: revoke_all_tokens with
+        bump_key_epoch=True, so every outstanding access JWT, refresh row and
+        API key the account holds stops resolving. Anyone who reached the old
+        password is not left holding a live session.
+
+        commit=False folds the revocation into the caller's transaction, so the
+        new hash, the revocation and the router's audit row land together or
+        not at all -- the same atomicity change_password relies on.
+
+        Accounts that sign in through an identity provider have no local
+        password to replace; raise rather than silently minting one (the router
+        maps it to 422). _get_lifecycle_user gives the shared "User not found"
+        the router maps to 404, plus the row lock that serializes this against
+        a concurrent deactivate or delete of the same account.
+        """
+        user = await self._get_lifecycle_user(user_id)
+        if user.auth_provider != "local":
+            raise ValueError(
+                f"User auth_provider is '{user.auth_provider}', not 'local' "
+                "-- this account signs in through an identity provider"
+            )
+
+        user.password_hash = hash_password(password)
+        await AuthService(self.db).revoke_all_tokens(
+            user_id, commit=False, bump_key_epoch=True
+        )
+        await self.db.flush()
+        await self.db.refresh(user)
+        return user
+
     async def update_user(
         self,
         user_id: uuid.UUID,
@@ -447,7 +482,16 @@ class AdminService:
         are never touched.
         """
         # 1. Load user
-        result = await self.db.execute(select(User).where(User.id == user_id))
+        #
+        # fix(#1715 codex r4 P1): FOR UPDATE, matching the reset and the login.
+        # This rotates credentials, so it must not read, decide and write from a
+        # snapshot another writer can invalidate underneath it. A lost update is
+        # already unreachable via auth_provider (this path demands 'oauth', the
+        # reset and change_password demand 'local', and only this path flips
+        # it), but that is an argument a future edit can break silently.
+        result = await self.db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
         user = result.scalar_one_or_none()
         if user is None:
             raise ValueError("User not found")

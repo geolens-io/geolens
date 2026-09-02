@@ -125,6 +125,18 @@ export async function deactivateUser(userId: string): Promise<UserResponse> {
   return apiFetch<UserResponse>(`/admin/users/${userId}/deactivate/`, { method: 'POST' });
 }
 
+/**
+ * feat(#1715): admin-initiated password reset. The submitted value is sent once
+ * and never held anywhere else on the client; the backend revokes the target's
+ * outstanding sessions and API keys as part of the same request.
+ */
+export async function resetUserPassword(userId: string, password: string): Promise<UserResponse> {
+  return apiFetch<UserResponse>(`/admin/users/${userId}/reset-password/`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+}
+
 export async function deleteUser(userId: string): Promise<void> {
   await apiFetch(`/admin/users/${userId}`, { method: 'DELETE' });
 }

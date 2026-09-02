@@ -10,6 +10,9 @@ Covers:
     - All 4 classes present passes even at exactly min_length.
     - Short but all-classes password fails length check first.
     - validate_password_from_settings reads min_length from Settings.
+    - bcrypt's 72-byte input limit (fix(#1715 codex r1)): 72 bytes passes,
+      73 ASCII is refused, and a short multibyte value over the limit is
+      refused with the byte message rather than a class-diversity one.
 
   Integration tests (HTTP via test client):
     - POST /auth/register/ rejects weak password (422).
@@ -24,7 +27,10 @@ import uuid
 from httpx import AsyncClient
 from unittest.mock import AsyncMock
 
-from app.modules.auth.password_policy import validate_password_complexity
+from app.modules.auth.password_policy import (
+    BCRYPT_MAX_PASSWORD_BYTES,
+    validate_password_complexity,
+)
 from app.modules.auth.router import REGISTRATION_ENABLED
 from app.core.config import settings
 
@@ -82,6 +88,41 @@ class TestValidatePasswordComplexity:
         """5-char password with all 4 classes still fails the length check."""
         with pytest.raises(ValueError, match="at least 12 characters"):
             validate_password_complexity("Ab1!x", min_length=12, require_classes=3)
+
+    def test_exactly_the_bcrypt_byte_limit_passes(self):
+        """72 UTF-8 bytes is the most bcrypt hashes, and it must be accepted.
+
+        fix(#1715 codex r1): the boundary matters in both directions. Refusing
+        72 would reject a password the hasher handles fine.
+        """
+        value = "Abcdef1!" + "x" * 64
+        assert len(value.encode("utf-8")) == BCRYPT_MAX_PASSWORD_BYTES
+        validate_password_complexity(value, min_length=12, require_classes=3)
+
+    def test_one_byte_over_the_bcrypt_limit_is_refused(self):
+        """73 ASCII characters is 73 bytes, which BcryptHasher raises on.
+
+        Before this check the value passed the policy and blew up inside
+        hash_password: a 500 on /auth/change-password/ and a 409 carrying the
+        bcrypt library's own message on POST /admin/users/.
+        """
+        value = "Abcdef1!" + "x" * 65
+        assert len(value.encode("utf-8")) == BCRYPT_MAX_PASSWORD_BYTES + 1
+        with pytest.raises(ValueError, match="at most 72 bytes"):
+            validate_password_complexity(value, min_length=12, require_classes=3)
+
+    def test_short_multibyte_password_over_the_limit_is_refused(self):
+        """Character count is not byte count: 43 characters, 83 bytes.
+
+        The value satisfies both the length floor and 3-class diversity, so the
+        byte rule is the only thing that can catch it, and the message must say
+        so rather than blaming class diversity.
+        """
+        value = "Aa1" + "é" * 40
+        assert len(value) == 43
+        assert len(value.encode("utf-8")) == 83
+        with pytest.raises(ValueError, match="at most 72 bytes"):
+            validate_password_complexity(value, min_length=12, require_classes=3)
 
     def test_require_classes_1_allows_lowercase_only(self):
         """require_classes=1 allows an all-lowercase 12-char password."""

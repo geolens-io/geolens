@@ -145,6 +145,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'user.login.failure',
   'user.login.success',
   'user.logout',
+  'user.password_reset',
   'user.register',
   'user.reject',
   'user.update',

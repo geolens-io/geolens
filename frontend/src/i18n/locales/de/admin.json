@@ -68,7 +68,8 @@
     "actions": {
       "approve": "Genehmigen",
       "reject": "Ablehnen",
-      "deactivate": "Deaktivieren"
+      "deactivate": "Deaktivieren",
+      "resetPassword": "Passwort zurücksetzen"
     },
     "actionsFor": "Aktionen für {{name}}",
     "approveDialog": {
@@ -98,6 +99,17 @@
       "deactivating": "Wird deaktiviert...",
       "deactivate": "Deaktivieren"
     },
+    "resetPasswordDialog": {
+      "title": "Passwort zurücksetzen",
+      "description": "Legen Sie ein neues Passwort für \"{{username}}\" fest und teilen Sie es der Person mit.",
+      "passwordLabel": "Neues Passwort",
+      "passwordPlaceholder": "Mindestens 12 Zeichen",
+      "hint": "Das alte Passwort funktioniert nicht mehr, ebenso wenig die bestehenden Sitzungen und API-Schlüssel des Kontos.",
+      "selfWarning": "Dies ist Ihr eigenes Konto, das Speichern meldet Sie also auch hier ab.",
+      "submit": "Passwort zurücksetzen",
+      "resetting": "Wird zurückgesetzt...",
+      "error": "Passwort konnte nicht zurückgesetzt werden"
+    },
     "exportError": "Export der Benutzer fehlgeschlagen",
     "empty": {
       "noUsers": "Noch keine Benutzer",
@@ -111,7 +123,8 @@
       "deactivated": "Benutzer deaktiviert",
       "deleted": "Benutzer gelöscht",
       "approved": "Benutzer freigegeben",
-      "rejected": "Benutzer abgelehnt"
+      "rejected": "Benutzer abgelehnt",
+      "passwordReset": "Passwort zurückgesetzt"
     }
   },
   "userCreate": {
@@ -126,7 +139,7 @@
     "placeholders": {
       "username": "Benutzername",
       "email": "benutzer@beispiel.de",
-      "password": "Mindestens 8 Zeichen"
+      "password": "Mindestens 12 Zeichen"
     },
     "roles": {
       "viewer": "Betrachter",

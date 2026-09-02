@@ -1,0 +1,311 @@
+from http import HTTPStatus
+from typing import Any
+from urllib.parse import quote
+
+import httpx
+
+from ...client import AuthenticatedClient, Client
+from ...types import Response
+from ... import errors
+
+from ...models.admin_password_reset import AdminPasswordReset
+from ...models.problem_detail import ProblemDetail
+from ...models.user_response import UserResponse
+from uuid import UUID
+
+
+def _get_kwargs(
+    user_id: UUID,
+    *,
+    body: AdminPasswordReset,
+) -> dict[str, Any]:
+    headers: dict[str, Any] = {}
+
+    _kwargs: dict[str, Any] = {
+        "method": "post",
+        "url": "/admin/users/{user_id}/reset-password/".format(
+            user_id=quote(str(user_id), safe=""),
+        ),
+    }
+
+    _kwargs["json"] = body.to_dict()
+
+    headers["Content-Type"] = "application/json"
+
+    _kwargs["headers"] = headers
+    return _kwargs
+
+
+def _parse_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> ProblemDetail | UserResponse | None:
+    if response.status_code == 200:
+        response_200 = UserResponse.from_dict(response.json())
+
+        return response_200
+
+    if response.status_code == 400:
+        response_400 = ProblemDetail.from_dict(response.json())
+
+        return response_400
+
+    if response.status_code == 401:
+        response_401 = ProblemDetail.from_dict(response.json())
+
+        return response_401
+
+    if response.status_code == 403:
+        response_403 = ProblemDetail.from_dict(response.json())
+
+        return response_403
+
+    if response.status_code == 404:
+        response_404 = ProblemDetail.from_dict(response.json())
+
+        return response_404
+
+    if response.status_code == 422:
+        response_422 = ProblemDetail.from_dict(response.json())
+
+        return response_422
+
+    if response.status_code == 429:
+        response_429 = ProblemDetail.from_dict(response.json())
+
+        return response_429
+
+    if response.status_code == 500:
+        response_500 = ProblemDetail.from_dict(response.json())
+
+        return response_500
+
+    if response.status_code == 503:
+        response_503 = ProblemDetail.from_dict(response.json())
+
+        return response_503
+
+    if client.raise_on_unexpected_status:
+        raise errors.UnexpectedStatus(response.status_code, response.content)
+    else:
+        return None
+
+
+def _build_response(
+    *, client: AuthenticatedClient | Client, response: httpx.Response
+) -> Response[ProblemDetail | UserResponse]:
+    return Response(
+        status_code=HTTPStatus(response.status_code),
+        content=response.content,
+        headers=response.headers,
+        parsed=_parse_response(client=client, response=response),
+    )
+
+
+def sync_detailed(
+    user_id: UUID,
+    *,
+    client: AuthenticatedClient,
+    body: AdminPasswordReset,
+) -> Response[ProblemDetail | UserResponse]:
+    """Reset User Password
+
+     Set a user's password (admin only).
+
+    feat(#1715): the login page tells a locked-out user to ask an
+    administrator, and there was nothing for the administrator to do. This is
+    the recovery path, so it asks for no current password -- holding
+    manage_users is the whole authorization, and the audit row is what makes
+    the action answerable for. The submitted value reaches the hash column and
+    nowhere else: not the audit details, not a log line, not the response.
+
+    422 when the target signs in through an identity provider (no local
+    password to replace), 404 when no such user exists -- both via the shared
+    _raise_on_error mapping the sibling lifecycle routes use.
+
+    Resetting your own password is permitted and ends every session the
+    account holds, including the one making this request, because the reset
+    revokes the account's credentials. That is the same consequence
+    POST /auth/change-password/ has for the caller who invokes it.
+
+    Args:
+        user_id (UUID):
+        body (AdminPasswordReset): Request body for POST /admin/users/{user_id}/reset-password/.
+
+            Single-purpose for the same reason as SamlToLocalConversion above: the
+            generic UserUpdate schema has no password field, so an admin-set password
+            lands as its own audited action ('user.password_reset') rather than
+            disappearing into 'user.update'.
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[ProblemDetail | UserResponse]
+    """
+
+    kwargs = _get_kwargs(
+        user_id=user_id,
+        body=body,
+    )
+
+    response = client.get_httpx_client().request(
+        **kwargs,
+    )
+
+    return _build_response(client=client, response=response)
+
+
+def sync(
+    user_id: UUID,
+    *,
+    client: AuthenticatedClient,
+    body: AdminPasswordReset,
+) -> ProblemDetail | UserResponse | None:
+    """Reset User Password
+
+     Set a user's password (admin only).
+
+    feat(#1715): the login page tells a locked-out user to ask an
+    administrator, and there was nothing for the administrator to do. This is
+    the recovery path, so it asks for no current password -- holding
+    manage_users is the whole authorization, and the audit row is what makes
+    the action answerable for. The submitted value reaches the hash column and
+    nowhere else: not the audit details, not a log line, not the response.
+
+    422 when the target signs in through an identity provider (no local
+    password to replace), 404 when no such user exists -- both via the shared
+    _raise_on_error mapping the sibling lifecycle routes use.
+
+    Resetting your own password is permitted and ends every session the
+    account holds, including the one making this request, because the reset
+    revokes the account's credentials. That is the same consequence
+    POST /auth/change-password/ has for the caller who invokes it.
+
+    Args:
+        user_id (UUID):
+        body (AdminPasswordReset): Request body for POST /admin/users/{user_id}/reset-password/.
+
+            Single-purpose for the same reason as SamlToLocalConversion above: the
+            generic UserUpdate schema has no password field, so an admin-set password
+            lands as its own audited action ('user.password_reset') rather than
+            disappearing into 'user.update'.
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        ProblemDetail | UserResponse
+    """
+
+    return sync_detailed(
+        user_id=user_id,
+        client=client,
+        body=body,
+    ).parsed
+
+
+async def asyncio_detailed(
+    user_id: UUID,
+    *,
+    client: AuthenticatedClient,
+    body: AdminPasswordReset,
+) -> Response[ProblemDetail | UserResponse]:
+    """Reset User Password
+
+     Set a user's password (admin only).
+
+    feat(#1715): the login page tells a locked-out user to ask an
+    administrator, and there was nothing for the administrator to do. This is
+    the recovery path, so it asks for no current password -- holding
+    manage_users is the whole authorization, and the audit row is what makes
+    the action answerable for. The submitted value reaches the hash column and
+    nowhere else: not the audit details, not a log line, not the response.
+
+    422 when the target signs in through an identity provider (no local
+    password to replace), 404 when no such user exists -- both via the shared
+    _raise_on_error mapping the sibling lifecycle routes use.
+
+    Resetting your own password is permitted and ends every session the
+    account holds, including the one making this request, because the reset
+    revokes the account's credentials. That is the same consequence
+    POST /auth/change-password/ has for the caller who invokes it.
+
+    Args:
+        user_id (UUID):
+        body (AdminPasswordReset): Request body for POST /admin/users/{user_id}/reset-password/.
+
+            Single-purpose for the same reason as SamlToLocalConversion above: the
+            generic UserUpdate schema has no password field, so an admin-set password
+            lands as its own audited action ('user.password_reset') rather than
+            disappearing into 'user.update'.
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        Response[ProblemDetail | UserResponse]
+    """
+
+    kwargs = _get_kwargs(
+        user_id=user_id,
+        body=body,
+    )
+
+    response = await client.get_async_httpx_client().request(**kwargs)
+
+    return _build_response(client=client, response=response)
+
+
+async def asyncio(
+    user_id: UUID,
+    *,
+    client: AuthenticatedClient,
+    body: AdminPasswordReset,
+) -> ProblemDetail | UserResponse | None:
+    """Reset User Password
+
+     Set a user's password (admin only).
+
+    feat(#1715): the login page tells a locked-out user to ask an
+    administrator, and there was nothing for the administrator to do. This is
+    the recovery path, so it asks for no current password -- holding
+    manage_users is the whole authorization, and the audit row is what makes
+    the action answerable for. The submitted value reaches the hash column and
+    nowhere else: not the audit details, not a log line, not the response.
+
+    422 when the target signs in through an identity provider (no local
+    password to replace), 404 when no such user exists -- both via the shared
+    _raise_on_error mapping the sibling lifecycle routes use.
+
+    Resetting your own password is permitted and ends every session the
+    account holds, including the one making this request, because the reset
+    revokes the account's credentials. That is the same consequence
+    POST /auth/change-password/ has for the caller who invokes it.
+
+    Args:
+        user_id (UUID):
+        body (AdminPasswordReset): Request body for POST /admin/users/{user_id}/reset-password/.
+
+            Single-purpose for the same reason as SamlToLocalConversion above: the
+            generic UserUpdate schema has no password field, so an admin-set password
+            lands as its own audited action ('user.password_reset') rather than
+            disappearing into 'user.update'.
+
+    Raises:
+        errors.UnexpectedStatus: If the server returns an undocumented status code and Client.raise_on_unexpected_status is True.
+        httpx.TimeoutException: If the request takes longer than Client.timeout.
+
+    Returns:
+        ProblemDetail | UserResponse
+    """
+
+    return (
+        await asyncio_detailed(
+            user_id=user_id,
+            client=client,
+            body=body,
+        )
+    ).parsed

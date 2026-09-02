@@ -68,7 +68,8 @@
     "actions": {
       "approve": "Aprobar",
       "reject": "Rechazar",
-      "deactivate": "Desactivar"
+      "deactivate": "Desactivar",
+      "resetPassword": "Restablecer contraseña"
     },
     "actionsFor": "Acciones para {{name}}",
     "approveDialog": {
@@ -98,6 +99,17 @@
       "deactivating": "Desactivando...",
       "deactivate": "Desactivar"
     },
+    "resetPasswordDialog": {
+      "title": "Restablecer contraseña",
+      "description": "Defina una nueva contraseña para \"{{username}}\" y comuníquesela.",
+      "passwordLabel": "Nueva contraseña",
+      "passwordPlaceholder": "Mínimo 12 caracteres",
+      "hint": "La contraseña anterior deja de funcionar, al igual que las sesiones y las claves de API de la cuenta.",
+      "selfWarning": "Esta es su propia cuenta, por lo que al guardar también se cerrará su sesión aquí.",
+      "submit": "Restablecer contraseña",
+      "resetting": "Restableciendo...",
+      "error": "Error al restablecer la contraseña"
+    },
     "exportError": "No se pudieron exportar los usuarios",
     "empty": {
       "noUsers": "Todavía no hay usuarios",
@@ -111,7 +123,8 @@
       "deactivated": "Usuario desactivado",
       "deleted": "Usuario eliminado",
       "approved": "Usuario aprobado",
-      "rejected": "Usuario rechazado"
+      "rejected": "Usuario rechazado",
+      "passwordReset": "Contraseña restablecida"
     }
   },
   "userCreate": {
@@ -126,7 +139,7 @@
     "placeholders": {
       "username": "Nombre de usuario",
       "email": "usuario@ejemplo.com",
-      "password": "Mínimo 8 caracteres"
+      "password": "Mínimo 12 caracteres"
     },
     "roles": {
       "viewer": "Lector",

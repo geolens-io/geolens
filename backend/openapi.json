@@ -669,6 +669,23 @@
         "title": "AdminJobResponse",
         "type": "object"
       },
+      "AdminPasswordReset": {
+        "description": "Request body for POST /admin/users/{user_id}/reset-password/.\n\nSingle-purpose for the same reason as SamlToLocalConversion above: the\ngeneric UserUpdate schema has no password field, so an admin-set password\nlands as its own audited action ('user.password_reset') rather than\ndisappearing into 'user.update'.",
+        "properties": {
+          "password": {
+            "description": "Replacement password for the account (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after their next login.",
+            "maxLength": 256,
+            "minLength": 8,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "password"
+        ],
+        "title": "AdminPasswordReset",
+        "type": "object"
+      },
       "AdminShareTokenListResponse": {
         "properties": {
           "tokens": {
@@ -788,7 +805,7 @@
             "type": "string"
           },
           "password": {
-            "description": "Initial password (policy: min 12 chars, 3+ character classes). The user can change this after first login.",
+            "description": "Initial password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8). The user can change this after first login.",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -2568,7 +2585,7 @@
             "type": "string"
           },
           "new_password": {
-            "description": "New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.",
+            "description": "New password (policy: min 12 chars, 3+ character classes: lowercase, uppercase, digits, symbols; at most 72 bytes UTF-8). The min_length=8 here is a schema floor; the runtime validator enforces the full policy.",
             "maxLength": 256,
             "minLength": 8,
             "title": "New Password",
@@ -17886,8 +17903,7 @@
             "type": "string"
           },
           "password": {
-            "description": "Plaintext password (policy: min 12 chars, 3+ character classes)",
-            "example": "securePass123!",
+            "description": "Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)",
             "maxLength": 256,
             "minLength": 8,
             "title": "Password",
@@ -22983,6 +22999,150 @@
           }
         ],
         "summary": "Reject User",
+        "tags": [
+          "Admin"
+        ]
+      }
+    },
+    "/admin/users/{user_id}/reset-password/": {
+      "post": {
+        "description": "Set a user's password (admin only).\n\nfeat(#1715): the login page tells a locked-out user to ask an\nadministrator, and there was nothing for the administrator to do. This is\nthe recovery path, so it asks for no current password -- holding\nmanage_users is the whole authorization, and the audit row is what makes\nthe action answerable for. The submitted value reaches the hash column and\nnowhere else: not the audit details, not a log line, not the response.\n\n422 when the target signs in through an identity provider (no local\npassword to replace), 404 when no such user exists -- both via the shared\n_raise_on_error mapping the sibling lifecycle routes use.\n\nResetting your own password is permitted and ends every session the\naccount holds, including the one making this request, because the reset\nrevokes the account's credentials. That is the same consequence\nPOST /auth/change-password/ has for the caller who invokes it.",
+        "operationId": "reset_user_password_admin_users__user_id__reset_password__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminPasswordReset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad request \u2014 invalid query parameters or payload"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Unauthorized \u2014 missing or invalid credentials"
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Forbidden \u2014 caller lacks access to this resource"
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Not found"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Too many requests \u2014 retry after the advertised interval",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds until the request may be retried",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Internal server error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Service unavailable \u2014 the database could not serve the request"
+          }
+        },
+        "security": [
+          {
+            "OAuth2PasswordBearer": []
+          },
+          {
+            "ApiKeyHeader": []
+          },
+          {
+            "ApiKeyQuery": []
+          }
+        ],
+        "summary": "Reset User Password",
         "tags": [
           "Admin"
         ]

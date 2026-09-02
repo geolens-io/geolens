@@ -6,76 +6,51 @@ from typing import Any, TypeVar
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
-from ..types import UNSET, Unset
 
-from typing import cast
-
-
-T = TypeVar("T", bound="UserCreate")
+T = TypeVar("T", bound="AdminPasswordReset")
 
 
 @_attrs_define
-class UserCreate:
-    """
-    Attributes:
-        username (str): Unique login name Example: jdoe.
-        password (str): Plaintext password (policy: min 12 chars, 3+ character classes, at most 72 bytes UTF-8)
-        email (None | str | Unset): Optional email address Example: jdoe@example.com.
+class AdminPasswordReset:
+    """Request body for POST /admin/users/{user_id}/reset-password/.
+
+    Single-purpose for the same reason as SamlToLocalConversion above: the
+    generic UserUpdate schema has no password field, so an admin-set password
+    lands as its own audited action ('user.password_reset') rather than
+    disappearing into 'user.update'.
+
+        Attributes:
+            password (str): Replacement password for the account (policy: min 12 chars, 3+ character classes, at most 72
+                bytes UTF-8). The user can change this after their next login.
     """
 
-    username: str
     password: str
-    email: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        username = self.username
-
         password = self.password
-
-        email: None | str | Unset
-        if isinstance(self.email, Unset):
-            email = UNSET
-        else:
-            email = self.email
 
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
             {
-                "username": username,
                 "password": password,
             }
         )
-        if email is not UNSET:
-            field_dict["email"] = email
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         d = dict(src_dict)
-        username = d.pop("username")
-
         password = d.pop("password")
 
-        def _parse_email(data: object) -> None | str | Unset:
-            if data is None:
-                return data
-            if isinstance(data, Unset):
-                return data
-            return cast(None | str | Unset, data)
-
-        email = _parse_email(d.pop("email", UNSET))
-
-        user_create = cls(
-            username=username,
+        admin_password_reset = cls(
             password=password,
-            email=email,
         )
 
-        user_create.additional_properties = d
-        return user_create
+        admin_password_reset.additional_properties = d
+        return admin_password_reset
 
     @property
     def additional_keys(self) -> list[str]:
