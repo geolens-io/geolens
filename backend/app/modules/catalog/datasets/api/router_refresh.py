@@ -604,7 +604,7 @@ async def _dispatch_postgis_refresh(
             dataset_id=str(dataset_id),
         )
 
-    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db, job=job)
 
     return DatasetRefreshResponse(
         run_id=run_id,
@@ -857,7 +857,7 @@ async def _dispatch_stac_refresh(
             dataset_id=str(dataset_id),
         )
 
-    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer_refresh, rollback=rollback, db=db, job=job)
 
     return DatasetRefreshResponse(
         run_id=run_id,
@@ -1340,7 +1340,7 @@ async def refresh_dataset(
             credential_ref=credential_ref,
         )
 
-    await defer_with_orphan_guard(_defer_refresh, rollback=_rollback, db=db)
+    await defer_with_orphan_guard(_defer_refresh, rollback=_rollback, db=db, job=job)
 
     return DatasetRefreshResponse(
         run_id=run_id,

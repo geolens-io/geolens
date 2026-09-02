@@ -38,10 +38,15 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import inspect as sa_inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
+from sqlalchemy.orm.attributes import set_committed_value
 
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import (
+    COMMIT_ATTEMPTED_METADATA_KEY,
+    IngestJob,
+    commit_attempted_marker,
+)
 
 if TYPE_CHECKING:
     # Typing-only edge: `platform/` must not import `processing/` at module
@@ -91,17 +96,114 @@ class DeferFailed(HTTPException):
         self.rolled_back = rolled_back
 
 
+async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
+    """Record durably, on the row, that a dispatch was attempted for it.
+
+    feat(#1744): the one write that lets the stale sweep tell an abandoned
+    upload from a broken one. ``POST /ingest/upload`` deliberately does not
+    queue anything, so a `pending` row with no Procrastinate job is the normal
+    state between upload and commit, and when the owner walks away at the
+    preview step that row looks exactly like a commit whose dispatch died. The
+    two are only indistinguishable because nothing on the row said whether a
+    dispatch was ever tried; this says it, and ``abandoned_upload`` in
+    ``jobs/sweep.py`` reads its absence.
+
+    Committed rather than left dirty on the session, because the states that
+    need it most are the ones where nothing later commits: ``get_db`` closes
+    without committing, and the two rows the marker has to survive for are a
+    defer whose rollback did not land and a dispatch whose queue row later
+    vanished with the ingest row still `pending`. The extra commit costs
+    nothing here, because every caller of the guard has just committed the row
+    it is about to dispatch, which the Phase 1060 close-gate fix made
+    mandatory so the worker can see the row before the task exists.
+
+    Idempotent: a second dispatch of the same row (``/jobs/{id}/retry``
+    re-queues through ``queue_ingest_job``) keeps the first timestamp and
+    issues no write. Written as an UPDATE keyed on the id rather than an ORM
+    mutation so it also lands for a caller holding a detached instance, and
+    mirrored onto the instance afterwards so in-memory reads agree with the
+    row.
+    """
+    metadata = dict(job.user_metadata or {})
+    if metadata.get(COMMIT_ATTEMPTED_METADATA_KEY):
+        return
+    metadata.update(commit_attempted_marker())
+    await db.execute(
+        update(IngestJob).where(IngestJob.id == job.id).values(user_metadata=metadata)
+    )
+    await db.commit()
+    job.user_metadata = metadata
+
+
+def _restore_settlement_identifiers(
+    job: IngestJob, identifiers: dict[str, Any] | None
+) -> None:
+    """Put the settlement's own identifiers back after a rollback expired them.
+
+    fix(#1774 review r2, codex P2): ``Session.rollback()`` expires every
+    instance that was in the failed transaction, and ``expire_on_commit=False``
+    does not change that. The next synchronous read of an expired column
+    attribute is a lazy load, and an ``AsyncSession`` has no greenlet to run
+    one, so SQLAlchemy raises ``MissingGreenlet`` instead of returning a value.
+    ``settle_ingest_job_failed`` reads ``job.id`` and ``job.attempt_id``
+    synchronously, and it is the one function every rollback closure in the
+    codebase funnels through, so without this the reset that makes the session
+    usable is also what stops the settlement from running.
+
+    Written from values snapshotted BEFORE the failed write, through
+    ``set_committed_value``, which marks an attribute loaded without a query
+    and without marking it dirty. A snapshot cannot fail; a reload is one more
+    statement on a connection that has just misbehaved. Only the two the shared
+    settlement reads are restored, so every other attribute stays expired and
+    reloads normally once the session is healthy.
+
+    A no-op when there is nothing to restore: ``identifiers`` is None if the
+    instance was already expired on the way in, and a non-mapped object (a test
+    double) was never expired to begin with.
+    """
+    if identifiers is None or sa_inspect(job, raiseerr=False) is None:
+        return
+    for key, value in identifiers.items():
+        set_committed_value(job, key, value)
+
+
+async def _settle_after_failed_dispatch(
+    rollback: RollbackCallable, exc: BaseException, db: AsyncSession
+) -> bool:
+    """Run the caller's rollback closure and commit it. Returns whether it landed.
+
+    fix(#1774 review, codex P2): extracted so the two ways a dispatch can fail
+    (the marker write, then the defer itself) settle the row identically. A
+    second copy of this block is how one of them would end up not committing,
+    or not logging, or reporting a `rolled_back` the other does not.
+    """
+    try:
+        await rollback(exc)
+        await db.commit()
+        return True
+    except Exception:  # broad: rollback itself can fail with DB errors; log both, still surface 503 to client
+        # Rollback itself failed. Log the rollback error plus the dispatch
+        # context so operators can diagnose both. The caller still raises 503
+        # so the client retry flow stays consistent.
+        logger.exception(
+            "Orphan-guard rollback failed after defer error",
+            defer_error=str(exc),
+        )
+        return False
+
+
 async def defer_with_orphan_guard(
     defer_call: DeferCallable,
     *,
     rollback: RollbackCallable,
     db: AsyncSession,
+    job: IngestJob,
 ) -> None:
     """Run a ``defer_async`` call with rollback-on-failure semantics.
 
-    On success: no-op wrapper around ``defer_call``.
+    On success: stamps ``job`` as dispatch-attempted, then ``defer_call``.
 
-    On failure:
+    On failure of either step:
         1. Invoke ``rollback(defer_exc)`` to revert committed state.
         2. Commit the rollback on ``db``.
         3. If the rollback itself raises, log the rollback error plus
@@ -111,32 +213,97 @@ async def defer_with_orphan_guard(
            the defer error, carrying ``rolled_back`` so a caller can tell
            "the state was reverted" from "the state is still out there".
 
+    feat(#1744): ``job`` is required, and it is required rather than optional
+    because this is the one place every ``IngestJob`` dispatch in the codebase
+    passes through. Nothing calls ``task.defer_async`` with a ``job_id``
+    outside a closure this guard runs, so stamping here reaches every door at
+    once and a new door cannot be written that skips it. Same "a caller cannot
+    express the operation without also taking the rule" shape that
+    ``stale_pending_clauses`` uses for the read side.
+    ``test_commit_attempted_marker_doors.py`` pins both halves.
+
+    A failed stamp is treated as a failed dispatch. The marker has to be on
+    the row BEFORE the task exists, and without it a later sweep cannot tell
+    this row from an upload nobody ever committed, so it would cancel a job
+    whose only recovery path is ``/jobs/{id}/retry`` (failed-only). Settling
+    the row `failed` through the same rollback is the state a caller can act
+    on, and it keeps the row out of the sweep's pending class entirely.
+
+    fix(#1774 review, codex P2): the stamp gets its own try, because that
+    branch has to reset the session before it settles. A serialization failure
+    or deadlock on the marker write leaves the ``AsyncSession`` in a failed
+    transaction, and the settlement is itself a statement on that session.
+
     Args:
         defer_call: 0-arg async closure that calls ``task.defer_async``.
         rollback: async closure that reverts committed state. Receives
             the defer exception for error-message embedding.
         db: session used to commit the rollback.
+        job: the ``IngestJob`` row this dispatch is for, stamped
+            dispatch-attempted before the defer runs.
 
     Raises:
         DeferFailed: always, when ``defer_call`` raises. Existing callers that
             catch ``HTTPException`` are unaffected; the 503 body is unchanged.
     """
+    # fix(#1774 review r2, codex P2): snapshotted BEFORE the write that can
+    # fail. A value in a local cannot be expired by the reset below, and these
+    # two are what the shared settlement reads. See
+    # `_restore_settlement_identifiers`. Guarded because reading them is itself
+    # an attribute access: an instance that arrived expired has nothing to
+    # snapshot, and the reload below is then the only route back.
+    try:
+        identifiers: dict[str, Any] | None = {
+            "id": job.id,
+            "attempt_id": job.attempt_id,
+        }
+    except Exception:  # broad: an already-expired instance has nothing to snapshot
+        identifiers = None
+
+    try:
+        await stamp_commit_attempted(job, db=db)
+    except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
+        # fix(#1774 review, codex P2): reset the session BEFORE settling.
+        # A serialization failure or deadlock on the marker write leaves this
+        # AsyncSession in a failed transaction, and SQLAlchemy refuses every
+        # further statement on it until it is rolled back. Handing it straight
+        # to `settle_ingest_job_failed` would raise there too, and the job
+        # would stay `pending` with no marker, which is the one combination
+        # the stale sweep reads as an upload nobody committed. It would cancel
+        # a dispatch that was genuinely attempted and take away the retry this
+        # whole guard exists to preserve.
+        #
+        # Nothing is discarded by the reset: every caller commits the row
+        # before dispatching, so at this point the session holds only the
+        # marker write that just failed.
+        try:
+            await db.rollback()
+        except Exception:  # broad: a dead connection cannot be reset here
+            logger.exception(
+                "Orphan-guard could not reset the session after a failed "
+                "dispatch marker write"
+            )
+        # fix(#1774 review r2, codex P2): the reset expires every instance it
+        # touched, so put the settlement's identifiers back before invoking a
+        # closure that reads them. The snapshot is the guarantee, because it
+        # needs no connection; the reload covers whatever a caller-supplied
+        # closure reads beyond those two, and is best-effort for the same
+        # reason the rollback above is.
+        _restore_settlement_identifiers(job, identifiers)
+        try:
+            await db.refresh(job)
+        except Exception:  # broad: best effort; the snapshot above is the guarantee
+            logger.exception(
+                "Orphan-guard could not reload the job after a failed "
+                "dispatch marker write"
+            )
+        rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)
+        raise DeferFailed(rolled_back=rolled_back) from stamp_exc
+
     try:
         await defer_call()
     except Exception as defer_exc:  # broad: defer_async can throw various job-runner errors; orphan-guard handles all
-        rolled_back = False
-        try:
-            await rollback(defer_exc)
-            await db.commit()
-            rolled_back = True
-        except Exception:  # broad: rollback itself can fail with DB errors; log both, still surface 503 to client
-            # Rollback itself failed — log the rollback error plus the
-            # defer context so operators can diagnose both. Still raise
-            # 503 so the client retry flow stays consistent.
-            logger.exception(
-                "Orphan-guard rollback failed after defer error",
-                defer_error=str(defer_exc),
-            )
+        rolled_back = await _settle_after_failed_dispatch(rollback, defer_exc, db)
         raise DeferFailed(rolled_back=rolled_back) from defer_exc
 
 

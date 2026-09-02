@@ -53,7 +53,7 @@ def mock_defer_guard():
     inside create_fan_out_jobs, so the source module is patched.
     """
 
-    async def _noop(fn, rollback=None, db=None):
+    async def _noop(fn, rollback=None, db=None, job=None):
         pass
 
     with patch(
@@ -268,7 +268,7 @@ class TestAllLayersFailed:
         without a re-upload — and a cancel afterwards works normally."""
         job = await _make_pending_parent(test_db_session, layers=["buildings"])
 
-        async def _raise(fn, rollback=None, db=None):
+        async def _raise(fn, rollback=None, db=None, job=None):
             raise RuntimeError("queue down")
 
         with patch(
@@ -541,6 +541,13 @@ class TestNeverQueuedChildRecovery:
                 "layer_name": "roads",
                 "title": "multi: roads",
                 "fan_out_parent_id": str(parent.id),
+                # fix(#1744): `create_fan_out_jobs` puts this in the metadata
+                # it commits for the child, precisely so a crash in the gap
+                # between that commit and the dispatch still leaves a row the
+                # stale sweep settles `failed` rather than `cancelled`. Retry
+                # is the only way to re-run THIS layer, so the child has to
+                # survive that window as a retryable row.
+                "commit_attempted_at": "2026-09-01T12:00:00+00:00",
             },
         )
         test_db_session.add(child)
@@ -559,7 +566,7 @@ class TestNeverQueuedChildRecovery:
         can_retry, reason = await get_retry_capability(child)
         assert can_retry is True, reason
 
-        async def _noop(fn, rollback=None, db=None):
+        async def _noop(fn, rollback=None, db=None, job=None):
             pass
 
         with patch(

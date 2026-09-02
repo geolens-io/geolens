@@ -2415,7 +2415,7 @@ async def add_vrt_source(
         previous_status=previous_status,
         previous_generation_id=previous_generation_id,
     )
-    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
     # fix(#1327): "queued", not "added". The catalog's source list still
     # describes the VRT being served; the addition becomes part of it when the
@@ -2574,7 +2574,7 @@ async def remove_vrt_source(
         previous_status=previous_status,
         previous_generation_id=previous_generation_id,
     )
-    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
     # fix(#1327): "queued", not "removed" — see the add endpoint's tail.
     return VrtMutationResponse(

@@ -532,7 +532,7 @@ async def regenerate_vrt_endpoint(
         previous_status=previous_status,
         previous_generation_id=previous_generation_id,
     )
-    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
     return VrtMutationResponse(
         job_id=job.id,

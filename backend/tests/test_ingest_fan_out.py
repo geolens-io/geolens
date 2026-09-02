@@ -39,7 +39,7 @@ from app.processing.ingest.service import _user_safe_error
 def mock_defer_guard():
     """Prevent Procrastinate task deferral in all fan-out tests."""
 
-    async def _noop(fn, rollback=None, db=None):
+    async def _noop(fn, rollback=None, db=None, job=None):
         # Do NOT call fn() — that would attempt ingest_file.defer_async
         # against a real Procrastinate queue.
         pass

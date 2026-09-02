@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import (
@@ -44,6 +44,29 @@ STATUSES_NEEDING_STAGED_INPUT = ("pending", "running", "failed")
 # default layer of a multi-layer file. Cross-reader markers live here beside
 # the others so the two sites cannot drift (#1249 r6 precedent).
 FAN_OUT_INTERRUPTED_METADATA_KEY = "fan_out_interrupted"
+
+# `user_metadata` key stamped by ``defer_with_orphan_guard`` at the moment a
+# dispatch is attempted for an ``IngestJob`` row, holding an ISO-8601 UTC
+# timestamp (fix(#1744)). Its ABSENCE is the load-bearing half: a pending,
+# never-queued row that carries no such stamp was never handed to the queue at
+# all, which is the abandoned upload the stale sweep settles `cancelled` rather
+# than `failed`. Read by the three sites that settle an unbound pending row
+# (the background sweep, the status poll and the worker's startup recovery),
+# written at exactly one, so it lives here beside the other cross-reader
+# markers.
+COMMIT_ATTEMPTED_METADATA_KEY = "commit_attempted_at"
+
+
+def commit_attempted_marker() -> dict[str, str]:
+    """The ``user_metadata`` fragment that records a dispatch attempt.
+
+    One producer of the value, because there are two writers: the guard stamps
+    it on an existing row, and ``create_fan_out_jobs`` puts it in the metadata
+    it commits for a new child. A second hand-rolled timestamp is how the two
+    would end up disagreeing about the format the predicate reads.
+    """
+    return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
+
 
 # `user_metadata` key that marks an ``IngestJob`` row as an admin embedding
 # backfill run (fix(#1542)). The run itself imports nothing — the row exists so

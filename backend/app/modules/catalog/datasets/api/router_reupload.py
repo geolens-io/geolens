@@ -638,7 +638,7 @@ async def _dispatch_reupload_task(
                 credential_ref=credential_ref,
             )
 
-        await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db)
+        await defer_with_orphan_guard(_defer_service, rollback=rollback, db=db, job=job)
         return
 
     if job.file_path is None:
@@ -669,7 +669,7 @@ async def _dispatch_reupload_task(
                 user_id=str(user_id),
             )
 
-        await defer_with_orphan_guard(_defer_raster, rollback=rollback, db=db)
+        await defer_with_orphan_guard(_defer_raster, rollback=rollback, db=db, job=job)
         return
 
     # Route small files to priority queue
@@ -698,7 +698,7 @@ async def _dispatch_reupload_task(
             user_id=str(user_id),
         )
 
-    await defer_with_orphan_guard(_defer_file, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer_file, rollback=rollback, db=db, job=job)
 
 
 @router.post(

@@ -585,6 +585,7 @@ async def _queue_reupload_job(
         _defer_reupload,
         rollback=make_ingest_job_failed_rollback(job),
         db=db,
+        job=job,
     )
 
 

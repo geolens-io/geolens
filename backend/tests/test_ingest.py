@@ -17,7 +17,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.auth.models import User
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import IngestJob, commit_attempted_marker
 from tests.conftest import get_auth_header
 
 
@@ -414,6 +414,11 @@ class TestJobStatus:
             file_path="/tmp/fake.geojson",
             created_by=admin_user.id,
             status="pending",
+            # fix(#1744): a dispatch was attempted for this row and never
+            # landed, which is the class that keeps reporting `failed` so
+            # /jobs/{id}/retry stays reachable. Without the stamp the row is
+            # an upload nobody committed, and the poll cancels it.
+            user_metadata=commit_attempted_marker(),
         )
         test_db_session.add(job)
         await test_db_session.commit()
@@ -454,6 +459,10 @@ class TestJobCleanup:
             source_filename="stale.geojson",
             created_by=admin_user.id,
             status="pending",
+            # fix(#1744): see the poll test above. `pending_failed` is the
+            # count this asserts, and an unstamped row lands in
+            # `pending_cancelled` instead.
+            user_metadata=commit_attempted_marker(),
         )
         test_db_session.add(stale_job)
         await test_db_session.commit()

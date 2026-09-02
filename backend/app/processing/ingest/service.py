@@ -46,7 +46,7 @@ from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
 )
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import IngestJob, commit_attempted_marker
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 # Spool threshold for S3 uploads (PERF-001): SpooledTemporaryFile buffers this
@@ -978,6 +978,7 @@ async def create_vrt_job(
             job, message_prefix="Failed to queue VRT task"
         ),
         db=db,
+        job=job,
     )
 
     return job
@@ -1060,6 +1061,18 @@ async def create_fan_out_jobs(
                 # Clear dataset_id from parent metadata — each fan-out job
                 # creates its own dataset during _finalize_ingest.
                 "dataset_id": None,
+                # fix(#1744): stamped here rather than left to the guard
+                # below, so it rides the commit that makes the row visible.
+                # This runs inside a worker task; a process death in the gap
+                # between that commit and the dispatch would leave the row
+                # unstamped, which the stale sweep reads as an upload nobody
+                # committed and settles `cancelled`. That would take away the
+                # retry, and retry is the only way to re-run THIS layer: the
+                # layer selection lived in the fan-out request body and
+                # nowhere else (#1709 r8), so nothing can reconstruct it.
+                # Every other dispatch door creates its row inside the request
+                # that can simply be issued again.
+                **commit_attempted_marker(),
             },
         )
         session.add(new_job)
@@ -1097,6 +1110,7 @@ async def create_fan_out_jobs(
             _defer_fan_out_layer,
             rollback=make_ingest_job_failed_rollback(new_job),
             db=session,
+            job=new_job,
         )
 
         return FanOutLayerResult(
@@ -1123,6 +1137,37 @@ async def create_fan_out_jobs(
                 original_job_id=str(original_job.id),
                 error=str(exc),
             )
+        # fix(#1774 review, codex P2): reset the session before returning. The
+        # commit above carries this child's row AND its dispatch marker, and a
+        # transactional failure there leaves the session refusing every later
+        # statement. The caller loops over the remaining layers on this same
+        # session and then runs `restore_fan_out_parent_pending`, so without
+        # the reset one layer's deadlock fails every sibling and strands the
+        # parent `fanned_out` with no child importing. Nothing is discarded:
+        # a landed commit makes this a no-op, and a failed one had nothing to
+        # keep.
+        #
+        # fix(#1774 review r2, codex P2): reload the parent in the same breath,
+        # because the reset expires it. The next layer reads
+        # `original_job.source_filename` and friends off this same instance,
+        # and `restore_fan_out_parent_pending` reads `job.id`, and a
+        # synchronous read of an expired attribute on an AsyncSession raises
+        # MissingGreenlet. Without the reload, the reset meant to let the
+        # siblings continue would instead turn one layer's failure into a 500.
+        # A reload rather than a snapshot here: the attributes read downstream
+        # are spread across two functions and the response, and one SELECT
+        # restores all of them.
+        parent_job_id = str(original_job.id)
+        try:
+            await session.rollback()
+            await session.refresh(original_job)
+        except Exception:  # broad: a dead connection cannot be reset here
+            if logger:
+                logger.warning(
+                    "Fan-out layer session reset failed",
+                    layer_name=layer.layer_name,
+                    original_job_id=parent_job_id,
+                )
         from app.processing.ingest.schemas import FanOutLayerResult
 
         return FanOutLayerResult(
@@ -1407,6 +1452,7 @@ async def queue_ingest_job(
             _defer_service,
             rollback=_rollback_service,
             db=db,
+            job=job,
         )
         return
 
@@ -1432,6 +1478,7 @@ async def queue_ingest_job(
             _defer_raster,
             rollback=make_ingest_job_failed_rollback(job),
             db=db,
+            job=job,
         )
         return
 
@@ -1462,4 +1509,5 @@ async def queue_ingest_job(
         _defer_vector,
         rollback=make_ingest_job_failed_rollback(job),
         db=db,
+        job=job,
     )

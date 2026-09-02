@@ -165,7 +165,7 @@ class TestCommitWinsThenCancel:
         transaction — no stranded reservation on this side either."""
         dataset, job = await _seed_committable_reupload(test_db_session)
 
-        async def _noop(fn, rollback=None, db=None):
+        async def _noop(fn, rollback=None, db=None, job=None):
             pass
 
         with patch(

@@ -162,7 +162,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
         from app.platform.jobs.router import (
             ABANDONED_UPLOAD_MESSAGE,
             STALE_PENDING_UNBOUND_MESSAGE,
-            is_abandoned_presigned_upload,
+            is_abandoned_upload,
             stale_pending_clauses,
             stale_pending_unbound_values,
         )
@@ -185,7 +185,7 @@ async def _recover_stale_jobs_for_current_scope() -> None:
             # above), but they are writes to a persistent instance either way —
             # a flat `job.status = "failed"` here would mark the object dirty
             # and push `failed` back over the `cancelled` the UPDATE wrote.
-            abandoned = is_abandoned_presigned_upload(job.file_path, job.user_metadata)
+            abandoned = is_abandoned_upload(job.user_metadata)
             job.status = "cancelled" if abandoned else "failed"
             job.error_message = (
                 ABANDONED_UPLOAD_MESSAGE if abandoned else STALE_PENDING_UNBOUND_MESSAGE

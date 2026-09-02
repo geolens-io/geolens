@@ -1121,6 +1121,7 @@ async def trigger_backfill(
                 job, message_prefix="Failed to queue embedding backfill"
             ),
             db=db,
+            job=job,
         )
     except DeferFailed as dispatch_exc:
         # fix(#1550 review P2, round 1): the orphan guard has already marked the

@@ -3293,7 +3293,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `fail_stale_jobs`, because that runs once per TENANT in hosted mode and
     # the queue table has no tenant column — the docstring carries that and
     # the why-no-index note. Cap 1792 -> 1827, exact.
-    "backend/app/platform/jobs/sweep.py": 1827,
+    # fix(#1744): +30. `abandoned_presigned_upload` became `abandoned_upload`,
+    # which asks the row whether a dispatch was ever attempted
+    # (`commit_attempted_at`) instead of inferring it from an empty
+    # `file_path` plus a `presigned` marker. Almost all of the lines are the
+    # docstring: why the shape-based carve-out missed the door the demo
+    # actually uses (a direct upload binds an absolute staging path and stamps
+    # no `presigned` marker, so four abandoned uploads reported `failed` with
+    # "never queued"), why the absolute-path class no longer needs a branch of
+    # its own, and why rows predating the stamp reclassify rather than get a
+    # migration, plus the two residual gaps it records (the one-statement
+    # window between a door's own commit and the stamp, and S3-mode direct
+    # uploads landing in the bound half). Cap 1827 -> 1857, exact.
+    "backend/app/platform/jobs/sweep.py": 1857,
     # fix(#1709 review r8 B): first entry — crossed the 1000-line inclusion
     # threshold at 1010 when refresh.cancelled attribution was corrected to
     # name the CANCELLING user (cancel_active_run_for_job and
@@ -3938,7 +3950,28 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # D2). Most of the lines are the docstring paragraph recording that, and
     # why an unsupported method is refused here rather than dispatched as an
     # anonymous fetch. Cap 1450 -> 1465, exact.
-    "backend/app/processing/ingest/service.py": 1465,
+    # fix(#1744): +17. One `job=` argument at each of this module's five
+    # `defer_with_orphan_guard` call sites, so the guard can stamp
+    # `commit_attempted_at` on the row before the task exists. The kwarg is
+    # required rather than optional precisely so a new dispatch site cannot be
+    # written past it, plus `create_fan_out_jobs` putting the same stamp in
+    # the metadata it commits for each child: that door runs inside a worker
+    # task and its child cannot be recreated by repeating a user action, so it
+    # is the one place the commit-to-dispatch window is worth closing
+    # outright. Cap 1465 -> 1482, exact.
+    # fix(#1774 review, codex P2): +18. `create_fan_out_jobs` resets the
+    # session in its per-layer failure handler. That commit now carries the
+    # child's dispatch marker as well as its row, and a transactional failure
+    # there left the session refusing every later statement, so one layer's
+    # deadlock failed every sibling and stranded the parent `fanned_out` with
+    # no child importing. Cap 1482 -> 1500, exact.
+    # fix(#1774 review r2, codex P2): +13. That reset expires the parent, and
+    # both the next layer and `restore_fan_out_parent_pending` read attributes
+    # off the same instance, so a synchronous read would raise MissingGreenlet
+    # and turn one layer's failure into a 500. The parent is reloaded in the
+    # same breath, and the log line reads a snapshotted id rather than the
+    # instance it just expired. Cap 1500 -> 1513, exact.
+    "backend/app/processing/ingest/service.py": 1513,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

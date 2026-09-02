@@ -39,6 +39,7 @@ from app.platform.jobs.models import (
     ACTIVE_BACKFILL_INDEX_NAME,
     EMBEDDING_BACKFILL_METADATA_KEY,
     IngestJob,
+    commit_attempted_marker,
 )
 from app.processing.embeddings import backfill as backfill_module
 from app.processing.embeddings.models import RecordEmbedding
@@ -135,15 +136,21 @@ async def _stale_job(
         created_at=old,
         started_at=old if status == "running" else None,
         heartbeat_at=old if status == "running" else None,
+        # fix(#1744): both rows describe work that was dispatched and then
+        # orphaned, which is the class this sweep settles `failed`. Without
+        # the stamp the pending half reads them as uploads nobody committed
+        # and cancels them, and the non-vacuity assertions below would be
+        # measuring a different pass.
         user_metadata=(
             {
+                **commit_attempted_marker(),
                 EMBEDDING_BACKFILL_METADATA_KEY: {
                     "force": True,
                     "operation_id": f"sweep-pin-{uuid.uuid4().hex[:8]}",
-                }
+                },
             }
             if backfill
-            else {"file_type": "vector"}
+            else {"file_type": "vector", **commit_attempted_marker()}
         ),
     )
     session.add(job)
