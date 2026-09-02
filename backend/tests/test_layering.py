@@ -4710,7 +4710,16 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # keyed on `offset + limit < total` would otherwise truncate pagination at
     # the cap), plus the docstring on _planner_row_estimate saying why it is
     # deliberately not wrapped in a try/except. Cap 1055 -> 1135, exact.
-    "backend/app/modules/catalog/features/service.py": 1135,
+    #
+    # fix(#1778): +52 for UnwritablePropertyError and is_writable_feature_column.
+    # A key naming a real column that _COLUMN_NAME_RE rejects used to be
+    # silently skipped by the write loop, so POST and PUT answered 201/200 with
+    # the value never stored, and PUT did not even NULL the column it documents
+    # as nulled. Most of the growth is the exception's docstring listing which
+    # producer of column_info admits which names, because the fix is a
+    # disagreement between two guards and a reader has to see both to keep them
+    # in step. Cap 1135 -> 1187, exact.
+    "backend/app/modules/catalog/features/service.py": 1187,
 }
 
 

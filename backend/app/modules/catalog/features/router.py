@@ -46,6 +46,7 @@ from app.modules.catalog.features.schemas import (
     inline_json_schema,
 )
 from app.modules.catalog.features.service import (
+    UnwritablePropertyError,
     delete_feature,
     effective_geometry_type,
     get_feature_by_id,
@@ -567,6 +568,11 @@ async def create_feature(
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
+    except UnwritablePropertyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -663,6 +669,11 @@ async def replace_single_feature(
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
         )
+    except UnwritablePropertyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
+        )
     except ValueError as e:
         if "not found" in str(e).lower():
             raise HTTPException(
@@ -754,6 +765,11 @@ async def patch_single_feature(
             # fix(#430 codex r7): generic for created datasets — see effective_geometry_type
             await effective_geometry_type(db, dataset),
             dataset_srid=dataset.srid,
+        )
+    except UnwritablePropertyError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(e),
         )
     except ValueError as e:
         if "not found" in str(e).lower():

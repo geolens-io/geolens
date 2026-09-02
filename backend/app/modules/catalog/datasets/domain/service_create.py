@@ -24,6 +24,7 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.datasets.domain.schemas import IngestionResult
+from app.modules.catalog.features.service import is_writable_feature_column
 from app.modules.catalog.datasets.domain.service_relationships import (
     auto_detect_relationships,
 )
@@ -60,6 +61,21 @@ async def create_empty_dataset(
             raise ValueError(
                 f"Invalid column name: {col.name!r}. "
                 "Must start with a letter or underscore and contain only alphanumeric characters and underscores."
+            )
+        # fix(#1778): SAFE_COLUMN_NAME_RE allows a leading underscore and has
+        # no length bound, but the feature write path can address neither, so
+        # `POST /datasets/empty` with a column named `_notes` used to create a
+        # real column that the feature API could then never write — POST and
+        # PUT answered 201/200 with the value silently dropped. A name longer
+        # than 63 characters is worse: PostgreSQL truncates the identifier in
+        # the DDL while column_info keeps the full string, so the truncated
+        # name GET returns is rejected as unknown and the full one is dropped.
+        # Refuse at creation rather than build an unwritable column.
+        if not is_writable_feature_column(lower_name):
+            raise ValueError(
+                f"Invalid column name: {col.name!r}. "
+                "A column name is at most 63 characters, starts with a letter, "
+                "and holds only letters, digits and underscores."
             )
         if lower_name in _RESERVED_COLUMNS:
             raise ValueError(

@@ -165,10 +165,46 @@ GEOJSON_TYPE_MAP: dict[str, set[str]] = {
 _MULTI_TYPES = {"MULTIPOINT", "MULTILINESTRING", "MULTIPOLYGON"}
 
 
+class UnwritablePropertyError(ValueError):
+    """A column that exists but that the feature write path cannot address.
+
+    fix(#1778): two guards disagreed about what a legal column is.
+    ``_reject_unknown_properties`` admitted any key present in column_info,
+    and the write loops then silently skipped whatever ``_COLUMN_NAME_RE``
+    rejected — a strictly narrower pattern than every producer of column_info.
+    ``create_empty_dataset`` validated against SAFE_COLUMN_NAME_RE (leading
+    underscore allowed, no length bound), ``get_column_info`` copies
+    information_schema verbatim, and the READ projection deliberately supports
+    names this regex rejects (``live_property_columns`` escapes colons because
+    registered Socrata exports ship columns literally named ``:id``).
+
+    So a dataset with a ``_notes`` or ``:id`` column returned that key from GET
+    but could not write it: POST and PUT answered 201/200 with the value never
+    stored, and on PUT the column was not even NULLed, contradicting the
+    documented "Columns not present in properties are set to NULL". Silent
+    write loss behind a success response is the worst shape for a data-editing
+    API, and it is exactly what an editing UI's read-modify-write round trip
+    hits. Refusing names the write path cannot address turns it into a 422.
+    """
+
+
+def is_writable_feature_column(name: str) -> bool:
+    """Whether the feature write path can address a column by this name.
+
+    The canonical predicate: ``create_empty_dataset`` refuses to build a column
+    that would fail it, and the write guards refuse to half-write one that
+    already exists.
+    """
+    return bool(_COLUMN_NAME_RE.match(name))
+
+
 def _reject_unknown_properties(
-    properties: dict | None, column_info: list[dict]
+    properties: dict | None,
+    column_info: list[dict],
+    *,
+    replaces_all: bool = False,
 ) -> None:
-    """Raise ValueError if a property key names no real attribute column.
+    """Raise if a property key names no real attribute column, or an unwritable one.
 
     fix(#458 E-25): writers used to silently drop unknown keys. On PUT that is a
     footgun — a misspelled key isn't written AND the intended column is nulled
@@ -176,13 +212,27 @@ def _reject_unknown_properties(
     Rejecting unknown keys up front surfaces the typo as a 400 instead. Reserved
     system columns (gid/geom/…) are absent from column_info, so a write attempt
     against them is correctly reported here too.
+
+    fix(#1778): a key naming a real column the write loop would then skip is
+    refused as well (see UnwritablePropertyError). ``replaces_all`` is the PUT
+    spelling: replace writes EVERY known column, so one unwritable column in
+    column_info makes the whole documented replacement impossible, whether or
+    not the request mentions it.
     """
-    if not properties:
-        return
     allowed = {c["name"] for c in column_info}
-    unknown = sorted(k for k in properties if k not in allowed)
-    if unknown:
-        raise ValueError(f"Unknown property columns: {', '.join(unknown)}")
+    if properties:
+        unknown = sorted(k for k in properties if k not in allowed)
+        if unknown:
+            raise ValueError(f"Unknown property columns: {', '.join(unknown)}")
+    named = allowed if replaces_all else {k for k in (properties or {}) if k in allowed}
+    unwritable = sorted(n for n in named if not is_writable_feature_column(n))
+    if unwritable:
+        raise UnwritablePropertyError(
+            f"Unwritable property columns: {', '.join(unwritable)}. "
+            "A writable column name is at most 63 characters, starts with a "
+            "lowercase letter, and holds only lowercase letters, digits and "
+            "underscores."
+        )
 
 
 def _geometry_sql(dataset_geometry_type: str) -> str:
@@ -897,7 +947,9 @@ async def replace_feature(
     """
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     normalized_geom = _validate_geometry_structure(geometry)
-    _reject_unknown_properties(properties, column_info)
+    # fix(#1778): replace nulls every known column, so an unwritable one makes
+    # the documented semantics unachievable even when the request omits it.
+    _reject_unknown_properties(properties, column_info, replaces_all=True)
 
     geojson_str = to_geojson(normalized_geom)
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
