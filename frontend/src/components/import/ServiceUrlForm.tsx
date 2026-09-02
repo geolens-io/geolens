@@ -71,7 +71,9 @@ export function ServiceUrlForm() {
   // value at send time and ignores its own response if it no longer matches.
   const signinGenerationRef = useRef(0);
   const authOrigin = originOf(url);
+  const isArcGisShaped = looksLikeArcGisServiceUrl(url);
   const lastAuthOriginRef = useRef(authOrigin);
+  const lastAuthShapeRef = useRef(isArcGisShaped);
 
   // codex review #1757 round 2: a minted token stops being usable 30
   // seconds before ArcGIS actually expires it (a safety margin, not a
@@ -126,6 +128,20 @@ export function ServiceUrlForm() {
     return false;
   }
 
+  // codex review #1757 round 3 P2: the expiry timer's own `expire()` (and
+  // expireStaleTokenIfPast above) both clear `token` and `tokenExpiresAt`
+  // together, so once either has already run, `expireStaleTokenIfPast`
+  // can no longer tell "expired" apart from "never had one" (`token` is
+  // already ''). `tokenExpired` is the marker that survives that clear;
+  // checking it first (with expireStaleTokenIfPast staying as the
+  // fallback for a token that is past its deadline but has not been
+  // cleared yet, e.g. a throttled background tab) is what lets a step
+  // AFTER the credential form still tell the two apart and refuse with
+  // the reconnect message instead of silently proceeding anonymously.
+  function isTokenExpiredOrPast(): boolean {
+    return tokenExpired || expireStaleTokenIfPast();
+  }
+
   // codex review #1757 round 2: schedule the token's own expiry 30 seconds
   // ahead of ArcGIS's stated deadline, so a wizard left open does not go on
   // submitting a token the service is about to (or already does) reject.
@@ -151,16 +167,23 @@ export function ServiceUrlForm() {
     expiryTimerRef.current = setTimeout(expire, delay);
   }
 
-  // codex review #1757 P1: a credential entered for one origin must never
-  // survive being pointed at a different one, whether that's a pasted
-  // token for a non-ArcGIS URL that becomes ArcGIS, or a minted ArcGIS
-  // token for one portal surviving a swap to another. Editing only the
-  // path within the SAME origin (e.g. switching between two FeatureServer
-  // layers on one ArcGIS org) is not a credential hazard, so that alone
-  // does not reset.
+  // codex review #1757 P1 / round 3: a credential entered for one auth
+  // CONTEXT must never survive being pointed at a different one. Origin is
+  // one axis (a pasted token for a non-ArcGIS URL that becomes ArcGIS, or a
+  // minted ArcGIS token for one portal surviving a swap to another); the
+  // service SHAPE is the other (a token typed for a non-ArcGIS URL, e.g.
+  // a WFS field, surviving a path-only edit that turns the same origin
+  // into an ArcGIS FeatureServer URL, where it would otherwise sit hidden
+  // behind a select showing "No authentication" and still get forwarded).
+  // Editing only the path within the SAME origin AND the same shape (e.g.
+  // switching between two FeatureServer layers on one ArcGIS org) is not a
+  // credential hazard, so that alone does not reset.
   useEffect(() => {
-    if (authOrigin === lastAuthOriginRef.current) return;
+    const originChanged = authOrigin !== lastAuthOriginRef.current;
+    const shapeChanged = isArcGisShaped !== lastAuthShapeRef.current;
     lastAuthOriginRef.current = authOrigin;
+    lastAuthShapeRef.current = isArcGisShaped;
+    if (!originChanged && !shapeChanged) return;
     invalidateMintedCredential();
     setArcgisAuthMethod('none');
     setPortalUrl('');
@@ -168,11 +191,11 @@ export function ServiceUrlForm() {
     setPassword('');
     setSigninError(null);
     // invalidateMintedCredential is a fresh closure each render, and the
-    // ref check above already guards this effect so it does real work
-    // only on a genuine origin change; including it here is for
+    // ref checks above already guard this effect so it does real work
+    // only on a genuine origin or shape change; including it here is for
     // correctness (react-hooks/exhaustive-deps), not because it can
     // change what this effect does.
-  }, [authOrigin, invalidateMintedCredential]);
+  }, [authOrigin, isArcGisShaped, invalidateMintedCredential]);
 
   // codex review #1757 round 2: the expiry timer must not outlive the
   // component (a backgrounded/unmounted tab has no business scheduling
@@ -253,23 +276,29 @@ export function ServiceUrlForm() {
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // codex review #1757 round 2: the timer above should already have
-    // cleared an expired token, but a backgrounded tab can throttle
-    // setTimeout, so re-check at the point of submission too. Falling
-    // through afterward (rather than returning) lets the signin-routing
-    // check just below pick this submission back up as a fresh sign-in
-    // attempt when the credential fields are still filled in.
-    expireStaleTokenIfPast();
+    // codex review #1757 round 2 / round 3 P2: the timer above should
+    // already have cleared an expired token, but a backgrounded tab can
+    // throttle setTimeout, and by the time either it or the timer HAS run,
+    // `token` state itself is already ''. Either way, calling
+    // isTokenExpiredOrPast() here only schedules its side effects for the
+    // NEXT render; `token` in this closure is still whatever it was when
+    // this handler started running. `currentToken` is the corrected value
+    // for the rest of THIS invocation, so Probe below can never forward a
+    // token that just got invalidated (round 3 caught this: the discarded
+    // boolean this used to check, then ignore, still let a stale `token`
+    // reach probeService).
+    const currentToken = isTokenExpiredOrPast() ? '' : token;
 
     // codex review #1757 round 2 P2: the sign-in fields live inside this
     // same <form> (a <form> cannot nest inside another), so pressing Enter
     // in the username or password field submitted straight to Probe
     // instead of signing in, sending the service a request under a
     // credential block that had never actually authenticated. While sign
-    // in is the chosen method and no token has been minted yet, route ANY
+    // in is the chosen method and no token has been minted yet (using the
+    // corrected value above, not the possibly-stale `token`), route ANY
     // submission of this form (Enter in a field, or a click on the same
     // submit button) to sign-in instead of Probe.
-    if (looksLikeArcGisServiceUrl(url) && arcgisAuthMethod === 'signin' && !token) {
+    if (isArcGisShaped && arcgisAuthMethod === 'signin' && !currentToken) {
       if (!signingIn && portalUrl.trim() && username.trim() && password) {
         void handleArcgisSignin();
       }
@@ -283,7 +312,7 @@ export function ServiceUrlForm() {
     setError(null);
 
     try {
-      const result = await probeService(trimmed, token || undefined);
+      const result = await probeService(trimmed, currentToken || undefined);
       setProbeResult(result);
       setStep('layer-select');
     } catch (err) {
@@ -297,10 +326,13 @@ export function ServiceUrlForm() {
   const handleLayerSelect = async (layer: LayerInfo) => {
     if (!probeResult) return;
 
-    // codex review #1757 round 2: this step is past the credential form,
-    // so there is no method select left to route a retry through. Refuse
-    // the preview outright and point the user back to reconnect.
-    if (expireStaleTokenIfPast()) {
+    // codex review #1757 round 2 / round 3: this step is past the
+    // credential form, so there is no method select left to route a retry
+    // through. Refuse the preview outright and point the user back to
+    // reconnect. isTokenExpiredOrPast also catches the case the expiry
+    // timer already fired (and so already cleared `token` itself) while
+    // this step was open, which expireStaleTokenIfPast alone cannot see.
+    if (isTokenExpiredOrPast()) {
       setError(
         t('serviceUrl.arcgisTokenExpiredMidImport', {
           defaultValue:
@@ -354,10 +386,11 @@ export function ServiceUrlForm() {
   const handleCommit = async (metadata: CommitImportRequest) => {
     if (!previewData) return;
 
-    // codex review #1757 round 2: same reasoning as handleLayerSelect,
-    // refusing rather than forwarding a token that expired while this
-    // dialog was open.
-    if (expireStaleTokenIfPast()) {
+    // codex review #1757 round 2 / round 3: same reasoning as
+    // handleLayerSelect, refusing rather than forwarding a token that
+    // expired while this dialog was open, including the case the expiry
+    // timer already fired and cleared `token` before this ran.
+    if (isTokenExpiredOrPast()) {
       setError(
         t('serviceUrl.arcgisTokenExpiredMidImport', {
           defaultValue:
@@ -548,7 +581,7 @@ export function ServiceUrlForm() {
           </div>
         </div>
 
-        {looksLikeArcGisServiceUrl(url) ? (
+        {isArcGisShaped ? (
           <div className="space-y-3" data-testid="arcgis-auth-block">
             <div className="space-y-2">
               <Label htmlFor="arcgis-auth-method" className="text-xs text-muted-foreground">
