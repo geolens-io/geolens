@@ -153,6 +153,34 @@ class TestManifestApplySchemas:
         with pytest.raises(ValidationError, match="checksum"):
             ManifestApplyRequest.model_validate(payload)
 
+    def test_openapi_contract_carries_the_checksum_length_bound(self):
+        """gh#1773 codex r2: the length bound must also reach the *published*
+        OpenAPI contract, not just this pydantic model. Before min_length/
+        max_length were added to the ManifestChecksum Field, a consumer
+        validating a request against the generated OpenAPI schema (rather
+        than against ManifestApplyRequest directly, e.g. a Python jsonschema
+        client) could accept the same trailing-newline checksum the CLI's
+        mirror let through in r1, then get a 422 from the live API. Pins the
+        contract and the CLI's JSON Schema mirror (which carries the same
+        71-length bound) to agree.
+        """
+        from app.api.main import app
+
+        app.openapi_schema = None
+        spec = app.openapi()
+        checksum_schema = spec["components"]["schemas"]["ManifestSource"]["properties"][
+            "checksum"
+        ]
+        string_variant = next(
+            variant
+            for variant in checksum_schema["anyOf"]
+            if variant.get("type") == "string"
+        )
+
+        assert string_variant["minLength"] == 71
+        assert string_variant["maxLength"] == 71
+        assert string_variant["pattern"] == "^sha256:[0-9a-f]{64}$"
+
     @pytest.mark.parametrize(
         ("source_type", "uri", "expected"),
         [

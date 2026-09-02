@@ -68,12 +68,23 @@ ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
 # (which the CLI's jsonschema validator uses) treats `$` as matching just
 # before a trailing newline, letting a YAML literal-scalar checksum with a
 # trailing newline through. pydantic-core's regex engine anchors `$` to the
-# true end of the string with no such exception, so this pattern alone is
-# not exploitable the same way here; test_rejects_checksum_with_a_trailing_newline
+# true end of the string with no such exception, so ManifestApplyRequest
+# itself was never exploitable this way; test_rejects_checksum_with_a_trailing_newline
 # in test_manifest_apply_api.py pins that.
+#
+# gh#1773 codex r2: min_length/max_length(71) added below too, so the
+# *published* OpenAPI contract also carries the bound alongside pattern.
+# Before this, a consumer validating against the OpenAPI schema (rather than
+# against this pydantic model directly) could accept the same trailing-newline
+# value the CLI's mirror did, then get a 422 from the live API.
+# test_openapi_contract_carries_the_checksum_length_bound in
+# test_manifest_apply_api.py pins minLength and maxLength on the emitted
+# checksum property.
 ManifestChecksum = Annotated[
     str,
     Field(
+        min_length=71,
+        max_length=71,
         pattern=r"^sha256:[0-9a-f]{64}$",
         description=(
             "Declared SHA-256 digest of the source bytes, as "
