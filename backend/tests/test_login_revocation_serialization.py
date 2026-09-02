@@ -35,6 +35,20 @@ anyway. It rests on two things that look like implementation detail:
 
 Either edit silently opens the window #1459 imagined, with no test failing and
 no reviewer prompted to think about revocation. This test fails instead.
+
+fix(#1715): half of that is no longer accidental. Admin password reset needs a
+login to see the reset's write, so ``LocalAuthProvider.authenticate()`` takes an
+explicit ``SELECT ... FOR NO KEY UPDATE`` on the account row before verifying
+the hash. A racing password login now queues there, one step earlier than
+before and ahead of the ``token_version`` read rather than just ahead of the
+mint, so on that path the window is shut by construction.
+
+The accidental mechanism is still the only thing holding the OAuth path, which
+has no such lock, so both structural guards below still matter and both are
+kept. What changed here is only WHERE a blocked login is observed: the stall
+signals from ``authenticate`` instead of ``create_access_token``, because the
+login can no longer reach the latter while the lock it is waiting for is the
+one the stall is holding.
 """
 
 import uuid
@@ -45,7 +59,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import RefreshToken
-from app.modules.auth.service import AuthService
+from app.modules.auth.providers.local import LocalAuthProvider
 
 PASSWORD = "TestPass1234!"  # SEC-S16: 12 chars, 3 character classes
 
@@ -128,19 +142,34 @@ class TestLoginIsSerializedAgainstRevocation:
         # fixed margin bridging that gap fails under pool contention in exactly
         # the case the margin exists to catch.
         lock_held = anyio.Event()
-        login_reached_issuance = anyio.Event()
-        original_create_access_token = AuthService.create_access_token
+        login_reached_the_lock = anyio.Event()
+        original_authenticate = LocalAuthProvider.authenticate
 
-        async def _signalling_create_access_token(self, *args, **kwargs):
-            # Signal BEFORE delegating. The original's version re-SELECT is the
-            # query that autoflushes the pending last_login_at write into the
-            # revocation's lock queue, so this call is about to block until the
-            # logout commits. Signalling after it would deadlock the pair.
-            login_reached_issuance.set()
-            return await original_create_access_token(self, *args, **kwargs)
+        async def _signalling_authenticate(self, *args, **kwargs):
+            # Signal BEFORE delegating, so the signal cannot depend on the very
+            # lock this is about to wait for.
+            #
+            # fix(#1715): this used to wrap create_access_token, because the
+            # login blocked at the autoflushed last_login_at write that its
+            # version re-SELECT triggered. authenticate() now takes an explicit
+            # SELECT ... FOR NO KEY UPDATE on the account row, so the login
+            # blocks HERE instead, one step earlier and before it reads
+            # token_version at all. Signalling from create_access_token became
+            # unreachable: the login could not get there without the lock the
+            # stall was holding while waiting for the signal, so the pair
+            # deadlocked and both died on the 30s deadline.
+            login_reached_the_lock.set()
+            return await original_authenticate(self, *args, **kwargs)
 
         async def _login_write_is_waiting_on_the_lock() -> bool:
-            """True once a backend is blocked on a lock running the flushed UPDATE.
+            """True once a backend is blocked on a lock inside the racing login.
+
+            fix(#1715): still matched by ``last_login_at`` without change. The
+            login now blocks on its locking SELECT of the account row, and that
+            statement lists every user column, ``last_login_at`` among them, so
+            the same predicate identifies the new waiter as well as the old
+            autoflushed UPDATE. The OAuth path, which has no explicit lock,
+            still blocks on that UPDATE.
 
             Read over ``test_db_session``, a connection belonging to neither
             transaction in the race, because both of theirs are occupied.
@@ -170,15 +199,13 @@ class TestLoginIsSerializedAgainstRevocation:
                 return result
             lock_held.set()
             with anyio.fail_after(30):
-                await login_reached_issuance.wait()
+                await login_reached_the_lock.wait()
                 while not await _login_write_is_waiting_on_the_lock():
                     await anyio.sleep(0.05)
             return result
 
         monkeypatch.setattr(audit_mod, "audit_emit", _stalled_emit)
-        monkeypatch.setattr(
-            AuthService, "create_access_token", _signalling_create_access_token
-        )
+        monkeypatch.setattr(LocalAuthProvider, "authenticate", _signalling_authenticate)
         results: dict = {}
 
         async def _logout():
