@@ -225,28 +225,35 @@ async def test_enqueue_returns_promptly_instead_of_waiting_for_the_run(
     admin_auth_header: dict,
     monkeypatch,
 ):
-    """The 600s ceiling is only reachable if the request waits. It must not.
+    """The request must answer before the run's first observable side effect.
 
-    Two seconds stands in for the ten minutes a ~59,000-record regenerate takes:
-    the inline route's elapsed time is the backfill's elapsed time, whatever the
-    catalog size, and the queued route's is not.
+    fix(#1778): this used to assert ``elapsed < 1.0`` against a 2s mock sleep
+    — a wall-clock race a loaded CI runner can lose on ordinary scheduling
+    noise that has nothing to do with whether the backfill ran inline. The
+    property under test is an ORDER, not a duration, so it is proven with an
+    event instead: ``backfill_started`` is set at the very top of the mock,
+    before anything slow, so if the endpoint ever regressed to awaiting the
+    backfill directly rather than deferring it to the queue, the response
+    could not come back before that event fires (a synchronous await cannot
+    return before the thing it awaited has started). Deterministic either
+    way — no timing budget to miss under load.
     """
+    backfill_started = anyio.Event()
 
     async def _slow_backfill(session, *, force=False, should_continue=None):
+        backfill_started.set()
         await anyio.sleep(2.0)
         return {"processed": 0, "created": 0, "skipped": 0, "errors": 0}
 
     monkeypatch.setattr(backfill_module, "backfill_embeddings", _slow_backfill)
 
     with patch.object(admin_router, "defer_async_with_tenant", AsyncMock()):
-        started = time.monotonic()
         resp = await client.post(_FORCE_URL, headers=admin_auth_header)
-        elapsed = time.monotonic() - started
 
     assert resp.status_code == 200, resp.text
-    assert elapsed < 1.0, (
-        f"the endpoint blocked for {elapsed:.2f}s — it is still running the "
-        "backfill inside the request"
+    assert not backfill_started.is_set(), (
+        "the endpoint ran the backfill before answering — it is still "
+        "running the backfill inside the request instead of deferring it"
     )
 
 
