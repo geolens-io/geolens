@@ -14,66 +14,78 @@ that fails at the origin with a 401 and reads in a log like a credential
 problem rather than a bug. Once the four are collapsed into the builder,
 nothing except this test stops a fifth appearing beside them.
 
-The two shapes it watches, over the whole ``backend/app/`` tree:
+The two sinks it watches, over the whole ``backend/app/`` tree:
 
-1. **Header-file writes.** Any write in a scope that calls
-   ``gdal_header_dir()``. That directory exists for exactly one thing, the
-   0600 ``GDAL_HTTP_HEADER_FILE``, so a write in a scope that located it is a
+1. **The header FILE.** Any write in a scope that calls ``gdal_header_dir()``.
+   That directory exists for exactly one thing, the 0600
+   ``GDAL_HTTP_HEADER_FILE``, so a write in a scope that located it is a
    credential line by construction.
-2. **Credential header writes.** Any ``headers[...] = ...`` keyed by a
-   credential header name, and any dict literal with such a key. The dict
-   literal is the same composition one line up, and leaving it out would make
-   the rule free to evade.
+2. **A header MAPPING.** A ``headers[...] = ...`` assignment or a dict literal
+   key. Which keys are judged depends on where the code lives:
 
-   Under ``modules/catalog/sources/`` and ``processing/``, a header
-   assignment with a NON-constant key is judged too, because that is where a
-   service credential is actually handled and ``headers[key] = ...`` with
-   ``key = "Authorization"`` two lines above would otherwise walk straight
-   through. Elsewhere in the tree a computed key is left alone: response
-   headers are set that way all over the API (``response.headers[name] =
-   value``), and judging those would be noise, not coverage.
+   - Tree-wide, the three credential header names (``authorization``,
+     ``proxy-authorization``, ``x-esri-authorization``), case-insensitively.
+   - On the two credential paths (``modules/catalog/sources/`` and
+     ``processing/``), EVERY key of a mapping that reaches an outbound HTTP
+     request, minus a short list of headers that cannot carry a credential.
+     That covers the header-key method, whose whole point is a custom name:
+     ``X-API-Key``, Ordnance Survey's literal ``key``, Azure's
+     ``Ocp-Apim-Subscription-Key``. A computed key there is judged too, since
+     ``key = "Authorization"`` two lines above would otherwise walk through.
 
-   fix(#1756 codex round 1): this rule used to be scoped to
+   fix(#1756 codex round 1): the mapping rule used to be scoped to
    ``sources/adapters/``, which missed the composition in ``sources/router.py``
-   entirely. Scope now comes from the key, not from the directory.
+   entirely. fix(#1756 codex round 3): and it read only the three credential
+   names, so a hand-composed ``X-API-Key`` bypassed it.
 
-**Provenance is a whole-expression rule.** fix(#1756 codex round 2): it used
-to ask whether the written expression MENTIONED builder output anywhere, which
-passed ``f"Authorization: Bearer {line}"`` for a builder-derived ``line``, the
-exact double-prefix string this module exists to prevent. It now asks whether
-the whole expression is one of these projections of builder output, and
-nothing else is accepted:
+   "Reaches an outbound request" means the dict literal, or the name it is
+   bound to, is passed as a ``headers=`` argument to a request call (``get``,
+   ``post``, ``stream``, ``request`` and the rest). That is what separates a
+   credential from response-header plumbing: everything under
+   ``processing/export/`` and ``processing/tiles/`` passes ``headers=`` to
+   ``Response``, ``StreamingResponse`` or ``HTTPException``, and none of it can
+   carry a credential anywhere.
 
-- ``build_credential_header(...)`` itself.
-- a name whose latest binding BEFORE the use site is an allowed expression, so
-  a later ``line = anything_else`` revokes it, and a parameter, loop target or
-  ``with`` target carries no provenance at all.
-- ``credential_header_line(<allowed>)``, one positional argument. The joiner
-  on its own only concatenates the pair it is handed, so
-  ``credential_header_line(("Authorization", value))`` is not allowed.
-- ``<allowed> + "\\n"``, or an f-string whose single interpolation is
-  ``<allowed>`` with no conversion and no format spec, and whose only literal
-  part, if any, is a trailing newline.
-- ``.encode()`` or ``.encode("ascii")`` on an allowed expression.
-- ``<allowed pair>[0]`` and ``[1]``, and a name unpacked from an allowed pair,
-  for the header-dict case.
+**Provenance is a whole-expression rule, and it depends on the sink.**
+fix(#1756 codex round 2): it used to ask whether the written expression
+MENTIONED builder output anywhere, which passed
+``f"Authorization: Bearer {line}"`` for a builder-derived ``line``.
+fix(#1756 codex round 3): and it accepted a joined line in mapping position,
+which puts ``Authorization: Authorization: Basic ...`` on the wire.
 
-Any other operator, any extra literal text, a second interpolation, or a
-format spec fails. A credential that arrives as a parameter has no lexical
-provenance and is therefore reported: the fix is to compose it at the write
-site, not to widen this rule.
+Every expression is classified as one of four kinds, or as nothing:
+
+- PAIR: ``build_credential_header(...)``, or a name bound to a PAIR.
+- LINE: ``credential_header_line(<PAIR>)``; ``<LINE> + "\\n"``; an f-string
+  whose single interpolation is a LINE, with no conversion, no format spec and
+  no literal part but a trailing newline; ``.encode()`` or ``.encode("ascii")``
+  on a LINE; or a name bound to a LINE.
+- NAME and VALUE: the two components of a PAIR, reached by ``<PAIR>[0]`` and
+  ``<PAIR>[1]`` or by unpacking ``name, value = build_credential_header(...)``.
+
+The file sink accepts a LINE and nothing else. The mapping sink accepts a
+VALUE for the value, and a NAME or a string constant for the key. So a PAIR
+written whole into a mapping fails, and so does a LINE, which is the round-3
+finding.
+
+A name resolves to its latest binding BEFORE the use site, so a later
+``line = anything_else`` revokes it, and a parameter, loop target, ``with``
+target or import carries no provenance at all.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears fails loudly instead of going stale. Four of the
-five credential-header entries are the compositions lane B2b deletes; this
-test is what tells it when the last one is gone.
+five mapping entries are the compositions lane B2b deletes; this test is what
+tells it when the last one is gone.
 
 WHAT THIS DOES NOT CLAIM, in the same spirit as the Rule-2 guard. It is a
 lexical rule, not dataflow. A line built in one function and written in
-another, a header dict assembled through ``update()`` from a value computed
-elsewhere, and a binding made under one branch of an ``if`` and used under the
+another, a header mapping assembled through ``update()``, a mapping handed to
+a helper that makes the request rather than passed to the request call in the
+same scope, and a binding made under one branch of an ``if`` and used under the
 other are all outside what an AST rule can answer. Binding order is read from
 source position, which is the straight-line answer and not a control-flow one.
+The tree-wide credential-name rule has none of those preconditions, so the
+three names that matter most stay covered whatever the surrounding shape.
 False alarms are cheap and visible; a silent miss is the failure that matters,
 so anything the resolver cannot classify is reported.
 """
@@ -96,18 +108,56 @@ CREDENTIAL_JOINER = "credential_header_line"
 # it is writing a credential header or nothing at all.
 HEADER_DIR_HELPER = "gdal_header_dir"
 
-# Where a computed header key is judged as well as a literal one: the two
-# trees that handle a service credential.
-DYNAMIC_KEY_PACKAGES = ("modules/catalog/sources/", "processing/")
+# The two trees that handle a service credential, where every outbound header
+# key is judged rather than only the three credential names.
+CREDENTIAL_PACKAGES = ("modules/catalog/sources/", "processing/")
 
 # Write calls, by exact name. Substring matching would sweep in unrelated
 # helpers: `_tenant_writer_subprocess_env` contains "write".
 WRITE_CALL_NAMES = frozenset({"write", "writelines", "write_text", "write_bytes"})
 
+# Calls that SEND a request. A header mapping handed to one of these leaves
+# the process; one handed to Response/StreamingResponse/HTTPException does
+# not, and cannot carry a credential to a third party.
+OUTBOUND_REQUEST_CALLS = frozenset(
+    {
+        "get",
+        "post",
+        "put",
+        "patch",
+        "delete",
+        "head",
+        "options",
+        "request",
+        "stream",
+        "send",
+        "build_request",
+    }
+)
+
 # Header names that carry a credential, compared case-insensitively because
-# HTTP field names are case-insensitive.
+# HTTP field names are case-insensitive. Judged everywhere in the tree.
 CREDENTIAL_HEADER_KEYS = frozenset(
     {"authorization", "proxy-authorization", "x-esri-authorization"}
+)
+
+# Request headers that cannot carry a credential, so they are exempt from the
+# every-key rule on the credential paths. Deliberately short and explicit: a
+# long list would turn the rule back into the three-name one by attrition.
+NON_CREDENTIAL_HEADERS = frozenset(
+    {
+        "accept",
+        "accept-encoding",
+        "accept-language",
+        "cache-control",
+        "content-length",
+        "content-type",
+        "if-modified-since",
+        "if-none-match",
+        "range",
+        "user-agent",
+        "x-request-id",
+    }
 )
 
 # Every allowlist entry is (module, scope) -> (exact count, justification).
@@ -165,6 +215,13 @@ _NESTED_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDe
 # binding made later in the body.
 _SCOPE_START = (-1, -1)
 
+# The four kinds an expression can carry. See the module docstring.
+_PAIR = "pair"
+_LINE = "line"
+_NAME = "name"
+_VALUE = "value"
+_COMPONENT_KINDS = {0: _NAME, 1: _VALUE}
+
 
 def _app_modules() -> list[tuple[str, ast.Module]]:
     modules = []
@@ -215,16 +272,8 @@ def _pos(node: ast.AST) -> tuple[int, int]:
     return (getattr(node, "lineno", 0), getattr(node, "col_offset", 0))
 
 
-class _Binding(NamedTuple):
-    """One binding of a name inside a scope.
-
-    ``value`` is None when the binding is something this rule cannot judge: a
-    parameter, a loop target, an import. Such a binding is RECORDED rather
-    than skipped, because it has to revoke an earlier builder binding.
-    """
-
-    pos: tuple[int, int]
-    value: ast.expr | None
+def _is_header_keyword(keyword: ast.keyword) -> bool:
+    return bool(keyword.arg) and "header" in keyword.arg.lower()
 
 
 def _iter_scope_nodes(scope: ast.AST):
@@ -236,6 +285,59 @@ def _iter_scope_nodes(scope: ast.AST):
         if isinstance(node, _NESTED_SCOPES):
             continue
         stack.extend(ast.iter_child_nodes(node))
+
+
+class _Outbound(NamedTuple):
+    """The header mappings in one scope that reach a request call."""
+
+    names: frozenset[str]
+    dicts: frozenset[int]
+
+
+def _outbound_header_mappings(scope: ast.AST) -> _Outbound:
+    """Header mappings handed to an outbound request call in *scope*."""
+    names: set[str] = set()
+    dicts: set[int] = set()
+    for node in _iter_scope_nodes(scope):
+        if not isinstance(node, ast.Call):
+            continue
+        if _call_name(node.func) not in OUTBOUND_REQUEST_CALLS:
+            continue
+        for keyword in node.keywords:
+            if not _is_header_keyword(keyword):
+                continue
+            if isinstance(keyword.value, ast.Dict):
+                dicts.add(id(keyword.value))
+            elif isinstance(keyword.value, ast.Name):
+                names.add(keyword.value.id)
+
+    # The literal a request-bound name was built from is the same mapping.
+    for node in _iter_scope_nodes(scope):
+        if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            continue
+        targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id in names:
+                dicts.add(id(node.value))
+    return _Outbound(frozenset(names), frozenset(dicts))
+
+
+class _Binding(NamedTuple):
+    """One binding of a name inside a scope.
+
+    ``value`` is None when the binding is something this rule cannot judge: a
+    parameter, a loop target, an import. Such a binding is RECORDED rather
+    than skipped, because it has to revoke an earlier builder binding.
+    ``index`` is the position within a tuple target, so
+    ``name, value = build_credential_header(auth)`` gives each name the right
+    component kind.
+    """
+
+    pos: tuple[int, int]
+    value: ast.expr | None
+    index: int | None = None
 
 
 def _scope_arguments(scope: ast.AST) -> list[str]:
@@ -286,14 +388,14 @@ def _scope_bindings(scope: ast.AST) -> dict[str, list[_Binding]]:
     """Every name binding in *scope*, ordered by source position."""
     bindings: dict[str, list[_Binding]] = defaultdict(list)
 
-    def record(target: ast.expr, value: ast.expr | None) -> None:
+    def record(
+        target: ast.expr, value: ast.expr | None, index: int | None = None
+    ) -> None:
         if isinstance(target, ast.Name):
-            bindings[target.id].append(_Binding(_pos(target), value))
+            bindings[target.id].append(_Binding(_pos(target), value, index))
         elif isinstance(target, (ast.Tuple, ast.List)):
-            # A component of an allowed pair is allowed, which is what makes
-            # `name, value = build_credential_header(auth)` usable.
-            for element in target.elts:
-                record(element, value)
+            for position, element in enumerate(target.elts):
+                record(element, value, position)
         elif isinstance(target, ast.Starred):
             record(target.value, None)
 
@@ -329,10 +431,70 @@ def _is_newline_literal(expr: ast.expr) -> bool:
     return isinstance(expr, ast.Constant) and expr.value == "\n"
 
 
-def _is_line_fstring(
+def _call_kind(
+    expr: ast.Call, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> str | None:
+    name = _call_name(expr.func)
+    if name == CREDENTIAL_BUILDER:
+        return _PAIR
+    if name == CREDENTIAL_JOINER:
+        if len(expr.args) != 1 or expr.keywords:
+            return None
+        argument = _expr_kind(expr.args[0], bindings, limit)
+        return _LINE if argument == _PAIR else None
+    if name != "encode":
+        return None
+    if not isinstance(expr.func, ast.Attribute) or expr.keywords:
+        return None
+    if len(expr.args) > 1:
+        return None
+    if expr.args and not (
+        isinstance(expr.args[0], ast.Constant) and expr.args[0].value == "ascii"
+    ):
+        return None
+    encoded = _expr_kind(expr.func.value, bindings, limit)
+    return _LINE if encoded == _LINE else None
+
+
+def _name_kind(
+    expr: ast.Name, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> str | None:
+    binding = _binding_before(bindings, expr.id, limit)
+    if binding is None or binding.value is None:
+        return None
+    bound = _expr_kind(binding.value, bindings, binding.pos)
+    if binding.index is None:
+        return bound
+    if bound != _PAIR:
+        return None
+    return _COMPONENT_KINDS.get(binding.index)
+
+
+def _component_kind(
+    expr: ast.Subscript, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> str | None:
+    index = expr.slice
+    if not isinstance(index, ast.Constant) or isinstance(index.value, bool):
+        return None
+    if index.value not in _COMPONENT_KINDS:
+        return None
+    if _expr_kind(expr.value, bindings, limit) != _PAIR:
+        return None
+    return _COMPONENT_KINDS[index.value]
+
+
+def _concat_kind(
+    expr: ast.BinOp, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
+) -> str | None:
+    if not isinstance(expr.op, ast.Add) or not _is_newline_literal(expr.right):
+        return None
+    return _LINE if _expr_kind(expr.left, bindings, limit) == _LINE else None
+
+
+def _fstring_kind(
     expr: ast.JoinedStr, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
-) -> bool:
-    """One interpolation of an allowed expression, plus a trailing newline."""
+) -> str | None:
+    """One interpolation of a LINE, plus at most a trailing newline."""
     interpolations = [
         value for value in expr.values if isinstance(value, ast.FormattedValue)
     ]
@@ -340,51 +502,26 @@ def _is_line_fstring(
         value for value in expr.values if not isinstance(value, ast.FormattedValue)
     ]
     if len(interpolations) != 1 or len(literals) > 1:
-        return False
+        return None
     if literals and not (
         literals[0] is expr.values[-1] and _is_newline_literal(literals[0])
     ):
-        return False
+        return None
     placeholder = interpolations[0]
     if placeholder.conversion != -1 or placeholder.format_spec is not None:
-        return False
-    return _is_builder_projection(placeholder.value, bindings, limit)
+        return None
+    inner = _expr_kind(placeholder.value, bindings, limit)
+    return _LINE if inner == _LINE else None
 
 
-def _is_pair_component(
-    expr: ast.Subscript, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
-) -> bool:
-    index = expr.slice
-    if not isinstance(index, ast.Constant) or isinstance(index.value, bool):
-        return False
-    if index.value not in (0, 1):
-        return False
-    return _is_builder_projection(expr.value, bindings, limit)
-
-
-def _is_encode_call(
-    expr: ast.Call, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
-) -> bool:
-    if not isinstance(expr.func, ast.Attribute) or expr.keywords:
-        return False
-    if len(expr.args) > 1:
-        return False
-    if expr.args and not (
-        isinstance(expr.args[0], ast.Constant) and expr.args[0].value == "ascii"
-    ):
-        return False
-    return _is_builder_projection(expr.func.value, bindings, limit)
-
-
-def _is_builder_projection(
+def _expr_kind(
     expr: ast.expr, bindings: dict[str, list[_Binding]], limit: tuple[int, int]
-) -> bool:
-    """Whether the WHOLE of *expr* is an allowed projection of builder output.
+) -> str | None:
+    """What the WHOLE of *expr* is, as one of the four kinds, or nothing.
 
-    The allowed shapes are enumerated in the module docstring. Anything else
-    is a violation, including an expression that merely CONTAINS builder
-    output: that was the round-2 hole, and ``f"Authorization: Bearer {line}"``
-    is exactly the string it let through.
+    An expression that merely CONTAINS builder output is nothing: that was the
+    round-2 hole, and ``f"Authorization: Bearer {line}"`` is exactly the string
+    it let through.
 
     Name resolution walks backwards: a name resolves to its latest binding
     before *limit*, and that binding's own value is then judged with the
@@ -393,34 +530,16 @@ def _is_builder_projection(
     of recursing forever.
     """
     if isinstance(expr, ast.Call):
-        name = _call_name(expr.func)
-        if name == CREDENTIAL_BUILDER:
-            return True
-        if name == CREDENTIAL_JOINER:
-            return (
-                len(expr.args) == 1
-                and not expr.keywords
-                and _is_builder_projection(expr.args[0], bindings, limit)
-            )
-        if name == "encode":
-            return _is_encode_call(expr, bindings, limit)
-        return False
+        return _call_kind(expr, bindings, limit)
     if isinstance(expr, ast.Name):
-        binding = _binding_before(bindings, expr.id, limit)
-        if binding is None or binding.value is None:
-            return False
-        return _is_builder_projection(binding.value, bindings, binding.pos)
-    if isinstance(expr, ast.BinOp):
-        return (
-            isinstance(expr.op, ast.Add)
-            and _is_newline_literal(expr.right)
-            and _is_builder_projection(expr.left, bindings, limit)
-        )
-    if isinstance(expr, ast.JoinedStr):
-        return _is_line_fstring(expr, bindings, limit)
+        return _name_kind(expr, bindings, limit)
     if isinstance(expr, ast.Subscript):
-        return _is_pair_component(expr, bindings, limit)
-    return False
+        return _component_kind(expr, bindings, limit)
+    if isinstance(expr, ast.BinOp):
+        return _concat_kind(expr, bindings, limit)
+    if isinstance(expr, ast.JoinedStr):
+        return _fstring_kind(expr, bindings, limit)
+    return None
 
 
 def _written_value(call: ast.Call) -> ast.expr | None:
@@ -456,41 +575,74 @@ def _header_container_name(target: ast.expr) -> str | None:
     return name if "header" in name.lower() else None
 
 
-def _is_credential_key(key: ast.expr, allow_dynamic_key: bool) -> bool:
+def _key_is_judged(key: ast.expr, *, credential_path: bool, outbound: bool) -> bool:
+    """Whether a header under *key* is this rule's business."""
     if isinstance(key, ast.Constant):
-        return (
-            isinstance(key.value, str) and key.value.lower() in CREDENTIAL_HEADER_KEYS
-        )
-    # A computed key cannot be read off the AST. In the two trees that handle
-    # a service credential that is a violation waiting to happen, so it is
-    # judged; everywhere else it is ordinary response-header plumbing.
-    return allow_dynamic_key
+        if not isinstance(key.value, str):
+            return False
+        lowered = key.value.lower()
+        if lowered in CREDENTIAL_HEADER_KEYS:
+            return True
+        return credential_path and outbound and lowered not in NON_CREDENTIAL_HEADERS
+    # A computed key cannot be read off the AST. On an outbound mapping in the
+    # two credential trees that is a violation waiting to happen; elsewhere it
+    # is ordinary response-header plumbing.
+    return credential_path and outbound
 
 
-def _credential_header_values(node: ast.AST, allow_dynamic_key: bool) -> list[ast.expr]:
-    """Every value *node* writes under a credential header name.
+class _HeaderWrite(NamedTuple):
+    key: ast.expr
+    value: ast.expr
 
-    Two shapes: a subscript assignment into a name that reads as a header
-    mapping, and a dict literal keyed by a credential header name.
-    """
+
+def _header_writes(
+    node: ast.AST, *, credential_path: bool, outbound: _Outbound
+) -> list[_HeaderWrite]:
+    """Every key and value *node* writes into a header mapping."""
     if isinstance(node, (ast.Assign, ast.AnnAssign)):
         if node.value is None:
             return []
         targets = node.targets if isinstance(node, ast.Assign) else [node.target]
         for target in targets:
-            if _header_container_name(target) is None:
+            container = _header_container_name(target)
+            if container is None:
                 continue
             assert isinstance(target, ast.Subscript)
-            if _is_credential_key(target.slice, allow_dynamic_key):
-                return [node.value]
+            if _key_is_judged(
+                target.slice,
+                credential_path=credential_path,
+                outbound=container in outbound.names,
+            ):
+                return [_HeaderWrite(target.slice, node.value)]
         return []
     if isinstance(node, ast.Dict):
+        reaches_a_request = id(node) in outbound.dicts
         return [
-            value
+            _HeaderWrite(key, value)
             for key, value in zip(node.keys, node.values, strict=True)
-            if key is not None and _is_credential_key(key, allow_dynamic_key=False)
+            if key is not None
+            and _key_is_judged(
+                key, credential_path=credential_path, outbound=reaches_a_request
+            )
         ]
     return []
+
+
+def _mapping_write_is_clean(
+    write: _HeaderWrite, bindings: dict[str, list[_Binding]]
+) -> bool:
+    """A header mapping takes the pair's VALUE component, never the line.
+
+    fix(#1756 codex round 3): ``headers["Authorization"] =
+    credential_header_line(pair)`` used to pass, and puts
+    ``Authorization: Authorization: Basic ...`` on the wire.
+    """
+    if _expr_kind(write.value, bindings, _pos(write.value)) != _VALUE:
+        return False
+    key = write.key
+    if isinstance(key, ast.Constant) and isinstance(key.value, str):
+        return True
+    return _expr_kind(key, bindings, _pos(key)) == _NAME
 
 
 class _Scan:
@@ -509,44 +661,51 @@ class _Scan:
         self.header_sites += other.header_sites
 
 
+class _ScopeFacts(NamedTuple):
+    bindings: dict[str, list[_Binding]]
+    outbound: _Outbound
+    writes_a_header_file: bool
+
+
+def _scope_facts(scope: ast.AST) -> _ScopeFacts:
+    return _ScopeFacts(
+        _scope_bindings(scope),
+        _outbound_header_mappings(scope),
+        _scope_calls(scope, HEADER_DIR_HELPER),
+    )
+
+
 def _scan_module(rel: str, tree: ast.Module) -> _Scan:
     _annotate_parents(tree)
     scan = _Scan()
-    allow_dynamic_key = rel.startswith(DYNAMIC_KEY_PACKAGES)
-    bindings_cache: dict[int, dict[str, list[_Binding]]] = {}
-    header_dir_cache: dict[int, bool] = {}
+    credential_path = rel.startswith(CREDENTIAL_PACKAGES)
+    facts_cache: dict[int, _ScopeFacts] = {}
 
     for node in ast.walk(tree):
         is_write = (
             isinstance(node, ast.Call) and _call_name(node.func) in WRITE_CALL_NAMES
         )
-        header_values = _credential_header_values(node, allow_dynamic_key)
-        if not is_write and not header_values:
+        if not is_write and not isinstance(node, (ast.Assign, ast.AnnAssign, ast.Dict)):
             continue
 
         scope = _enclosing_scope(node, tree)
-        bindings = bindings_cache.get(id(scope))
-        if bindings is None:
-            bindings = _scope_bindings(scope)
-            bindings_cache[id(scope)] = bindings
+        facts = facts_cache.get(id(scope))
+        if facts is None:
+            facts = _scope_facts(scope)
+            facts_cache[id(scope)] = facts
         site = (rel, _scope_name(scope))
 
-        if is_write:
-            writes_a_header = header_dir_cache.get(id(scope))
-            if writes_a_header is None:
-                writes_a_header = _scope_calls(scope, HEADER_DIR_HELPER)
-                header_dir_cache[id(scope)] = writes_a_header
-            if writes_a_header:
-                scan.write_sites += 1
-                value = _written_value(node)  # type: ignore[arg-type]
-                if value is None or not _is_builder_projection(
-                    value, bindings, _pos(value)
-                ):
-                    scan.unguarded_writes[site] += 1
+        if is_write and facts.writes_a_header_file:
+            scan.write_sites += 1
+            value = _written_value(node)  # type: ignore[arg-type]
+            if value is None or _expr_kind(value, facts.bindings, _pos(value)) != _LINE:
+                scan.unguarded_writes[site] += 1
 
-        for value in header_values:
+        for write in _header_writes(
+            node, credential_path=credential_path, outbound=facts.outbound
+        ):
             scan.header_sites += 1
-            if not _is_builder_projection(value, bindings, _pos(value)):
+            if not _mapping_write_is_clean(write, facts.bindings):
                 scan.unguarded_headers[site] += 1
 
     return scan
@@ -638,11 +797,11 @@ def _scan_synthetic(source: str, rel: str | None = None) -> _Scan:
 
 def test_guard_an_inline_composition_is_flagged() -> None:
     scan = _scan_synthetic(
-        "def f(token, fd):\n"
+        "def f(token, fd, client, url):\n"
         "    path = gdal_header_dir()\n"
         '    os.write(fd, f"Authorization: Bearer {token}\\n".encode("ascii"))\n'
         '    headers["Authorization"] = f"Bearer {token}"\n'
-        '    other = {"Authorization": f"Bearer {token}"}\n'
+        '    client.get(url, headers={"Authorization": f"Bearer {token}"})\n'
     )
     assert sum(scan.unguarded_writes.values()) == 1
     assert sum(scan.unguarded_headers.values()) == 2
@@ -650,14 +809,17 @@ def test_guard_an_inline_composition_is_flagged() -> None:
 
 
 def test_guard_a_builder_composition_is_clean() -> None:
+    """The shapes B2b is expected to write, in both sinks."""
     scan = _scan_synthetic(
-        "def f(auth, fd):\n"
+        "def f(auth, fd, client, url):\n"
         "    path = gdal_header_dir()\n"
         "    pair = build_credential_header(auth)\n"
         "    line = credential_header_line(pair)\n"
         '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
         "    headers[pair[0]] = pair[1]\n"
-        '    other = {"Authorization": credential_header_line(pair)}\n'
+        "    name, value = build_credential_header(auth)\n"
+        "    headers[name] = value\n"
+        "    client.get(url, headers=headers)\n"
     )
     assert scan.write_sites == 1
     assert scan.header_sites == 2
@@ -665,25 +827,17 @@ def test_guard_a_builder_composition_is_clean() -> None:
     assert not scan.unguarded_headers
 
 
-def test_guard_the_other_allowed_projections_are_clean() -> None:
-    """The shapes B2b may reasonably write, spelled out.
-
-    Concatenation instead of an f-string, an unencoded line, and the pair
-    unpacked into two names.
-    """
+def test_guard_the_other_allowed_line_shapes_are_clean() -> None:
+    """Concatenation instead of an f-string, and an unencoded line."""
     scan = _scan_synthetic(
         "def f(auth, fd, handle):\n"
         "    path = gdal_header_dir()\n"
         "    line = credential_header_line(build_credential_header(auth))\n"
         '    os.write(fd, (line + "\\n").encode())\n'
         "    handle.write(line)\n"
-        "    name, value = build_credential_header(auth)\n"
-        "    headers[name] = value\n"
     )
     assert scan.write_sites == 2
-    assert scan.header_sites == 1
     assert not scan.unguarded_writes
-    assert not scan.unguarded_headers
 
 
 def test_guard_the_joiner_alone_confers_nothing() -> None:
@@ -721,6 +875,37 @@ def test_guard_a_double_prefix_around_a_builder_line_is_flagged() -> None:
     assert sum(scan.unguarded_headers.values()) == 1
 
 
+def test_guard_a_joined_line_in_mapping_position_is_flagged() -> None:
+    """fix(#1756 codex round 3): the wire header would carry the name twice.
+
+    ``credential_header_line`` output under a header key sends
+    ``Authorization: Authorization: Basic <blob>``. The mapping sink takes the
+    pair's VALUE component and nothing else.
+    """
+    scan = _scan_synthetic(
+        "def f(auth, client, url):\n"
+        "    pair = build_credential_header(auth)\n"
+        "    headers = {}\n"
+        "    headers[pair[0]] = credential_header_line(pair)\n"
+        "    client.get(url, headers=headers)\n"
+        "    other = credential_header_line(pair)\n"
+        '    client.get(url, headers={"Authorization": other})\n'
+    )
+    assert scan.header_sites == 2
+    assert sum(scan.unguarded_headers.values()) == 2
+
+
+def test_guard_a_whole_pair_in_mapping_position_is_flagged() -> None:
+    """A tuple under a header key is not a header value."""
+    scan = _scan_synthetic(
+        "def f(auth, client, url):\n"
+        "    pair = build_credential_header(auth)\n"
+        '    headers["Authorization"] = pair\n'
+        '    client.get(url, headers={"Authorization": build_credential_header(auth)})\n'
+    )
+    assert sum(scan.unguarded_headers.values()) == 2
+
+
 def test_guard_concatenating_an_untrusted_name_is_flagged() -> None:
     """Only a trailing newline may be concatenated onto builder output."""
     scan = _scan_synthetic(
@@ -740,9 +925,11 @@ def test_guard_a_rebinding_after_the_builder_call_revokes_trust() -> None:
         "def f(auth, fd, untrusted):\n"
         "    path = gdal_header_dir()\n"
         "    line = credential_header_line(build_credential_header(auth))\n"
+        "    pair = build_credential_header(auth)\n"
         "    line = untrusted\n"
+        "    pair = untrusted\n"
         '    os.write(fd, f"{line}\\n".encode("ascii"))\n'
-        '    headers["Authorization"] = line\n'
+        '    headers["Authorization"] = pair[1]\n'
     )
     assert sum(scan.unguarded_writes.values()) == 1
     assert sum(scan.unguarded_headers.values()) == 1
@@ -818,6 +1005,65 @@ def test_guard_a_write_outside_the_header_directory_is_not_judged() -> None:
     assert not scan.unguarded_writes
 
 
+def test_guard_a_custom_api_key_header_is_judged_on_the_credential_paths() -> None:
+    """fix(#1756 codex round 3): the header-key method's whole point.
+
+    A hand-composed ``X-API-Key`` is a credential in exactly the way an
+    ``Authorization`` header is, and the three-name rule could not see it.
+    """
+    source = (
+        "def f(raw, client, url):\n"
+        '    headers = {"Accept": "application/json"}\n'
+        '    headers["X-API-Key"] = raw\n'
+        "    client.get(url, headers=headers)\n"
+    )
+    for rel in (
+        "modules/catalog/sources/synthetic.py",
+        "processing/ingest/synthetic.py",
+    ):
+        scan = _scan_synthetic(source, rel)
+        assert scan.header_sites == 1, rel
+        assert sum(scan.unguarded_headers.values()) == 1, rel
+
+    # Outside the credential paths the same shape is not this rule's business:
+    # the three credential names stay covered everywhere, a product header
+    # does not.
+    elsewhere = _scan_synthetic(source, "standards/ogc/synthetic.py")
+    assert elsewhere.header_sites == 0
+
+
+def test_guard_a_non_credential_header_is_ignored_on_the_credential_paths() -> None:
+    """``Accept`` and friends cannot carry a credential.
+
+    The exemption list is what keeps the every-key rule from flagging the
+    ``Accept`` header every adapter sets.
+    """
+    scan = _scan_synthetic(
+        "def f(client, url):\n"
+        '    headers = {"Accept": "application/json", "Content-Type": "application/json"}\n'
+        '    headers["Accept-Encoding"] = "gzip"\n'
+        "    client.get(url, headers=headers)\n"
+    )
+    assert scan.header_sites == 0
+
+
+def test_guard_a_response_header_is_not_judged() -> None:
+    """Response headers are not this rule's business.
+
+    Everything under processing/export/ and processing/tiles/ passes
+    ``headers=`` to Response, StreamingResponse or HTTPException, and none of
+    it can carry a credential to a third party.
+    """
+    scan = _scan_synthetic(
+        "def f(etag, body):\n"
+        '    response.headers["ETag"] = etag\n'
+        '    response.headers["X-GeoLens-Cache-Status"] = "hit"\n'
+        '    return Response(body, headers={"X-GeoLens-Band-Count": "3"})\n',
+        "processing/tiles/synthetic.py",
+    )
+    assert scan.header_sites == 0
+
+
 def test_guard_a_computed_key_is_judged_on_the_credential_path_only() -> None:
     """The anti-evasion half of the key rule, and its limit.
 
@@ -827,9 +1073,11 @@ def test_guard_a_computed_key_is_judged_on_the_credential_path_only() -> None:
     appears throughout the API) and is left alone.
     """
     source = (
-        "def f(token):\n"
+        "def f(token, client, url):\n"
         '    key = "Authorization"\n'
+        "    headers = {}\n"
         '    headers[key] = f"Bearer {token}"\n'
+        "    client.get(url, headers=headers)\n"
     )
     on_path = _scan_synthetic(source, "modules/catalog/sources/synthetic.py")
     assert sum(on_path.unguarded_headers.values()) == 1
@@ -841,20 +1089,20 @@ def test_guard_a_computed_key_is_judged_on_the_credential_path_only() -> None:
     assert elsewhere.header_sites == 0
 
 
-def test_guard_a_non_credential_header_is_not_judged() -> None:
-    """Response headers are not this test's business.
+def test_guard_a_credential_name_is_judged_everywhere() -> None:
+    """The three names need no outbound signal and no credential path.
 
-    Judging every header assignment would flag the CORS, CSP and ETag writes
-    all over the API, which have nothing to do with a credential.
+    This is the half of the rule with no preconditions, which is why it is
+    the one that catches a composition in a module nobody thought about.
     """
     scan = _scan_synthetic(
-        "def f(response, etag):\n"
-        '    response.headers["ETag"] = etag\n'
-        '    response.headers["Cache-Control"] = "no-store"\n'
-        '    other = {"Accept": "application/json"}\n',
-        "processing/tiles/synthetic.py",
+        "def f(token):\n"
+        '    headers["X-Esri-Authorization"] = f"Bearer {token}"\n'
+        '    return {"Authorization": f"Bearer {token}"}\n',
+        "standards/ogc/synthetic.py",
     )
-    assert scan.header_sites == 0
+    assert scan.header_sites == 2
+    assert sum(scan.unguarded_headers.values()) == 2
 
 
 def test_guard_a_self_reference_terminates() -> None:
