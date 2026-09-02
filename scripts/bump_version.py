@@ -25,6 +25,12 @@
   - docs-contract.json                     (.version — the cross-surface doc
                                            contract; check_docs_contract.py
                                            asserts it equals backend/pyproject)
+  - CHANGELOG.md                           (the reference-style compare links at
+                                           the bottom of the file: `[Unreleased]`
+                                           is repointed to compare/vX.Y.Z...HEAD
+                                           and a new `[X.Y.Z]:` link is inserted
+                                           comparing from the previous version,
+                                           fix(#1716))
 
 Every lockfile that embeds the package's own version is stamped too (fix(#877) —
 each of these had to be hand-stamped on past releases, and each was missed at
@@ -79,6 +85,8 @@ PY_SDK_PYPROJECT = REPO_ROOT / "sdks" / "python" / "pyproject.toml"
 PY_SDK_GEN_CONFIG = REPO_ROOT / "sdks" / "python" / ".openapi-python-client.yaml"
 TS_SDK_PACKAGE = REPO_ROOT / "sdks" / "typescript" / "package.json"
 DOCS_CONTRACT = REPO_ROOT / "docs-contract.json"
+CHANGELOG = REPO_ROOT / "CHANGELOG.md"
+CHANGELOG_REPO_URL = "https://github.com/geolens-io/geolens"
 
 # --- Lockfiles (fix(#877)) ---------------------------------------------------
 # A uv.lock records the version of every LOCAL package it resolves: the project
@@ -255,12 +263,163 @@ def _bump_package_lock(path: Path, version: str) -> None:
     print(f'  {_rel(path)} (.version + packages."".version) -> {version}')
 
 
+# `[Unreleased]:` in whatever shape it currently reads, so a malformed line
+# gets repaired rather than silently ignored.
+_UNRELEASED_LINE_RE = re.compile(r"^\[Unreleased\]: .*$", re.MULTILINE)
+# A `## [<version>]` section heading, optionally followed by ` - <date>`.
+_CHANGELOG_HEADER_RE = re.compile(r"^## \[([^\]]+)\]")
+# Any reference-style link definition line, e.g. `[Unreleased]: https://...`.
+_LINK_LINE_RE = re.compile(r"^\[([^\]]+)\]: (\S+)$")
+
+
+def _changelog_prev_version(text: str, version: str) -> str | None:
+    """The version whose `## [...]` section immediately follows `version`'s.
+
+    None if `version`'s section is the last one in the file - the initial
+    release, with no preceding version to compare from.
+    """
+    found = False
+    for line in text.splitlines():
+        m = _CHANGELOG_HEADER_RE.match(line)
+        if not m:
+            continue
+        label = m.group(1)
+        if found:
+            if label == "Unreleased":
+                continue
+            return label
+        if label == version:
+            found = True
+    return None
+
+
+def _changelog_link_lines(text: str) -> list[tuple[str, str, int]]:
+    """(label, url, 1-based line number) for every reference-style link
+    definition in `text`, in the order they appear.
+    """
+    result: list[tuple[str, str, int]] = []
+    for i, line in enumerate(text.splitlines(), start=1):
+        m = _LINK_LINE_RE.match(line)
+        if m:
+            result.append((m.group(1), m.group(2), i))
+    return result
+
+
+def _check_no_duplicate_changelog_labels(text: str, path: Path) -> None:
+    """Refuse to bump a CHANGELOG that defines the same link label twice.
+
+    Markdown resolves duplicate reference labels (compared
+    case-insensitively, matching CommonMark) to the FIRST definition, so a
+    stale duplicate later in the file renders invisibly while still leaving
+    it ambiguous which line this script is meant to edit.
+    check_version_coherence.py fails the same way for the same reason
+    (fix(#1716 review)).
+    """
+    first_seen: dict[str, int] = {}
+    for label, _url, line in _changelog_link_lines(text):
+        key = label.casefold()
+        if key in first_seen:
+            sys.exit(
+                f"ERROR: {_rel(path)} defines '[{label}]:' more than once "
+                f"(lines {first_seen[key]} and {line}). Remove or fix the "
+                f"duplicate before bumping."
+            )
+        first_seen[key] = line
+
+
+def _validate_changelog_links(path: Path, version: str) -> None:
+    """Every precondition `_bump_changelog_links` depends on, checked upfront.
+
+    main() calls this BEFORE any other version site is written, so a
+    CHANGELOG that can't be safely bumped - a duplicate reference label, no
+    `[Unreleased]:` line, or no `## [...]` section for `version` - aborts
+    the whole `make bump` with nothing touched, instead of leaving every
+    other site already bumped while only the CHANGELOG failed at the very
+    end (fix(#1716 review)).
+    """
+    text = path.read_text()
+    _check_no_duplicate_changelog_labels(text, path)
+    if not _UNRELEASED_LINE_RE.search(text):
+        sys.exit(
+            f"ERROR: no '[Unreleased]: ...' line in {_rel(path)}. Add the "
+            f"reference-style link block before bumping."
+        )
+    if _changelog_prev_version(text, version) is None:
+        sys.exit(
+            f"ERROR: {_rel(path)} has no '## [...]' section below '## [{version}]' "
+            f"to read the previous version from. Add the release's CHANGELOG "
+            f"section (and the section for the version before it) before bumping."
+        )
+
+
+def _bump_changelog_links(path: Path, version: str) -> None:
+    """Repoint `[Unreleased]` and ensure `[X.Y.Z]:` compares from the right tag.
+
+    The previous version is read from the CHANGELOG's own section structure
+    (the `## [...]` heading immediately below `## [version]`), not from the
+    current `[Unreleased]` link text - check_version_coherence.py verifies
+    the link against that same structural rule, so the two agree by
+    construction. Repairs whichever half is missing or wrong rather than
+    bailing out as soon as `[Unreleased]` already points at `version`: a
+    partial or hand-edited state - `[Unreleased]` repointed but the
+    `[X.Y.Z]:` link missing or stale - used to be left unrepaired
+    (fix(#1716 review)). A true no-op (both lines already correct) still
+    writes nothing.
+
+    Re-runs `_validate_changelog_links` so calling this directly (as the
+    tests do) is safe on its own, even though main() already validated
+    before writing anything else.
+    """
+    _validate_changelog_links(path, version)
+    text = path.read_text()
+
+    unreleased_m = _UNRELEASED_LINE_RE.search(text)
+    prev_version = _changelog_prev_version(text, version)
+
+    expected_unreleased = f"[Unreleased]: {CHANGELOG_REPO_URL}/compare/v{version}...HEAD"
+    expected_version_link = (
+        f"[{version}]: {CHANGELOG_REPO_URL}/compare/v{prev_version}...v{version}"
+    )
+
+    changed = False
+    if unreleased_m.group(0) != expected_unreleased:
+        text = text[: unreleased_m.start()] + expected_unreleased + text[unreleased_m.end() :]
+        changed = True
+
+    version_line_re = re.compile(rf"^\[{re.escape(version)}\]: .*$", re.MULTILINE)
+    version_m = version_line_re.search(text)
+    if version_m is None:
+        text = text.replace(
+            expected_unreleased, f"{expected_unreleased}\n{expected_version_link}", 1
+        )
+        changed = True
+    elif version_m.group(0) != expected_version_link:
+        text = text[: version_m.start()] + expected_version_link + text[version_m.end() :]
+        changed = True
+
+    if not changed:
+        print(f"  {_rel(path)} (compare links) already correct for {version}, skipping.")
+        return
+
+    path.write_text(text)
+    print(
+        f"  {_rel(path)} ([Unreleased] -> compare/v{version}...HEAD, "
+        f"[{version}] -> compare/v{prev_version}...v{version})"
+    )
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 1:
         sys.exit("Usage: bump_version.py X.Y.Z")
     version = argv[0].strip()
     if not SEMVER_RE.match(version):
         sys.exit(f"ERROR: version '{version}' is not X.Y.Z (plain semver, no suffixes).")
+
+    # Validate the CHANGELOG edit BEFORE touching any other version site, so
+    # a CHANGELOG that can't be safely bumped aborts with nothing written
+    # instead of leaving every other site already bumped while only the
+    # CHANGELOG failed, at the very end (fix(#1716 review)).
+    _validate_changelog_links(CHANGELOG, version)
 
     print(f"Bumping all version sites to {version}:")
     _bump_project_version(BACKEND_PYPROJECT, version)
@@ -279,6 +438,7 @@ def main(argv: list[str]) -> int:
         _bump_uv_lock(lock, package_names, version)
     for lock in PACKAGE_LOCKS:
         _bump_package_lock(lock, version)
+    _bump_changelog_links(CHANGELOG, version)
     print(f"Done. Run `make version-check` to confirm coherence.")
     return 0
 
