@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2 } from 'lucide-react';
 import { ApiError } from '@/api/client';
@@ -54,13 +54,42 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   const [signInPending, setSignInPending] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [signedIn, setSignedIn] = useState(false);
+  // Bookkeeping only -- nothing renders the expiry, so a ref avoids an
+  // extra re-render on every mint/clear. Still explicitly cleared
+  // alongside `signedIn` and the token itself (codex #1759 round 1, P2).
+  const expiresAtRef = useRef<string | null>(null);
+  // fix(codex #1759 round 1, P1/P2): a generation counter, not just a
+  // boolean, so a stale attempt's response is dropped even when a NEWER
+  // attempt is already in flight (not only on unmount). Bumped on unmount
+  // (the dialog closing unmounts this block -- SourceRefreshAction renders
+  // it conditionally on `serviceTokenRequired`, which handleOpenChange
+  // resets on close) and at the start of every sign-in attempt. Mirrors
+  // the generation-counter pattern lane A2 applies in ServiceUrlForm.tsx,
+  // so the two blocks converge later.
+  const generationRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      generationRef.current += 1;
+    };
+  }, []);
+
+  // fix(codex #1759 round 1, P2): a minted token describes the fields it
+  // was minted from. Once any of those fields changes, or a new attempt
+  // starts, that token no longer describes the account "Start refresh"
+  // would otherwise submit -- clear it immediately rather than leaving it
+  // reachable until the next sign-in resolves (or fails).
+  const clearMintedCredential = () => {
+    setSignedIn(false);
+    expiresAtRef.current = null;
+    onTokenChange('');
+  };
 
   const handleMethodChange = (value: string) => {
     const next = value as ArcgisAuthMethod;
     setMethod(next);
     setSignInError(null);
-    setSignedIn(false);
-    onTokenChange('');
+    clearMintedCredential();
     if (next !== 'signin') {
       setPortalUrl('');
       setUsername('');
@@ -68,9 +97,31 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
     }
   };
 
+  const handlePortalUrlChange = (value: string) => {
+    setPortalUrl(value);
+    clearMintedCredential();
+  };
+
+  const handleUsernameChange = (value: string) => {
+    setUsername(value);
+    clearMintedCredential();
+  };
+
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    clearMintedCredential();
+  };
+
   const handleSignIn = async () => {
     if (signInPending) return;
+    // Start of every new attempt: bump the generation so a still-pending
+    // earlier attempt's response (fix P1, below) can never land after this
+    // one starts, and clear whatever an earlier attempt minted so a
+    // slow-failing retry can't leave it behind for "Start refresh" to
+    // submit (fix P2).
+    const generation = (generationRef.current += 1);
     setSignInError(null);
+    clearMintedCredential();
     setSignInPending(true);
     try {
       const result = await arcgisSignIn({
@@ -78,12 +129,23 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
         username,
         password,
       });
+      // fix(codex #1759 round 1, P1): dropped when this attempt is stale --
+      // either this block unmounted (the dialog was cancelled/closed while
+      // the request was in flight; SourceRefreshAction renders this block
+      // conditionally and unmounts it on close) or a newer attempt already
+      // started. Calling `onTokenChange` here would call the STILL-MOUNTED
+      // parent's setter from an unmounted child's stale closure -- React
+      // allows that silently, so without this guard a token the user
+      // dismissed reappears the next time the dialog opens.
+      if (generationRef.current !== generation) return;
       onTokenChange(result.token);
+      expiresAtRef.current = result.expires_at;
       setSignedIn(true);
       // The password has finished its one job -- minting the token -- and
       // must not linger in state any longer than that took.
       setPassword('');
     } catch (err) {
+      if (generationRef.current !== generation) return;
       setSignedIn(false);
       let key = 'sourcePanel.refresh.credential.arcgis.errors.networkError';
       if (err instanceof ApiError) {
@@ -98,7 +160,9 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       // keyed off a stable code -- never the raw response body.
       setSignInError(t(key));
     } finally {
-      setSignInPending(false);
+      if (generationRef.current === generation) {
+        setSignInPending(false);
+      }
     }
   };
 
@@ -155,7 +219,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
               type="text"
               autoComplete="url"
               value={portalUrl}
-              onChange={(event) => setPortalUrl(event.target.value)}
+              onChange={(event) => handlePortalUrlChange(event.target.value)}
               placeholder={t('sourcePanel.refresh.credential.arcgis.portalUrlPlaceholder')}
               disabled={fieldsDisabled}
             />
@@ -169,7 +233,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
               type="text"
               autoComplete="username"
               value={username}
-              onChange={(event) => setUsername(event.target.value)}
+              onChange={(event) => handleUsernameChange(event.target.value)}
               disabled={fieldsDisabled}
             />
           </div>
@@ -190,7 +254,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
               data-lpignore="true"
               data-bwignore
               value={password}
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => handlePasswordChange(event.target.value)}
               disabled={fieldsDisabled}
             />
           </div>

@@ -1,4 +1,4 @@
-import { screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@/test/test-utils';
 import { useRefreshDataset } from '@/components/dataset/hooks/use-dataset';
@@ -620,6 +620,137 @@ describe('SourceRefreshAction', () => {
       // sign-in automatically (plan 3.2 -- a retry loop can lock the
       // customer's real ArcGIS account).
       expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
+    });
+
+    // codex #1759 round 1, P1: a late arcgisSignIn response landing after
+    // the dialog (and this credential block, which SourceRefreshAction
+    // unmounts on close) is dismissed must not resurrect a token the user
+    // already dismissed.
+    it('drops a late ArcGIS sign-in response after the dialog is closed, leaving no token behind', async () => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      let resolveSignIn!: (value: { token: string; expires_at: string }) => void;
+      mockArcgisSignIn.mockReturnValue(
+        new Promise((resolve) => {
+          resolveSignIn = resolve;
+        }),
+      );
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      // Dismiss the dialog while the sign-in is still in flight. This
+      // unmounts ArcgisCredentialBlock (SourceRefreshAction renders it
+      // conditionally on `serviceTokenRequired`, which handleOpenChange
+      // resets to false on close).
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+      // The response lands after close.
+      await act(async () => {
+        resolveSignIn({ token: 'late-minted-token', expires_at: '2026-09-01T13:00:00Z' });
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      await openDialog(user);
+      expect(screen.getByLabelText('Access token (optional)')).toHaveValue('');
+    });
+
+    // codex #1759 round 1, P2: a token minted for one set of credentials
+    // must not survive editing those credentials or a rejected retry.
+    it('clears a previously minted token as soon as a sign-in field changes, before any new attempt', async () => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      mockArcgisSignIn.mockResolvedValue({
+        token: 'first-token',
+        expires_at: '2026-09-01T13:00:00Z',
+      });
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+      await screen.findByText('Signed in. The token below is ready to use.');
+
+      // Edit a field but do NOT attempt sign-in again -- the field-change
+      // handler itself, not only the next attempt's start, must drop the
+      // token that no longer describes what's typed.
+      await user.type(screen.getByLabelText('Username'), 'x');
+      expect(
+        screen.queryByText('Signed in. The token below is ready to use.'),
+      ).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+      await waitFor(() => {
+        expect(mutateAsync).toHaveBeenLastCalledWith({ datasetId: 'dataset-1', token: undefined });
+      });
+    });
+
+    it('clears a previously minted token once a sign-in field changes, so a rejected retry submits nothing', async () => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      mockArcgisSignIn
+        .mockResolvedValueOnce({ token: 'first-token', expires_at: '2026-09-01T13:00:00Z' })
+        .mockRejectedValueOnce(
+          new ApiError('arcgis_signin_rejected', 400, { code: 'arcgis_signin_rejected', message: 'raw' }),
+        );
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+      await screen.findByText('Signed in. The token below is ready to use.');
+
+      // Editing a field after a successful mint invalidates that token --
+      // the fields no longer describe the account it was minted for.
+      await user.clear(screen.getByLabelText('Username'));
+      await user.type(screen.getByLabelText('Username'), 'bob');
+      await user.type(screen.getByLabelText('Password'), 'wrong-password');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await screen.findByText(
+        'ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.',
+      );
+
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+      await waitFor(() => {
+        expect(mutateAsync).toHaveBeenLastCalledWith({ datasetId: 'dataset-1', token: undefined });
+      });
     });
   });
 });
