@@ -344,17 +344,33 @@ async def export_dataset_endpoint(
     filtering, and attribute filtering. GeoParquet is always emitted in
     EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
     """
-    # fix(#1778 codex r1): the request's own clock, stamped before anything
-    # else runs. Everything this handler does between here and the conversion
-    # spends part of the edge proxy's window, so the conversion's bound has to
-    # be what is LEFT of it rather than an allowance computed from scratch.
-    # An unindexed `_count_selected_features` scan, or a parquet plan over a
-    # wide table, can eat a minute here; a warm cold path costs milliseconds,
-    # and the conversion should get that time back.
+    # fix(#1778 codex r1): the request's own clock. Everything this handler
+    # does between here and the conversion spends part of the edge proxy's
+    # window, so the conversion's bound has to be what is LEFT of it rather
+    # than an allowance computed from scratch. An unindexed
+    # `_count_selected_features` scan, or a parquet plan over a wide table,
+    # can eat a minute here; a warm cold path costs milliseconds, and the
+    # conversion should get that time back.
+    #
+    # fix(#1778 codex r2): read from where the REQUEST started, not from where
+    # this function did. FastAPI resolves `Depends(get_optional_user)` before
+    # the body runs, and that dependency's session checkout can block for up
+    # to `db_pool_timeout` under an exhausted pool. A clock started here would
+    # not see that wait, so an export that spent its whole calculated
+    # allowance could still land after nginx had given up, by the length of
+    # the wait. RequestLoggingMiddleware stamps the entry moment on the scope
+    # state for exactly this.
+    #
+    # The fallback is for a caller that reaches this handler with no such
+    # stamp (a direct unit call, a test app assembled without the middleware),
+    # where by construction nothing has been spent yet.
     #
     # Monotonic, not wall clock: a clock step (NTP, a suspend) must not shorten
     # or extend a running export.
-    request_deadline = time.monotonic() + EDGE_PROXY_READ_TIMEOUT_SECONDS
+    request_started = getattr(request.state, "started_at_monotonic", None)
+    if request_started is None:
+        request_started = time.monotonic()
+    request_deadline = request_started + EDGE_PROXY_READ_TIMEOUT_SECONDS
 
     port = get_processing_port()
     data_schema = tenant_data_schema(current_tenant_var.get())

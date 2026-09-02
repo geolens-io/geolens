@@ -107,16 +107,23 @@ def export_subprocess_timeout_seconds(deadline: float | None) -> float:
 
     floored at ``EXPORT_BUDGET_FLOOR_SECONDS``.
 
-    ``deadline`` is a ``time.monotonic()`` stamp taken when the route was
-    entered, offset by ``EDGE_PROXY_READ_TIMEOUT_SECONDS``. ``None`` means the
-    caller is not serving a request (the direct-call tests, and any future
-    offline caller): the full edge window is assumed to start now, which is
-    the same arithmetic with an elapsed time of zero.
+    ``deadline`` is a ``time.monotonic()`` stamp taken when the request
+    entered the app (``RequestLoggingMiddleware``), offset by
+    ``EDGE_PROXY_READ_TIMEOUT_SECONDS``. ``None`` means the caller is not
+    serving a request (the direct-call tests, and any future offline caller):
+    the full edge window is assumed to start now, which is the same
+    arithmetic with an elapsed time of zero.
 
-    The interval before the route body runs (dependency resolution: auth, the
-    permission lookup, and any pool wait either incurs) sits outside this
-    clock and is the one residual it cannot see. Nothing inside the handler
-    can observe it, and the reserve above is what absorbs it.
+    Anchoring it at the middleware rather than at the route body is what puts
+    dependency resolution inside the clock. ``Depends(get_optional_user)``
+    runs before the body and can block on a pool checkout for as long as
+    ``db_pool_timeout``; a clock started in the body would not see that, and
+    an export that spent its whole calculated budget could still answer after
+    the proxy had given up. What remains outside is the handful of outer
+    middlewares that wrap the logging one (CORS, security headers, the
+    compression opt-out, the rate limiter, tenant context). None of them
+    touches the database, so the interval is header work, and the reserve
+    above absorbs it.
     """
     global _export_reserve_warned
 

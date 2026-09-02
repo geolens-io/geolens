@@ -15,6 +15,11 @@ of a module the whole process shares is needed to say so. Comparisons are to
 the second, which is four orders of magnitude looser than the arithmetic under
 test.
 
+Where that clock STARTS is pinned separately, by a deliberately slow auth
+dependency: the anchor has to be the moment the request entered the app, not
+the moment this route got control, and only an observable gap between the two
+can tell those apart.
+
 The pool test counts checkouts on the app's own engine rather than asserting
 on the session object, because the checkout is the resource the finding is
 about: a connection the handler is not using is still one the rest of the API
@@ -354,3 +359,78 @@ class TestExportReleasesThePoolConnection:
             .all()
         )
         assert len(rows) == 1
+
+
+# ---------------------------------------------------------------------------
+# Where the clock starts
+# ---------------------------------------------------------------------------
+
+
+class TestExportDeadlineAnchor:
+    @pytest.mark.anyio
+    async def test_the_deadline_covers_dependency_resolution(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        monkeypatch,
+        tmp_path,
+    ):
+        """A slow dependency comes out of the conversion's budget, not on top.
+
+        ``Depends(get_optional_user)`` is resolved before the handler body
+        runs, and its session checkout can block for as long as
+        ``db_pool_timeout`` under an exhausted pool. A deadline stamped in the
+        body would not see that wait, so an export that spent its whole
+        calculated budget could still answer after nginx had given up, by the
+        length of the wait. The override below stands in for the contended
+        checkout: one second of dependency time has to leave one second less
+        for the conversion.
+        """
+        from app.api.main import app
+        from app.modules.auth.dependencies import get_optional_user
+
+        dependency_delay = 1.0
+
+        async def _slow_optional_user():
+            await asyncio.sleep(dependency_delay)
+            return None
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name="DeadlineAnchorExport",
+            visibility="public",
+        )
+
+        probes: dict = {}
+
+        async def _fake_export(
+            table_name, dataset_name, format_key, *, schema, **kwargs
+        ):
+            probes["deadline"] = kwargs.get("deadline")
+            probes["observed_at"] = time.monotonic()
+            out_dir = tmp_path / uuid.uuid4().hex
+            out_dir.mkdir()
+            path = out_dir / f"{dataset_name}.gpkg"
+            path.write_bytes(b"mock export data")
+            return str(path), path.name, FORMAT_MAP["gpkg"]["media"]
+
+        monkeypatch.setitem(
+            app.dependency_overrides, get_optional_user, _slow_optional_user
+        )
+        monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+
+        # Anonymous, so the slow override is the whole of the auth phase.
+        response = await client.get(
+            f"/datasets/{dataset.id}/export", params={"format": "gpkg"}
+        )
+
+        assert response.status_code == 200
+        remaining = probes["deadline"] - probes["observed_at"]
+        # Short by at least the dependency's wait. Stamped at the handler body
+        # instead, this would be very nearly the whole window.
+        assert remaining <= EDGE_PROXY_READ_TIMEOUT_SECONDS - dependency_delay
+        # And not anchored somewhere absurd: the rest of the request is
+        # milliseconds of local work.
+        assert remaining > EDGE_PROXY_READ_TIMEOUT_SECONDS - dependency_delay - 10
