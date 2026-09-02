@@ -2121,18 +2121,42 @@ async def test_a_signin_holds_exactly_one_pooled_connection(
     were holding, stalling unrelated traffic until the 30-second pool timeout.
     Both locks now ride the request's own transaction, so the count is one.
 
-    Counted with a pool `checkout` listener rather than at the session factory,
-    because the factory is not what the pool runs out of.
+    Counted at the pool rather than at the session factory, because the
+    factory is not what the pool runs out of.
+
+    fix(#1758): counted as PEAK CONCURRENT connections, not as cumulative
+    checkout events. The first version summed `checkout` and asserted 1, which
+    conflated "how many connections did this request hold at once" with "how
+    many times did it acquire one". Those differ whenever a connection is
+    released and re-acquired in sequence, which is legitimate and does happen
+    here: `_signin_audit` commits, its rollback-and-retry path on a poisoned
+    transaction acquires again, and the harness has contention retries of its
+    own in `_RetryingAsyncEngine` and `_acquire_test_session_with_retry`. A
+    single session that commits and then runs one more statement already
+    scores 2 cumulative while never holding more than one. That made the
+    assertion red on a loaded runner with nothing wrong, first seen in
+    merge-queue run 33648625488 on an unrelated frontend-only PR.
+
+    Peak concurrency is the property the paragraph above actually names, and
+    it is what a second lock session would break: that session held its
+    connection WHILE the request held its own. Sequential re-acquisition
+    cannot reach 2, so this is a sharper assertion rather than a weaker one.
     """
     from sqlalchemy import event
 
     import app.core.db as db_module
 
-    checkouts = 0
+    live = 0
+    peak = 0
 
-    def _count(*_args) -> None:
-        nonlocal checkouts
-        checkouts += 1
+    def _acquired(*_args) -> None:
+        nonlocal live, peak
+        live += 1
+        peak = max(peak, live)
+
+    def _released(*_args) -> None:
+        nonlocal live
+        live = max(0, live - 1)
 
     exchange = _Exchange(
         {
@@ -2141,18 +2165,20 @@ async def test_a_signin_holds_exactly_one_pooled_connection(
         }
     )
     sync_engine = db_module.engine.sync_engine
-    event.listen(sync_engine, "checkout", _count)
+    event.listen(sync_engine, "checkout", _acquired)
+    event.listen(sync_engine, "checkin", _released)
     try:
         with _install(exchange):
             resp = await client.post(
                 SIGNIN_URL, json=_body(), headers=admin_auth_header
             )
     finally:
-        event.remove(sync_engine, "checkout", _count)
+        event.remove(sync_engine, "checkout", _acquired)
+        event.remove(sync_engine, "checkin", _released)
 
     assert resp.status_code == 200
-    assert checkouts == 1, (
-        f"a sign-in checked out {checkouts} pooled connections; both advisory "
+    assert peak == 1, (
+        f"a sign-in held {peak} pooled connections at once; both advisory "
         "locks must ride the request's own session"
     )
 
