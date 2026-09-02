@@ -219,6 +219,19 @@ def test_manifest_accepts_a_well_formed_source_checksum() -> None:
     assert validate_manifest(document) == []
 
 
+def test_manifest_accepts_a_null_source_checksum() -> None:
+    """gh#1773 codex r4: ManifestSource.checksum is Optional on the backend,
+    and the generated OpenAPI schema allows a null variant for it, so a
+    template manifest with an explicit `checksum: null` (rather than the
+    key omitted entirely) is a valid request. Before `type` included "null"
+    here, this validator rejected it locally even though the API would
+    accept it."""
+    document = _minimal_manifest()
+    document["datasets"][0]["sources"][0]["checksum"] = None
+
+    assert validate_manifest(document) == []
+
+
 @pytest.mark.parametrize(
     "checksum",
     [
@@ -227,6 +240,7 @@ def test_manifest_accepts_a_well_formed_source_checksum() -> None:
         "sha256:" + "A" * 64,
         "md5:" + "a" * 32,
         "a" * 64,
+        "",
     ],
 )
 def test_manifest_rejects_malformed_source_checksum(checksum: str) -> None:

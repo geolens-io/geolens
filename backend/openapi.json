@@ -9073,7 +9073,7 @@
           "checksum": {
             "anyOf": [
               {
-                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. Bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it.",
+                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. For a vector source, bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Manifest raster updates are not supported, so a raster_cog source with a changed checksum still cannot be re-imported this way.",
                 "maxLength": 71,
                 "minLength": 71,
                 "pattern": "^sha256:[0-9a-f]{64}$",

@@ -80,6 +80,15 @@ ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
 # test_openapi_contract_carries_the_checksum_length_bound in
 # test_manifest_apply_api.py pins minLength and maxLength on the emitted
 # checksum property.
+#
+# gh#1773 codex r4: the description below used to promise checksum-driven
+# re-import unconditionally. For a raster_cog entry, bumping checksum does
+# change the fingerprint to "update", but manifest_service's
+# _validate_existing_dataset_update then rejects it ("Manifest raster
+# updates are not supported"), so that promise pointed a raster caller at an
+# impossible recovery path. Scoped to vector sources here, in the CLI's
+# schema mirror, and in the README; manifest_service._skip_complete_message
+# gives a raster entry the matching guidance instead.
 ManifestChecksum = Annotated[
     str,
     Field(
@@ -90,9 +99,12 @@ ManifestChecksum = Annotated[
             "Declared SHA-256 digest of the source bytes, as "
             "'sha256:<64 lowercase hex characters>'. Apply uses this only as "
             "a change-detection input alongside the rest of the entry; it is "
-            "not verified against the fetched bytes. Bump it when the file "
-            "under a stable URI changes, to force apply to reclassify the "
-            "entry as an update instead of skipping it."
+            "not verified against the fetched bytes. For a vector source, "
+            "bump it when the file under a stable URI changes, to force "
+            "apply to reclassify the entry as an update instead of "
+            "skipping it. Manifest raster updates are not supported, so a "
+            "raster_cog source with a changed checksum still cannot be "
+            "re-imported this way."
         ),
     ),
 ]

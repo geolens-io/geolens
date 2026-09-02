@@ -746,9 +746,60 @@ class TestManifestApplyService:
         assert result.dataset_id == dataset.id
         queue.assert_not_awaited()
         # gh#1736: the message must not claim the source was checked, only
-        # that the manifest entry itself is unchanged.
+        # that the manifest entry itself is unchanged. gh#1773 codex r4:
+        # this is the vector branch, which does have a working checksum
+        # recovery path -- see test_completed_raster_fingerprint_skip_does_
+        # not_promise_checksum_recovery for the raster branch, which does not.
         assert "not inspected" in result.message
         assert "checksum" in result.message
+
+    async def test_completed_raster_fingerprint_skip_does_not_promise_checksum_recovery(
+        self, test_db_session, clean_tables
+    ):
+        """gh#1773 codex r4: bumping checksum on a raster_cog entry does move
+        the fingerprint and reclassify skip_complete as update, but
+        _validate_existing_dataset_update then rejects a raster update
+        outright ("Manifest raster updates are not supported"). Naming
+        checksum in the skip message here would point a raster caller at a
+        recovery path that cannot succeed, so the raster branch must match
+        _validate_existing_dataset_update's own wording instead.
+        """
+        user = await _admin_user(test_db_session)
+        request = _request(
+            _manifest_dataset(
+                key="manifest-skip-complete-raster",
+                source_type="raster_cog",
+                uri="rasters/tile-001.tif",
+            )
+        )
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=user.id,
+            name="Existing raster",
+        )
+        job = await _create_completed_manifest_job(
+            test_db_session,
+            user=user,
+            dataset=dataset,
+            manifest_dataset=request.datasets[0],
+        )
+
+        with patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job",
+            new=AsyncMock(),
+        ) as queue:
+            response = await apply_manifest(
+                test_db_session, request, user, _http_request()
+            )
+
+        result = response.results[0]
+        assert result.action == "skip"
+        assert result.job_id == job.id
+        assert result.dataset_id == dataset.id
+        queue.assert_not_awaited()
+        assert "not inspected" in result.message
+        assert "checksum" not in result.message
+        assert "raster updates are not supported" in result.message
 
     async def test_changed_checksum_reclassifies_skip_complete_as_update(
         self, test_db_session, clean_tables
