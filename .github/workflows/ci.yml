@@ -179,6 +179,33 @@ jobs:
               - 'frontend/src/lib/basemap-utils.ts'
               - 'frontend/src/lib/capabilities.ts'
               - 'frontend/src/components/builder/layer-adapters/shared.ts'
+              # fix(#1778): more frontend files (plus one
+              # e2e spec below) that backend tests reference by literal path
+              # were absent from this list. A PR editing only AuditLogViewer.tsx
+              # matched the 'frontend' filter but not 'backend', so Backend
+              # Tests skipped and the audit-action parity gate
+              # (test_frontend_action_list_matches_backend_registry) never
+              # ran — the same "skipped required job reads as green" trap the
+              # #1088 fix above describes for scripts/backup-entrypoint.sh.
+              # test_ci_alembic_filter_paths.py::TestBackendFilterCoversReferencedScripts
+              # now scans for both scripts/ and frontend|e2e/ literals, so this
+              # list and that scan cannot drift apart again; the last four
+              # entries are cross-references inside docstrings rather than
+              # files under test, kept here anyway so the currency scan (which
+              # cannot tell the two apart, deliberately — see its docstring)
+              # stays green without special-casing prose mentions.
+              - 'frontend/src/components/admin/AuditLogViewer.tsx'
+              - 'frontend/src/lib/__tests__/public-app-url-shape.cases.json'
+              - 'frontend/src/lib/error-map.ts'
+              - 'frontend/README.md'
+              - 'frontend/src/components/admin/__tests__/AdminSidebar.test.tsx'
+              - 'frontend/src/lib/__tests__/public-urls.test.ts'
+              - 'frontend/src/lib/normalize-style-config.ts'
+              - 'frontend/vite.config.ts'
+              # test_embed_framing_csp.py::test_e2e_sec_audit_s08_skips_when_no_share_token
+              # reads this spec by literal path to pin the S08 test block; the
+              # 'e2e' filter alone does not trigger Backend Tests.
+              - 'e2e/sec-audit.spec.ts'
               # fix(#1088): repo-root scripts that backend tests read by literal
               # path. #1027 changed backup-entrypoint.sh and its own regression
               # test (test_backup_staging_tar_skew.py) never ran — the backup

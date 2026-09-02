@@ -19369,6 +19369,16 @@
             },
             "description": "Not found"
           },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Conflict \u2014 resource state prevents the operation"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -34292,6 +34302,16 @@
             },
             "description": "Not found"
           },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Precondition failed \u2014 the caller's If-Match no longer matches the current representation"
+          },
           "422": {
             "content": {
               "application/problem+json": {
@@ -34484,6 +34504,16 @@
               }
             },
             "description": "Not found"
+          },
+          "412": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Precondition failed \u2014 the caller's If-Match no longer matches the current representation"
           },
           "413": {
             "content": {

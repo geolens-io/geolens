@@ -28,6 +28,7 @@ from app.modules.auth.dependencies import require_mode_permission, require_permi
 from app.modules.auth.models import ApiKey, User
 from app.platform.ratelimit import limiter
 from app.modules.auth.schemas import ApiKeyCreateResponse
+from app.standards.ogc.errors import CONFLICT_RESPONSE
 
 router = APIRouter()
 
@@ -57,6 +58,9 @@ def _api_key_response(key: ApiKey) -> AdminApiKeyListItem:
     "/api-keys/",
     response_model=ApiKeyCreateResponse,
     status_code=status.HTTP_201_CREATED,
+    # fix(#1778): a pending/suspended/deactivated
+    # target user raises 409; the published contract omitted it.
+    responses={409: CONFLICT_RESPONSE},
 )
 @limiter.limit("30/minute")
 async def create_api_key(

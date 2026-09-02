@@ -14048,6 +14048,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Conflict — resource state prevents the operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -23961,6 +23970,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["ProblemDetail"];
                 };
             };
+            /** @description Precondition failed — the caller's If-Match no longer matches the current representation */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
             /** @description Validation error */
             422: {
                 headers: {
@@ -24057,6 +24075,15 @@ export interface operations {
             };
             /** @description Not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Precondition failed — the caller's If-Match no longer matches the current representation */
+            412: {
                 headers: {
                     [name: string]: unknown;
                 };

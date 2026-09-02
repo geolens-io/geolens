@@ -100,6 +100,14 @@ CONFLICT_RESPONSE = {
     "description": "Conflict — resource state prevents the operation",
 }
 
+PRECONDITION_FAILED_RESPONSE = {
+    **PROBLEM_RESPONSE,
+    "description": (
+        "Precondition failed — the caller's If-Match no longer matches the "
+        "current representation"
+    ),
+}
+
 GONE_RESPONSE = {
     **PROBLEM_RESPONSE,
     "description": "Gone — the resource existed but is no longer available",

@@ -1751,7 +1751,15 @@ endpoint reachability before the next scheduled run.
 `db/postgresql.conf` sets `logging_collector = on`, which routes all PostgreSQL
 output — slow-query lines (`log_min_duration_statement = 1000`), `auto_explain`
 plans, checkpoint activity — into daily-rotated files inside the pgdata volume.
-Read them with:
+The filename is keyed by day of week and each day's file is truncated on
+rotation, so the directory holds at most 7 files regardless of volume.
+Rotation is aligned to local midnight (not to process uptime), so an
+ordinary restart — a daily deploy, a container recreate — still truncates on
+schedule as long as the server is up at midnight. The one gap: PostgreSQL
+only truncates on time-based rotation, never at server startup, so a crash
+loop that never keeps the server running across a single midnight appends to
+that weekday's file for as long as the loop lasts; the first midnight it
+survives truncates that file back to empty. Read them with:
 
 ```bash
 docker compose exec db sh -c 'ls -t "$PGDATA/log/"'

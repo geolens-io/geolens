@@ -11400,6 +11400,10 @@ export type CreateApiKeyAdminApiKeysPostErrors = {
      */
     404: ProblemDetail;
     /**
+     * Conflict — resource state prevents the operation
+     */
+    409: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -17629,6 +17633,10 @@ export type DownloadCogDatasetsDatasetIdDownloadCogGetErrors = {
      */
     404: ProblemDetail;
     /**
+     * Precondition failed — the caller's If-Match no longer matches the current representation
+     */
+    412: ProblemDetail;
+    /**
      * Validation error
      */
     422: ProblemDetail;
@@ -17707,6 +17715,10 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetErrors = {
      * Not found
      */
     404: ProblemDetail;
+    /**
+     * Precondition failed — the caller's If-Match no longer matches the current representation
+     */
+    412: ProblemDetail;
     /**
      * Payload too large
      */
