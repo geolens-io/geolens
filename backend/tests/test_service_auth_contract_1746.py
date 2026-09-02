@@ -1,9 +1,9 @@
-"""feat(#1746): the structured ``auth`` request contract at the four service doors.
+"""feat(#1746): the structured ``auth`` request contract at the service doors.
 
-Every door that can be handed a credential for a remote service now accepts a
+Every door that can be handed a credential for a remote service accepts a
 nested ``auth`` object saying HOW to present it, alongside the flat ``token``
-field that has always meant a bearer credential. The four doors are probe,
-service preview, re-upload commit and refresh.
+field that has always meant a bearer credential. The doors are probe, service
+preview, re-upload service preview, re-upload commit and refresh.
 
 Four properties, asserted per door because each can regress on its own:
 
@@ -13,11 +13,15 @@ Four properties, asserted per door because each can regress on its own:
   nobody wrote down;
 - an ``auth`` object whose fields do not match its method is refused, and the
   refusal names the rule and never the value the caller typed;
-- ``basic`` and ``header`` parse and are then refused with 422
-  ``unsupported_auth_method``, because no transport composes a header line for
-  them yet. A closed door rather than a request that is accepted and then
-  fetched unauthenticated, which fails at the origin with a 401 and reads like
-  a credential problem rather than a missing feature.
+- a method the named service cannot carry is refused with 422
+  ``unsupported_auth_method``. Since the transport lane that is
+  ``build_credential_header``\'s two consumers, that means an ArcGIS origin
+  and a username and password or a named API key: an ArcGIS credential is
+  percent-encoded into the request URL, which has room for a token and nothing
+  else. WFS and OGC API Features send a header and take all three methods.
+  A closed door rather than a request that is accepted and then fetched
+  unauthenticated, which fails at the origin with a 401 and reads like a
+  credential problem rather than a missing feature.
 
 The last class is the D2 constraint from the plan: the refresh dispatch
 decision and the ingest queue both take a ``ServiceCredential`` as a parameter
@@ -61,6 +65,9 @@ from tests.test_service_refresh_1220 import (  # noqa: F401
 pytestmark = pytest.mark.anyio
 
 _WFS_URL = "https://services.example.test/geoserver/wfs"
+# An ArcGIS-shaped URL, which is what every door uses to select the
+# URL-query transport that cannot carry a basic or header-key credential.
+_ARCGIS_URL = "https://services.example.test/rest/services/Parcels/FeatureServer"
 
 
 def _bearer_secret() -> str:
@@ -113,20 +120,25 @@ def _assert_shape_refusal_without_the_values(resp, secrets: list[str]) -> None:
 
 
 async def _wfs_reupload_job(
-    session, *, dataset_id: uuid.UUID, created_by: uuid.UUID
+    session,
+    *,
+    dataset_id: uuid.UUID,
+    created_by: uuid.UUID,
+    service_type: str = "WFS 2.0.0",
+    source_url: str = _WFS_URL,
 ) -> IngestJob:
     job = IngestJob(
         dataset_id=dataset_id,
         source_filename="Parcels",
-        source_url=_WFS_URL,
+        source_url=source_url,
         source_layer="topp:parcels",
         created_by=created_by,
         status="pending",
         user_metadata={
             "reupload": True,
             "dataset_id": str(dataset_id),
-            "service_type": "WFS 2.0.0",
-            "layer_id": None,
+            "service_type": service_type,
+            "layer_id": 0 if service_type.startswith("ArcGIS") else None,
             "source_type": "service_url",
         },
     )
@@ -142,7 +154,9 @@ async def _wfs_reupload_job(
 
 
 class TestProbeDoor:
-    async def _post(self, client: AsyncClient, headers: dict, body: dict):
+    async def _post(
+        self, client: AsyncClient, headers: dict, body: dict, url: str = _WFS_URL
+    ):
         probe = AsyncMock(
             return_value=ProbeResponse(
                 service_type="WFS 2.0.0", url=_WFS_URL, layers=[]
@@ -156,7 +170,7 @@ class TestProbeDoor:
             patch("app.modules.catalog.sources.router.detect_service_type", probe),
         ):
             resp = await client.post(
-                "/services/probe", json={"url": _WFS_URL, **body}, headers=headers
+                "/services/probe", json={"url": url, **body}, headers=headers
             )
         return resp, probe
 
@@ -174,7 +188,7 @@ class TestProbeDoor:
 
         assert flat_resp.status_code == 200, flat_resp.text
         assert auth_resp.status_code == 200, auth_resp.text
-        assert auth_probe.await_args.kwargs["token"] == secret
+        assert auth_probe.await_args.kwargs["credential"].token == secret
         assert auth_probe.await_args.kwargs == flat_probe.await_args.kwargs
 
     async def test_both_spellings_at_once_are_refused(
@@ -207,12 +221,38 @@ class TestProbeDoor:
     async def test_a_method_with_no_transport_is_refused(
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
+        """An ArcGIS-shaped URL, which is the transport that cannot carry one.
+
+        The probe has no service type yet — finding it out is the point — so
+        the URL shape is the only selector it has, and it is the same one
+        `detect_service_type` dispatches on.
+        """
         auth, secrets = builder()
-        resp, probe = await self._post(client, admin_auth_header, {"auth": auth})
+        resp, probe = await self._post(
+            client, admin_auth_header, {"auth": auth}, url=_ARCGIS_URL
+        )
         _assert_unsupported_without_the_values(resp, secrets)
         # Refused before the network, so an unsupported method never reaches
         # the origin as an anonymous request.
         probe.assert_not_awaited()
+
+    @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
+    async def test_a_header_auth_service_takes_every_method(
+        self, client: AsyncClient, admin_auth_header: dict, builder
+    ) -> None:
+        """feat(#1746 B2b): the 422 above is lifted where a header can be sent.
+
+        The whole credential reaches the adapters, which compose the header
+        themselves; the door hands down no bare token for a method that has
+        none.
+        """
+        auth, secrets = builder()
+        resp, probe = await self._post(client, admin_auth_header, {"auth": auth})
+        assert resp.status_code == 200, resp.text
+        credential = probe.await_args.kwargs["credential"]
+        assert credential.method == auth["method"]
+        for secret in secrets:
+            assert secret not in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -221,7 +261,14 @@ class TestProbeDoor:
 
 
 class TestPreviewDoor:
-    async def _post(self, client: AsyncClient, headers: dict, body: dict):
+    async def _post(
+        self,
+        client: AsyncClient,
+        headers: dict,
+        body: dict,
+        service_type: str = "WFS 2.0.0",
+        url: str = _WFS_URL,
+    ):
         preview = AsyncMock(
             return_value={
                 "srid": 4326,
@@ -242,8 +289,8 @@ class TestPreviewDoor:
             resp = await client.post(
                 "/services/preview",
                 json={
-                    "url": _WFS_URL,
-                    "service_type": "WFS 2.0.0",
+                    "url": url,
+                    "service_type": service_type,
                     "layer_name": "topp:parcels",
                     **body,
                 },
@@ -265,7 +312,7 @@ class TestPreviewDoor:
 
         assert flat_resp.status_code == 200, flat_resp.text
         assert auth_resp.status_code == 200, auth_resp.text
-        assert auth_preview.await_args.kwargs["token"] == secret
+        assert auth_preview.await_args.kwargs["credential"].token == secret
         assert auth_preview.await_args.kwargs == flat_preview.await_args.kwargs
 
     async def test_both_spellings_at_once_are_refused(
@@ -298,9 +345,29 @@ class TestPreviewDoor:
         self, client: AsyncClient, admin_auth_header: dict, builder
     ) -> None:
         auth, secrets = builder()
-        resp, preview = await self._post(client, admin_auth_header, {"auth": auth})
+        resp, preview = await self._post(
+            client,
+            admin_auth_header,
+            {"auth": auth, "layer_id": 0},
+            service_type="ArcGIS FeatureServer",
+            url=_ARCGIS_URL,
+        )
         _assert_unsupported_without_the_values(resp, secrets)
         preview.assert_not_awaited()
+
+    @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
+    async def test_a_header_auth_service_takes_every_method(
+        self, client: AsyncClient, admin_auth_header: dict, builder
+    ) -> None:
+        """feat(#1746 B2b): ogrinfo gets the credential, and no response echoes it."""
+        auth, secrets = builder()
+        resp, preview = await self._post(client, admin_auth_header, {"auth": auth})
+        assert resp.status_code == 200, resp.text
+        credential = preview.await_args.kwargs["credential"]
+        assert credential.method == auth["method"]
+        assert credential.service_format == "wfs"
+        for secret in secrets:
+            assert secret not in resp.text
 
 
 # ---------------------------------------------------------------------------
@@ -320,11 +387,17 @@ class TestReuploadCommitDoor:
             source_url=_WFS_URL,
         )
 
-    async def _post(self, client, session, headers, body: dict):
+    async def _post(
+        self, client, session, headers, body: dict, service_type: str = "WFS 2.0.0"
+    ):
         admin_id = await get_user_id(session, "admin")
         dataset = await self._dataset(session, created_by=admin_id)
         job = await _wfs_reupload_job(
-            session, dataset_id=dataset.id, created_by=admin_id
+            session,
+            dataset_id=dataset.id,
+            created_by=admin_id,
+            service_type=service_type,
+            source_url=(_ARCGIS_URL if service_type.startswith("ArcGIS") else _WFS_URL),
         )
         async with _reupload_harness() as task:
             resp = await client.post(
@@ -356,7 +429,13 @@ class TestReuploadCommitDoor:
         # token, and not some other value, is what was staged.
         assert kwargs["token"] is None
         assert secret not in str(kwargs)
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        # feat(#1746 B2b) plan D9: what is staged is the finished header line,
+        # for a bearer credential exactly as for the other two methods, so one
+        # wire format reaches the worker and one composer produced it.
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_both_spellings_at_once_are_refused(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
@@ -391,7 +470,11 @@ class TestReuploadCommitDoor:
     ) -> None:
         auth, secrets = builder()
         resp, task, job = await self._post(
-            client, test_db_session, admin_auth_header, {"auth": auth}
+            client,
+            test_db_session,
+            admin_auth_header,
+            {"auth": auth},
+            service_type="ArcGIS FeatureServer",
         )
         _assert_unsupported_without_the_values(resp, secrets)
         task.defer_async.assert_not_awaited()
@@ -411,6 +494,36 @@ class TestReuploadCommitDoor:
         for secret in secrets:
             assert secret not in str(reloaded.user_metadata)
 
+    @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
+    async def test_a_header_auth_service_stages_the_composed_line(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,  # noqa: F811
+        builder,
+    ) -> None:
+        """feat(#1746 B2b) plan D9: one finished header line crosses the queue.
+
+        The value under the `token` kwarg is what the purge, the sweep and the
+        log scrubber all key on, so it stays a string under that name for a
+        basic credential exactly as it was for a bearer one.
+        """
+        auth, secrets = builder()
+        resp, task, _ = await self._post(
+            client, test_db_session, admin_auth_header, {"auth": auth}
+        )
+        assert resp.status_code == 202, resp.text
+        kwargs = task.defer_async.call_args.kwargs
+        assert kwargs["token"] is None
+        for secret in secrets:
+            assert secret not in str(kwargs)
+        staged = await creds.claim_service_credential(kwargs["credential_ref"])
+        assert staged.count(": ") == 1
+        assert staged.startswith(
+            "Authorization: Basic " if "username" in auth else "X-Api-Key: "
+        )
+
 
 # ---------------------------------------------------------------------------
 # Door 4: refresh (POST /datasets/{id}/refresh)
@@ -418,9 +531,20 @@ class TestReuploadCommitDoor:
 
 
 class TestRefreshDoor:
-    async def _post(self, client, session, headers, body: dict):
+    async def _post(
+        self, client, session, headers, body: dict, source_format: str = "wfs"
+    ):
         admin_id = await get_user_id(session, "admin")
-        dataset = await _service_dataset(session, created_by=admin_id)
+        dataset = await _service_dataset(
+            session,
+            created_by=admin_id,
+            source_format=source_format,
+            **(
+                {"base_url": _ARCGIS_URL, "layer_id": 0}
+                if source_format == "arcgis_featureserver"
+                else {}
+            ),
+        )
         async with _dispatch_harness() as task:
             resp = await client.post(
                 f"/datasets/{dataset.id}/refresh", json=body, headers=headers
@@ -445,7 +569,10 @@ class TestRefreshDoor:
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
         assert secret not in str(kwargs)
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_both_spellings_at_once_are_refused(
         self,
@@ -493,7 +620,11 @@ class TestRefreshDoor:
     ) -> None:
         auth, secrets = builder()
         resp, task, dataset = await self._post(
-            client, test_db_session, admin_auth_header, {"auth": auth}
+            client,
+            test_db_session,
+            admin_auth_header,
+            {"auth": auth},
+            source_format="arcgis_featureserver",
         )
         _assert_unsupported_without_the_values(resp, secrets)
         task.defer_async.assert_not_awaited()
@@ -512,6 +643,35 @@ class TestRefreshDoor:
             )
         ).scalar_one_or_none()
         assert run is None
+
+    @pytest.mark.parametrize("builder", [_basic_auth, _header_auth])
+    async def test_a_header_auth_origin_stages_the_composed_line(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        credential_backend,  # noqa: F811
+        builder,
+    ) -> None:
+        """feat(#1746 B2b): the fourth door, and the one that judges twice.
+
+        The credential is composed once against the dataset's own format, and
+        again against the binding read back after the reservation, because an
+        unchanged binding is not the same fact as an unchanged origin.
+        """
+        auth, secrets = builder()
+        resp, task, _ = await self._post(
+            client, test_db_session, admin_auth_header, {"auth": auth}
+        )
+        assert resp.status_code == 202, resp.text
+        kwargs = task.defer_async.call_args.kwargs
+        for secret in secrets:
+            assert secret not in str(kwargs)
+        staged = await creds.claim_service_credential(kwargs["credential_ref"])
+        assert staged.count(": ") == 1
+        assert staged.startswith(
+            "Authorization: Basic " if "username" in auth else "X-Api-Key: "
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +704,36 @@ class TestServiceLayerTakesACredentialDirectly:
 
         assert token is None
         assert ref
-        assert await creds.claim_service_credential(ref) == secret
+        assert (
+            await creds.claim_service_credential(ref)
+            == f"Authorization: Bearer {secret}"
+        )
+
+    async def test_the_refresh_dispatch_service_stages_a_composed_line(
+        self,
+        credential_backend,  # noqa: F811
+    ) -> None:
+        """feat(#1746 B2b): the in-process caller reaches the same wire format.
+
+        `service_format` is on the credential the caller constructs, which is
+        what selects the transport when there is no request to read it from.
+        """
+        password = _opaque_value()
+        credential = ServiceCredential(
+            method=CredentialMethod.BASIC,
+            service_format="wfs",
+            username=_opaque_value(),
+            password=password,
+        )
+
+        token, ref = await creds.resolve_dispatch_credential(
+            door="overlay", credential=credential
+        )
+
+        assert token is None
+        staged = await creds.claim_service_credential(ref)
+        assert staged.startswith("Authorization: Basic ")
+        assert password not in staged
 
     async def test_the_refresh_dispatch_service_refuses_a_method_with_no_transport(
         self,
@@ -555,7 +744,7 @@ class TestServiceLayerTakesACredentialDirectly:
         password = _opaque_value()
         credential = ServiceCredential(
             method=CredentialMethod.BASIC,
-            service_format="wfs",
+            service_format="arcgis_featureserver",
             username=_opaque_value(),
             password=password,
         )
@@ -606,7 +795,13 @@ class TestServiceLayerTakesACredentialDirectly:
         kwargs = task.await_args.kwargs
         assert kwargs["token"] is None
         assert secret not in str(kwargs)
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        # feat(#1746 B2b) plan D9: what is staged is the finished header line,
+        # for a bearer credential exactly as for the other two methods, so one
+        # wire format reaches the worker and one composer produced it.
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_the_ingest_service_refuses_a_method_with_no_transport(
         self,
@@ -621,11 +816,11 @@ class TestServiceLayerTakesACredentialDirectly:
         admin_id = await get_user_id(test_db_session, "admin")
         job = IngestJob(
             source_filename="Parcels",
-            source_url=_WFS_URL,
+            source_url=_ARCGIS_URL,
             source_layer="topp:parcels",
             created_by=admin_id,
             status="pending",
-            user_metadata={"service_type": "WFS 2.0.0", "layer_id": None},
+            user_metadata={"service_type": "ArcGIS FeatureServer", "layer_id": 0},
         )
         test_db_session.add(job)
         await test_db_session.commit()
@@ -637,7 +832,7 @@ class TestServiceLayerTakesACredentialDirectly:
                 db=test_db_session,
                 credential=ServiceCredential(
                     method=CredentialMethod.HEADER_KEY,
-                    service_format="wfs",
+                    service_format="arcgis_featureserver",
                     header_name="X-Api-Key",
                     header_value=value,
                 ),
@@ -678,14 +873,15 @@ class TestAuthIsDeclaredLast:
     422 naming a method it never chose. Appending cannot move a slot that
     already exists.
 
-    Stated for all four models rather than only the one that broke, because the
-    same insertion is available in each and nothing else notices it.
+    Stated for all five models rather than only the one that broke, because
+    the same insertion is available in each and nothing else notices it.
     """
 
     def test_every_model_declares_auth_last(self) -> None:
         from app.modules.catalog.datasets.domain.schemas import (
             DatasetRefreshRequest,
             ReuploadCommitRequest,
+            ReuploadServicePreviewRequest,
         )
         from app.modules.catalog.sources.schemas import (
             ProbeRequest,
@@ -696,6 +892,7 @@ class TestAuthIsDeclaredLast:
             ProbeRequest,
             ServicePreviewRequest,
             ReuploadCommitRequest,
+            ReuploadServicePreviewRequest,
             DatasetRefreshRequest,
         ):
             assert list(model.model_fields)[-1] == "auth", (
@@ -854,7 +1051,7 @@ class TestABlankValueIsNotACredential:
         resp, probe = await self._probe(client, admin_auth_header, {"token": ""})
 
         assert resp.status_code == 200, resp.text
-        assert probe.await_args.kwargs["token"] is None
+        assert probe.await_args.kwargs["credential"] is None
 
     def test_the_gate_refuses_a_blank_bearer_credential_with_no_http_layer(
         self,

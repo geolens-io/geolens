@@ -8473,12 +8473,18 @@ export type ReuploadServicePreviewRequest = {
     layer_id?: number | string | null;
     /**
      * Token
+     *
+     * Deprecated: use the auth object with method bearer.
      */
     token?: string | null;
     /**
      * Object Id Field
      */
     object_id_field?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**

@@ -11,8 +11,15 @@ import structlog
 
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
-from app.core.runtime.staging import gdal_header_dir
-from app.core.service_tokens import HEADER_TOKEN_CHARSET, HEADER_TOKEN_MIN_LENGTH
+from app.core.runtime.staging import GDAL_HEADER_FILE_REDIRECT_ENV, gdal_header_dir
+from app.core.service_tokens import (
+    BEARER_SCHEME,
+    HEADER_LINE_SEPARATOR,
+    HEADER_LINE_VALUE_CHARSET,
+    HEADER_NAME_CHARSET,
+    HEADER_TOKEN_CHARSET,
+    HEADER_TOKEN_MIN_LENGTH,
+)
 from app.core.url_redaction import redact_url_credentials
 
 
@@ -110,32 +117,84 @@ def _friendly_open_failure_message(original_filename: "str | None") -> str:
     )
 
 
-def _sanitize_authorization_token(token: "str | None") -> "str | None":
-    """SEC-FU-04: pin an Authorization bearer token to the shared header policy.
+# fix(#1746): the worker's own refusals, as constants rather than composed
+# strings. Each one becomes `IngestJob.error_message`, a log record, a
+# notification reason and the exception the queue records, so none of them may
+# name any part of the credential being judged. No brace in any of them, so
+# none can grow an interpolation later.
+HEADER_LINE_SHAPE_POLICY = (
+    "SEC-FU-04: the service credential did not arrive as one header line "
+    "(a header name, a colon and a space, then a value). Nothing was sent."
+)
 
-    A token containing CR/LF or arbitrary unicode could let an attacker inject
-    additional HTTP headers via the GDAL_HTTP_HEADERS env-var → libcurl
-    pipeline, so the charset and the length floor are a security boundary
+HEADER_LINE_NAME_POLICY = (
+    "SEC-FU-04: the service credential named a header this build will not "
+    "write. A header name may use only letters, digits and the characters "
+    "! # $ % & ' * + - . ^ _ ` | ~ ."
+)
+
+HEADER_LINE_VALUE_POLICY = (
+    "SEC-FU-04: the service credential's value contains a character that "
+    "cannot be written into an HTTP header. Only printable ASCII is "
+    "permitted, so that no line break can smuggle a second header through "
+    "libcurl."
+)
+
+
+def _sanitize_authorization_token(header_line: "str | None") -> "str | None":
+    """SEC-FU-04: pin the credential header line to the shared policy.
+
+    What crosses from the door to this worker is one finished header line
+    (plan D9), not a bare token, so this judges a LINE: printable ASCII, no CR
+    or LF, exactly one ``": "`` separator, and a name that passes
+    ``header_name_rejection_reason``. A character outside that shape could let
+    an attacker inject additional HTTP headers through the
+    GDAL_HTTP_HEADER_FILE to libcurl pipeline, so this is a security boundary
     rather than a formatting preference.
 
-    fix(#1277 review round 6): the charset and the floor come from
-    ``app.core.service_tokens``, which the refresh endpoint applies at the door
-    too — a caller now learns immediately instead of after their single-use
-    credential has been spent. This check stays regardless: the guarantee is
-    about what reaches libcurl, and it must not come to rest on a validator
-    running in another process.
+    fix(#1277 review round 6): the rules come from ``app.core.service_tokens``,
+    which every door applies as well — a caller learns immediately instead of
+    after their single-use credential has been spent. This check stays
+    regardless: the guarantee is about what reaches libcurl, and it must not
+    come to rest on a validator running in another process.
 
-    The MESSAGE is deliberately not shared. This one names the offending
-    character because a worker-side ValueError is read by whoever is debugging
-    a failed job, and the API's is policy-only because an HTTP body must never
-    echo any part of a submitted credential. Same rule, two audiences.
+    The bearer branch keeps the base64url charset and the length floor, so
+    nothing about today's bearer guarantee weakens. It also keeps NAMING the
+    offending character, because a bearer token is the one credential shape
+    whose every character is already constrained to a set that carries no
+    secret structure, and a worker-side ValueError is read by whoever is
+    debugging a failed job.
 
-    Returns the token unchanged when it satisfies the policy, raises ValueError
+    fix(#1746): every OTHER branch is policy-only. This exception becomes
+    ``IngestJob.error_message``, a log record, a notification reason and the
+    re-raise the queue records — ``scrub_secret_from_exception`` mutates it in
+    place precisely so all four see the same text. Under basic authentication
+    the value being judged is an encoded username and password, and naming a
+    character of a password across all four sinks is not a debugging aid worth
+    having.
+
+    Returns the line unchanged when it satisfies the policy, raises ValueError
     with a SEC-FU-04-prefixed message otherwise. None passes through.
     """
-    if token is None:
+    if header_line is None:
         return None
-    if not token or len(token) < HEADER_TOKEN_MIN_LENGTH:
+    name, separator, value = header_line.partition(HEADER_LINE_SEPARATOR)
+    if not separator or not value or HEADER_LINE_SEPARATOR in value:
+        raise ValueError(HEADER_LINE_SHAPE_POLICY)
+    if not name or any(character not in HEADER_NAME_CHARSET for character in name):
+        # The field-name GRAMMAR, and deliberately not the door's denylist of
+        # reserved names: that one refuses a name a CALLER chose, and the
+        # builder's own output for bearer and basic is `Authorization`, which
+        # the denylist exists to keep a caller from claiming. Applying it here
+        # would refuse every line this codebase composes.
+        raise ValueError(HEADER_LINE_NAME_POLICY)
+    if any(character not in HEADER_LINE_VALUE_CHARSET for character in value):
+        raise ValueError(HEADER_LINE_VALUE_POLICY)
+    if not value.startswith(BEARER_SCHEME):
+        return header_line
+
+    token = value[len(BEARER_SCHEME) :]
+    if len(token) < HEADER_TOKEN_MIN_LENGTH:
         raise ValueError(
             "SEC-FU-04: Authorization token is empty or implausibly short "
             f"(minimum {HEADER_TOKEN_MIN_LENGTH} characters required to "
@@ -149,7 +208,7 @@ def _sanitize_authorization_token(token: "str | None") -> "str | None":
             f"(first offender: {sample!r}); only [A-Za-z0-9._\\-=] are permitted "
             "to prevent CRLF header smuggling via GDAL_HTTP_HEADERS env var."
         )
-    return token
+    return header_line
 
 
 def _strip_ogr_driver_list(stderr_text: str) -> str:
@@ -1031,7 +1090,15 @@ async def run_ogr2ogr_service(
         )
         assert env is not None  # base_env is always returned in single-tenant mode
         if token and service_type in ("wfs", "ogcapi_features"):
-            safe_token = _sanitize_authorization_token(
+            # fix(#1746) plan D9: for these two formats `token` IS the finished
+            # header line the door composed, so this validates a line and
+            # writes it verbatim. It used to compose `Authorization: Bearer `
+            # here, and keeping that while being handed a finished line would
+            # have produced `Authorization: Bearer Authorization: Basic <blob>`
+            # — a working-looking string that 401s at the origin and reads in a
+            # log like a credential problem rather than a bug. The one composer
+            # is `build_credential_header`, and it ran at the door.
+            header_line = _sanitize_authorization_token(
                 token
             )  # SEC-FU-04: raises ValueError before subprocess
             # Write the header to a 0600 tempfile under the staging dir
@@ -1056,11 +1123,18 @@ async def run_ogr2ogr_service(
                 prefix="gdal_auth_", suffix=".hdr", dir=gdal_header_dir()
             )
             try:
-                os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
+                os.write(fd, f"{header_line}\n".encode("ascii"))
             finally:
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+            # Plan rule A: GDAL strips `Authorization` on a cross-host redirect
+            # by default (IF_SAME_HOST) and forwards every other header name
+            # verbatim, so a service-chosen API key is redirect-exposed on this
+            # path and cannot be protected from inside. Pinning NO tightens the
+            # half that can be: this credential is for the host that was
+            # validated at submission time and for no other.
+            env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

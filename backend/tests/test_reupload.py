@@ -16,6 +16,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+from app.core.service_tokens import CredentialMethod, ServiceCredential
 from fastapi import HTTPException, UploadFile
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -829,6 +831,10 @@ class TestServiceReuploadPreview:
         assert any(col["name"] == "new_col" for col in diff["columns_added"])
         assert any(change["name"] == "value" for change in diff["type_changes"])
 
+        # feat(#1746 B2b): the GDAL source builder takes a bare token, which
+        # only its ArcGIS branch reads; the preview takes the whole credential
+        # and composes the header itself. For a WFS layer the token is None
+        # here because the credential travels as a header instead.
         mock_build_source.assert_called_once_with(
             "WFS 2.0.0",
             "https://example.com/wfs",
@@ -841,7 +847,11 @@ class TestServiceReuploadPreview:
         mock_run_preview.assert_awaited_once_with(
             "WFS:https://example.com/wfs",
             "roads",
-            token="secret-token",
+            credential=ServiceCredential(
+                method=CredentialMethod.BEARER,
+                service_format="wfs",
+                token="secret-token",
+            ),
         )
 
         job_id = uuid.UUID(data["job_id"])

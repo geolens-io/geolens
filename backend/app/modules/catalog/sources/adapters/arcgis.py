@@ -9,6 +9,12 @@ import structlog
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# What this adapter is, in the vocabulary ``build_credential_header`` reads.
+# Deliberately absent from ``HEADER_AUTH_SERVICE_FORMATS``: an ArcGIS token is
+# percent-encoded into the service URL, so the builder answers None for it and
+# no header is ever composed for this transport (plan D9).
+ARCGIS_SERVICE_FORMAT = "arcgis_featureserver"
+
 
 class ArcGISTokenError(Exception):
     """Raised when ArcGIS returns a token-related error (codes 498, 499)."""

@@ -1067,42 +1067,85 @@ class TestFriendlyOpenFailureMessage:
 
 
 class TestSecFu04SanitizeAuthorizationToken:
-    """SEC-FU-04 (sec-audit-20260519.md line 535, Phase 1063-03): base64url charset filter
-    for the Authorization bearer token before GDAL_HTTP_HEADERS env-var composition.
+    """SEC-FU-04: the credential header LINE filter, before the header file.
 
-    A malicious token with CR/LF or arbitrary unicode could smuggle extra HTTP headers
-    into libcurl via the env-var pipeline. JWT-shaped tokens use the base64url charset
-    (RFC 4648 §5) plus dot separators; restricting to that charset is a tight
-    defense-in-depth guard with no legitimate-traffic impact.
+    A line with CR/LF or arbitrary unicode could smuggle extra HTTP headers
+    into libcurl through the GDAL_HTTP_HEADER_FILE pipeline, so the shape and
+    the charsets are a security boundary rather than a formatting preference.
+
+    fix(#1746 B2b) plan D9: the value crossing from the door to the worker is
+    the finished header line, so this judges a line — printable ASCII, no CR or
+    LF, one ``": "`` separator, an RFC 7230 field name — and keeps the
+    base64url charset and the length floor on the bearer branch of it.
     """
 
-    def test_sec_fu_04_happy_path_jwt_token_passes_through_unchanged(self):
-        """A JWT-shaped token (base64url segments + dot separators) passes through unchanged."""
-        token = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_value-"
-        assert _sanitize_authorization_token(token) == token
+    def test_sec_fu_04_happy_path_jwt_line_passes_through_unchanged(self):
+        """A JWT-shaped bearer line passes through unchanged."""
+        line = (
+            "Authorization: Bearer "
+            "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature_value-"
+        )
+        assert _sanitize_authorization_token(line) == line
+
+    def test_sec_fu_04_a_basic_line_passes_through_unchanged(self):
+        """The encoded output of a validated username and password.
+
+        Base64 is outside the base64url alphabet whenever it emits ``+`` or
+        ``/``, which is why the bearer charset is applied to the bearer branch
+        alone rather than to every line.
+        """
+        line = "Authorization: Basic dXNlcjpwYSsvd29yZA=="
+        assert _sanitize_authorization_token(line) == line
+
+    def test_sec_fu_04_a_named_api_key_line_passes_through_unchanged(self):
+        line = "X-Api-Key: not-a-real-key-value"
+        assert _sanitize_authorization_token(line) == line
 
     def test_sec_fu_04_crlf_injection_raises_value_error(self):
-        """Token with CR/LF raises ValueError naming SEC-FU-04 and the offending character."""
-        token = "valid.jwt.sig\r\nX-Smuggled-Header: evil"
+        """A line carrying CR/LF raises ValueError naming SEC-FU-04."""
+        line = "Authorization: Bearer valid.jwt.sig\r\nX-Smuggled-Header: evil"
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(token)
+            _sanitize_authorization_token(line)
         msg = str(exc_info.value)
         assert "SEC-FU-04" in msg
-        # The first offending char is \r — confirm it's named in the message
-        assert repr("\r") in msg or "\\r" in msg
 
-    def test_sec_fu_04_whitespace_raises_value_error(self):
-        """Token with literal space characters raises ValueError."""
-        token = "valid jwt sig"
+    def test_sec_fu_04_a_second_separator_raises_value_error(self):
+        """Two ``: `` separators are two headers, whatever the writer intended."""
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(token)
+            _sanitize_authorization_token("X-Api-Key: a: b")
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_a_bare_token_raises_value_error(self):
+        """The pre-D9 wire value is not a line, and is refused as one.
+
+        Named rather than incidental: a rolling deploy in which an old API
+        dispatches a bare token to a new worker fails here, loudly, rather
+        than writing a header file with no field name in it.
+        """
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token("eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.sig")
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_an_invalid_field_name_raises_value_error(self):
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token("Bad Name: value")
+        assert "SEC-FU-04" in str(exc_info.value)
+
+    def test_sec_fu_04_whitespace_in_the_bearer_token_raises_value_error(self):
+        """A space inside the token is refused by the bearer charset."""
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token("Authorization: Bearer valid jwt sig")
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_unicode_raises_value_error(self):
-        """Token with non-ASCII unicode characters raises ValueError."""
-        token = "valid.jwt.signaturé"  # U+00E9
+        """A non-ASCII character anywhere in the value is refused.
+
+        The header file is written with ``.encode("ascii")``, so this is what
+        stops a UnicodeEncodeError landing after the single-use credential has
+        been claimed.
+        """
         with pytest.raises(ValueError) as exc_info:
-            _sanitize_authorization_token(token)
+            _sanitize_authorization_token("X-Api-Key: signaturé")  # U+00E9
         assert "SEC-FU-04" in str(exc_info.value)
 
     def test_sec_fu_04_empty_string_raises_value_error(self):
@@ -1114,3 +1157,22 @@ class TestSecFu04SanitizeAuthorizationToken:
     def test_sec_fu_04_none_returns_none(self):
         """None passes through unchanged (the no-token path from the calling code)."""
         assert _sanitize_authorization_token(None) is None
+
+    def test_sec_fu_04_only_the_bearer_branch_names_a_character(self):
+        """fix(#1746): the message is policy-only for every other method.
+
+        This exception becomes `IngestJob.error_message`, a log record, a
+        notification reason and the exception the queue records. Naming a
+        character of a password across all four is not a debugging aid worth
+        having; naming one of a bearer token, whose alphabet is already
+        constrained and carries no structure, still is.
+        """
+        password_char = "é"
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token(f"Authorization: Basic dXNlcj{password_char}")
+        assert password_char not in str(exc_info.value)
+        assert "{" not in str(exc_info.value)
+
+        with pytest.raises(ValueError) as exc_info:
+            _sanitize_authorization_token("Authorization: Bearer valid.jwt.sig!")
+        assert "!" in str(exc_info.value)

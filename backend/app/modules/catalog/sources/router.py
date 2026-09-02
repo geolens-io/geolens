@@ -23,11 +23,15 @@ from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.core.dependencies import get_db
 from app.platform.jobs.models import IngestJob
 from app.platform.extensions import get_catalog_port, get_connector_extension
+from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.modules.catalog.sources.adapters.arcgis import (
+    ARCGIS_SERVICE_FORMAT,
     ArcGISTokenError,
+    _looks_like_arcgis,
     fetch_arcgis_layer_preview,
     normalize_arcgis_url,
 )
+from app.modules.catalog.sources.adapters.wfs import WFS_SERVICE_FORMAT
 from app.modules.catalog.sources.arcgis_signin import (
     AUDIT_SUCCESS,
     ArcGISSignInError,
@@ -60,7 +64,11 @@ from app.modules.catalog.sources.schemas import (
     service_credential_from_request,
 )
 from app.platform.ratelimit import limiter
-from app.platform.service_auth import bearer_token_for_credential
+from app.platform.service_auth import (
+    credential_or_422,
+    custom_credential_header_name,
+    url_query_token,
+)
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
@@ -464,8 +472,24 @@ async def _probe_audit_fail(
     raise HTTPException(status_code=status_code, detail=detail)
 
 
+def _preview_service_format(service_type: str) -> str | None:
+    """The canonical format a preview's human service label resolves to.
+
+    fix(#1746): the credential policy is chosen by the format, not the label,
+    because that is what says whether the credential becomes a header or a
+    query parameter. An unrecognized label answers None, which composes no
+    header and leaves the "Unsupported service type" refusal where it already
+    lives, in ``build_gdal_source``.
+    """
+    try:
+        _, source_format = get_catalog_port().resolve_service_type(service_type)
+    except (ValueError, KeyError, IngestionError):
+        return None
+    return source_format
+
+
 async def _fetch_ogcapi_collection_srid(
-    base_url: str, layer_name: str, token: str | None
+    base_url: str, layer_name: str, credential: ServiceCredential | None
 ) -> int | None:
     """Fetch OGC API collection metadata and parse URI-form CRS to EPSG.
 
@@ -483,22 +507,36 @@ async def _fetch_ogcapi_collection_srid(
     The collection URL is constructed by appending ``/collections/{name}``
     (no user-controlled path components other than layer_name from the
     probe's known_layer_names allowlist).
+
+    fix(#1756 codex round 8): this carries the same service credential the two
+    probe adapters carry and so composes it the same way, through the shared
+    builder, and declares a service-chosen header name to the client so a
+    cross-origin redirect cannot forward it.
     """
     collection_url = urljoin(
         base_url if base_url.endswith("/") else base_url + "/",
         f"collections/{layer_name}",
     )
     headers: dict[str, str] = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
     try:
-        async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
+        pair = build_credential_header(credential)
+        if pair is not None:
+            headers[pair[0]] = pair[1]
+        async with make_safe_client(
+            timeout=PROBE_TIMEOUT,
+            credential_header=custom_credential_header_name(credential),
+        ) as client:
             response = await client.get(
                 collection_url, headers=headers, params={"f": "json"}
             )
             response.raise_for_status()
             data = response.json()
-    except (httpx.HTTPError, ValueError) as exc:
+    except (httpx.HTTPError, ValueError, SSRFError) as exc:
+        # SSRFError joins the two on the same reasoning as the rest of this
+        # helper: the CRS fallback is best effort and its failure costs the
+        # user the CRS Override field, not the preview. A refused redirect hop
+        # — blocked address, or a cross-origin one that would have forwarded a
+        # service-chosen credential header — is one more way not to answer.
         logger.debug(
             "OGC API collection CRS fallback fetch failed",
             url=collection_url,
@@ -648,10 +686,24 @@ async def probe_service_url(
     service, and returns a unified layer list. All attempts are audit-logged.
     """
     # feat(#1746): the structured credential is what the layers below take;
-    # the flat `token` is its deprecated bearer spelling. Refused first, so a
-    # method this build cannot send never reaches the network or the audit log.
-    service_token = bearer_token_for_credential(
-        service_credential_from_request(request.auth, request.token)
+    # the flat `token` is its deprecated bearer spelling. Judged first, so a
+    # method this service cannot carry, or a value that cannot become a
+    # header, never reaches the network or the audit log.
+    #
+    # fix(#1755 item 2): the probe used to judge nothing, so a WFS token
+    # outside the header-token charset probed cleanly and was refused at
+    # preview. The probe has no service type yet — finding it out is the
+    # point — so the URL shape is its only selector, and it is the same one
+    # `detect_service_type` dispatches on. An ArcGIS URL keeps the wider
+    # vocabulary its query-parameter transport legitimately has; anything else
+    # is judged as the header-auth credential it is about to become.
+    service_credential = credential_or_422(
+        service_credential_from_request(request.auth, request.token),
+        service_format=(
+            ARCGIS_SERVICE_FORMAT
+            if _looks_like_arcgis(request.url)
+            else WFS_SERVICE_FORMAT
+        ),
     )
     safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
@@ -674,10 +726,31 @@ async def probe_service_url(
     # handles auth its own way (ArcGIS via &token= query param, WFS via
     # per-request header). Sending Bearer headers to ArcGIS breaks auth.
     try:
-        async with make_safe_client(timeout=PROBE_TIMEOUT) as client:
+        async with make_safe_client(
+            timeout=PROBE_TIMEOUT,
+            credential_header=custom_credential_header_name(service_credential),
+        ) as client:
             response = await detect_service_type(
-                request.url, client, token=service_token
+                request.url, client, credential=service_credential
             )
+
+    except SSRFError as exc:
+        # fix(#1746): raised mid-probe rather than at the door — either a
+        # redirect hop resolving to a blocked address, or a cross-origin hop
+        # that would have forwarded a service-chosen credential header. Both
+        # are the same answer the pre-flight check gives, and the message is a
+        # policy string that carries no part of the credential. Without this
+        # clause the broad handler below would rewrite it into a 500.
+        logger.warning("SSRF blocked mid-probe", url=safe_url, reason=str(exc))
+        await _probe_audit_fail(
+            db,
+            user.id,
+            request.url,
+            "ssrf_blocked",
+            status.HTTP_400_BAD_REQUEST,
+            str(exc),
+            reason=str(exc),
+        )
 
     except httpx.TimeoutException:
         logger.warning("Probe timeout", url=safe_url)
@@ -791,10 +864,17 @@ async def preview_service_layer(
     """
     # feat(#1746): see `probe_service_url`. One conversion, before anything
     # else, so an unsupported method is answered without a preview job or an
-    # audit row.
-    service_token = bearer_token_for_credential(
-        service_credential_from_request(request.auth, request.token)
+    # audit row. Here the service type IS known, so the credential is judged
+    # against the transport it is actually about to take: a header for WFS and
+    # OGC API Features, a URL query parameter for ArcGIS.
+    service_credential = credential_or_422(
+        service_credential_from_request(request.auth, request.token),
+        service_format=_preview_service_format(request.service_type),
     )
+    # ArcGIS is the only branch that reads a bare token: `build_gdal_source`
+    # percent-encodes it into the ESRIJSON query. For the header-auth formats
+    # this is None and the credential travels as a header instead.
+    service_token = url_query_token(service_credential)
     safe_url = redact_url_credentials(request.url)
     # Step 1: SSRF validation
     try:
@@ -1020,7 +1100,7 @@ async def preview_service_layer(
     # Step 3: Run ogrinfo preview
     try:
         preview_data = await run_service_preview(
-            gdal_source, layer_arg, token=service_token
+            gdal_source, layer_arg, credential=service_credential
         )
     except IngestionError:
         # Step 4: WFS namespace retry -- if layer_name has a colon prefix, retry without it
@@ -1042,7 +1122,7 @@ async def preview_service_layer(
                     result_limit=5,
                 )
                 preview_data = await run_service_preview(
-                    retry_source, retry_layer, token=service_token
+                    retry_source, retry_layer, credential=service_credential
                 )
             except (IngestionError, ValueError):
                 logger.warning(
@@ -1096,7 +1176,7 @@ async def preview_service_layer(
     # EPSG code instead of "Unknown + required override".
     if preview_data.get("srid") is None and request.service_type == "OGC API Features":
         fallback_srid = await _fetch_ogcapi_collection_srid(
-            request.url, request.layer_name, service_token
+            request.url, request.layer_name, service_credential
         )
         if fallback_srid is not None:
             preview_data["srid"] = fallback_srid

@@ -28,19 +28,90 @@ Implements the probe adapter contract shared with wfs.py and arcgis.py:
 # malicious landing page from redirecting to internal addresses.
 """
 
+from dataclasses import replace
 from urllib.parse import urljoin
 
 import httpx
 import structlog
 
+from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.modules.catalog.sources.classify import classify_layer_kind
 from app.platform.security import SSRFError, validate_url_for_ssrf
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# What this adapter is, in the vocabulary ``build_credential_header`` reads.
+# The probe has no stored ``source_format`` to consult — it is what the probe
+# is trying to find out — so the adapter names its own.
+OGCAPI_SERVICE_FORMAT = "ogcapi_features"
+
+
+async def _resolve_conformance(
+    url: str,
+    client: httpx.AsyncClient,
+    headers: dict[str, str],
+    data: dict,
+) -> tuple[list[str], bool]:
+    """The landing page's conformance classes, and whether it advertises data.
+
+    Reads ``conformsTo`` from the landing page, and where that is absent
+    follows the ``conformance`` link, re-validating the resolved href against
+    SSRF first because it comes out of an untrusted document. Every failure
+    degrades to what was known before it, so a service that answers the
+    landing page and nothing else is still classified by its ``data`` link.
+
+    fix(#1746): extracted from ``probe_ogcapi`` unchanged. The credential
+    branch added there pushed that function past ruff's C901 ceiling, and
+    extraction is what this repo does about that rather than another
+    exemption.
+    """
+    conforms_to: list[str] = data.get("conformsTo", [])
+    if conforms_to:
+        return conforms_to, False
+
+    links = data.get("links", [])
+    has_data_link = any(
+        isinstance(lnk, dict) and lnk.get("rel") == "data" for lnk in links
+    )
+    conformance_link = next(
+        (
+            lnk
+            for lnk in links
+            if isinstance(lnk, dict) and lnk.get("rel") == "conformance"
+        ),
+        None,
+    )
+    if not conformance_link:
+        return conforms_to, has_data_link
+    conformance_href = conformance_link.get("href", "")
+    if not conformance_href:
+        return conforms_to, has_data_link
+
+    abs_href = urljoin(url, conformance_href)
+    try:
+        await validate_url_for_ssrf(abs_href)
+        conf_resp = await client.get(abs_href, headers=headers)
+        conf_resp.raise_for_status()
+        conf_data = conf_resp.json()
+        conforms_to = conf_data.get("conformsTo", [])
+    except SSRFError:
+        logger.warning(
+            "OGC API probe: conformance link blocked by SSRF check",
+            href=abs_href,
+        )
+    except Exception as exc:  # broad: conformance fetch — httpx/JSON parse can throw varied errors; degrade gracefully
+        logger.debug(
+            "OGC API probe: conformance fetch failed",
+            href=abs_href,
+            error=str(exc),
+        )
+    return conforms_to, has_data_link
+
 
 async def probe_ogcapi(
-    url: str, client: httpx.AsyncClient, token: str | None = None
+    url: str,
+    client: httpx.AsyncClient,
+    credential: ServiceCredential | None = None,
 ) -> dict | None:
     """Probe a URL as an OGC API -- Features service.
 
@@ -50,10 +121,25 @@ async def probe_ogcapi(
 
     Returns a dict with ``service_type`` and ``layers`` on success, or None
     if the URL does not appear to be an OGC API Features service.
+
+    fix(#1746): the credential becomes a header HERE rather than arriving as
+    one, which is what keeps ``build_credential_header`` the only producer of
+    a credential header in the tree. The probe door has already judged the
+    inputs, so a ValueError from the builder is unreachable over HTTP and is
+    caught for the in-process caller that skipped the door; the message is a
+    policy constant and carries no part of the credential.
     """
     headers: dict[str, str] = {"Accept": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    if credential is not None:
+        try:
+            pair = build_credential_header(
+                replace(credential, service_format=OGCAPI_SERVICE_FORMAT)
+            )
+        except ValueError as exc:
+            logger.debug("OGC API probe: credential refused", error=str(exc))
+            return None
+        if pair is not None:
+            headers[pair[0]] = pair[1]
 
     # Step 1: Fetch landing page
     try:
@@ -77,46 +163,9 @@ async def probe_ogcapi(
         return None
 
     # Step 2: Resolve conformsTo — may be at landing page level or at /conformance
-    conforms_to: list[str] = data.get("conformsTo", [])
-    has_data_link = False
-
-    if not conforms_to:
-        links = data.get("links", [])
-        has_data_link = any(
-            isinstance(lnk, dict) and lnk.get("rel") == "data" for lnk in links
-        )
-        conformance_link = next(
-            (
-                lnk
-                for lnk in links
-                if isinstance(lnk, dict) and lnk.get("rel") == "conformance"
-            ),
-            None,
-        )
-        if conformance_link:
-            conformance_href = conformance_link.get("href", "")
-            if conformance_href:
-                abs_href = urljoin(url, conformance_href)
-                try:
-                    await validate_url_for_ssrf(abs_href)
-                    conf_resp = await client.get(abs_href, headers=headers)
-                    conf_resp.raise_for_status()
-                    conf_data = conf_resp.json()
-                    conforms_to = conf_data.get("conformsTo", [])
-                except SSRFError:
-                    logger.warning(
-                        "OGC API probe: conformance link blocked by SSRF check",
-                        href=abs_href,
-                    )
-                except Exception as exc:  # broad: conformance fetch — httpx/JSON parse can throw varied errors; degrade gracefully
-                    logger.debug(
-                        "OGC API probe: conformance fetch failed",
-                        href=abs_href,
-                        error=str(exc),
-                    )
-
-        if not conforms_to and not has_data_link:
-            return None
+    conforms_to, has_data_link = await _resolve_conformance(url, client, headers, data)
+    if not conforms_to and not has_data_link:
+        return None
 
     # Step 3: Validate OGC API Features conformance
     is_ogc_features = any(

@@ -100,8 +100,10 @@ target or import carries no provenance at all.
 
 Both allowlists are asserted EXACT in both directions and by count, so an
 entry whose site disappears fails loudly instead of going stale. Four of the
-five mapping entries are the compositions lane B2b deletes; this test is what
-tells it when the last one is gone.
+six entries were the hand-rolled compositions lane B2b deleted, and this test
+is what told it when each one was gone. The two that remain are named
+individually: an OAuth access token the builder cannot produce by design, and
+the one write whose value crosses a process boundary before it arrives.
 
 **Known limits, which are deliberate and are not defects.** This gate is one
 layer beside the runtime validation inside ``build_credential_header`` itself,
@@ -221,33 +223,19 @@ NON_CREDENTIAL_HEADERS = frozenset(
 HEADER_FILE_WRITE_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
     ("processing/ingest/ogr.py", "run_ogr2ogr_service"): (
         1,
-        "fix(#1746 service-auth B2b removes this): composes "
-        "`Authorization: Bearer <token>` inline for the commit path",
-    ),
-    ("modules/catalog/sources/preview.py", "run_service_preview"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the same line "
-        "inline for the preview path",
+        "composes nothing: under plan D9 the finished header line crosses the "
+        "queue as the `token` task argument, so it arrives in this scope as a "
+        "PARAMETER and has no lexical provenance for this rule to read. What "
+        "guards it instead is `_sanitize_authorization_token` in the same "
+        "module, which judges the LINE (printable ASCII, no CR or LF, one "
+        "`: ` separator, an RFC 7230 field name, and the base64url charset on "
+        "the bearer branch) before the write. This is the one hop that cannot "
+        "compose at the write site, which is why the queue is the only place "
+        "a finished line travels",
     ),
 }
 
 CREDENTIAL_HEADER_ALLOWLIST: dict[tuple[str, str], tuple[int, str]] = {
-    ("modules/catalog/sources/adapters/wfs.py", "probe_wfs"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the bearer header "
-        "for the WFS GetCapabilities probe",
-    ),
-    ("modules/catalog/sources/adapters/ogcapi.py", "probe_ogcapi"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the bearer header "
-        "for the OGC API Features landing-page probe",
-    ),
-    ("modules/catalog/sources/router.py", "_fetch_ogcapi_collection_srid"): (
-        1,
-        "fix(#1746 service-auth B2b removes this): composes the bearer header "
-        "for the collection CRS fallback fetch, which is the same service "
-        "credential the two probe adapters carry",
-    ),
     ("modules/auth/oauth/service.py", "_resolve_github_identity"): (
         1,
         "not a service credential and not B2b's to move: this is the OAuth "
@@ -905,12 +893,18 @@ class _Scan:
     def __init__(self) -> None:
         self.unguarded_writes: Counter[tuple[str, str]] = Counter()
         self.unguarded_headers: Counter[tuple[str, str]] = Counter()
+        # Every site the walk judged, guarded or not. The coverage control
+        # below reads this rather than the unguarded counters, which went
+        # empty for the converted modules the moment B2b landed and would
+        # otherwise have made the control assert that the fix had not shipped.
+        self.seen_headers: Counter[tuple[str, str]] = Counter()
         self.write_sites = 0
         self.header_sites = 0
 
     def absorb(self, other: _Scan) -> None:
         self.unguarded_writes.update(other.unguarded_writes)
         self.unguarded_headers.update(other.unguarded_headers)
+        self.seen_headers.update(other.seen_headers)
         self.write_sites += other.write_sites
         self.header_sites += other.header_sites
 
@@ -969,6 +963,7 @@ def _scan_module(rel: str, tree: ast.Module) -> _Scan:
             node, credential_path=credential_path, outbound=facts.outbound
         ):
             scan.header_sites += 1
+            scan.seen_headers[site] += 1
             if not _mapping_write_is_clean(write, facts.ctx):
                 scan.unguarded_headers[site] += 1
 
@@ -1047,9 +1042,15 @@ def test_the_walk_actually_covers_the_backend() -> None:
     # The scan reaches outside the sources package, which is the gap codex
     # round 1 found: the rule used to be scoped to sources/adapters/ and so
     # never looked at sources/router.py or anything else.
-    scanned = {site[0] for site in _scan_backend().unguarded_headers}
+    scan = _scan_backend()
+    scanned = {site[0] for site in scan.seen_headers}
     assert "modules/catalog/sources/router.py" in scanned
     assert any(not rel.startswith("modules/catalog/sources/") for rel in scanned)
+    # And it still judges the two probe adapters, which are the sites the
+    # every-key rule exists for: a header-key credential travels under a name
+    # the SERVICE chose, so nothing about the key says it is a credential.
+    assert "modules/catalog/sources/adapters/wfs.py" in scanned
+    assert "modules/catalog/sources/adapters/ogcapi.py" in scanned
 
 
 # The import every synthetic module needs, because provenance now requires the

@@ -23,6 +23,8 @@ from urllib.parse import (
     urlunsplit,
 )
 
+from app.core.service_tokens import HEADER_LINE_SEPARATOR
+
 REDACTED_QUERY_VALUE = "<redacted>"
 REDACTED_USERINFO = "redacted"
 # Deliberately not "<redacted>": this one replaces a bare value wherever it
@@ -332,8 +334,28 @@ def _secret_variants(secret: str) -> list[str]:
     Longest first, so a variant that contains another (``a%2Fb`` and its raw
     ``a/b`` share no prefix, but ``quote`` and ``quote_plus`` often agree)
     cannot leave a partial match behind after the first replacement.
+
+    fix(#1746) plan D9: what a worker holds for a header-auth service is a
+    finished header line, so the exact value it would scrub is
+    ``Authorization: Bearer abc``. An origin that echoes the credential back
+    echoes the credential, not the line GeoLens wrapped it in, so the halves
+    are scrubbed too: everything after the first ``": "``, and then everything
+    after the authentication scheme. The second one restores exactly what this
+    function scrubbed before the wire format changed, which is the bare token.
+    A secret containing ``": "`` is a line by construction — a username,
+    password, header value and bearer token may none of them contain
+    whitespace — so this cannot mistake a bare credential for one.
     """
-    variants = {secret, quote(secret, safe=""), quote_plus(secret)}
+    forms = {secret}
+    _, separator, tail = secret.partition(HEADER_LINE_SEPARATOR)
+    if separator and tail:
+        forms.add(tail)
+        _, space, rest = tail.partition(" ")
+        if space and rest:
+            forms.add(rest)
+    variants = set()
+    for form in forms:
+        variants.update({form, quote(form, safe=""), quote_plus(form)})
     return sorted(variants, key=len, reverse=True)
 
 

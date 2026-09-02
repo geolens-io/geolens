@@ -444,7 +444,14 @@ class TestReuploadCommitDoor:
         assert secret not in str((run.error_message, run.error_code, run.origin_kind))
         assert secret not in str(captured)
 
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        # feat(#1746 B2b) plan D9: this job's origin is a WFS service, whose
+        # credential travels as a header, so what is staged is the composed
+        # line. The import door above stages a bare token because its job is
+        # an ArcGIS one, and an ArcGIS credential goes into the URL.
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_without_a_store_the_reupload_still_runs_on_the_durable_argument(
         self,
@@ -476,7 +483,10 @@ class TestReuploadCommitDoor:
 
         assert resp.status_code == 202, resp.text
         kwargs = task.defer_async.call_args.kwargs
-        assert kwargs["token"] == secret
+        # The durable argument is the same wire value the lease would have
+        # staged: a composed header line, because this job's origin is a WFS
+        # service.
+        assert kwargs["token"] == f"Authorization: Bearer {secret}"
         assert kwargs["credential_ref"] is None
 
         fallbacks = [

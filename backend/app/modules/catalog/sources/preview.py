@@ -8,10 +8,15 @@ from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 import structlog
 from fastapi import HTTPException, status
 
-from app.core.runtime.staging import gdal_header_dir
-from app.core.service_tokens import header_token_rejection_reason
+from app.core.runtime.staging import GDAL_HEADER_FILE_REDIRECT_ENV, gdal_header_dir
+from app.core.service_tokens import (
+    ServiceCredential,
+    build_credential_header,
+    credential_header_line,
+)
 from app.core.url_redaction import redact_url_credentials
 from app.platform.extensions import get_catalog_port
+from app.platform.service_auth import credential_input_rejection
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
@@ -82,7 +87,7 @@ async def run_service_preview(
     layer_name: str,
     sample_limit: int = 5,
     timeout: float = 30.0,
-    token: str | None = None,
+    credential: ServiceCredential | None = None,
 ) -> dict:
     """Run ogrinfo against a remote service to get layer metadata and sample rows.
 
@@ -91,6 +96,10 @@ async def run_service_preview(
         layer_name: Layer name to query (empty string for drivers that embed layer in URL)
         sample_limit: Maximum number of sample features to retrieve
         timeout: Seconds before killing the subprocess
+        credential: What to authenticate with, or None. For an ArcGIS source
+            the credential is already in ``gdal_source``'s query string and
+            this is ignored; for WFS and OGC API Features it becomes the one
+            line of a 0600 ``GDAL_HTTP_HEADER_FILE``.
 
     Returns:
         Dict with keys: srid, geometry_type, layer_name, feature_count, columns, sample_rows
@@ -134,19 +143,25 @@ async def run_service_preview(
         # unconditionally, so post-validation redirects must be bounded
         # operationally (worker egress firewall).
         env = {**os.environ}
-        if token and (
+        pair: tuple[str, str] | None = None
+        if credential is not None and (
             gdal_source.startswith("WFS:") or gdal_source.startswith("OAPIF:")
         ):
-            # fix(#1746): the strict header-token policy first, because this
-            # branch builds the same Authorization header line the commit path
-            # builds. Preview used to judge the token by `_validate_safe_token`
-            # alone — printable, no whitespace — so a WFS token containing `+`
-            # or `/` previewed cleanly and was then refused at commit, or worse,
-            # burned its single-use credential and died in the worker. Same 422,
-            # same code and same policy-only message the commit doors return:
-            # the caller has the token and can compare it against the rule, and
-            # a response must never echo any part of a credential.
-            rejection = header_token_rejection_reason(token)
+            # fix(#1746): the credential policy first, because this branch
+            # builds the same header line the commit path builds. Preview used
+            # to judge the token by `_validate_safe_token` alone — printable,
+            # no whitespace — so a WFS token containing `+` or `/` previewed
+            # cleanly and was then refused at commit, or worse, burned its
+            # single-use credential and died in the worker. Same 422, same code
+            # and same policy-only message the commit doors return: the caller
+            # has the credential and can compare it against the rule, and a
+            # response must never echo any part of one.
+            #
+            # fix(#1746 B2b): the inputs are judged, and the line is composed
+            # afterwards by the one builder. Judging the composed line instead
+            # would reject every basic credential, because a basic line
+            # contains a space and a colon.
+            rejection = credential_input_rejection(credential)
             if rejection is not None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -156,24 +171,30 @@ async def run_service_preview(
                     },
                 )
 
-            # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
-            # Passing the bearer via GDAL_HTTP_HEADERS leaks it through the
-            # subprocess env (visible in /proc/<pid>/environ for the process
-            # lifetime) and lets a CR/LF in the token inject arbitrary outbound
-            # HTTP headers under libcurl. Re-validate the token (reject CR/LF /
-            # control chars — the same sources-layer validator the request schema
-            # applies) and hand it to GDAL via a 0600 GDAL_HTTP_HEADER_FILE so the
-            # env var carries the file PATH, not the secret. The tempfile is
-            # unlinked in the finally below. Validator lives in this module's
-            # `schemas` (not app.processing) to respect the catalog↔processing
-            # layering boundary.
-            from app.modules.catalog.sources.schemas import _validate_safe_token
+            pair = build_credential_header(credential)
 
-            safe_token = _validate_safe_token(token)
+        if pair is not None:
+            # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
+            # Passing the credential via GDAL_HTTP_HEADERS leaks it through the
+            # subprocess env (visible in /proc/<pid>/environ for the process
+            # lifetime) and lets a CR/LF in it inject arbitrary outbound HTTP
+            # headers under libcurl. Hand it to GDAL via a 0600
+            # GDAL_HTTP_HEADER_FILE instead, so the env var carries the file
+            # PATH and not the secret. The tempfile is unlinked in the finally
+            # below.
+            #
+            # fix(#1746 B2b): the line comes from the shared joiner and this
+            # site composes no prefix of its own. It used to write
+            # `f"Authorization: Bearer {token}"`, and handing that same line a
+            # finished basic credential would have produced
+            # `Authorization: Bearer Authorization: Basic <blob>` — a
+            # working-looking string that 401s at the origin and reads in a log
+            # like a credential problem rather than a bug.
+            header_line = credential_header_line(pair)
             import tempfile
 
             # fix(#1746): name the directory rather than inheriting it.
-            # Without `dir=`, where this bearer-token file lands depends on
+            # Without `dir=`, where this credential file lands depends on
             # whether the process ran `redirect_tempfile_to_staging`
             # (app/api/main.py, app/platform/jobs/worker.py) AND on that
             # helper's own escape hatch — it silently declines to move
@@ -194,11 +215,18 @@ async def run_service_preview(
                 dir=gdal_header_dir(),
             )
             try:
-                os.write(fd, f"Authorization: Bearer {safe_token}\n".encode("ascii"))
+                os.write(fd, f"{header_line}\n".encode("ascii"))
             finally:
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
+            # Plan rule A: GDAL strips `Authorization` on a cross-host redirect
+            # by default (IF_SAME_HOST) and forwards every other header name
+            # verbatim, so a service-chosen API key is redirect-exposed on this
+            # path and cannot be protected from inside. Pinning NO tightens the
+            # half that can be: the framing header never crosses a host
+            # boundary at all, not even on a same-host-looking chain.
+            env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,

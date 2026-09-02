@@ -855,7 +855,11 @@ class TestLifecycleBraids:
         # composed via record_refresh_success directly). task_kwargs IS what
         # a live worker would have received off the queue.
         task_kwargs = task.defer_async.call_args.kwargs
-        await _execute_service(task_kwargs, expected_token=secret)
+        # feat(#1746 B2b) plan D9: what a WFS origin dispatches, and therefore
+        # what the worker redeems, is the composed header line.
+        await _execute_service(
+            task_kwargs, expected_token=f"Authorization: Bearer {secret}"
+        )
 
         runs = await _runs_ordered(test_db_session, dataset.id)
         assert [r.status for r in runs] == ["succeeded"]

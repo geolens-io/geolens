@@ -61,6 +61,15 @@ def test_none_token_accepted(model):
     assert m.token is None
 
 
+def _bearer(token: str):
+    """The structured credential the preview path takes (fix(#1746))."""
+    from app.core.service_tokens import CredentialMethod, ServiceCredential
+
+    return ServiceCredential(
+        method=CredentialMethod.BEARER, service_format="wfs", token=token
+    )
+
+
 @pytest.mark.anyio
 async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client):
     """The WFS/OAPIF bearer must travel through a 0600 GDAL_HTTP_HEADER_FILE,
@@ -105,7 +114,9 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
 
     token = "averylongbearertoken1234567890"
     await preview_mod.run_service_preview(
-        "WFS:https://example.com/wfs", "layer", token=token
+        "WFS:https://example.com/wfs",
+        "layer",
+        credential=_bearer(token),
     )
 
     env = captured["env"]
@@ -117,7 +128,13 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     assert "GDAL_HTTP_FOLLOWLOCATION" not in env
     assert "GDAL_HTTP_HEADER_FILE" in env, "expected the 0600 header-file pattern"
     assert captured.get("mode") == 0o600
-    assert f"Authorization: Bearer {token}" in captured.get("content", "")
+    # fix(#1746 B2b): byte-identical to what this path wrote before the
+    # composition moved into the shared builder. The prefix used to be
+    # composed here; the parity is the point.
+    assert captured.get("content") == f"Authorization: Bearer {token}\n"
+    # Plan rule A: the Authorization header does not survive a cross-host
+    # redirect, pinned rather than left at GDAL's IF_SAME_HOST default.
+    assert env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "NO"
 
 
 @pytest.mark.anyio

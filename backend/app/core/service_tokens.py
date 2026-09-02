@@ -121,6 +121,22 @@ HEADER_NAME_CHARSET: frozenset[str] = frozenset(
     string.ascii_letters + string.digits + "!#$%&'*+-.^_`|~"
 )
 
+# fix(#1746): what a composed line's VALUE may contain, which is the input
+# charset plus one character. The space is there because a composed value
+# carries an authentication scheme (``Bearer <token>``, ``Basic <blob>``),
+# and it is the only difference: a value is still printable ASCII with no
+# line break, so it cannot smuggle a second header.
+HEADER_LINE_VALUE_CHARSET: frozenset[str] = CREDENTIAL_INPUT_CHARSET | {" "}
+
+# The one separator ``credential_header_line`` joins with and the worker
+# splits on. Named so the joiner and the parser cannot drift into two
+# spellings of the same rule.
+HEADER_LINE_SEPARATOR = ": "
+
+# The scheme prefix the bearer branch composes, and the prefix the worker
+# recognizes to decide that the stricter base64url charset applies.
+BEARER_SCHEME = "Bearer "
+
 # Header names a caller may not send a credential under. Compared
 # case-insensitively, because HTTP field names are case-insensitive and a
 # reviewer will try ``AUTHORIZATION``. Two groups, for two different reasons.
@@ -316,7 +332,7 @@ def build_credential_header(
         reason = header_token_rejection_reason(auth.token)
         if auth.token is None or reason is not None:
             raise ValueError(reason or HEADER_TOKEN_POLICY)
-        return ("Authorization", f"Bearer {auth.token}")
+        return ("Authorization", f"{BEARER_SCHEME}{auth.token}")
 
     if method == CredentialMethod.BASIC:
         username = auth.username
@@ -358,4 +374,4 @@ def credential_header_line(pair: tuple[str, str]) -> str:
     writers add their own newline, so this returns exactly one line.
     """
     name, value = pair
-    return f"{name}: {value}"
+    return f"{name}{HEADER_LINE_SEPARATOR}{value}"

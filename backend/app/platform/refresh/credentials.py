@@ -86,7 +86,7 @@ import structlog
 from sqlalchemy import text
 
 from app.core.service_tokens import ServiceCredential
-from app.platform.service_auth import bearer_token_for_credential
+from app.platform.service_auth import wire_credential
 
 logger = structlog.get_logger(__name__)
 
@@ -429,12 +429,20 @@ async def resolve_dispatch_credential(
     in-process caller uses. A scheduler that has resolved a stored credential
     calls this with a :class:`ServiceCredential` rather than assembling an HTTP
     request for a door to take apart again, which is the seam Phase 1 owes the
-    overlay. ``token`` stays as the positional bearer form the existing callers
-    pass; supplying both would be describing the same thing twice, so the
-    structured one wins and the flat one is ignored.
+    overlay. ``token`` stays as the positional form the existing callers pass,
+    already converted to the wire value by their own door; supplying both would
+    be describing the same thing twice, so the structured one wins and the flat
+    one is ignored.
+
+    A structured credential is converted here by ``wire_credential``, which for
+    a header-auth service format composes the finished header line (plan D9)
+    and for every other one yields the bare token. That means the in-process
+    caller sets ``service_format`` on the credential it builds; without it the
+    credential degrades to its bare-token form, which a WFS origin answers with
+    a 401 rather than silently mis-sending.
     """
     if credential is not None:
-        token = bearer_token_for_credential(credential)
+        token = wire_credential(credential)
     if not token:
         return None, None
     if not credential_store_available():

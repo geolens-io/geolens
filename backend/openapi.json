@@ -14510,6 +14510,7 @@
                 "type": "null"
               }
             ],
+            "description": "Deprecated: use the auth object with method bearer.",
             "title": "Token"
           },
           "object_id_field": {
@@ -14523,6 +14524,17 @@
               }
             ],
             "title": "Object Id Field"
+          },
+          "auth": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ServiceAuthRequest"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Structured credential for a protected service. Mutually exclusive with the token field."
           }
         },
         "required": [

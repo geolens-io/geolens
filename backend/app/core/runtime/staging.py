@@ -245,6 +245,26 @@ _GDAL_AUTH_HEADER_SUFFIX = ".hdr"
 GDAL_HEADER_DIR = Path("/tmp/gdal-auth")
 
 
+# feat(#1746) plan section 5 rule A. Measured on GDAL 3.10.3 (the worker
+# image) and re-verified on 3.13.0: on a cross-host 302 libcurl under GDAL
+# drops `Authorization` and forwards every other header name verbatim, which
+# is the default `IF_SAME_HOST`. Two things follow, and only one of them is
+# fixable from inside the process. Prefer `Authorization` framing wherever the
+# provider accepts it, because a service-chosen API-key header is
+# redirect-exposed and no GDAL option exists that would stop that. And pin the
+# `Authorization` half to NO, which is strictly tighter than the default at no
+# cost: this credential is for the host that was validated at submission time
+# and for no other.
+#
+# This is NOT `GDAL_HTTP_FOLLOWLOCATION`, which is not a GDAL option at all
+# (#937), never stopped a redirect, and must never be re-added anywhere: it
+# reads as a defense and is a no-op. This one is a real config option, read by
+# GDAL's /vsicurl and http drivers.
+GDAL_HEADER_FILE_REDIRECT_ENV: dict[str, str] = {
+    "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT": "NO",
+}
+
+
 def gdal_header_dir() -> Path:
     """The 0700 directory GDAL bearer-header files are written into.
 

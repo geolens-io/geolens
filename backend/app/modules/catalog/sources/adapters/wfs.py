@@ -25,13 +25,21 @@
 # feature service by OGC spec — raster sources use STAC instead).
 """
 
+from dataclasses import replace
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import defusedxml.ElementTree as ET
 import httpx
 import structlog
 
+from app.core.service_tokens import ServiceCredential, build_credential_header
+
 logger = structlog.stdlib.get_logger(__name__)
+
+# What this adapter is, in the vocabulary ``build_credential_header`` reads.
+# The probe has no stored ``source_format`` to consult — it is what the probe
+# is trying to find out — so the adapter names its own.
+WFS_SERVICE_FORMAT = "wfs"
 
 
 def parse_wfs_capabilities(xml_text: str) -> tuple[str, list[dict]]:
@@ -102,17 +110,36 @@ def build_capabilities_url(url: str) -> str:
 
 
 async def probe_wfs(
-    url: str, client: httpx.AsyncClient, token: str | None = None
+    url: str,
+    client: httpx.AsyncClient,
+    credential: ServiceCredential | None = None,
 ) -> dict | None:
     """Probe a URL as a WFS service.
 
     Fetches GetCapabilities and parses the response. Returns a dict with
     service_type and layers on success, or None if not a WFS service.
+
+    fix(#1746): the credential becomes a header HERE rather than arriving as
+    one, which is what keeps ``build_credential_header`` the only producer of
+    a credential header in the tree. The probe door has already judged the
+    inputs, so a ValueError from the builder is unreachable over HTTP and is
+    caught for the in-process caller that skipped the door; the message is a
+    policy constant and carries no part of the credential.
     """
     capabilities_url = build_capabilities_url(url)
     request_headers = {}
-    if token:
-        request_headers["Authorization"] = f"Bearer {token}"
+    if credential is not None:
+        try:
+            pair = build_credential_header(
+                replace(credential, service_format=WFS_SERVICE_FORMAT)
+            )
+        except ValueError as exc:
+            # The policy, never the value: every message the builder raises is
+            # a module constant that describes the rule.
+            logger.debug("WFS probe credential refused: %s", exc)
+            return None
+        if pair is not None:
+            request_headers[pair[0]] = pair[1]
 
     try:
         response = await client.get(capabilities_url, headers=request_headers)

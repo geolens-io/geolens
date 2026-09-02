@@ -3464,7 +3464,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the same value and a method this build cannot carry is refused before any
     # origin is contacted. Two of the lines are the import and the rest is the
     # comment saying why the conversion is first. Cap 1344 -> 1353, exact.
-    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1353,
+    # feat(#1746 B2b): -8. The post-reservation charset check is now one call
+    # to `wire_credential` against the binding that is actually going to be
+    # dispatched, which both judges the inputs and composes the wire value, so
+    # the hand-rolled refusal block it replaced is gone. Ratcheted down rather
+    # than left with headroom. Cap 1353 -> 1345, exact.
+    "backend/app/modules/catalog/datasets/api/router_refresh.py": 1345,
     # fix(#1335): stac_resolve.py's 1040 lines were split along their natural
     # seams — verdict taxonomy, identity checks, the asset gate (SSRF + COG
     # probe), and the by-search fallback each moved into a sibling module,

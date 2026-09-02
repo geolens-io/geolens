@@ -3,6 +3,13 @@
 Pins the migration from GDAL_HTTP_HEADERS env var to a 0600 tempfile
 referenced by GDAL_HTTP_HEADER_FILE.
 
+fix(#1746 B2b) plan D9: what crosses the queue to this worker is one finished
+header line rather than a bare token, so the ``token`` argument here is a line.
+The worker composes nothing; it validates the line and writes it. The bearer
+case is asserted byte for byte against what this path wrote before, which is
+what proves moving the prefix into the shared builder changed nothing on the
+shipping path.
+
 Requirement: IA-P1-06
 Phase: 1068
 """
@@ -14,6 +21,10 @@ import pytest
 
 from app.core.runtime import staging as staging_runtime
 from app.processing.ingest.ogr import run_ogr2ogr_service
+
+# The wire value for a bearer credential, composed by the door.
+_BEARER_TOKEN = "example-jwt-token-base64url"
+_BEARER_LINE = f"Authorization: Bearer {_BEARER_TOKEN}"
 
 
 @pytest.fixture(autouse=True)
@@ -76,7 +87,7 @@ async def test_token_not_in_subprocess_env_via_header_file():
             table_name="test_table",
             db_conn_str="PG:dummy",
             service_type="wfs",
-            token="example-jwt-token-base64url",
+            token=_BEARER_LINE,
             schema="data",
         )
 
@@ -91,12 +102,18 @@ async def test_token_not_in_subprocess_env_via_header_file():
     assert isinstance(header_file_path, str) and header_file_path.endswith(".hdr")
 
     # 3) The header file contains exactly the header line (and not in env).
-    assert captured_header_file_contents is not None
-    assert b"Authorization: Bearer example-jwt-token-base64url" in (
-        captured_header_file_contents
+    #    Byte-identical to what this path wrote before the prefix moved into
+    #    the shared builder, and exactly one line: a second one would be a
+    #    smuggled header.
+    assert captured_header_file_contents == _BEARER_LINE.encode() + b"\n"
+
+    # 4) Plan rule A: the Authorization header does not survive a cross-host
+    #    redirect, pinned rather than left at GDAL's IF_SAME_HOST default.
+    assert (
+        captured_env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "NO"
     )
 
-    # 4) The header file is unlinked after subprocess completes.
+    # 5) The header file is unlinked after subprocess completes.
     assert not os.path.exists(header_file_path), (
         f"Header file {header_file_path} should be unlinked after subprocess"
     )
@@ -179,7 +196,7 @@ async def test_header_file_is_0600():
             table_name="test_table",
             db_conn_str="PG:dummy",
             service_type="wfs",
-            token="example-token",
+            token=_BEARER_LINE,
             schema="data",
         )
 
@@ -220,7 +237,7 @@ async def test_header_file_unlinked_even_on_subprocess_error():
                 table_name="test_table",
                 db_conn_str="PG:dummy",
                 service_type="wfs",
-                token="example-token",
+                token=_BEARER_LINE,
                 schema="data",
             )
 

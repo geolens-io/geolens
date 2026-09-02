@@ -125,7 +125,10 @@ class TestServiceReuploadCommitDispatch:
         assert service_kwargs["source_url"] == "https://example.com/wfs"
         assert service_kwargs["source_layer"] == "roads"
         assert service_kwargs["user_id"] == str(admin_id)
-        assert service_kwargs["token"] == "super-secret-token"
+        # feat(#1746 B2b) plan D9: a WFS origin's credential crosses the queue
+        # as the finished header line, under the same kwarg name the purge,
+        # the sweep and the log scrubber already key on.
+        assert service_kwargs["token"] == "Authorization: Bearer super-secret-token"
 
         mock_reupload_file.defer_async.assert_not_awaited()
         mock_reupload_file.configure.assert_not_called()

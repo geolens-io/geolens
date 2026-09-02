@@ -19,10 +19,6 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.core.service_tokens import (
-    header_token_rejection_reason,
-    requires_header_token_policy,
-)
 from app.core.async_io import (
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
@@ -66,7 +62,11 @@ from app.core.persistent_config import UPLOAD_MAX_SIZE_MB, get_allowed_extension
 from app.modules.quota.service import check_replacement_quota
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
 from app.modules.catalog.sources.schemas import service_credential_from_request
-from app.platform.service_auth import bearer_token_for_credential
+from app.platform.service_auth import (
+    credential_or_422,
+    url_query_token,
+    wire_credential,
+)
 from app.platform.security import SSRFError, validate_url_for_ssrf
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
@@ -93,6 +93,26 @@ UploadResponse = _catalog_port.upload_response_model()
 # Extension sets used for cross-record-type validation.
 # Do NOT depend on the runtime allowed_extensions config (which merges all types).
 _RASTER_EXTENSIONS: frozenset[str] = frozenset({".tif", ".tiff"})
+
+
+def _service_format(service_label: object) -> str | None:
+    """The canonical service format a human service label resolves to.
+
+    fix(#1746): the credential policy is chosen by the format, because that is
+    what decides whether the credential becomes a header line or a URL query
+    parameter. An unrecognized service label answers None, which is the
+    worker's error to report; this does not take that decision away from it.
+    """
+    try:
+        _, source_format = _catalog_port.resolve_service_type(str(service_label or ""))
+    except IngestionError:
+        return None
+    return source_format
+
+
+def _job_service_format(job) -> str | None:
+    """The canonical service format a re-upload job's origin resolves to."""
+    return _service_format((job.user_metadata or {}).get("service_type"))
 
 
 async def _get_bound_reupload_job_or_404(
@@ -342,6 +362,13 @@ async def reupload_service_preview(
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadPreviewResponse:
     """Preview a remote service layer for dataset re-upload."""
+    # feat(#1746): the same conversion the three sibling doors do, and the same
+    # order: the credential is judged before any network call, and against the
+    # transport the named service actually uses.
+    credential = credential_or_422(
+        service_credential_from_request(request.auth, request.token),
+        service_format=_service_format(request.service_type),
+    )
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -368,7 +395,10 @@ async def reupload_service_preview(
             request.url,
             request.layer_name,
             request.layer_id,
-            token=request.token,
+            # ArcGIS only: `build_gdal_source` percent-encodes this into the
+            # ESRIJSON query, and ignores it for WFS and OGC API Features,
+            # whose credential travels as a header instead.
+            token=url_query_token(credential),
             order_field=None,
             result_limit=5,
         )
@@ -382,7 +412,7 @@ async def reupload_service_preview(
         preview_data = await run_service_preview(
             gdal_source,
             layer_arg,
-            token=request.token,
+            credential=credential,
         )
     except IngestionError:
         raise HTTPException(
@@ -769,11 +799,10 @@ async def reupload_commit(
     db: AsyncSession = Depends(get_db),
 ) -> ReuploadCommitResponse:
     """Commit a re-upload, queuing the background swap task."""
-    # feat(#1746): one conversion for the whole handler. `service_format` is
-    # left unset because nothing here composes a header line yet; the transport
-    # lane fills it in where the format is resolved below.
+    # feat(#1746): one conversion for the whole handler. The service format is
+    # not known until the job has been read, so the credential is judged and
+    # composed a few lines below, before anything is written or reserved.
     credential = service_credential_from_request(request.auth, request.token)
-    service_token = bearer_token_for_credential(credential)
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
         raise HTTPException(
@@ -795,6 +824,18 @@ async def reupload_commit(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Job already processed",
         )
+
+    # fix(#1746): judge the credential by the policy the WORKER will apply,
+    # selected by the service type of the job that is actually going to be
+    # dispatched, and compose the wire value from it. A WFS/OGC token
+    # containing `+` or `/` used to get a 202 here, spend its single-use
+    # credential, and then fail deterministically in ogr2ogr's own charset
+    # check. Placed ahead of every write below — the metadata merge, the
+    # admission slot, the stash — so a credential that cannot work never takes
+    # the one-active-run slot from a refresh that can, and nothing has to be
+    # rolled back to refuse it. ArcGIS keeps its wider vocabulary: its token is
+    # a urlencoded query parameter, never a header line.
+    service_token = wire_credential(credential, service_format=_job_service_format(job))
 
     # Merge commit request params into user_metadata, preserving existing keys.
     # Keep token + layer_name request-only from user_metadata (layer_name goes
@@ -837,39 +878,6 @@ async def reupload_commit(
     # worker at the advisory lock with both jobs already queued.
     is_service_refresh = bool(job.source_url and not job.file_path)
     _require_reupload_source(job, is_service_refresh)
-
-    # fix(#1746): judge the token by the policy the WORKER will apply, before
-    # anything is reserved and well before the stash below — the same order and
-    # the same reason as the refresh door (router_refresh.py). A WFS/OGC token
-    # containing `+` or `/` used to get a 202 here, spend its single-use
-    # credential, and then fail deterministically in ogr2ogr's own charset
-    # check. Placed ahead of `create_pending_run` so a token that cannot work
-    # never takes the one-active-run admission slot from a refresh that can.
-    # ArcGIS is exempt: its token is a urlencoded query parameter, never a
-    # header line, so the strict charset would reject valid ArcGIS tokens.
-    if is_service_refresh and service_token:
-        try:
-            _, service_source_format = _catalog_port.resolve_service_type(
-                str((job.user_metadata or {}).get("service_type") or "")
-            )
-        except IngestionError:
-            # An unrecognized service label is the worker's error to report;
-            # this check does not take that decision away from it.
-            service_source_format = None
-        if requires_header_token_policy(service_source_format):
-            rejection = header_token_rejection_reason(service_token)
-            if rejection is not None:
-                await db.rollback()
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail={
-                        "code": "invalid_service_token",
-                        # The policy, never the input: the caller has the token
-                        # and can compare it against the rule, and a response
-                        # body must not echo part of a credential.
-                        "message": rejection,
-                    },
-                )
 
     try:
         await create_pending_run(
@@ -918,8 +926,12 @@ async def reupload_commit(
     token: str | None = service_token
     if is_service_refresh:
         try:
+            # The wire value, not the structured credential: this door has
+            # already judged it and composed it against the job's own service
+            # format, and passing the credential again would ask the helper to
+            # re-derive a format it cannot see from here.
             token, credential_ref = await resolve_dispatch_credential(
-                door="reupload_commit", credential=credential
+                service_token, door="reupload_commit"
             )
         except CredentialStoreUnavailable as exc:
             await db.rollback()

@@ -25,6 +25,8 @@ from urllib.parse import urlparse
 import httpx
 import structlog
 
+from app.core.service_tokens import ServiceCredential
+from app.platform.service_auth import url_query_token
 from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.adapters.arcgis import (
     _looks_like_arcgis,
@@ -111,7 +113,9 @@ def _build_arcgis_response(
 
 
 async def detect_service_type(
-    url: str, client: httpx.AsyncClient, token: str | None = None
+    url: str,
+    client: httpx.AsyncClient,
+    credential: ServiceCredential | None = None,
 ) -> ProbeResponse:
     """Detect whether a URL is a WFS, ArcGIS, or OGC API Features service.
 
@@ -120,7 +124,17 @@ async def detect_service_type(
     2. Slow path: OGC API probe first, then WFS, then ArcGIS
 
     Raises ServiceNotRecognized if no probe succeeds.
+
+    fix(#1746): one credential reaches all three adapters, and each presents
+    it the way its own service takes one. The two header-auth adapters compose
+    a header from it; the ArcGIS branch takes the bare token and nothing else.
     """
+    # fix(#1746) plan D9: an ArcGIS credential is percent-encoded into a URL
+    # query, so a bearer token is the only method that fits. The probe door
+    # refuses the other two for an ArcGIS-shaped URL; on this fallback path,
+    # where the URL said nothing, they simply cannot be presented and the
+    # origin's 401 is the honest answer.
+    token = url_query_token(credential)
     looks_arcgis = _looks_like_arcgis(url)
     looks_wfs = _looks_like_wfs(url)
 
@@ -145,7 +159,7 @@ async def detect_service_type(
         logger.info(
             "URL pattern matches WFS", url=redact_url_credentials(url)
         )  # fix(#430 BA-27)
-        result = await probe_wfs(url, client, token=token)
+        result = await probe_wfs(url, client, credential=credential)
         if result is not None:
             # D-05: no enrichment — layers already have geometry_type=None,
             # feature_count=None, kind='vector' from probe_wfs.
@@ -156,14 +170,14 @@ async def detect_service_type(
     logger.info("Trying all probes", url=redact_url_credentials(url))  # fix(#430 BA-27)
 
     # Try OGC API Features landing page probe
-    ogcapi_result = await probe_ogcapi(url, client, token=token)
+    ogcapi_result = await probe_ogcapi(url, client, credential=credential)
     if ogcapi_result is not None:
         # D-05: no enrichment — layers already have geometry_type=None,
         # feature_count=None, kind classified by classify_layer_kind from probe_ogcapi.
         return _build_probe_response(ogcapi_result, ogcapi_result["layers"], url)
 
     # Try WFS
-    wfs_result = await probe_wfs(url, client, token=token)
+    wfs_result = await probe_wfs(url, client, credential=credential)
     if wfs_result is not None:
         # D-05: no enrichment — same as fast-path WFS branch above.
         return _build_probe_response(wfs_result, wfs_result["layers"], url)

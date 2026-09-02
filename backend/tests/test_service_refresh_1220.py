@@ -1423,7 +1423,13 @@ class TestCredentialHandoff:
         )
 
         # And the secret really is retrievable by the reference, once.
-        assert await creds.claim_service_credential(kwargs["credential_ref"]) == secret
+        # feat(#1746 B2b) plan D9: what a header-auth service stages is the
+        # finished header line the door composed, not the bare token, so one
+        # wire format reaches the worker whatever method the caller used.
+        assert (
+            await creds.claim_service_credential(kwargs["credential_ref"])
+            == f"Authorization: Bearer {secret}"
+        )
 
     async def test_a_token_without_a_shared_store_is_refused_at_the_door(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
@@ -2300,38 +2306,70 @@ class TestServiceTokenPolicy:
         from app.core import service_tokens
         from app.modules.catalog.datasets.api import router_refresh, router_reupload
         from app.modules.catalog.sources import preview
+        from app.platform import service_auth
         from app.processing.ingest import ogr, service
 
+        # The worker judges a LINE now (plan D9), and keeps the base64url
+        # charset and the length floor on the bearer branch of it, so nothing
+        # about today's bearer guarantee weakens.
         worker_source = inspect.getsource(ogr._sanitize_authorization_token)
         assert "HEADER_TOKEN_CHARSET" in worker_source
         assert "HEADER_TOKEN_MIN_LENGTH" in worker_source
+        assert "HEADER_LINE_SEPARATOR" in worker_source
         # No private copy of the charset survives anywhere in the module.
         assert "_BASE64URL_CHARSET" not in inspect.getsource(ogr)
 
-        # Every door that can hand a service token to the worker, by the name
-        # whoever adds the next one will search for. The import door's check is
-        # a named helper (inline pushed `queue_ingest_job` past ruff's C901
-        # ceiling), so the call site is asserted alongside it.
+        # Every door that can hand a service credential to the worker, by the
+        # name whoever adds the next one will search for.
+        #
+        # fix(#1746 B2b): the name changed and the test follows it rather than
+        # being deleted. A door no longer applies one charset rule to one bare
+        # token: it hands the whole credential to `wire_credential`, which
+        # selects the policy by service format, judges the inputs and composes
+        # the line. So the chain is asserted end to end — the entry point in
+        # each door body, and the four rules inside that entry point — which is
+        # strictly more than the two literals this used to look for.
         for door in (
             router_refresh.refresh_dataset,
             router_reupload.reupload_commit,
-            service._assert_header_token_dispatchable,
+            service.queue_ingest_job,
         ):
             door_source = inspect.getsource(door)
-            assert "header_token_rejection_reason" in door_source, door.__name__
-            assert "requires_header_token_policy" in door_source, door.__name__
+            assert "wire_credential" in door_source, door.__name__
+        # The import door keeps its own named pre-check as well, because
+        # `commit_import` calls it before writing a row that makes the job
+        # un-retryable, which is earlier than the queue.
+        assert "requires_header_token_policy" in inspect.getsource(
+            service._assert_header_token_dispatchable
+        )
+        assert "header_token_rejection_reason" in inspect.getsource(
+            service._assert_header_token_dispatchable
+        )
         assert "_assert_header_token_dispatchable" in inspect.getsource(
             service.queue_ingest_job
         )
+
+        # And the entry point every door now routes through names all four
+        # rules, so a method added without a rule fails here rather than
+        # silently composing an unjudged header.
+        gate_source = inspect.getsource(service_auth)
+        for rule in (
+            "header_token_rejection_reason",
+            "credential_input_rejection_reason",
+            "header_name_rejection_reason",
+            "requires_header_token_policy",
+        ):
+            assert rule in gate_source, rule
 
         # Preview is the fourth consumer and selects the header-auth case
         # differently: it holds a composed GDAL source string, not a stored
         # `source_format`, so the `WFS:`/`OAPIF:` prefix IS the selector and
         # `requires_header_token_policy` has nothing to answer for it. It must
-        # still judge the token by the shared rule — it used to accept anything
-        # printable, so a token that could never import previewed cleanly.
+        # still judge the credential by the shared rule — it used to accept
+        # anything printable, so a token that could never import previewed
+        # cleanly.
         preview_source = inspect.getsource(preview.run_service_preview)
-        assert "header_token_rejection_reason" in preview_source
+        assert "credential_input_rejection" in preview_source
 
         # And the policy text itself never interpolates the token. The
         # worker's message DOES name the offending character, deliberately —
