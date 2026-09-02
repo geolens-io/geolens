@@ -2393,20 +2393,35 @@ async def test_a_discovery_failure_takes_no_lock_and_writes_no_ledger_row(
 ):
     """Phase one is credential-free, so its failures cost nobody a budget.
 
-    The lock is proven untaken by holding nothing and asserting the guard
-    never opened a lock session; the ledger is proven untouched by counting
-    its rows either side of the refusal.
+    The lock is proven untaken by watching the guard's own lock helper; the
+    ledger is proven untouched by counting its rows either side of the
+    refusal.
+
+    fix(#1758): watches `_signin_locks` rather than counting calls to
+    `app.core.db.async_session`. That proxy dated from before the locks moved
+    onto the request session, by which point it no longer observed locking at
+    all: it counted every call to a PROCESS-GLOBAL factory, so anything else
+    in the worker that opened a session during the request was counted as a
+    lock this sign-in took. `get_db` itself calls that factory, as do the
+    ingest and embedding task paths. That made the assertion red on a loaded
+    runner with nothing wrong, in merge-queue runs 33649640369 and
+    33649761185 on two frontend-only PRs.
+
+    Watching the helper the handler actually calls is both narrower and
+    truer to the sentence being asserted, and it cannot be reached by
+    anything outside this request.
     """
     await _clear_unknown_host_rows(test_db_session)
-    import app.core.db as db_module
 
-    real_factory = db_module.async_session
-    lock_sessions = 0
+    locks_taken = 0
+    real_locks = sources_router._signin_locks
 
-    def counting_factory(*args, **kwargs):
-        nonlocal lock_sessions
-        lock_sessions += 1
-        return real_factory(*args, **kwargs)
+    @contextlib.asynccontextmanager
+    async def _counting_locks(db, user_scope, account_scope):
+        nonlocal locks_taken
+        locks_taken += 1
+        async with real_locks(db, user_scope, account_scope) as held:
+            yield held
 
     before = await test_db_session.scalar(
         select(func.count()).select_from(ArcGISSignInAttempt)
@@ -2416,7 +2431,7 @@ async def test_a_discovery_failure_takes_no_lock_and_writes_no_ledger_row(
     # conventional `/generateToken` is the documented fallback, so the sign-in
     # goes on to try it and any failure there is the mint's.
     exchange = _Exchange({})
-    with patch.object(db_module, "async_session", counting_factory):
+    with patch.object(sources_router, "_signin_locks", _counting_locks):
         with patch(
             "app.modules.catalog.sources.arcgis_signin.validate_url_for_ssrf",
             new_callable=AsyncMock,
@@ -2430,7 +2445,7 @@ async def test_a_discovery_failure_takes_no_lock_and_writes_no_ledger_row(
     assert resp.status_code == 502
     assert resp.json()["detail"]["code"] == "network_error"
     assert exchange.requests == []
-    assert lock_sessions == 0, "a discovery failure must not take a lock"
+    assert locks_taken == 0, "a discovery failure must not take a lock"
 
     after = await test_db_session.scalar(
         select(func.count()).select_from(ArcGISSignInAttempt)
