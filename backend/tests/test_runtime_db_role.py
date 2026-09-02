@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import os
+import shutil
 import subprocess
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -16,6 +17,11 @@ from tests.repo_paths import repo_root
 ROOT = repo_root(__file__)
 ROLE_SCRIPT = ROOT / "scripts" / "lib" / "configure-runtime-db-role.sh"
 ROUNDTRIP_SCRIPT = ROOT / "scripts" / "tests" / "test-backup-restore-roundtrip.sh"
+
+requires_docker_cli = pytest.mark.skipif(
+    shutil.which("docker") is None,
+    reason="docker CLI is not installed in this image (fix(#1745))",
+)
 
 
 def _compose(filename: str) -> dict:
@@ -123,6 +129,7 @@ def test_compose_mounts_reconciler_read_only_and_scopes_the_password_to_db() -> 
             )
 
 
+@requires_docker_cli
 def test_compose_scopes_managed_migrator_role_away_from_local_db() -> None:
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         services = _render_compose(
@@ -155,6 +162,7 @@ def test_compose_scopes_managed_migrator_role_away_from_local_db() -> None:
         )
 
 
+@requires_docker_cli
 def test_compose_infers_bundled_migrator_role_only_for_migrate() -> None:
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         services = _render_compose(
@@ -175,6 +183,7 @@ def test_compose_infers_bundled_migrator_role_only_for_migrate() -> None:
         )
 
 
+@requires_docker_cli
 def test_compose_passes_explicit_bundled_migration_owner_to_local_db() -> None:
     for filename in ("docker-compose.yml", "docker-compose.prod.yml"):
         services = _render_compose(

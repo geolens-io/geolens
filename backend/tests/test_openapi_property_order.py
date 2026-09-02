@@ -16,9 +16,10 @@ from pathlib import Path
 
 from app.api.main import app
 from app.modules.catalog.datasets.domain.schemas import AnalysisPreviewRequest
+from tests.repo_paths import repo_root
 
-BACKEND_ROOT = Path(__file__).resolve().parent.parent
-REPO_ROOT = BACKEND_ROOT.parent
+REPO_ROOT = repo_root(__file__)
+BACKEND_ROOT = REPO_ROOT / "backend"
 
 
 def _load_by_path(module_name: str, path: Path):

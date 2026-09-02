@@ -29,15 +29,16 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 import pytest
+
+from tests.repo_paths import repo_root
 
 # ---------------------------------------------------------------------------
 # Shared helpers (mirrored from check_fe_type_drift to avoid circular deps)
 # ---------------------------------------------------------------------------
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+_REPO_ROOT = repo_root(__file__)
 _OPENAPI_JSON = _REPO_ROOT / "backend" / "openapi.json"
 _FE_TYPES = _REPO_ROOT / "frontend" / "src" / "types" / "api.ts"
 
