@@ -1188,21 +1188,24 @@ async def raster_tile_proxy(
         None,
         description=(
             "Lower percentile clip for stretch=percentile (0–100, default 2). "
-            "Absent = current p2 behavior. Must be less than pmax."
+            "Absent = current p2 behavior. Must be less than pmax. Ignored, and "
+            "not validated, when stretch is not percentile."
         ),
     ),
     pmax: float | None = Query(
         None,
         description=(
             "Upper percentile clip for stretch=percentile (0–100, default 98). "
-            "Absent = current p98 behavior. Must be greater than pmin."
+            "Absent = current p98 behavior. Must be greater than pmin. Ignored, "
+            "and not validated, when stretch is not percentile."
         ),
     ),
     sigma: float | None = Query(
         None,
         description=(
             "Standard-deviation multiplier for stretch=stddev (default 2.0). "
-            "Absent = current 2.0σ behavior. Must be > 0."
+            "Absent = current 2.0σ behavior. Must be > 0. Ignored, and not "
+            "validated, when stretch is not stddev."
         ),
     ),
     user: Identity | None = Depends(get_optional_user_fail_open),
@@ -1223,13 +1226,24 @@ async def raster_tile_proxy(
     rescale from Titiler band statistics. Multi-band rasters produce one rescale=
     fragment per band (up to 3, RASTER-STRETCH-03).
 
-    pmin/pmax: Configurable percentile clip bounds (default 2/98). Must satisfy
-    0 <= pmin < pmax <= 100. Forwarded as repeated p= params to /cog/statistics.
-    The _band_stats_cache key includes pmin/pmax so different bounds never serve
-    stale cached stats (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
+    pmin/pmax: Configurable percentile clip bounds (default 2/98), read and
+    validated (0 <= pmin < pmax <= 100) only when stretch=percentile. Forwarded
+    as repeated p= params to /cog/statistics. The _band_stats_cache key includes
+    pmin/pmax so different bounds never serve stale cached stats
+    (RASTER-STRETCH-UI-01 / Phase 1153 cache-key isolation).
 
-    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0).
-    Must be > 0.
+    sigma: Standard-deviation multiplier for stretch=stddev (default 2.0), read
+    and validated (> 0) only when stretch=stddev.
+
+    fix(#1778 codex r2): pmin/pmax/sigma used to be validated whenever present,
+    regardless of the active stretch mode, so an "inactive" value could still
+    422. frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+    out of the cache key to stop it defeating the cache; making that safe on
+    every input (including a repeated query parameter, where nginx's $arg_x
+    reads the FIRST occurrence and this endpoint's scalar Query reads the
+    LAST) needs "inactive" to mean the SAME thing on both sides: ignored, not
+    merely unvalidated for some inputs. A cache HIT must never disagree with
+    what an uncached request would answer.
     """
     # A-fix(#315 follow-up): defensively sanitize the {fmt} path param before it is
     # interpolated into the Titiler endpoint URL. Some reverse-proxy rewrites (e.g.
@@ -1282,9 +1296,21 @@ async def raster_tile_proxy(
     eff_sigma: float = sigma if sigma is not None else _STDDEV_SIGMA
 
     # T-1153-01: validate pmin/pmax/sigma BEFORE any Titiler call.
-    # Apply checks whenever the param is present, regardless of active stretch mode,
-    # so invalid inputs are always rejected (consistent with T-1140-01 approach).
-    if pmin is not None or pmax is not None:
+    #
+    # fix(#1778 codex r2): validated only when the ACTIVE stretch mode reads
+    # the value -- pmin/pmax under percentile, sigma under stddev -- not
+    # whenever merely present. The previous "always validate if present" rule
+    # made "inactive" a claim this endpoint could contradict, which is exactly
+    # what frontend/nginx.conf's raster proxy_cache_key relies on NOT
+    # happening: it blanks an inactive value out of the cache key so a random
+    # one can't defeat the cache, and a value it blanks must never be able to
+    # turn a cached 200 into what would have been a 422. "Inactive" now means
+    # "ignored" here too, so the maps can blank unconditionally with no
+    # residual, including under a duplicated query parameter (nginx's
+    # $arg_x reads the FIRST occurrence, this endpoint's scalar Query reads
+    # the LAST): an inactive value is never read on either side, so it can
+    # never matter which occurrence either side saw.
+    if stretch == "percentile" and (pmin is not None or pmax is not None):
         if not (0 <= eff_pmin < eff_pmax <= 100):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -1293,7 +1319,7 @@ async def raster_tile_proxy(
                     f"got pmin={eff_pmin}, pmax={eff_pmax}"
                 ),
             )
-    if sigma is not None and not (sigma > 0):
+    if stretch == "stddev" and sigma is not None and not (sigma > 0):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"sigma must be > 0; got sigma={sigma}",

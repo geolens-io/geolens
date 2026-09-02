@@ -609,29 +609,40 @@ class TestRasterColormapProxy:
             ({"sigma": -1}, "sigma<0 under an inactive stretch mode"),
         ],
     )
-    async def test_invalid_bounds_return_422_even_under_an_inactive_stretch_mode(
+    async def test_out_of_range_bounds_are_ignored_under_an_inactive_stretch_mode(
         self, client, bad_params, description
     ):
-        """[T-1153-01] fix(#1778 codex r1): pmin/pmax/sigma are validated whenever
-        PRESENT, regardless of the active stretch mode -- stretch=minmax reads
-        neither pmin/pmax nor sigma, but an out-of-range value still 422s.
+        """[T-1153-01] fix(#1778 codex r2): pmin/pmax/sigma are read and
+        validated ONLY when the active stretch mode reads them -- stretch=
+        minmax reads neither pmin/pmax nor sigma, so an out-of-range value
+        under it is ignored, not rejected.
 
-        This is the property frontend/nginx.conf's raster proxy_cache_key relies
-        on: it blanks an inactive arg out of the cache key only when the value is
-        well-formed enough that the API could never turn it into a 422, so a
-        cache HIT can never answer with a different status than an uncached
-        request would get. An out-of-range value under stretch=minmax must stay
-        exactly as rejected as it is here, uncached.
+        This inverts what round 1 of this fix pinned (validate regardless of
+        mode). That version made "inactive" a claim the API could contradict:
+        frontend/nginx.conf's raster proxy_cache_key blanks an inactive value
+        out of the cache key so a random one cannot defeat the cache, and a
+        cache HIT must never answer with a status an uncached request would
+        not have given. Round 1 closed that by validating anyway and only
+        blanking well-formed values, but that still had two residuals (a
+        joint pmin/pmax ordering nginx cannot cheaply check, and a repeated
+        query parameter, where nginx reads the FIRST occurrence and this
+        endpoint's scalar Query reads the LAST). Making "inactive" mean
+        "ignored" here closes both: there is no verdict left to disagree
+        with, on either side, for a value that is never read.
         """
         params = {"stretch": "minmax"}
         params.update(bad_params)
         resp = await client.get(_TILE_PATH, params=params)
-        assert resp.status_code == 422, (
-            f"Expected 422 for {description}, got {resp.status_code}"
+        assert resp.status_code in (200, 204), (
+            f"Expected {description} to be ignored (200/204), got "
+            f"{resp.status_code}: {resp.text}"
         )
-        assert len(self._tile_titiler_calls) == 0, (
-            f"Titiler was called despite invalid bounds ({description}): {self._tile_titiler_calls}"
+        assert len(self._tile_titiler_calls) == 1, (
+            f"Expected the tile fetch to proceed for {description}, got "
+            f"{self._tile_titiler_calls}"
         )
+        # minmax never computes stats, active or not.
+        assert len(self._stats_titiler_calls) == 0
 
     async def test_dem_with_custom_bounds_no_rescale(self, client):
         """[T-1153-03] DEM (algorithm= render_params) ignores pmin/pmax/sigma — no rescale injected."""
