@@ -346,12 +346,46 @@ function basemapStyleLayers(style: StyleSpecification, sourcePrefix: string) {
   ) as StyleSpecification['layers'];
 }
 
-function changedPaintKeys(
-  before: Record<string, unknown> | undefined,
-  after: Record<string, unknown> | undefined,
-) {
-  if (!after) return [];
-  return Object.keys(after).filter((key) => before?.[key] !== after[key]);
+/** fix(#1778): the pristine paint of every basemap-owned style layer, captured
+ *  before this module first overrode it and dropped whenever a new style loads.
+ *
+ *  applyBasemapConfigToMap feeds `map.getStyle()`, the LIVE and already-mutated
+ *  style, into applyBasemapConfigToStyle, and the appearance helpers
+ *  (applyLandWaterTone / applyBackgroundColor / applyReliefContrast) are no-ops
+ *  on their default value. On a revert pass the "next" value was therefore the
+ *  tint the previous pass wrote, compared equal, and nothing was written: the
+ *  map stayed tinted for the rest of the session while React state, the stack
+ *  row and the saved payload all said "default". Diffing against pristine is
+ *  what makes "no override" a target state the writer can express. */
+const pristineBasemapPaint = new WeakMap<MaplibreMap, Map<string, Record<string, unknown>>>();
+/** Paint keys THIS module last wrote per basemap layer, so a key the current
+ *  config no longer sets can be restored without touching keys owned by
+ *  applySublayerOverrides or by the style itself. */
+const stampedBasemapPaintKeys = new WeakMap<MaplibreMap, Map<string, Set<string>>>();
+const pristineInvalidatorAttached = new WeakSet<MaplibreMap>();
+
+function basemapPaintCaches(map: MaplibreMap) {
+  if (!pristineInvalidatorAttached.has(map)) {
+    pristineInvalidatorAttached.add(map);
+    // A new style means new pristine values. Without this a basemap swap
+    // between two styles that share layer ids (openfreemap positron/dark do)
+    // would restore the previous basemap's colors onto the new one.
+    map.on?.('style.load', () => {
+      pristineBasemapPaint.delete(map);
+      stampedBasemapPaintKeys.delete(map);
+    });
+  }
+  let pristine = pristineBasemapPaint.get(map);
+  if (!pristine) {
+    pristine = new Map();
+    pristineBasemapPaint.set(map, pristine);
+  }
+  let stamped = stampedBasemapPaintKeys.get(map);
+  if (!stamped) {
+    stamped = new Map();
+    stampedBasemapPaintKeys.set(map, stamped);
+  }
+  return { pristine, stamped };
 }
 
 /** UX-03 (Phase 1051 Plan 06): when `basemap_position === 'top'`, move all
@@ -412,8 +446,23 @@ export function applyBasemapConfigToMap(
     ...style,
     layers: basemapStyleLayers(style, sourcePrefix),
   };
+  // fix(#1778): capture the pristine paint the FIRST time each basemap layer is
+  // seen (before this call writes anything), then build `next` from pristine
+  // rather than from the live style, so reverting an override is expressible.
+  const { pristine, stamped } = basemapPaintCaches(map);
+  const pristineLayers = basemapOnlyStyle.layers.map((layer) => {
+    const livePaint = 'paint' in layer
+      ? (layer.paint as Record<string, unknown> | undefined)
+      : undefined;
+    let cached = pristine.get(layer.id);
+    if (!cached) {
+      cached = { ...(livePaint ?? {}) };
+      pristine.set(layer.id, cached);
+    }
+    return { ...layer, paint: cached };
+  }) as StyleSpecification['layers'];
   const nextStyle = applyBasemapConfigToStyle(
-    basemapOnlyStyle,
+    { ...basemapOnlyStyle, layers: pristineLayers },
     basemapConfig,
     showBasemapLabels,
   );
@@ -435,13 +484,27 @@ export function applyBasemapConfigToMap(
 
     const currentPaint = 'paint' in current ? current.paint as Record<string, unknown> | undefined : undefined;
     const nextPaint = 'paint' in next ? next.paint as Record<string, unknown> | undefined : undefined;
-    for (const key of changedPaintKeys(currentPaint, nextPaint)) {
+    const pristinePaint = pristine.get(current.id) ?? {};
+    const previouslyStamped = stamped.get(current.id) ?? new Set<string>();
+    // The union is what makes a revert reachable: `next` alone misses a key the
+    // OLD config stamped and this one does not set at all (text-halo-width from
+    // label_mode 'subtle' is the canonical case). Keys are restricted to what
+    // this function itself wrote, so applySublayerOverrides' writes and the
+    // style's own paint are never clobbered.
+    const keysToWrite = new Set<string>([...Object.keys(nextPaint ?? {}), ...previouslyStamped]);
+    const nowStamped = new Set<string>();
+    for (const key of keysToWrite) {
+      const target = nextPaint && key in nextPaint ? nextPaint[key] : pristinePaint[key];
+      if (target !== pristinePaint[key]) nowStamped.add(key);
+      if (target === currentPaint?.[key]) continue;
       try {
-        setDynamicPaintProperty(map, current.id, key, nextPaint?.[key]);
+        setDynamicPaintProperty(map, current.id, key, target);
       } catch (error) {
         if (import.meta.env.DEV) console.warn('[map-sync] basemap paint sync failed', current.id, key, error);
       }
     }
+    if (nowStamped.size > 0) stamped.set(current.id, nowStamped);
+    else stamped.delete(current.id);
   }
 }
 
