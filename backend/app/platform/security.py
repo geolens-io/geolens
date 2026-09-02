@@ -128,6 +128,67 @@ async def validate_url_for_ssrf(url: str) -> None:
             raise SSRFError("URLs targeting private/internal networks are not allowed")
 
 
+# HYG-03 (Phase 1070, v1014 IN-01): include HTTP 305 (Use Proxy) for
+# completeness even though RFC 7231 deprecated it and httpx does not follow
+# 305 redirects by default. Cheap defense-in-depth.
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 305, 307, 308})
+
+# Ports the scheme already implies, so `https://host` and `https://host:443`
+# read as one origin rather than two.
+_DEFAULT_PORTS = {"http": 80, "https": 443}
+
+# Header names that ARE a credential whatever the caller declared. httpx drops
+# `Authorization` itself when a redirect crosses origins, so that one needs
+# nothing here; this one it would forward.
+_ALWAYS_CREDENTIAL_HEADERS = frozenset({"x-esri-authorization"})
+
+# Describes the policy and never the header value, on the same reasoning as the
+# messages in core/service_tokens.py: this reaches an API response body, a log
+# line and a job row.
+CROSS_ORIGIN_CREDENTIAL_POLICY = (
+    "Refusing to send a credential header to a different origin after a "
+    "redirect. Point the source at the address that answers directly, or ask "
+    "the service operator why it redirects a credentialed request elsewhere."
+)
+
+
+def _origin(url: httpx.URL) -> tuple[str, str, int | None]:
+    """Scheme, host and port, with the scheme's default port filled in."""
+    scheme = (url.scheme or "").lower()
+    return (scheme, (url.host or "").lower(), url.port or _DEFAULT_PORTS.get(scheme))
+
+
+def _refuse_cross_origin_credential(
+    response: httpx.Response, watched: frozenset[str]
+) -> None:
+    """Keep a credential on the origin it was given to.
+
+    fix(#1746): httpx strips `Authorization` when a redirect changes origin and
+    forwards every other header unchanged, so an API key sent under a name of
+    the service's choosing -- `X-API-Key`, Ordnance Survey's `key`, Azure's
+    `Ocp-Apim-Subscription-Key` -- is handed to whatever origin a 302 names.
+    The SSRF revalidation beside this does not close it: the redirect target
+    can be an entirely ordinary public host that simply is not the service the
+    user gave a credential to.
+
+    Called from the response hook, which httpx runs BEFORE it follows the
+    redirect, so raising here means the second request is never issued.
+    """
+    if response.status_code not in _REDIRECT_STATUSES:
+        return
+    location = response.headers.get("Location")
+    if not location:
+        return
+    request = response.request
+    # httpx.Headers membership is case-insensitive, which is the point: the
+    # caller may declare `X-API-Key` and the request may spell it `x-api-key`.
+    if not any(name in request.headers for name in watched):
+        return
+    if _origin(httpx.URL(response.url).join(location)) == _origin(request.url):
+        return
+    raise SSRFError(CROSS_ORIGIN_CREDENTIAL_POLICY)
+
+
 async def _revalidate_redirect(response: httpx.Response) -> None:
     """httpx response hook: re-validate the Location target on every redirect hop.
 
@@ -138,11 +199,14 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
 
     Raising SSRFError from a response hook aborts further redirect-following
     and propagates the exception to the awaiting caller.
+
+    fix(#1746): also refuses a hop that would carry a credential header to a
+    different origin. That check runs first because it needs no DNS lookup, and
+    because its message names the actual problem: the Location can be a public
+    host this validator is perfectly happy with.
     """
-    # HYG-03 (Phase 1070, v1014 IN-01): include HTTP 305 (Use Proxy) for
-    # completeness even though RFC 7231 deprecated it and httpx does not
-    # follow 305 redirects by default. Cheap defense-in-depth.
-    if response.status_code not in (301, 302, 303, 305, 307, 308):
+    _refuse_cross_origin_credential(response, _ALWAYS_CREDENTIAL_HEADERS)
+    if response.status_code not in _REDIRECT_STATUSES:
         return
     location = response.headers.get("Location")
     if not location:
@@ -150,6 +214,26 @@ async def _revalidate_redirect(response: httpx.Response) -> None:
     # Resolve relative redirects against the original response URL.
     target = str(httpx.URL(response.url).join(location))
     await validate_url_for_ssrf(target)
+
+
+def _redirect_hook(credential_header: str | None):
+    """The response hook one client installs, for the header it declared.
+
+    A closure rather than another parameter on ``_revalidate_redirect``,
+    because that function is named in AGENTS.md Rule 2 and is called directly
+    by several tests, so it stays a plain single-argument coroutine that
+    already covers the always-credential names on its own.
+    """
+    if not credential_header:
+        return _revalidate_redirect
+
+    watched = _ALWAYS_CREDENTIAL_HEADERS | {credential_header.lower()}
+
+    async def _hook(response: httpx.Response) -> None:
+        _refuse_cross_origin_credential(response, watched)
+        await _revalidate_redirect(response)
+
+    return _hook
 
 
 class _SSRFGuardTransport(httpx.AsyncHTTPTransport):
@@ -203,6 +287,7 @@ def make_safe_transport() -> httpx.AsyncBaseTransport:
 
 def make_safe_client(
     timeout: float | httpx.Timeout = PROBE_TIMEOUT,
+    credential_header: str | None = None,
 ) -> httpx.AsyncClient:
     """Construct an httpx.AsyncClient with SSRF IP-pinning and per-hop revalidation.
 
@@ -215,11 +300,20 @@ def make_safe_client(
     DNS-rebinding answer between submission-time validation and connect cannot
     reach an internal IP. The response hook _revalidate_redirect additionally
     re-validates each 3xx Location, and the transport re-pins each redirect hop.
+
+    fix(#1746): pass ``credential_header`` when the request carries a service
+    credential under a name the service chose. httpx drops ``Authorization``
+    across a cross-origin redirect and forwards everything else, so without
+    this an API key follows a 302 to whatever origin it names. The refusal
+    lands on the hop, before the second request is issued.
+    ``X-Esri-Authorization`` is refused whether or not it was declared, since
+    that name is a credential by definition. A caller that passes nothing gets
+    exactly today's behaviour.
     """
     return httpx.AsyncClient(
         timeout=timeout,
         follow_redirects=True,
         max_redirects=5,
-        event_hooks={"response": [_revalidate_redirect]},
+        event_hooks={"response": [_redirect_hook(credential_header)]},
         transport=make_safe_transport(),
     )
