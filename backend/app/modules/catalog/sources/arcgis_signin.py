@@ -513,6 +513,16 @@ def usable_service_url(raw: str | httpx.URL) -> httpx.URL | None:
         return None
     if url.query or url.fragment or url.userinfo:
         return None
+    if url.port == 0:
+        # fix(#1758 codex r15): port zero addresses nothing. Every request to
+        # it fails before it reaches ArcGIS, but it is FALSEY, so the scope
+        # derivation read it as "no port given" and filed those failures under
+        # the real :443 bucket. Three of them against a victim's username
+        # therefore spent that account's cluster-global budget and 429'd
+        # legitimate sign-ins across every tenant. Refused here, where every
+        # URL in this module already passes, rather than guarded at the one
+        # site that happened to collapse it.
+        return None
     # segments[0] is the empty string before the leading slash on any absolute
     # path, so it is the only empty one that is legitimate. A bare root path
     # is "/" and therefore reads as one empty segment; that is the portal root
@@ -551,7 +561,12 @@ def canonical_token_service_scope(url: str | httpx.URL) -> str:
     host = canonical_host(normalized.host or "")
     if ":" in host:  # an IPv6 literal needs its brackets back in an authority
         host = f"[{host}]"
-    port = normalized.port or (443 if normalized.scheme == "https" else 80)
+    # `is None`, never a truthiness test: a falsey-but-explicit port must not
+    # alias the scheme default. `usable_service_url` refuses port zero, and
+    # this is the second half of that fix, so no future caller can reintroduce
+    # the collapse by reaching this function another way.
+    default_port = 443 if normalized.scheme == "https" else 80
+    port = default_port if normalized.port is None else normalized.port
     path = normalized.path
     if path.lower().endswith("/generatetoken"):
         path = path[: -len("/generateToken")]

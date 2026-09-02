@@ -1366,6 +1366,91 @@ async def test_an_untrusted_delegate_that_cannot_resolve_still_falls_back(
     assert rows[0].details["discovery_note"] == "discovery_untrusted_delegate"
 
 
+async def test_port_zero_is_refused_before_any_budget_is_spent(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """fix(#1758 codex r15): port zero must not spend the real port's budget.
+
+    Nothing can be reached on port zero, so a sign-in aimed at it fails
+    without ArcGIS ever hearing about it. But zero is FALSEY, and the scope
+    derivation read that as "no port given", so those failures were filed
+    under the victim's real :443 bucket: three of them against a known
+    username spent that account's cluster-global budget and returned 429 to
+    legitimate sign-ins in every tenant.
+
+    No `allow_ssrf` here on purpose: the refusal has to land before anything
+    resolves, let alone connects.
+    """
+    await _clear_unknown_host_rows(test_db_session)
+    ledger_before = await test_db_session.scalar(
+        select(func.count()).select_from(ArcGISSignInAttempt)
+    )
+    exchange = _Exchange(
+        {
+            "info": _json_response(_info_payload()),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+    with _install(exchange):
+        statuses = [
+            (
+                await client.post(
+                    SIGNIN_URL,
+                    json={
+                        "portal_url": f"https://{_host()}:0",
+                        "username": FIXTURE_USERNAME,
+                        "password": FIXTURE_SECRET,
+                    },
+                    headers=admin_auth_header,
+                )
+            ).status_code
+            for _ in range(3)
+        ]
+
+    assert statuses == [422, 422, 422]
+    assert exchange.requests == []
+    # The victim's real scope is untouched: no ledger row, no audit row.
+    assert (
+        await test_db_session.scalar(
+            select(func.count()).select_from(ArcGISSignInAttempt)
+        )
+        == ledger_before
+    )
+    assert await _audit_rows(test_db_session) == []
+    rows = await _audit_rows(test_db_session, host="unknown")
+    assert [row.details["result"] for row in rows] == ["portal_host_invalid"] * 3
+
+
+def test_port_zero_never_aliases_the_scheme_default():
+    """The scope half of the same fix, isolated from the refusal half.
+
+    `:443` and an omitted port are one scope, because httpx drops the default
+    port and there is genuinely one destination. `:0` is a third thing and
+    must never collapse into either.
+    """
+    explicit = arcgis_signin.canonical_token_service_scope(
+        "https://gis.example.test:443/sharing/rest/generateToken"
+    )
+    implied = arcgis_signin.canonical_token_service_scope(
+        "https://gis.example.test/sharing/rest/generateToken"
+    )
+    zero = arcgis_signin.canonical_token_service_scope(
+        "https://gis.example.test:0/sharing/rest/generateToken"
+    )
+
+    assert explicit == implied == "gis.example.test:443/sharing/rest"
+    assert zero == "gis.example.test:0/sharing/rest"
+    assert len({explicit, implied, zero}) == 2
+    # And the canonicalizer refuses it outright, so nothing reaches the scope
+    # derivation with a zero port in the first place.
+    assert (
+        arcgis_signin.usable_service_url(
+            "https://gis.example.test:0/sharing/rest/generateToken"
+        )
+        is None
+    )
+
+
 async def test_a_refusal_is_never_retried(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):
