@@ -359,7 +359,26 @@ async def list_features(
             include_geometry=include_geometry,
             cached_feature_count=dataset.feature_count,
         )
-    except (ProgrammingError, OperationalError):
+    except ValueError as e:
+        # fix(#1778): an unparseable property-filter value is the caller's bug,
+        # rejected before the query runs.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except (ProgrammingError, OperationalError) as exc:
+        # fix(#1778): a type-shaped sqlstate with a property filter active is
+        # the filter value, not an outage. Reporting it as a retryable 503 sent
+        # clients into a pointless retry loop and polluted availability
+        # monitoring with what is a query-shape bug.
+        if property_filters and sqlstate(exc) in BAD_QUERY_INPUT:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Property filter is not evaluable against this dataset's "
+                    "column types"
+                ),
+            )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Dataset table is unavailable",

@@ -4,15 +4,18 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
+from datetime import date, datetime, timezone
+from decimal import Decimal, InvalidOperation
+from typing import TYPE_CHECKING, Any
 
 from shapely import to_geojson
 from shapely.errors import GEOSException
 from shapely.geometry import shape as shapely_shape
 from shapely.geometry.base import BaseGeometry
 from shapely.validation import explain_validity
-from sqlalchemy import func, text
+from sqlalchemy import bindparam, func, text
+from sqlalchemy import types as sa_types
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.geo import seam_extent_wkt_for_table
@@ -23,6 +26,122 @@ if TYPE_CHECKING:
 
 # Column name validation for SQL identifier safety
 _COLUMN_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
+
+# Widest signed integer PostgreSQL will compare against a bigint bind.
+_INT8_MIN = -(2**63)
+_INT8_MAX = 2**63
+
+
+def _parse_int(raw: str) -> int:
+    value = int(raw)
+    if not _INT8_MIN <= value < _INT8_MAX:
+        raise ValueError("out of range for an integer column")
+    return value
+
+
+def _parse_float(raw: str) -> float:
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("must be a finite number")
+    return value
+
+
+def _parse_decimal(raw: str) -> Decimal:
+    try:
+        value = Decimal(raw)
+    except InvalidOperation as exc:
+        raise ValueError("must be a decimal number") from exc
+    if not value.is_finite():
+        raise ValueError("must be a finite number")
+    return value
+
+
+_BOOLEAN_LITERALS = {
+    "true": True,
+    "t": True,
+    "yes": True,
+    "y": True,
+    "1": True,
+    "false": False,
+    "f": False,
+    "no": False,
+    "n": False,
+    "0": False,
+}
+
+
+def _parse_bool(raw: str) -> bool:
+    try:
+        return _BOOLEAN_LITERALS[raw.strip().lower()]
+    except KeyError as exc:
+        raise ValueError("must be true or false") from exc
+
+
+def _parse_naive_timestamp(raw: str) -> datetime:
+    # A `timestamp without time zone` column cannot be compared with an aware
+    # value: asyncpg refuses it at bind time. Normalize to UTC, the same
+    # narrowing standards/ogc/filtering.py applies to CQL2 literals.
+    value = datetime.fromisoformat(raw)
+    if value.tzinfo is not None:
+        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+# fix(#1778): property filters bound the raw query-string value, so SQLAlchemy
+# typed every bind VARCHAR and PostgreSQL had no `bigint = character varying`
+# operator: EVERY non-text property filter failed with 42883, which the OGC
+# items handler then reported as a retryable 503. The queryables document
+# (Part 3) advertises these columns as integer/number/boolean/date, so a
+# conformant client was led straight into it. Each pg type here therefore
+# carries the parser that turns the query-string value into a Python value and
+# the database type the bind is compiled with. The families and their database
+# types mirror `sa_type_for_pg` in standards/ogc/filtering.py, for the reason
+# recorded there: a float8-cast bind against a REAL column promotes the stored
+# float4 and stops comparing equal.
+#
+# The set is exactly the set the queryables document advertises as filterable.
+# A column of any other type keeps the raw string bind, and the routers now
+# classify the resulting type-shaped sqlstate as the caller's 400.
+_PROPERTY_FILTER_BINDS: dict[str, tuple[Callable[[str], Any], Any]] = {
+    "text": (str, sa_types.Text()),
+    "character varying": (str, sa_types.Text()),
+    "character": (str, sa_types.Text()),
+    "smallint": (_parse_int, sa_types.BigInteger()),
+    "integer": (_parse_int, sa_types.BigInteger()),
+    "bigint": (_parse_int, sa_types.BigInteger()),
+    "real": (_parse_float, sa_types.REAL()),
+    "double precision": (_parse_float, sa_types.Float()),
+    "numeric": (_parse_decimal, sa_types.Numeric()),
+    "boolean": (_parse_bool, sa_types.Boolean()),
+    "date": (date.fromisoformat, sa_types.Date()),
+    "timestamp without time zone": (_parse_naive_timestamp, sa_types.DateTime()),
+    "timestamp with time zone": (
+        datetime.fromisoformat,
+        sa_types.DateTime(timezone=True),
+    ),
+}
+
+
+def _property_filter_bind(param_name: str, column: str, pg_type: str | None, raw: str):
+    """Return a typed BindParameter for one `column = value` filter, or None.
+
+    None means "no mapping for this column type": the caller keeps today's raw
+    string bind, and the routers classify whatever the database says about it.
+    Raises ValueError, naming the property, when the value does not parse for
+    the column's type — the caller's 400, not a database round trip.
+    """
+    mapping = _PROPERTY_FILTER_BINDS.get(pg_type or "")
+    if mapping is None:
+        return None
+    parse, sa_type = mapping
+    try:
+        value = parse(raw)
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            f"Invalid value for property {column!r} (type {pg_type}): {exc}"
+        ) from exc
+    return bindparam(param_name, value, type_=sa_type)
+
 
 # Maps GeoJSON geometry type to the set of compatible PostGIS geometry types.
 # Single types are allowed into Multi columns (PostGIS promotes implicitly).
@@ -241,6 +360,41 @@ async def _projected_row_source(
     )
 
 
+async def _property_filter_predicates(
+    db: AsyncSession,
+    table_name: str,
+    property_filters: dict,
+    allowed_columns: set[str],
+) -> tuple[list[str], dict, list]:
+    """Compose the `"col" = :prop_col` predicates for the property filters.
+
+    Returns (where_clauses, raw_string_binds, typed_binds). fix(#1778): the
+    live schema decides how each value is typed, so the read costs one
+    information_schema round trip, and only when a property filter is present.
+    A column whose type has no mapping keeps the raw string bind it has always
+    had.
+    """
+    live_types = {
+        col["name"]: col.get("type")
+        for col in await get_feature_queryable_columns(db, table_name)
+        if isinstance(col.get("name"), str)
+    }
+    clauses: list[str] = []
+    raw_binds: dict = {}
+    typed_binds: list = []
+    for col, val in property_filters.items():
+        if col not in allowed_columns or not _COLUMN_NAME_RE.match(col):
+            continue
+        param_name = f"prop_{col}"
+        clauses.append(f'"{col}" = :{param_name}')
+        bind = _property_filter_bind(param_name, col, live_types.get(col), val)
+        if bind is None:
+            raw_binds[param_name] = val
+        else:
+            typed_binds.append(bind)
+    return clauses, raw_binds, typed_binds
+
+
 async def get_features(
     db: AsyncSession,
     table_name: str,
@@ -274,6 +428,16 @@ async def get_features(
     the binds built here, and typed so the asyncpg cast matches the column —
     codex r3). It joins ``where_clauses`` so the data query, count query,
     and cached-count bypass all compose exactly like ``bbox``.
+
+    fix(#1778): ``property_filters`` values arrive as query-string text and are
+    bound with the database type of the column they name, read from the live
+    schema. A value that does not parse for that type raises ValueError naming
+    the property; routers report it as a 400.
+
+    Raises
+    ------
+    ValueError
+        If a property-filter value cannot be parsed for its column's type.
     """
     # Build SELECT columns over the projected row (see live_property_columns
     # for why geom must never reach to_jsonb).
@@ -314,12 +478,13 @@ async def get_features(
         bind_values["maxx"] = bbox[2]
         bind_values["maxy"] = bbox[3]
 
+    typed_binds: list = []
     if property_filters and allowed_columns:
-        for col, val in property_filters.items():
-            if col in allowed_columns and _COLUMN_NAME_RE.match(col):
-                param_name = f"prop_{col}"
-                where_clauses.append(f'"{col}" = :{param_name}')
-                bind_values[param_name] = val
+        prop_clauses, prop_raw_binds, typed_binds = await _property_filter_predicates(
+            db, table_name, property_filters, allowed_columns
+        )
+        where_clauses.extend(prop_clauses)
+        bind_values.update(prop_raw_binds)
 
     if cql2_where:
         where_clauses.append(cql2_where)
@@ -351,12 +516,17 @@ async def get_features(
         bind_values["offset"] = offset
     bind_values["limit"] = limit
 
-    def _with_cql2_binds(stmt):
-        # typed BindParameters (codex r3) — see the cql2_binds docstring note
-        return stmt.bindparams(*cql2_binds) if cql2_binds else stmt
+    # Typed BindParameters (codex r3) — see the cql2_binds docstring note — plus
+    # the property-filter binds typed from the live schema (fix(#1778)). Both
+    # sets name parameters that appear in the data query AND in the count query,
+    # so one list serves both.
+    extra_binds = [*(cql2_binds or ()), *typed_binds]
+
+    def _with_extra_binds(stmt):
+        return stmt.bindparams(*extra_binds) if extra_binds else stmt
 
     result = await db.execute(
-        _with_cql2_binds(text(data_sql).bindparams(**bind_values))
+        _with_extra_binds(text(data_sql).bindparams(**bind_values))
     )
     rows = [dict(row._mapping) for row in result.all()]
 
@@ -382,7 +552,7 @@ async def get_features(
             f"t {count_where_sql}"
         )
         count_result = await db.execute(
-            _with_cql2_binds(text(count_sql).bindparams(**count_bind))
+            _with_extra_binds(text(count_sql).bindparams(**count_bind))
         )
         total = count_result.scalar_one()
 

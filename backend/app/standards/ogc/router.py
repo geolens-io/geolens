@@ -829,6 +829,13 @@ async def get_collection_items(
             cql2_where=cql2_where,
             cql2_binds=cql2_binds,
         )
+    except ValueError as exc:
+        # fix(#1778): an unparseable property-filter value is rejected before
+        # the query runs, naming the property.
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        )
     except (ProgrammingError, OperationalError, DataError) as exc:
         # feat(#1614): with a filter active, a type-shaped database error is
         # the filter itself — e.g. a property-property comparison between
@@ -839,17 +846,23 @@ async def get_collection_items(
         # client-side bind DataErrors. Everything else (dropped connection,
         # cancellation, missing table) keeps the retryable 503 so monitoring
         # and clients classify outages correctly.
+        # fix(#1778): the property-filter extension is a caller-supplied
+        # predicate too. Gating this branch on `cql2_where is not None` alone
+        # reported every type-shaped property-filter failure as a retryable
+        # 503, so clients retried forever against what is a query-shape bug.
         sqlstate = _pg_sqlstate(exc) or ""
-        filter_fault = cql2_where is not None and (
+        caller_predicate = cql2_where is not None or bool(property_filters)
+        filter_fault = caller_predicate and (
             sqlstate.startswith("22")
             or sqlstate in _TYPE_FAULT_SQLSTATES
             or (isinstance(exc, DataError) and not sqlstate)
         )
         if filter_fault:
+            source = "CQL2 filter" if cql2_where is not None else "Property filter"
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=(
-                    "CQL2 filter is not evaluable against this collection's "
+                    f"{source} is not evaluable against this collection's "
                     "property types"
                 ),
             )

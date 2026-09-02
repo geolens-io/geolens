@@ -4680,6 +4680,26 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that one GATES the localhost bypass, so a miss there denies, while a miss
     # in the other ISSUES an unenforceable lock. Cap 1042 -> 1056.
     "backend/app/modules/embed_tokens/service.py": 1056,
+    # fix(#1778): first entry for this module — it crossed the 1000-line
+    # inclusion threshold on the property-filter typing. Property filters used
+    # to bind the raw query-string value, so PostgreSQL had no
+    # `bigint = character varying` operator and every non-text filter failed
+    # with 42883, which the OGC items handler reported as a retryable 503.
+    # The growth is the pg-type -> (parser, database type) table, the parsers
+    # that reject a non-finite float / an out-of-int8-range integer / an
+    # unparseable date, and the extracted `_property_filter_predicates`
+    # (get_features was at ruff's C901 ceiling without it). Roughly half is the
+    # comment recording WHY each numeric family keeps its own database type,
+    # which is a correctness property a future reader would otherwise collapse
+    # into one Float.
+    #
+    # The clean split when it next grows is the banner already in the file:
+    # everything below "Write operations" moves to a sibling module behind a
+    # re-export facade, because `standards/ogc/router.py` and
+    # `standards/stac/router.py` may import `features.service` and nothing
+    # else under features (_STANDARDS_MODULE_IMPORT_SURFACE), and several
+    # tests reach private names through it.
+    "backend/app/modules/catalog/features/service.py": 1055,
 }
 
 
