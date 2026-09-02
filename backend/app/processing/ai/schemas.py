@@ -1,10 +1,11 @@
 """Schemas for AI map generation."""
 
+import json
 import re
 from typing import Literal
 
 import structlog
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -320,11 +321,34 @@ class LLMMapSpec(BaseModel):
 # --- Chat-based map editing schemas ---
 
 
+# fix(#1778): bounds on client-supplied chat context. Without them the only
+# limit was DEFAULT_BODY_LIMIT_BYTES (10 MB, roughly 2.5 M tokens), and every
+# byte of it was billed to the provider and re-sent on each of up to 8 tool
+# rounds. enforce_ai_token_budget checks usage already recorded before the
+# handler runs, and MAX_REQUEST_TOKEN_BUDGET is checked at the top of the loop
+# where the running total is still zero, so neither bounds the first request.
+#
+# The per-message cap is generous against the chat loop's own max_tokens=4096
+# (about 16k characters), so a long assistant turn replayed as history is never
+# rejected. The aggregate sits deliberately above what the other three caps can
+# produce between them (20 x 20_000 of history plus a 2_000-character message),
+# so a long conversation can never start returning 422 on its own; what it
+# actually bounds is the free-form layer context, which has no shape of its own
+# to cap. A realistic request is well under a tenth of it.
+_MAX_HISTORY_CONTENT_CHARS = 20_000
+_MAX_CHAT_LAYERS = 50
+_MAX_CHAT_PAYLOAD_CHARS = 500_000
+
+
+def _chat_payload_chars(message: str, history: list["ChatHistoryMessage"]) -> int:
+    return len(message) + sum(len(h.content) for h in history)
+
+
 class ChatHistoryMessage(BaseModel):
     """A single message in the conversation history."""
 
     role: Literal["user", "assistant"]
-    content: str
+    content: str = Field(..., max_length=_MAX_HISTORY_CONTENT_CHARS)
 
 
 def history_to_dicts(
@@ -359,9 +383,24 @@ class ChatMapLayer(BaseModel):
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=2000)
     map_id: str
-    layers: list[ChatMapLayer]
+    layers: list[ChatMapLayer] = Field(..., max_length=_MAX_CHAT_LAYERS)
     language: str | None = None  # e.g. "en", "es", "fr", "de"
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _bound_total_payload(self) -> "ChatRequest":
+        # fix(#1778): layer context is free-form (column_info, sample_values),
+        # so the per-field caps above do not bound it. Size the whole prompt
+        # payload once instead of guessing a cap per nested field.
+        total = _chat_payload_chars(self.message, self.history) + len(
+            json.dumps([layer.model_dump() for layer in self.layers], default=str)
+        )
+        if total > _MAX_CHAT_PAYLOAD_CHARS:
+            raise ValueError(
+                "This chat request is too large. Start a new conversation or "
+                "reduce the number of layers."
+            )
+        return self
 
 
 class DatasetChatRequest(BaseModel):
@@ -375,6 +414,15 @@ class DatasetChatRequest(BaseModel):
     dataset_id: str
     language: str | None = None  # e.g. "en", "es", "fr", "de"
     history: list[ChatHistoryMessage] = Field(default_factory=list, max_length=20)
+
+    @model_validator(mode="after")
+    def _bound_total_payload(self) -> "DatasetChatRequest":
+        # fix(#1778): same bound as ChatRequest; this route carries no layers.
+        if _chat_payload_chars(self.message, self.history) > _MAX_CHAT_PAYLOAD_CHARS:
+            raise ValueError(
+                "This chat request is too large. Start a new conversation."
+            )
+        return self
 
 
 class GeoJSONFeature(BaseModel):

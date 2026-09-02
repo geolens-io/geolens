@@ -50,6 +50,65 @@ def _sanitize_layer_name(name: str | None) -> str:
     return s or "unnamed"
 
 
+# fix(#1778): dataset CONTENT is the other half of the same surface, and it was
+# the unsanitized half. `sample_values` holds up to ten raw `::text` values per
+# column straight out of the data table, and `column_info` names come from the
+# client for a map layer and from an upstream service schema for an ArcGIS/STAC
+# ingest. search_datasets is visibility-filtered but includes other users'
+# PUBLIC datasets, so text an attacker publishes reaches a victim's model
+# context, where the model holds query_data over the victim's own allowlist
+# plus every map-editing tool. The name/title field next to these has been
+# sanitized and tested since the sanitizer was written; the values had nothing.
+#
+# Values get a tighter cap than names: a sample value is illustrative, so
+# truncating one costs the model nothing, while a long one is pure token cost.
+_MAX_DATASET_VALUE_LEN = 120
+
+
+def sanitize_dataset_value(value: object) -> object:
+    """Neutralize one piece of dataset-derived content for a prompt.
+
+    Applies the same control-character and injection-seed scrubbing as
+    :func:`_sanitize_layer_name` with a tighter length cap. Non-string values
+    (numbers, booleans, None) cannot carry an injection and are returned
+    unchanged so the model still sees their real type.
+    """
+    if not isinstance(value, str):
+        return value
+    s = _CONTROL_CHARS.sub("", value)
+    s = _PROMPT_INJECTION_PATTERNS.sub("[redacted] ", s)
+    s = s.strip()
+    if len(s) > _MAX_DATASET_VALUE_LEN:
+        s = s[: _MAX_DATASET_VALUE_LEN - 1] + "…"
+    return s
+
+
+def sanitize_sample_values(sample_values: dict | None) -> dict | None:
+    """Scrub a ``sample_values`` mapping: both the column keys and the values."""
+    if not sample_values:
+        return sample_values
+    scrubbed: dict = {}
+    for col_name, values in sample_values.items():
+        key = str(sanitize_dataset_value(col_name))
+        if isinstance(values, list):
+            scrubbed[key] = [sanitize_dataset_value(v) for v in values]
+        else:
+            scrubbed[key] = sanitize_dataset_value(values)
+    return scrubbed
+
+
+def sanitize_column_info(column_info: list[dict] | None) -> list[dict] | None:
+    """Scrub the name/type strings of a ``column_info`` list."""
+    if not column_info:
+        return column_info
+    return [
+        {k: sanitize_dataset_value(v) for k, v in col.items()}
+        if isinstance(col, dict)
+        else col
+        for col in column_info
+    ]
+
+
 ERROR_MESSAGES = {
     "query_timeout": "Query took too long. Try narrowing your question to fewer features or a smaller area.",
     "query_busy": "Another data query is already running. Wait for it to finish and try again.",

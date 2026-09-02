@@ -11,6 +11,7 @@ from app.processing.ai.chat_constants import (
     QUERY_RESULT_SANITY_PROMPT,
     _sanitize_layer_name,
     lang_name,
+    sanitize_dataset_value,
 )
 from app.processing.ai.schemas import ChatMapLayer
 
@@ -30,8 +31,14 @@ def build_dataset_chat_system_prompt(
     """
     cols_raw = layer.column_info or []
     cols_limited = cols_raw[:_MAX_COLUMNS_PER_LAYER]
+    # fix(#1778): the docstring above already says a record title is
+    # user-controlled text. Sample values are row content and column names come
+    # from an upstream service schema on an ArcGIS/STAC ingest, so they are
+    # user-controlled in exactly the same sense and were the unscrubbed half.
     cols_str = ", ".join(
-        f"{c.get('name', '?')} ({c.get('type', '?')})" for c in cols_limited
+        f"{sanitize_dataset_value(c.get('name', '?'))} "
+        f"({sanitize_dataset_value(c.get('type', '?'))})"
+        for c in cols_limited
     )
     if len(cols_raw) > _MAX_COLUMNS_PER_LAYER:
         cols_str += f" ... and {len(cols_raw) - _MAX_COLUMNS_PER_LAYER} more"
@@ -41,7 +48,9 @@ def build_dataset_chat_system_prompt(
         sample_parts = []
         for col_name, values in list(layer.sample_values.items())[:_MAX_SAMPLE_COLS]:
             vals = values[:5] if isinstance(values, list) else [values]
-            sample_parts.append(f"{col_name}: {vals}")
+            safe_col = sanitize_dataset_value(col_name)
+            safe_vals = [sanitize_dataset_value(v) for v in vals]
+            sample_parts.append(f"{safe_col}: {safe_vals}")
         if sample_parts:
             sample_str = "\nSample values: " + "; ".join(sample_parts)
 

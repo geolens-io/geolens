@@ -13,6 +13,11 @@ from sqlalchemy.orm import joinedload
 
 from collections.abc import AsyncGenerator, Awaitable, Callable
 
+from app.processing.ai.chat_constants import (
+    sanitize_column_info,
+    sanitize_dataset_value,
+    sanitize_sample_values,
+)
 from app.processing.ai.constants import tool_label
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.llm_loop import (
@@ -31,7 +36,10 @@ from typing import TYPE_CHECKING
 
 from app.core.geo import extent_to_bbox, merge_bboxes, wrap_longitude
 from app.core.identity import Identity
-from app.processing.ai.token_usage import record_token_usage
+from app.processing.ai.token_usage import (
+    record_token_usage,
+    record_token_usage_from_error,
+)
 
 if TYPE_CHECKING:
     from app.core.processing_port import ProcessingPort
@@ -274,19 +282,28 @@ async def _execute_search_tool(
                 sample[k] = v[:5] if isinstance(v, list) else v
             sample = sample or None
 
+        # fix(#1778): search is visibility-filtered but includes other users'
+        # PUBLIC datasets, so this is the cross-user path — text an attacker
+        # publishes lands in a victim's model context, where the model holds
+        # query_data over the victim's own allowlist and every editing tool.
+        # Titles and summaries go through the same scrubbing as the content.
         results.append(
             {
                 "id": str(ds.id),
-                "title": ds.record.title,
-                "summary": ds.record.summary,
+                "title": sanitize_dataset_value(ds.record.title),
+                "summary": sanitize_dataset_value(ds.record.summary),
                 "geometry_type": ds.geometry_type,
-                "keywords": [kw.keyword for kw in ds.record.keywords]
+                "keywords": [
+                    sanitize_dataset_value(kw.keyword) for kw in ds.record.keywords
+                ]
                 if ds.record.keywords
                 else None,
                 "extent_bbox": port.extract_bbox(ds),
                 "feature_count": ds.feature_count,
-                "column_info": ds.column_info[:20] if ds.column_info else None,
-                "sample_values": sample,
+                "column_info": sanitize_column_info(
+                    ds.column_info[:20] if ds.column_info else None
+                ),
+                "sample_values": sanitize_sample_values(sample),
             }
         )
 
@@ -340,13 +357,15 @@ async def _execute_get_dataset_details(
             sample[k] = v[:5] if isinstance(v, list) else v
         sample = sample or None
 
+    # fix(#1778): same trust boundary as _execute_search_tool above — this tool
+    # reads any dataset the caller can see, including other users' public ones.
     return {
         "id": str(ds.id),
-        "title": ds.record.title,
+        "title": sanitize_dataset_value(ds.record.title),
         "geometry_type": ds.geometry_type,
         "feature_count": ds.feature_count,
-        "column_info": column_info,
-        "sample_values": sample,
+        "column_info": sanitize_column_info(column_info),
+        "sample_values": sanitize_sample_values(sample),
     }
 
 
@@ -744,10 +763,18 @@ async def generate_map_from_prompt(
             max_tokens=1024,
             max_rounds=8,
         )
-    except ToolLoopExhaustedError:
-        raise ValueError(
-            "Map generation required too many steps. Try a simpler prompt."
+    except Exception as exc:  # broad: any provider failure may still have spent tokens
+        # fix(#1778): record what the loop had already spent before turning an
+        # exhaustion into the user-facing message below. No-op when the failure
+        # carries no counts.
+        await record_token_usage_from_error(
+            session, exc, user_id=user.id, subsystem="map_generation", model=model
         )
+        if isinstance(exc, ToolLoopExhaustedError):
+            raise ValueError(
+                "Map generation required too many steps. Try a simpler prompt."
+            ) from exc
+        raise
 
     logger.info(
         "Map generation complete",
@@ -852,20 +879,34 @@ async def stream_generate_map(
             )
             return result
 
-        result = await asyncio.wait_for(
-            provider_ext.complete(
-                model=model,
-                system_prompt=system_prompt,
-                user_message=prompt,
-                tools=ANTHROPIC_TOOLS,
-                tool_executor=tracking_executor,
-                base_url=runtime_config.get("base_url"),
-                temperature=0.3,
-                max_tokens=1024,
-                max_rounds=8,
-            ),
-            timeout=300.0,  # 5-minute hard cap on LLM tool loop
-        )
+        try:
+            result = await asyncio.wait_for(
+                provider_ext.complete(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_message=prompt,
+                    tools=ANTHROPIC_TOOLS,
+                    tool_executor=tracking_executor,
+                    base_url=runtime_config.get("base_url"),
+                    temperature=0.3,
+                    max_tokens=1024,
+                    max_rounds=8,
+                ),
+                timeout=300.0,  # 5-minute hard cap on LLM tool loop
+            )
+        except (
+            Exception
+        ) as exc:  # broad: any provider failure may still have spent tokens
+            # fix(#1778): this generator's own handlers below turn an
+            # exhaustion or a timeout into an SSE error event and return, so
+            # without this the provider had already billed the round and
+            # nothing reached catalog.ai_token_usage. The 300 s wait_for
+            # cancels the loop and cannot recover its counts; the provider's
+            # own 90 s wall clock fires first in practice and does carry them.
+            await record_token_usage_from_error(
+                session, exc, user_id=user.id, subsystem="map_generation", model=model
+            )
+            raise
 
         logger.info(
             "Map generation complete (streaming)",
@@ -947,5 +988,18 @@ async def stream_generate_map(
             "message": "Map generation timed out. Try a simpler prompt.",
         }
     except Exception as e:  # broad: SSE generator must yield error event for any unhandled SDK/runtime exception
+        # fix(#1778): `str(e)` used to go straight to the browser. A SQLAlchemy
+        # ProgrammingError carries the statement and its bound parameters, an
+        # anthropic/openai APIStatusError carries the provider response body and
+        # request URL, and OpenAICredentialDestinationError names the configured
+        # endpoint. This generator catches before the router's own sanitized
+        # event, so all of that reached any holder of use_ai_chat. Mirror
+        # stream_chat_edit: a fixed message, with the detail kept in the log.
+        # ValueError is the type this pipeline raises for its deliberate
+        # user-facing messages (the map-spec repair failure), so it still passes
+        # through.
         logger.exception("Streaming map generation failed")
-        yield {"type": "error", "message": str(e)}
+        error_msg = "An unexpected error occurred. Please try again."
+        if isinstance(e, ValueError):
+            error_msg = str(e)
+        yield {"type": "error", "message": error_msg}

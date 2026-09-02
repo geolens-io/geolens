@@ -136,7 +136,35 @@ async def noop_tool_executor(name: str, args: dict) -> dict:
 
 
 class ToolLoopExhaustedError(Exception):
-    """Raised when the tool-calling loop exceeds the maximum number of rounds."""
+    """Raised when the tool-calling loop exceeds the maximum number of rounds.
+
+    fix(#1778): carries the tokens the loop had already spent. The blocking
+    loop accumulated per-round counts and threw them away on every failure
+    exit, so its most expensive requests -- the ones that ran all eight rounds,
+    blew MAX_REQUEST_TOKEN_BUDGET, or hit the wall clock -- were billed by the
+    provider and contributed nothing to ``catalog.ai_token_usage``.
+    MAX_AI_TOKENS_PER_USER_PER_DAY is enforced by SUMming that table, so a
+    caller who could reliably drive the loop to exhaustion kept a recorded
+    balance of zero while spending real money. fix(#402) closed the same class
+    for the streaming path by recording each round as it completed; the
+    blocking loop took #448's budget guards and never the accounting.
+
+    The counts ride here rather than on a new ``complete()`` parameter because
+    that signature is an extension Protocol: adding a keyword to it forces an
+    EXTENSION_API_VERSION bump on every overlay, which is a far larger change
+    than the accounting it would carry.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+    ) -> None:
+        super().__init__(message)
+        self.input_tokens = input_tokens
+        self.output_tokens = output_tokens
 
 
 def add_tool_cache_control(tools: list[dict]) -> list[dict]:

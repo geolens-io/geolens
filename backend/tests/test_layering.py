@@ -1514,7 +1514,12 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # set_filter after a query_data result that reads as a simple row
         # predicate) plus the doc/comment explaining why it is gated and why
         # it lives here rather than in tools.py. Cap raised 456 -> 485, exact.
-        "backend/app/processing/ai/chat_service.py": 485,
+        # fix(#1778): +28 - the provider call is wrapped so a tool loop that
+        # exhausts still records what it spent, and the layer block in the
+        # system prompt now scrubs column names and sample values and is fenced
+        # in an explicit trust boundary the model is told to read as data.
+        # Cap 485 -> 513, exact.
+        "backend/app/processing/ai/chat_service.py": 513,
         # fix(#836): defaults.py is the facade over the extensions-defaults
         # split (defaults_*.py sub-modules discovered below). Pure re-exports —
         # a new Default* class costs a few lines here.
@@ -1862,7 +1867,13 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # was split into the new chat_analysis.py sibling (auto-discovered by the
         # chat_*.py glob below, ~142 lines under the 350 default) rather than
         # grown here. Cap 530 → 550 (~14 headroom).
-        "backend/app/processing/ai/chat_actions.py": 550,
+        # fix(#1778): +31 - the _SANDBOX_BOUNDS table and the comment
+        # enumerating what query_data now passes to the sandbox and, for the
+        # statement timeout and the output-amplification denylist, why it
+        # deliberately does not. Both surfaces sit behind the same
+        # use_ai_chat permission, so the omissions were opt-out by asking the
+        # chatbot. Cap 550 -> 581, exact.
+        "backend/app/processing/ai/chat_actions.py": 581,
         # feat(#1241): +18 over the 350 default — _safe_value now emits
         # integers outside JavaScript's safe range as strings (constant, the
         # int branch, and the docstring explaining why), so a bigint id
@@ -1887,7 +1898,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # bare **kwargs shim, so a missing keyword surfaces at the port
         # boundary rather than inside _stream_openai_chat. Cap 444 -> 492,
         # exact.
-        "backend/app/platform/extensions/defaults_ai_openai.py": 492,
+        # fix(#1778): +10 - each of the three ToolLoopExhaustedError raise
+        # sites now carries the running token totals, so the caller can bill an
+        # exhausted loop to the daily cap instead of losing it. Cap 492 -> 502,
+        # exact.
+        "backend/app/platform/extensions/defaults_ai_openai.py": 502,
         # fix(#1207): +15 — three delegations for the shared presigned-completion
         # helpers (lock/assemble-check/finalize) the reupload door reaches through
         # the port. Three lines each, matching the existing entries.
@@ -4481,6 +4496,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # reopen it. The rest is the TokenError note at the parse site. Cap
     # 1871 -> 1934, exact.
     "backend/app/platform/sandbox/validator.py": 1934,
+    # fix(#1778): crossed the 1000-line inclusion threshold, so it joins
+    # the ratchet at its exact size. The growth is the token accounting on
+    # the two map-generation failure exits (an exhausted or timed-out loop
+    # is billed by the provider and used to record nothing), the fixed
+    # error message replacing raw exception text in the SSE stream, and the
+    # scrubbing of dataset content in the two catalog tool results.
+    "backend/app/processing/ai/service.py": 1005,
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration

@@ -110,10 +110,16 @@ class DefaultAnthropicProvider:
 
         for round_num in range(max_rounds):
             if time.monotonic() > deadline:
-                raise ToolLoopExhaustedError("LLM tool loop exceeded wall-clock budget")
+                raise ToolLoopExhaustedError(
+                    "LLM tool loop exceeded wall-clock budget",
+                    input_tokens=total_input,
+                    output_tokens=total_output,
+                )
             if total_input + total_output > MAX_REQUEST_TOKEN_BUDGET:
                 raise ToolLoopExhaustedError(
-                    "LLM tool loop exceeded request token budget"
+                    "LLM tool loop exceeded request token budget",
+                    input_tokens=total_input,
+                    output_tokens=total_output,
                 )
             # Anthropic API rejects `tools=[]` with 400 BadRequestError
             # ("tools: must have at least 1 item"). Omit the kwarg entirely
@@ -196,7 +202,11 @@ class DefaultAnthropicProvider:
                 output_tokens=total_output,
             )
 
-        raise ToolLoopExhaustedError("Max tool rounds exceeded without final response")
+        raise ToolLoopExhaustedError(
+            "Max tool rounds exceeded without final response",
+            input_tokens=total_input,
+            output_tokens=total_output,
+        )
 
     # fix(#1590): explicit keyword-only signature instead of a bare
     # **kwargs shim, matching AIProviderExtension.stream exactly.

@@ -88,3 +88,38 @@ async def record_token_usage(
             await session.commit()
     except Exception:  # broad: token-usage record is best-effort accounting; must not break LLM caller flow
         logger.debug("Failed to record token usage", exc_info=True)
+
+
+async def record_token_usage_from_error(
+    _db: AsyncSession,
+    exc: BaseException,
+    *,
+    user_id: uuid.UUID | None,
+    subsystem: str,
+    model: str | None,
+) -> None:
+    """Persist what a failed tool loop had already spent (fix(#1778)).
+
+    Reads the counts ``attach_token_usage`` stamped onto the exception. Does
+    nothing when they are absent or zero, so a failure that never reached the
+    provider writes no row. Uses ``getattr`` rather than importing the loop
+    helpers, which keeps this module free of a processing/ai import cycle.
+    """
+    input_tokens = int(getattr(exc, "input_tokens", 0) or 0)
+    output_tokens = int(getattr(exc, "output_tokens", 0) or 0)
+    if not input_tokens and not output_tokens:
+        return
+    logger.info(
+        "Recording token usage from a failed LLM tool loop",
+        subsystem=subsystem,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+    await record_token_usage(
+        _db,
+        user_id=user_id,
+        subsystem=subsystem,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )

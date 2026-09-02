@@ -32,6 +32,7 @@ from app.processing.ai.chat_geojson import (
     strip_geometry_columns,
 )
 from app.processing.ai.colors import is_css_colorish, label_halo_color
+from app.processing.ai import sandbox_bounds
 from app.processing.ai.chat_styles import _build_data_driven_style
 from app.processing.ai.schemas import (
     ChatMapLayer,
@@ -55,6 +56,43 @@ _DEFAULT_LABEL_TEXT_COLOR = "#333333"
 # large polygon/line layer doesn't transfer up to 1000 full geometries just to
 # discard all but these.
 _OVERLAY_ROW_BUDGET = 50
+
+# fix(#1778): query_data reaches the same validator and executor as
+# POST /api/query/, behind the SAME `use_ai_chat` permission, but every bound
+# feat(#565) installed was passed only by that endpoint. Asking the chatbot
+# skipped all of them. These are the ones that protect a shared resource or
+# cost nothing in answer quality, applied at all three call sites below (the
+# first attempt, the geometry-append fallback, and the count recovery):
+#
+#   capacity_semaphore  the ONE pool-derived slot pool, shared with the raw
+#                       endpoint. Chat had only the per-user advisory lock,
+#                       which does nothing against N distinct users.
+#   max_table_repeats   the self-join fan-out cap. `FROM data.foo a, data.foo b,
+#                       data.foo c` is a cardinality bomb the outer LIMIT does
+#                       not bound, and a model can be talked into writing one.
+#   max_values_rows     a large inline VALUES relation cross-joined a few times.
+#   max_output_columns  repeated projections widening a row without any
+#                       function involved.
+#   require_reader_role fail closed when `SET LOCAL ROLE geolens_reader` cannot
+#                       be bound. Without it, LLM-authored SQL ran under the
+#                       application login on a deployment missing the role
+#                       while operator-authored SQL failed closed, which is the
+#                       trust ordering backwards.
+#
+# Two of the raw endpoint's bounds are deliberately NOT here, and the reason is
+# quality rather than cost. Its 5 s statement timeout is half chat's, and a
+# spatial join a person would wait 8 s for is a normal chat answer. Its
+# `extra_blocked_functions` set drops `replace`/`regexp_replace`/`format`,
+# which model-written SQL uses for ordinary string cleanup. Both surfaces stay
+# bounded either way: one advisory lock per user, the shared semaphore above,
+# the row limit, and the statement timeout.
+_SANDBOX_BOUNDS: dict = {
+    "capacity_semaphore": sandbox_bounds.query_slots,
+    "max_table_repeats": sandbox_bounds.MAX_TABLE_REPEATS,
+    "max_values_rows": sandbox_bounds.MAX_VALUES_ROWS,
+    "max_output_columns": sandbox_bounds.MAX_OUTPUT_COLUMNS,
+    "require_reader_role": True,
+}
 
 # fix(#560): matches a Postgres undefined-column clause and captures the column
 # reference. Unqualified misses are quoted (`column "geom_4326" does not
@@ -205,7 +243,7 @@ async def _handle_query_data(
     # then reflects the rendered budget with the truncated flag signalling more
     # rows exist. Queries where the model selected geometry itself keep the
     # default limit (pre-existing behavior, out of this rewrite's scope).
-    exec_kwargs: dict = {"restrict_tables": restrict_tables}
+    exec_kwargs: dict = {"restrict_tables": restrict_tables, **_SANDBOX_BOUNDS}
     if geom_appended:
         exec_kwargs["row_limit"] = _OVERLAY_ROW_BUDGET
     try:
@@ -233,7 +271,7 @@ async def _handle_query_data(
         sql = original_sql
         try:
             result = await chat_service.validate_and_execute(
-                sql, session, user, restrict_tables=restrict_tables
+                sql, session, user, restrict_tables=restrict_tables, **_SANDBOX_BOUNDS
             )
         except SandboxError as retry_err:
             # fix(#560): the model also referenced geom_4326 in the original
@@ -258,6 +296,7 @@ async def _handle_query_data(
                 user,
                 row_limit=1,
                 restrict_tables=restrict_tables,
+                **_SANDBOX_BOUNDS,
             )
             result = result.model_copy(update={"row_count": int(count_res.rows[0][0])})
         except Exception:  # broad: count recovery is best-effort, never fail the query

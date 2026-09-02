@@ -2862,6 +2862,7 @@
             "type": "string"
           },
           "content": {
+            "maxLength": 20000,
             "title": "Content",
             "type": "string"
           }
@@ -3046,6 +3047,7 @@
             "items": {
               "$ref": "#/components/schemas/ChatMapLayer"
             },
+            "maxItems": 50,
             "title": "Layers",
             "type": "array"
           },

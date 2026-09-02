@@ -18,6 +18,7 @@ from app.platform.analysis_sql import MAX_BUFFER_METERS
 from app.platform.cache import tenant_cache_key
 from app.platform.extensions import get_ai_provider
 from app.processing.ai.buffer_marker import expand_buffer_markers
+from app.processing.ai.chat_constants import sanitize_dataset_value
 from app.processing.ai.llm_loop import noop_tool_executor
 from app.processing.ai.schemas import ChatMapLayer
 from app.processing.ai.token_usage import record_token_usage
@@ -135,7 +136,13 @@ def build_sql_schema_context(
             sample_lines = []
             for col_name, values in list(layer.sample_values.items())[:5]:
                 vals = values[:5] if isinstance(values, list) else [values]
-                sample_lines.append(f"-- Sample {col_name}: {vals}")
+                # fix(#1778): raw row content reaching the SQL-generation
+                # prompt. A newline in a sample value would also end this `--`
+                # comment and let the rest of the value read as DDL, which the
+                # control-character strip closes along with the injection seeds.
+                safe_col = sanitize_dataset_value(col_name)
+                safe_vals = [sanitize_dataset_value(v) for v in vals]
+                sample_lines.append(f"-- Sample {safe_col}: {safe_vals}")
             if sample_lines:
                 sample_comments = "\n" + "\n".join(sample_lines)
 
