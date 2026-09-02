@@ -461,16 +461,28 @@ export function useLayerMapSync(
 
       if (!applyFn) return;
       const map = mapInstanceRef.current;
-      if (!map || !map.isStyleLoaded()) return;
+      if (!map) return;
       // For the map side-effect we re-apply updater to the ref snapshot: the
       // map call is idempotent and the stale-ref issue only affects React state
       // composition, not the live-map sync. This keeps the applyFn signature
       // stable (it receives the just-computed updated layer, not a stale one).
       const { layer: normalized, exclusions } = normalize(existing, updater(existing));
-      // A key that merely stopped being present cannot be expressed in a paint object,
-      // so the removal needs an explicit undefined write before the adapter repaint.
-      if (exclusions) clearExcludedPaintOnMap(map, layerId, exclusions);
-      applyFn(map, normalized);
+      const writeToMap = (target: MaplibreMap) => {
+        // A key that merely stopped being present cannot be expressed in a paint object,
+        // so the removal needs an explicit undefined write before the adapter repaint.
+        if (exclusions) clearExcludedPaintOnMap(target, layerId, exclusions);
+        applyFn(target, normalized);
+      };
+      // fix(#1778): React state is already committed above, so dropping the map
+      // write here left the two permanently out of step for anything
+      // syncLayersToMap does not re-apply, and generic LAYOUT is exactly that
+      // class, since only handleLayoutChange ever writes it. Retry on idle,
+      // matching BuilderMap's sync effect and use-render-mode-layers.
+      if (!map.isStyleLoaded()) {
+        map.once?.('idle', () => writeToMap(map));
+        return;
+      }
+      writeToMap(map);
     },
     [setLocalLayers, setHasUnsavedChanges, mapInstanceRef],
   );
@@ -673,6 +685,13 @@ export function useLayerMapSync(
     [applyLayerUpdate, mvtSourceLayerPrefix],
   );
 
+  // fix(#1778): this is the SOLE writer of generic layout on a live layer, by
+  // design rather than by accident. syncLayersToMap re-applies paint, filter and
+  // the private _minzoom/_maxzoom keys on every state change, but never a
+  // layer's `layout` block, and only the line/symbol/cluster/mixed adapters
+  // touch layout at all. The clear-removed-props loop below is likewise the only
+  // code anywhere that unsets a layout key. Anything that changes a layer's
+  // layout must therefore route through here, or the map keeps the old value.
   const handleLayoutChange = useCallback(
     (layerId: string, newLayout: Record<string, unknown>) => {
       const prevLayout = (layersRef.current.find((l) => l.id === layerId)?.layout ?? {}) as Record<string, unknown>;
