@@ -407,6 +407,46 @@ async def test_collection_items_pagination(
 
 
 @pytest.mark.anyio
+async def test_pagination_links_preserve_include_geometry_false(
+    client: AsyncClient, public_dataset: Dataset
+):
+    """fix(#1778): include_geometry=false must survive into the self and
+    next pagination links.
+
+    include_geometry is excluded from property_filters (it's in
+    ogc_reserved) and, before the fix, was never added to active_params
+    either -- so a client opting out of geometry on page 1 silently got it
+    back on page 2 via the rel=next link this endpoint builds.
+    """
+    resp1 = await client.get(
+        f"/collections/{public_dataset.id}/items",
+        params={"limit": 2, "include_geometry": "false"},
+    )
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert all(f["geometry"] is None for f in data1["features"])
+
+    self_link = next((link for link in data1["links"] if link["rel"] == "self"), None)
+    assert self_link is not None
+    assert "include_geometry=false" in self_link["href"]
+
+    next_link = next((link for link in data1["links"] if link["rel"] == "next"), None)
+    assert next_link is not None, "Missing 'next' pagination link"
+    assert "include_geometry=false" in next_link["href"]
+
+    # Follow it: page 2 must still honor the opt-out, not just advertise it.
+    from urllib.parse import urlparse
+
+    parsed = urlparse(next_link["href"])
+    path_and_query = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+    resp2 = await client.get(path_and_query)
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["features"], "expected page 2 to have features"
+    assert all(f["geometry"] is None for f in data2["features"])
+
+
+@pytest.mark.anyio
 async def test_collection_items_invalid_bbox(
     client: AsyncClient, public_dataset: Dataset
 ):

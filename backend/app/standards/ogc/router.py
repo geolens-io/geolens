@@ -882,6 +882,13 @@ async def get_collection_items(
         active_params["bbox"] = bbox
     if datetime_param:
         active_params["datetime"] = datetime_param
+    # fix(#1778): include_geometry is excluded from property_filters (it is
+    # listed in ogc_reserved) and was never added here either, so a client
+    # that opted out of geometry on page 1 got it back on page 2 via the
+    # rel=next link this block builds, and the self link stopped describing
+    # the request that produced the response.
+    if not include_geometry:
+        active_params["include_geometry"] = "false"
     if filter_expr is not None:
         active_params["filter"] = filter_expr
         if filter_lang != "cql2-text":
