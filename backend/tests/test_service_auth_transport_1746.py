@@ -36,6 +36,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
+from dataclasses import replace
+
 from app.core.service_tokens import (
     CredentialMethod,
     ServiceCredential,
@@ -43,6 +45,7 @@ from app.core.service_tokens import (
 )
 from app.modules.catalog.sources import preview as preview_mod
 from app.modules.catalog.sources.adapters import arcgis as arcgis_mod
+from app.modules.catalog.sources.adapters import ogcapi as ogcapi_mod
 from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
 from app.modules.catalog.sources.adapters.wfs import probe_wfs
 from app.platform import security
@@ -1022,3 +1025,182 @@ class TestALegacyQueuedTokenStillImports:
         assert "build_credential_header(" in source
         assert "credential_header_line(" in source
         assert "Bearer" not in source
+
+
+# ---------------------------------------------------------------------------
+# A link the DOCUMENT chose is not a redirect, and nothing else guards it
+# ---------------------------------------------------------------------------
+
+
+_SERVICE_ORIGIN = "https://service.example"
+_OTHER_ORIGIN = "https://elsewhere.example"
+
+
+class TestTheConformanceLinkStaysOnTheServiceOrigin:
+    """fix(#1746 B2b review r5): the second way a credential leaves its origin.
+
+    `make_safe_client` refuses a cross-origin REDIRECT, and that covers every
+    hop httpx follows. It cannot cover this one: when an OGC API landing page
+    omits `conformsTo`, the adapter follows the `conformance` link the document
+    named, and that is a fresh request. A landing page that points its
+    conformance link at another origin would have been handed the credential
+    built for the service.
+
+    The rule is the same one, asked by the adapter instead of by the hook, and
+    it uses the same `same_origin` definition so the two cannot drift.
+    """
+
+    def _landing(self, conformance_href: str) -> dict:
+        """A landing page with no `conformsTo`, so the link must be followed."""
+        return {
+            "links": [
+                {"rel": "data", "href": f"{_SERVICE_ORIGIN}/oapif/collections"},
+                {"rel": "conformance", "href": conformance_href},
+            ]
+        }
+
+    async def _probe(self, monkeypatch, credential, conformance_href, *, blocked=()):
+        recorded: list[httpx.Request] = []
+        landing = self._landing(conformance_href)
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            if request.url.path.endswith("/collections"):
+                return httpx.Response(200, json={"collections": [{"id": "parcels"}]})
+            if "conformance" in request.url.path:
+                return httpx.Response(
+                    200,
+                    json={
+                        "conformsTo": [
+                            "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                        ]
+                    },
+                )
+            return httpx.Response(200, json=landing)
+
+        async def _validate(target: str) -> None:
+            # The real validator has its own suite; what matters here is that
+            # this adapter asks it BEFORE the fetch and honours the refusal.
+            if any(target.startswith(prefix) for prefix in blocked):
+                raise SSRFError("blocked")
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            _validate,
+        )
+
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(
+                f"{_SERVICE_ORIGIN}/oapif", client, credential=credential
+            )
+        return recorded, result
+
+    async def test_a_cross_origin_link_is_not_followed_with_a_credential(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            f"{_OTHER_ORIGIN}/conformance",
+        )
+
+        # Not a single request reached the other origin, so the key could not
+        # have been disclosed to it.
+        assert all(str(r.url).startswith(_SERVICE_ORIGIN) for r in recorded), recorded
+        assert not [r for r in recorded if "conformance" in r.url.path]
+        # And the credential still goes to the service itself, so this is a
+        # refusal to follow one link and not a probe quietly stripped of its
+        # credential.
+        assert [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        # The service is still classified, by its `data` link, exactly as a
+        # landing page advertising no conformance link at all would be.
+        assert result is not None
+        assert result["service_type"] == "OGC API Features"
+
+    async def test_a_same_origin_link_keeps_the_credential(self, monkeypatch) -> None:
+        """The ordinary shape, which must keep working.
+
+        A service that publishes its conformance document under its own origin
+        and requires a credential for it is the case this whole path exists
+        for.
+        """
+        credential, value = _header_key()
+        recorded, result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            f"{_SERVICE_ORIGIN}/oapif/conformance",
+        )
+
+        conformance = [r for r in recorded if "conformance" in r.url.path]
+        assert len(conformance) == 1
+        assert conformance[0].headers.get("X-Api-Key") == value
+        assert result is not None
+
+    async def test_a_default_port_spelling_is_the_same_origin(
+        self, monkeypatch
+    ) -> None:
+        """`https://host` and `https://host:443` are one origin, not two.
+
+        Comparing the port as written would refuse a real service over a
+        spelling difference, which is the failure `same_origin` fills the
+        default port to avoid.
+        """
+        credential, value = _header_key()
+        recorded, _result = await self._probe(
+            monkeypatch,
+            replace(credential, service_format="ogcapi_features"),
+            "https://service.example:443/oapif/conformance",
+        )
+
+        conformance = [r for r in recorded if "conformance" in r.url.path]
+        assert len(conformance) == 1
+        assert conformance[0].headers.get("X-Api-Key") == value
+
+    async def test_an_anonymous_probe_still_follows_a_cross_origin_link(
+        self, monkeypatch
+    ) -> None:
+        """The refusal is about the credential, not about the link.
+
+        With nothing to disclose there is nothing to protect, and refusing here
+        would classify fewer public services for no gain. Recorded as a test so
+        the asymmetry is deliberate rather than incidental.
+        """
+        recorded, result = await self._probe(
+            monkeypatch, None, f"{_OTHER_ORIGIN}/conformance"
+        )
+
+        followed = [r for r in recorded if str(r.url).startswith(_OTHER_ORIGIN)]
+        assert len(followed) == 1
+        assert "x-api-key" not in {name.lower() for name in followed[0].headers}
+        assert result is not None
+
+    async def test_a_private_address_link_is_refused_before_any_request(
+        self, monkeypatch
+    ) -> None:
+        """The SSRF gate is in front of this fetch, and its refusal is honoured.
+
+        Driven anonymously on purpose. A private address is a different origin,
+        so a credentialed probe is already refused by the rule above and this
+        gate would never be reached; running it with no credential isolates the
+        gate and proves it is the thing doing the refusing.
+        """
+        recorded, result = await self._probe(
+            monkeypatch,
+            None,
+            "http://127.0.0.1:9/conformance",
+            blocked=("http://127.0.0.1",),
+        )
+
+        assert all("127.0.0.1" not in str(r.url) for r in recorded), recorded
+        assert result is not None
+
+    async def test_the_adapter_asks_the_shared_origin_rule(self) -> None:
+        """One definition of same-origin, shared with the redirect refusal.
+
+        A second one here would drift from the hook's, and the two are meant to
+        answer the same question about the same credential.
+        """
+        source = inspect.getsource(ogcapi_mod._resolve_conformance)
+        assert "same_origin(" in source
+        assert "validate_url_for_ssrf(" in source

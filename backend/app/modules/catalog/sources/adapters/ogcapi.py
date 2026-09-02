@@ -36,7 +36,7 @@ import structlog
 
 from app.core.service_tokens import ServiceCredential, build_credential_header
 from app.modules.catalog.sources.classify import classify_layer_kind
-from app.platform.security import SSRFError, validate_url_for_ssrf
+from app.platform.security import SSRFError, same_origin, validate_url_for_ssrf
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -51,6 +51,8 @@ async def _resolve_conformance(
     client: httpx.AsyncClient,
     headers: dict[str, str],
     data: dict,
+    *,
+    credential_header: str | None,
 ) -> tuple[list[str], bool]:
     """The landing page's conformance classes, and whether it advertises data.
 
@@ -64,6 +66,16 @@ async def _resolve_conformance(
     branch added there pushed that function past ruff's C901 ceiling, and
     extraction is what this repo does about that rather than another
     exemption.
+
+    fix(#1746 B2b review r5): the link is chosen by the RESPONSE DOCUMENT, and
+    following it is a fresh request rather than a redirect, so nothing httpx
+    does protects it: the cross-origin refusal in ``make_safe_client`` runs on
+    a hop, and there is no hop here. A landing page that omits ``conformsTo``
+    and points its conformance link at another origin would therefore have
+    been handed the credential built for the service. It is not followed with
+    one. ``credential_header`` is the name the credential travels under, or
+    None for an anonymous probe, which is the only thing that distinguishes
+    the two cases from in here.
     """
     conforms_to: list[str] = data.get("conformsTo", [])
     if conforms_to:
@@ -88,6 +100,22 @@ async def _resolve_conformance(
         return conforms_to, has_data_link
 
     abs_href = urljoin(url, conformance_href)
+    if credential_header is not None and not same_origin(url, abs_href):
+        # The same rule the redirect refusal applies, for a link the document
+        # chose rather than a Location header. Not followed at all rather than
+        # followed anonymously: an anonymous answer about a service the caller
+        # holds a credential for is evidence about a different request than the
+        # one the import will make, which is the disagreement class this wave
+        # exists to end (plan D6). Conformance stays unestablished and the
+        # `data` link decides, exactly as it does for a landing page that
+        # advertises no conformance link at all.
+        logger.warning(
+            "OGC API probe: conformance link is on another origin, "
+            "not following it with a credential",
+            href=abs_href,
+        )
+        return conforms_to, has_data_link
+
     try:
         await validate_url_for_ssrf(abs_href)
         # The href comes out of an untrusted landing page, so it is revalidated
@@ -138,6 +166,9 @@ async def probe_ogcapi(
     policy constant and carries no part of the credential.
     """
     headers: dict[str, str] = {"Accept": "application/json"}
+    # Bound before the branch, because the conformance fetch below has to know
+    # whether this request carries a credential and under what name.
+    pair: tuple[str, str] | None = None
     if credential is not None:
         try:
             pair = build_credential_header(
@@ -171,7 +202,13 @@ async def probe_ogcapi(
         return None
 
     # Step 2: Resolve conformsTo — may be at landing page level or at /conformance
-    conforms_to, has_data_link = await _resolve_conformance(url, client, headers, data)
+    conforms_to, has_data_link = await _resolve_conformance(
+        url,
+        client,
+        headers,
+        data,
+        credential_header=None if pair is None else pair[0],
+    )
     if not conforms_to and not has_data_link:
         return None
 
