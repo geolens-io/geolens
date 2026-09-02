@@ -199,6 +199,16 @@ export async function getJobStatusByDataset(
   });
 }
 
+// fix(#1778): the request-scoped preview handler runs run_ogrinfo_preview,
+// bounded at OGRINFO_TIMEOUT_SECONDS = 300s server-side, with a JSON-decode
+// fallback that can spawn ogrinfo twice more at 300s each — worst case
+// exceeds even nginx's own 600s `location /api/` read timeout. apiFetch's
+// 30s default aborted the request client-side long before either deadline,
+// wasting the server-side work with nothing observing the abort. Match
+// URL_IMPORT_TIMEOUT_MS's reasoning: deliberately outlive the proxy so
+// whichever end fails first reaches the form as a real verdict.
+const PREVIEW_TIMEOUT_MS = 630_000;
+
 export async function previewFile(jobId: string, layerName?: string): Promise<FilePreviewResponse> {
   const url = layerName
     ? `/ingest/preview/${jobId}?layer_name=${encodeURIComponent(layerName)}`
@@ -206,6 +216,7 @@ export async function previewFile(jobId: string, layerName?: string): Promise<Fi
   try {
     return await apiFetch<FilePreviewResponse>(url, {
       method: 'POST',
+      timeoutMs: PREVIEW_TIMEOUT_MS,
     });
   } catch (err) {
     // Detection/preview also runs outside any TanStack mutation (UploadForm
@@ -266,12 +277,18 @@ export async function probeService(url: string, token?: string): Promise<ProbeRe
   });
 }
 
+// fix(#1778): a WFS namespace mismatch makes run_service_preview run TWICE
+// server-side (initial attempt, then a retry) at 30s each — a 60s worst
+// case past apiFetch's 30s default.
+const SERVICE_PREVIEW_TIMEOUT_MS = 90_000;
+
 export async function previewServiceLayer(
   request: ServicePreviewRequest,
 ): Promise<ServicePreviewResponse> {
   return apiFetch<ServicePreviewResponse>('/services/preview/', {
     method: 'POST',
     body: JSON.stringify(request),
+    timeoutMs: SERVICE_PREVIEW_TIMEOUT_MS,
   });
 }
 
