@@ -43,6 +43,7 @@ from app.processing.export.service import (
 )
 from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
+from app.processing.ingest.url_fetch import EDGE_PROXY_READ_TIMEOUT_SECONDS
 from app.standards.ogc.errors import (
     BAD_REQUEST_RESPONSE,
     FORBIDDEN_RESPONSE,
@@ -102,7 +103,7 @@ async def _emit_export_audit(
     db: AsyncSession,
     request: Request,
     *,
-    user: Identity | None,
+    user_id: uuid.UUID | None,
     dataset_id: uuid.UUID,
     format: ExportFormat,
     target_crs: str | None,
@@ -116,6 +117,12 @@ async def _emit_export_audit(
     same row. A cached read is still a download; only HEAD, which transfers
     nothing, stays out of the log.
 
+    fix(#1778): takes the id, not the ``Identity``. The conversion path calls
+    this after the session has been rolled back to release its pooled
+    connection, and the request's ``user`` is a live ORM instance on that
+    session, so reading ``user.id`` here would be an expired-attribute
+    refresh from a context with no greenlet.
+
     ``details.range`` distinguishes a tile-sized read from a full download when
     the log is read back. A range-probing client emits a row per read, which is
     a deliberate volume cost taken because the alternative is an audit blind
@@ -125,7 +132,7 @@ async def _emit_export_audit(
     await audit_emit(
         db,
         AuditEvent(
-            user_id=user.id if user is not None else None,
+            user_id=user_id,
             action="dataset.export",
             resource_type="dataset",
             resource_id=dataset_id,
@@ -345,6 +352,34 @@ async def export_dataset_endpoint(
     filtering, and attribute filtering. GeoParquet is always emitted in
     EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
     """
+    # fix(#1778 codex r1): the request's own clock. Everything this handler
+    # does between here and the conversion spends part of the edge proxy's
+    # window, so the conversion's bound has to be what is LEFT of it rather
+    # than an allowance computed from scratch. An unindexed
+    # `_count_selected_features` scan, or a parquet plan over a wide table,
+    # can eat a minute here; a warm cold path costs milliseconds, and the
+    # conversion should get that time back.
+    #
+    # fix(#1778 codex r2): read from where the REQUEST started, not from where
+    # this function did. FastAPI resolves `Depends(get_optional_user)` before
+    # the body runs, and that dependency's session checkout can block for up
+    # to `db_pool_timeout` under an exhausted pool. A clock started here would
+    # not see that wait, so an export that spent its whole calculated
+    # allowance could still land after nginx had given up, by the length of
+    # the wait. RequestLoggingMiddleware stamps the entry moment on the scope
+    # state for exactly this.
+    #
+    # The fallback is for a caller that reaches this handler with no such
+    # stamp (a direct unit call, a test app assembled without the middleware),
+    # where by construction nothing has been spent yet.
+    #
+    # Monotonic, not wall clock: a clock step (NTP, a suspend) must not shorten
+    # or extend a running export.
+    request_started = getattr(request.state, "started_at_monotonic", None)
+    if request_started is None:
+        request_started = time.monotonic()
+    request_deadline = request_started + EDGE_PROXY_READ_TIMEOUT_SECONDS
+
     port = get_processing_port()
     data_schema = tenant_data_schema(current_tenant_var.get())
     # 1. Fetch dataset
@@ -397,6 +432,12 @@ async def export_dataset_endpoint(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Missing permission: export",
             )
+
+    # fix(#1778): read once, here, while the session that loaded it is still in
+    # a transaction. `user` is the concrete User ORM instance on this request's
+    # session, and the release below expires it along with every other
+    # instance.
+    user_id = user.id if user is not None else None
 
     # 3. Parse bbox
     from app.modules.catalog.features.service import parse_bbox
@@ -585,7 +626,7 @@ async def export_dataset_endpoint(
         await _emit_export_audit(
             db,
             request,
-            user=user,
+            user_id=user_id,
             dataset_id=dataset_id,
             format=format,
             target_crs=target_crs,
@@ -695,6 +736,33 @@ async def export_dataset_endpoint(
                 detail=str(e),
             )
 
+    # 6d-b. fix(#1778): hand the pooled connection back before the conversion.
+    #
+    # `get_db` yields one session for the whole request and nothing released
+    # it, so the `port.get_dataset` above checked a connection out and this
+    # handler then kept it across ogr2ogr, the hash and the object-store
+    # upload. The API process has `db_pool_size` + `db_max_overflow`
+    # connections in total, and export is reachable anonymously for a
+    # public+published dataset, so a handful of concurrent exports could
+    # starve every other request in the process on `pool_timeout`. Same fix
+    # and same reasoning as fix(#1451 codex P1) in processing/tiles/router.py,
+    # which had already recognised the hazard for a query that holds the
+    # connection roughly a thousand times less long. Everything above is
+    # read-only, so the rollback discards nothing.
+    #
+    # Every value the rest of the handler needs is copied out FIRST. A
+    # rollback expires the ORM instances, so an attribute read afterwards
+    # would go back to the database from a context with no greenlet and raise
+    # MissingGreenlet; dropping the name makes that a NameError while the code
+    # is being written rather than a 500 in production.
+    dataset_title = dataset.record.title
+    dataset_table = dataset.table_name
+    dataset_columns = dataset.column_info
+    dataset_has_geometry = dataset.geometry_type is not None
+    dataset_extent = dataset.record.spatial_extent
+    del dataset
+    await db.rollback()
+
     # 6e. HEAD stops here — after every gate that decides the status, before
     # the conversion that decides the bytes. No audit event either: nothing was
     # exported, and a `dataset.export` row for a probe would misreport who
@@ -743,7 +811,7 @@ async def export_dataset_endpoint(
         return not_modified_response(None)
     if request.method == "HEAD":
         # Only the cold case reaches here; a hit returned above.
-        return _head_export_response(dataset.record.title, format)
+        return _head_export_response(dataset_title, format)
 
     # 7. Run export. GeoParquet goes through the pyarrow writer (the Debian GDAL
     # build has no Arrow driver); all other formats use the ogr2ogr path.
@@ -764,8 +832,8 @@ async def export_dataset_endpoint(
             assert parquet_plan is not None  # set by the parquet branch above
             file_path, filename, media_type = await export_parquet(
                 db,
-                dataset.table_name,
-                dataset.record.title,
+                dataset_table,
+                dataset_title,
                 schema=data_schema,
                 plan=parquet_plan,
             )
@@ -786,14 +854,13 @@ async def export_dataset_endpoint(
                 from geoalchemy2.shape import to_shape
 
                 bounds: tuple[float, float, float, float] | None = None
-                ext = dataset.record.spatial_extent
-                if ext is not None:
-                    bounds = to_shape(ext).bounds
+                if dataset_extent is not None:
+                    bounds = to_shape(dataset_extent).bounds
                 pmtiles_maxzoom = pmtiles_maxzoom_for_extent(bounds)
 
             file_path, filename, media_type = await export_dataset(
-                dataset.table_name,
-                dataset.record.title,
+                dataset_table,
+                dataset_title,
                 format,
                 schema=data_schema,
                 target_srs=target_crs,
@@ -802,10 +869,11 @@ async def export_dataset_endpoint(
                 # HAS geometry. csv is the one ogr format a non-spatial dataset
                 # can reach (gate 6 blocks the rest), and -spat was already a
                 # no-op there ("Cannot set spatial filter: no geometry field").
-                bbox=bbox_parsed if dataset.geometry_type is not None else None,
+                bbox=bbox_parsed if dataset_has_geometry else None,
                 where=where,
-                column_info=dataset.column_info,
+                column_info=dataset_columns,
                 pmtiles_maxzoom=pmtiles_maxzoom,
+                deadline=request_deadline,
             )
     except ValueError as e:
         raise HTTPException(
@@ -860,6 +928,15 @@ async def export_dataset_endpoint(
     # a specific tag against no validator is refused rather than guessed — the
     # same call the shared helpers make for a COG row with no stored digest.
     try:
+        # fix(#1778): released again, for the same reason and in the same
+        # shape. The GeoParquet branch streams its rows through this session,
+        # so it checks a connection back out; without this the hash and the
+        # upload below would hold it exactly as the conversion used to. A
+        # no-op on the ogr2ogr branch, which opens no transaction of its own,
+        # and inside this try so a rollback that fails on a dead connection
+        # cleans the conversion directory up rather than stranding it. The
+        # audit row at the end re-acquires.
+        await db.rollback()
         try:
             digest, size = await artifact_cache.digest_and_size(file_path)
         except Exception:  # broad: an unhashable file still downloads
@@ -1021,7 +1098,7 @@ async def export_dataset_endpoint(
         await _emit_export_audit(
             db,
             request,
-            user=user,
+            user_id=user_id,
             dataset_id=dataset_id,
             format=format,
             target_crs=target_crs,

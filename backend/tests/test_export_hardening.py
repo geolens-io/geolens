@@ -255,6 +255,7 @@ def mock_export_service_for_known05(monkeypatch):
         where=None,
         pmtiles_maxzoom=None,
         column_info=None,
+        deadline=None,
     ):
         if format_key not in FORMAT_MAP:
             raise ValueError(f"Unsupported export format: {format_key}")

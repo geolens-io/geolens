@@ -443,6 +443,7 @@ async def export_dataset(
     where: str | None = None,
     column_info: list[dict] | None = None,
     pmtiles_maxzoom: int | None = None,
+    deadline: float | None = None,
 ) -> tuple[str, str, str]:
     """Export a dataset table to a file.
 
@@ -455,6 +456,9 @@ async def export_dataset(
         bbox: Optional bounding box [minx, miny, maxx, maxy] in WGS84.
         where: Optional SQL WHERE expression.
         column_info: Column metadata for where-clause validation.
+        deadline: ``time.monotonic()`` stamp by which the whole request must
+            be answered. Passed straight through to the ogr2ogr subprocess,
+            which reads what is left of it at spawn time (fix #1778).
 
     Returns:
         Tuple of (file_path, download_filename, media_type).
@@ -502,6 +506,7 @@ async def export_dataset(
                 where=where,
                 format_key=format_key,
                 pmtiles_maxzoom=pmtiles_maxzoom,
+                deadline=deadline,
             )
 
             # Zip all export.* files. fix(#435): DEFLATE of a multi-GB shapefile
@@ -529,6 +534,7 @@ async def export_dataset(
             # call is the one that must carry the extent-budgeted cap — the
             # shp branch above can never be pmtiles.
             pmtiles_maxzoom=pmtiles_maxzoom,
+            deadline=deadline,
         )
         if format_key == "gpkg":
             # fix(#1532 review r12): off the event loop, like every other
