@@ -75,11 +75,54 @@ export function looksLikeArcGisServiceUrl(url: string): boolean {
   return /\/(FeatureServer|MapServer)\b/i.test(url);
 }
 
-/** Origin of a service URL, used to prefill the ArcGIS sign-in portal URL. */
+/** Origin of a service URL. */
 export function originOf(url: string): string {
   try {
     return new URL(url).origin;
   } catch {
     return '';
   }
+}
+
+// codex review #1757: the backend treats the sign-in portal field as a
+// portal ROOT and derives /sharing/rest/info and /sharing/rest/generateToken
+// from it (D8's own referer default below matches). The service URL's
+// origin is not that for ArcGIS Online: services6.arcgis.com etc. are
+// feature-service hosts, not portals, so prefilling the service origin
+// presented a host that fails sign-in as though it were a valid default.
+const ARCGIS_ONLINE_PORTAL = 'https://www.arcgis.com';
+
+/**
+ * The best guess at a sign-in portal for a service URL, in three cases:
+ *
+ * - A host under arcgis.com that is not *.maps.arcgis.com (services6.
+ *   arcgis.com, tiles.arcgis.com, and the other ArcGIS Online tile/feature
+ *   hosts) is ArcGIS Online itself, whose portal is www.arcgis.com, not the
+ *   service host. This is also the backend's own D8 referer default
+ *   (arcgis_signin.py, DEFAULT_SIGNIN_REFERER), so it doubles as the value
+ *   generateToken already expects when nothing more specific is known.
+ * - A host already shaped like an org's own portal (*.maps.arcgis.com)
+ *   prefills its own origin; that IS the portal.
+ * - Anything else (an Enterprise deployment's arbitrary hostname) has no
+ *   derivable portal from a /server/rest/services URL. Leaving the field
+ *   empty, with its placeholder, is the honest default: presenting a wrong
+ *   guess as a valid one is worse than presenting none.
+ *
+ * The field stays editable in every case.
+ */
+export function defaultPortalFor(serviceUrl: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(serviceUrl);
+  } catch {
+    return '';
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (host.endsWith('.maps.arcgis.com')) {
+    return parsed.origin;
+  }
+  if (host === 'arcgis.com' || host.endsWith('.arcgis.com')) {
+    return ARCGIS_ONLINE_PORTAL;
+  }
+  return '';
 }

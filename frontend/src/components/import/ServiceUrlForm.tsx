@@ -27,7 +27,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { TypeTag } from './TypeTag';
-import { looksLikeArcGisServiceUrl, originOf } from './utils';
+import { defaultPortalFor, looksLikeArcGisServiceUrl, originOf } from './utils';
 
 type ServiceStep =
   | 'idle'
@@ -237,7 +237,7 @@ export function ServiceUrlForm() {
     setUsername('');
     setPassword('');
     setSigninError(null);
-    setPortalUrl(next === 'signin' ? originOf(url) : '');
+    setPortalUrl(next === 'signin' ? defaultPortalFor(url) : '');
   };
 
   const handleArcgisSignin = async () => {

@@ -37,8 +37,11 @@ test.describe('ArcGIS sign-in on the import wizard', () => {
     await expect(page.getByLabel('Username', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Password', { exact: true })).toBeVisible();
 
-    // Prefilled from the service URL's origin (plan 3.1), and still editable.
-    await expect(page.getByLabel('Portal URL')).toHaveValue('https://services6.arcgis.com');
+    // codex review #1757: services6.arcgis.com is an ArcGIS Online
+    // feature-service host, not a portal, so the prefill is
+    // www.arcgis.com (the backend's own D8 referer default), not the
+    // service URL's own origin. Still editable.
+    await expect(page.getByLabel('Portal URL')).toHaveValue('https://www.arcgis.com');
   });
 
   test('a rejected sign-in leaves the wizard on the same step with the message anchored to the credential block', async ({
