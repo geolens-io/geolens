@@ -4599,7 +4599,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # losing one, so a stale legacy token refused a valid credential. Most of
     # the lines are the comment saying which value is judged where.
     # Cap 1490 -> 1499, exact.
-    "backend/app/processing/ingest/service.py": 1513,
+    # Rebased across #1774: that branch's three raises (1465 -> 1482 -> 1500
+    # -> 1513) and this one's two (1465 -> 1490 -> 1499) are edits to
+    # different parts of the module, so the merged file carries both. Measured
+    # rather than added up. Cap 1513 -> 1547, exact.
+    "backend/app/processing/ingest/service.py": 1547,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.
