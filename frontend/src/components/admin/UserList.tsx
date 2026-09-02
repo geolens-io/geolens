@@ -18,6 +18,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -466,8 +467,8 @@ export function UserList() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2">
-            <label className="text-sm font-medium">{t('users.approveDialog.roleLabel')}</label>
-            <RoleSelect value={approveRole} onChange={setApproveRole} />
+            <Label htmlFor="approve-role">{t('users.approveDialog.roleLabel')}</Label>
+            <RoleSelect id="approve-role" value={approveRole} onChange={setApproveRole} />
           </div>
           {approveUser.error && (
             <p className="text-sm text-destructive">
