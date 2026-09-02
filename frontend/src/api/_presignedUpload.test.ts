@@ -83,13 +83,16 @@ describe('uploadChunks', () => {
     expect(progress).toEqual([4 / 11, 8 / 11, 1]);
   });
 
-  it('falls back to empty string when ETag header is missing', async () => {
+  // fix(#1778): an empty-string ETag used to reach the backend's
+  // complete_multipart_upload, which mapped it to a "session may have
+  // expired" 502 — advice that can never fix a bucket CORS misconfiguration
+  // (ExposeHeaders must list ETag for a cross-origin PUT to expose it at
+  // all). Fail fast instead, naming the real cause.
+  it('throws naming the missing bucket CORS config when ETag header is absent', async () => {
     mockFetch.mockResolvedValueOnce(putResponse(null));
 
     const file = new Blob(['xyz']);
-    const etags = await uploadChunks(['u1'], file, 4);
-
-    expect(etags).toEqual(['']);
+    await expect(uploadChunks(['u1'], file, 4)).rejects.toThrow(/ETag/);
   });
 
   it('stops on the first failing chunk and surfaces its 1-indexed part number', async () => {

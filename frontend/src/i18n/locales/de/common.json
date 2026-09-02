@@ -158,6 +158,7 @@
     "storageUploadFailed": "Das Hochladen in den Speicher ist fehlgeschlagen (HTTP {{status}}).",
     "storageUploadPartFailed": "Das Hochladen von Teil {{part}} ist fehlgeschlagen (HTTP {{status}}).",
     "storageUploadPartRetriesFailed": "Das Hochladen von Teil {{part}} ist nach {{attempts}} Versuchen fehlgeschlagen.",
+    "storageUploadMissingEtag": "Teil {{part}} wurde hochgeladen, aber der Speicher-Bucket hat kein ETag zurückgegeben. Die CORS-Richtlinie des Buckets muss den ETag-Header freigeben.",
     "storageQuotaExceeded": "Speicherkontingent überschritten: {{used}} von {{limit}} Byte belegt (zusätzlich {{adding}} Byte).",
     "datasetQuotaExceeded": "Datensatzkontingent überschritten: {{used}} von {{limit}} Datensätzen belegt.",
     "analysisSourceTooLarge": "Diese Ebene ist für diese Analyse zu groß (Grenzwert: {{limit}} Objekte). Sie muss zuerst auf einen kleineren Datensatz gefiltert werden.",
