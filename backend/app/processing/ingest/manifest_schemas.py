@@ -62,6 +62,15 @@ ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
 # not fetch the source to verify it; see ManifestSource.checksum below and
 # manifest_service._run_entry's skip-complete message for the caveat this
 # implies for a stable URI whose file content changes underneath it.
+#
+# gh#1773 codex r1: the CLI's separate JSON Schema mirror of this pattern
+# needed an explicit minLength/maxLength(71) bound, because Python's `re`
+# (which the CLI's jsonschema validator uses) treats `$` as matching just
+# before a trailing newline, letting a YAML literal-scalar checksum with a
+# trailing newline through. pydantic-core's regex engine anchors `$` to the
+# true end of the string with no such exception, so this pattern alone is
+# not exploitable the same way here; test_rejects_checksum_with_a_trailing_newline
+# in test_manifest_apply_api.py pins that.
 ManifestChecksum = Annotated[
     str,
     Field(

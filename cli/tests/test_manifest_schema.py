@@ -239,6 +239,22 @@ def test_manifest_rejects_malformed_source_checksum(checksum: str) -> None:
     ) in _error_pairs(document)
 
 
+def test_manifest_rejects_source_checksum_with_a_trailing_newline() -> None:
+    """gh#1773 codex r1: Python's `re` treats `$` as matching just before a
+    trailing newline, so `pattern` alone let a YAML literal-scalar checksum
+    (which can carry a trailing newline) through this validator while the
+    backend's Pydantic model correctly rejected it -- geolens validate would
+    report a manifest valid that geolens apply then 422'd. minLength/maxLength
+    close the gap by bounding the true string length, independent of `$`."""
+    document = _minimal_manifest()
+    document["datasets"][0]["sources"][0]["checksum"] = f"sha256:{'a' * 64}\n"
+
+    assert (
+        "$.datasets[0].sources[0].checksum",
+        "maxLength",
+    ) in _error_pairs(document)
+
+
 def test_unknown_top_level_fields_are_rejected() -> None:
     document = _minimal_manifest()
     document["tenant_id"] = "enterprise-only"

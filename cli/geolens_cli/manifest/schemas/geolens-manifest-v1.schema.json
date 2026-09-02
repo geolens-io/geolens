@@ -176,6 +176,8 @@
         },
         "checksum": {
           "type": "string",
+          "minLength": 71,
+          "maxLength": 71,
           "pattern": "^sha256:[0-9a-f]{64}$",
           "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. Bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Mirrors ManifestSource.checksum in backend/app/processing/ingest/manifest_schemas.py; keep the two in step."
         }

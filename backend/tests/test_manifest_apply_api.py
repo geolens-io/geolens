@@ -137,6 +137,22 @@ class TestManifestApplySchemas:
 
         assert "checksum" in str(exc.value)
 
+    def test_rejects_checksum_with_a_trailing_newline(self):
+        """gh#1773 codex r1: pinned in parity with the CLI's JSON Schema test
+        of the same name. Python's `re` module treats `$` as matching just
+        before a trailing newline, which let a YAML literal-scalar checksum
+        (which can carry one) through the CLI's jsonschema-based validator.
+        pydantic-core's regex engine anchors `$` to the true end of the
+        string with no such exception, so this was already rejected here;
+        this test pins that so a future engine swap cannot reintroduce the
+        gap silently.
+        """
+        payload = valid_manifest_payload()
+        payload["datasets"][0]["sources"][0]["checksum"] = f"sha256:{'a' * 64}\n"
+
+        with pytest.raises(ValidationError, match="checksum"):
+            ManifestApplyRequest.model_validate(payload)
+
     @pytest.mark.parametrize(
         ("source_type", "uri", "expected"),
         [
