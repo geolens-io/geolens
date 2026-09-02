@@ -6088,6 +6088,125 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
                     test_db_session, dataset_id=member_ds, record_id=member_rec
                 )
 
+    async def test_a_post_publish_followup_failure_writes_no_failure_row(
+        self, client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+    ) -> None:
+        """fix(#1778 codex r1): the other way into the failure handler.
+
+        The stand-down covers the lost acknowledgement. It cannot cover this:
+        the prior-key reap, `invalidate_catalog_cache` and `defer_embedding`
+        all run inside the same `try` as the publish, so a Valkey outage
+        reaches the handler with the swap already durable. The handler's job
+        and asset writes are fenced; its generation write was not, and
+        `get_vrt_status` reads exactly that row.
+        """
+        from app.processing.ingest.tasks_vrt import regenerate_vrt
+        from app.processing.raster.models import VrtGeneration
+
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_vrt.get_storage",
+            lambda: raster_storage,
+            raising=True,
+        )
+        admin_id = await self._admin(test_db_session)
+        member = await _make_live_raster(
+            test_db_session, raster_storage, created_by=admin_id
+        )
+        parent = await _make_vrt_parent(
+            test_db_session, raster_storage, created_by=admin_id, member=member
+        )
+        ids = (
+            parent.dataset.id,
+            parent.dataset.record_id,
+            member.dataset.id,
+            member.dataset.record_id,
+        )
+        parent_id = parent.dataset.id
+
+        generation_id = uuid.uuid4()
+        job = IngestJob(
+            dataset_id=parent_id,
+            source_filename="regen",
+            created_by=admin_id,
+            status="pending",
+            user_metadata={"vrt_regenerate": True},
+        )
+        test_db_session.add(job)
+        test_db_session.add(
+            VrtGeneration(
+                id=generation_id,
+                vrt_dataset_id=parent_id,
+                status="pending",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+        await test_db_session.execute(
+            text(
+                "UPDATE catalog.raster_assets "
+                "SET current_generation_id = :gen, status = 'regenerating' "
+                "WHERE dataset_id = :id"
+            ),
+            {"gen": generation_id, "id": parent_id},
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        job_id = job.id
+        attempt_id = job.attempt_id
+
+        async def _die(*args, **kwargs):
+            raise RuntimeError("valkey went away right after the swap")
+
+        # The first await after the publish commit that can fail.
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_vrt.invalidate_catalog_cache",
+            _die,
+            raising=True,
+        )
+
+        try:
+            await regenerate_vrt.func(
+                job_id=str(job_id),
+                vrt_dataset_id=str(parent_id),
+                attempt_id=str(attempt_id),
+                generation_id=str(generation_id),
+            )
+
+            test_db_session.expire_all()
+            generation = (
+                await test_db_session.execute(
+                    select(VrtGeneration).where(VrtGeneration.id == generation_id)
+                )
+            ).scalar_one()
+            assert generation.status == "completed", (
+                f"the generation reads {generation.status!r} because a cache "
+                "purge failed after the swap was durable"
+            )
+            assert generation.error_message is None
+            asset = (
+                await test_db_session.execute(
+                    select(RasterAsset).where(RasterAsset.dataset_id == parent_id)
+                )
+            ).scalar_one()
+            assert asset.status == "ready"
+            assert asset.current_generation_id is None
+            finished = (
+                await test_db_session.execute(
+                    select(IngestJob).where(IngestJob.id == job_id)
+                )
+            ).scalar_one()
+            assert finished.status == "complete"
+
+            resp = await client.get(
+                f"/datasets/{parent_id}/vrt/status/", headers=admin_auth_header
+            )
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["last_generation_at"] is not None, (
+                "the VRT status endpoint lost the completed generation to a "
+                "failed cache purge"
+            )
+        finally:
+            await _purge_vrt(test_db_session, ids=ids)
+
     def test_every_publish_tail_stands_down_on_an_observed_publish(self) -> None:
         """Structural, because the finding is a SHAPE.
 
@@ -6172,4 +6291,56 @@ class TestAckLostCommitDoesNotDeleteThePublishedRaster:
         assert checked == 4, (
             f"expected the four publish tails, walked {checked} — a tail was "
             "added or removed without updating this gate"
+        )
+
+    def test_the_generation_failure_write_is_fenced_at_the_statement(self) -> None:
+        """fix(#1778 codex r1): the rule stated at the write, not only at the
+        caller.
+
+        The handler guard makes this branch unreachable from
+        ``regenerate_vrt``'s own paths today, which is exactly why it is
+        pinned here rather than by an execution test: the flag is a local, the
+        fence is a property of the statement, and a future path into the
+        handler must not be able to relabel a generation whose artifact the
+        dataset is serving. Its two peers, the ``current_generation_id`` fence
+        on the asset and the ``running`` fence on the job, are enforced by the
+        database predicate itself.
+        """
+        import ast
+        import inspect
+
+        from app.processing.ingest import tasks_vrt
+
+        tree = ast.parse(inspect.getsource(tasks_vrt))
+        writes = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Assign)
+            and any(
+                isinstance(t, ast.Attribute)
+                and t.attr == "status"
+                and getattr(t.value, "id", None) == "gen"
+                for t in node.targets
+            )
+        ]
+        assert writes, "the generation failure write moved or was renamed"
+        fenced = [
+            guard
+            for guard in ast.walk(tree)
+            if isinstance(guard, ast.If)
+            and any(write in ast.walk(guard) for write in writes)
+            and any(
+                isinstance(cmp_node, ast.Compare)
+                and any(
+                    isinstance(c, ast.Constant) and c.value == "completed"
+                    for c in cmp_node.comparators
+                )
+                for cmp_node in ast.walk(guard.test)
+            )
+        ]
+        assert fenced, (
+            "the failure handler stamps VrtGeneration.status without asking "
+            "whether the generation already completed, so a published "
+            "regeneration can be relabelled failed and get_vrt_status will "
+            "report the dataset as having no completed generation"
         )
