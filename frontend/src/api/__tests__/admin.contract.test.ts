@@ -93,6 +93,15 @@ describe('admin api request contracts', () => {
     expect(calledInit()?.body).toBeUndefined();
   });
 
+  it('resetUserPassword POSTs the value to the reset-password subresource', async () => {
+    await admin.resetUserPassword('u1', 'Aa1-not-a-real-password');
+    expect(calledUrl()).toBe('/admin/users/u1/reset-password/');
+    expect(calledInit()?.method).toBe('POST');
+    expect(JSON.parse(calledInit()?.body as string)).toEqual({
+      password: 'Aa1-not-a-real-password',
+    });
+  });
+
   it('createApiKey POSTs user_id + name + scope to /admin/api-keys/', async () => {
     await admin.createApiKey('u1', 'ci-key');
     expect(calledUrl()).toBe('/admin/api-keys/');

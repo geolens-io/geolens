@@ -137,6 +137,10 @@ AUDIT_ACTIONS: frozenset[str] = frozenset(
         "user.login.failure",
         "user.login.success",
         "user.logout",
+        # feat(#1715): an admin setting another account's password. Distinct
+        # from user.change_password, which is the self-service path and proves
+        # possession of the old value; this one records who acted on whom.
+        "user.password_reset",
         "user.register",
         "user.reject",
         "user.update",

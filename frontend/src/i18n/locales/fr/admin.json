@@ -68,7 +68,8 @@
     "actions": {
       "approve": "Approuver",
       "reject": "Rejeter",
-      "deactivate": "Désactiver"
+      "deactivate": "Désactiver",
+      "resetPassword": "Réinitialiser le mot de passe"
     },
     "actionsFor": "Actions pour {{name}}",
     "approveDialog": {
@@ -98,6 +99,16 @@
       "deactivating": "Désactivation...",
       "deactivate": "Désactiver"
     },
+    "resetPasswordDialog": {
+      "title": "Réinitialiser le mot de passe",
+      "description": "Définissez un nouveau mot de passe pour \"{{username}}\" et communiquez-le à cette personne.",
+      "passwordLabel": "Nouveau mot de passe",
+      "hint": "L'ancien mot de passe cesse de fonctionner, tout comme les sessions et les clés d'API du compte.",
+      "selfWarning": "Il s'agit de votre propre compte, donc l'enregistrement vous déconnectera ici aussi.",
+      "submit": "Réinitialiser le mot de passe",
+      "resetting": "Réinitialisation...",
+      "error": "Échec de la réinitialisation du mot de passe"
+    },
     "exportError": "Échec de l'export des utilisateurs",
     "empty": {
       "noUsers": "Aucun utilisateur pour l'instant",
@@ -111,7 +122,8 @@
       "deactivated": "Utilisateur désactivé",
       "deleted": "Utilisateur supprimé",
       "approved": "Utilisateur approuvé",
-      "rejected": "Utilisateur rejeté"
+      "rejected": "Utilisateur rejeté",
+      "passwordReset": "Mot de passe réinitialisé"
     }
   },
   "userCreate": {

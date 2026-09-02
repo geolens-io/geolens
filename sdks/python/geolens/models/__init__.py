@@ -12,6 +12,7 @@ from .admin_job_list_response import AdminJobListResponse
 from .admin_job_response import AdminJobResponse
 from .admin_job_response_status import AdminJobResponseStatus
 from .admin_job_response_user_metadata_type_0 import AdminJobResponseUserMetadataType0
+from .admin_password_reset import AdminPasswordReset
 from .admin_share_token_list_response import AdminShareTokenListResponse
 from .admin_share_token_response import AdminShareTokenResponse
 from .admin_user_create import AdminUserCreate
@@ -771,6 +772,7 @@ __all__ = (
     "AdminJobResponse",
     "AdminJobResponseStatus",
     "AdminJobResponseUserMetadataType0",
+    "AdminPasswordReset",
     "AdminShareTokenListResponse",
     "AdminShareTokenResponse",
     "AdminUserCreate",

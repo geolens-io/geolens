@@ -423,6 +423,25 @@ export type AdminJobResponse = {
 };
 
 /**
+ * AdminPasswordReset
+ *
+ * Request body for POST /admin/users/{user_id}/reset-password/.
+ *
+ * Single-purpose for the same reason as SamlToLocalConversion above: the
+ * generic UserUpdate schema has no password field, so an admin-set password
+ * lands as its own audited action ('user.password_reset') rather than
+ * disappearing into 'user.update'.
+ */
+export type AdminPasswordReset = {
+    /**
+     * Password
+     *
+     * Replacement password for the account (policy: min 12 chars, 3+ character classes). The user can change this after their next login.
+     */
+    password: string;
+};
+
+/**
  * AdminShareTokenListResponse
  */
 export type AdminShareTokenListResponse = {
@@ -12860,6 +12879,64 @@ export type RejectUserAdminUsersUserIdRejectPostResponses = {
 };
 
 export type RejectUserAdminUsersUserIdRejectPostResponse = RejectUserAdminUsersUserIdRejectPostResponses[keyof RejectUserAdminUsersUserIdRejectPostResponses];
+
+export type ResetUserPasswordAdminUsersUserIdResetPasswordPostData = {
+    body: AdminPasswordReset;
+    path: {
+        /**
+         * User Id
+         */
+        user_id: string;
+    };
+    query?: never;
+    url: '/admin/users/{user_id}/reset-password/';
+};
+
+export type ResetUserPasswordAdminUsersUserIdResetPasswordPostErrors = {
+    /**
+     * Bad request — invalid query parameters or payload
+     */
+    400: ProblemDetail;
+    /**
+     * Unauthorized — missing or invalid credentials
+     */
+    401: ProblemDetail;
+    /**
+     * Forbidden — caller lacks access to this resource
+     */
+    403: ProblemDetail;
+    /**
+     * Not found
+     */
+    404: ProblemDetail;
+    /**
+     * Validation error
+     */
+    422: ProblemDetail;
+    /**
+     * Too many requests — retry after the advertised interval
+     */
+    429: ProblemDetail;
+    /**
+     * Internal server error
+     */
+    500: ProblemDetail;
+    /**
+     * Service unavailable — the database could not serve the request
+     */
+    503: ProblemDetail;
+};
+
+export type ResetUserPasswordAdminUsersUserIdResetPasswordPostError = ResetUserPasswordAdminUsersUserIdResetPasswordPostErrors[keyof ResetUserPasswordAdminUsersUserIdResetPasswordPostErrors];
+
+export type ResetUserPasswordAdminUsersUserIdResetPasswordPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: UserResponse;
+};
+
+export type ResetUserPasswordAdminUsersUserIdResetPasswordPostResponse = ResetUserPasswordAdminUsersUserIdResetPasswordPostResponses[keyof ResetUserPasswordAdminUsersUserIdResetPasswordPostResponses];
 
 export type AiAvailabilityEndpointAiAvailabilityGetData = {
     body?: never;

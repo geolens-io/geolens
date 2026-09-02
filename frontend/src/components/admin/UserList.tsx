@@ -52,12 +52,14 @@ import {
   X,
   Edit,
   UserX,
+  KeyRound,
   Trash,
   Users,
 } from 'lucide-react';
 import { UserCreateDialog } from './UserCreateDialog';
 import { UserEditDialog } from './UserEditDialog';
 import { UserDeleteDialog } from './UserDeleteDialog';
+import { UserResetPasswordDialog } from './UserResetPasswordDialog';
 import { DataTablePagination } from './DataTablePagination';
 import { SortableColumnHeader, type SortDirection } from './SortableColumnHeader';
 import { DataTableSearch } from './DataTableSearch';
@@ -112,6 +114,7 @@ export function UserList() {
   const [approveRole, setApproveRole] = useState('viewer');
   const [rejectingUser, setRejectingUser] = useState<UserResponse | null>(null);
   const [deactivatingUser, setDeactivatingUser] = useState<UserResponse | null>(null);
+  const [resettingPasswordUser, setResettingPasswordUser] = useState<UserResponse | null>(null);
   const [isExporting, setIsExporting] = useState(false);
 
   // Sort lives in the URL so a sorted view is shareable. Sort clicks REPLACE
@@ -414,6 +417,15 @@ export function UserList() {
                           <DropdownMenuItem onClick={() => setEditingUser(user)}>
                             <Edit className="me-2 h-4 w-4" /> {t('common:edit')}
                           </DropdownMenuItem>
+                          {/* feat(#1715): offered on every row, self included — an
+                              admin who is still signed in but has forgotten their
+                              password has no other way back, and change-password
+                              needs the old value. The dialog says what a self-reset
+                              costs. Accounts that sign in through an identity
+                              provider are refused by the API with the reason. */}
+                          <DropdownMenuItem onClick={() => setResettingPasswordUser(user)}>
+                            <KeyRound className="me-2 h-4 w-4" /> {t('users.actions.resetPassword')}
+                          </DropdownMenuItem>
                           {user.is_active && user.id !== currentUserId ? (
                             <DropdownMenuItem onClick={() => handleDeactivate(user)} className="text-destructive">
                               <UserX className="me-2 h-4 w-4" /> {t('users.actions.deactivate')}
@@ -541,6 +553,13 @@ export function UserList() {
           user={deletingUser}
           open
           onOpenChange={(open) => { if (!open) setDeletingUser(null); }}
+        />
+      )}
+      {resettingPasswordUser && (
+        <UserResetPasswordDialog
+          user={resettingPasswordUser}
+          open
+          onOpenChange={(open) => { if (!open) setResettingPasswordUser(null); }}
         />
       )}
     </>

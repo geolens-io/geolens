@@ -496,6 +496,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/admin/users/{user_id}/reset-password/": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reset User Password
+         * @description Set a user's password (admin only).
+         *
+         *     feat(#1715): the login page tells a locked-out user to ask an
+         *     administrator, and there was nothing for the administrator to do. This is
+         *     the recovery path, so it asks for no current password -- holding
+         *     manage_users is the whole authorization, and the audit row is what makes
+         *     the action answerable for. The submitted value reaches the hash column and
+         *     nowhere else: not the audit details, not a log line, not the response.
+         *
+         *     422 when the target signs in through an identity provider (no local
+         *     password to replace), 404 when no such user exists -- both via the shared
+         *     _raise_on_error mapping the sibling lifecycle routes use.
+         *
+         *     Resetting your own password is permitted and ends every session the
+         *     account holds, including the one making this request, because the reset
+         *     revokes the account's credentials. That is the same consequence
+         *     POST /auth/change-password/ has for the caller who invokes it.
+         */
+        post: operations["reset_user_password_admin_users__user_id__reset_password__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/ai/availability/": {
         parameters: {
             query?: never;
@@ -5616,6 +5652,22 @@ export interface components {
              * @description Timestamp when the job was queued.
              */
             created_at: string;
+        };
+        /**
+         * AdminPasswordReset
+         * @description Request body for POST /admin/users/{user_id}/reset-password/.
+         *
+         *     Single-purpose for the same reason as SamlToLocalConversion above: the
+         *     generic UserUpdate schema has no password field, so an admin-set password
+         *     lands as its own audited action ('user.password_reset') rather than
+         *     disappearing into 'user.update'.
+         */
+        AdminPasswordReset: {
+            /**
+             * Password
+             * @description Replacement password for the account (policy: min 12 chars, 3+ character classes). The user can change this after their next login.
+             */
+            password: string;
         };
         /** AdminShareTokenListResponse */
         AdminShareTokenListResponse: {
@@ -16191,6 +16243,106 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Bad request — invalid query parameters or payload */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Unauthorized — missing or invalid credentials */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Forbidden — caller lacks access to this resource */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Too many requests — retry after the advertised interval */
+            429: {
+                headers: {
+                    /** @description Seconds until the request may be retried */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Service unavailable — the database could not serve the request */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+        };
+    };
+    reset_user_password_admin_users__user_id__reset_password__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminPasswordReset"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
             };
             /** @description Bad request — invalid query parameters or payload */
             400: {
