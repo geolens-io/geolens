@@ -205,14 +205,61 @@ def _changelog_section(version: str) -> str | None:
     return "\n".join(out) if found else None
 
 
+def _changelog_link_lines() -> list[tuple[str, str, int]]:
+    """(label, url, 1-based line number) for every reference-style link
+    definition in CHANGELOG.md, in the order they appear.
+    """
+    result: list[tuple[str, str, int]] = []
+    for i, line in enumerate(CHANGELOG.read_text().splitlines(), start=1):
+        m = _LINK_DEF_RE.match(line)
+        if m:
+            result.append((m.group(1), m.group(2), i))
+    return result
+
+
 def _changelog_links() -> dict[str, str]:
     """Reference-style link definitions (`[label]: url`), keyed by label.
+
+    Markdown resolves multiple definitions of the same label (compared
+    case-insensitively) to the FIRST one - a later duplicate is dead text as
+    far as rendering goes. This mirrors that: the first occurrence of a
+    label wins, so `.get("Unreleased")` / `.get(canonical)` below see what a
+    reader of the rendered CHANGELOG would actually see, not whichever
+    duplicate happens to sort last. `_changelog_duplicate_labels()` is the
+    dedicated check for whether a duplicate exists at all, which is always
+    a CHANGELOG bug worth failing on regardless of which value would win.
 
     Returns an empty dict for a CHANGELOG with no link block at all, so a
     caller doing a plain `.get()` fails with the FAIL messages below instead
     of a traceback.
     """
-    return dict(_LINK_DEF_RE.findall(CHANGELOG.read_text()))
+    links: dict[str, str] = {}
+    seen_keys: set[str] = set()
+    for label, url, _line in _changelog_link_lines():
+        key = label.casefold()
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        links[label] = url
+    return links
+
+
+def _changelog_duplicate_labels() -> list[tuple[str, int, int]]:
+    """(label as first defined, first line, duplicate line) for every label
+    defined more than once, compared case-insensitively (matching how
+    Markdown resolves reference labels). A label appearing 3+ times reports
+    one entry per extra occurrence, each pointing back at the first line.
+    """
+    first_seen: dict[str, tuple[str, int]] = {}
+    duplicates: list[tuple[str, int, int]] = []
+    for label, _url, line in _changelog_link_lines():
+        key = label.casefold()
+        if key in first_seen:
+            orig_label, first_line = first_seen[key]
+            duplicates.append((orig_label, first_line, line))
+        else:
+            first_seen[key] = (label, line)
+    return duplicates
 
 
 # A `## [<version>]` section heading, optionally followed by ` - <date>`.
@@ -254,8 +301,18 @@ def _check_changelog_links(canonical: str) -> list[str]:
     block at all (an empty dict from `_changelog_links()`) fails both checks
     with a plain message here, not a traceback.
     """
-    links = _changelog_links()
     failures: list[str] = []
+
+    for label, first_line, dup_line in _changelog_duplicate_labels():
+        failures.append(
+            f"{_rel(CHANGELOG)} defines '[{label}]:' more than once (lines "
+            f"{first_line} and {dup_line}). Markdown resolves a duplicate "
+            f"reference label to the FIRST definition (case-insensitively), "
+            f"so the rendered CHANGELOG uses line {first_line} regardless of "
+            f"what line {dup_line} says. Remove or fix the duplicate."
+        )
+
+    links = _changelog_links()
 
     unreleased_url = links.get("Unreleased")
     if unreleased_url is None:

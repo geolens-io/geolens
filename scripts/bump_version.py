@@ -268,12 +268,14 @@ def _bump_package_lock(path: Path, version: str) -> None:
 _UNRELEASED_LINE_RE = re.compile(r"^\[Unreleased\]: .*$", re.MULTILINE)
 # A `## [<version>]` section heading, optionally followed by ` - <date>`.
 _CHANGELOG_HEADER_RE = re.compile(r"^## \[([^\]]+)\]")
+# Any reference-style link definition line, e.g. `[Unreleased]: https://...`.
+_LINK_LINE_RE = re.compile(r"^\[([^\]]+)\]: (\S+)$")
 
 
 def _changelog_prev_version(text: str, version: str) -> str | None:
     """The version whose `## [...]` section immediately follows `version`'s.
 
-    None if `version`'s section is the last one in the file — the initial
+    None if `version`'s section is the last one in the file - the initial
     release, with no preceding version to compare from.
     """
     found = False
@@ -291,36 +293,88 @@ def _changelog_prev_version(text: str, version: str) -> str | None:
     return None
 
 
-def _bump_changelog_links(path: Path, version: str) -> None:
-    """Repoint `[Unreleased]` and ensure `[X.Y.Z]:` compares from the right tag.
+def _changelog_link_lines(text: str) -> list[tuple[str, str, int]]:
+    """(label, url, 1-based line number) for every reference-style link
+    definition in `text`, in the order they appear.
+    """
+    result: list[tuple[str, str, int]] = []
+    for i, line in enumerate(text.splitlines(), start=1):
+        m = _LINK_LINE_RE.match(line)
+        if m:
+            result.append((m.group(1), m.group(2), i))
+    return result
 
-    The previous version is read from the CHANGELOG's own section structure
-    (the `## [...]` heading immediately below `## [version]`), not from the
-    current `[Unreleased]` link text — check_version_coherence.py verifies
-    the link against that same structural rule, so the two agree by
-    construction. Repairs whichever half is missing or wrong rather than
-    bailing out as soon as `[Unreleased]` already points at `version`: a
-    partial or hand-edited state — `[Unreleased]` repointed but the
-    `[X.Y.Z]:` link missing or stale — used to be left unrepaired
-    (fix(#1716 review)). A true no-op (both lines already correct) still
-    writes nothing.
+
+def _check_no_duplicate_changelog_labels(text: str, path: Path) -> None:
+    """Refuse to bump a CHANGELOG that defines the same link label twice.
+
+    Markdown resolves duplicate reference labels (compared
+    case-insensitively, matching CommonMark) to the FIRST definition, so a
+    stale duplicate later in the file renders invisibly while still leaving
+    it ambiguous which line this script is meant to edit.
+    check_version_coherence.py fails the same way for the same reason
+    (fix(#1716 review)).
+    """
+    first_seen: dict[str, int] = {}
+    for label, _url, line in _changelog_link_lines(text):
+        key = label.casefold()
+        if key in first_seen:
+            sys.exit(
+                f"ERROR: {_rel(path)} defines '[{label}]:' more than once "
+                f"(lines {first_seen[key]} and {line}). Remove or fix the "
+                f"duplicate before bumping."
+            )
+        first_seen[key] = line
+
+
+def _validate_changelog_links(path: Path, version: str) -> None:
+    """Every precondition `_bump_changelog_links` depends on, checked upfront.
+
+    main() calls this BEFORE any other version site is written, so a
+    CHANGELOG that can't be safely bumped - a duplicate reference label, no
+    `[Unreleased]:` line, or no `## [...]` section for `version` - aborts
+    the whole `make bump` with nothing touched, instead of leaving every
+    other site already bumped while only the CHANGELOG failed at the very
+    end (fix(#1716 review)).
     """
     text = path.read_text()
-
-    unreleased_m = _UNRELEASED_LINE_RE.search(text)
-    if not unreleased_m:
+    _check_no_duplicate_changelog_labels(text, path)
+    if not _UNRELEASED_LINE_RE.search(text):
         sys.exit(
             f"ERROR: no '[Unreleased]: ...' line in {_rel(path)}. Add the "
             f"reference-style link block before bumping."
         )
-
-    prev_version = _changelog_prev_version(text, version)
-    if prev_version is None:
+    if _changelog_prev_version(text, version) is None:
         sys.exit(
             f"ERROR: {_rel(path)} has no '## [...]' section below '## [{version}]' "
             f"to read the previous version from. Add the release's CHANGELOG "
             f"section (and the section for the version before it) before bumping."
         )
+
+
+def _bump_changelog_links(path: Path, version: str) -> None:
+    """Repoint `[Unreleased]` and ensure `[X.Y.Z]:` compares from the right tag.
+
+    The previous version is read from the CHANGELOG's own section structure
+    (the `## [...]` heading immediately below `## [version]`), not from the
+    current `[Unreleased]` link text - check_version_coherence.py verifies
+    the link against that same structural rule, so the two agree by
+    construction. Repairs whichever half is missing or wrong rather than
+    bailing out as soon as `[Unreleased]` already points at `version`: a
+    partial or hand-edited state - `[Unreleased]` repointed but the
+    `[X.Y.Z]:` link missing or stale - used to be left unrepaired
+    (fix(#1716 review)). A true no-op (both lines already correct) still
+    writes nothing.
+
+    Re-runs `_validate_changelog_links` so calling this directly (as the
+    tests do) is safe on its own, even though main() already validated
+    before writing anything else.
+    """
+    _validate_changelog_links(path, version)
+    text = path.read_text()
+
+    unreleased_m = _UNRELEASED_LINE_RE.search(text)
+    prev_version = _changelog_prev_version(text, version)
 
     expected_unreleased = f"[Unreleased]: {CHANGELOG_REPO_URL}/compare/v{version}...HEAD"
     expected_version_link = (
@@ -360,6 +414,12 @@ def main(argv: list[str]) -> int:
     version = argv[0].strip()
     if not SEMVER_RE.match(version):
         sys.exit(f"ERROR: version '{version}' is not X.Y.Z (plain semver, no suffixes).")
+
+    # Validate the CHANGELOG edit BEFORE touching any other version site, so
+    # a CHANGELOG that can't be safely bumped aborts with nothing written
+    # instead of leaving every other site already bumped while only the
+    # CHANGELOG failed, at the very end (fix(#1716 review)).
+    _validate_changelog_links(CHANGELOG, version)
 
     print(f"Bumping all version sites to {version}:")
     _bump_project_version(BACKEND_PYPROJECT, version)
