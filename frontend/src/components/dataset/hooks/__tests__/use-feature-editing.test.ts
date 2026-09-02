@@ -522,3 +522,132 @@ describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 revi
     expect(toast.error).not.toHaveBeenCalled();
   });
 });
+
+// fix(#1761 review round 7): the success path of each mutation already
+// rechecks the captured epoch before its toast/state effects; the catch
+// path did not, so a request that FAILED after an identity change still
+// surfaced its error toast to whoever is signed in now.
+describe('useFeatureEditing — stale-failure feedback suppressed (fix #1761 review round 7)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    createMutateAsync.mockClear();
+    updateMutateAsync.mockClear();
+    deleteMutateAsync.mockClear();
+    // Mocks are not auto-cleared between tests in this file; earlier
+    // describes legitimately call toast.error for their own (non-stale)
+    // failures.
+    vi.mocked(toast.error).mockClear();
+  });
+
+  it('saveAndRefresh (create) suppresses the error toast when the identity changed before the request rejected', async () => {
+    const overlaySetData = vi.fn();
+    const map = makeMapWithOverlaySource(overlaySetData);
+    const { result } = renderEditing(map);
+
+    const create = deferred<unknown>();
+    createMutateAsync.mockReturnValueOnce(create.promise);
+
+    const saving = result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    create.reject(new Error('boom'));
+    await act(async () => {
+      await saving;
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('saveAndRefresh (create) still reports a real failure when the identity has not changed', async () => {
+    const overlaySetData = vi.fn();
+    const map = makeMapWithOverlaySource(overlaySetData);
+    const { result } = renderEditing(map);
+
+    createMutateAsync.mockRejectedValueOnce(new Error('boom'));
+
+    await act(async () => {
+      await result.current.saveAndRefresh({ type: 'Point', coordinates: [0, 0] }, {});
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleSaveEdit (geometry update) suppresses the error toast when the identity changed before the request rejected', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { getSnapshotFeature });
+
+    const saving = result.current.handleSaveEdit();
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    update.reject(new Error('boom'));
+    await act(async () => {
+      await saving;
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('handleSaveEdit (geometry update) still reports a real failure when the identity has not changed', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    updateMutateAsync.mockRejectedValueOnce(new Error('boom'));
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { getSnapshotFeature });
+
+    await act(async () => {
+      await result.current.handleSaveEdit();
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('handleDeleteFeature (delete) suppresses the error toast when the identity changed before the request rejected', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const del = deferred<unknown>();
+    deleteMutateAsync.mockReturnValueOnce(del.promise);
+
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    const deleting = result.current.handleDeleteFeature();
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    del.reject(new Error('boom'));
+    await act(async () => {
+      await deleting;
+    });
+
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('handleDeleteFeature (delete) still reports a real failure when the identity has not changed', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    deleteMutateAsync.mockRejectedValueOnce(new Error('boom'));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map);
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+});
