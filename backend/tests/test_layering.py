@@ -3931,7 +3931,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # there left the session refusing every later statement, so one layer's
     # deadlock failed every sibling and stranded the parent `fanned_out` with
     # no child importing. Cap 1482 -> 1500, exact.
-    "backend/app/processing/ingest/service.py": 1500,
+    # fix(#1774 review r2, codex P2): +13. That reset expires the parent, and
+    # both the next layer and `restore_fan_out_parent_pending` read attributes
+    # off the same instance, so a synchronous read would raise MissingGreenlet
+    # and turn one layer's failure into a 500. The parent is reloaded in the
+    # same breath, and the log line reads a snapshotted id rather than the
+    # instance it just expired. Cap 1500 -> 1513, exact.
+    "backend/app/processing/ingest/service.py": 1513,
     # --- entered by the inclusion rule, feat(#765) -------------------------
     # First time this module crosses 1000. main sat at 994, six lines under the
     # gate, so it was going to fire on whoever added next; it fired here.

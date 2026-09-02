@@ -1146,14 +1146,27 @@ async def create_fan_out_jobs(
         # parent `fanned_out` with no child importing. Nothing is discarded:
         # a landed commit makes this a no-op, and a failed one had nothing to
         # keep.
+        #
+        # fix(#1774 review r2, codex P2): reload the parent in the same breath,
+        # because the reset expires it. The next layer reads
+        # `original_job.source_filename` and friends off this same instance,
+        # and `restore_fan_out_parent_pending` reads `job.id`, and a
+        # synchronous read of an expired attribute on an AsyncSession raises
+        # MissingGreenlet. Without the reload, the reset meant to let the
+        # siblings continue would instead turn one layer's failure into a 500.
+        # A reload rather than a snapshot here: the attributes read downstream
+        # are spread across two functions and the response, and one SELECT
+        # restores all of them.
+        parent_job_id = str(original_job.id)
         try:
             await session.rollback()
+            await session.refresh(original_job)
         except Exception:  # broad: a dead connection cannot be reset here
             if logger:
                 logger.warning(
                     "Fan-out layer session reset failed",
                     layer_name=layer.layer_name,
-                    original_job_id=str(original_job.id),
+                    original_job_id=parent_job_id,
                 )
         from app.processing.ingest.schemas import FanOutLayerResult
 

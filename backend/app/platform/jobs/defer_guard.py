@@ -38,8 +38,9 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import update
+from sqlalchemy import inspect as sa_inspect, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
+from sqlalchemy.orm.attributes import set_committed_value
 
 from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
@@ -134,6 +135,38 @@ async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
     job.user_metadata = metadata
 
 
+def _restore_settlement_identifiers(
+    job: IngestJob, identifiers: dict[str, Any] | None
+) -> None:
+    """Put the settlement's own identifiers back after a rollback expired them.
+
+    fix(#1774 review r2, codex P2): ``Session.rollback()`` expires every
+    instance that was in the failed transaction, and ``expire_on_commit=False``
+    does not change that. The next synchronous read of an expired column
+    attribute is a lazy load, and an ``AsyncSession`` has no greenlet to run
+    one, so SQLAlchemy raises ``MissingGreenlet`` instead of returning a value.
+    ``settle_ingest_job_failed`` reads ``job.id`` and ``job.attempt_id``
+    synchronously, and it is the one function every rollback closure in the
+    codebase funnels through, so without this the reset that makes the session
+    usable is also what stops the settlement from running.
+
+    Written from values snapshotted BEFORE the failed write, through
+    ``set_committed_value``, which marks an attribute loaded without a query
+    and without marking it dirty. A snapshot cannot fail; a reload is one more
+    statement on a connection that has just misbehaved. Only the two the shared
+    settlement reads are restored, so every other attribute stays expired and
+    reloads normally once the session is healthy.
+
+    A no-op when there is nothing to restore: ``identifiers`` is None if the
+    instance was already expired on the way in, and a non-mapped object (a test
+    double) was never expired to begin with.
+    """
+    if identifiers is None or sa_inspect(job, raiseerr=False) is None:
+        return
+    for key, value in identifiers.items():
+        set_committed_value(job, key, value)
+
+
 async def _settle_after_failed_dispatch(
     rollback: RollbackCallable, exc: BaseException, db: AsyncSession
 ) -> bool:
@@ -213,6 +246,20 @@ async def defer_with_orphan_guard(
         DeferFailed: always, when ``defer_call`` raises. Existing callers that
             catch ``HTTPException`` are unaffected; the 503 body is unchanged.
     """
+    # fix(#1774 review r2, codex P2): snapshotted BEFORE the write that can
+    # fail. A value in a local cannot be expired by the reset below, and these
+    # two are what the shared settlement reads. See
+    # `_restore_settlement_identifiers`. Guarded because reading them is itself
+    # an attribute access: an instance that arrived expired has nothing to
+    # snapshot, and the reload below is then the only route back.
+    try:
+        identifiers: dict[str, Any] | None = {
+            "id": job.id,
+            "attempt_id": job.attempt_id,
+        }
+    except Exception:  # broad: an already-expired instance has nothing to snapshot
+        identifiers = None
+
     try:
         await stamp_commit_attempted(job, db=db)
     except Exception as stamp_exc:  # broad: a failed marker write is a failed dispatch
@@ -234,6 +281,20 @@ async def defer_with_orphan_guard(
         except Exception:  # broad: a dead connection cannot be reset here
             logger.exception(
                 "Orphan-guard could not reset the session after a failed "
+                "dispatch marker write"
+            )
+        # fix(#1774 review r2, codex P2): the reset expires every instance it
+        # touched, so put the settlement's identifiers back before invoking a
+        # closure that reads them. The snapshot is the guarantee, because it
+        # needs no connection; the reload covers whatever a caller-supplied
+        # closure reads beyond those two, and is best-effort for the same
+        # reason the rollback above is.
+        _restore_settlement_identifiers(job, identifiers)
+        try:
+            await db.refresh(job)
+        except Exception:  # broad: best effort; the snapshot above is the guarantee
+            logger.exception(
+                "Orphan-guard could not reload the job after a failed "
                 "dispatch marker write"
             )
         rolled_back = await _settle_after_failed_dispatch(rollback, stamp_exc, db)

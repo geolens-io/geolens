@@ -27,7 +27,11 @@ import ast
 import pathlib
 
 import pytest
-from sqlalchemy.exc import OperationalError, PendingRollbackError
+from sqlalchemy.exc import (
+    MissingGreenlet,
+    OperationalError,
+    PendingRollbackError,
+)
 
 from app.platform.jobs.sweep import is_abandoned_upload
 
@@ -215,18 +219,70 @@ async def test_the_stamp_is_committed_not_left_on_the_session() -> None:
     assert len(executed) == 1, "the second dispatch rewrote a marker it should keep"
 
 
+class _ExpiringInstance:
+    """An ORM instance double that models what a rollback does to one.
+
+    `Session.rollback()` expires every instance that was in the failed
+    transaction, and `expire_on_commit=False` does not change that: the flag
+    only governs commit. The next SYNCHRONOUS read of an expired column
+    attribute is a lazy load, and an AsyncSession has no greenlet to run one,
+    so SQLAlchemy raises MissingGreenlet rather than returning a value. Setting
+    an attribute is unaffected, and so is a read of an attribute that has been
+    put back.
+
+    Verified against SQLAlchemy 2.0 and a real session before this double was
+    written; the double exists so the ordering can be asserted without a
+    deadlock to provoke.
+    """
+
+    def __init__(self, **attrs) -> None:
+        self.__dict__["_attrs"] = dict(attrs)
+        self.__dict__["_expired"] = set()
+
+    def _expire_all(self) -> None:
+        self.__dict__["_expired"] = set(self.__dict__["_attrs"])
+
+    def _reload(self) -> None:
+        self.__dict__["_expired"] = set()
+
+    def _restore(self, name: str) -> None:
+        self.__dict__["_expired"].discard(name)
+
+    def __getattr__(self, name: str):
+        attrs = self.__dict__["_attrs"]
+        if name in self.__dict__["_expired"]:
+            raise MissingGreenlet(
+                "greenlet_spawn has not been called; can't call await_only() "
+                "here. Was IO attempted in an unexpected place?"
+            )
+        try:
+            return attrs[name]
+        except KeyError as exc:
+            raise AttributeError(name) from exc
+
+    def __setattr__(self, name: str, value) -> None:
+        # A set on an expired attribute is legal and does not load.
+        self.__dict__["_attrs"][name] = value
+
+
 class _FailedTransactionSession:
     """A session that behaves like SQLAlchemy after a statement has failed.
 
     Once the marker commit raises, every later ``execute`` raises
-    ``PendingRollbackError`` until ``rollback`` is awaited. That is the real
-    constraint the fix is about: SQLAlchemy will not run another statement on
-    a session whose transaction failed, so the orphan settlement is only
+    ``PendingRollbackError`` until ``rollback`` is awaited. That is the first
+    constraint the fix is about: SQLAlchemy will not run another statement on a
+    session whose transaction failed, so the orphan settlement is only
     reachable after a reset.
+
+    The reset then expires every instance the session holds, which is the
+    second constraint: the settlement reads identifiers off one of those
+    instances, so a reset that is not followed by a restore or a reload trades
+    one failure for another.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *instances: _ExpiringInstance) -> None:
         self.events: list[str] = []
+        self.instances = list(instances)
         self.broken = False
         self._commits = 0
 
@@ -253,6 +309,14 @@ class _FailedTransactionSession:
     async def rollback(self):
         self.events.append("rollback")
         self.broken = False
+        for instance in self.instances:
+            instance._expire_all()
+
+    async def refresh(self, instance):
+        self.events.append("refresh")
+        if self.broken:
+            raise PendingRollbackError("session must be rolled back first")
+        instance._reload()
 
 
 @pytest.mark.anyio
@@ -266,31 +330,45 @@ async def test_a_failed_marker_write_resets_the_session_before_settling() -> Non
     upload nobody committed. It would then cancel a dispatch that really was
     attempted and take away its retry.
 
-    So: reset first, settle second, and the row ends up `failed`, which keeps
-    it out of the sweep's pending class altogether.
+    fix(#1774 review r2, codex P2): and the reset alone is not enough, because
+    it expires the very instance the settlement reads. Reset, restore, settle,
+    in that order.
     """
     import uuid
-    from types import SimpleNamespace
 
     from app.platform.jobs.defer_guard import DeferFailed, defer_with_orphan_guard
 
-    session = _FailedTransactionSession()
-
     # Positive control: the double really does refuse work until it is reset,
-    # so the ordering assertion below cannot pass vacuously.
-    control = _FailedTransactionSession()
+    # and really does expire its instances when it is, so neither assertion
+    # below can pass vacuously.
+    control_job = _ExpiringInstance(id=uuid.uuid4(), attempt_id=uuid.uuid4())
+    control = _FailedTransactionSession(control_job)
     with pytest.raises(OperationalError):
         await control.commit()
     with pytest.raises(PendingRollbackError):
         await control.execute()
     await control.rollback()
     await control.execute()
+    with pytest.raises(MissingGreenlet):
+        control_job.id
+    await control.refresh(control_job)
+    assert control_job.id is not None
 
-    job = SimpleNamespace(id=uuid.uuid4(), user_metadata=None, status="pending")
+    job = _ExpiringInstance(
+        id=uuid.uuid4(),
+        attempt_id=uuid.uuid4(),
+        user_metadata=None,
+        status="pending",
+    )
+    session = _FailedTransactionSession(job)
+    settled_with: list[uuid.UUID] = []
 
     async def _settle(exc: BaseException) -> None:
-        # Stands in for `settle_ingest_job_failed`: a statement on the same
-        # session, which is what a failed transaction would reject.
+        # Stands in for `settle_ingest_job_failed`: it reads the identifiers
+        # off the instance synchronously and then issues a statement on the
+        # same session. Both are what a bare reset would have broken.
+        settled_with.append(job.id)
+        assert job.attempt_id is not None
         await session.execute()
         job.status = "failed"
 
@@ -306,11 +384,16 @@ async def test_a_failed_marker_write_resets_the_session_before_settling() -> Non
     )
     assert isinstance(exc_info.value.__cause__, OperationalError)
 
-    # execute+commit for the marker, then the reset, then the settlement.
-    assert session.events == ["execute", "commit", "rollback", "execute", "commit"]
-    assert session.events.index("rollback") < session.events.index(
-        "execute", session.events.index("rollback")
-    ), "the settlement ran on a session that had not been reset"
+    # execute+commit for the marker, the reset, the reload, then the settlement.
+    assert session.events == [
+        "execute",
+        "commit",
+        "rollback",
+        "refresh",
+        "execute",
+        "commit",
+    ]
+    assert len(settled_with) == 1, "the settlement never read the job"
 
     assert job.status == "failed", (
         "the job stayed pending, so the stale sweep would later read it as an "
@@ -326,15 +409,96 @@ async def test_a_failed_marker_write_resets_the_session_before_settling() -> Non
 
 
 @pytest.mark.anyio
+async def test_a_failed_marker_write_settles_the_real_row_without_a_reload(
+    test_db_session, monkeypatch
+) -> None:
+    """The whole recovery path, against a real session and a real row.
+
+    fix(#1774 review r2, codex P2): the snapshot is the guarantee and the
+    reload is the convenience, so the reload is disabled here. What is left is
+    a genuinely poisoned transaction, a genuinely expired `IngestJob`, and the
+    real `settle_ingest_job_failed` reading `job.id` and `job.attempt_id` off
+    it. The row has to come back `failed` from the database, because `failed`
+    is what keeps `/jobs/{id}/retry` reachable and keeps the row out of the
+    sweep's pending class.
+    """
+    from sqlalchemy import select, text, update
+
+    from app.platform.jobs import defer_guard
+    from app.platform.jobs.defer_guard import (
+        DeferFailed,
+        defer_with_orphan_guard,
+        make_ingest_job_failed_rollback,
+    )
+    from app.platform.jobs.models import IngestJob
+
+    job = IngestJob(source_filename="poisoned.geojson", status="pending", file_path="")
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+    job_id = job.id
+
+    async def _poisoned_stamp(job_arg, *, db):
+        # A transaction that does real work and then fails, which is the shape
+        # of the marker UPDATE followed by a deadlocked commit.
+        await db.execute(
+            update(IngestJob).where(IngestJob.id == job_id).values(progress=1)
+        )
+        with pytest.raises(Exception):
+            await db.execute(text("SELECT 1/0"))
+        raise OperationalError(
+            "UPDATE catalog.ingest_jobs", None, Exception("deadlock detected")
+        )
+
+    async def _no_reload(*args, **kwargs):
+        raise OperationalError("SELECT ingest_jobs", None, Exception("gone"))
+
+    monkeypatch.setattr(defer_guard, "stamp_commit_attempted", _poisoned_stamp)
+    monkeypatch.setattr(test_db_session, "refresh", _no_reload)
+
+    async def _defer() -> None:  # pragma: no cover - never reached
+        raise AssertionError("the dispatch ran despite an unwritten marker")
+
+    with pytest.raises(DeferFailed) as exc_info:
+        await defer_with_orphan_guard(
+            _defer,
+            rollback=make_ingest_job_failed_rollback(job),
+            db=test_db_session,
+            job=job,
+        )
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.rolled_back, (
+        "the settlement never landed, so the row is still pending with no "
+        "marker, which the sweep would later cancel as an abandoned upload"
+    )
+
+    monkeypatch.undo()
+    settled = (
+        await test_db_session.execute(select(IngestJob).where(IngestJob.id == job_id))
+    ).scalar_one()
+    assert settled.status == "failed"
+    assert "Failed to queue ingest task" in (settled.error_message or "")
+    assert is_abandoned_upload(settled.user_metadata), (
+        "the marker is expected NOT to have landed; if it did, this test is "
+        "no longer exercising the failure it was written for"
+    )
+
+    await test_db_session.execute(
+        IngestJob.__table__.delete().where(IngestJob.id == job_id)
+    )
+    await test_db_session.commit()
+
+
+@pytest.mark.anyio
 async def test_a_marker_write_that_succeeds_leaves_the_session_alone() -> None:
     """The counterweight: no reset on the path where nothing failed.
 
-    A rollback on the happy path would discard whatever the caller had staged
-    after its own commit, so the reset has to belong to the failure branch and
-    only to it.
+    A rollback on the happy path would expire every loaded instance and
+    discard whatever the caller had staged after its own commit, so the reset
+    has to belong to the failure branch and only to it.
     """
     import uuid
-    from types import SimpleNamespace
 
     from app.platform.jobs.defer_guard import defer_with_orphan_guard
 
@@ -342,8 +506,10 @@ async def test_a_marker_write_that_succeeds_leaves_the_session_alone() -> None:
         async def commit(self):
             self.events.append("commit")
 
-    session = _HealthySession()
-    job = SimpleNamespace(id=uuid.uuid4(), user_metadata=None, status="pending")
+    job = _ExpiringInstance(
+        id=uuid.uuid4(), attempt_id=uuid.uuid4(), user_metadata=None, status="pending"
+    )
+    session = _HealthySession(job)
     deferred: list[bool] = []
 
     async def _defer() -> None:
@@ -356,4 +522,102 @@ async def test_a_marker_write_that_succeeds_leaves_the_session_alone() -> None:
 
     assert deferred == [True]
     assert "rollback" not in session.events
+    assert "refresh" not in session.events
     assert session.events == ["execute", "commit"]
+
+
+@pytest.mark.anyio
+async def test_a_failed_fan_out_layer_leaves_the_parent_readable() -> None:
+    """fix(#1774 review r2, codex P2): the second stamping site, same hazard.
+
+    `create_fan_out_jobs` commits the child row and its dispatch marker
+    together, and its per-layer handler resets the session so the remaining
+    layers can still run. That reset expires the parent, which the next layer
+    reads (`source_filename`, `file_path`, `user_metadata`) and which
+    `restore_fan_out_parent_pending` reads (`id`). Without the reload, the
+    reset meant to save the siblings turns one layer's failure into a 500 and
+    strands the parent `fanned_out` with no child importing.
+    """
+    import uuid
+    from types import SimpleNamespace
+
+    from app.processing.ingest.service import create_fan_out_jobs
+
+    parent = _ExpiringInstance(
+        id=uuid.uuid4(),
+        source_filename="multi.gpkg",
+        file_path="/app/staging/multi.gpkg",
+        created_by=uuid.uuid4(),
+        user_metadata={"all_layers": ["buildings", "roads"], "file_type": "vector"},
+    )
+    session = _FailedTransactionSession(parent)
+    session.add = lambda obj: session.events.append("add")
+
+    async def _flush():
+        session.events.append("flush")
+
+    session.flush = _flush
+
+    result = await create_fan_out_jobs(
+        parent, SimpleNamespace(layer_name="buildings", title=None), session
+    )
+
+    assert result.status == "failed", "the commit was supposed to fail this layer"
+    assert "rollback" in session.events, "the session was left in a failed transaction"
+    assert session.events.index("refresh") == session.events.index("rollback") + 1, (
+        "the parent was not reloaded immediately after the reset"
+    )
+
+    # The point of the reload: the caller's next layer, and the parent restore
+    # after the loop, both read these off the same instance.
+    assert parent.source_filename == "multi.gpkg"
+    assert parent.id is not None
+    assert parent.user_metadata["file_type"] == "vector"
+
+
+@pytest.mark.anyio
+async def test_restoring_identifiers_needs_no_query_on_a_real_expired_row(
+    test_db_session,
+) -> None:
+    """The double's premise, checked against the real thing.
+
+    Everything above is asserted through a stand-in. This one provokes the
+    actual state: a transaction that does work and then fails, a rollback, and
+    a real `IngestJob` whose synchronous reads raise MissingGreenlet. It then
+    shows `_restore_settlement_identifiers` making exactly the two the
+    settlement needs readable again, with no statement issued.
+    """
+    from sqlalchemy import text, update
+
+    from app.platform.jobs.defer_guard import _restore_settlement_identifiers
+    from app.platform.jobs.models import IngestJob
+
+    job = IngestJob(source_filename="expiry.geojson", status="pending", file_path="")
+    test_db_session.add(job)
+    await test_db_session.commit()
+    await test_db_session.refresh(job)
+    identifiers = {"id": job.id, "attempt_id": job.attempt_id}
+
+    await test_db_session.execute(
+        update(IngestJob).where(IngestJob.id == identifiers["id"]).values(progress=1)
+    )
+    with pytest.raises(Exception):
+        await test_db_session.execute(text("SELECT 1/0"))
+    await test_db_session.rollback()
+
+    with pytest.raises(MissingGreenlet):
+        job.id
+
+    _restore_settlement_identifiers(job, identifiers)
+
+    assert job.id == identifiers["id"]
+    assert job.attempt_id == identifiers["attempt_id"]
+    # Untouched attributes stay expired, so the restore is precise rather than
+    # a wholesale un-expire that would hide a later missing read.
+    with pytest.raises(MissingGreenlet):
+        job.source_filename
+
+    await test_db_session.execute(
+        IngestJob.__table__.delete().where(IngestJob.id == identifiers["id"])
+    )
+    await test_db_session.commit()
