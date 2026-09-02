@@ -897,7 +897,9 @@ def replace(
     ] = False,
     yes: Annotated[
         bool,
-        typer.Option("--yes", "-y", help="Skip the confirmation prompt"),
+        typer.Option(
+            "--yes", "-y", help="Skip the confirmation prompt (required with --json)"
+        ),
     ] = False,
 ) -> None:
     """Replace this dataset's data from a file.
@@ -905,7 +907,8 @@ def replace(
     Runs the same upload, preview, commit flow ``publish`` uses, pointed at
     the dataset's reupload endpoints instead of the ingest ones. Prints the
     preview (layer, feature count, detected SRID) before committing and
-    prompts for confirmation unless ``--yes`` is passed.
+    prompts for confirmation unless ``--yes`` is passed. ``--json`` is a
+    scripting mode and never prompts, so it requires ``--yes``.
 
     A dataset whose data comes from a server-stored source binding rather
     than a file cannot be replaced this way; use ``geolens refresh``
@@ -922,6 +925,15 @@ def replace(
         raise typer.BadParameter(
             "Dataset id must be a UUID", param_hint="dataset_id"
         ) from exc
+
+    # fix(#1767 review): --json is a non-interactive scripting mode, so an
+    # interactive confirm prompt inside it is the wrong contract (Click's
+    # confirm() writes part of the exchange to stdout regardless of
+    # err=True, which corrupts the JSON payload). Refuse before any network
+    # call rather than prompting.
+    if state.json_mode and not yes:
+        state.output.error("--json requires --yes to confirm a replace.")
+        raise typer.Exit(EXIT_USAGE)
 
     sdk = state.sdk()
 
@@ -960,12 +972,7 @@ def replace(
         if is_raster:
             # Raster datasets have no schema to preview (router_reupload.py);
             # the supported flow is upload then commit with nothing between.
-            _replace.emit_preview_line(
-                state.output,
-                "Raster dataset: committing without preview.",
-                json_mode=state.json_mode,
-                yes=yes,
-            )
+            state.output.info("Raster dataset: committing without preview.")
             summary: dict[str, Any] = {
                 "layer_name": None,
                 "feature_count": None,
@@ -991,12 +998,9 @@ def replace(
                 raise typer.Exit(EXIT_USAGE)
 
             summary = _replace.preview_summary(preview)
-            _replace.emit_preview_line(
-                state.output,
+            state.output.info(
                 f"Layer '{summary['layer_name']}': {summary['feature_count']} "
-                f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}",
-                json_mode=state.json_mode,
-                yes=yes,
+                f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
             )
 
         if not yes and not typer.confirm(

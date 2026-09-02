@@ -48,6 +48,7 @@ dataset has no layer to preview, so `replace` uploads and commits it directly
 and `--layer` is rejected. `replace` only accepts a local file. A dataset
 whose data comes from a remote service origin, or a registered database
 table, cannot be replaced this way; use `geolens refresh` for that instead.
+`--json` never prompts, so it requires `--yes`.
 
 `geolens refresh <dataset-id>` is the explicit data-refresh path. It re-pulls
 the dataset from the origin binding stored by GeoLens, without accepting a URL,
