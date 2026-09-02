@@ -557,6 +557,12 @@ function OAuthProvidersSection({ envOnly }: { envOnly: boolean }) {
                 onChange={(e) => setForm((prev) => ({ ...prev, client_secret: e.target.value }))}
                 placeholder={editingProvider ? '********' : ''}
                 disabled={envOnly}
+                // fix(#1755): admin secret, not a login credential, so opt out
+                // of every password manager explicitly.
+                autoComplete="new-password"
+                data-1p-ignore
+                data-lpignore="true"
+                data-bwignore
               />
             </div>
 

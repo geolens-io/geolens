@@ -385,4 +385,23 @@ describe('SettingsAuthTab', () => {
       expectBothProviderCaches(invalidateQueries);
     });
   });
+
+  // fix(#1755): the OAuth client secret is an admin secret, not a login
+  // credential -- it needs the same password-manager opt-out attributes the
+  // service-token inputs gained in #1750.
+  describe('Client Secret field opts out of password managers', () => {
+    it('opts out the client secret field', async () => {
+      const user = userEvent.setup();
+      renderTab();
+
+      await user.click(screen.getByRole('button', { name: /add provider/i }));
+      const secretInput = await screen.findByLabelText('Client Secret');
+
+      expect(secretInput).toHaveAttribute('type', 'password');
+      expect(secretInput).toHaveAttribute('autocomplete', 'new-password');
+      expect(secretInput).toHaveAttribute('data-1p-ignore');
+      expect(secretInput).toHaveAttribute('data-lpignore', 'true');
+      expect(secretInput).toHaveAttribute('data-bwignore');
+    });
+  });
 });

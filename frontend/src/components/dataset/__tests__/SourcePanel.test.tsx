@@ -459,7 +459,11 @@ describe('SourcePanel', () => {
     expect(screen.getByText('Owned copy')).toBeInTheDocument();
     expect(screen.getByText('arcgis_featureserver')).toBeInTheDocument();
     expect(screen.getByText('https://origin.test/FeatureServer')).toBeInTheDocument();
-    expect(screen.getByText('The source now requires access GeoLens does not have.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'The source refused the request because it requires credentials this dataset does not carry.',
+      ),
+    ).toBeInTheDocument();
     expect(screen.getByText('Drift detected')).toBeInTheDocument();
     expect(screen.getByText('Overdue')).toBeInTheDocument();
     expect(container.innerHTML).not.toContain('password');
@@ -484,8 +488,13 @@ describe('SourcePanel', () => {
     );
 
     expect(screen.getByText('The source requires a service token GeoLens does not have.')).toBeInTheDocument();
-    // Distinct from 'unauthorized', whose copy claims the source CHANGED.
-    expect(screen.queryByText('The source now requires access GeoLens does not have.')).not.toBeInTheDocument();
+    // Distinct from 'unauthorized', which is deliberately not specific to a
+    // service token: it covers any 401/403 from a general origin.
+    expect(
+      screen.queryByText(
+        'The source refused the request because it requires credentials this dataset does not carry.',
+      ),
+    ).not.toBeInTheDocument();
   });
 
   it('suppresses an origin_ref whose discriminator does not match the dataset origin', () => {
