@@ -34,6 +34,7 @@ from app.platform.service_auth import (
 )
 from app.core.url_redaction import redact_url_credentials
 from app.modules.catalog.sources.adapters.arcgis import (
+    ArcGISTokenError,
     _looks_like_arcgis,
     enrich_arcgis_feature_counts,
     normalize_arcgis_url,
@@ -192,6 +193,30 @@ async def detect_service_type(
             )
             return None
 
+    async def _arcgis_probe(base: str) -> dict | None:
+        """Probe ArcGIS, and let a token challenge identify it too.
+
+        fix(#1746 B2b review r10): ArcGIS answers 499 or 498 in the BODY of an
+        otherwise successful response, and `probe_arcgis_service` turns that
+        into `ArcGISTokenError`. The challenge is proof that this endpoint IS
+        an ArcGIS service, exactly as a layer list would be, so the credential
+        has to be judged against it before the challenge is reported. Without
+        this, a keyword-free protected endpoint answered a basic or named-key
+        caller with the generic 403 "provide a valid ArcGIS token" while the
+        keyword-detected branch and the public-vanity fallback both answered
+        422 `unsupported_auth_method` — three sub-branches of one question
+        giving two different answers, and the 403 is advice the caller cannot
+        act on, because the method is what is wrong rather than the token.
+
+        The challenge is re-raised unchanged for bearer and for a
+        credential-free probe, which are the callers it is true advice for.
+        """
+        try:
+            return await probe_arcgis_service(base, client, token=token)
+        except ArcGISTokenError:
+            _arcgis_carries(credential)
+            raise
+
     def _arcgis_carries(credential_: ServiceCredential | None) -> None:
         """Refuse a method ArcGIS cannot present, once ArcGIS is what we found.
 
@@ -222,7 +247,7 @@ async def detect_service_type(
             "URL pattern matches ArcGIS", url=redact_url_credentials(url)
         )  # fix(#430 BA-27)
         base_url, layer_id = normalize_arcgis_url(url)
-        result = await probe_arcgis_service(base_url, client, token=token)
+        result = await _arcgis_probe(base_url)
         if result is not None:
             _arcgis_carries(credential)
             enriched = await enrich_arcgis_feature_counts(
@@ -263,7 +288,7 @@ async def detect_service_type(
 
     # Try ArcGIS
     base_url, layer_id = normalize_arcgis_url(url)
-    arcgis_result = await probe_arcgis_service(base_url, client, token=token)
+    arcgis_result = await _arcgis_probe(base_url)
     if arcgis_result is not None:
         _arcgis_carries(credential)
         enriched = await enrich_arcgis_feature_counts(

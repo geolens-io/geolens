@@ -1522,3 +1522,86 @@ class TestABearerTokenIsJudgedAfterDetection:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["service_type"] == "ArcGIS FeatureServer"
+
+    @staticmethod
+    def _challenging_arcgis(request: httpx.Request) -> httpx.Response:
+        """A protected keyword-free endpoint: ArcGIS 499 in a 200 body."""
+        if "f=json" in str(request.url):
+            return httpx.Response(
+                200,
+                json={"error": {"code": 499, "message": "Token Required"}},
+            )
+        return httpx.Response(404)
+
+    async def test_a_challenged_fallback_refuses_a_method_it_cannot_carry(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """fix(#1746 B2b review r10): the third sub-branch of one question.
+
+        ArcGIS answers 499 in the BODY of a 200, which `probe_arcgis_service`
+        turns into `ArcGISTokenError`. That challenge identifies the service
+        just as surely as a layer list does, so it used to report the generic
+        403 "provide a valid ArcGIS token" to a caller whose problem was the
+        METHOD and not the token: advice they cannot act on, and a different
+        answer from the two sibling branches.
+        """
+        secret = _value()
+        vanity = "https://gis.example/maps/data"
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            vanity,
+            {
+                "auth": {
+                    "method": "basic",
+                    "username": "u" + _value(),
+                    "password": secret,
+                }
+            },
+            self._challenging_arcgis,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "unsupported_auth_method"
+        assert secret not in resp.text
+        arcgis = [r for r in recorded if "f=json" in str(r.url)]
+        assert arcgis
+        assert all(secret not in str(r.url) for r in arcgis)
+
+    async def test_a_challenged_fallback_still_challenges_an_anonymous_caller(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """The challenge is true advice for the callers it is true for.
+
+        With no credential, "this service requires authentication" is exactly
+        what the caller needs to hear, and it is the answer this door has
+        always given.
+        """
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            "https://gis.example/maps/data",
+            {},
+            self._challenging_arcgis,
+        )
+
+        assert resp.status_code == 403, resp.text
+
+    async def test_a_challenged_fallback_still_challenges_a_bearer_caller(
+        self, client, admin_auth_header: dict
+    ) -> None:
+        """A bearer token IS presentable here, so a rejection is about the token."""
+        token = "tok" + _value()
+
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            "https://gis.example/maps/data",
+            {"auth": {"method": "bearer", "token": token}},
+            self._challenging_arcgis,
+        )
+
+        assert resp.status_code == 403, resp.text
+        # And it was actually presented, the way that transport presents one.
+        assert [r for r in recorded if token in str(r.url)]
