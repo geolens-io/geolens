@@ -2,33 +2,150 @@
 //
 // Run: npx playwright test e2e/sec-audit.spec.ts --project=chromium
 //
-// Many tests need a private dataset / raster / second editor user. Provide via env:
-//   SEC_AUDIT_API_URL                  default /api
-//   SEC_AUDIT_PRIVATE_RECORD_ID        STAC record_id for a private published raster (S01)
-//   SEC_AUDIT_PRIVATE_DATASET_ID       a dataset owned by user A with visibility=private (S02/S03/S05)
-//   SEC_AUDIT_EDITOR_B_TOKEN           bearer token for a second editor user (not the dataset's owner) (S02/S03)
-//   SEC_AUDIT_EDITOR_A_TOKEN           bearer token for the dataset owner (S03 cleanup)
-//   SEC_AUDIT_SSRF_TEST_REDIRECTOR     a public URL that 302-redirects to 169.254.169.254 (S04)
-// Tests that lack the env var skip with a printed reason rather than fail.
+// fix(#1778): S01/S02/S03/S05/S08/S09 used to read hand-provisioned env vars
+// (SEC_AUDIT_PRIVATE_DATASET_ID etc.) that nothing in CI ever set, so those
+// tests skipped on every run and the file reported green while covering 8
+// of 19 cases. beforeAll below seeds the same fixtures in-spec instead, the
+// way e2e/auth.setup.ts seeds a shared dataset and e2e/auth.spec.ts creates
+// its throwaway e2e-logout-probe user.
+//
+// S04 (SSRF redirect bypass) is the one case left out: it needs a live
+// external URL that 302-redirects to 169.254.169.254, which cannot be
+// provisioned safely in CI. That behavior is covered by
+// backend/tests/test_ssrf_redirect.py, so the test is removed below rather
+// than left permanently skipped — see the comment where it used to be.
+//
+//   SEC_AUDIT_API_URL         override the API base (default /api)
+//   SEC_AUDIT_FRONTEND_URL    override the frontend base for S08 (default E2E_BASE_URL)
 
 import { test, expect } from '@playwright/test';
+import { getAuthToken, seedDataset, seedDemDataset, deleteDataset } from './helpers/catalog';
 
 const API = process.env.SEC_AUDIT_API_URL || '/api';
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
+
+let privateDatasetId = '';
+let privateDatasetTitle = '';
+let privateRasterId = '';
+let privateRasterTitle = '';
+let publicDatasetId = '';
+let publicDatasetTitle = '';
+let editorBToken = '';
+let editorBUserId = '';
+let shareToken = '';
+let shareMapId = '';
+
+function adminHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${getAuthToken()}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+test.beforeAll(async () => {
+  const headers = adminHeaders();
+
+  // S01: private, published raster. The STAC /stac/items/{id} endpoint uses
+  // Dataset.id as the item id (backend/tests/test_stac_visibility.py), and
+  // ingest defaults a new dataset to visibility=private, record_status=published.
+  const raster = await seedDemDataset();
+  privateRasterId = raster.id;
+  privateRasterTitle = raster.title;
+
+  // S02/S03/S05: private vector dataset owned by the seeding admin account.
+  const priv = await seedDataset('Sec Audit Private');
+  privateDatasetId = priv.id;
+  privateDatasetTitle = priv.title;
+
+  // S09: public, published vector dataset.
+  const pub = await seedDataset('Sec Audit Public');
+  publicDatasetId = pub.id;
+  publicDatasetTitle = pub.title;
+  const publishRes = await fetch(`${BASE_URL}/api/datasets/${publicDatasetId}`, {
+    method: 'PATCH',
+    headers,
+    body: JSON.stringify({ visibility: 'public', record_status: 'published' }),
+  });
+  if (!publishRes.ok) {
+    throw new Error(`sec-audit: could not publish public dataset: ${publishRes.status}`);
+  }
+
+  // S02/S03: a second, non-admin editor who owns neither dataset above.
+  const editorBUsername = `sec-audit-editor-b-${Date.now()}`;
+  const editorBPassword = 'Sec-Audit-Editor-B-42';
+  const createUserRes = await fetch(`${BASE_URL}/api/admin/users/`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ username: editorBUsername, password: editorBPassword, role: 'editor' }),
+  });
+  if (!createUserRes.ok) {
+    throw new Error(`sec-audit: could not create editor B: ${createUserRes.status}`);
+  }
+  editorBUserId = ((await createUserRes.json()) as { id: string }).id;
+
+  const loginRes = await fetch(`${BASE_URL}/api/auth/login/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ username: editorBUsername, password: editorBPassword }).toString(),
+  });
+  if (!loginRes.ok) {
+    throw new Error(`sec-audit: could not log in editor B: ${loginRes.status}`);
+  }
+  editorBToken = ((await loginRes.json()) as { access_token: string }).access_token;
+
+  // S08: a public map with a share token.
+  const mapRes = await fetch(`${BASE_URL}/api/maps/`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ name: `Sec Audit Share Map ${Date.now()}` }),
+  });
+  if (!mapRes.ok) {
+    throw new Error(`sec-audit: could not create share map: ${mapRes.status}`);
+  }
+  shareMapId = ((await mapRes.json()) as { id: string }).id;
+  const mapPublishRes = await fetch(`${BASE_URL}/api/maps/${shareMapId}`, {
+    method: 'PUT',
+    headers,
+    body: JSON.stringify({ visibility: 'public' }),
+  });
+  if (!mapPublishRes.ok) {
+    throw new Error(`sec-audit: could not publish share map: ${mapPublishRes.status}`);
+  }
+  const shareRes = await fetch(`${BASE_URL}/api/maps/${shareMapId}/share/`, {
+    method: 'POST',
+    headers,
+  });
+  if (!shareRes.ok) {
+    throw new Error(`sec-audit: could not create share token: ${shareRes.status}`);
+  }
+  shareToken = ((await shareRes.json()) as { token: string }).token;
+});
+
+test.afterAll(async () => {
+  const headers = adminHeaders();
+  if (shareMapId) {
+    await fetch(`${BASE_URL}/api/maps/${shareMapId}`, { method: 'DELETE', headers }).catch(() => {});
+  }
+  if (editorBUserId) {
+    await fetch(`${BASE_URL}/api/admin/users/${editorBUserId}`, { method: 'DELETE', headers }).catch(() => {});
+  }
+  if (privateDatasetId) await deleteDataset(privateDatasetId, privateDatasetTitle);
+  if (publicDatasetId) await deleteDataset(publicDatasetId, publicDatasetTitle);
+  if (privateRasterId) await deleteDataset(privateRasterId, privateRasterTitle);
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S01 — STAC visibility bypass (anonymous read of private raster)
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S01 STAC visibility — anonymous cannot read a private raster STAC item', async ({ request }) => {
-  const recordId = process.env.SEC_AUDIT_PRIVATE_RECORD_ID;
-  test.skip(!recordId, 'Set SEC_AUDIT_PRIVATE_RECORD_ID to a private published raster');
+  const recordId = privateRasterId;
   const res = await request.get(`${API}/stac/items/${recordId}`);
   expect([401, 403, 404]).toContain(res.status());
 });
 
 test('S01 STAC visibility — anonymous /stac/search does not return private rasters', async ({ request }) => {
-  const recordId = process.env.SEC_AUDIT_PRIVATE_RECORD_ID;
-  test.skip(!recordId, 'Set SEC_AUDIT_PRIVATE_RECORD_ID to a private published raster');
+  const recordId = privateRasterId;
   const res = await request.get(`${API}/stac/search?ids=${recordId}`);
   // Either denied (401/403) or empty features list — never the private item back
   if (res.status() === 200) {
@@ -44,9 +161,8 @@ test('S01 STAC visibility — anonymous /stac/search does not return private ras
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
   const res = await request.patch(`${API}/datasets/${datasetId}/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
@@ -58,9 +174,8 @@ test('S02 IDOR — editor B cannot PATCH another user\'s private dataset', async
 });
 
 test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
   const res = await request.delete(`${API}/datasets/${datasetId}/`, {
     headers: { Authorization: `Bearer ${tokenB}` },
   });
@@ -68,24 +183,27 @@ test('S02 IDOR — editor B cannot DELETE another user\'s private dataset', asyn
 });
 
 test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
+  // fix(#1778): BulkDeleteRequest's schema is `{ datasets: [{ dataset_id,
+  // confirm_title }] }` (backend/openapi.json), not `{ dataset_ids: [...] }`
+  // — the old payload always 422'd before authorization was ever reached,
+  // which the permanent skip guard hid. bulk_delete_datasets_endpoint
+  // (router.py) isolates per-item failures rather than rejecting the whole
+  // batch, so a denied item surfaces as HTTP 200 with a per-item
+  // status: 'error', never a top-level 401/403/404.
   const res = await request.post(`${API}/datasets/bulk-delete/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
       'Content-Type': 'application/json',
     },
-    data: { dataset_ids: [datasetId] },
+    data: { datasets: [{ dataset_id: datasetId, confirm_title: privateDatasetTitle }] },
   });
-  // Either fully rejected (403/401) OR succeeds with a per-id failure (200/207 with deleted=0)
-  if (res.status() === 200 || res.status() === 207) {
-    const body = await res.json();
-    const deleted = body.deleted ?? body.deleted_ids ?? [];
-    expect(deleted).not.toContain(datasetId);
-  } else {
-    expect([401, 403, 404]).toContain(res.status());
-  }
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  const results = body.results ?? [];
+  const item = results.find((r: { dataset_id: string }) => r.dataset_id === datasetId);
+  expect(item?.status).not.toBe('deleted');
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,9 +211,8 @@ test('S02 IDOR — editor B cannot bulk-delete another user\'s private dataset',
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S03 IDOR — editor B cannot add a column to another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
   const res = await request.post(`${API}/datasets/${datasetId}/columns/`, {
     headers: {
       Authorization: `Bearer ${tokenB}`,
@@ -107,9 +224,8 @@ test('S03 IDOR — editor B cannot add a column to another user\'s private datas
 });
 
 test('S03 IDOR — editor B cannot DROP a column on another user\'s private dataset', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  const tokenB = process.env.SEC_AUDIT_EDITOR_B_TOKEN;
-  test.skip(!datasetId || !tokenB, 'Set SEC_AUDIT_PRIVATE_DATASET_ID and SEC_AUDIT_EDITOR_B_TOKEN');
+  const datasetId = privateDatasetId;
+  const tokenB = editorBToken;
   // Use a column name that almost certainly exists on a default ingested table
   const res = await request.delete(`${API}/datasets/${datasetId}/columns/gid`, {
     headers: { Authorization: `Bearer ${tokenB}` },
@@ -119,36 +235,20 @@ test('S03 IDOR — editor B cannot DROP a column on another user\'s private data
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S04 — SSRF redirect bypass on external source connectors
+//
+// fix(#1778): removed rather than left permanently skipped. This test needs
+// a live external URL that 302-redirects to 169.254.169.254; CI has no such
+// endpoint and standing one up is a real infrastructure dependency, not a
+// fixture this spec can seed. The redirect-revalidation behavior itself is
+// covered by backend/tests/test_ssrf_redirect.py, which mocks the redirect.
 // ─────────────────────────────────────────────────────────────────────────────
-
-test('S04 SSRF — /sources/probe/ rejects redirect target to private IP', async ({ request }) => {
-  const tokenA = process.env.SEC_AUDIT_EDITOR_A_TOKEN;
-  const redirector = process.env.SEC_AUDIT_SSRF_TEST_REDIRECTOR;
-  test.skip(!tokenA || !redirector, 'Set SEC_AUDIT_EDITOR_A_TOKEN and SEC_AUDIT_SSRF_TEST_REDIRECTOR (a URL that 302s to 169.254.169.254)');
-  const res = await request.post(`${API}/sources/probe/`, {
-    headers: {
-      Authorization: `Bearer ${tokenA}`,
-      'Content-Type': 'application/json',
-    },
-    data: { url: redirector },
-  });
-  if (res.status() === 200) {
-    const body = await res.text();
-    // Must not have followed redirect to IMDS / private host
-    expect(body).not.toMatch(/169\.254\.169\.254|iam\/security-credentials|instance-identity/i);
-    expect(body).not.toMatch(/listen_addresses|pg_hba|PostgreSQL/i);
-  } else {
-    expect([400, 403, 422]).toContain(res.status());
-  }
-});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // S05 — pgvector /datasets/{id}/related/ visibility bypass
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S05 VEC-IDOR — anonymous /related/ on a private dataset returns no oracle', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PRIVATE_DATASET_ID;
-  test.skip(!datasetId, 'Set SEC_AUDIT_PRIVATE_DATASET_ID');
+  const datasetId = privateDatasetId;
   const res = await request.get(`${API}/datasets/${datasetId}/related/`);
   // After fix: 401/403/404. Before fix: 200 with empty or partial list (oracle).
   // Empty 200 is also accepted as long as no similarity scores leak.
@@ -178,8 +278,6 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S08 — /m/<share_token> HTML response has frame-ancestors CSP (or is admin-restricted)', async ({ request }) => {
-  const shareToken = process.env.SEC_AUDIT_SHARE_TOKEN;
-  test.skip(!shareToken, 'Set SEC_AUDIT_SHARE_TOKEN to a public share token');
   // The frontend host serves /m/* — derive from API base
   const frontendBase = process.env.SEC_AUDIT_FRONTEND_URL || 'http://localhost:8080';
   const res = await request.get(`${frontendBase}/m/${shareToken}?embed=true`, {
@@ -202,10 +300,15 @@ test('S08 — /m/<share_token> HTML response has frame-ancestors CSP (or is admi
 // ─────────────────────────────────────────────────────────────────────────────
 
 test('S09 — dataset export -where rejects UNION / subqueries', async ({ request }) => {
-  const datasetId = process.env.SEC_AUDIT_PUBLIC_DATASET_ID;
-  test.skip(!datasetId, 'Set SEC_AUDIT_PUBLIC_DATASET_ID to a public exportable dataset');
+  const datasetId = publicDatasetId;
   const malicious = `gid > 0 UNION SELECT 1, 2, 3`;
-  const res = await request.get(`${API}/datasets/${datasetId}/export.csv?where=${encodeURIComponent(malicious)}`);
+  // fix(#1778): the export route is /datasets/{id}/export?format=csv, not
+  // /datasets/{id}/export.csv (backend/openapi.json has no such path) — the
+  // old URL always 404'd before the -where parser ever ran, which the
+  // permanent skip guard hid.
+  const res = await request.get(
+    `${API}/datasets/${datasetId}/export?format=csv&where=${encodeURIComponent(malicious)}`,
+  );
   expect([400, 422, 403]).toContain(res.status());
 });
 
@@ -224,8 +327,10 @@ test('S11 — burst of unique semantic queries gets rate-limited', async ({ requ
   );
   const statuses = responses.map(r => r.status());
   const has429 = statuses.includes(429);
-  // Until S11 ships, allow this to be informational — skip if no 429 observed
-  test.skip(!has429, 'Per-route rate limit not yet shipped (S11 follow-up)');
+  // fix(#1778): the skip guard fired on exactly the outcome this test exists
+  // to catch, so it could never go red. The per-route decorator has shipped
+  // (search/router.py's search_datasets_endpoint carries
+  // @limiter.limit(_semantic_search_rate_limit), default 30/minute) — gate on it.
   expect(has429).toBe(true);
 });
 
