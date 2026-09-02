@@ -14,7 +14,7 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Any, Optional
 
 import typer
 from rich.table import Table
@@ -27,6 +27,7 @@ from . import manifest_apply as _manifest_apply
 from . import output as _output
 from . import publish as _publish
 from . import refresh as _refresh
+from . import replace as _replace
 from . import scan as _scan
 from ._sdk_helpers import EXIT_AUTH, EXIT_GENERIC, EXIT_USAGE, call_sdk, unwrap
 
@@ -699,7 +700,7 @@ def publish(
             raise typer.Exit(EXIT_GENERIC)
         progress.update(t1, description=f"Uploaded (job_id={job_id})")
 
-        # Stage 2 — Preview.
+        # Stage 2: Preview.
         progress.add_task("Previewing...", total=None)
         preview_resp = call_sdk(
             _preview.sync_detailed, job_id=job_id, client=sdk.client
@@ -860,6 +861,156 @@ def refresh(
         state.output.error(message)
 
     if poll is not None and not poll.succeeded:
+        raise typer.Exit(EXIT_GENERIC)
+
+
+@app.command()
+def replace(
+    ctx: typer.Context,
+    dataset_id: Annotated[str, typer.Argument(help="Dataset UUID")],
+    file: Annotated[
+        Path,
+        typer.Argument(
+            help="Replacement spatial file",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ],
+    layer: Annotated[
+        Optional[str],
+        typer.Option(
+            "--layer",
+            help=(
+                "Layer to commit. Required when the file has more than one "
+                "layer; the CLI refuses to commit an unnamed default."
+            ),
+        ),
+    ] = None,
+    srid: Annotated[
+        Optional[int],
+        typer.Option("--srid", help="Override the detected SRID"),
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option("--wait/--no-wait", help="Wait for the replace job to finish"),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip the confirmation prompt"),
+    ] = False,
+) -> None:
+    """Replace this dataset's data from a file.
+
+    Runs the same upload, preview, commit flow ``publish`` uses, pointed at
+    the dataset's reupload endpoints instead of the ingest ones. Prints the
+    preview (layer, feature count, detected SRID) before committing and
+    prompts for confirmation unless ``--yes`` is passed.
+
+    A dataset whose data comes from a server-stored source binding rather
+    than a file cannot be replaced this way; use ``geolens refresh``
+    instead. A file with more than one layer requires ``--layer``; the CLI
+    refuses to commit an unnamed default rather than silently picking the
+    first one.
+    """
+    from uuid import UUID
+
+    state: AppState = ctx.obj
+    try:
+        dataset_uuid = UUID(dataset_id)
+    except ValueError as exc:
+        raise typer.BadParameter(
+            "Dataset id must be a UUID", param_hint="dataset_id"
+        ) from exc
+
+    sdk = state.sdk()
+
+    from geolens.api.datasets_reupload import (
+        reupload_commit_datasets_dataset_id_reupload_job_id_commit_post as _rcommit,
+        reupload_preview_datasets_dataset_id_reupload_job_id_preview_post as _rpreview,
+    )
+
+    try:
+        # Stage 1: Upload (multipart workaround; BUG-034-style network mapping).
+        upload_resp = call_sdk(
+            _replace.upload_file, client=sdk.client, dataset_id=dataset_uuid, path=file
+        )
+        upload = _replace.unwrap_or_raise(upload_resp, expected=_replace.UPLOAD_OK_STATUS)
+        job_id = upload.job_id
+
+        # Stage 2: Preview.
+        preview_resp = call_sdk(
+            _rpreview.sync_detailed,
+            dataset_id=dataset_uuid,
+            job_id=job_id,
+            client=sdk.client,
+            body=_replace.build_preview_request(layer),
+        )
+        preview = _replace.unwrap_or_raise(
+            preview_resp, expected=_replace.PREVIEW_OK_STATUS
+        )
+
+        layers = _replace.layer_summaries(preview)
+        if layers and layer is None:
+            state.output.error(_replace.multi_layer_refusal_message(layers))
+            raise typer.Exit(EXIT_USAGE)
+
+        summary = _replace.preview_summary(preview)
+        state.output.info(
+            f"Layer '{summary['layer_name']}': {summary['feature_count']} "
+            f"features, SRID {summary['srid'] if summary['srid'] is not None else 'unknown'}"
+        )
+
+        if not yes and not typer.confirm(
+            f"Replace dataset {dataset_uuid}'s data with {file}?"
+        ):
+            state.output.error("Replace cancelled; no changes were made.")
+            raise typer.Exit(EXIT_GENERIC)
+
+        # Stage 3: Commit.
+        commit_resp = call_sdk(
+            _rcommit.sync_detailed,
+            dataset_id=dataset_uuid,
+            job_id=job_id,
+            client=sdk.client,
+            body=_replace.build_commit_request(layer_name=layer, srid_override=srid),
+        )
+        commit = _replace.unwrap_or_raise(commit_resp, expected=_replace.COMMIT_OK_STATUS)
+    except _replace.ReplaceRequestError as exc:
+        state.output.error(exc.message)
+        raise typer.Exit(exc.exit_code)
+
+    payload: dict[str, Any] = {
+        "job_id": str(job_id),
+        "dataset_id": str(dataset_uuid),
+        "preview": summary,
+        "status": getattr(commit, "status", None),
+    }
+
+    if not wait:
+        if state.json_mode:
+            state.output.json(payload)
+        else:
+            state.output.success(f"Replace queued for dataset {dataset_uuid} (job {job_id})")
+        return
+
+    poll = _refresh.wait_for_refresh(sdk.client, job_id)
+    payload["status"] = poll.status
+    if poll.error_message:
+        payload["error_message"] = poll.error_message
+
+    if state.json_mode:
+        state.output.json(payload)
+    elif poll.succeeded:
+        state.output.success(
+            f"Replace complete for dataset {dataset_uuid} (job {job_id})"
+        )
+    else:
+        state.output.error(
+            poll.error_message or f"Replace job ended with status {poll.status}."
+        )
+
+    if not poll.succeeded:
         raise typer.Exit(EXIT_GENERIC)
 
 

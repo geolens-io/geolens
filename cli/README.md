@@ -2,7 +2,7 @@
 
 Apache-2.0 command-line interface for the [GeoLens](https://github.com/geolens-io/geolens) API.
 
-Login, scan local directories of spatial data, apply manifest-driven catalogs, publish vector or raster files, refresh remote service datasets, inspect source status, run PostGIS analysis operations, and export STAC metadata against any GeoLens instance.
+Login, scan local directories of spatial data, apply manifest-driven catalogs, publish vector or raster files, replace an uploaded dataset's data from a file, refresh remote service datasets, inspect source status, run PostGIS analysis operations, and export STAC metadata against any GeoLens instance.
 
 See [docs.getgeolens.com](https://docs.getgeolens.com/) for the full command reference.
 
@@ -18,6 +18,7 @@ geolens schema --output geolens-manifest-v1.schema.json
 geolens apply --dry-run geolens.yaml
 geolens apply geolens.yaml
 geolens publish ./data/cities.geojson
+geolens replace <dataset-id> ./data/cities-updated.geojson --wait
 geolens status <dataset-id>
 geolens refresh <dataset-id> --wait
 geolens analysis preview <dataset-id> --operation buffer --distance 500 > ring.geojson
@@ -29,12 +30,22 @@ For a one-command quickstart, run `geolens publish examples/manifests/first-cata
 
 The CLI consumes the [`geolens`](https://pypi.org/project/geolens/) Python SDK package. Manifest apply posts to the generated `POST /ingest/manifest/apply` contract through the SDK-owned client transport rather than a hand-rolled HTTP client.
 
-## Apply versus refresh
+## Apply, replace, and refresh
 
 `geolens apply` reconciles declared catalog configuration. It re-imports a
 manifest entry only when that entry's fingerprint changes; applying an
 unchanged manifest returns `skip_complete` and does not re-fetch a remote
 source whose data changed independently.
+
+`geolens replace <dataset-id> <file>` replaces this dataset's data from a
+local file, the CLI equivalent of the Re-upload dialog in the web app. It
+prints the preview (layer, feature count, detected SRID) before committing
+and asks for confirmation once; pass `--yes` to skip the prompt for scripted
+use, and `--wait` to poll the job to a terminal state and fail loudly on a
+bad import. A file with more than one layer needs `--layer`, since omitting
+it would otherwise commit the first layer without telling you. `replace`
+only accepts a local file. A dataset whose data comes from a remote service
+origin cannot be replaced this way; use `geolens refresh` for that instead.
 
 `geolens refresh <dataset-id>` is the explicit data-refresh path. It re-pulls
 the dataset from the origin binding stored by GeoLens, without accepting a URL,
