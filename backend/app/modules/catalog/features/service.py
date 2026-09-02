@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections.abc import Callable, Sequence
@@ -395,6 +396,88 @@ async def _property_filter_predicates(
     return clauses, raw_binds, typed_binds
 
 
+# fix(#1778): rows a filtered count will visit before it stops being exact.
+#
+# The cached feature_count fast path applies only to a COMPLETELY unfiltered
+# request, so one bbox, property filter or CQL2 filter put a full filtered
+# COUNT(*) on EVERY page — including keyset pages, whose whole point is
+# constant-time access. Paging 50 pages of a multi-million-row layer cost 50
+# full GiST scans with ST_Intersects rechecks, so the caller saw constant-time
+# row fetch and O(N) latency per page.
+#
+# Counting inside a LIMIT bounds that: the scan stops once the cap is reached,
+# so the per-page cost has a ceiling instead of scaling with the match set. The
+# count stays EXACT up to the cap, which covers any result set a client would
+# actually page through (100 pages at the OGC max page size); past it the
+# planner's own row estimate answers, and the response says so with an
+# X-GeoLens-Number-Matched: estimated header. The estimate is never reported
+# below the rows already counted, so a `next` link driven by
+# `offset + limit < total` cannot truncate pagination at the cap.
+_FILTERED_COUNT_CAP = 20_000
+
+NUMBER_MATCHED_HEADER = "X-GeoLens-Number-Matched"
+
+
+def number_matched_headers(total_is_estimate: bool) -> dict[str, str]:
+    """Response headers saying how ``numberMatched`` was produced.
+
+    OGC API Features defines no response member for "this count is
+    approximate", and the field is not optional in GeoLens's own schemas, so
+    the distinction rides on a header. Callers that display the number, or
+    compare it against the rows they received, need to know which they got.
+    The header is in the CORS expose list, so a browser client can read it.
+    """
+    return {NUMBER_MATCHED_HEADER: "estimated"} if total_is_estimate else {}
+
+
+async def _planner_row_estimate(
+    db: AsyncSession, quoted_table: str, where_sql: str, binds: dict, apply_binds
+) -> int:
+    """The planner's row estimate for the filtered predicate, or 0.
+
+    EXPLAIN without ANALYZE plans the statement and does not run it, so this
+    costs planning time rather than a scan. It is deliberately NOT wrapped in a
+    try/except: it plans the exact predicate the data query just executed
+    successfully, so a failure here is the same class the routers already
+    classify, and swallowing it would leave the session in a failed
+    transaction with the real cause hidden.
+    """
+    result = await db.execute(
+        apply_binds(
+            text(
+                f"EXPLAIN (FORMAT JSON) SELECT 1 FROM {quoted_table} t {where_sql}"
+            ).bindparams(**binds)
+        )
+    )
+    payload = result.scalar_one()
+    if isinstance(payload, (str, bytes)):
+        payload = json.loads(payload)
+    return int(payload[0]["Plan"]["Plan Rows"])
+
+
+async def _bounded_total(
+    db: AsyncSession, table_name: str, where_sql: str, binds: dict, apply_binds
+) -> tuple[int, bool]:
+    """Count the filtered rows, exactly up to `_FILTERED_COUNT_CAP`.
+
+    Returns (total, total_is_estimate).
+    """
+    quoted = get_catalog_port().quote_table(table_name)
+    capped_result = await db.execute(
+        apply_binds(
+            text(
+                f"SELECT COUNT(*) FROM (SELECT 1 FROM {quoted} t {where_sql} "
+                f"LIMIT :count_cap) s"
+            ).bindparams(**binds, count_cap=_FILTERED_COUNT_CAP + 1)
+        )
+    )
+    counted = int(capped_result.scalar_one())
+    if counted <= _FILTERED_COUNT_CAP:
+        return counted, False
+    estimate = await _planner_row_estimate(db, quoted, where_sql, binds, apply_binds)
+    return max(counted, estimate), True
+
+
 async def get_features(
     db: AsyncSession,
     table_name: str,
@@ -410,10 +493,13 @@ async def get_features(
     after_gid: int | None = None,
     cql2_where: str | None = None,
     cql2_binds: Sequence | None = None,
-) -> tuple[list[dict], int]:
+) -> tuple[list[dict], int, bool]:
     """Fetch paginated features from a data table as GeoJSON-ready dicts.
 
-    Returns (rows, total_count) where each row has gid, geometry, and properties.
+    Returns (rows, total_count, total_is_estimate) where each row has gid,
+    geometry, and properties. ``total_is_estimate`` is True when the filtered
+    match set is larger than ``_FILTERED_COUNT_CAP`` and ``total_count`` is the
+    planner's row estimate rather than an exact count (fix(#1778)).
 
     Phase 269 H-24: when ``after_gid`` is provided, uses keyset pagination
     (``WHERE gid > :after_gid``) instead of OFFSET. This avoids the
@@ -540,23 +626,17 @@ async def get_features(
 
     # Use cached feature_count when no filters are active
     if not count_where_clauses and cached_feature_count is not None:
-        total = cached_feature_count
-    else:
-        count_bind = {
-            k: v
-            for k, v in bind_values.items()
-            if k not in ("limit", "offset", "after_gid")
-        }
-        count_sql = (
-            f"SELECT COUNT(*) FROM {get_catalog_port().quote_table(table_name)} "
-            f"t {count_where_sql}"
-        )
-        count_result = await db.execute(
-            _with_extra_binds(text(count_sql).bindparams(**count_bind))
-        )
-        total = count_result.scalar_one()
+        return rows, cached_feature_count, False
 
-    return rows, total
+    count_bind = {
+        k: v
+        for k, v in bind_values.items()
+        if k not in ("limit", "offset", "after_gid")
+    }
+    total, total_is_estimate = await _bounded_total(
+        db, table_name, count_where_sql, count_bind, _with_extra_binds
+    )
+    return rows, total, total_is_estimate
 
 
 async def get_features_geojson_z(

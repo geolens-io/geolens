@@ -316,7 +316,7 @@ class TestAntimeridianExportEndToEnd:
         from app.modules.catalog.features.service import get_features
         from app.processing.export.parquet import export_parquet
 
-        rows, _total = await get_features(
+        rows, _total, _estimated = await get_features(
             test_db_session,
             antimeridian_table,
             limit=100,

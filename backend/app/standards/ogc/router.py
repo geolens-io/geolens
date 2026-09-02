@@ -26,6 +26,7 @@ from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_feature_queryable_columns,
     get_features,
+    number_matched_headers,
     parse_bbox,
 )
 from app.platform.extensions import (
@@ -814,7 +815,7 @@ async def get_collection_items(
         # fix(#430 BA-15): over-fetch one row so a full page can be distinguished from
         # a full *final* page; otherwise a feature count that is an exact multiple
         # of `limit` emits a phantom keyset `next` to an empty page.
-        rows, total = await get_features(
+        rows, total, total_is_estimate = await get_features(
             db,
             dataset.table_name,
             limit=limit + 1,
@@ -980,7 +981,10 @@ async def get_collection_items(
     if dataset.table_name:
         await _emit_ogc_usage_event(dataset.table_name)
 
-    headers = {"Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>"}
+    headers = {
+        "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
+        **number_matched_headers(total_is_estimate),
+    }
     if link_value := link_header_value(links):
         headers["Link"] = link_value
     return JSONResponse(

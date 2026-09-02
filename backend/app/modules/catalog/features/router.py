@@ -52,6 +52,7 @@ from app.modules.catalog.features.service import (
     get_features,
     get_features_geojson_z,
     insert_feature,
+    number_matched_headers,
     parse_bbox,
     refresh_dataset_metadata,
     replace_feature,
@@ -347,7 +348,7 @@ async def list_features(
 
     # Query features
     try:
-        rows, total = await get_features(
+        rows, total, total_is_estimate = await get_features(
             db,
             dataset.table_name,
             limit=limit,
@@ -449,6 +450,7 @@ async def list_features(
     return JSONResponse(
         content=response.model_dump(mode="json"),
         media_type="application/geo+json",
+        headers=number_matched_headers(total_is_estimate),
     )
 
 

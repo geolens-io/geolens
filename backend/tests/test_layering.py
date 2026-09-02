@@ -4699,7 +4699,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # `standards/stac/router.py` may import `features.service` and nothing
     # else under features (_STANDARDS_MODULE_IMPORT_SURFACE), and several
     # tests reach private names through it.
-    "backend/app/modules/catalog/features/service.py": 1055,
+    #
+    # fix(#1778): +80 for the bounded filtered count. The cached-feature_count
+    # fast path applied only to a COMPLETELY unfiltered request, so one bbox or
+    # property filter put a full filtered COUNT(*) on EVERY page, including the
+    # keyset pages whose whole point is constant-time access. The count now runs
+    # inside a LIMIT and the planner answers past the cap. Most of the growth is
+    # the comment on _FILTERED_COUNT_CAP recording what the cap buys and why the
+    # estimate is never reported below the rows already counted (a `next` link
+    # keyed on `offset + limit < total` would otherwise truncate pagination at
+    # the cap), plus the docstring on _planner_row_estimate saying why it is
+    # deliberately not wrapped in a try/except. Cap 1055 -> 1135, exact.
+    "backend/app/modules/catalog/features/service.py": 1135,
 }
 
 
