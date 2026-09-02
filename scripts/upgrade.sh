@@ -252,6 +252,8 @@ say "Step 1/5: syncing release files to ${TARGET_TAG}, then pulling prebuilt ima
 DB_CONF="db/postgresql.conf"
 DB_CONF_CHANGED=0
 DB_CONF_AT_TARGET=0
+DB_DOCKERFILE="db/Dockerfile"
+DB_DOCKERFILE_CHANGED=0
 if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
   if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
@@ -308,6 +310,35 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
         fi
       fi
       rm -f "$_db_conf_target" "$_db_conf_installed"
+    fi
+    # fix(#1778): db is the ONLY locally-built image in a prebuilt install —
+    # `compose pull --ignore-buildable` at Step 5 skips it by definition, and
+    # `docker compose up -d` does not rebuild an existing local image on its
+    # own. Left unsynced, a release that bumps the PostGIS/pgvector base
+    # (db/Dockerfile) never reaches an existing install through this script,
+    # and a migration that depends on the newer base fails mid-migrate with
+    # no earlier signal. Same content-vs-release-blob comparison as
+    # ${DB_CONF} above: sync only when the file still matches the installed
+    # release's blob, so an operator's own Dockerfile edit is left alone.
+    if git cat-file -e "${TARGET_TAG}:${DB_DOCKERFILE}" 2>/dev/null; then
+      _db_dockerfile_target="$(mktemp)"
+      _db_dockerfile_installed="$(mktemp)"
+      if git show "${TARGET_TAG}:${DB_DOCKERFILE}" > "$_db_dockerfile_target" 2>/dev/null; then
+        if cmp -s "$_db_dockerfile_target" "$DB_DOCKERFILE"; then
+          : # already the release's file on disk — nothing to rebuild for
+        elif git show "v${CURRENT_VERSION:-}:${DB_DOCKERFILE}" > "$_db_dockerfile_installed" 2>/dev/null \
+             && cmp -s "$_db_dockerfile_installed" "$DB_DOCKERFILE"; then
+          if git checkout --quiet "$TARGET_TAG" -- "$DB_DOCKERFILE" db/.dockerignore 2>/dev/null; then
+            DB_DOCKERFILE_CHANGED=1
+            say "  ${DB_DOCKERFILE} synced to ${TARGET_TAG}"
+          fi
+        else
+          warn "${DB_DOCKERFILE} does not match the installed release — keeping your version."
+          warn "  Review 'git diff ${TARGET_TAG} -- ${DB_DOCKERFILE}', merge any base-image or"
+          warn "  extension bump, then 'docker compose build db && docker compose up -d --force-recreate db'."
+        fi
+      fi
+      rm -f "$_db_dockerfile_target" "$_db_dockerfile_installed"
     fi
   else
     warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
@@ -494,15 +525,28 @@ rollback_trap() {
 }
 trap rollback_trap EXIT
 
+# fix(#1778): a synced db/Dockerfile needs the local image REBUILT before
+# anything downstream (the migrate step, then the app) can use it — compose
+# pull at Step 5 never touched it (--ignore-buildable). Before the migrate
+# step, while the app is already stopped, so a migration that depends on a
+# newer base runs against the new image, not the stale one.
+if [ "$DB_DOCKERFILE_CHANGED" = "1" ]; then
+  say "Rebuilding the db image from the synced ${DB_DOCKERFILE}"
+  compose build db \
+    || fail "Could not rebuild the db image after syncing ${DB_DOCKERFILE}."
+  say ""
+fi
+
 # fix(#959): the release's db/postgresql.conf needs the container RECREATED,
 # not restarted or reloaded — `git checkout` writes a new inode and a
 # single-file bind mount keeps resolving the one the container started with.
-# Do it before the migrate step, while the app is already stopped and the dump
-# is already taken, and wait for the healthcheck.
-if [ "$DB_CONF_CHANGED" = "1" ]; then
-  say "Applying ${DB_CONF} (recreating the db container)"
+# fix(#1778): a rebuilt db image needs the same recreate to pick it up. Do it
+# before the migrate step, while the app is already stopped and the dump is
+# already taken, and wait for the healthcheck.
+if [ "$DB_CONF_CHANGED" = "1" ] || [ "$DB_DOCKERFILE_CHANGED" = "1" ]; then
+  say "Recreating the db container"
   compose up -d --force-recreate --no-deps --wait db \
-    || fail "Could not recreate the db container after syncing ${DB_CONF}."
+    || fail "Could not recreate the db container after syncing db/Dockerfile and/or ${DB_CONF}."
   say ""
 fi
 

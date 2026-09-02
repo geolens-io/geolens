@@ -84,6 +84,7 @@ if [ "$1" = "compose" ]; then
     version) exit 0 ;;
     stop)    echo "stop_app" >> "$LOG"; [ "$STOP_MODE" = "fail" ] && exit 1; exit 0 ;;
     pull)    echo "pull" >> "$LOG"; exit 0 ;;
+    build)   echo "db_build" >> "$LOG"; exit 0 ;;
     exec)
       # Four distinct in-container calls share `compose exec -T db`:
       #   psql       -> the PG-major probe (Step 2.5); answer server_version_num.
@@ -234,6 +235,21 @@ DB_CONF_INSTALLED='temp_file_limit = 0
 '
 DB_CONF_TARGET='temp_file_limit = 4GB
 '
+# fix(#1778): GIT_DOCKERFILE_SYNC_TEST switches `show <tag>:db/Dockerfile` to
+# per-tag content (DOCKERFILE_INSTALLED/DOCKERFILE_TARGET below), the same
+# shape as db/postgresql.conf's pair, so the new sync-and-rebuild path can be
+# exercised for real. Unset (the default), it keeps the ORIGINAL behavior
+# every other test in this file relies on: a single GIT_TARGET_PG-driven
+# string regardless of tag, which is all the Step 2.5 PG-major guard needs
+# (it only ever asks for the TARGET tag). The two blobs deliberately share the
+# SAME PostGIS major (17) and differ only in the extension minor (3.5 -> 3.6)
+# — the finding's own example of a Dockerfile bump that does not cross a
+# major — so this exercises Step 4's content sync without also tripping the
+# unrelated Step 2.5 PG-major guard (GIT_TARGET_PG defaults to 17 too).
+DOCKERFILE_INSTALLED='FROM --platform=linux/amd64 postgis/postgis:17-3.5
+'
+DOCKERFILE_TARGET='FROM --platform=linux/amd64 postgis/postgis:17-3.6
+'
 case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
   fetch)     echo "fetch" >> "$GLOG" ;;
@@ -243,9 +259,13 @@ case "$1" in
       if [ "$a" = "db/postgresql.conf" ]; then
         printf '%s' "$DB_CONF_TARGET" > db/postgresql.conf
       fi
+      if [ "$a" = "db/Dockerfile" ]; then
+        printf '%s' "$DOCKERFILE_TARGET" > db/Dockerfile
+      fi
     done ;;
   # `git show <tag>:db/Dockerfile` -> the target release's bundled db base
-  # image, which the Step 2.5 PG-major guard parses.
+  # image, which the Step 2.5 PG-major guard parses AND (fix(#1778)) the
+  # Step 4 sync-and-rebuild content comparison reads.
   show)
     case "$2" in
       *:db/postgresql.conf)
@@ -253,6 +273,15 @@ case "$1" in
           v1.2.4:*) printf '%s' "$DB_CONF_TARGET" ;;
           *)        printf '%s' "$DB_CONF_INSTALLED" ;;
         esac ;;
+      *:db/Dockerfile)
+        if [ -n "${GIT_DOCKERFILE_SYNC_TEST:-}" ]; then
+          case "$2" in
+            v1.2.4:*) printf '%s' "$DOCKERFILE_TARGET" ;;
+            *)        printf '%s' "$DOCKERFILE_INSTALLED" ;;
+          esac
+        else
+          printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}"
+        fi ;;
       *) printf 'FROM --platform=linux/amd64 postgis/postgis:%s-3.6\n' "${GIT_TARGET_PG:-17}" ;;
     esac ;;
   *)         exit 0 ;;
@@ -280,6 +309,18 @@ ENV
   printf '%s\n' "${1:-temp_file_limit = 0}" > "$FAKE/db/postgresql.conf"
 }
 
+# fix(#1778): seed db/Dockerfile matching the git stub's DOCKERFILE_INSTALLED
+# blob (an untouched file the upgrade may sync), or pass $1 to model an
+# operator who edited it. Only called by tests that also set
+# DOCKERFILE_SYNC_TEST=1 so the git stub answers per-tag for db/Dockerfile;
+# every other test leaves db/Dockerfile absent, matching the pre-existing
+# (harmless) "keeping your version" no-op that produces.
+seed_db_dockerfile() {
+  _dockerfile_installed='FROM --platform=linux/amd64 postgis/postgis:17-3.5
+'
+  printf '%s' "${1:-$_dockerfile_installed}" > "$FAKE/db/Dockerfile"
+}
+
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   _mode="$1"; shift
   make_stubs "$_mode"
@@ -296,6 +337,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_SEAL_DIR="${SEAL_DIR:-}" DOCKER_API_STATE="${API_STATE:-running}" \
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
+      GIT_DOCKERFILE_SYNC_TEST="${DOCKERFILE_SYNC_TEST:-}" \
       sh "$FAKE/scripts/upgrade.sh" "$@" </dev/null > "$WORK/out.txt" 2>&1 )
   echo $? > "$WORK/code.txt"
 }
@@ -622,6 +664,67 @@ else
   bad "db was recreated despite already serving the release config"
 fi
 unset DB_RUNNING_CONF
+
+# ============================================================================
+# CASE 2e — fix(#1778): db is the ONLY locally-built image in a prebuilt
+# install (compose pull --ignore-buildable skips it), so a release that
+# bumps db/Dockerfile never reached an existing install through this script.
+# An unmodified db/Dockerfile is synced to the target release AND rebuilt
+# before the migrate step, using the same content-vs-release-blob comparison
+# as db/postgresql.conf.
+# ============================================================================
+seed_prod_env
+seed_db_dockerfile
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if grep -q 'postgis:17-3.6' "$FAKE/db/Dockerfile"; then
+  ok "unmodified db/Dockerfile is synced to the target release"
+else
+  bad "db/Dockerfile was not synced to the target: $(cat "$FAKE/db/Dockerfile")"
+fi
+build_pos="$(pos_of db_build)"
+recreate_pos="$(pos_of db_recreate)"
+migrate_pos="$(pos_of migrate_up)"
+backup_pos="$(pos_of backup)"
+if [ -n "$build_pos" ]; then
+  ok "a synced db/Dockerfile triggers a db image rebuild (compose build db)"
+else
+  bad "db/Dockerfile was synced but no rebuild was triggered: calls=$(tr '\n' ',' < "$WORK/calls.log")"
+fi
+if [ -n "$build_pos" ] && [ -n "$backup_pos" ] && [ -n "$migrate_pos" ] \
+   && [ "$backup_pos" -lt "$build_pos" ] && [ "$build_pos" -lt "$migrate_pos" ]; then
+  ok "db rebuild runs between the backup and migrate ($backup_pos < $build_pos < $migrate_pos)"
+else
+  bad "db rebuild out of place (backup=$backup_pos build=$build_pos migrate=$migrate_pos)"
+fi
+if [ -n "$build_pos" ] && [ -n "$recreate_pos" ] && [ "$build_pos" -lt "$recreate_pos" ]; then
+  ok "the db container is recreated AFTER the rebuild, to pick up the new image ($build_pos < $recreate_pos)"
+else
+  bad "recreate did not follow the rebuild (build=$build_pos recreate=$recreate_pos)"
+fi
+
+# A db/Dockerfile the operator customized (matches neither the installed nor
+# the target release's blob) must be left alone, exactly like postgresql.conf.
+seed_prod_env
+seed_db_dockerfile 'FROM postgis/postgis:99-custom
+# hand-patched by the operator
+'
+DOCKERFILE_SYNC_TEST=1
+run_upgrade ok 1.2.4
+DOCKERFILE_SYNC_TEST=
+
+if grep -q 'hand-patched by the operator' "$FAKE/db/Dockerfile"; then
+  ok "customized db/Dockerfile is NOT overwritten by the upgrade"
+else
+  bad "upgrade clobbered a customized db/Dockerfile: $(cat "$FAKE/db/Dockerfile")"
+fi
+if [ -z "$(pos_of db_build)" ]; then
+  ok "no db rebuild when a customized db/Dockerfile was left alone"
+else
+  bad "db was rebuilt even though the Dockerfile was not synced"
+fi
 
 # ============================================================================
 # CASE 3 — source-build install: instructions + exit 0, NO compose/backup calls.
