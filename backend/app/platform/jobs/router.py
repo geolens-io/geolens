@@ -58,7 +58,7 @@ from app.platform.jobs.sweep import (
     fail_stale_jobs,
     post_expiry_sweep_after_seconds,  # noqa: F401 -- re-exported, see __all__
     publish_refresh_reconciliation,
-    is_abandoned_presigned_upload,  # noqa: F401 -- re-exported, see __all__
+    is_abandoned_upload,  # noqa: F401 -- re-exported, see __all__
     stale_pending_clauses,
     stale_pending_cutoff_seconds,
     stale_pending_unbound_values,
@@ -1248,7 +1248,7 @@ __all__ = [
     "audit_settled_embedding_backfill",
     "fail_stale_jobs",
     "get_retry_capability",
-    "is_abandoned_presigned_upload",
+    "is_abandoned_upload",
     "post_expiry_sweep_after_seconds",
     "router",
     "stale_pending_clauses",

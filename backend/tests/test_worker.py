@@ -6,6 +6,8 @@ from uuid import uuid4
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from app.platform.jobs.models import commit_attempted_marker
+
 # ---------------------------------------------------------------------------
 # Worker health app tests
 # ---------------------------------------------------------------------------
@@ -176,7 +178,14 @@ async def test_recover_stale_jobs_marks_orphaned_pending_as_failed():
     fake_job.status = "pending"
     fake_job.error_message = None
     fake_job.completed_at = None
-    fake_job.user_metadata = {"file_type": "vector"}  # see #1556 note above
+    # fix(#1744): a dispatch was attempted for this row and never landed, which
+    # is what keeps recovery reporting `failed` so /jobs/{id}/retry stays
+    # reachable. Without the stamp the double stands for an upload nobody
+    # committed, and recovery settles it `cancelled`.
+    fake_job.user_metadata = {
+        "file_type": "vector",  # see #1556 note above
+        **commit_attempted_marker(),
+    }
 
     # Two extra empty results for the GAP-002 VRT stale sweep.
     mock_session = _make_mock_session([], [fake_job], [], [], [])

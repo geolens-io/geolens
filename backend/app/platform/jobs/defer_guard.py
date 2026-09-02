@@ -41,7 +41,11 @@ from fastapi import HTTPException, status
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import (
+    COMMIT_ATTEMPTED_METADATA_KEY,
+    IngestJob,
+    commit_attempted_marker,
+)
 
 if TYPE_CHECKING:
     # Typing-only edge: `platform/` must not import `processing/` at module
@@ -91,15 +95,55 @@ class DeferFailed(HTTPException):
         self.rolled_back = rolled_back
 
 
+async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
+    """Record durably, on the row, that a dispatch was attempted for it.
+
+    feat(#1744): the one write that lets the stale sweep tell an abandoned
+    upload from a broken one. ``POST /ingest/upload`` deliberately does not
+    queue anything, so a `pending` row with no Procrastinate job is the normal
+    state between upload and commit, and when the owner walks away at the
+    preview step that row looks exactly like a commit whose dispatch died. The
+    two are only indistinguishable because nothing on the row said whether a
+    dispatch was ever tried; this says it, and ``abandoned_upload`` in
+    ``jobs/sweep.py`` reads its absence.
+
+    Committed rather than left dirty on the session, because the states that
+    need it most are the ones where nothing later commits: ``get_db`` closes
+    without committing, and the two rows the marker has to survive for are a
+    defer whose rollback did not land and a dispatch whose queue row later
+    vanished with the ingest row still `pending`. The extra commit costs
+    nothing here, because every caller of the guard has just committed the row
+    it is about to dispatch, which the Phase 1060 close-gate fix made
+    mandatory so the worker can see the row before the task exists.
+
+    Idempotent: a second dispatch of the same row (``/jobs/{id}/retry``
+    re-queues through ``queue_ingest_job``) keeps the first timestamp and
+    issues no write. Written as an UPDATE keyed on the id rather than an ORM
+    mutation so it also lands for a caller holding a detached instance, and
+    mirrored onto the instance afterwards so in-memory reads agree with the
+    row.
+    """
+    metadata = dict(job.user_metadata or {})
+    if metadata.get(COMMIT_ATTEMPTED_METADATA_KEY):
+        return
+    metadata.update(commit_attempted_marker())
+    await db.execute(
+        update(IngestJob).where(IngestJob.id == job.id).values(user_metadata=metadata)
+    )
+    await db.commit()
+    job.user_metadata = metadata
+
+
 async def defer_with_orphan_guard(
     defer_call: DeferCallable,
     *,
     rollback: RollbackCallable,
     db: AsyncSession,
+    job: IngestJob,
 ) -> None:
     """Run a ``defer_async`` call with rollback-on-failure semantics.
 
-    On success: no-op wrapper around ``defer_call``.
+    On success: stamps ``job`` as dispatch-attempted, then ``defer_call``.
 
     On failure:
         1. Invoke ``rollback(defer_exc)`` to revert committed state.
@@ -111,17 +155,37 @@ async def defer_with_orphan_guard(
            the defer error, carrying ``rolled_back`` so a caller can tell
            "the state was reverted" from "the state is still out there".
 
+    feat(#1744): ``job`` is required, and it is required rather than optional
+    because this is the one place every ``IngestJob`` dispatch in the codebase
+    passes through. Nothing calls ``task.defer_async`` with a ``job_id``
+    outside a closure this guard runs, so stamping here reaches every door at
+    once and a new door cannot be written that skips it. Same "a caller cannot
+    express the operation without also taking the rule" shape that
+    ``stale_pending_clauses`` uses for the read side.
+    ``test_commit_attempted_marker_doors.py`` pins both halves.
+
+    The stamp is inside the try on purpose. It has to be on the row BEFORE the
+    task exists, and a stamp that does not land is a dispatch that must not
+    happen: without it a later sweep cannot tell this row from an upload nobody
+    ever committed, and would cancel a job whose only recovery path is
+    ``/jobs/{id}/retry`` (failed-only). Treating that as a dispatch failure
+    settles the row `failed` through the same rollback, which is the state a
+    caller can act on.
+
     Args:
         defer_call: 0-arg async closure that calls ``task.defer_async``.
         rollback: async closure that reverts committed state. Receives
             the defer exception for error-message embedding.
         db: session used to commit the rollback.
+        job: the ``IngestJob`` row this dispatch is for, stamped
+            dispatch-attempted before the defer runs.
 
     Raises:
         DeferFailed: always, when ``defer_call`` raises. Existing callers that
             catch ``HTTPException`` are unaffected; the 503 body is unchanged.
     """
     try:
+        await stamp_commit_attempted(job, db=db)
         await defer_call()
     except Exception as defer_exc:  # broad: defer_async can throw various job-runner errors; orphan-guard handles all
         rolled_back = False

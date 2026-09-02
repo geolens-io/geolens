@@ -660,9 +660,11 @@ class TestCreateVrtJob:
             assert stub_job.error_message is not None
             assert "procrastinate unreachable" in stub_job.error_message
             assert stub_job.completed_at is not None
-            # Two commits: one after create_ingest_job, one after flipping
-            # the job to failed. Verifies the failed state is durable.
-            assert mock_db.commit.await_count == 2
+            # Three commits: one after create_ingest_job, one for the #1744
+            # dispatch stamp the orphan guard writes before it defers, and one
+            # after flipping the job to failed. Verifies the failed state is
+            # durable.
+            assert mock_db.commit.await_count == 3
 
         asyncio.run(_check())
 

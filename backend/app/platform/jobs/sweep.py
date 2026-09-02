@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import MAX_PRESIGNED_URL_LIFETIME_SECONDS, settings
 from app.observability.metrics.refresh import refresh_sweep_reconciled_total
 from app.platform.jobs.models import (
+    COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     STAGING_REAPED_FINAL_MARKER,
@@ -181,57 +182,84 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     )
 
 
-# fix(#1556): the terminal state for a presigned upload nobody ever bound bytes
-# to. `failed` claims an ingest was attempted and broke; for a visitor who
-# presigned an upload and walked away, nothing was ever attempted, and on the
-# public demo those rows are indistinguishable from real ingest failures in the
-# admin jobs list and the failed-jobs badge that counts it. `cancelled` is
-# already in the `ingest_jobs` status CHECK constraint, in the admin `JobStatus`
-# literal and in openapi.json, so this needs no migration and changes no
-# published contract.
+# fix(#1556): the terminal state for an upload nobody ever committed. `failed`
+# claims an ingest was attempted and broke; for a visitor who staged an upload
+# and walked away, nothing was ever attempted, and on the public demo those
+# rows are indistinguishable from real ingest failures in the admin jobs list
+# and the failed-jobs badge that counts it. `cancelled` is already in the
+# `ingest_jobs` status CHECK constraint, in the admin `JobStatus` literal and
+# in openapi.json, so this needs no migration and changes no published
+# contract.
 ABANDONED_UPLOAD_MESSAGE = "Abandoned: upload was never completed"
 
 
-def is_abandoned_presigned_upload(
-    file_path: str | None, user_metadata: dict | None
-) -> bool:
-    """Python twin of ``abandoned_presigned_upload``, over one loaded row.
+def is_abandoned_upload(user_metadata: dict | None) -> bool:
+    """Python twin of ``abandoned_upload``, over one loaded row.
 
     Only the worker's startup recovery needs it: that site mirrors the UPDATE
     onto the returned ORM instances, and a plain ``job.status = "failed"``
     there would write the in-memory object back over the status the database
     just computed. Kept beside the SQL so the two are read as one rule.
     """
-    return not file_path and bool((user_metadata or {}).get("presigned"))
+    return not (user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY)
 
 
-def abandoned_presigned_upload():
-    """Predicate: a presigned upload whose bytes were never bound.
+def abandoned_upload():
+    """Predicate: nothing was ever dispatched for this row.
 
-    Deliberately narrower than "falsy ``file_path``". The unbound half of the
-    pending sweep also reaps rows that DID have work attempted for them, and
-    each of those must keep reporting `failed`:
+    fix(#1744): asks the row whether a dispatch was attempted, instead of
+    guessing from its shape. ``defer_with_orphan_guard`` stamps
+    ``commit_attempted_at`` immediately before every ``defer_async`` in the
+    codebase and commits it, so an unbound pending row that carries no stamp
+    was never handed to the queue at all.
 
-    - a service/URL import (``source_url`` set, ``file_path`` empty) whose
-      defer never landed. ``/jobs/{id}/retry`` requires status `failed`, and
-      ``_retry_capability`` offers exactly that row, so cancelling it would
-      take a recoverable job's only recovery path away — the same 1h-to-
-      recoverable-becomes-unrecoverable trap #1235 avoided for absolute paths.
-    - an analysis run or an admin embedding backfill, both of which carry
-      ``file_path=""`` by construction. A dispatch that never landed is a real
-      failure of something the user asked for, and #1550's audit trail settles
-      the backfill `never_started` in the same transaction as the row.
+    This replaces the ``file_path`` empty AND ``presigned`` carve-out #1556
+    installed, and folds that class in rather than sitting beside it. The
+    carve-out was keyed to the presign doors because those were the only ones
+    that stamped anything, which left the door the demo actually uses
+    unprotected: a direct upload binds an ABSOLUTE staging path and stamps no
+    `presigned` marker, so four abandoned direct uploads over two weeks each
+    reported `failed` with "never queued" while the queue was working
+    correctly. The absolute-path carve-out the old docstring defended no
+    longer needs a branch of its own, because the shape of ``file_path`` was
+    never what the two classes differed by; a broken commit and an abandoned
+    upload can both carry the same absolute path, and only the stamp
+    distinguishes them.
 
-    The ``presigned`` marker is what both presign doors stamp
-    (``processing/ingest/router.py`` and ``datasets/api/router_reupload.py``)
-    at the moment they hand a client a URL, so it names the one class where an
-    empty ``file_path`` means "the client never came back". A completion binds
-    ``staging/{job}/frozen/...`` and is therefore the BOUND half's business,
-    never this one.
+    Everything the old predicate deliberately excluded stays excluded, and now
+    for a reason that holds at every door rather than at two of them. A
+    service/URL import, an analysis run and an admin embedding backfill all
+    reach the queue through the same guard, so a dispatch that never landed
+    for one of them carries the stamp and keeps reporting `failed`.
+    ``/jobs/{id}/retry`` requires status `failed` and ``_retry_capability``
+    offers exactly those rows, so this is what keeps a recoverable job's only
+    recovery path open (the 1h-to-recoverable-becomes-unrecoverable trap
+    #1235 avoided), and #1550's audit trail still settles the backfill
+    `never_started` in the same transaction as the row.
+
+    Rows created before the stamp existed carry no stamp, so a pending unbound
+    row that predates the deploy reclassifies as `cancelled`. That is the
+    right answer for the abandoned uploads it will mostly be (the demo audit
+    found four of those and zero broken commits) and the wrong one for a
+    genuinely broken commit; accepted rather than migrated, because a
+    migration would have to guess the same thing from the same missing fact.
+
+    Two residual gaps, recorded rather than papered over. A door commits its
+    row and then dispatches, so a process death in the gap between those two
+    leaves the row unstamped and it settles `cancelled` instead of `failed`.
+    That window is one statement wide, and it was unbounded before this change
+    for the same class. ``create_fan_out_jobs`` is the one door that closes it
+    outright, by putting the stamp in the metadata it commits: it runs inside
+    a worker task, and its child cannot be recreated by repeating a user
+    action, because the layer selection lived in the fan-out request body and
+    nowhere else. The second gap is storage-mode-shaped: in S3 mode a direct
+    upload binds ``staging/{job}/{name}``, which is the BOUND half's business,
+    so an abandoned S3 upload still settles `failed` after the 24h backstop
+    with the bound message. #1744's evidence and scope are the unbound half.
     """
-    return and_(
-        func.coalesce(IngestJob.file_path, "") == "",
-        func.coalesce(IngestJob.user_metadata["presigned"].astext, "false") == "true",
+    return (
+        func.coalesce(IngestJob.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY].astext, "")
+        == ""
     )
 
 
@@ -252,7 +280,7 @@ def stale_pending_unbound_values(now: datetime, *, message: str) -> dict:
     the elapsed seconds); it survives untouched for every row that is not an
     abandoned upload, so nothing about the existing failure reporting moves.
     """
-    abandoned = abandoned_presigned_upload()
+    abandoned = abandoned_upload()
     return {
         "status": case((abandoned, "cancelled"), else_="failed"),
         "error_message": case((abandoned, ABANDONED_UPLOAD_MESSAGE), else_=message),
@@ -1357,9 +1385,11 @@ async def fail_stale_jobs(
     # database while raising in the unit suites that drive this with doubles.
     pending_cancelled = sum(1 for row in unbound_rows if row[3] == "cancelled")
     # Back to the three columns every consumer below expects; the audit loop
-    # still visits cancelled rows, which is a no-op for them by construction
-    # (an embedding backfill carries no `presigned` marker, so it is never in
-    # the cancelled class).
+    # still visits cancelled rows, and closing the trail is the right write for
+    # either terminal state. fix(#1744): a backfill reaches the queue through
+    # the same guard that stamps `commit_attempted_at`, so it is in the
+    # cancelled class only when the process died between its own commit and
+    # the dispatch, which is exactly the `never_started` the loop records.
     pending_rows = [(row[0], row[1], row[2]) for row in unbound_rows]
     pending_job_ids = [row[0] for row in unbound_rows]
 

@@ -46,12 +46,37 @@ def _user(user_id: uuid.UUID) -> SimpleNamespace:
     return SimpleNamespace(id=user_id)
 
 
+def _dispatched_metadata() -> dict:
+    """The `user_metadata` a row carries once a dispatch has been attempted.
+
+    fix(#1744): `defer_with_orphan_guard` stamps `commit_attempted_at` before
+    every defer, so a row that reached the queue at all has this key. Its
+    absence is now what makes the sweep read a row as an abandoned upload, so
+    a fixture describing "the defer never landed" has to carry it or it
+    describes something else.
+    """
+    from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
+
+    return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
+
+
 async def _stale_pending_job(
-    session: AsyncSession, created_by: uuid.UUID | None = None
+    session: AsyncSession,
+    created_by: uuid.UUID | None = None,
+    *,
+    commit_attempted: bool = True,
 ) -> IngestJob:
-    """A pending job old enough for the reaper to consider it."""
+    """A pending job old enough for the reaper to consider it.
+
+    Dispatch-attempted by default: every test in this class is about the
+    live-queue predicate, and the row it reasons about is one whose task was
+    deferred (or whose defer died), not an upload nobody committed.
+    """
     job = IngestJob(
-        source_filename="reaper-test", status="pending", created_by=created_by
+        source_filename="reaper-test",
+        status="pending",
+        created_by=created_by,
+        user_metadata=_dispatched_metadata() if commit_attempted else {},
     )
     session.add(job)
     await session.flush()
@@ -192,12 +217,17 @@ async def _make_pending_job(
     file_path: str,
     presigned: bool = True,
     source_url: str | None = None,
+    commit_attempted: bool = False,
 ):
     """A pending job aged past a cutoff, with file_path as given.
 
     fix(#1556): `presigned` is now a parameter because it discriminates two
     classes that both reach the unbound half. Default True keeps every existing
     caller describing the presigned upload it already described.
+
+    fix(#1744): `commit_attempted` is what discriminates them now. Default
+    False, because the rows these fixtures describe are mostly ones nobody
+    dispatched; a caller that means "the defer never landed" passes True.
     """
     from datetime import datetime, timedelta, timezone
 
@@ -215,7 +245,10 @@ async def _make_pending_job(
         status="pending",
         file_path=file_path,
         source_url=source_url,
-        user_metadata={"presigned": True} if presigned else {},
+        user_metadata={
+            **({"presigned": True} if presigned else {}),
+            **(_dispatched_metadata() if commit_attempted else {}),
+        },
     )
     session.add(job)
     await session.commit()
@@ -240,7 +273,12 @@ class TestBoundPendingSweep:
 
     @staticmethod
     async def _make_job(
-        session, *, age_seconds: int, file_path: str, presigned: bool = True
+        session,
+        *,
+        age_seconds: int,
+        file_path: str,
+        presigned: bool = True,
+        commit_attempted: bool = False,
     ):
         from datetime import datetime, timedelta, timezone
 
@@ -257,7 +295,10 @@ class TestBoundPendingSweep:
             created_by=admin.id,
             status="pending",
             file_path=file_path,
-            user_metadata={"presigned": True} if presigned else {},
+            user_metadata={
+                **({"presigned": True} if presigned else {}),
+                **(_dispatched_metadata() if commit_attempted else {}),
+            },
         )
         session.add(job)
         await session.commit()
@@ -314,11 +355,19 @@ class TestBoundPendingSweep:
     ) -> None:
         """The other side of the same fork: an analysis run or an embedding
         backfill also carries `file_path=""`, and a dispatch that never landed
-        is a real failure of something the user asked for."""
+        is a real failure of something the user asked for.
+
+        fix(#1744): the row says so itself now. Both of those doors reach the
+        queue through the guard that stamps `commit_attempted_at`, so a defer
+        that died still leaves the stamp behind."""
         from app.platform.jobs.router import fail_stale_jobs
 
         job = await self._make_job(
-            test_db_session, age_seconds=7200, file_path="", presigned=False
+            test_db_session,
+            age_seconds=7200,
+            file_path="",
+            presigned=False,
+            commit_attempted=True,
         )
 
         await fail_stale_jobs(test_db_session)
@@ -334,7 +383,10 @@ class TestBoundPendingSweep:
         from app.platform.jobs.router import fail_stale_jobs
 
         job = await self._make_job(
-            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+            test_db_session,
+            age_seconds=7200,
+            file_path="/tmp/fake.geojson",
+            commit_attempted=True,
         )
 
         await fail_stale_jobs(test_db_session)
@@ -465,7 +517,11 @@ class TestPollingPathHonoursTheSameGuard:
         """The poll keeps its own elapsed-seconds wording for everything that
         is not an abandoned upload."""
         job = await _make_pending_job(
-            test_db_session, age_seconds=7200, file_path="", presigned=False
+            test_db_session,
+            age_seconds=7200,
+            file_path="",
+            presigned=False,
+            commit_attempted=True,
         )
 
         resp = await self._poll(client, admin_auth_header, job.id)
@@ -488,7 +544,10 @@ class TestPollingPathHonoursTheSameGuard:
         24h-to-recoverable on a real path.
         """
         job = await _make_pending_job(
-            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+            test_db_session,
+            age_seconds=7200,
+            file_path="/tmp/fake.geojson",
+            commit_attempted=True,
         )
 
         resp = await self._poll(client, admin_auth_header, job.id)
@@ -561,6 +620,7 @@ class TestAbandonedUploadsAreCancelled:
             file_path="",
             presigned=False,
             source_url="https://example.test/roads.geojson",
+            commit_attempted=True,
         )
 
         await fail_stale_jobs(test_db_session)
@@ -575,11 +635,18 @@ class TestAbandonedUploadsAreCancelled:
         self, test_db_session
     ) -> None:
         """#1235's absolute-path class, unchanged: a real file exists and
-        retry matters, so the row must stay `failed`."""
+        retry matters, so the row must stay `failed`.
+
+        fix(#1744): what keeps it failed is the stamp, not the path. The same
+        absolute path with no stamp is an upload nobody committed, which the
+        test below covers."""
         from app.platform.jobs.router import fail_stale_jobs
 
         job = await _make_pending_job(
-            test_db_session, age_seconds=7200, file_path="/tmp/fake.geojson"
+            test_db_session,
+            age_seconds=7200,
+            file_path="/tmp/fake.geojson",
+            commit_attempted=True,
         )
 
         await fail_stale_jobs(test_db_session)
@@ -642,7 +709,11 @@ class TestAbandonedUploadsAreCancelled:
             test_db_session, age_seconds=7200, file_path=""
         )
         dispatched = await _make_pending_job(
-            test_db_session, age_seconds=7200, file_path="", presigned=False
+            test_db_session,
+            age_seconds=7200,
+            file_path="",
+            presigned=False,
+            commit_attempted=True,
         )
 
         await recover_stale_jobs()
@@ -679,7 +750,11 @@ class TestAbandonedUploadsAreCancelled:
 
         await _make_pending_job(test_db_session, age_seconds=7200, file_path="")
         await _make_pending_job(
-            test_db_session, age_seconds=7200, file_path="", presigned=False
+            test_db_session,
+            age_seconds=7200,
+            file_path="",
+            presigned=False,
+            commit_attempted=True,
         )
 
         outcome = await fail_stale_jobs(test_db_session, detailed=True)
@@ -712,27 +787,38 @@ class TestAbandonedUploadsAreCancelled:
         assert "cancelled" in exc.value.detail.lower()
 
     @pytest.mark.parametrize(
-        "file_path,user_metadata,abandoned",
+        "user_metadata,abandoned",
         [
-            ("", {"presigned": True}, True),
-            (None, {"presigned": True}, True),
-            ("", {}, False),
-            ("", None, False),
-            ("", {"analysis": True}, False),
-            ("", {"embedding_backfill": {}}, False),
-            ("/tmp/fake.geojson", {"presigned": True}, False),
-            ("staging/x/frozen/roads.geojson", {"presigned": True}, False),
+            ({"presigned": True}, True),
+            ({}, True),
+            (None, True),
+            ({"analysis": True}, True),
+            ({"commit_attempted_at": "2026-09-01T12:00:00+00:00"}, False),
+            ({"presigned": True, "commit_attempted_at": "2026-09-01T12:00:00Z"}, False),
+            (
+                {"embedding_backfill": {}, "commit_attempted_at": "2026-09-01T12:00Z"},
+                False,
+            ),
+            ({"commit_attempted_at": ""}, True),
+            ({"commit_attempted_at": None}, True),
         ],
     )
     def test_the_python_twin_agrees_with_the_sql_predicate(
-        self, file_path, user_metadata, abandoned
+        self, user_metadata, abandoned
     ) -> None:
         """The worker mirrors the UPDATE onto ORM instances, so the two
         expressions of one rule must not drift. Enumerated over every shape a
-        pending row can carry, not just the reported one."""
-        from app.platform.jobs.router import is_abandoned_presigned_upload
+        pending row can carry, not just the reported one.
 
-        assert is_abandoned_presigned_upload(file_path, user_metadata) is abandoned
+        fix(#1744): the shapes that matter are now what the metadata says,
+        not what `file_path` looks like, so the empty and absent stamps are
+        enumerated alongside the present one. Both expressions coalesce a
+        missing or empty value to "no dispatch was attempted", which is the
+        conservative reading for a row that never got a real timestamp.
+        """
+        from app.platform.jobs.router import is_abandoned_upload
+
+        assert is_abandoned_upload(user_metadata) is abandoned
 
 
 def test_the_published_cleanup_response_drops_the_new_count_without_raising() -> None:
@@ -1033,3 +1119,158 @@ class TestThePollPathSkipsUpdatesItCannotMatch:
         assert self._updates(statements), "the stale job was never updated"
         await test_db_session.refresh(job)
         assert job.status == "cancelled"
+
+
+class TestAbandonedDirectUploadsAreCancelled:
+    """fix(#1744): the door #1556 did not reach.
+
+    `POST /ingest/upload` says it in its own docstring: it stages the file and
+    does NOT auto-queue, so a `pending` row with no Procrastinate job is the
+    normal state between upload and commit. When the owner walks away at the
+    preview step, the row settles at the pending timeout as `failed` with
+    "never queued", pointing at a queue that is working correctly.
+
+    #1556 fixed exactly this reasoning for the presign doors, but keyed the
+    carve-out to the `presigned` marker plus an empty `file_path`. A direct
+    upload binds an absolute staging path and stamps no such marker, so it
+    matched neither half: on the demo, four of six failed jobs were abandoned
+    direct uploads by three different users over two weeks, and zero were
+    broken commits.
+
+    The split is now the stamp `defer_with_orphan_guard` writes, so the two
+    classes are told apart by whether a dispatch was attempted rather than by
+    the shape of a path they can both carry.
+    """
+
+    async def test_the_sweep_cancels_an_abandoned_direct_upload(
+        self, test_db_session
+    ) -> None:
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="/app/staging/abc_uls.csv",
+            presigned=False,
+        )
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled", (
+            "an upload nobody ever committed is still reported as a failed "
+            "ingest, which is what inflates the admin failed-jobs badge"
+        )
+        assert job.error_message == "Abandoned: upload was never completed"
+        assert job.completed_at is not None
+
+    async def test_a_poll_cancels_an_abandoned_direct_upload(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        """The second site, and the one that usually gets there first: the
+        frontend polls this route every 2s for any job it is tracking."""
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="/app/staging/abc_uls.csv",
+            presigned=False,
+        )
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+
+        assert resp.status_code == 200, resp.text
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert job.error_message == "Abandoned: upload was never completed"
+
+    async def test_the_worker_startup_recovery_cancels_it_too(
+        self, test_db_session
+    ) -> None:
+        """The third site. After a hard restart it is the pass that reaches the
+        row, and once it has made the row terminal no later sweep looks at it
+        again."""
+        from app.platform.jobs.worker import recover_stale_jobs
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="/app/staging/abc_uls.csv",
+            presigned=False,
+        )
+
+        await recover_stale_jobs()
+
+        test_db_session.expire_all()
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert job.error_message == "Abandoned: upload was never completed"
+
+    @pytest.mark.parametrize("site", ["sweep", "poll", "recovery"])
+    async def test_a_dispatched_direct_upload_stays_failed_and_retryable(
+        self, client, admin_auth_header, test_db_session, tmp_path, site
+    ) -> None:
+        """The class the split exists to protect, at all three sites.
+
+        A commit whose dispatch died leaves the same absolute path on the same
+        `pending` row. It must keep reporting `failed`, because that is the
+        only status `/jobs/{id}/retry` accepts, and cancelling it would take a
+        recoverable job's only recovery path away (the trap #1235 avoided).
+
+        The staged file is real because `_retry_capability` reads it: a
+        `failed` status alone is not the retry affordance, it is half of it.
+        """
+        from app.platform.jobs.router import fail_stale_jobs, get_retry_capability
+        from app.platform.jobs.worker import recover_stale_jobs
+
+        staged = tmp_path / "abc_uls.csv"
+        staged.write_text("id,name\n1,a\n", encoding="utf-8")
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path=str(staged),
+            presigned=False,
+            commit_attempted=True,
+        )
+
+        if site == "sweep":
+            await fail_stale_jobs(test_db_session)
+        elif site == "poll":
+            resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+            assert resp.status_code == 200, resp.text
+        else:
+            await recover_stale_jobs()
+            test_db_session.expire_all()
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed", (
+            "a commit whose dispatch died was reported as an abandoned upload"
+        )
+        message = job.error_message or ""
+        assert "never queued" in message or "without being processed" in message
+        can_retry, reason = await get_retry_capability(job)
+        assert can_retry, f"the retry path was lost: {reason}"
+
+    async def test_the_stamp_survives_the_settlement_a_retry_reads(
+        self, test_db_session
+    ) -> None:
+        """`/jobs/{id}/retry` resets the row to `pending` and re-queues it
+        through the same guard, and neither it nor the sweep clears metadata.
+        If the stamp did not survive being settled, a retry whose dispatch also
+        died would come back as a cancellation on the second pass and lose the
+        retry affordance the first pass kept.
+        """
+        from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
+        from app.platform.jobs.router import fail_stale_jobs
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=7200,
+            file_path="/app/staging/abc_uls.csv",
+            presigned=False,
+            commit_attempted=True,
+        )
+
+        await fail_stale_jobs(test_db_session)
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert (job.user_metadata or {}).get(COMMIT_ATTEMPTED_METADATA_KEY)

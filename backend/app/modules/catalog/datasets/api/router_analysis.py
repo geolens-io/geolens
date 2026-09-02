@@ -684,6 +684,6 @@ async def analysis_materialize_endpoint(
             **extra_kwargs,
         )
 
-    await defer_with_orphan_guard(_defer, rollback=rollback, db=db)
+    await defer_with_orphan_guard(_defer, rollback=rollback, db=db, job=job)
 
     return AnalysisMaterializeResponse(job_id=job.id, status="pending")

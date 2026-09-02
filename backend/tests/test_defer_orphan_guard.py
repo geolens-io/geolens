@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -37,11 +38,28 @@ from fastapi import HTTPException
 # ---------------------------------------------------------------------------
 
 
+def _job():
+    """A row shaped enough for the #1744 dispatch stamp.
+
+    `stamp_commit_attempted` reads `user_metadata`, writes an UPDATE keyed on
+    `id` and mirrors the result back, so a plain namespace is representative;
+    a MagicMock is not, because its `user_metadata` is a Mock rather than a
+    mapping.
+    """
+    return SimpleNamespace(id=uuid.uuid4(), user_metadata=None)
+
+
 class TestDeferWithOrphanGuard:
     """Unit tests for the generic ``defer_with_orphan_guard`` helper."""
 
     def test_success_path_does_not_invoke_rollback(self):
-        """On a successful defer, rollback must not run and db.commit stays untouched."""
+        """On a successful defer, rollback must not run.
+
+        fix(#1744): the guard now commits once on this path, stamping
+        `commit_attempted_at` on the row before the task exists, so the count
+        is one rather than none. Any commit beyond that is the rollback's, and
+        the rollback did not run.
+        """
 
         async def _check():
             from app.platform.jobs.defer_guard import defer_with_orphan_guard
@@ -58,11 +76,13 @@ class TestDeferWithOrphanGuard:
             async def _rollback(exc: BaseException) -> None:
                 rollback_called.append(exc)
 
-            await defer_with_orphan_guard(_defer, rollback=_rollback, db=mock_db)
+            await defer_with_orphan_guard(
+                _defer, rollback=_rollback, db=mock_db, job=_job()
+            )
 
             assert defer_called == [True]
             assert rollback_called == []
-            mock_db.commit.assert_not_called()
+            mock_db.commit.assert_awaited_once()
 
         asyncio.run(_check())
 
@@ -84,7 +104,9 @@ class TestDeferWithOrphanGuard:
                 received_exc.append(exc)
 
             with pytest.raises(HTTPException) as exc_info:
-                await defer_with_orphan_guard(_defer, rollback=_rollback, db=mock_db)
+                await defer_with_orphan_guard(
+                    _defer, rollback=_rollback, db=mock_db, job=_job()
+                )
 
             assert exc_info.value.status_code == 503
             assert "retry" in str(exc_info.value.detail).lower()
@@ -92,8 +114,8 @@ class TestDeferWithOrphanGuard:
             assert len(received_exc) == 1
             assert isinstance(received_exc[0], RuntimeError)
             assert "procrastinate unreachable" in str(received_exc[0])
-            # Helper committed the rollback before raising
-            mock_db.commit.assert_awaited_once()
+            # Two commits: the #1744 dispatch stamp, then the rollback.
+            assert mock_db.commit.await_count == 2
 
         asyncio.run(_check())
 
@@ -113,7 +135,9 @@ class TestDeferWithOrphanGuard:
                 raise ValueError("rollback crashed")
 
             with pytest.raises(HTTPException) as exc_info:
-                await defer_with_orphan_guard(_defer, rollback=_rollback, db=mock_db)
+                await defer_with_orphan_guard(
+                    _defer, rollback=_rollback, db=mock_db, job=_job()
+                )
 
             # 503 is always raised — rollback failure is logged, not swallowed.
             assert exc_info.value.status_code == 503
