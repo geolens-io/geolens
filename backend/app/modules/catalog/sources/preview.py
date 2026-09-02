@@ -17,6 +17,10 @@ from app.core.service_tokens import (
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
 from app.platform.service_auth import credential_input_rejection
+from app.platform.service_endpoints import (
+    CrossOriginEndpointError,
+    assert_endpoints_stay_on_origin,
+)
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
@@ -30,6 +34,27 @@ def _encode_url_for_gdal(url: str) -> str:
     return urlunsplit(
         (parts.scheme, parts.netloc, encoded_path, encoded_query, parts.fragment)
     )
+
+
+# fix(#1746 B2b review r13): the two header-auth prefixes, and the bare URL
+# behind them. `run_service_preview` holds a composed GDAL source string
+# rather than a stored format, which is why the prefix is the selector here,
+# exactly as it already is for deciding whether to write a header file at all.
+_GDAL_SOURCE_FORMATS = {"WFS:": "wfs", "OAPIF:": "ogcapi_features"}
+
+
+def _gdal_source_format(gdal_source: str) -> str | None:
+    for prefix, service_format in _GDAL_SOURCE_FORMATS.items():
+        if gdal_source.startswith(prefix):
+            return service_format
+    return None
+
+
+def _service_url(gdal_source: str) -> str:
+    for prefix in _GDAL_SOURCE_FORMATS:
+        if gdal_source.startswith(prefix):
+            return gdal_source[len(prefix) :]
+    return gdal_source
 
 
 def build_gdal_source(
@@ -179,6 +204,31 @@ async def run_service_preview(
             pair = build_credential_header(credential)
 
         if pair is not None:
+            # fix(#1746 B2b review r13): before the header file exists, because
+            # GDAL applies it to the operation endpoints the service's own
+            # description advertises, and those are fresh requests no redirect
+            # rule can see. Checked again in the worker: the document can
+            # change between a preview and the import it leads to.
+            try:
+                await assert_endpoints_stay_on_origin(
+                    _service_url(gdal_source),
+                    service_format=_gdal_source_format(gdal_source),
+                    has_credential=True,
+                    credential_header=pair[0],
+                )
+            except CrossOriginEndpointError as exc:
+                # A coded 422, not the 502 the broad handler upstairs would
+                # make of it: this is an answer about the URL the caller
+                # submitted, and it names the field to change.
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail={
+                        "code": exc.code,
+                        "message": exc.policy,
+                        "field": exc.field,
+                    },
+                ) from None
+
             # SEC-021: mirror the ogr2ogr commit path (IA-P1-06 / SEC-FU-04).
             # Passing the credential via GDAL_HTTP_HEADERS leaks it through the
             # subprocess env (visible in /proc/<pid>/environ for the process

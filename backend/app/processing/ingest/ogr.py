@@ -12,6 +12,7 @@ import structlog
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
 from app.core.runtime.staging import GDAL_HEADER_FILE_REDIRECT_ENV, gdal_header_dir
+from app.platform.service_endpoints import assert_endpoints_stay_on_origin
 from app.core.service_tokens import (
     BEARER_SCHEME,
     HEADER_LINE_SEPARATOR,
@@ -1158,6 +1159,19 @@ async def run_ogr2ogr_service(
             header_line = _sanitize_authorization_token(
                 token, service_format=service_type
             )  # SEC-FU-04: raises ValueError before subprocess
+
+            # fix(#1746 B2b review r13): GDAL applies the header file to the
+            # operation endpoints the service's own description advertises,
+            # and those are fresh requests no redirect rule can see. Checked
+            # here as well as at the door because the document can change
+            # between a preview and the import it leads to, and this is the
+            # side that actually spends the credential.
+            await assert_endpoints_stay_on_origin(
+                gdal_source.split(":", 1)[1],
+                service_format=service_type,
+                has_credential=True,
+                credential_header=header_line.split(":", 1)[0] if header_line else None,
+            )
             # Write the header to a 0600 tempfile under the staging dir
             # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600
             # (NamedTemporaryFile already creates owner-only on POSIX, but

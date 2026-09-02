@@ -1758,3 +1758,352 @@ class TestTheCleartextHalvesOfABasicCredentialAreScrubbed:
         )
         assert username in scrubbed
         assert password in scrubbed
+
+
+# ---------------------------------------------------------------------------
+# Where a service says its own operations live
+# ---------------------------------------------------------------------------
+
+
+_WFS_ORIGIN = "https://service.example"
+_WFS_SERVICE = f"{_WFS_ORIGIN}/geoserver/wfs"
+
+
+def _capabilities(get_href: str) -> str:
+    """A WFS 2.0 capabilities document advertising *get_href* for GetFeature."""
+    return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="2.0.0"
+    xmlns="http://www.opengis.net/wfs/2.0"
+    xmlns:ows="http://www.opengis.net/ows/1.1"
+    xmlns:xlink="http://www.w3.org/1999/xlink">
+  <ows:OperationsMetadata>
+    <ows:Operation name="GetFeature">
+      <ows:DCP><ows:HTTP>
+        <ows:Get xlink:href="{get_href}"/>
+      </ows:HTTP></ows:DCP>
+    </ows:Operation>
+  </ows:OperationsMetadata>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <DefaultCRS>urn:ogc:def:crs:EPSG::4326</DefaultCRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+
+def _landing(items_href: str) -> dict:
+    return {
+        "conformsTo": ["http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"],
+        "links": [{"rel": "data", "href": f"{_WFS_ORIGIN}/oapif/collections"}],
+    }
+
+
+def _collections(items_href: str) -> dict:
+    return {
+        "collections": [
+            {
+                "id": "parcels",
+                "links": [{"rel": "items", "href": items_href}],
+            }
+        ]
+    }
+
+
+class TestAServiceCannotPointTheCredentialSomewhereElse:
+    """fix(#1746 B2b review r13): the document GDAL reads, not the one we do.
+
+    GDAL applies `GDAL_HTTP_HEADER_FILE` to every request it makes, and for
+    these two formats it does not only fetch the URL it was given: it reads the
+    service's own description and fetches the operation endpoints that
+    description advertises. Those are fresh requests, so
+    `CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT` never applies and
+    would not cover a service-chosen header name if it did.
+
+    Same question as the redirect refusal and as `_resolve_conformance`, asked
+    about a document GDAL reads. Checked at the door for a fast answer and
+    again in the worker, because the document can change in between.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return handler(request)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(security, "validate_url_for_ssrf", AsyncMock())
+        monkeypatch.setattr(
+            "app.platform.service_endpoints.validate_url_for_ssrf", AsyncMock()
+        )
+        # The adapter imported it by name, so patching the definition alone
+        # leaves its own binding pointing at the real resolver.
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        return recorded
+
+    @staticmethod
+    def _wfs_handler(get_href: str):
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "GetCapabilities" in str(request.url):
+                return httpx.Response(200, text=_capabilities(get_href))
+            return httpx.Response(404)
+
+        return handle
+
+    # -- the door -----------------------------------------------------------
+
+    @pytest.mark.parametrize(
+        ("href", "refused"),
+        [
+            (f"{_WFS_ORIGIN}/geoserver/wfs", False),
+            ("/geoserver/wfs", False),
+            ("wfs", False),
+            ("https://collector.example/wfs", True),
+        ],
+        ids=["absolute_same", "root_relative", "relative", "cross_origin"],
+    )
+    async def test_the_probe_refuses_a_cross_origin_operation_endpoint(
+        self, client, admin_auth_header: dict, monkeypatch, href, refused
+    ) -> None:
+        """Relative hrefs describe the service itself and must keep working."""
+        recorded = self._transport(monkeypatch, self._wfs_handler(href))
+        credential, value = _header_key()
+
+        with patch(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                "/services/probe",
+                json={
+                    "url": _WFS_SERVICE,
+                    "auth": {
+                        "method": "header",
+                        "header_name": credential.header_name,
+                        "header_value": value,
+                    },
+                },
+                headers=admin_auth_header,
+            )
+
+        if refused:
+            assert resp.status_code == 422, resp.text
+            detail = resp.json()["detail"]
+            assert detail["code"] == "cross_origin_endpoint"
+            assert detail["field"] == "url"
+            assert value not in resp.text
+        else:
+            assert resp.status_code == 200, resp.text
+        # Whatever the verdict, the credential never went to the other origin.
+        foreign = [r for r in recorded if "collector.example" in str(r.url)]
+        assert foreign == []
+
+    async def test_an_ogcapi_items_link_on_another_origin_is_refused(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The OAPIF half: `items` is where a collection names its endpoint."""
+        foreign_items = "https://collector.example/oapif/collections/parcels/items"
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections"):
+                return httpx.Response(200, json=_collections(foreign_items))
+            return httpx.Response(200, json=_landing(foreign_items))
+
+        recorded = self._transport(monkeypatch, handle)
+        credential, value = _header_key()
+
+        with patch(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                "/services/probe",
+                json={
+                    "url": f"{_WFS_ORIGIN}/oapif",
+                    "auth": {
+                        "method": "header",
+                        "header_name": credential.header_name,
+                        "header_value": value,
+                    },
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+        assert value not in resp.text
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    async def test_a_credential_free_probe_is_unaffected(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """A public federated service is ordinary; the credential is the problem."""
+        self._transport(monkeypatch, self._wfs_handler("https://collector.example/wfs"))
+
+        with patch(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                "/services/probe",
+                json={"url": _WFS_SERVICE},
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 200, resp.text
+
+    # -- the preview door ---------------------------------------------------
+
+    async def test_the_preview_refuses_before_writing_the_header_file(
+        self, monkeypatch
+    ) -> None:
+        credential, value = _header_key()
+        recorded = self._transport(
+            monkeypatch, self._wfs_handler("https://collector.example/wfs")
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not be spawned for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"WFS:{_WFS_SERVICE}", "topp:parcels", credential=credential
+            )
+
+        detail = raised.value.detail
+        assert detail["code"] == "cross_origin_endpoint"
+        assert value not in str(detail)
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    # -- the worker ---------------------------------------------------------
+
+    async def test_the_worker_refuses_the_same_source(self, monkeypatch) -> None:
+        """Checked again here because the document can change in between.
+
+        This is also the side that actually spends the credential, so a
+        refusal that only ran at the door would be a refusal an attacker could
+        wait out.
+        """
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        credential, value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._transport(
+            monkeypatch, self._wfs_handler("https://collector.example/wfs")
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogr2ogr must not be spawned for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(CrossOriginEndpointError) as raised:
+            await run_ogr2ogr_service(
+                gdal_source=f"WFS:{_WFS_SERVICE}",
+                layer_name="topp:parcels",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="wfs",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+            )
+
+        assert value not in str(raised.value)
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    async def test_the_worker_proceeds_for_a_same_origin_service(
+        self, monkeypatch
+    ) -> None:
+        """The counterfactual's other half: the guard is not refusing everything."""
+        credential, _value = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._wfs_handler(f"{_WFS_ORIGIN}/geoserver/wfs"))
+
+        spawned: list = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            spawned.append(cmd)
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_WFS_SERVICE}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+        )
+
+        assert spawned
+
+    # -- the validator itself -----------------------------------------------
+
+    async def test_an_unreadable_document_does_not_refuse(self, monkeypatch) -> None:
+        """Failing open is the same trade the marked-origin probe records.
+
+        This is one request against a third party. Turning its bad day into a
+        refused import would be worse than the exposure it closes, and what it
+        refuses is a document that WAS read and does advertise elsewhere.
+        """
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        self._transport(monkeypatch, lambda request: httpx.Response(500))
+
+        await assert_endpoints_stay_on_origin(
+            _WFS_SERVICE,
+            service_format="wfs",
+            has_credential=True,
+            credential_header="X-Api-Key",
+        )
+
+    async def test_a_malformed_capabilities_document_does_not_refuse(
+        self, monkeypatch
+    ) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        self._transport(
+            monkeypatch, lambda request: httpx.Response(200, text="<not xml")
+        )
+
+        await assert_endpoints_stay_on_origin(
+            _WFS_SERVICE,
+            service_format="wfs",
+            has_credential=True,
+            credential_header="X-Api-Key",
+        )
+
+    async def test_an_arcgis_source_is_not_checked(self, monkeypatch) -> None:
+        """Its credential is a query parameter, so there is no header to leak."""
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        recorded = self._transport(
+            monkeypatch, self._wfs_handler("https://collector.example/wfs")
+        )
+
+        await assert_endpoints_stay_on_origin(
+            _WFS_SERVICE,
+            service_format="arcgis_featureserver",
+            has_credential=True,
+        )
+
+        assert recorded == []

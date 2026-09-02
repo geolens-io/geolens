@@ -77,6 +77,10 @@ from app.platform.service_auth import (
     custom_credential_header_name,
     url_query_token,
 )
+from app.platform.service_endpoints import (
+    CrossOriginEndpointError,
+    assert_endpoints_stay_on_origin,
+)
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
@@ -764,6 +768,30 @@ async def probe_service_url(
             response = await detect_service_type(
                 request.url, client, credential=service_credential
             )
+            # After detection, because the check is per service type and the
+            # probe is what determines it (the round-7 rule).
+            await assert_endpoints_stay_on_origin(
+                request.url,
+                service_format=_preview_service_format(response.service_type),
+                has_credential=service_credential is not None,
+                credential_header=custom_credential_header_name(service_credential),
+            )
+
+    except CrossOriginEndpointError as exc:
+        # fix(#1746 B2b review r13): the service describes its own operation
+        # endpoints, GDAL follows that description with the credential
+        # attached, and no redirect rule can see those requests. Refused here
+        # so the caller learns at the step they are on rather than at preview,
+        # and refused again in the worker because the document can change.
+        logger.warning("Probe cross-origin endpoint", url=safe_url, origin=exc.origin)
+        await _probe_audit_fail(
+            db,
+            user.id,
+            request.url,
+            exc.code,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            {"code": exc.code, "message": exc.policy, "field": exc.field},
+        )
 
     except ServiceCredentialUnusable as exc:
         # fix(#1746 B2b review r7): every adapter has had its turn and none

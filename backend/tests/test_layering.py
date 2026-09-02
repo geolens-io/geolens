@@ -2573,6 +2573,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # opposite, which is why it now cites the line it was checked against.
     # Cap 1293 -> 1301, exact.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1301,
+    # feat(#1746 B2b): first explicit entry for this file, which rode the 1500
+    # default until the service-auth wave. #1758 added the ArcGIS sign-in
+    # endpoint and its rate-limit wiring, and this lane added the credential
+    # conversion at the probe and preview doors, the CRS fallback's own
+    # credential handling, and the cross-origin endpoint check after detection
+    # (review r13). Ratcheted rather than decomposed because the split that
+    # pays here is connector-versus-service, which is #1755 item 13's queue
+    # and bigger than any one lane. Cap 1500 -> 1528, exact.
+    # fix(#1770 rebase PLACEHOLDER -- corrected to a measured value once the
+    # rebase onto main (post-#1820/#1821) finishes; do not trust this number
+    # mid-rebase.
+    "backend/app/modules/catalog/sources/router.py": 1528,
     # fix(#998): the DDL ported from migration 0019 so tenant-ownership adoption
     # is reachable forward-only at head. Almost all of it is SQL text, and it is
     # one artifact on purpose — the module is reviewed line-by-line against
@@ -4396,7 +4408,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # file's env says which value is set and why it is IF_SAME_HOST rather
     # than NO: NO drops the credential on a same-host canonical redirect too,
     # which a protected service answers with a 401. Cap 1235 -> 1237, exact.
-    "backend/app/processing/ingest/ogr.py": 1237,
+    # fix(#1746 B2b review r13): +14. Before the header file is written, the
+    # source's own service description is checked for an operation endpoint on
+    # another origin: GDAL applies the header file to whatever that document
+    # advertises, and those are fresh requests no redirect rule can see. The
+    # check itself is `platform/service_endpoints.py`, shared with the door,
+    # because the two callers are in layers that may not import each other.
+    # Cap 1237 -> 1251, exact.
+    "backend/app/processing/ingest/ogr.py": 1251,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while
