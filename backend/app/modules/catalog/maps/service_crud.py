@@ -2,8 +2,10 @@
 
 import re
 import uuid
+from collections.abc import Iterable
 from typing import cast
 
+import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,8 +25,47 @@ from app.modules.catalog.maps.service_shared import (
     _resolve_save_response_metadata,
 )
 
+logger = structlog.stdlib.get_logger(__name__)
+
 _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
 _UNSET = object()
+
+
+async def discard_map_asset_objects(storage_keys: Iterable[str | None]) -> None:
+    """Best-effort removal of a map's stored thumbnail / OG-image objects.
+
+    fix(#1778): nothing in the backend ever called ``storage.delete`` for a
+    ``maps/`` key. Deleting a map dropped the row and left both images behind,
+    and because no code enumerates that prefix the orphan was undiscoverable
+    rather than merely unreclaimed. The builder captures a thumbnail and an OG
+    image on first open of every map, so essentially every map that has been
+    opened owns two objects.
+
+    Two callers share this: the delete endpoint, and the two upload handlers,
+    where a re-upload in the other encoding writes ``.png`` beside the stored
+    ``.jpg``, repoints the column, and strands the old key in place.
+
+    Always best effort, and always after the row change is committed. The
+    object is a cached picture; a storage backend that is refusing calls must
+    not be able to stop an owner deleting their map, and a delete that already
+    committed cannot be undone by raising here. Failures are logged with the
+    key, which is derived from the map id and carries nothing secret.
+
+    The provider import stays function-local, matching ``_reap_managed_storage``
+    in the dataset lifecycle, so tests keep patching the provider attribute.
+    """
+    from app.platform.storage.provider import get_storage
+    from app.platform.storage.titiler_url import resolve_current_storage_key
+
+    for key in storage_keys:
+        if not key:
+            continue
+        try:
+            await get_storage().delete(resolve_current_storage_key(key))
+        except Exception:  # broad: storage backends raise varied SDK/I/O errors
+            logger.warning(
+                "map_asset_object_delete_failed", storage_key=key, exc_info=True
+            )
 
 
 async def check_map_ownership(map_obj: Map, user: Identity, db: AsyncSession) -> None:

@@ -4696,7 +4696,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # feat(#1691): +9 — the check_public_visibility_allowed gate on the map
     # update route (a non-admin may not move a map TO public when
     # restrict_public_visibility is on). Cap 1460 -> 1469, exact.
-    "backend/app/modules/catalog/maps/router.py": 1469,
+    # fix(#1778): +19 — the three call sites that discard a map's stored
+    # thumbnail / OG-image objects, plus the comments recording why each key is
+    # snapshotted before the write commits (after it, every attribute on
+    # map_obj is expired and a lazy refresh would raise) and why the extension
+    # flip strands a key at all. Cap 1469 -> 1488, exact.
+    "backend/app/modules/catalog/maps/router.py": 1488,
     # fix(#474): thread negotiated languages through catalog search, cache keys,
     # and OGC record serialization; fix(#475) adds Records array-query handling,
     # including collection IDs, plus response-header and documented 400 parity.

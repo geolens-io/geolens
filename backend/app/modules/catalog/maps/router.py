@@ -64,6 +64,7 @@ from app.modules.catalog.maps.service import (
     check_map_ownership,
     create_map,
     delete_map,
+    discard_map_asset_objects,
     filter_layer_rows_by_dataset_visibility,
     get_dataset_meta,
     duplicate_map,
@@ -834,6 +835,12 @@ async def delete_map_endpoint(
         )
     await check_map_ownership(map_obj, user, db)
 
+    # fix(#1778): read the asset keys off the row before it goes, and delete the
+    # objects only once the row delete has committed. Snapshotting first also
+    # keeps the reads out of the post-commit window, where every attribute on
+    # map_obj is expired and a lazy refresh would raise.
+    asset_keys = [map_obj.thumbnail_uri, map_obj.og_image_uri]
+
     map_name = await delete_map(db, map_id)
     await audit_emit(
         db,
@@ -847,6 +854,7 @@ async def delete_map_endpoint(
         ),
     )
     await db.commit()
+    await discard_map_asset_objects(asset_keys)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1025,6 +1033,11 @@ async def upload_thumbnail(
     # Determine extension from MIME type
     ext = "jpg" if "jpeg" in header else "png"
     storage_key = f"maps/thumbnails/{map_id}.{ext}"
+    # fix(#1778): the extension follows the payload's encoding, so re-uploading
+    # the same map's thumbnail as PNG after a JPEG repoints the column and
+    # strands the old object. Snapshot the stored key now: after the capture
+    # commits, map_obj's attributes are expired.
+    previous_key = map_obj.thumbnail_uri
 
     storage = get_storage()
     try:
@@ -1037,6 +1050,8 @@ async def upload_thumbnail(
         )
 
     await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
+    if previous_key and previous_key != storage_key:
+        await discard_map_asset_objects([previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1162,6 +1177,8 @@ async def upload_og_image(
 
     ext = "jpg" if "jpeg" in header else "png"
     storage_key = f"maps/og-images/{map_id}.{ext}"
+    # fix(#1778): same extension flip as the thumbnail PUT above.
+    previous_key = map_obj.og_image_uri
 
     storage = get_storage()
     try:
@@ -1174,6 +1191,8 @@ async def upload_og_image(
         )
 
     await _record_image_capture(db, map_id, og_image_uri=storage_key)
+    if previous_key and previous_key != storage_key:
+        await discard_map_asset_objects([previous_key])
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
