@@ -36,12 +36,16 @@ from httpx import AsyncClient
 from app.core.service_tokens import CredentialMethod, ServiceCredential
 from app.modules.catalog.sources.schemas import (
     SERVICE_AUTH_BASIC_POLICY,
+    SERVICE_AUTH_BEARER_POLICY,
     SERVICE_AUTH_CONFLICT_POLICY,
+    SERVICE_AUTH_HEADER_POLICY,
     ProbeResponse,
 )
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh import credentials as creds
 from app.platform.service_auth import (
+    BLANK_BEARER_TOKEN_CODE,
+    BLANK_BEARER_TOKEN_POLICY,
     UNSUPPORTED_AUTH_METHOD_CODE,
     UNSUPPORTED_AUTH_METHOD_POLICY,
     bearer_token_for_credential,
@@ -722,3 +726,153 @@ class TestAuthIsDeclaredLast:
             "The generated SDK declares `auth` before `object_id_field`, which "
             "moves an argument callers are already passing positionally."
         )
+
+
+# ---------------------------------------------------------------------------
+# A blank field is not a credential
+# ---------------------------------------------------------------------------
+
+
+class TestABlankValueIsNotACredential:
+    """fix(#1760 codex r1): the failure mode is an anonymous request, not an error.
+
+    Every check downstream of the door is a truthiness test, so a field that
+    passed the shape validator while holding `""` produced `""` at the gate and
+    then no credential at all on the wire. The caller had named a method, which
+    makes an anonymous fetch the one outcome they did not ask for: it reaches
+    the origin, collects a 401, and reports a protected service as broken.
+
+    Whitespace counts as blank for the same reason. None of these values may
+    contain whitespace anywhere, so a blank-looking one is a typo rather than a
+    credential.
+    """
+
+    async def _probe(self, client: AsyncClient, headers: dict, body: dict):
+        probe = AsyncMock(
+            return_value=ProbeResponse(
+                service_type="WFS 2.0.0", url=_WFS_URL, layers=[]
+            )
+        )
+        with (
+            patch(
+                "app.modules.catalog.sources.router.validate_url_for_ssrf",
+                new_callable=AsyncMock,
+            ),
+            patch("app.modules.catalog.sources.router.detect_service_type", probe),
+        ):
+            resp = await client.post(
+                "/services/probe", json={"url": _WFS_URL, **body}, headers=headers
+            )
+        return resp, probe
+
+    async def test_an_empty_bearer_token_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        """The reported case.
+
+        The message matters as much as the status: it has to be the bearer
+        SHAPE refusal, which is what says the field was left blank. Asserting
+        only 422 would keep passing on the old rule, because the value still
+        reaches the gate and gets refused there for a different reason.
+        """
+        resp, probe = await self._probe(
+            client, admin_auth_header, {"auth": {"method": "bearer", "token": ""}}
+        )
+        assert resp.status_code == 422, resp.text
+        assert SERVICE_AUTH_BEARER_POLICY in resp.text
+        # Refused at the door, so the anonymous request this used to make never
+        # leaves the process.
+        probe.assert_not_awaited()
+
+    async def test_a_whitespace_bearer_token_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        """Refused by `_validate_safe_token`, which runs before the shape rule.
+
+        Field validators run ahead of the model validator, so a token of spaces
+        is answered by the whitespace rule that has always applied to this
+        field rather than by the blank rule above. Recorded rather than
+        asserted as the shape message, because which of the two answers first
+        is a pydantic ordering detail and both are refusals.
+        """
+        resp, probe = await self._probe(
+            client, admin_auth_header, {"auth": {"method": "bearer", "token": "   "}}
+        )
+        assert resp.status_code == 422, resp.text
+        assert UNSUPPORTED_AUTH_METHOD_POLICY not in resp.text
+        probe.assert_not_awaited()
+
+    async def test_a_blank_basic_password_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        username = _opaque_value()
+        resp, probe = await self._probe(
+            client,
+            admin_auth_header,
+            {"auth": {"method": "basic", "username": username, "password": ""}},
+        )
+        assert resp.status_code == 422, resp.text
+        assert SERVICE_AUTH_BASIC_POLICY in resp.text
+        assert username not in resp.text
+        probe.assert_not_awaited()
+
+    async def test_a_blank_header_value_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        resp, probe = await self._probe(
+            client,
+            admin_auth_header,
+            {
+                "auth": {
+                    "method": "header",
+                    "header_name": "X-Api-Key",
+                    "header_value": "   ",
+                }
+            },
+        )
+        assert resp.status_code == 422, resp.text
+        # The SHAPE refusal, not `unsupported_auth_method`. These two fields
+        # carry no field validator of their own, so this assertion is the only
+        # thing separating "you left it blank" from "this method is not
+        # available yet", and the second answer would send the caller off to
+        # fix the wrong thing.
+        assert SERVICE_AUTH_HEADER_POLICY in resp.text
+        probe.assert_not_awaited()
+
+    async def test_the_deprecated_flat_token_keeps_its_existing_meaning(
+        self, client: AsyncClient, admin_auth_header: dict
+    ) -> None:
+        """The alias is deliberately NOT tightened, because it never had the bug.
+
+        `service_credential_from_request` builds a bearer credential only from a
+        truthy `token`, and before this branch every door read `request.token`
+        through the same truthiness test. So `token: ""` has always meant "no
+        credential" and still does. Refusing it here would be a new 422 for
+        callers who are sending a field they leave empty, which is a break
+        dressed up as a fix.
+        """
+        resp, probe = await self._probe(client, admin_auth_header, {"token": ""})
+
+        assert resp.status_code == 200, resp.text
+        assert probe.await_args.kwargs["token"] is None
+
+    def test_the_gate_refuses_a_blank_bearer_credential_with_no_http_layer(
+        self,
+    ) -> None:
+        """The direct path of plan D2, which no pydantic model guards."""
+        from fastapi import HTTPException
+
+        for blank in (None, "", "   "):
+            with pytest.raises(HTTPException) as excinfo:
+                bearer_token_for_credential(
+                    ServiceCredential(
+                        method=CredentialMethod.BEARER,
+                        service_format="wfs",
+                        token=blank,
+                    )
+                )
+            assert excinfo.value.status_code == 422
+            assert excinfo.value.detail["code"] == BLANK_BEARER_TOKEN_CODE
+
+    def test_the_blank_credential_message_cannot_grow_an_interpolation(self) -> None:
+        assert "{" not in BLANK_BEARER_TOKEN_POLICY

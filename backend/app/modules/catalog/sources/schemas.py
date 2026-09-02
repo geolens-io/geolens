@@ -190,6 +190,23 @@ _SERVICE_AUTH_SHAPES: dict[str, tuple[frozenset[str], str]] = {
 }
 
 
+def _names_a_credential(value: str | None) -> bool:
+    """Whether *value* is a credential the caller actually supplied.
+
+    fix(#1760 codex r1): an empty or whitespace-only string is not one. It used
+    to count as supplied, so ``{"method": "bearer", "token": ""}`` passed the
+    shape check, and every downstream test is a truthiness test, so the door
+    then contacted the origin with no credential at all. The caller had named a
+    method, which makes an anonymous request the one outcome they did not ask
+    for: a public service needs no ``auth`` object, and a protected one answers
+    401 in a way that reads like a broken service rather than a blank field.
+
+    Whitespace as well as empty, because none of these values may contain
+    whitespace anywhere: a blank-looking one is a typo, never a credential.
+    """
+    return value is not None and value.strip() != ""
+
+
 class ServiceAuthRequest(BaseModel):
     """How one request authenticates to the remote service it names."""
 
@@ -225,7 +242,7 @@ class ServiceAuthRequest(BaseModel):
         supplied = {
             name
             for name in _SERVICE_AUTH_CREDENTIAL_FIELDS
-            if getattr(self, name) is not None
+            if _names_a_credential(getattr(self, name))
         }
         if supplied != required:
             raise ValueError(policy)

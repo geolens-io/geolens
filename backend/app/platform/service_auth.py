@@ -38,6 +38,17 @@ UNSUPPORTED_AUTH_METHOD_POLICY = (
     "use a bearer token."
 )
 
+# fix(#1760 codex r1): the same rule the request schema applies, restated for
+# the callers that never pass through it. Reuses `invalid_service_token`, which
+# every door already returns and the client already maps, rather than minting a
+# code for a case that means what that one means.
+BLANK_BEARER_TOKEN_CODE = "invalid_service_token"
+
+BLANK_BEARER_TOKEN_POLICY = (
+    "A bearer credential needs a token. Leave the credential out entirely for "
+    "a service that does not need one."
+)
+
 
 def bearer_token_for_credential(credential: ServiceCredential | None) -> str | None:
     """The bearer token *credential* travels as, or None when there is none.
@@ -47,6 +58,14 @@ def bearer_token_for_credential(credential: ServiceCredential | None) -> str | N
     time it reads the return value. An unrecognized method takes the same
     branch as a known-but-unsupported one: the request described something this
     build will not send, and the answer is the same either way.
+
+    A bearer credential carrying no token is refused rather than returned as a
+    falsy value. Every caller tests the return for truthiness, so returning
+    ``""`` would send an anonymous request on behalf of someone who named a
+    method. The request schema already refuses that shape, so this branch is
+    unreachable over HTTP and exists for the in-process caller of plan D2,
+    which builds a :class:`ServiceCredential` directly and never meets a
+    pydantic model.
     """
     if credential is None:
         return None
@@ -54,7 +73,16 @@ def bearer_token_for_credential(credential: ServiceCredential | None) -> str | N
     if method == CredentialMethod.NONE:
         return None
     if method == CredentialMethod.BEARER:
-        return credential.token
+        token = credential.token
+        if token is None or token.strip() == "":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail={
+                    "code": BLANK_BEARER_TOKEN_CODE,
+                    "message": BLANK_BEARER_TOKEN_POLICY,
+                },
+            )
+        return token
     raise HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         detail={
