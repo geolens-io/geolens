@@ -739,6 +739,59 @@ describe('SourceRefreshAction', () => {
       expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
     });
 
+    // codex #1759 round 4 P2: a rejected sign-in used to leave the
+    // password sitting in state and in the controlled input until the
+    // user edited it or closed the dialog -- contradicting this block's
+    // own request-scoped credential lifetime, and letting a second click
+    // resend the very password ArcGIS just rejected, which matters under
+    // its five-attempts lockout. Counterfactual: without the fix, the
+    // password assertion below fails and the button stays enabled.
+    it('clears the password after a rejected sign-in, so a second click cannot resubmit it', async () => {
+      mutateAsync.mockRejectedValue(serviceTokenRequiredError());
+      mockArcgisSignIn.mockRejectedValue(arcgisSigninError('arcgis_signin_rejected', 400, 'raw'));
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'wrong-password');
+      const signInButton = screen.getByRole('button', { name: 'Sign in' });
+      await user.click(signInButton);
+
+      await screen.findByText(translateApiErrorDetail({ code: 'arcgis_signin_rejected' }, 400));
+
+      // Password cleared the instant the rejected attempt settled.
+      expect(screen.getByLabelText('Password')).toHaveValue('');
+      // A second click with nothing re-typed cannot submit: the button
+      // requires a non-empty password, same as portal URL and username.
+      expect(signInButton).toBeDisabled();
+      expect(mockArcgisSignIn).toHaveBeenCalledTimes(1);
+
+      // Typing a genuinely new password is what it takes to try again --
+      // and that new value, not the rejected one, is what goes out.
+      await user.type(screen.getByLabelText('Password'), 'new-password');
+      expect(signInButton).not.toBeDisabled();
+      await user.click(signInButton);
+
+      await waitFor(() => {
+        expect(mockArcgisSignIn).toHaveBeenCalledTimes(2);
+      });
+      expect(mockArcgisSignIn).toHaveBeenLastCalledWith({
+        portal_url: 'https://myorg.maps.arcgis.com',
+        username: 'alice',
+        password: 'new-password',
+      });
+    });
+
     // Post-#1758-merge: the merged endpoint (arcgis_signin.py,
     // signin_guard.py) ships three caller-facing codes beyond the four this
     // map originally covered. Confirmed against the merged source directly.

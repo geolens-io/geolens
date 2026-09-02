@@ -247,10 +247,9 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
       onTokenChange(result.token);
       expiresAtRef.current = result.expires_at;
       // `isSignedIn` is derived from `token` (now non-empty) and `method`
-      // (still 'signin' here) -- no separate flag to set.
-      // The password has finished its one job -- minting the token -- and
-      // must not linger in state any longer than that took.
-      setPassword('');
+      // (still 'signin' here) -- no separate flag to set. The password is
+      // cleared once, below, in the generation-matched `finally` -- not
+      // here, so success and failure clear it exactly the same way.
 
       // codex #1759 round 2: the refresh door only stages this credential
       // and queues the worker -- it does not use it synchronously -- so a
@@ -280,6 +279,23 @@ export const ArcgisCredentialBlock = forwardRef<ArcgisCredentialBlockHandle, Arc
       );
     } finally {
       if (generationRef.current === generation) {
+        // codex #1759 round 4 P2: cleared here, unconditionally on
+        // outcome, not only on a successful mint. A rejected sign-in or a
+        // timed-out request used to leave the password sitting in state
+        // and in the controlled input until the user edited it or closed
+        // the dialog -- contradicting this block's own request-scoped
+        // lifetime, and letting the same password be resent by a second
+        // click, which matters under ArcGIS's five-attempts lockout.
+        // Mirrors the sibling ServiceUrlForm.tsx flow's identical
+        // generation-gated clear in its own `finally`. Gated on
+        // generation, not unconditional, because an edit already made
+        // during this attempt (portal URL, username, or password) bumped
+        // the generation and may have put a NEW password in state for the
+        // next attempt -- clearing unconditionally here would wipe that
+        // out from under the user when this now-superseded request
+        // settles. The username is left alone; only the password is
+        // treated as too sensitive to linger.
+        setPassword('');
         setSignInPending(false);
       }
     }
