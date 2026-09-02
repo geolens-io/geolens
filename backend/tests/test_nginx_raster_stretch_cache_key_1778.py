@@ -1,6 +1,6 @@
 """The raster tile cache key must not vary on an arg the active stretch mode
 ignores, and a cache HIT must never change what an uncached request would
-answer (#1778, codebase audit 2026-08-30; codex rounds 1-5 on #1791).
+answer (#1778, codebase audit 2026-08-30; codex rounds 1-6 on #1791).
 
 frontend/nginx.conf's raster_cache proxy_cache_key used to hold
 $arg_pmin/$arg_pmax/$arg_sigma unconditionally. In
@@ -63,6 +63,25 @@ its semantic range -- and keep raw only what FastAPI cannot parse at all
 (its 422 path, unaffected by round 5, still covered by
 test_malformed_float_under_an_inactive_mode_stays_raw).
 
+Round 6 found round 4's fix for the non-canonical case introduced a new
+problem while closing the collision: $geolens_raster_cache_extra folded the
+ENTIRE raw $args into proxy_cache_key, and this endpoint accepts the
+deprecated ?api_key= query lane (_resolve_api_key,
+app/modules/auth/dependencies.py), so a non-canonical request carrying one
+wrote that credential, in the clear, into the cache key -- reachable
+through raster_cache's on-disk files and any backup of them, even though
+access logging already strips query strings for exactly this reason.
+
+The round-6 rule: proxy_cache_key must be built ONLY from the sanitised
+$geolens_raster_* variables (plus $dataset_id/$z/$x/$y/$fmt/$arg_v/
+$arg_colormap_name/$arg_stretch, none of which can carry a credential) --
+never raw $args, never any other raw $arg_*. A non-canonical request is
+instead served UNCACHED: $geolens_raster_noncanonical now also drives
+proxy_cache_bypass and proxy_no_cache on the raster-tiles location, so
+bypass skips the lookup and no_cache skips the store, and nothing about
+that request -- credential included -- is ever written to the cache at
+all. $geolens_raster_cache_extra and its map are gone.
+
 These are structural (they read the conf and simulate nginx's own map
 evaluation in Python), because there is no nginx binary in this test
 environment to render and query directly. The simulation models nginx's
@@ -112,10 +131,6 @@ _MAPS: dict[str, tuple[str, str]] = {
     ),
 }
 _NONCANONICAL_MAP: tuple[str, str] = ("$args", "$geolens_raster_noncanonical")
-_CACHE_EXTRA_MAP: tuple[str, str] = (
-    "$geolens_raster_noncanonical:$args",
-    "$geolens_raster_cache_extra",
-)
 
 
 def _without_comments(text: str) -> str:
@@ -257,19 +272,6 @@ def _noncanonical(conf: str, args_string: str) -> str:
     return _evaluate_map(source_expr, entries, default_value, {"args": args_string})
 
 
-def _cache_extra(conf: str, args_string: str) -> str:
-    """``$geolens_raster_cache_extra`` for a raw query string."""
-    source_expr, dest_var = _CACHE_EXTRA_MAP
-    entries, default_value = _map_entries_ordered(
-        _map_body(conf, source_expr, dest_var)
-    )
-    values = {
-        "geolens_raster_noncanonical": _noncanonical(conf, args_string),
-        "args": args_string,
-    }
-    return _evaluate_map(source_expr, entries, default_value, values)
-
-
 def _derive(conf: str, param: str, args_string: str) -> str:
     """The cache-key value nginx would compute for ``param`` given the raw
     query string ``args_string`` -- $arg_x's case-insensitive,
@@ -287,6 +289,22 @@ def _derive(conf: str, param: str, args_string: str) -> str:
     return _evaluate_map(source_template, entries, default_value, values)
 
 
+_PROXY_CACHE_BYPASS = re.compile(r"^\s*proxy_cache_bypass\s+([^;]+);", re.M)
+_PROXY_NO_CACHE = re.compile(r"^\s*proxy_no_cache\s+([^;]+);", re.M)
+
+
+def _cache_bypass_vars(conf: str) -> tuple[list[str], list[str]]:
+    """The variable lists ``proxy_cache_bypass``/``proxy_no_cache`` reference
+    in the /raster-tiles/ location, or ``[]`` if the directive is absent."""
+    block = _location_block(conf, RASTER_TILES_LOCATION)
+    bypass = _PROXY_CACHE_BYPASS.search(block)
+    no_cache = _PROXY_NO_CACHE.search(block)
+    return (
+        bypass.group(1).split() if bypass else [],
+        no_cache.group(1).split() if no_cache else [],
+    )
+
+
 def _qs(**params: str) -> str:
     """Build a raw query string, preserving insertion order (dict order)."""
     return "&".join(f"{k}={v}" for k, v in params.items())
@@ -299,8 +317,7 @@ def _qs(**params: str) -> str:
 
 def test_cache_key_does_not_hold_the_raw_stretch_args():
     """The raw args must not appear in proxy_cache_key at all -- only the
-    mapped variables that blank what the active stretch mode ignores, plus
-    the non-canonical escape hatch."""
+    mapped variables that blank what the active stretch mode ignores."""
     conf = _conf()
     match = _PROXY_CACHE_KEY.search(_location_block(conf, RASTER_TILES_LOCATION))
     assert match, "expected a proxy_cache_key in the /raster-tiles/ location"
@@ -316,9 +333,62 @@ def test_cache_key_does_not_hold_the_raw_stretch_args():
         "$geolens_raster_pmin",
         "$geolens_raster_pmax",
         "$geolens_raster_sigma",
-        "$geolens_raster_cache_extra",
     ):
         assert mapped_var in key, f"expected {mapped_var} in proxy_cache_key: {key!r}"
+
+
+def test_cache_key_never_includes_raw_args_or_a_credential_name():
+    """fix(#1778 codex r6): $geolens_raster_cache_extra used to fold the
+    ENTIRE raw $args into this key for a non-canonical request, and this
+    endpoint accepts the deprecated ?api_key= query lane
+    (_resolve_api_key, app/modules/auth/dependencies.py). A raw $args (or
+    any single unsanitised $arg_*) in the key means that credential lands,
+    in the clear, in raster_cache's on-disk cache files and any backup of
+    them. The key must be built ONLY from the named, sanitised variables --
+    never $args, never a bare reference to a credential-carrying name."""
+    conf = _conf()
+    match = _PROXY_CACHE_KEY.search(_location_block(conf, RASTER_TILES_LOCATION))
+    assert match
+    key = match.group(1)
+    assert "$args" not in key, f"proxy_cache_key embeds the raw query string: {key!r}"
+    for credential_name in ("api_key", "token", "authorization"):
+        assert credential_name not in key.lower(), (
+            f"proxy_cache_key mentions {credential_name!r}: {key!r}"
+        )
+
+
+def test_noncanonical_requests_bypass_the_cache_instead_of_being_keyed_on_it():
+    """fix(#1778 codex r6): rather than keying a non-canonical request on
+    anything (which is how the $args/credential leak happened), it must be
+    served UNCACHED -- $geolens_raster_noncanonical drives BOTH
+    proxy_cache_bypass (skip the lookup) and proxy_no_cache (skip the
+    store)."""
+    conf = _conf()
+    bypass_vars, no_cache_vars = _cache_bypass_vars(conf)
+    assert "$geolens_raster_noncanonical" in bypass_vars, (
+        f"expected proxy_cache_bypass to reference $geolens_raster_noncanonical, "
+        f"got {bypass_vars!r}"
+    )
+    assert "$geolens_raster_noncanonical" in no_cache_vars, (
+        f"expected proxy_no_cache to reference $geolens_raster_noncanonical, "
+        f"got {no_cache_vars!r}"
+    )
+
+
+def test_noncanonical_request_with_an_api_key_leaks_nothing_and_is_marked_bypass():
+    """fix(#1778 codex r6): the exact scenario in the finding. A public
+    raster request carrying ?api_key=SECRET alongside a non-canonical
+    stretch spelling must (a) resolve $geolens_raster_noncanonical to "1"
+    (bypass/no_cache both trigger, per the test above) and (b) never let
+    SECRET reach any of the actual key-building variables."""
+    conf = _conf()
+    args = "api_key=SECRET&Stretch=minmax&stretch=percentile&pmin=5"
+    assert _noncanonical(conf, args) == "1"
+    for param in ("pmin", "pmax", "sigma"):
+        derived = _derive(conf, param, args)
+        assert "SECRET" not in derived, (
+            f"$geolens_raster_{param} leaked the api_key: {derived!r}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -362,8 +432,8 @@ def test_well_formed_value_under_a_canonical_inactive_mode_collapses_to_one_key(
         _derive(conf, "pmin", _qs(stretch="stddev", pmin=v)) for v in pmin_pmax_values
     } == {""}
     for value in pmin_pmax_values:
-        assert _cache_extra(conf, _qs(stretch="minmax", pmin=value)) == "", (
-            "a canonical request must not add anything to the cache key"
+        assert _noncanonical(conf, _qs(stretch="minmax", pmin=value)) == "0", (
+            "a canonical request must not trigger the non-canonical bypass"
         )
 
 
@@ -476,11 +546,16 @@ def test_mixed_case_duplicate_is_noncanonical_and_the_whole_args_breaks_the_tie(
     args_50 = "Stretch=minmax&stretch=percentile&pmin=50"
     assert _noncanonical(conf, args_5) == "1"
     assert _noncanonical(conf, args_50) == "1"
-    extra_5 = _cache_extra(conf, args_5)
-    extra_50 = _cache_extra(conf, args_50)
-    assert extra_5 == args_5
-    assert extra_50 == args_50
-    assert extra_5 != extra_50, (
+    # fix(#1778 codex r6): both requests bypass the cache entirely (asserted
+    # structurally in test_noncanonical_requests_bypass_the_cache_instead_of_
+    # being_keyed_on_it), so neither is ever cached in the first place --
+    # the per-parameter fallback below is a second, independent reason they
+    # could never collide even if bypass were somehow misconfigured off.
+    derived_5 = _derive(conf, "pmin", args_5)
+    derived_50 = _derive(conf, "pmin", args_50)
+    assert derived_5 == "5"
+    assert derived_50 == "50"
+    assert derived_5 != derived_50, (
         "a mixed-case duplicated stretch must not let two different pmin "
         "values collapse onto one cache key"
     )
@@ -496,7 +571,6 @@ def test_mixed_case_single_occurrence_is_noncanonical():
     conf = _conf()
     args = "Stretch=minmax&pmin=5"
     assert _noncanonical(conf, args) == "1"
-    assert _cache_extra(conf, args) == args
 
 
 def test_encoded_name_is_noncanonical():
@@ -507,7 +581,6 @@ def test_encoded_name_is_noncanonical():
     conf = _conf()
     args = "%73tretch=percentile&pmin=5"
     assert _noncanonical(conf, args) == "1"
-    assert _cache_extra(conf, args) == args
 
 
 def test_uppercase_and_all_caps_variants_of_every_name_are_noncanonical():
@@ -544,7 +617,6 @@ def test_ordinary_canonical_request_is_unaffected():
         "z=1",  # no stretch/pmin/pmax/sigma at all
     ):
         assert _noncanonical(conf, args) == "0", args
-        assert _cache_extra(conf, args) == "", args
 
 
 def test_duplicate_detection_finds_a_duplicate_not_starting_at_position_zero():
@@ -612,7 +684,12 @@ def test_duplicated_stretch_falls_back_to_the_raw_value_instead_of_blanking():
     args_a = "stretch=minmax&stretch=percentile&pmin=5"
     args_b = "stretch=minmax&stretch=percentile&pmin=50"
     assert _noncanonical(conf, args_a) == "1"
-    assert _cache_extra(conf, args_a) != _cache_extra(conf, args_b)
+    assert _noncanonical(conf, args_b) == "1"
+    # fix(#1778 codex r6): both bypass the cache entirely -- see
+    # test_noncanonical_requests_bypass_the_cache_instead_of_being_keyed_on_it
+    # -- so "must not collapse onto one key" is moot; neither is ever
+    # written. The per-parameter values still differ too, independently.
+    assert _derive(conf, "pmin", args_a) != _derive(conf, "pmin", args_b)
 
 
 def test_non_duplicated_stretch_is_unaffected_by_the_guard():
