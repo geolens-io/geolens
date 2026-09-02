@@ -1169,8 +1169,13 @@ async def run_ogr2ogr_service(
             await assert_endpoints_stay_on_origin(
                 gdal_source.split(":", 1)[1],
                 service_format=service_type,
-                has_credential=True,
-                credential_header=header_line.split(":", 1)[0] if header_line else None,
+                # fix(#1746 B2b review r14): sent WITH the credential, so a
+                # protected service answers with the document this import will
+                # act on rather than a 401 that told the check nothing. And
+                # scoped to the layer being imported, which is the collection
+                # whose own document names the endpoint that gets the header.
+                credential_line=header_line,
+                collection=layer_name or None,
             )
             # Write the header to a 0600 tempfile under the staging dir
             # (predictable owner, ephemeral). Using tempfile + os.chmod 0o600

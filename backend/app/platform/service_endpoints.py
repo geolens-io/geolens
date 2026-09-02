@@ -18,17 +18,17 @@ That is the same question ``make_safe_client`` refuses on a redirect hop and
 ``_resolve_conformance`` refuses for a link the document chose, asked once more
 about a document GDAL reads rather than one we do.
 
-The check is only run for a CREDENTIALED source. A public service advertising a
-cross-origin endpoint is an ordinary federated deployment and is left alone;
-what makes it a problem is a credential following the advertisement.
-
-Failing open when the document cannot be read is deliberate, and it is the same
-trade ``_require_service_token_if_marked`` records for its probe: this is one
-request against a third party, and turning its bad day into a refused import
-would be worse than the exposure it closes. What it refuses is a document that
-was read and DOES advertise a foreign origin. The residual is a service that
-can serve a different document to this client than to GDAL, which is bounded
-operationally like the rest of the GDAL path (AGENTS.md Rule 2).
+fix(#1746 B2b review r14): the check reads the description WITH the credential,
+and fails CLOSED. Reading it anonymously was worse than not reading it at all
+on exactly the services this protects: a protected origin answers 401, the
+anonymous read learned nothing, the guard approved the source, and GDAL then
+authenticated, received the real document, and followed whatever cross-origin
+endpoint it advertised. So the same header line the worker will hand GDAL is
+sent here first, to the submitted origin and to nothing else, and a description
+that cannot be read, does not answer 2xx, or does not parse is a refusal rather
+than a pass. A credential-free source is still not checked at all: a public
+federated service advertising another origin is ordinary, and the credential is
+what makes it a problem.
 
 Lives in ``platform/`` because both callers are in layers that may not import
 each other: ``modules/catalog`` for the probe and preview doors, and
@@ -39,13 +39,13 @@ minutes later. Both check, because the document can change in between.
 from __future__ import annotations
 
 import json
-from urllib.parse import parse_qs, urlencode, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 import defusedxml.ElementTree as ET
 import httpx
 import structlog
 
-from app.core.service_tokens import requires_header_token_policy
+from app.core.service_tokens import HEADER_LINE_SEPARATOR, requires_header_token_policy
 from app.platform.security import (
     PROBE_TIMEOUT,
     SSRFError,
@@ -57,6 +57,7 @@ from app.platform.security import (
 logger = structlog.stdlib.get_logger(__name__)
 
 CROSS_ORIGIN_ENDPOINT_CODE = "cross_origin_endpoint"
+ENDPOINT_CHECK_FAILED_CODE = "endpoint_check_failed"
 
 # Describes the policy and never a credential. The offending ORIGIN is appended
 # by the exception, which is safe: an origin is a scheme, a host and a port,
@@ -69,14 +70,26 @@ CROSS_ORIGIN_ENDPOINT_POLICY = (
     "credential, or ask the service operator why it advertises another origin."
 )
 
+ENDPOINT_CHECK_FAILED_POLICY = (
+    "This service did not return a description GeoLens could read, so where it "
+    "sends an authenticated request cannot be established. A credentialed "
+    "import is refused rather than guessed at. Check that the URL is the "
+    "service endpoint and that the credential is the one it expects, then try "
+    "again."
+)
+
 # The OGC API link relations that name something a client FETCHES. Deliberately
 # not every rel: `license`, `describedby` and `alternate` legitimately point at
 # other origins on ordinary services, and refusing those would refuse the web.
 _OGCAPI_OPERATION_RELS = frozenset({"conformance", "data", "items", "self"})
 
-# One collections page is enough to see how a service addresses its items; a
-# catalogue with hundreds of collections should not cost hundreds of parses.
-_MAX_COLLECTIONS_INSPECTED = 50
+# How far the PROBE follows a paginated collections listing. The probe has no
+# collection to check, so it walks the listing; the bound is what keeps a
+# catalogue with thousands of collections from turning one probe into thousands
+# of requests. Reaching it is recorded, never treated as a clean pass, and the
+# preview and worker paths do not rely on it: they know which collection they
+# are importing and read that document directly.
+_MAX_COLLECTION_PAGES = 20
 
 
 class CrossOriginEndpointError(Exception):
@@ -89,6 +102,25 @@ class CrossOriginEndpointError(Exception):
         # renders errors against the URL field rather than the credential one.
         self.field = "url"
         self.policy = f"{CROSS_ORIGIN_ENDPOINT_POLICY} Advertised origin: {origin}"
+        super().__init__(self.policy)
+
+
+class EndpointCheckFailedError(Exception):
+    """A credentialed source's description could not be read, so nothing is known.
+
+    fix(#1746 B2b review r14). Failing open here was the reported hole and not
+    a conservative default: the services this protects are exactly the ones
+    that refuse an unauthenticated description, so "could not read it" was the
+    normal answer for them and it approved every one.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.code = ENDPOINT_CHECK_FAILED_CODE
+        self.field = "url"
+        self.policy = ENDPOINT_CHECK_FAILED_POLICY
+        # Kept off the message: `reason` is an httpx error string, which can
+        # carry the URL and therefore anything in its query.
+        self.reason = reason
         super().__init__(self.policy)
 
 
@@ -113,6 +145,20 @@ def _capabilities_url(url: str) -> str:
     params["service"] = "WFS"
     params["request"] = "GetCapabilities"
     return urlunparse(parsed._replace(query=urlencode(params)))
+
+
+def _credential_headers(credential_line: str) -> dict[str, str]:
+    """The one header the description fetch carries, from the finished line.
+
+    The line is the wire format everything downstream of a door speaks (plan
+    D9) and it has already been validated by the door that composed it, so
+    this splits rather than re-derives. It is the only place the line is split
+    for sending, and it sends to the submitted origin alone: the client refuses
+    a cross-origin redirect carrying this header, and the check itself refuses
+    a cross-origin endpoint before GDAL ever sees one.
+    """
+    name, _, value = credential_line.partition(HEADER_LINE_SEPARATOR)
+    return {name: value}
 
 
 def _wfs_operation_hrefs(xml_text: str) -> list[str]:
@@ -149,6 +195,17 @@ def _ogcapi_link_hrefs(document: object) -> list[str]:
     return hrefs
 
 
+def _next_page(document: object, base: str) -> str | None:
+    """The `next` link of a paginated listing, resolved and same-origin only."""
+    if not isinstance(document, dict):
+        return None
+    for link in document.get("links", []) or []:
+        if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
+            resolved = urljoin(base, str(link["href"]))
+            return resolved if same_origin(base, resolved) else None
+    return None
+
+
 def _assert_same_origin(url: str, hrefs: list[str]) -> None:
     """Refuse the first advertised endpoint that leaves the submitted origin.
 
@@ -164,80 +221,127 @@ def _assert_same_origin(url: str, hrefs: list[str]) -> None:
             raise CrossOriginEndpointError(_origin_of(resolved))
 
 
-async def _fetch_text(client: httpx.AsyncClient, url: str) -> str | None:
+async def _fetch_text(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> str:
+    """One description document, or a refusal.
+
+    Every URL is revalidated immediately before the request even though it is
+    same-origin with one already validated: a host that resolved publicly at
+    the door can resolve to a private address by the time the worker asks, and
+    same-origin says nothing about that (AGENTS.md Rule 2).
+    """
     try:
         await validate_url_for_ssrf(url)
-        response = await client.get(url)
+        # The client comes from `make_safe_client`, whose transport re-resolves
+        # and pins the validated IP at connect time and revalidates every
+        # redirect hop, and which refuses a cross-origin hop carrying this
+        # header. CodeQL models none of that.
+        #
+        # The marker below must stay the LAST line before the call: the
+        # suppression query binds a marker to the line that follows it, so an
+        # explanatory comment inserted between the two silently disarms it.
+        # codeql[py/full-ssrf] fix(#1746): Rule 2 posture — validate_url_for_ssrf gates this exact URL immediately above, and make_safe_client's transport re-resolves, validates and pins the IP at connect time and revalidates every redirect hop
+        response = await client.get(url, headers=headers)
         response.raise_for_status()
         return response.text
     except (httpx.HTTPError, SSRFError, ValueError) as exc:
-        logger.debug("service endpoint check could not read a document", error=str(exc))
-        return None
+        raise EndpointCheckFailedError(str(exc)) from None
 
 
-async def _check_wfs(client: httpx.AsyncClient, url: str) -> None:
-    xml_text = await _fetch_text(client, _capabilities_url(url))
-    if xml_text is None:
-        return
+def _parsed_json(text: str) -> object:
+    try:
+        return json.loads(text)
+    except ValueError as exc:
+        raise EndpointCheckFailedError(str(exc)) from None
+
+
+async def _check_wfs(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str]
+) -> None:
+    xml_text = await _fetch_text(client, _capabilities_url(url), headers)
     try:
         hrefs = _wfs_operation_hrefs(xml_text)
-    except ET.ParseError:
-        return
+    except ET.ParseError as exc:
+        raise EndpointCheckFailedError(str(exc)) from None
     _assert_same_origin(url, hrefs)
 
 
-async def _check_ogcapi(client: httpx.AsyncClient, url: str) -> None:
-    landing = await _fetch_text(client, url)
-    if landing is None:
-        return
-    try:
-        document = json.loads(landing)
-    except ValueError:
-        return
-    _assert_same_origin(url, _ogcapi_link_hrefs(document))
+async def _check_ogcapi(
+    client: httpx.AsyncClient,
+    url: str,
+    headers: dict[str, str],
+    collection: str | None,
+) -> None:
+    _assert_same_origin(
+        url, _ogcapi_link_hrefs(_parsed_json(await _fetch_text(client, url, headers)))
+    )
 
-    collections_text = await _fetch_text(client, url.rstrip("/") + "/collections")
-    if collections_text is None:
+    if collection is not None:
+        # fix(#1746 B2b review r14): the collection this import will actually
+        # read, fetched directly. A listing is paginated and can be longer than
+        # anything worth walking, so a check that only ever saw the first page
+        # missed exactly the collection a user selected from a later one. This
+        # path knows which one it is, so it does not need the listing at all.
+        document = _parsed_json(
+            await _fetch_text(
+                client,
+                f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
+                headers,
+            )
+        )
+        _assert_same_origin(url, _ogcapi_link_hrefs(document))
         return
-    try:
-        collections_doc = json.loads(collections_text)
-    except ValueError:
-        return
-    if not isinstance(collections_doc, dict):
-        return
-    _assert_same_origin(url, _ogcapi_link_hrefs(collections_doc))
-    collections = collections_doc.get("collections") or []
-    if not isinstance(collections, list):
-        return
-    for collection in collections[:_MAX_COLLECTIONS_INSPECTED]:
-        _assert_same_origin(url, _ogcapi_link_hrefs(collection))
+
+    # The probe has no collection yet, so it walks the listing. Bounded, and
+    # reaching the bound is recorded rather than treated as a clean pass: the
+    # complete check is the per-collection one above, which runs on the two
+    # paths that spend the credential.
+    page_url: str | None = f"{url.rstrip('/')}/collections"
+    for _page in range(_MAX_COLLECTION_PAGES):
+        if page_url is None:
+            return
+        listing = _parsed_json(await _fetch_text(client, page_url, headers))
+        _assert_same_origin(url, _ogcapi_link_hrefs(listing))
+        collections = listing.get("collections") if isinstance(listing, dict) else None
+        for entry in collections or []:
+            _assert_same_origin(url, _ogcapi_link_hrefs(entry))
+        page_url = _next_page(listing, page_url)
+    if page_url is not None:
+        logger.warning(
+            "service endpoint check stopped at the collections page bound",
+            pages=_MAX_COLLECTION_PAGES,
+        )
 
 
 async def assert_endpoints_stay_on_origin(
     url: str,
     *,
     service_format: str | None,
-    has_credential: bool,
-    credential_header: str | None = None,
+    credential_line: str | None,
+    collection: str | None = None,
 ) -> None:
     """Refuse a credentialed source that advertises a foreign operation endpoint.
 
     Does nothing without a credential, and nothing for a service format whose
     credential does not travel to GDAL as a header. Raises
-    :class:`CrossOriginEndpointError`, which every caller turns into a coded
-    refusal naming the URL field.
+    :class:`CrossOriginEndpointError` for a description that names another
+    origin and :class:`EndpointCheckFailedError` for one that cannot be read;
+    every caller turns both into a coded refusal naming the URL field.
 
-    ``credential_header`` is declared to the client for the same reason every
-    other credentialed fetch declares it, even though this one sends no
-    credential: it costs nothing and it keeps the rule that a client which
-    could carry one is built the same way everywhere.
+    ``credential_line`` is the finished header line the worker will hand GDAL,
+    sent here to the submitted origin so a protected service answers with the
+    document GDAL will act on rather than a 401. ``collection`` is the
+    collection an OGC API import will read, which the preview and worker paths
+    know and the probe does not.
     """
-    if not has_credential or not requires_header_token_policy(service_format):
+    if not credential_line or not requires_header_token_policy(service_format):
         return
+    headers = _credential_headers(credential_line)
     async with make_safe_client(
-        timeout=PROBE_TIMEOUT, credential_header=credential_header
+        timeout=PROBE_TIMEOUT, credential_header=next(iter(headers))
     ) as client:
         if service_format == "wfs":
-            await _check_wfs(client, url)
+            await _check_wfs(client, url, headers)
         else:
-            await _check_ogcapi(client, url)
+            await _check_ogcapi(client, url, headers, collection)

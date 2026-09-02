@@ -2407,3 +2407,35 @@ def _clean_registry():
     with patch("app.platform.extensions.entry_points", return_value=[]):
         yield
     _reset_registry()
+
+
+@pytest.fixture(autouse=True)
+def stub_endpoint_check(request, monkeypatch):
+    """Neutralise the advertised-endpoint check for tests about something else.
+
+    fix(#1746 B2b review r13/r14): every credentialed WFS or OGC API preview
+    and worker run now reads the service's own description first, because GDAL
+    applies the header file to the operation endpoints that description
+    advertises. That is a network call on paths which previously made none, and
+    it fails closed, so a suite that stubs the subprocess but not the network
+    would fail on the check rather than on the thing it is testing.
+
+    A class that IS testing the check sets ``uses_the_real_endpoint_check`` and
+    gets the real one. Everything else is stubbed, and it lives here rather
+    than in the four suites that first needed it so a suite added later cannot
+    reach for a real service description by forgetting to opt in.
+    """
+    if getattr(request.cls, "uses_the_real_endpoint_check", False):
+        return
+
+    async def _noop(*_args, **_kwargs):
+        return None
+
+    for module in (
+        "app.modules.catalog.sources.preview",
+        "app.modules.catalog.sources.router",
+        "app.processing.ingest.ogr",
+    ):
+        monkeypatch.setattr(
+            f"{module}.assert_endpoints_stay_on_origin", _noop, raising=True
+        )

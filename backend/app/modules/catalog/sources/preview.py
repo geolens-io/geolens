@@ -19,6 +19,7 @@ from app.platform.extensions import get_catalog_port
 from app.platform.service_auth import credential_input_rejection
 from app.platform.service_endpoints import (
     CrossOriginEndpointError,
+    EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
 )
 
@@ -213,10 +214,15 @@ async def run_service_preview(
                 await assert_endpoints_stay_on_origin(
                     _service_url(gdal_source),
                     service_format=_gdal_source_format(gdal_source),
-                    has_credential=True,
-                    credential_header=pair[0],
+                    # fix(#1746 B2b review r14): the same line the worker will
+                    # hand GDAL, so a protected service answers with the
+                    # document GDAL will act on rather than a 401. And the
+                    # layer being previewed, so the collection actually read is
+                    # the one checked rather than whatever fits on page one.
+                    credential_line=credential_header_line(pair),
+                    collection=layer_name or None,
                 )
-            except CrossOriginEndpointError as exc:
+            except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
                 # A coded 422, not the 502 the broad handler upstairs would
                 # make of it: this is an answer about the URL the caller
                 # submitted, and it names the field to change.

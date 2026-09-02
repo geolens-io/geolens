@@ -1765,8 +1765,10 @@ class TestTheCleartextHalvesOfABasicCredentialAreScrubbed:
 # ---------------------------------------------------------------------------
 
 
-_WFS_ORIGIN = "https://service.example"
-_WFS_SERVICE = f"{_WFS_ORIGIN}/geoserver/wfs"
+_SVC_ORIGIN = "https://service.example"
+_SVC_WFS = f"{_SVC_ORIGIN}/geoserver/wfs"
+_SVC_OAPIF = f"{_SVC_ORIGIN}/oapif"
+_FOREIGN = "https://collector.example"
 
 
 def _capabilities(get_href: str) -> str:
@@ -1790,26 +1792,8 @@ def _capabilities(get_href: str) -> str:
 </WFS_Capabilities>"""
 
 
-def _landing(items_href: str) -> dict:
-    return {
-        "conformsTo": ["http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"],
-        "links": [{"rel": "data", "href": f"{_WFS_ORIGIN}/oapif/collections"}],
-    }
-
-
-def _collections(items_href: str) -> dict:
-    return {
-        "collections": [
-            {
-                "id": "parcels",
-                "links": [{"rel": "items", "href": items_href}],
-            }
-        ]
-    }
-
-
 class TestAServiceCannotPointTheCredentialSomewhereElse:
-    """fix(#1746 B2b review r13): the document GDAL reads, not the one we do.
+    """fix(#1746 B2b review r13/r14): the document GDAL reads, not the one we do.
 
     GDAL applies `GDAL_HTTP_HEADER_FILE` to every request it makes, and for
     these two formats it does not only fetch the URL it was given: it reads the
@@ -1818,10 +1802,16 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     `CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT` never applies and
     would not cover a service-chosen header name if it did.
 
-    Same question as the redirect refusal and as `_resolve_conformance`, asked
-    about a document GDAL reads. Checked at the door for a fast answer and
-    again in the worker, because the document can change in between.
+    Two properties, and r14 is why the first one matters as much as the second.
+    The description is read WITH the credential, because the services this
+    protects are exactly the ones that answer an anonymous read with a 401; and
+    a description that cannot be read is a refusal rather than a pass, because
+    "could not read it" was the normal answer for those same services.
     """
+
+    # The one class that drives the real check; every other suite gets the
+    # autouse stub, so nothing reaches for a service description by accident.
+    uses_the_real_endpoint_check = True
 
     def _transport(self, monkeypatch, handler):
         recorded: list[httpx.Request] = []
@@ -1846,23 +1836,94 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         return recorded
 
     @staticmethod
-    def _wfs_handler(get_href: str):
+    def _wfs_handler(get_href: str, *, protected: bool = False):
+        """A WFS whose capabilities advertise *get_href*.
+
+        ``protected`` makes it answer 401 to an unauthenticated read, which is
+        the shape that made an anonymous check worse than none: it learned
+        nothing and approved the source.
+        """
+
         def handle(request: httpx.Request) -> httpx.Response:
+            if protected and "x-api-key" not in {
+                name.lower() for name in request.headers
+            }:
+                return httpx.Response(401)
             if "GetCapabilities" in str(request.url):
                 return httpx.Response(200, text=_capabilities(get_href))
             return httpx.Response(404)
 
         return handle
 
+    @staticmethod
+    def _oapif_handler(items_href: str, *, collection_count: int = 1):
+        """An OGC API whose collection number ``collection_count - 1`` is foreign.
+
+        The listing is paginated one page per collection so the probe has to
+        follow `next`, and the last one carries the cross-origin items link.
+        """
+        ids = [f"c{index}" for index in range(collection_count)]
+
+        def _collection(index: int) -> dict:
+            href = (
+                items_href
+                if index == collection_count - 1
+                else (f"{_SVC_OAPIF}/collections/{ids[index]}/items")
+            )
+            return {"id": ids[index], "links": [{"rel": "items", "href": href}]}
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections"):
+                page = int(request.url.params.get("page", 0))
+                body: dict = {"collections": [_collection(page)]}
+                if page + 1 < collection_count:
+                    body["links"] = [
+                        {
+                            "rel": "next",
+                            "href": f"{_SVC_OAPIF}/collections?page={page + 1}",
+                        }
+                    ]
+                return httpx.Response(200, json=body)
+            if "/collections/" in path:
+                index = ids.index(path.rsplit("/", 1)[1])
+                return httpx.Response(200, json=_collection(index))
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "data", "href": f"{_SVC_OAPIF}/collections"}],
+                },
+            )
+
+        return handle
+
+    async def _probe(self, client, headers, url, body, handler, monkeypatch):
+        recorded = self._transport(monkeypatch, handler)
+        with patch(
+            "app.modules.catalog.sources.router.validate_url_for_ssrf",
+            new_callable=AsyncMock,
+        ):
+            resp = await client.post(
+                "/services/probe", json={"url": url, **body}, headers=headers
+            )
+        return resp, recorded
+
+    @staticmethod
+    def _key_auth(value: str) -> dict:
+        return {"method": "header", "header_name": "X-Api-Key", "header_value": value}
+
     # -- the door -----------------------------------------------------------
 
     @pytest.mark.parametrize(
         ("href", "refused"),
         [
-            (f"{_WFS_ORIGIN}/geoserver/wfs", False),
+            (f"{_SVC_ORIGIN}/geoserver/wfs", False),
             ("/geoserver/wfs", False),
             ("wfs", False),
-            ("https://collector.example/wfs", True),
+            (f"{_FOREIGN}/wfs", True),
         ],
         ids=["absolute_same", "root_relative", "relative", "cross_origin"],
     )
@@ -1870,25 +1931,15 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         self, client, admin_auth_header: dict, monkeypatch, href, refused
     ) -> None:
         """Relative hrefs describe the service itself and must keep working."""
-        recorded = self._transport(monkeypatch, self._wfs_handler(href))
-        credential, value = _header_key()
-
-        with patch(
-            "app.modules.catalog.sources.router.validate_url_for_ssrf",
-            new_callable=AsyncMock,
-        ):
-            resp = await client.post(
-                "/services/probe",
-                json={
-                    "url": _WFS_SERVICE,
-                    "auth": {
-                        "method": "header",
-                        "header_name": credential.header_name,
-                        "header_value": value,
-                    },
-                },
-                headers=admin_auth_header,
-            )
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            self._wfs_handler(href),
+            monkeypatch,
+        )
 
         if refused:
             assert resp.status_code == 422, resp.text
@@ -1898,64 +1949,124 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
             assert value not in resp.text
         else:
             assert resp.status_code == 200, resp.text
-        # Whatever the verdict, the credential never went to the other origin.
-        foreign = [r for r in recorded if "collector.example" in str(r.url)]
-        assert foreign == []
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
 
-    async def test_an_ogcapi_items_link_on_another_origin_is_refused(
+    async def test_a_protected_service_is_read_with_the_credential(
         self, client, admin_auth_header: dict, monkeypatch
     ) -> None:
-        """The OAPIF half: `items` is where a collection names its endpoint."""
-        foreign_items = "https://collector.example/oapif/collections/parcels/items"
+        """fix(#1746 B2b review r14): the reported hole, end to end.
 
-        def handle(request: httpx.Request) -> httpx.Response:
-            path = request.url.path
-            if path.endswith("/collections"):
-                return httpx.Response(200, json=_collections(foreign_items))
-            return httpx.Response(200, json=_landing(foreign_items))
-
-        recorded = self._transport(monkeypatch, handle)
-        credential, value = _header_key()
-
-        with patch(
-            "app.modules.catalog.sources.router.validate_url_for_ssrf",
-            new_callable=AsyncMock,
-        ):
-            resp = await client.post(
-                "/services/probe",
-                json={
-                    "url": f"{_WFS_ORIGIN}/oapif",
-                    "auth": {
-                        "method": "header",
-                        "header_name": credential.header_name,
-                        "header_value": value,
-                    },
-                },
-                headers=admin_auth_header,
-            )
+        A protected origin answers an anonymous read with 401. The check used
+        to take that as "nothing to see" and approve the source, and GDAL then
+        authenticated, received the real document, and followed the
+        cross-origin endpoint it advertised.
+        """
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            self._wfs_handler(f"{_FOREIGN}/wfs", protected=True),
+            monkeypatch,
+        )
 
         assert resp.status_code == 422, resp.text
         assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
-        assert value not in resp.text
+        # The credential went to the submitted origin, which is what made the
+        # real document readable, and nowhere else.
+        authenticated = [r for r in recorded if r.headers.get("X-Api-Key") == value]
+        assert authenticated
+        assert all(str(r.url).startswith(_SVC_ORIGIN) for r in authenticated)
         assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    async def test_a_protected_same_origin_service_proceeds(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """The half that must keep working: authentication is not the problem."""
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(_value())},
+            self._wfs_handler(f"{_SVC_ORIGIN}/geoserver/wfs", protected=True),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 200, resp.text
+
+    async def test_a_description_that_stops_answering_is_not_approved(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """A read that fails says nothing, so it cannot say yes.
+
+        Shaped as the service answering the probe and then refusing the
+        check's own read, which is the reachable form of it: a service that
+        refuses every read is never detected at all and the door answers 400
+        about the URL, before any of this. It is also the case the worker's
+        second check exists for, since the document can change between two
+        reads that are minutes apart.
+        """
+        value = _value()
+        reads: list[int] = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "GetCapabilities" not in str(request.url):
+                return httpx.Response(404)
+            reads.append(1)
+            if len(reads) == 1:
+                return httpx.Response(
+                    200, text=_capabilities(f"{_SVC_ORIGIN}/geoserver/wfs")
+                )
+            return httpx.Response(503)
+
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            handle,
+            monkeypatch,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "endpoint_check_failed"
+        assert value not in resp.text
 
     async def test_a_credential_free_probe_is_unaffected(
         self, client, admin_auth_header: dict, monkeypatch
     ) -> None:
         """A public federated service is ordinary; the credential is the problem."""
-        self._transport(monkeypatch, self._wfs_handler("https://collector.example/wfs"))
-
-        with patch(
-            "app.modules.catalog.sources.router.validate_url_for_ssrf",
-            new_callable=AsyncMock,
-        ):
-            resp = await client.post(
-                "/services/probe",
-                json={"url": _WFS_SERVICE},
-                headers=admin_auth_header,
-            )
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {},
+            self._wfs_handler(f"{_FOREIGN}/wfs"),
+            monkeypatch,
+        )
 
         assert resp.status_code == 200, resp.text
+
+    async def test_a_late_collection_is_refused_at_the_probe(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """Within the page bound, the probe still sees a later collection."""
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_OAPIF,
+            {"auth": self._key_auth(value)},
+            self._oapif_handler(
+                f"{_FOREIGN}/oapif/collections/c9/items", collection_count=10
+            ),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
 
     # -- the preview door ---------------------------------------------------
 
@@ -1964,7 +2075,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
     ) -> None:
         credential, value = _header_key()
         recorded = self._transport(
-            monkeypatch, self._wfs_handler("https://collector.example/wfs")
+            monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs", protected=True)
         )
 
         async def _fake_exec(*cmd, **kwargs):
@@ -1974,59 +2085,115 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
         with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
             await preview_mod.run_service_preview(
-                f"WFS:{_WFS_SERVICE}", "topp:parcels", credential=credential
+                f"WFS:{_SVC_WFS}", "topp:parcels", credential=credential
             )
 
-        detail = raised.value.detail
-        assert detail["code"] == "cross_origin_endpoint"
-        assert value not in str(detail)
+        assert raised.value.detail["code"] == "cross_origin_endpoint"
+        assert value not in str(raised.value.detail)
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    async def test_the_preview_checks_the_collection_it_will_read(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r14): number 55 of 60, which no listing page reaches.
+
+        The preview knows which collection it is importing, so it reads that
+        collection's own document rather than hoping it appeared in the part of
+        the listing a bounded walk could see.
+        """
+        credential, _value_ = _header_key()
+        recorded = self._transport(
+            monkeypatch,
+            self._oapif_handler(
+                f"{_FOREIGN}/oapif/collections/c54/items", collection_count=55
+            ),
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("ogrinfo must not be spawned for a refused source")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(Exception) as raised:  # noqa: PT011 - HTTPException
+            await preview_mod.run_service_preview(
+                f"OAPIF:{_SVC_OAPIF}", "c54", credential=credential
+            )
+
+        assert raised.value.detail["code"] == "cross_origin_endpoint"
+        # Straight to the collection document; no listing walk at all.
+        assert [r for r in recorded if r.url.path.endswith("/collections")] == []
         assert [r for r in recorded if "collector.example" in str(r.url)] == []
 
     # -- the worker ---------------------------------------------------------
 
-    async def test_the_worker_refuses_the_same_source(self, monkeypatch) -> None:
-        """Checked again here because the document can change in between.
-
-        This is also the side that actually spends the credential, so a
-        refusal that only ran at the door would be a refusal an attacker could
-        wait out.
-        """
-        from app.platform.service_endpoints import CrossOriginEndpointError
-
+    async def _run_worker(self, monkeypatch, gdal_source: str, layer: str):
         credential, value = _header_key()
         pair = build_credential_header(credential)
         assert pair is not None
-        recorded = self._transport(
-            monkeypatch, self._wfs_handler("https://collector.example/wfs")
-        )
 
         async def _fake_exec(*cmd, **kwargs):
             raise AssertionError("ogr2ogr must not be spawned for a refused source")
 
         monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        await run_ogr2ogr_service(
+            gdal_source=gdal_source,
+            layer_name=layer,
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs" if gdal_source.startswith("WFS:") else "ogcapi_features",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+        )
+        return value
 
-        with pytest.raises(CrossOriginEndpointError) as raised:
-            await run_ogr2ogr_service(
-                gdal_source=f"WFS:{_WFS_SERVICE}",
-                layer_name="topp:parcels",
-                table_name="t",
-                db_conn_str="PG:dummy",
-                service_type="wfs",
-                token=f"{pair[0]}: {pair[1]}",
-                schema="data",
-            )
+    async def test_the_worker_refuses_the_same_source(self, monkeypatch) -> None:
+        """Checked again here because the document can change in between.
 
-        assert value not in str(raised.value)
+        This is also the side that actually spends the credential, so a
+        refusal that only ran at the door would be one an attacker could wait
+        out.
+        """
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        recorded = self._transport(
+            monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs", protected=True)
+        )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._run_worker(monkeypatch, f"WFS:{_SVC_WFS}", "topp:parcels")
+
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    async def test_the_worker_checks_the_collection_it_will_read(
+        self, monkeypatch
+    ) -> None:
+        """The complete check, on the path that spends the credential."""
+        from app.platform.service_endpoints import CrossOriginEndpointError
+
+        recorded = self._transport(
+            monkeypatch,
+            self._oapif_handler(
+                f"{_FOREIGN}/oapif/collections/c54/items", collection_count=55
+            ),
+        )
+
+        with pytest.raises(CrossOriginEndpointError):
+            await self._run_worker(monkeypatch, f"OAPIF:{_SVC_OAPIF}", "c54")
+
+        assert [r for r in recorded if r.url.path.endswith("/collections")] == []
         assert [r for r in recorded if "collector.example" in str(r.url)] == []
 
     async def test_the_worker_proceeds_for_a_same_origin_service(
         self, monkeypatch
     ) -> None:
         """The counterfactual's other half: the guard is not refusing everything."""
-        credential, _value = _header_key()
+        credential, _value_ = _header_key()
         pair = build_credential_header(credential)
         assert pair is not None
-        self._transport(monkeypatch, self._wfs_handler(f"{_WFS_ORIGIN}/geoserver/wfs"))
+        self._transport(
+            monkeypatch,
+            self._wfs_handler(f"{_SVC_ORIGIN}/geoserver/wfs", protected=True),
+        )
 
         spawned: list = []
 
@@ -2045,7 +2212,7 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         )
 
         await run_ogr2ogr_service(
-            gdal_source=f"WFS:{_WFS_SERVICE}",
+            gdal_source=f"WFS:{_SVC_WFS}",
             layer_name="topp:parcels",
             table_name="t",
             db_conn_str="PG:dummy",
@@ -2058,52 +2225,70 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
     # -- the validator itself -----------------------------------------------
 
-    async def test_an_unreadable_document_does_not_refuse(self, monkeypatch) -> None:
-        """Failing open is the same trade the marked-origin probe records.
+    async def test_an_unreadable_document_refuses(self, monkeypatch) -> None:
+        """fix(#1746 B2b review r14): fail closed, and this is why.
 
-        This is one request against a third party. Turning its bad day into a
-        refused import would be worse than the exposure it closes, and what it
-        refuses is a document that WAS read and does advertise elsewhere.
+        The previous revision failed OPEN here, reasoning that one request
+        against a third party should not refuse an import. That reasoning was
+        wrong for this check specifically: the services it protects are the
+        ones that refuse an unauthenticated description, so "could not read it"
+        was their normal answer and it approved every one of them.
         """
-        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            assert_endpoints_stay_on_origin,
+        )
 
         self._transport(monkeypatch, lambda request: httpx.Response(500))
 
-        await assert_endpoints_stay_on_origin(
-            _WFS_SERVICE,
-            service_format="wfs",
-            has_credential=True,
-            credential_header="X-Api-Key",
-        )
+        with pytest.raises(EndpointCheckFailedError) as raised:
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"X-Api-Key: {_value()}",
+            )
 
-    async def test_a_malformed_capabilities_document_does_not_refuse(
-        self, monkeypatch
-    ) -> None:
-        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+        assert raised.value.code == "endpoint_check_failed"
+        assert raised.value.field == "url"
+
+    async def test_a_malformed_capabilities_document_refuses(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import (
+            EndpointCheckFailedError,
+            assert_endpoints_stay_on_origin,
+        )
 
         self._transport(
             monkeypatch, lambda request: httpx.Response(200, text="<not xml")
         )
 
-        await assert_endpoints_stay_on_origin(
-            _WFS_SERVICE,
-            service_format="wfs",
-            has_credential=True,
-            credential_header="X-Api-Key",
-        )
+        with pytest.raises(EndpointCheckFailedError):
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"X-Api-Key: {_value()}",
+            )
 
     async def test_an_arcgis_source_is_not_checked(self, monkeypatch) -> None:
         """Its credential is a query parameter, so there is no header to leak."""
         from app.platform.service_endpoints import assert_endpoints_stay_on_origin
 
-        recorded = self._transport(
-            monkeypatch, self._wfs_handler("https://collector.example/wfs")
-        )
+        recorded = self._transport(monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs"))
 
         await assert_endpoints_stay_on_origin(
-            _WFS_SERVICE,
+            _SVC_WFS,
             service_format="arcgis_featureserver",
-            has_credential=True,
+            credential_line=f"Authorization: Bearer tok{_value()}",
+        )
+
+        assert recorded == []
+
+    async def test_a_credential_free_call_is_not_checked(self, monkeypatch) -> None:
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        recorded = self._transport(monkeypatch, self._wfs_handler(f"{_FOREIGN}/wfs"))
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_WFS, service_format="wfs", credential_line=None
         )
 
         assert recorded == []

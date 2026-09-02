@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import uuid
+from dataclasses import replace
 from typing import NoReturn
 from urllib.parse import urljoin
 
@@ -27,6 +28,7 @@ from app.core.service_tokens import (
     CredentialMethod,
     ServiceCredential,
     build_credential_header,
+    credential_header_line,
 )
 from app.modules.catalog.sources.adapters.arcgis import (
     ARCGIS_SERVICE_FORMAT,
@@ -79,6 +81,7 @@ from app.platform.service_auth import (
 )
 from app.platform.service_endpoints import (
     CrossOriginEndpointError,
+    EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
 )
 from app.platform.security import (
@@ -490,6 +493,22 @@ async def _probe_audit_fail(
     raise HTTPException(status_code=status_code, detail=detail)
 
 
+def _probe_credential_line(
+    credential: ServiceCredential | None, service_format: str | None
+) -> str | None:
+    """The header line the endpoint check sends, or None for a public probe.
+
+    fix(#1746 B2b review r14): the probe holds a credential bound to whichever
+    transport its URL looked like, and the check needs it bound to the format
+    detection just established. Composed by the one builder, which answers None
+    for a format that carries no header at all.
+    """
+    if credential is None:
+        return None
+    pair = build_credential_header(replace(credential, service_format=service_format))
+    return None if pair is None else credential_header_line(pair)
+
+
 def _preview_service_format(service_type: str) -> str | None:
     """The canonical format a preview's human service label resolves to.
 
@@ -770,20 +789,34 @@ async def probe_service_url(
             )
             # After detection, because the check is per service type and the
             # probe is what determines it (the round-7 rule).
+            detected_format = _preview_service_format(response.service_type)
             await assert_endpoints_stay_on_origin(
                 request.url,
-                service_format=_preview_service_format(response.service_type),
-                has_credential=service_credential is not None,
-                credential_header=custom_credential_header_name(service_credential),
+                service_format=detected_format,
+                # fix(#1746 B2b review r14): the description is read WITH the
+                # credential, because a protected service answers an anonymous
+                # read with a 401 and the check would learn nothing about the
+                # document GDAL will actually act on. Composed by the one
+                # builder, against the format detection just established.
+                credential_line=_probe_credential_line(
+                    service_credential, detected_format
+                ),
             )
 
-    except CrossOriginEndpointError as exc:
+    except (CrossOriginEndpointError, EndpointCheckFailedError) as exc:
         # fix(#1746 B2b review r13): the service describes its own operation
         # endpoints, GDAL follows that description with the credential
         # attached, and no redirect rule can see those requests. Refused here
         # so the caller learns at the step they are on rather than at preview,
         # and refused again in the worker because the document can change.
-        logger.warning("Probe cross-origin endpoint", url=safe_url, origin=exc.origin)
+        # `origin` only exists on the cross-origin half, and neither message
+        # nor either attribute carries any part of the credential.
+        logger.warning(
+            "Probe endpoint check refused",
+            url=safe_url,
+            code=exc.code,
+            origin=getattr(exc, "origin", None),
+        )
         await _probe_audit_fail(
             db,
             user.id,
