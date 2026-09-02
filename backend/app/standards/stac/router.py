@@ -664,8 +664,17 @@ async def get_collections(
     coll_result = await db.execute(select(Collection))
     collections = coll_result.scalars().all()
 
-    # Four independent metadata queries -- run concurrently with separate
-    # sessions (async sessions are not safe to share across gather tasks).
+    # fix(#1778): these four aggregates used to asyncio.gather with each
+    # branch opening its own async_session() -- a nested pool checkout on
+    # top of the connection this request already holds via `db` (get_db
+    # never commits on the read path, so that connection stays checked out
+    # for the whole request). 5 checkouts per anonymous, uncached request
+    # exhausts the default 13-connection pool at 3 concurrent requests. Run
+    # them sequentially on the caller's own session instead, the same trade
+    # made in service_query.py's dataset-detail fetch (fix #1436 codex
+    # review): these are grouped-aggregate queries over the same joined
+    # set, so the wall-clock cost of sequencing them is negligible next to
+    # that risk, and unlike dataset-detail this endpoint is anonymous.
 
     async def _fetch_extents() -> dict[str, tuple]:
         extent_stmt = (
@@ -685,14 +694,11 @@ async def get_collections(
         extent_stmt = apply_visibility_filter(
             extent_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(extent_stmt)
-            return {
-                (str(r[0]) if r[0] is not None else STAC_UNASSIGNED_COLLECTION_ID): r[
-                    1:
-                ]
-                for r in rows.all()
-            }
+        rows = await db.execute(extent_stmt)
+        return {
+            (str(r[0]) if r[0] is not None else STAC_UNASSIGNED_COLLECTION_ID): r[1:]
+            for r in rows.all()
+        }
 
     async def _fetch_keywords() -> dict[str, list[str]]:
         kw_stmt = (
@@ -710,19 +716,16 @@ async def get_collections(
         kw_stmt = apply_visibility_filter(
             kw_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(kw_stmt)
-            result: dict[str, list[str]] = {}
-            for row in rows.all():
-                kws = row[1]
-                if kws:
-                    key = (
-                        str(row[0])
-                        if row[0] is not None
-                        else STAC_UNASSIGNED_COLLECTION_ID
-                    )
-                    result[key] = sorted([k for k in kws if k])
-            return result
+        rows = await db.execute(kw_stmt)
+        result: dict[str, list[str]] = {}
+        for row in rows.all():
+            kws = row[1]
+            if kws:
+                key = (
+                    str(row[0]) if row[0] is not None else STAC_UNASSIGNED_COLLECTION_ID
+                )
+                result[key] = sorted([k for k in kws if k])
+        return result
 
     async def _fetch_projection_codes() -> dict[str, list[str]]:
         RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -741,32 +744,24 @@ async def get_collections(
         epsg_stmt = apply_visibility_filter(
             epsg_stmt, user, user_roles, Record, DatasetGrant
         )
-        async with _db_module.async_session() as s:
-            rows = await s.execute(epsg_stmt)
-            result: dict[str, list[int]] = {}
-            for row in rows.all():
-                codes = row[1]
-                if codes:
-                    key = (
-                        str(row[0])
-                        if row[0] is not None
-                        else STAC_UNASSIGNED_COLLECTION_ID
-                    )
-                    result[key] = [
-                        f"EPSG:{code}" for code in sorted(c for c in codes if c)
-                    ]
-            return result
+        rows = await db.execute(epsg_stmt)
+        result: dict[str, list[int]] = {}
+        for row in rows.all():
+            codes = row[1]
+            if codes:
+                key = (
+                    str(row[0]) if row[0] is not None else STAC_UNASSIGNED_COLLECTION_ID
+                )
+                result[key] = [f"EPSG:{code}" for code in sorted(c for c in codes if c)]
+        return result
 
     async def _fetch_has_unassigned() -> bool:
-        async with _db_module.async_session() as s:
-            return await _has_unassigned_items(s, user, user_roles)
+        return await _has_unassigned_items(db, user, user_roles)
 
-    extent_map, keywords_map, projection_map, has_unassigned = await asyncio.gather(
-        _fetch_extents(),
-        _fetch_keywords(),
-        _fetch_projection_codes(),
-        _fetch_has_unassigned(),
-    )
+    extent_map = await _fetch_extents()
+    keywords_map = await _fetch_keywords()
+    projection_map = await _fetch_projection_codes()
+    has_unassigned = await _fetch_has_unassigned()
 
     stac_collections = []
     for coll in collections:
