@@ -3,7 +3,14 @@ import { useTranslation } from 'react-i18next';
 import { Map as MapGL, Source, Layer, NavigationControl } from '@vis.gl/react-maplibre';
 import { useTheme } from '@/components/theme-provider';
 import { useBasemaps, useMapDefaults, useTileConfig } from '@/hooks/use-settings';
-import { getThemeBasemap, makeStyleImageMissingResolver, toMaplibreStyle, findBasemapById } from '@/lib/basemap-utils';
+import {
+  getThemeBasemap,
+  makeStyleImageMissingResolver,
+  toMaplibreStyle,
+  findBasemapById,
+  FALLBACK_BASEMAP_STYLE_URL,
+  FALLBACK_BASEMAP_STYLE_URL_DARK,
+} from '@/lib/basemap-utils';
 import { BasemapToggle } from '@/components/map/BasemapToggle';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { useTerraDraw } from '@/components/drawing/hooks/use-terra-draw';
@@ -164,9 +171,7 @@ export const DatasetMap = memo(function DatasetMap({
     initialBasemapStyle.current = bm
       ? toMaplibreStyle(bm.url, bm.attribution)
       : toMaplibreStyle(
-          resolvedTheme === 'dark'
-            ? 'https://tiles.openfreemap.org/styles/dark'
-            : 'https://tiles.openfreemap.org/styles/positron',
+          resolvedTheme === 'dark' ? FALLBACK_BASEMAP_STYLE_URL_DARK : FALLBACK_BASEMAP_STYLE_URL,
         );
   }
 

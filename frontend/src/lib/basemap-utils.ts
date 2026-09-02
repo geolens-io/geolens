@@ -101,6 +101,15 @@ const RELIEF_PALETTE: Record<
 /** Fallback glyphs for inline styles (raster basemaps) so text labels render. */
 const FALLBACK_GLYPHS = 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf';
 
+/**
+ * fix(#1778): the shared basemap-style fallback, used whenever the basemap
+ * list has not loaded yet or a configured id fails to resolve. Every map
+ * surface must fall back to the same provider — ViewerMap previously fell
+ * back to a CARTO style no other surface touches, with no attribution.
+ */
+export const FALLBACK_BASEMAP_STYLE_URL = 'https://tiles.openfreemap.org/styles/positron';
+export const FALLBACK_BASEMAP_STYLE_URL_DARK = 'https://tiles.openfreemap.org/styles/dark';
+
 const BLANK_THUMBNAIL = `data:image/svg+xml,${encodeURIComponent(
   '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">' +
   '<rect fill="#f3f4f6" width="160" height="160" rx="8" stroke="#d1d5db" stroke-width="2" stroke-dasharray="8 4"/>' +

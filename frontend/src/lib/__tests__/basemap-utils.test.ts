@@ -15,6 +15,8 @@ import {
   LIGHT_PRESET_ID,
   DARK_PRESET_ID,
   BLANK_BASEMAP_ID,
+  FALLBACK_BASEMAP_STYLE_URL,
+  FALLBACK_BASEMAP_STYLE_URL_DARK,
 } from '../basemap-utils';
 import type { BasemapEntry } from '@/api/settings';
 
@@ -479,6 +481,15 @@ describe('preset IDs', () => {
 
   it('DARK_PRESET_ID is openfreemap-dark', () => {
     expect(DARK_PRESET_ID).toBe('openfreemap-dark');
+  });
+});
+
+// fix(#1778): every map surface must fall back to the same basemap provider.
+// ViewerMap previously hardcoded a CARTO style URL no other surface used.
+describe('FALLBACK_BASEMAP_STYLE_URL', () => {
+  it('is the shared OpenFreeMap style, not a vendor-specific URL', () => {
+    expect(FALLBACK_BASEMAP_STYLE_URL).toBe('https://tiles.openfreemap.org/styles/positron');
+    expect(FALLBACK_BASEMAP_STYLE_URL_DARK).toBe('https://tiles.openfreemap.org/styles/dark');
   });
 });
 

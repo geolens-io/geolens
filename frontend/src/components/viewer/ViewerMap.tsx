@@ -10,6 +10,7 @@ import {
   toMaplibreStyle,
   resolveBasemapId,
   BLANK_BASEMAP_ID,
+  FALLBACK_BASEMAP_STYLE_URL,
 } from '@/lib/basemap-utils';
 import { buildClusterTileUrl, buildSignedTileUrl, buildTileTransformRequest, getMvtSourceLayerName, isMvtSourceLayerConfigReady, isThirdPartyTileUrl, refreshRasterTileSources, resolveTileBaseUrl } from '@/lib/tile-utils';
 import { useRemoteBasemapStyle } from '@/components/map/hooks/use-remote-basemap-style';
@@ -308,7 +309,9 @@ export const ViewerMap = memo(function ViewerMap({
   const effectiveBasemap = isBlank
     ? undefined
     : findBasemapById(basemaps ?? [], basemapStyle);
-  const fallbackUrl = 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json';
+  // fix(#1778): was a lone CARTO fallback with no attribution string; every
+  // other map surface falls back to OpenFreeMap.
+  const fallbackUrl = FALLBACK_BASEMAP_STYLE_URL;
   const styleValue = useMemo(
     // chore(#835): pass the basemap's configured attribution through, matching
     // BuilderMap/DatasetMap — the viewer (the public surface where attribution
