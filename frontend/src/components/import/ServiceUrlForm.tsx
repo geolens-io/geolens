@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Globe, Check } from 'lucide-react';
@@ -62,6 +62,7 @@ export function ServiceUrlForm() {
   const [tokenExpiresAt, setTokenExpiresAt] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [signinError, setSigninError] = useState<string | null>(null);
+  const [tokenExpired, setTokenExpired] = useState(false);
 
   // codex review #1757 P1: a stale in-flight sign-in response must never
   // resurrect a token or run after the auth context it belongs to is gone.
@@ -71,6 +72,84 @@ export function ServiceUrlForm() {
   const signinGenerationRef = useRef(0);
   const authOrigin = originOf(url);
   const lastAuthOriginRef = useRef(authOrigin);
+
+  // codex review #1757 round 2: a minted token stops being usable 30
+  // seconds before ArcGIS actually expires it (a safety margin, not a
+  // display nicety), even if the wizard is left open. This timer is the
+  // single place that enforces that; `expireStaleTokenIfPast` below is the
+  // belt-and-suspenders check for the case a backgrounded tab throttled it.
+  const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearExpiryTimer = useCallback(() => {
+    if (expiryTimerRef.current !== null) {
+      clearTimeout(expiryTimerRef.current);
+      expiryTimerRef.current = null;
+    }
+  }, []);
+
+  // codex review #1757 round 2 P2: a minted token is bound to the method,
+  // origin, portal URL, username, and password that produced it. Any of
+  // those changing (a method switch, a URL origin change, an edit to the
+  // portal URL/username/password after a mint, or the wizard's own
+  // reset()) must not leave the old token, or its "valid until" claim,
+  // looking current, and must invalidate any sign-in still in flight for
+  // the context being replaced. A password edit clears the mint too, for
+  // symmetry: a new password means a new attempt, not a continuation of
+  // the old one. The expiry timer below reuses this same function. Lane
+  // A3 applies the identical rule to its own credential block.
+  const invalidateMintedCredential = useCallback(() => {
+    signinGenerationRef.current += 1;
+    clearExpiryTimer();
+    setToken('');
+    setTokenExpiresAt(null);
+    setTokenExpired(false);
+  }, [clearExpiryTimer]);
+
+  function isPast(isoTime: string): boolean {
+    return new Date(isoTime).getTime() <= Date.now();
+  }
+
+  // codex review #1757 round 2: the timer above is the normal path; this
+  // is the fallback for a throttled background tab whose setTimeout fired
+  // late (or never, before the user comes back and tries to submit).
+  // Called at the top of every place that would otherwise forward `token`
+  // to the backend. Returns true when it just refused a stale submission.
+  function expireStaleTokenIfPast(): boolean {
+    if (token && tokenExpiresAt && isPast(tokenExpiresAt)) {
+      signinGenerationRef.current += 1;
+      clearExpiryTimer();
+      setToken('');
+      setTokenExpiresAt(null);
+      setTokenExpired(true);
+      return true;
+    }
+    return false;
+  }
+
+  // codex review #1757 round 2: schedule the token's own expiry 30 seconds
+  // ahead of ArcGIS's stated deadline, so a wizard left open does not go on
+  // submitting a token the service is about to (or already does) reject.
+  // Guarded by the generation it was minted under: if the auth context
+  // moved on before this fires, `invalidateMintedCredential` already
+  // cleared everything and this is a no-op.
+  function scheduleExpiryTimer(expiresAt: string, generation: number): void {
+    clearExpiryTimer();
+    const EXPIRY_MARGIN_MS = 30_000;
+    const delay = new Date(expiresAt).getTime() - EXPIRY_MARGIN_MS - Date.now();
+    const expire = () => {
+      expiryTimerRef.current = null;
+      if (signinGenerationRef.current !== generation) return;
+      signinGenerationRef.current += 1;
+      setToken('');
+      setTokenExpiresAt(null);
+      setTokenExpired(true);
+    };
+    if (delay <= 0) {
+      expire();
+      return;
+    }
+    expiryTimerRef.current = setTimeout(expire, delay);
+  }
 
   // codex review #1757 P1: a credential entered for one origin must never
   // survive being pointed at a different one, whether that's a pasted
@@ -82,21 +161,29 @@ export function ServiceUrlForm() {
   useEffect(() => {
     if (authOrigin === lastAuthOriginRef.current) return;
     lastAuthOriginRef.current = authOrigin;
-    signinGenerationRef.current += 1;
+    invalidateMintedCredential();
     setArcgisAuthMethod('none');
-    setToken('');
     setPortalUrl('');
     setUsername('');
     setPassword('');
-    setTokenExpiresAt(null);
     setSigninError(null);
-  }, [authOrigin]);
+    // invalidateMintedCredential is a fresh closure each render, and the
+    // ref check above already guards this effect so it does real work
+    // only on a genuine origin change; including it here is for
+    // correctness (react-hooks/exhaustive-deps), not because it can
+    // change what this effect does.
+  }, [authOrigin, invalidateMintedCredential]);
+
+  // codex review #1757 round 2: the expiry timer must not outlive the
+  // component (a backgrounded/unmounted tab has no business scheduling
+  // state updates). The wizard's own reset() also invalidates the mint
+  // and so clears the timer, so this effect only needs to cover unmount.
+  useEffect(() => clearExpiryTimer, [clearExpiryTimer]);
 
   const reset = () => {
-    signinGenerationRef.current += 1;
+    invalidateMintedCredential();
     setStep('idle');
     setUrl('');
-    setToken('');
     setProbeResult(null);
     setPreviewData(null);
     setJobId(null);
@@ -105,7 +192,6 @@ export function ServiceUrlForm() {
     setPortalUrl('');
     setUsername('');
     setPassword('');
-    setTokenExpiresAt(null);
     setSigningIn(false);
     setSigninError(null);
   };
@@ -115,12 +201,10 @@ export function ServiceUrlForm() {
   // plan 3.4). A stale password or a stale pasted token left over from the
   // method the user just backed out of must never ride along silently.
   const handleAuthMethodChange = (next: ArcgisAuthMethod) => {
-    signinGenerationRef.current += 1;
+    invalidateMintedCredential();
     setArcgisAuthMethod(next);
-    setToken('');
     setUsername('');
     setPassword('');
-    setTokenExpiresAt(null);
     setSigninError(null);
     setPortalUrl(next === 'signin' ? originOf(url) : '');
   };
@@ -138,6 +222,7 @@ export function ServiceUrlForm() {
     const generation = signinGenerationRef.current;
     setSigningIn(true);
     setSigninError(null);
+    setTokenExpired(false);
     try {
       const result = await arcgisSignin({
         portal_url: portalUrl.trim(),
@@ -147,6 +232,7 @@ export function ServiceUrlForm() {
       if (signinGenerationRef.current === generation) {
         setToken(result.token);
         setTokenExpiresAt(result.expires_at);
+        scheduleExpiryTimer(result.expires_at, generation);
       }
     } catch (err) {
       if (signinGenerationRef.current === generation) {
@@ -166,6 +252,30 @@ export function ServiceUrlForm() {
 
   const handleConnect = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // codex review #1757 round 2: the timer above should already have
+    // cleared an expired token, but a backgrounded tab can throttle
+    // setTimeout, so re-check at the point of submission too. Falling
+    // through afterward (rather than returning) lets the signin-routing
+    // check just below pick this submission back up as a fresh sign-in
+    // attempt when the credential fields are still filled in.
+    expireStaleTokenIfPast();
+
+    // codex review #1757 round 2 P2: the sign-in fields live inside this
+    // same <form> (a <form> cannot nest inside another), so pressing Enter
+    // in the username or password field submitted straight to Probe
+    // instead of signing in, sending the service a request under a
+    // credential block that had never actually authenticated. While sign
+    // in is the chosen method and no token has been minted yet, route ANY
+    // submission of this form (Enter in a field, or a click on the same
+    // submit button) to sign-in instead of Probe.
+    if (looksLikeArcGisServiceUrl(url) && arcgisAuthMethod === 'signin' && !token) {
+      if (!signingIn && portalUrl.trim() && username.trim() && password) {
+        void handleArcgisSignin();
+      }
+      return;
+    }
+
     const trimmed = url.trim();
     if (!trimmed) return;
 
@@ -186,6 +296,19 @@ export function ServiceUrlForm() {
 
   const handleLayerSelect = async (layer: LayerInfo) => {
     if (!probeResult) return;
+
+    // codex review #1757 round 2: this step is past the credential form,
+    // so there is no method select left to route a retry through. Refuse
+    // the preview outright and point the user back to reconnect.
+    if (expireStaleTokenIfPast()) {
+      setError(
+        t('serviceUrl.arcgisTokenExpiredMidImport', {
+          defaultValue:
+            'Your ArcGIS sign-in expired while this was open. Go back and sign in again to continue.',
+        }),
+      );
+      return;
+    }
 
     setStep('previewing');
     setError(null);
@@ -230,6 +353,19 @@ export function ServiceUrlForm() {
 
   const handleCommit = async (metadata: CommitImportRequest) => {
     if (!previewData) return;
+
+    // codex review #1757 round 2: same reasoning as handleLayerSelect,
+    // refusing rather than forwarding a token that expired while this
+    // dialog was open.
+    if (expireStaleTokenIfPast()) {
+      setError(
+        t('serviceUrl.arcgisTokenExpiredMidImport', {
+          defaultValue:
+            'Your ArcGIS sign-in expired while this was open. Go back and sign in again to continue.',
+        }),
+      );
+      return;
+    }
 
     setStep('committing');
 
@@ -489,7 +625,10 @@ export function ServiceUrlForm() {
                       defaultValue: 'https://your-org.maps.arcgis.com',
                     })}
                     value={portalUrl}
-                    onChange={(e) => setPortalUrl(e.target.value)}
+                    onChange={(e) => {
+                      setPortalUrl(e.target.value);
+                      invalidateMintedCredential();
+                    }}
                     className="font-mono text-sm"
                   />
                 </div>
@@ -503,7 +642,10 @@ export function ServiceUrlForm() {
                     autoComplete="username"
                     placeholder={t('serviceUrl.usernamePlaceholder', { defaultValue: 'Username' })}
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    onChange={(e) => {
+                      setUsername(e.target.value);
+                      invalidateMintedCredential();
+                    }}
                     className="text-sm"
                   />
                 </div>
@@ -516,7 +658,10 @@ export function ServiceUrlForm() {
                     type="password"
                     placeholder={t('serviceUrl.passwordPlaceholder', { defaultValue: 'Password' })}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      invalidateMintedCredential();
+                    }}
                     className="text-sm"
                     // This is a genuine third-party ArcGIS login, not a
                     // GeoLens one, and a password manager offering to save it
@@ -550,6 +695,13 @@ export function ServiceUrlForm() {
                       {t('serviceUrl.tokenValidUntil', {
                         time: formatDateTimeSmart(tokenExpiresAt),
                         defaultValue: `Token valid until ${formatDateTimeSmart(tokenExpiresAt)}`,
+                      })}
+                    </span>
+                  )}
+                  {tokenExpired && (
+                    <span className="text-xs text-destructive">
+                      {t('serviceUrl.tokenExpired', {
+                        defaultValue: 'Token expired, sign in again',
                       })}
                     </span>
                   )}

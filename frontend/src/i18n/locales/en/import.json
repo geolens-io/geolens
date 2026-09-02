@@ -230,7 +230,9 @@
     "signingIn": "Signing in...",
     "tokenValidUntil": "Token valid until {{time}}",
     "arcgisSigninFailed": "Failed to sign in to ArcGIS",
-    "signinHelpText": "Signing in mints a token valid for 60 minutes; an import that runs longer will need a new one. This won't reach a portal on a private network, so paste a token instead if yours is private."
+    "signinHelpText": "Signing in mints a token valid for 60 minutes; an import that runs longer will need a new one. This won't reach a portal on a private network, so paste a token instead if yours is private.",
+    "tokenExpired": "Token expired, sign in again",
+    "arcgisTokenExpiredMidImport": "Your ArcGIS sign-in expired while this was open. Go back and sign in again to continue."
   },
   "urlImport": {
     "label": "File URL; fetched server-side",

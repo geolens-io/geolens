@@ -98,4 +98,34 @@ test.describe('ArcGIS sign-in on the import wizard', () => {
       'No authentication',
     );
   });
+
+  // codex review #1757 round 2 P2: the credential fields sit inside the
+  // outer form whose submit button is Probe, so pressing Enter used to
+  // Probe the protected service instead of signing in.
+  test('pressing Enter in the password field routes to sign-in, not Probe', async ({ page }) => {
+    let probeCalled = false;
+    await page.route('**/api/services/probe/', (route) => {
+      probeCalled = true;
+      return route.fulfill({ status: 500, json: { detail: 'Probe should not have been called' } });
+    });
+    await page.route('**/api/services/arcgis/signin/', (route) =>
+      route.fulfill({
+        json: {
+          token: 'e2e-enter-token',
+          expires_at: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        },
+      }),
+    );
+
+    await openArcGisSignin(page);
+    await page.getByLabel('Username', { exact: true }).fill('e2e-user');
+    await page.getByLabel('Password', { exact: true }).fill('correct-password');
+    await page.getByLabel('Password', { exact: true }).press('Enter');
+
+    // getByLabel is flaky here specifically after an Enter-triggered
+    // submit (unlike the button-click path in the test above); the id
+    // selector is unambiguous.
+    await expect(page.locator('#arcgis-minted-token')).toHaveValue('e2e-enter-token');
+    expect(probeCalled).toBe(false);
+  });
 });

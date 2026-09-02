@@ -10,7 +10,7 @@
  *   titled REC_PassiveConservedAccessScore), and a name-keyed list would
  *   collapse or misroute the duplicates.
  */
-import { render, screen, waitFor } from '@/test/test-utils';
+import { act, render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import type { ProbeResponse } from '@/types/api';
@@ -188,6 +188,14 @@ describe('ServiceUrlForm layer picker with a shared layer name', () => {
  */
 const ARCGIS_URL = 'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer';
 
+// codex review #1757 round 2: the expiry timer (fires 30s ahead of
+// expires_at) makes this a functionally significant value now, not just
+// display text. It must stay in the future relative to whenever the test
+// actually runs, or the token would be cleared immediately.
+function futureExpiry(msFromNow = 60 * 60 * 1000): string {
+  return new Date(Date.now() + msFromNow).toISOString();
+}
+
 async function typeArcGisUrl(user: ReturnType<typeof userEvent.setup>) {
   render(<ServiceUrlForm />);
   await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
@@ -310,9 +318,9 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
       expect(screen.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
     });
 
-    resolveSignin({ token: 'minted-token', expires_at: '2026-09-01T13:00:00Z' });
+    resolveSignin({ token: 'minted-token', expires_at: futureExpiry() });
 
-    // The request has settled — the button is out of its loading state.
+    // The request has settled; the button is out of its loading state.
     // (It stays disabled once settled, but now because the password field
     // was cleared on success, a separate, already-covered behavior below.)
     await waitFor(() => {
@@ -324,7 +332,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     const user = await typeArcGisUrl(userEvent.setup());
     mockArcgisSignin.mockResolvedValue({
       token: 'minted-token',
-      expires_at: '2026-09-01T13:00:00Z',
+      expires_at: futureExpiry(),
     });
     await fillSigninForm(user);
 
@@ -393,7 +401,7 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
       'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
     );
 
-    resolveSignin({ token: 'late-token', expires_at: '2026-09-01T13:00:00Z' });
+    resolveSignin({ token: 'late-token', expires_at: futureExpiry() });
 
     // Give the resolved promise's .then a turn, then re-select Sign in and
     // confirm no minted-token field appeared: the stale response must not
@@ -402,5 +410,109 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     await waitFor(() => {
       expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
     });
+  });
+
+  // codex review #1757 round 2 P2: a minted token is bound to the
+  // credentials that produced it. Editing the username afterward must
+  // clear it, and a resubmit must never reach Probe with the stale token.
+  it('clears the minted token when the username changes after a successful sign-in, and never forwards it to Probe', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockResolvedValue({
+      token: 'minted-token',
+      expires_at: futureExpiry(),
+    });
+    await fillSigninForm(user);
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+    });
+
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'x');
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    // The password was already cleared when the mint settled, so this
+    // resubmit can neither re-sign-in (no password to send) nor fall
+    // through to Probe: the stale token must never reach it either way.
+    expect(mockProbeService).not.toHaveBeenCalled();
+  });
+
+  // codex review #1757 round 2 P2: the credential fields sit inside the
+  // outer <form> (a <form> cannot nest), whose submit handler otherwise
+  // runs Probe. Pressing Enter in the password field must sign in instead.
+  it('routes Enter in the password field to sign-in instead of Probe', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockReturnValue(new Promise(() => {}));
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'alice');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'hunter2{Enter}');
+
+    await waitFor(() => expect(mockArcgisSignin).toHaveBeenCalledTimes(1));
+    expect(mockProbeService).not.toHaveBeenCalled();
+  });
+
+  // codex review #1757 round 2: a minted token stops being usable 30
+  // seconds ahead of ArcGIS's own deadline, even if the wizard sits open.
+  it('expires the minted token 30 seconds before its stated deadline, clearing state and showing the expired message', async () => {
+    // shouldAdvanceTime: real wall-clock keeps flowing (so userEvent and
+    // testing-library's own internal polling still work), while
+    // advanceTimersByTimeAsync below still lets this test jump forward
+    // deterministically for the 30-second margin itself.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      mockArcgisSignin.mockResolvedValue({
+        token: 'minted-token',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      await typeArcGisUrl(user);
+      await fillSigninForm(user);
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+      });
+      expect(screen.queryByText('Token expired, sign in again')).not.toBeInTheDocument();
+
+      // A 60s deadline with a 30s margin fires the timer at the 30s mark.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+      expect(screen.getByText('Token expired, sign in again')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the expiry timer on unmount', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      mockArcgisSignin.mockResolvedValue({
+        token: 'minted-token',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      const { unmount } = render(<ServiceUrlForm />);
+      await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+      await fillSigninForm(user);
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+      });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

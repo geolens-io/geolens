@@ -218,7 +218,9 @@
     "signingIn": "Anmeldung läuft...",
     "tokenValidUntil": "Token gültig bis {{time}}",
     "arcgisSigninFailed": "Anmeldung bei ArcGIS fehlgeschlagen",
-    "signinHelpText": "Die Anmeldung erzeugt ein 60 Minuten gültiges Token; ein länger laufender Import benötigt danach ein neues. Ein Portal in einem privaten Netzwerk wird damit nicht erreicht, fügen Sie in diesem Fall stattdessen ein Token ein."
+    "signinHelpText": "Die Anmeldung erzeugt ein 60 Minuten gültiges Token; ein länger laufender Import benötigt danach ein neues. Ein Portal in einem privaten Netzwerk wird damit nicht erreicht, fügen Sie in diesem Fall stattdessen ein Token ein.",
+    "tokenExpired": "Token abgelaufen, erneut anmelden",
+    "arcgisTokenExpiredMidImport": "Ihre ArcGIS-Anmeldung ist abgelaufen, während dies geöffnet war. Gehen Sie zurück und melden Sie sich erneut an, um fortzufahren."
   },
   "urlImport": {
     "label": "Datei-URL; serverseitig abgerufen",

@@ -218,7 +218,9 @@
     "signingIn": "Iniciando sesión...",
     "tokenValidUntil": "Token válido hasta {{time}}",
     "arcgisSigninFailed": "No se pudo iniciar sesión en ArcGIS",
-    "signinHelpText": "Al iniciar sesión se genera un token válido durante 60 minutos; una importación más larga necesitará uno nuevo. Esto no llegará a un portal en una red privada, así que pegue un token si el suyo es privado."
+    "signinHelpText": "Al iniciar sesión se genera un token válido durante 60 minutos; una importación más larga necesitará uno nuevo. Esto no llegará a un portal en una red privada, así que pegue un token si el suyo es privado.",
+    "tokenExpired": "Token caducado, inicie sesión de nuevo",
+    "arcgisTokenExpiredMidImport": "Su sesión de ArcGIS caducó mientras esto estaba abierto. Vuelva atrás e inicie sesión de nuevo para continuar."
   },
   "urlImport": {
     "label": "URL de archivo; descargada en el servidor",
