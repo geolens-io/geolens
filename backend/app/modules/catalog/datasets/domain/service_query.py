@@ -22,7 +22,10 @@ from app.modules.catalog.authorization import (
     apply_visibility_filter,
     can_view_dataset_provenance,
 )
-from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
+from app.modules.catalog.datasets.domain._sql_safety import (
+    SAFE_TABLE_NAME_RE,
+    _safe_column_ref,
+)
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
@@ -310,7 +313,11 @@ _GEOM_COLUMN_NAMES = frozenset({"geom", "geom_4326", "wkb_geometry"})
 
 
 def _build_select_cols(column_info: list[dict]) -> list[str]:
-    """Return the non-geometry columns to project, with `gid` always present."""
+    """Return the non-geometry columns to project, with `gid` always present.
+
+    fix(#1778): names are emitted quoted. Membership is still decided on the
+    bare name, so quote at emission rather than in the list.
+    """
     select_cols: list[str] = []
     has_gid = False
     for c in column_info:
@@ -319,11 +326,11 @@ def _build_select_cols(column_info: list[dict]) -> list[str]:
             continue
         if c.get("type") == "USER-DEFINED" or name in _GEOM_COLUMN_NAMES:
             continue
-        select_cols.append(name)
+        select_cols.append(_safe_column_ref(name))
         if name == "gid":
             has_gid = True
     if not has_gid:
-        select_cols.insert(0, "gid")
+        select_cols.insert(0, _safe_column_ref("gid"))
     return select_cols
 
 
@@ -343,7 +350,10 @@ def _build_where_filters(
         if col_name not in valid_columns:
             continue
         param_key = f"f_{col_name}"
-        where_clauses.append(f"CAST({col_name} AS text) ILIKE :{param_key}")
+        # fix(#1778): quoted, for the same reason as _build_select_cols.
+        where_clauses.append(
+            f"CAST({_safe_column_ref(col_name)} AS text) ILIKE :{param_key}"
+        )
         bind_params[param_key] = f"%{search_term}%"
     return " WHERE " + " AND ".join(where_clauses), bind_params
 

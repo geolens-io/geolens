@@ -1812,7 +1812,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # concurrent raster/VRT detail requests exhaust the default (10 + 3)
         # pool this way. Three fast point lookups aren't worth that risk.
         # Cap 443 -> 429, exact.
-        "backend/app/modules/catalog/datasets/domain/service_query.py": 429,
+        # fix(#1778): +10 — the row browser emits quoted column identifiers.
+        # A column named after a SQL keyword (``desc``, ``order``, ``user`` —
+        # ogr2ogr's DBF output, and nothing renames them on ingest) made every
+        # SELECT and every ILIKE filter a 42601 syntax error, which is in none
+        # of the sqlstate sets this module degrades on, so the endpoint 5xx'd
+        # for that dataset forever. The lines are the import, the two call
+        # sites and the docstring note saying membership is decided on the bare
+        # name so quoting happens at emission. Cap 429 -> 439, exact.
+        "backend/app/modules/catalog/datasets/domain/service_query.py": 439,
         # fix(#1452): first explicit cap for this module — it sat under the
         # 350 default until the detach landed. +65 over the pre-change 350:
         # _reap_managed_storage (the reap loop both branches had inline,
