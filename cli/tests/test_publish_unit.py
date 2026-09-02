@@ -774,7 +774,7 @@ class TestPublishWaitTerminalOutcomes:
         sample_geojson,
         patch_sdk_for_publish,
     ) -> None:
-        """fix finding 2: cancelled was previously not terminal, so --wait
+        """fix(#1778): cancelled was previously not terminal, so --wait
         polled a cancelled job for the full 120s timeout and then reported
         success."""
         from geolens_cli.main import app
@@ -816,6 +816,91 @@ class TestPublishWaitTerminalOutcomes:
         payload = json.loads(result.output)
         assert payload["status"] == "cancelled"
         assert payload["dataset_id"] is None
+
+    def test_wait_job_fanned_out_exits_zero_and_does_not_claim_a_timeout(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix(#1778, codex round 2 P2): fanned_out is TERMINAL and a
+        SUCCESS — the parent job of a multi-layer commit lands here the
+        moment each layer's own import is queued, and it never gets a
+        dataset_id of its own. Reporting "still fanned_out ... has not
+        finished" would be a false diagnosis (nothing timed out), so this
+        exits 0 and says the job fanned out."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="fanned_out"),
+        )
+
+        result = runner.invoke(app, ["publish", str(sample_geojson)])
+        assert result.exit_code == 0, result.output
+        assert "fanned out" in result.output
+        assert "has not finished" not in result.output
+        assert "still fanned_out" not in result.output
+
+    def test_wait_job_fanned_out_json_mode_carries_status(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="fanned_out"),
+        )
+
+        result = runner.invoke(app, ["--json", "publish", str(sample_geojson)])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["status"] == "fanned_out"
+        assert payload["dataset_id"] is None
+
+    def test_wait_job_fanned_out_with_tags_notes_they_were_not_applied(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """--tags/--collection cannot be applied to a fanned-out job: there
+        is no single dataset id, since every layer became its own dataset."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="fanned_out"),
+        )
+
+        result = runner.invoke(
+            app, ["publish", str(sample_geojson), "--tags", "hydro"]
+        )
+        assert result.exit_code == 0, result.output
+        assert "fanned out" in result.output
+        assert "not applied" in result.output
+        assert "Dataset created" not in result.output
 
     def test_wait_poll_timed_out_exits_nonzero(
         self,

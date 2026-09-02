@@ -653,7 +653,10 @@ def publish(
 
     fix(#1778): with ``--wait``, a job that fails, is cancelled, or does not
     finish within the poll window exits non-zero and prints a failure line
-    instead of "Published:"; ``--json`` carries the terminal status.
+    instead of "Published:"; ``--json`` carries the terminal status. A job
+    that fanned out into one import per layer is a success (exit 0), not a
+    failure — ``--json`` status is ``"fanned_out"`` and no single dataset id
+    is printed.
 
     Pitfall 6: commit is NOT idempotent. On a duplicate commit (job
     already processed), prints "already committed" and exits 1.
@@ -731,6 +734,8 @@ def publish(
         dataset_id: Optional[str] = None
         publish_status: Optional[str] = None
         publish_failure: Optional[str] = None
+        publish_message: Optional[str] = None
+        wait_outcome_known = False
         if wait:
             dataset_id = _publish.resolve_dataset_id(sdk.client, job_id)
             if dataset_id is None:
@@ -749,21 +754,46 @@ def publish(
                     # and this one — report success, not a stale failure.
                     dataset_id = late_dataset_id
                 elif late_status == "failed":
+                    wait_outcome_known = True
                     publish_status = "failed"
                     publish_failure = (
                         f"Publish job {job_id} failed. Its error is on the "
                         f"job record: GET /jobs/{job_id}."
                     )
                 elif late_status == "cancelled":
+                    wait_outcome_known = True
                     publish_status = "cancelled"
                     publish_failure = (
                         f"Publish job {job_id} was cancelled. "
                         f"Check GET /jobs/{job_id}."
                     )
+                elif late_status == "fanned_out":
+                    # fix(#1778): fanned_out is TERMINAL and a SUCCESS, not a
+                    # timeout — the parent job of a multi-layer commit lands
+                    # here the moment each layer's own import is queued
+                    # (commit_fan_out, backend/app/processing/ingest/
+                    # router.py), and never gets a dataset_id of its own.
+                    # Falling into the "still {status} ... has not finished"
+                    # wording below would be a false diagnosis: nothing timed
+                    # out and nothing failed, so exit 0.
+                    wait_outcome_known = True
+                    publish_status = "fanned_out"
+                    publish_message = (
+                        f"Publish job {job_id} fanned out into one import "
+                        f"per layer; each layer is importing as its own "
+                        f"dataset. Check GET /jobs/{job_id} or the datasets "
+                        f"list for progress."
+                    )
+                    if tags or collection:
+                        publish_message += (
+                            " --tags/--collection were not applied: there is "
+                            "no single dataset id to apply them to."
+                        )
                 elif late_status is None:
                     # The status endpoint would not answer beyond the 401/403
                     # that job_snapshot raises on directly — so the job's
                     # fate is unknown.
+                    wait_outcome_known = True
                     publish_status = None
                     publish_failure = (
                         f"Publish job {job_id} could not be read back, so "
@@ -771,6 +801,7 @@ def publish(
                     )
                 else:
                     # The poll ran out while the job was still pending/running.
+                    wait_outcome_known = True
                     publish_status = late_status
                     publish_failure = (
                         f"Publish job {job_id} was still {late_status} after "
@@ -784,10 +815,11 @@ def publish(
         #
         # fix(#1778): when dataset_id is still None here, wait was True (a
         # bare --no-wait with tags/collection already exits EXIT_USAGE above)
-        # and publish_failure is already set, explaining why. Tags/collection
-        # were never attempted against a dataset that does not exist, so skip
-        # the block rather than append a second, contradictory "not applied"
-        # line under the terminal failure message.
+        # and publish_failure or publish_message is already set, explaining
+        # why. Tags/collection were never attempted against a dataset that
+        # does not exist (or does not exist as a single id, for fanned_out),
+        # so skip the block rather than append a second, contradictory "not
+        # applied" line under the terminal message.
         extras_failures: list[str] = []
         if (tags or collection) and dataset_id is not None:
             progress.add_task("Applying tags/collection...", total=None)
@@ -806,7 +838,7 @@ def publish(
         "dataset_url": dataset_url,
         "job_id": str(job_id),
         "dataset_id": str(dataset_id) if dataset_id else None,
-        "status": publish_status if publish_failure else commit_status,
+        "status": publish_status if wait_outcome_known else commit_status,
     }
     if tags or collection:
         payload["extras_failures"] = extras_failures
@@ -816,6 +848,8 @@ def publish(
     else:
         if publish_failure:
             state.output.error(publish_failure)
+        elif publish_message:
+            state.output.success(publish_message)
         else:
             state.output.success(f"Published: {dataset_url}")
         for failure in extras_failures:
