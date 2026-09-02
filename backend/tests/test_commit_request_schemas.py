@@ -202,4 +202,6 @@ class TestFieldDistribution:
             "temporal_start",
             "temporal_end",
             "token",
+            # feat(#1746 B2b): the structured spelling of the same credential.
+            "auth",
         }

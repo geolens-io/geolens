@@ -3111,7 +3111,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # still-pending job that could never be replayed. Most of the lines are the
     # comment recording that, and why `service_type` is readable before the
     # merge. Cap 2565 -> 2582, exact.
-    "backend/app/processing/ingest/router.py": 2582,
+    # feat(#1746 B2b): +20 — `commit_import` converts the structured `auth`
+    # object the way the other four doors do, judges it against the job's own
+    # service format before the metadata write, and hands the resulting
+    # credential to `queue_ingest_job` rather than a bare token. Most of the
+    # lines are the comment saying why `auth` joins `token` in the model_dump
+    # exclusion: user_metadata is a durable JSONB column and that dump is a
+    # whitelist by omission. Cap 2582 -> 2602, exact.
+    "backend/app/processing/ingest/router.py": 2602,
     # fix(#888): +25 — the `mercator_clip` StagingResult field and the
     # `_append_mercator_clip_warning` emitter that keeps the three ingest call
     # sites a single statement each (`reupload_file` is already at the C901

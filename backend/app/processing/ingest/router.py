@@ -85,6 +85,7 @@ from app.processing.ingest.service import (
     create_fan_out_jobs,
     create_ingest_job,
     discover_unregistered_tables,
+    job_service_format,
     restore_fan_out_parent_pending,
     get_job_or_404,
     queue_ingest_job,
@@ -126,6 +127,10 @@ from app.core.persistent_config import (
 )
 from app.modules.quota.service import check_upload_quota, get_user_quota_usage
 from app.processing.raster.validation import validate_sources
+from app.platform.service_auth import (
+    credential_or_422,
+    service_credential_from_request,
+)
 from app.platform.storage import get_storage
 from app.platform.storage.titiler_url import resolve_current_storage_key
 from app.standards.ogc.errors import (
@@ -1861,18 +1866,31 @@ async def commit_import(
 
     await check_public_visibility_allowed(db, user, commit.visibility)
 
-    # Extract token only for service commits (ServiceCommitRequest is the
-    # only subclass with a token field). AUTH-04: never persisted.
+    # Extract the credential only for service commits (ServiceCommitRequest is
+    # the only subclass carrying one). AUTH-04: never persisted.
+    #
+    # feat(#1746 B2b): the structured `auth` object is what the layers below
+    # take; the flat `token` is its deprecated bearer spelling, and a body that
+    # sets both is refused by the model rather than having one win by an
+    # ordering nobody wrote down. Same precedence rule, same conversion helper
+    # and same 422 codes as the other four doors.
     token = getattr(commit, "token", None)
+    credential = credential_or_422(
+        service_credential_from_request(getattr(commit, "auth", None), token),
+        service_format=job_service_format(job),
+    )
 
-    # fix(#1746 codex r1): judge the token BEFORE the write below, not just
-    # before the stash inside `queue_ingest_job`. The refusal is the same 422
-    # either way, but the metadata write and its commit happen in between, and
-    # `service_auth_required` is a one-way door: `_replay_capability` in
+    # fix(#1746 codex r1): judge the credential BEFORE the write below, not
+    # just before the stash inside `queue_ingest_job`. The refusal is the same
+    # 422 either way, but the metadata write and its commit happen in between,
+    # and `service_auth_required` is a one-way door: `_replay_capability` in
     # platform/jobs/router.py reads it and refuses POST /jobs/{id}/retry with
-    # "This service import requires fresh credentials". A rejected token would
-    # therefore leave a still-`pending` job permanently un-retryable after any
-    # later, unrelated failure — for a request that queued nothing at all.
+    # "This service import requires fresh credentials". A rejected credential
+    # would therefore leave a still-`pending` job permanently un-retryable
+    # after any later, unrelated failure — for a request that queued nothing at
+    # all. `credential_or_422` above is that judgement for every method; the
+    # bearer charset check below is the same rule stated where a grep for it
+    # will land.
     #
     # `service_type` is read from `job.user_metadata`, which preview wrote and
     # no commit-request subclass carries, so it is already the value the merge
@@ -1881,14 +1899,16 @@ async def commit_import(
     # worker rather than about who asked.
     _assert_header_token_dispatchable(job, token)
 
-    # Persist the subclass-filtered view. model_dump(exclude={"token"}) is
-    # a no-op when the subclass has no token field. mode="json" so datetime
-    # fields (temporal_start/temporal_end) serialize as ISO strings before
-    # going into the JSONB column.
-    commit_metadata = commit.model_dump(exclude={"token"}, mode="json")
-    if token:
-        # Persist only the fact that retry needs fresh credentials. The token
-        # remains request-only and is never written to JSONB.
+    # Persist the subclass-filtered view. `auth` is excluded for the same
+    # reason `token` is, and the reason is sharper for it: user_metadata is a
+    # durable JSONB column and this dump is a whitelist by omission, so a
+    # nested credential object would land in it in full. mode="json" so
+    # datetime fields (temporal_start/temporal_end) serialize as ISO strings
+    # before going into the JSONB column.
+    commit_metadata = commit.model_dump(exclude={"token", "auth"}, mode="json")
+    if credential is not None:
+        # Persist only the fact that retry needs fresh credentials. The
+        # credential remains request-only and is never written to JSONB.
         commit_metadata["service_auth_required"] = True
     if job.user_metadata:
         # Service jobs already have service_type and layer_id from preview
@@ -1903,7 +1923,7 @@ async def commit_import(
     # to failed and raises 503 (RESILIENCE-2). Clean up the staging file
     # on failure so it isn't orphaned on disk/S3.
     try:
-        await queue_ingest_job(job, str(user.id), db=db, token=token)
+        await queue_ingest_job(job, str(user.id), db=db, credential=credential)
     except Exception:  # broad: defer failure or DB error during enqueue — clean up staging file then re-raise
         if job.file_path:
             saved: Path | str = (

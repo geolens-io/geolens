@@ -2323,6 +2323,10 @@ export type CommitRequest = {
      * CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
      */
     geom_column?: string | null;
+    /**
+     * Structured credential for a protected service. Mutually exclusive with the token field.
+     */
+    auth?: ServiceAuthRequest | null;
 };
 
 /**

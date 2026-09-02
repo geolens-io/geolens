@@ -7039,6 +7039,8 @@ export interface components {
              * @description CSV/Excel only: name of the WKT geometry column (alternative to x_column/y_column).
              */
             geom_column?: string | null;
+            /** @description Structured credential for a protected service. Mutually exclusive with the token field. */
+            auth?: components["schemas"]["ServiceAuthRequest"] | null;
         };
         /** CommitResponse */
         CommitResponse: {

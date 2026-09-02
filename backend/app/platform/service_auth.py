@@ -35,8 +35,10 @@ basic or header-key credential without any of the three being edited.
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Any, Literal
 
 from fastapi import HTTPException, status
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.service_tokens import (
     BASIC_USERNAME_POLICY,
@@ -269,3 +271,213 @@ def bearer_credential(token: str | None) -> ServiceCredential | None:
     if not token:
         return None
     return ServiceCredential(method=CredentialMethod.BEARER, token=token)
+
+
+# ---------------------------------------------------------------------------
+# The request-side spelling of the same thing.
+#
+# feat(#1746). Moved here from ``modules/catalog/sources/schemas.py`` in lane
+# B2b, unchanged. It lives in ``platform/`` for the same reason the gate above
+# does: the doors that accept one are in ``modules/catalog`` and in
+# ``processing/ingest``, and ``processing/`` may not import
+# ``app.modules.catalog.*`` at any scope. ``sources/schemas.py`` imports it
+# back, so every existing import path and the OpenAPI component name are
+# unchanged.
+# ---------------------------------------------------------------------------
+
+
+def _validate_safe_token(v: str | None) -> str | None:
+    """Reject control characters / whitespace in auth tokens (SEC-021).
+
+    Tokens flow into a GDAL_HTTP_HEADER_FILE (WFS/OAPIF bearer) and into service
+    query URLs (ArcGIS). A CR/LF or other control character could smuggle
+    additional outbound HTTP headers through the libcurl pipeline. Legitimate
+    JWT / base64url / ArcGIS tokens never contain control characters or
+    whitespace, so reject them at the API boundary (422).
+    """
+    if v is None:
+        return v
+    if not v.isprintable():
+        raise ValueError(
+            "token contains control characters (possible header injection)"
+        )
+    if any(c.isspace() for c in v):
+        raise ValueError("token contains whitespace")
+    return v
+
+
+# ---------------------------------------------------------------------------
+# feat(#1746): the structured `auth` object every service door accepts, and the
+# deprecated flat `token` that means the same thing for a bearer credential.
+#
+# One model, imported by the re-upload and refresh request models as well, so
+# the four doors cannot describe the same credential four ways. The pydantic
+# layer judges SHAPE only: which fields belong to which method, and that a
+# request does not say the same thing twice. What a username or a header value
+# may CONTAIN is `core/service_tokens.py`'s rule, applied at the door once the
+# method has been accepted, because those rules exist to protect a composed
+# header line and no line is composed here.
+# ---------------------------------------------------------------------------
+
+SERVICE_AUTH_METHOD_DESCRIPTION = (
+    "How the credential is presented to the remote service. Omit the whole "
+    "auth object for a public service."
+)
+
+# Every message below describes the policy and never the input. A validator
+# whose ValueError interpolated a value would defeat the 422 flattener in
+# standards/ogc/errors.py, which drops pydantic's `input` and keeps the
+# message.
+SERVICE_AUTH_BEARER_POLICY = (
+    "A bearer credential is described by the token field alone. Remove the "
+    "username, password, header name and header value."
+)
+
+SERVICE_AUTH_BASIC_POLICY = (
+    "A username-and-password credential is described by the username and "
+    "password fields, and needs both. Remove the token, header name and "
+    "header value."
+)
+
+SERVICE_AUTH_HEADER_POLICY = (
+    "An API-key credential is described by the header name and header value "
+    "fields, and needs both. Remove the token, username and password."
+)
+
+SERVICE_AUTH_CONFLICT_POLICY = (
+    "Set either the auth object or the deprecated token field, not both. The "
+    "token field means the same as an auth object with method bearer."
+)
+
+SERVICE_AUTH_FIELD_DESCRIPTION = (
+    "Structured credential for a protected service. Mutually exclusive with "
+    "the token field."
+)
+
+DEPRECATED_TOKEN_SUFFIX = " Deprecated: use the auth object with method bearer."
+
+_SERVICE_AUTH_CREDENTIAL_FIELDS = (
+    "token",
+    "username",
+    "password",
+    "header_name",
+    "header_value",
+)
+
+# What each method is described by, exactly. The comparison in the validator is
+# equality rather than a subset test, so a body that also sets a field
+# belonging to another method is refused instead of having that field silently
+# discarded.
+_SERVICE_AUTH_SHAPES: dict[str, tuple[frozenset[str], str]] = {
+    "bearer": (frozenset({"token"}), SERVICE_AUTH_BEARER_POLICY),
+    "basic": (frozenset({"username", "password"}), SERVICE_AUTH_BASIC_POLICY),
+    "header": (
+        frozenset({"header_name", "header_value"}),
+        SERVICE_AUTH_HEADER_POLICY,
+    ),
+}
+
+
+def _names_a_credential(value: str | None) -> bool:
+    """Whether *value* is a credential the caller actually supplied.
+
+    fix(#1760 codex r1): an empty or whitespace-only string is not one. It used
+    to count as supplied, so ``{"method": "bearer", "token": ""}`` passed the
+    shape check, and every downstream test is a truthiness test, so the door
+    then contacted the origin with no credential at all. The caller had named a
+    method, which makes an anonymous request the one outcome they did not ask
+    for: a public service needs no ``auth`` object, and a protected one answers
+    401 in a way that reads like a broken service rather than a blank field.
+
+    Whitespace as well as empty, because none of these values may contain
+    whitespace anywhere: a blank-looking one is a typo, never a credential.
+    """
+    return value is not None and value.strip() != ""
+
+
+class ServiceAuthRequest(BaseModel):
+    """How one request authenticates to the remote service it names."""
+
+    method: Literal["bearer", "basic", "header"] = Field(
+        description=SERVICE_AUTH_METHOD_DESCRIPTION
+    )
+    token: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Bearer token or API key, for method bearer.",
+    )
+    _validate_token = field_validator("token")(_validate_safe_token)
+    username: str | None = Field(
+        default=None, max_length=255, description="Username, for method basic."
+    )
+    password: str | None = Field(
+        default=None, max_length=1000, description="Password, for method basic."
+    )
+    header_name: str | None = Field(
+        default=None,
+        max_length=255,
+        description="Name of the header the key is sent under, for method header.",
+    )
+    header_value: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Value of the header the key is sent under, for method header.",
+    )
+
+    @model_validator(mode="after")
+    def _fields_must_match_the_method(self) -> "ServiceAuthRequest":
+        required, policy = _SERVICE_AUTH_SHAPES[self.method]
+        supplied = {
+            name
+            for name in _SERVICE_AUTH_CREDENTIAL_FIELDS
+            if _names_a_credential(getattr(self, name))
+        }
+        if supplied != required:
+            raise ValueError(policy)
+        return self
+
+    def to_credential(self, service_format: str | None = None) -> ServiceCredential:
+        """The layer-neutral credential this request describes."""
+        return ServiceCredential(
+            method=CredentialMethod(self.method),
+            service_format=service_format,
+            token=self.token,
+            username=self.username,
+            password=self.password,
+            header_name=self.header_name,
+            header_value=self.header_value,
+        )
+
+
+def reject_service_auth_conflict(model: Any) -> Any:
+    """Refuse a body that describes its credential twice.
+
+    Used as an ``@model_validator(mode="after")`` on every request model that
+    carries both spellings. Honouring one and dropping the other would make
+    which credential was actually sent depend on an ordering nobody wrote down.
+    """
+    if model.auth is not None and model.token is not None:
+        raise ValueError(SERVICE_AUTH_CONFLICT_POLICY)
+    return model
+
+
+def service_credential_from_request(
+    auth: ServiceAuthRequest | None,
+    token: str | None,
+    *,
+    service_format: str | None = None,
+) -> ServiceCredential | None:
+    """The credential a request carries, from either spelling.
+
+    ``None`` when the request named no credential at all, so a caller can tell
+    a public service from a credentialed one without inspecting a method.
+    """
+    if auth is not None:
+        return auth.to_credential(service_format)
+    if token:
+        return ServiceCredential(
+            method=CredentialMethod.BEARER,
+            service_format=service_format,
+            token=token,
+        )
+    return None
