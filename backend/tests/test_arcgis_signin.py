@@ -1451,6 +1451,55 @@ def test_port_zero_never_aliases_the_scheme_default():
     )
 
 
+async def test_a_discovery_redirect_the_ssrf_hook_rejects_falls_back(
+    client: AsyncClient, admin_auth_header: dict, allow_ssrf, test_db_session
+):
+    """fix(#1758 codex r16): a rejected discovery hop is a fallback, not a refusal.
+
+    `make_safe_client`'s `_revalidate_redirect` hook runs on EVERY response,
+    whether or not redirects are followed, so a 3xx on `/info` whose Location
+    is private raises `SSRFError` out of the request before the status can be
+    read. Caught only as `httpx.HTTPError`, that escaped as `ssrf_refused`
+    for a portal that is merely misconfigured, when discovery had simply
+    turned up nothing usable.
+
+    The real hook is installed here rather than the plain stand-in, so the
+    exception comes from production code. Its sibling,
+    `test_a_redirect_the_ssrf_hook_refuses_still_spends_the_budget`, pins the
+    other half: the same rejection on the credential POST still refuses and
+    still spends the budget, because by then the password is on the wire.
+    """
+    exchange = _Exchange(
+        {
+            "info": _stream_response(
+                302, headers={"Location": "http://10.0.0.9/sharing/rest/info"}
+            ),
+            "generateToken": _json_response(_token_payload()),
+        }
+    )
+
+    def factory(timeout=None):
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(exchange.handle),
+            timeout=10.0,
+            follow_redirects=True,
+            max_redirects=5,
+            event_hooks={"response": [_revalidate_redirect]},
+        )
+
+    with patch("app.modules.catalog.sources.arcgis_signin.make_safe_client", factory):
+        resp = await client.post(SIGNIN_URL, json=_body(), headers=admin_auth_header)
+
+    assert resp.status_code == 200
+    # Straight to the conventional endpoint, and the Location was never fetched.
+    assert str(exchange.posts[0].url) == f"{_rest()}/generateToken"
+    assert all("10.0.0.9" not in str(request.url) for request in exchange.requests)
+
+    rows = await _audit_rows(test_db_session)
+    assert [row.details["result"] for row in rows] == ["success"]
+    assert "ssrf_blocked" not in {row.details["result"] for row in rows}
+
+
 async def test_a_refusal_is_never_retried(
     client: AsyncClient, admin_auth_header: dict, allow_ssrf
 ):

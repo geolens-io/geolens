@@ -828,6 +828,20 @@ async def _discover_token_service(
         )
     except httpx.HTTPError:
         return fallback, None
+    except SSRFError:
+        # fix(#1758 codex r16): `make_safe_client`'s `_revalidate_redirect`
+        # hook runs on EVERY response, whether or not redirects are followed,
+        # so a 3xx here whose Location is private or unresolvable raises out
+        # of the request before the status can be read. That is the same fact
+        # as the branch below and deserves the same answer: discovery turned
+        # up nothing usable, so use the conventional endpoint on the portal
+        # origin phase one already validated. Refusing instead reported
+        # `ssrf_refused` for a portal that is merely misconfigured.
+        #
+        # Discovery ONLY. The credential POST catches this separately and
+        # must keep refusing: by then the password is on the wire, and a
+        # rejected hop there is a redirect outcome that counts.
+        return fallback, None
     if 300 <= status_code < 400:
         # Never followed. The conventional endpoint on the portal origin that
         # was already validated is what this falls back to.
