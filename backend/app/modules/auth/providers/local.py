@@ -54,8 +54,31 @@ class LocalAuthProvider:
         Raises AuthenticationError on any failure (wrong user, wrong password,
         or deactivated account).
         """
+        # fix(#1715 codex r4 P1): FOR SHARE, not a bare SELECT. An admin reset
+        # (POST /admin/users/{id}/reset-password/) holds FOR UPDATE on this row
+        # while it writes the new hash and revokes the account's credentials.
+        # Without a lock here, a login that read the row before that commit
+        # would verify the STALE hash and then mint tokens from the post-reset
+        # row: an access JWT carrying the new token_version, and a refresh row
+        # created after sessions_revoked_at, so both survive the revocation.
+        # The old-password holder would come out of the recovery with a live
+        # session. Blocking here means the verify below runs against whatever
+        # the reset committed, so the old password fails and nothing is minted.
+        #
+        # FOR SHARE rather than FOR UPDATE so concurrent logins for one account
+        # still run in parallel; it conflicts only with the reset's FOR UPDATE,
+        # which is the single writer this has to serialize against.
+        #
+        # The lock is held to the end of the request transaction, which is what
+        # keeps it covering the mint: the router commits after create_access_
+        # token and create_refresh_token, and nothing between here and there
+        # leaves the database. Lock ordering is unchanged and acyclic -- the
+        # reset takes the admin-lifecycle advisory lock and then this row, the
+        # login and change_password take only this row.
         result = await self.db.execute(
-            select(User).where(func.lower(User.username) == func.lower(username))
+            select(User)
+            .where(func.lower(User.username) == func.lower(username))
+            .with_for_update(read=True)
         )
         user = result.scalar_one_or_none()
 

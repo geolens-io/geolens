@@ -23,11 +23,11 @@ import uuid
 import anyio
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.models import AuditLog
-from app.modules.auth.models import User
+from app.modules.auth.models import RefreshToken, User
 from app.modules.auth.providers.local import hash_password
 
 
@@ -467,4 +467,81 @@ async def test_reset_is_not_overwritten_by_a_racing_change_password(
     # The admin's value is what the account ends up with.
     assert (await _login(client, username, admin_value)).status_code == 200
     assert (await _login(client, username, old_holder_value)).status_code == 401
+    assert (await _login(client, username, old_password)).status_code == 401
+
+
+@pytest.mark.anyio
+async def test_reset_is_not_outrun_by_a_racing_password_login(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session: AsyncSession,
+):
+    """A login with the old password cannot mint credentials across the reset.
+
+    The second interleaving of the same class codex found on change-password,
+    this time on the login path. LocalAuthProvider.authenticate() looked the
+    account up with an unlocked SELECT, so a login that read the row before the
+    reset committed verified the STALE hash. It then minted from the post-reset
+    row: an access JWT stamped with the new token_version, and a refresh row
+    created after sessions_revoked_at. Both survive the revocation, so the
+    old-password holder walks out of the recovery holding a live session.
+
+    Reproduced the same way as the change-password race: hold the target's row
+    the way the reset does, start a login underneath it, then commit the
+    admin's hash before letting go. The lookup takes FOR SHARE now, so the
+    login blocks, verifies against the committed hash, and fails.
+    """
+    user_id, username, old_password = await _create_local_user(
+        client, admin_auth_header
+    )
+    admin_value = _synthetic_password("admin-set")
+    target_uuid = uuid.UUID(user_id)
+
+    async def _refresh_row_count() -> int:
+        result = await test_db_session.execute(
+            select(func.count())
+            .select_from(RefreshToken)
+            .where(RefreshToken.user_id == target_uuid)
+        )
+        return int(result.scalar_one())
+
+    locked = anyio.Event()
+    login_status: list[int] = []
+
+    async def hold_the_row_then_commit_the_reset() -> None:
+        """Stand in for the admin reset: lock, write the new hash, commit."""
+        await test_db_session.execute(
+            select(User).where(User.id == target_uuid).with_for_update()
+        )
+        locked.set()
+        # Give the login time to reach its own lock wait.
+        await anyio.sleep(0.5)
+        await test_db_session.execute(
+            update(User)
+            .where(User.id == target_uuid)
+            .values(password_hash=hash_password(admin_value))
+        )
+        await test_db_session.commit()
+
+    async def racing_login() -> None:
+        await locked.wait()
+        resp = await client.post(
+            "/auth/login",
+            data={"username": username, "password": old_password},
+        )
+        login_status.append(resp.status_code)
+
+    before = await _refresh_row_count()
+
+    with anyio.fail_after(30):
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(hold_the_row_then_commit_the_reset)
+            tg.start_soon(racing_login)
+
+    # The old password is refused against the hash the reset committed.
+    assert login_status == [401]
+    # And nothing was minted: no refresh row was created for the account.
+    assert await _refresh_row_count() == before
+    # The admin's value is the only one that works.
+    assert (await _login(client, username, admin_value)).status_code == 200
     assert (await _login(client, username, old_password)).status_code == 401

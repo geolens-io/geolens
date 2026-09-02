@@ -482,7 +482,16 @@ class AdminService:
         are never touched.
         """
         # 1. Load user
-        result = await self.db.execute(select(User).where(User.id == user_id))
+        #
+        # fix(#1715 codex r4 P1): FOR UPDATE, matching the reset and the login.
+        # This rotates credentials, so it must not read, decide and write from a
+        # snapshot another writer can invalidate underneath it. A lost update is
+        # already unreachable via auth_provider (this path demands 'oauth', the
+        # reset and change_password demand 'local', and only this path flips
+        # it), but that is an argument a future edit can break silently.
+        result = await self.db.execute(
+            select(User).where(User.id == user_id).with_for_update()
+        )
         user = result.scalar_one_or_none()
         if user is None:
             raise ValueError("User not found")
