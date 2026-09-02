@@ -4392,7 +4392,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # docstrings recording that and the `service_format` parameter that keeps
     # the builder the authority on which formats may carry a header.
     # Cap 1178 -> 1235, exact.
-    "backend/app/processing/ingest/ogr.py": 1235,
+    # fix(#1746 B2b review r4): +2. The redirect-rule comment at the header
+    # file's env says which value is set and why it is IF_SAME_HOST rather
+    # than NO: NO drops the credential on a same-host canonical redirect too,
+    # which a protected service answers with a 401. Cap 1235 -> 1237, exact.
+    "backend/app/processing/ingest/ogr.py": 1237,
     # fix(#1778): +157 for two audit findings that both land in JIT
     # provisioning. One is the REGISTRATION_ENABLED gate plus its exception
     # class, so enabling a provider stops being a way to reopen signup while

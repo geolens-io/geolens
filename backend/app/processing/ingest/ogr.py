@@ -1185,12 +1185,14 @@ async def run_ogr2ogr_service(
                 os.close(fd)
             os.chmod(header_file_path, 0o600)
             env["GDAL_HTTP_HEADER_FILE"] = header_file_path
-            # Plan rule A: GDAL strips `Authorization` on a cross-host redirect
-            # by default (IF_SAME_HOST) and forwards every other header name
-            # verbatim, so a service-chosen API key is redirect-exposed on this
-            # path and cannot be protected from inside. Pinning NO tightens the
-            # half that can be: this credential is for the host that was
-            # validated at submission time and for no other.
+            # Plan rule A: GDAL forwards `Authorization` only to the host it
+            # was given to, and forwards every other header name verbatim even
+            # across hosts, so a service-chosen API key is redirect-exposed on
+            # this path and cannot be protected from inside (bounded
+            # operationally, AGENTS.md Rule 2). The value is stated rather than
+            # inherited, and it is IF_SAME_HOST rather than NO: a same-host
+            # canonical redirect, such as one adding a trailing slash, must
+            # keep the credential or a protected service answers 401.
             env.update(GDAL_HEADER_FILE_REDIRECT_ENV)
 
         proc = await asyncio.create_subprocess_exec(

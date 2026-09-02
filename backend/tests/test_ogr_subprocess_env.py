@@ -107,10 +107,14 @@ async def test_token_not_in_subprocess_env_via_header_file():
     #    smuggled header.
     assert captured_header_file_contents == _BEARER_LINE.encode() + b"\n"
 
-    # 4) Plan rule A: the Authorization header does not survive a cross-host
-    #    redirect, pinned rather than left at GDAL's IF_SAME_HOST default.
+    # 4) Plan rule A: the Authorization header follows only to the host it was
+    #    given to. Stated explicitly rather than inherited from GDAL's default,
+    #    and NOT "NO" -- that would drop it on a same-host canonical redirect
+    #    too, which a protected service answers with a 401
+    #    (fix(#1746 B2b review r4)).
     assert (
-        captured_env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "NO"
+        captured_env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"]
+        == "IF_SAME_HOST"
     )
 
     # 5) The header file is unlinked after subprocess completes.

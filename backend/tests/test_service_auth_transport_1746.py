@@ -60,6 +60,7 @@ pytestmark = pytest.mark.anyio
 _WFS_URL = "https://services.example.test/geoserver/wfs"
 _ARCGIS_BASE = "https://services.example.test/rest/services/Parcels/FeatureServer"
 _REDIRECT_PIN = "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"
+_REDIRECT_PIN_VALUE = "IF_SAME_HOST"
 _DOUBLE_PREFIX = "Authorization: Bearer Authorization:"
 
 
@@ -251,10 +252,15 @@ class TestTheHeaderFileHoldsOneComposedLine:
     ) -> None:
         """Plan rule A, on both GDAL paths.
 
-        GDAL strips ``Authorization`` on a cross-host redirect by default and
-        forwards every other header name verbatim, so a service-chosen API key
-        is redirect-exposed here and cannot be protected from inside. Pinning
-        NO tightens the half that can be.
+        GDAL forwards ``Authorization`` only to the host it was given to, and
+        forwards every other header name verbatim even across hosts, so a
+        service-chosen API key is redirect-exposed here and cannot be protected
+        from inside; that residual is bounded operationally, which is why the
+        httpx probe path refuses the cross-origin hop outright instead.
+
+        The value is asserted rather than left to GDAL's default so a later
+        change to that default cannot silently widen what this credential
+        follows. What it must NOT be is asserted too: see the test below.
         """
         if path == "preview":
             capture = await _preview_with(monkeypatch, _bearer())
@@ -263,9 +269,36 @@ class TestTheHeaderFileHoldsOneComposedLine:
                 monkeypatch, "Authorization: Bearer tok" + _value()
             )
 
-        assert capture.env[_REDIRECT_PIN] == "NO"
+        assert capture.env[_REDIRECT_PIN] == _REDIRECT_PIN_VALUE
         # And never the option that reads as a defense and is a no-op (#937).
         assert "GDAL_HTTP_FOLLOWLOCATION" not in capture.env
+
+    @pytest.mark.parametrize("path", ["preview", "commit"])
+    async def test_the_pin_does_not_drop_the_header_on_a_same_host_redirect(
+        self, monkeypatch, path
+    ) -> None:
+        """fix(#1746 B2b review r4): NO would have regressed working imports.
+
+        ``NO`` blocks forwarding after ANY redirect, not only a cross-host one,
+        so a protected WFS or OAPIF endpoint that redirects to its own
+        canonical path -- adding a trailing slash is the common one -- would
+        lose the credential and answer 401. Bearer imports that work today go
+        through exactly that.
+
+        This asserts the value, not the behaviour. The harness stubs the
+        subprocess, so no libcurl runs and no redirect is followed here; what
+        can be pinned is that this build asks GDAL for the same-host rule and
+        not the total one.
+        """
+        if path == "preview":
+            capture = await _preview_with(monkeypatch, _bearer())
+        else:
+            capture = await _commit_with(
+                monkeypatch, "Authorization: Bearer tok" + _value()
+            )
+
+        assert capture.env[_REDIRECT_PIN] == "IF_SAME_HOST"
+        assert capture.env[_REDIRECT_PIN] != "NO"
 
     async def test_no_env_carries_the_credential_itself(self, monkeypatch) -> None:
         """IA-P1-06: the env var holds the file path, not the secret."""
@@ -946,7 +979,7 @@ class TestALegacyQueuedTokenStillImports:
             f"Authorization: Bearer {token}\n".encode("ascii")
         )
         assert _DOUBLE_PREFIX not in capture.header_bytes.decode("ascii")
-        assert capture.env[_REDIRECT_PIN] == "NO"
+        assert capture.env[_REDIRECT_PIN] == _REDIRECT_PIN_VALUE
 
     async def test_a_value_that_is_neither_shape_still_refuses(
         self, monkeypatch

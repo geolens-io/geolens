@@ -247,21 +247,31 @@ GDAL_HEADER_DIR = Path("/tmp/gdal-auth")
 
 # feat(#1746) plan section 5 rule A. Measured on GDAL 3.10.3 (the worker
 # image) and re-verified on 3.13.0: on a cross-host 302 libcurl under GDAL
-# drops `Authorization` and forwards every other header name verbatim, which
-# is the default `IF_SAME_HOST`. Two things follow, and only one of them is
-# fixable from inside the process. Prefer `Authorization` framing wherever the
-# provider accepts it, because a service-chosen API-key header is
-# redirect-exposed and no GDAL option exists that would stop that. And pin the
-# `Authorization` half to NO, which is strictly tighter than the default at no
-# cost: this credential is for the host that was validated at submission time
-# and for no other.
+# drops `Authorization` and forwards every other header name verbatim. Two
+# things follow, and only one of them is fixable from inside the process.
+# Prefer `Authorization` framing wherever the provider accepts it, because a
+# service-chosen API-key header IS forwarded across a cross-host redirect and
+# no GDAL option exists that would stop that; that residual is bounded
+# operationally (AGENTS.md Rule 2, worker egress firewall), and it is why the
+# httpx probe path refuses a cross-origin redirect outright for a header-key
+# credential. And state the `Authorization` half here rather than inherit it.
+#
+# fix(#1746 B2b review r4): the value is IF_SAME_HOST, not NO. NO blocks
+# forwarding after ANY redirect, so a protected WFS or OAPIF endpoint that
+# redirects to its own canonical path -- adding a trailing slash is the common
+# one -- would lose the header and answer 401. That would have regressed
+# bearer imports that work today, for no gain: a same-host redirect reaches
+# the host that was already validated at submission time, which is the host
+# the credential is for. IF_SAME_HOST is also GDAL's current default, and it
+# is set explicitly so a later change to that default cannot silently widen
+# what this credential follows.
 #
 # This is NOT `GDAL_HTTP_FOLLOWLOCATION`, which is not a GDAL option at all
 # (#937), never stopped a redirect, and must never be re-added anywhere: it
 # reads as a defense and is a no-op. This one is a real config option, read by
 # GDAL's /vsicurl and http drivers.
 GDAL_HEADER_FILE_REDIRECT_ENV: dict[str, str] = {
-    "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT": "NO",
+    "CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT": "IF_SAME_HOST",
 }
 
 

@@ -132,9 +132,12 @@ async def test_preview_passes_bearer_via_header_file_not_env(monkeypatch, client
     # composition moved into the shared builder. The prefix used to be
     # composed here; the parity is the point.
     assert captured.get("content") == f"Authorization: Bearer {token}\n"
-    # Plan rule A: the Authorization header does not survive a cross-host
-    # redirect, pinned rather than left at GDAL's IF_SAME_HOST default.
-    assert env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "NO"
+    # Plan rule A: the Authorization header follows only to the host it was
+    # given to, stated explicitly rather than inherited, and not "NO" -- see
+    # test_service_auth_transport_1746 for why (fix(#1746 B2b review r4)).
+    assert (
+        env["CPL_VSIL_CURL_AUTHORIZATION_HEADER_ALLOWED_IF_REDIRECT"] == "IF_SAME_HOST"
+    )
 
 
 @pytest.mark.anyio
