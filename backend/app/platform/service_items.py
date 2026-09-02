@@ -93,7 +93,16 @@ def _next_href(document: object, base: str) -> str | None:
         return None
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
-            return urljoin(base, str(link["href"]))
+            try:
+                return urljoin(base, str(link["href"]))
+            except ValueError:
+                # fix(#1746 B2b review r16): the page that named this address
+                # is the one this module exists to distrust, and an address
+                # that will not parse cannot be shown to stay on the origin.
+                # Refused rather than treated as the end of the chain, so a
+                # short read is never mistaken for a complete one. The href is
+                # never echoed.
+                raise ItemFetchFailedError("unparseable next page") from None
     return None
 
 

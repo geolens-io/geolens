@@ -2259,6 +2259,82 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
 
         assert "collector.example" not in _hosts(recorded)
 
+    async def test_an_endpoint_href_that_will_not_parse_is_refused(
+        self, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r16): the href comes out of a distrusted document.
+
+        An address the parser cannot read cannot be shown to stay on the
+        origin, so it gets the same coded refusal, and nothing of what the
+        service wrote reaches the message.
+        """
+        from app.platform.service_endpoints import (
+            CrossOriginEndpointError,
+            assert_endpoints_stay_on_origin,
+        )
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._wfs_handler("http://[", protected=True))
+
+        with pytest.raises(CrossOriginEndpointError) as raised:
+            await assert_endpoints_stay_on_origin(
+                _SVC_WFS,
+                service_format="wfs",
+                credential_line=f"{pair[0]}: {pair[1]}",
+            )
+
+        assert "[" not in raised.value.policy
+
+    async def test_a_listing_next_that_will_not_parse_stops_the_walk(
+        self, monkeypatch
+    ) -> None:
+        """The sibling site. The walk already stops for an off-origin `next`."""
+        from app.platform.service_endpoints import assert_endpoints_stay_on_origin
+
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            path = request.url.path
+            if path.endswith("/collections"):
+                return httpx.Response(
+                    200,
+                    json={
+                        "collections": [
+                            {
+                                "id": "c0",
+                                "links": [
+                                    {
+                                        "rel": "items",
+                                        "href": f"{_SVC_OAPIF}/collections/c0/items",
+                                    }
+                                ],
+                            }
+                        ],
+                        "links": [{"rel": "next", "href": "http://["}],
+                    },
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "conformsTo": [
+                        "http://www.opengis.net/spec/ogcapi-features-1/1.0/conf/core"
+                    ],
+                    "links": [{"rel": "data", "href": f"{_SVC_OAPIF}/collections"}],
+                },
+            )
+
+        self._transport(monkeypatch, handle)
+
+        await assert_endpoints_stay_on_origin(
+            _SVC_OAPIF,
+            service_format="ogcapi_features",
+            credential_line=f"{pair[0]}: {pair[1]}",
+        )
+
     async def test_the_worker_never_follows_an_advertised_items_link(
         self, monkeypatch
     ) -> None:
@@ -2722,6 +2798,29 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
         assert len(recorded) == 4
         assert json.loads(pathlib.Path(path).read_text())["features"] == []
+
+    async def test_a_next_that_will_not_parse_is_refused(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """fix(#1746 B2b review r16): `urljoin` raises on some references.
+
+        Refused rather than read as the end of the chain, so a short extract is
+        never mistaken for a complete collection.
+        """
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        self._transport(monkeypatch, self._pages("http://[", None))
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+            )
+
+        assert list(tmp_path.iterdir()) == []
 
     async def test_a_page_that_cannot_be_read_leaves_nothing_behind(
         self, monkeypatch, tmp_path

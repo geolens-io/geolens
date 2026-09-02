@@ -224,7 +224,15 @@ def _next_page(document: object, base: str) -> str | None:
         return None
     for link in document.get("links", []) or []:
         if isinstance(link, dict) and link.get("rel") == "next" and link.get("href"):
-            resolved = urljoin(base, str(link["href"]))
+            try:
+                resolved = urljoin(base, str(link["href"]))
+            except ValueError:
+                # fix(#1746 B2b review r16): same guard as `_assert_same_origin`
+                # below, and the sibling of the site the review named. An
+                # address the parser cannot read is not one to walk to, and the
+                # walk already stops rather than refuses when `next` leaves the
+                # origin.
+                return None
             return resolved if same_origin(base, resolved) else None
     return None
 
