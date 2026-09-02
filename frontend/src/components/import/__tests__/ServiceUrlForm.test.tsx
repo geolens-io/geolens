@@ -10,19 +10,22 @@
  *   titled REC_PassiveConservedAccessScore), and a name-keyed list would
  *   collapse or misroute the duplicates.
  */
-import { render, screen, waitFor } from '@/test/test-utils';
+import { act, render, screen, waitFor } from '@/test/test-utils';
 import userEvent from '@testing-library/user-event';
 import { ServiceUrlForm } from '../ServiceUrlForm';
 import type { ProbeResponse } from '@/types/api';
+import { ApiError } from '@/api/client';
 
 const mockProbeService = vi.fn();
 const mockPreviewServiceLayer = vi.fn();
 const mockCommitImport = vi.fn();
+const mockArcgisSignin = vi.fn();
 
 vi.mock('@/api/ingest', () => ({
   probeService: (...args: unknown[]) => mockProbeService(...args),
   previewServiceLayer: (...args: unknown[]) => mockPreviewServiceLayer(...args),
   commitImport: (...args: unknown[]) => mockCommitImport(...args),
+  arcgisSignin: (...args: unknown[]) => mockArcgisSignin(...args),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -36,7 +39,13 @@ vi.mock('../ImportPreview', () => ({
 }));
 
 vi.mock('../ImportMetadataForm', () => ({
-  ImportMetadataForm: () => <div data-testid="import-metadata-form" />,
+  // codex review #1757 round 3: exposes a real trigger for onCommit so a
+  // test can reach handleCommit without re-implementing the real form.
+  ImportMetadataForm: ({ onCommit }: { onCommit: (metadata: { title: string }) => void }) => (
+    <div data-testid="import-metadata-form">
+      <button onClick={() => onCommit({ title: 'test-dataset' })}>Commit (test)</button>
+    </div>
+  ),
 }));
 
 vi.mock('../JobProgress', () => ({
@@ -45,6 +54,13 @@ vi.mock('../JobProgress', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+});
+
+// Radix Select needs these in jsdom.
+beforeAll(() => {
+  Element.prototype.hasPointerCapture = vi.fn();
+  Element.prototype.releasePointerCapture = vi.fn();
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 const DUPLICATE_NAME_PROBE: ProbeResponse = {
@@ -167,5 +183,552 @@ describe('ServiceUrlForm layer picker with a shared layer name', () => {
         expect.objectContaining({ layer_id: 17 }),
       ),
     );
+  });
+});
+
+/**
+ * Lane A2 (service-auth wave): ArcGIS auth method select. An ArcGIS-shaped
+ * URL (matching /(FeatureServer|MapServer)/, mirroring the backend adapter's
+ * own detection) swaps the plain optional token field for a three-way
+ * Authentication select: no authentication, sign in, or paste a token.
+ */
+const ARCGIS_URL = 'https://services6.arcgis.com/abcd1234/arcgis/rest/services/Foo/FeatureServer';
+
+// codex review #1757 round 2: the expiry timer (fires 30s ahead of
+// expires_at) makes this a functionally significant value now, not just
+// display text. It must stay in the future relative to whenever the test
+// actually runs, or the token would be cleared immediately.
+function futureExpiry(msFromNow = 60 * 60 * 1000): string {
+  return new Date(Date.now() + msFromNow).toISOString();
+}
+
+async function typeArcGisUrl(user: ReturnType<typeof userEvent.setup>) {
+  render(<ServiceUrlForm />);
+  await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+  return user;
+}
+
+async function chooseAuthMethod(user: ReturnType<typeof userEvent.setup>, optionName: string) {
+  await user.click(screen.getByRole('combobox', { name: 'Authentication' }));
+  await user.click(await screen.findByRole('option', { name: optionName }));
+}
+
+describe('ServiceUrlForm ArcGIS auth method select', () => {
+  it('discards a pasted token when switching to Sign in and back', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    const tokenInput = screen.getByLabelText('Token or API key');
+    await user.type(tokenInput, 'my-pasted-token');
+    expect(tokenInput).toHaveValue('my-pasted-token');
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await chooseAuthMethod(user, 'Paste a token or API key');
+
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('');
+  });
+
+  it('discards sign-in fields when switching to Paste a token', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+    await user.type(screen.getByLabelText('Password'), 'hunter2');
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    await chooseAuthMethod(user, 'Sign in with username and password');
+
+    expect(screen.getByLabelText('Username')).toHaveValue('');
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+  });
+
+  // codex review #1757 P1: a token entered for one origin (ArcGIS or not)
+  // must not survive the service URL being edited to point at a different
+  // origin, since handleConnect forwards whatever is in the token field.
+  it('clears a pasted ArcGIS token when the service URL is edited to a different origin', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    await user.type(screen.getByLabelText('Token or API key'), 'stale-token');
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('stale-token');
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    await user.clear(urlInput);
+    await user.type(
+      urlInput,
+      'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
+    );
+
+    // The method select itself resets to "no authentication" on the origin
+    // change; re-selecting Token proves the underlying state, not just the
+    // visible field, was cleared.
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('');
+  });
+
+  it('clears a token pasted for a non-ArcGIS URL once the URL is edited into an ArcGIS one', async () => {
+    const user = userEvent.setup();
+    render(<ServiceUrlForm />);
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    await user.type(urlInput, 'https://example.test/wfs');
+    await user.type(screen.getByLabelText('serviceUrl.tokenLabel'), 'stale-wfs-token');
+
+    await user.clear(urlInput);
+    await user.type(urlInput, ARCGIS_URL);
+
+    // The plain token field and the ArcGIS token-method field are the same
+    // underlying state; it must not carry the WFS-typed value across.
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    expect(screen.getByLabelText('Token or API key')).toHaveValue('');
+  });
+
+  it('keeps the sign-in method and its fields when only the path changes within the same origin', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    // Same origin (services6.arcgis.com), different FeatureServer path.
+    await user.type(urlInput, '/1');
+
+    expect(screen.getByRole('combobox', { name: 'Authentication' })).toHaveTextContent(
+      'Sign in with username and password',
+    );
+    expect(screen.getByLabelText('Username')).toHaveValue('alice');
+  });
+
+  // codex review #1757 round 3 P2: a same-origin edit that only flips the
+  // URL's SHAPE (ArcGIS-looking or not) is a distinct axis from the origin
+  // changing, and was not resetting the auth branch: a token typed for a
+  // non-ArcGIS URL used to survive a path-only edit that turned the same
+  // origin into an ArcGIS FeatureServer URL, sitting hidden behind a
+  // select showing "No authentication" while still forwardable to Probe.
+  it('does not forward a token entered for a non-ArcGIS URL after a same-origin path edit makes it ArcGIS-shaped', async () => {
+    const user = userEvent.setup();
+    render(<ServiceUrlForm />);
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    const sameOriginNonArcGis = 'https://services6.arcgis.com/some/wfs/endpoint';
+    await user.type(urlInput, sameOriginNonArcGis);
+    await user.type(screen.getByLabelText('serviceUrl.tokenLabel'), 'stale-token');
+
+    // Path-only edit, SAME origin, now ArcGIS-shaped (matches ARCGIS_URL's
+    // origin exactly).
+    await user.clear(urlInput);
+    await user.type(urlInput, ARCGIS_URL);
+
+    expect(screen.getByRole('combobox', { name: 'Authentication' })).toHaveTextContent(
+      'No authentication',
+    );
+
+    mockProbeService.mockResolvedValue({
+      service_type: 'arcgis',
+      url: ARCGIS_URL,
+      selected_layer_id: null,
+      layers: [],
+    });
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    await waitFor(() => expect(mockProbeService).toHaveBeenCalled());
+    expect(mockProbeService).toHaveBeenCalledWith(ARCGIS_URL, undefined);
+  });
+
+  it('clears the token when a same-origin path edit turns an ArcGIS-shaped URL non-ArcGIS-shaped', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+
+    await chooseAuthMethod(user, 'Paste a token or API key');
+    await user.type(screen.getByLabelText('Token or API key'), 'stale-arcgis-token');
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    const sameOriginNonArcGis = 'https://services6.arcgis.com/some/wfs/endpoint';
+    await user.clear(urlInput);
+    await user.type(urlInput, sameOriginNonArcGis);
+
+    // No longer ArcGIS-shaped: the method select disappears entirely, and
+    // the plain optional token field takes its place, empty.
+    expect(screen.queryByRole('combobox', { name: 'Authentication' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('serviceUrl.tokenLabel')).toHaveValue('');
+  });
+});
+
+describe('ServiceUrlForm ArcGIS sign-in', () => {
+  async function fillSigninForm(user: ReturnType<typeof userEvent.setup>) {
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+    await user.type(screen.getByLabelText('Username'), 'alice');
+    await user.type(screen.getByLabelText('Password'), 'hunter2');
+  }
+
+  it('disables the Sign in button while the request is in flight', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    let resolveSignin: (value: { token: string; expires_at: string }) => void = () => {};
+    mockArcgisSignin.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSignin = resolve;
+      }),
+    );
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
+    });
+
+    resolveSignin({ token: 'minted-token', expires_at: futureExpiry() });
+
+    // The request has settled; the button is out of its loading state.
+    // (It stays disabled once settled, but now because the password field
+    // was cleared on success, a separate, already-covered behavior below.)
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+  });
+
+  // codex review #1757 P2: the credential inputs stay enabled while a
+  // sign-in is pending, so a user can correct the password before a slow
+  // request settles. That edit bumps the generation (via
+  // invalidateMintedCredential), which already keeps the stale response's
+  // token from applying; this pins that the edit itself survives too,
+  // rather than being unconditionally wiped when the superseded request's
+  // `finally` runs.
+  it('preserves a password edit made while a stale sign-in request is still pending', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    let resolveSignin: (value: { token: string; expires_at: string }) => void = () => {};
+    mockArcgisSignin.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSignin = resolve;
+      }),
+    );
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
+    });
+
+    const passwordInput = screen.getByLabelText('Password', { exact: true });
+    await user.clear(passwordInput);
+    await user.type(passwordInput, 'a-newer-password');
+
+    resolveSignin({ token: 'stale-token', expires_at: futureExpiry() });
+
+    // The button un-sticks once the stale request settles...
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+    // ...but the password edit is untouched, and the stale token never
+    // applied.
+    expect(passwordInput).toHaveValue('a-newer-password');
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+  });
+
+  it('clears the password and fills the token field on a successful sign-in', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockResolvedValue({
+      token: 'minted-token',
+      expires_at: futureExpiry(),
+    });
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+    });
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+  });
+
+  it('clears the password and shows the rejection anchored to the credential block on a failed sign-in', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockRejectedValue(
+      new ApiError(
+        'ArcGIS did not accept that sign-in. Check the username and password, including capitalization. Too many failed attempts also lock an ArcGIS account temporarily.',
+        400,
+        { code: 'arcgis_signin_rejected', message: 'invalid credentials', field: 'credential' },
+      ),
+    );
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByText(/ArcGIS did not accept that sign-in/)).toBeInTheDocument();
+    });
+    expect(screen.getByLabelText('Password')).toHaveValue('');
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+  });
+
+  it('disables the Authentication select while a sign-in request is in flight', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockReturnValue(new Promise(() => {}));
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('combobox', { name: 'Authentication' })).toBeDisabled();
+    });
+  });
+
+  // codex review #1757 P1: the Authentication select disables itself while a
+  // request is in flight, which already closes the method-switch route to
+  // this race. The service URL field stays editable, though, so this
+  // exercises the same generation guard through the one avenue still open:
+  // editing the URL to a different origin invalidates the pending request's
+  // generation, so its late response must not resurrect a token or expiry
+  // the user already backed away from.
+  it('ignores a late sign-in response after the URL origin changes mid-flight', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    let resolveSignin: (value: { token: string; expires_at: string }) => void = () => {};
+    mockArcgisSignin.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSignin = resolve;
+      }),
+    );
+    await fillSigninForm(user);
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+    const urlInput = screen.getByPlaceholderText('serviceUrl.placeholder');
+    await user.clear(urlInput);
+    await user.type(
+      urlInput,
+      'https://services7.arcgis.com/other-org/arcgis/rest/services/Bar/FeatureServer',
+    );
+
+    resolveSignin({ token: 'late-token', expires_at: futureExpiry() });
+
+    // Give the resolved promise's .then a turn, then re-select Sign in and
+    // confirm no minted-token field appeared: the stale response must not
+    // have populated the token this generation's callers would forward.
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await waitFor(() => {
+      expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+    });
+  });
+
+  // codex review #1757 round 2 P2: a minted token is bound to the
+  // credentials that produced it. Editing the username afterward must
+  // clear it, and a resubmit must never reach Probe with the stale token.
+  it('clears the minted token when the username changes after a successful sign-in, and never forwards it to Probe', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockResolvedValue({
+      token: 'minted-token',
+      expires_at: futureExpiry(),
+    });
+    await fillSigninForm(user);
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => {
+      expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+    });
+
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'x');
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+    // The password was already cleared when the mint settled, so this
+    // resubmit can neither re-sign-in (no password to send) nor fall
+    // through to Probe: the stale token must never reach it either way.
+    expect(mockProbeService).not.toHaveBeenCalled();
+  });
+
+  // codex review #1757 round 2 P2: the credential fields sit inside the
+  // outer <form> (a <form> cannot nest), whose submit handler otherwise
+  // runs Probe. Pressing Enter in the password field must sign in instead.
+  it('routes Enter in the password field to sign-in instead of Probe', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    mockArcgisSignin.mockReturnValue(new Promise(() => {}));
+
+    await chooseAuthMethod(user, 'Sign in with username and password');
+    await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+    await user.type(screen.getByLabelText('Username', { exact: true }), 'alice');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'hunter2{Enter}');
+
+    await waitFor(() => expect(mockArcgisSignin).toHaveBeenCalledTimes(1));
+    expect(mockProbeService).not.toHaveBeenCalled();
+  });
+
+  // codex review #1757 round 2: a minted token stops being usable 30
+  // seconds ahead of ArcGIS's own deadline, even if the wizard sits open.
+  it('expires the minted token 30 seconds before its stated deadline, clearing state and showing the expired message', async () => {
+    // shouldAdvanceTime: real wall-clock keeps flowing (so userEvent and
+    // testing-library's own internal polling still work), while
+    // advanceTimersByTimeAsync below still lets this test jump forward
+    // deterministically for the 30-second margin itself.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      mockArcgisSignin.mockResolvedValue({
+        token: 'minted-token',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      await typeArcGisUrl(user);
+      await fillSigninForm(user);
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+      });
+      expect(screen.queryByText('Token expired, sign in again')).not.toBeInTheDocument();
+
+      // A 60s deadline with a 30s margin fires the timer at the 30s mark.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+      expect(screen.getByText('Token expired, sign in again')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears the expiry timer on unmount', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      mockArcgisSignin.mockResolvedValue({
+        token: 'minted-token',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      const { unmount } = render(<ServiceUrlForm />);
+      await user.type(screen.getByPlaceholderText('serviceUrl.placeholder'), ARCGIS_URL);
+      await fillSigninForm(user);
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+      });
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // codex review #1757 round 3 P2: expireStaleTokenIfPast used to clear
+  // state but its return value was discarded in handleConnect, so the
+  // SAME invocation still closed over the pre-clear `token` and forwarded
+  // it to probeService. Jumping the system clock forward without
+  // advancing fake timers (so the scheduled expiry callback itself has
+  // NOT fired) exercises exactly the throttled-background-tab path that
+  // check exists for, as distinct from the timer having already run.
+  //
+  // codex review #1757 round 4 P2: the jump lands at +45s of a 60s
+  // deadline, inside the 30s margin window but short of the raw
+  // expires_at. Before the shared EXPIRY_MARGIN_MS fix, isPast compared
+  // only against the raw deadline and would have called this "not
+  // expired" yet, letting a token the timer had already meant to retire
+  // through a resumed/throttled tab. This case pins that the synchronous
+  // fallback now honours the same margin as the proactive timer.
+  it('refuses to Probe with an expiry inside the margin window and shows the expired message', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      mockArcgisSignin.mockResolvedValue({
+        token: 'minted-token',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+
+      await typeArcGisUrl(user);
+      await fillSigninForm(user);
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+      });
+
+      // Inside the 30s margin (30s-60s), before the raw 60s deadline.
+      vi.setSystemTime(Date.now() + 45_000);
+
+      await user.click(screen.getByRole('button', { name: 'Probe →' }));
+
+      expect(mockProbeService).not.toHaveBeenCalled();
+      await vi.waitFor(() => {
+        expect(screen.getByText('Token expired, sign in again')).toBeInTheDocument();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // codex review #1757 round 3 P2: the expiry timer's own callback clears
+  // BOTH `token` and `tokenExpiresAt` when it fires, so by the time Commit
+  // runs on a later step, expireStaleTokenIfPast alone can no longer tell
+  // "expired" apart from "never had one". The `tokenExpired` marker is
+  // what survives that clear; isTokenExpiredOrPast checks it first.
+  it('refuses Commit with the reconnect message when the expiry timer fires while on the review step', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const user = userEvent.setup({ delay: null });
+      mockArcgisSignin.mockResolvedValue({
+        token: 'minted-token',
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      });
+      mockProbeService.mockResolvedValue({
+        service_type: 'arcgis',
+        url: ARCGIS_URL,
+        selected_layer_id: null,
+        layers: [
+          {
+            name: 'Layer0',
+            title: 'Layer0',
+            geometry_type: 'Polygon',
+            feature_count: 5,
+            layer_type: 'Feature Layer',
+            layer_id: 0,
+            object_id_field: 'OBJECTID',
+            kind: 'vector',
+          },
+        ],
+      });
+      mockPreviewServiceLayer.mockResolvedValue({
+        job_id: 'job-expiry-review',
+        source_filename: null,
+        columns: [],
+        crs: 4326,
+        geometry_type: 'Polygon',
+        feature_count: 5,
+        sample_rows: [],
+        layer_name: 'Layer0',
+      });
+
+      await typeArcGisUrl(user);
+      await fillSigninForm(user);
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+      await vi.waitFor(() => {
+        expect(screen.getByLabelText('Token or API key')).toHaveValue('minted-token');
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Probe →' }));
+      await vi.waitFor(() => expect(mockProbeService).toHaveBeenCalled());
+
+      await user.click(await screen.findByRole('button', { name: /Layer0/ }));
+      await vi.waitFor(() => expect(mockPreviewServiceLayer).toHaveBeenCalled());
+
+      // On the review step now, past the credential form entirely.
+      await screen.findByTestId('import-metadata-form');
+
+      // 60s deadline, 30s margin: the timer fires at the 30s mark, while
+      // sitting on this later step.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(31_000);
+      });
+
+      await user.click(screen.getByRole('button', { name: 'Commit (test)' }));
+
+      expect(mockCommitImport).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(/Your ArcGIS sign-in expired while this was open/),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

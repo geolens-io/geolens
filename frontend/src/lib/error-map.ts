@@ -444,6 +444,59 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
         values: { message: value.message },
       };
     }
+    // fix(service-auth wave, lane A2): POST /services/arcgis/signin/'s own
+    // refusal taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+    // arcgis_signin_rejected deliberately collapses "wrong password" and
+    // "account locked" into one message. Telling the caller which of the
+    // two happened would let a GeoLens user use this form as an oracle for
+    // whether a colleague's ArcGIS account exists and is being guessed at.
+    // arcgis_sso_account is the one deliberate exception: it names a real,
+    // unfixable-by-retry cause (federated identity or MFA) and points at the
+    // paste-a-token path, because collapsing it would leave that class of
+    // user with an unexplainable rejection and no way forward. ssrf_refused
+    // reuses the same code name a later probe-reason-code door (plan 3.6,
+    // not built yet) may also emit; if that lands with different intended
+    // copy for the same code, reconcile then rather than here.
+    if (value.code === 'arcgis_signin_rejected') {
+      return { key: 'errors.arcgisSigninRejected' };
+    }
+    if (value.code === 'arcgis_sso_account') {
+      return { key: 'errors.arcgisSsoAccount' };
+    }
+    if (value.code === 'ssrf_refused') {
+      return { key: 'errors.arcgisPortalUnreachable' };
+    }
+    if (value.code === 'network_error') {
+      return { key: 'errors.couldNotReachService' };
+    }
+    // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
+    // arcgis_signin_in_progress is a 409 for one ArcGIS sign-in already
+    // running for that account. A real 429 rate_limited still happens
+    // separately, from the attempt-count limiter (keyed on the ArcGIS
+    // account itself, shared across every GeoLens user, plus a second
+    // count per GeoLens user and portal); it is deliberately left
+    // unmapped here, since the object branch falls through to its
+    // message and then to the generic 429 status key, so a wording
+    // change on that message needs no update in this file.
+    if (value.code === 'arcgis_signin_in_progress') {
+      return { key: 'errors.arcgisSigninInProgress' };
+    }
+    // arcgis_portal_not_https arrives as a 422 with this SAME structured
+    // {code, message, field} shape, not FastAPI's list-shaped validation
+    // 422 handled by validationDescriptor below, so it has to be checked
+    // here rather than there.
+    if (value.code === 'arcgis_portal_not_https') {
+      return { key: 'errors.arcgisPortalNotHttps' };
+    }
+    // fix(service-auth wave, post-merge rebase onto #1758): arcgis_portal_host_invalid
+    // is the sixth and last caller-facing code this endpoint returns
+    // (backend/app/modules/catalog/sources/arcgis_signin.py, HOST_INVALID),
+    // a 422 for a portal hostname that cannot be canonicalized. Same
+    // structured-422 reasoning as arcgis_portal_not_https above, and same
+    // field: 'url' anchor.
+    if (value.code === 'arcgis_portal_host_invalid') {
+      return { key: 'errors.arcgisPortalHostInvalid' };
+    }
     if (Array.isArray(value.unknown_layers) && value.unknown_layers.length > 0) {
       return {
         key: 'errors.unknownLayers',

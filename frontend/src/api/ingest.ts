@@ -22,6 +22,8 @@ import type {
   PresignedUploadResponse,
   VrtCreateRequest,
   VrtCreateResponse,
+  ArcgisSigninRequest,
+  ArcgisSigninResponse,
 } from '@/types/api';
 
 /** Byte-transfer progress callback (0–1). */
@@ -270,6 +272,34 @@ export async function previewServiceLayer(
   return apiFetch<ServicePreviewResponse>('/services/preview/', {
     method: 'POST',
     body: JSON.stringify(request),
+  });
+}
+
+// fix(#1757 codex): open_portal_signin's discovery phase and
+// PortalSignIn.mint's token-mint phase run sequentially, each under its
+// own asyncio.timeout in backend/app/modules/catalog/sources/
+// arcgis_signin.py (_DISCOVERY_DEADLINE_SECONDS = 20,
+// _MINT_DEADLINE_SECONDS = 25), so a slow Enterprise portal can
+// legitimately take up to 45s end to end. apiFetch's 30s default would
+// abort a valid slow sign-in in the browser while the backend keeps
+// processing, and counting, the attempt. 60s covers the 45s backend
+// bound with margin.
+const ARCGIS_SIGNIN_TIMEOUT_MS = 60_000;
+
+// fix(service-auth wave, lane A2): mints a short-lived (60 min) ArcGIS token
+// from a username and password so the import wizard never has to hold that
+// password any longer than this one request. The caller clears its own
+// password state as soon as this settles, success or failure alike; this
+// function never retries, because ArcGIS locks an account after five failed
+// sign-ins in fifteen minutes, and a retry loop here could do that to a
+// real customer account.
+export async function arcgisSignin(
+  request: ArcgisSigninRequest,
+): Promise<ArcgisSigninResponse> {
+  return apiFetch<ArcgisSigninResponse>('/services/arcgis/signin/', {
+    method: 'POST',
+    body: JSON.stringify(request),
+    timeoutMs: ARCGIS_SIGNIN_TIMEOUT_MS,
   });
 }
 

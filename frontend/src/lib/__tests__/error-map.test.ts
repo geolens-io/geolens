@@ -167,6 +167,127 @@ describe('API error localization boundary', () => {
     );
   });
 
+  // Lane A2 (service-auth wave): POST /services/arcgis/signin/'s refusal
+  // taxonomy (plan 2026-09-01-service-auth-PLAN.md section 3.2).
+  it('maps the ArcGIS sign-in refusal taxonomy to distinct static keys', () => {
+    expect(
+      classifyApiError(
+        { code: 'arcgis_signin_rejected', message: 'invalid credentials', field: 'credential' },
+        400,
+      ),
+    ).toEqual({ key: 'errors.arcgisSigninRejected' });
+
+    expect(
+      classifyApiError(
+        { code: 'arcgis_sso_account', message: 'federated identity', field: 'credential' },
+        400,
+      ),
+    ).toEqual({ key: 'errors.arcgisSsoAccount' });
+
+    expect(
+      classifyApiError(
+        { code: 'ssrf_refused', message: 'blocked private address', field: 'url' },
+        400,
+      ),
+    ).toEqual({ key: 'errors.arcgisPortalUnreachable' });
+
+    // network_error covers both the 502 (unreachable) and 504 (timeout)
+    // cases the endpoint can raise; it reuses the existing generic copy
+    // rather than a new key.
+    expect(
+      classifyApiError({ code: 'network_error', message: 'connection refused', field: 'url' }, 502),
+    ).toEqual({ key: 'errors.couldNotReachService' });
+    expect(
+      classifyApiError({ code: 'network_error', message: 'timed out', field: 'url' }, 504),
+    ).toEqual({ key: 'errors.couldNotReachService' });
+  });
+
+  it('falls back the ArcGIS sign-in rate limit to the generic 429 key, unmapped by code', () => {
+    // rate_limited carries no dedicated entry: the object branch falls
+    // through to its message, which in turn falls through to the generic
+    // 429 status key, the same path #774 already relies on.
+    expect(
+      classifyApiError(
+        { code: 'rate_limited', message: 'Too many sign-in attempts', field: 'credential' },
+        429,
+      ),
+    ).toEqual({ key: 'errors.rateLimited' });
+  });
+
+  // fix(service-auth wave, lane A1 contract update, head 85c5fc282): the
+  // limiter's own message names the ArcGIS account, not GeoLens or the
+  // portal (the limit is keyed on the target account: three attempts per
+  // fifteen minutes per ArcGIS account shared across all GeoLens users,
+  // plus three per GeoLens user and portal). The fallback below does not
+  // read the message text for this code, so this rewording changes
+  // nothing here, and this test pins that.
+  it('still falls back a reworded rate_limited message to the generic 429 key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'rate_limited',
+          message: 'Too many sign-in attempts for that ArcGIS account. Wait fifteen minutes before trying again. ArcGIS locks an account after five failed attempts, so GeoLens stops short of that on purpose.',
+          field: 'credential',
+        },
+        429,
+      ),
+    ).toEqual({ key: 'errors.rateLimited' });
+  });
+
+  // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
+  // arcgis_signin_in_progress replaced a 429 rate_limited response for the
+  // same-account-concurrency case (one ArcGIS sign-in per account at a
+  // time, distinct from the attempt-count limiter above).
+  it('maps arcgis_signin_in_progress to its own key', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'arcgis_signin_in_progress',
+          message: 'A sign-in to that ArcGIS account is already in progress. Wait for it to finish before trying again.',
+          field: 'credential',
+        },
+        409,
+      ),
+    ).toEqual({ key: 'errors.arcgisSigninInProgress' });
+  });
+
+  // fix(service-auth wave, lane A1 contract update, head 85c5fc282):
+  // arcgis_portal_not_https is a 422 with the SAME structured
+  // {code, message, field} shape as the rest of this taxonomy, not
+  // FastAPI's list-shaped validation 422 handled by validationDescriptor,
+  // so it must be caught in the object branch rather than falling through
+  // to a generic validation message.
+  it('maps arcgis_portal_not_https to its own key rather than the generic validation fallback', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'arcgis_portal_not_https',
+          message: 'the portal or its token service must use https',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.arcgisPortalNotHttps' });
+  });
+
+  // fix(service-auth wave, post-merge rebase onto #1758): the sixth and
+  // final caller-facing code (backend/app/modules/catalog/sources/
+  // arcgis_signin.py, HOST_INVALID), a 422 for a portal hostname that
+  // cannot be canonicalized, anchored to the same field: 'url' as
+  // arcgis_portal_not_https above.
+  it('maps arcgis_portal_host_invalid to its own key rather than the generic validation fallback', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'arcgis_portal_host_invalid',
+          message: 'That portal address is not a usable hostname.',
+          field: 'url',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.arcgisPortalHostInvalid' });
+  });
+
   it('drops the dynamic SSRF diagnostic suffix from the refresh URL refusal', () => {
     expect(
       translateApiErrorDetail(
