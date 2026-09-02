@@ -53,10 +53,9 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   const [password, setPassword] = useState('');
   const [signInPending, setSignInPending] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
-  const [signedIn, setSignedIn] = useState(false);
   // Bookkeeping only for the raw value; a ref avoids an extra re-render
-  // on every mint/clear. Still explicitly cleared alongside `signedIn` and
-  // the token itself (codex #1759 round 1, P2).
+  // on every mint/clear. Still explicitly cleared alongside the token
+  // itself (codex #1759 round 1, P2).
   const expiresAtRef = useRef<string | null>(null);
   // codex #1759 round 2: distinct from `signInError` -- an expiry is not a
   // rejected sign-in, it is a credential that WAS valid going stale while
@@ -74,6 +73,16 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
 
   const isPastExpiry = () =>
     expiresAtRef.current !== null && Date.now() >= new Date(expiresAtRef.current).getTime();
+
+  // codex #1759 round 3, P2: derived from the parent's `token` prop rather
+  // than tracked in its own state. "Start refresh" (SourceRefreshAction)
+  // clears its `token` state before awaiting the refresh request, win or
+  // lose -- a separate `signedIn` boolean would go stale the moment that
+  // happens (a rejected refresh left this block still claiming "Signed in"
+  // while a retry silently submitted nothing). Deriving it means there is
+  // nothing here that CAN desynchronise from the token: whenever `token`
+  // clears, for any reason, this becomes false in the same render.
+  const isSignedIn = method === 'signin' && token.trim() !== '';
   // fix(codex #1759 round 1, P1/P2): a generation counter, not just a
   // boolean, so a stale attempt's response is dropped even when a NEWER
   // attempt is already in flight (not only on unmount). Bumped on unmount
@@ -97,12 +106,12 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   // case the timer fires late -- background-tab throttling can delay a
   // `setTimeout` well past its nominal delay. Deliberately has no
   // dependency array so it runs after EVERY render, not only when
-  // `signedIn` changes -- that is the whole point of a render-triggered
+  // `isSignedIn` changes -- that is the whole point of a render-triggered
   // recheck. Self-heals by running the exact same clear the timer runs;
-  // does nothing once `signedIn` is already false, so this cannot loop.
+  // does nothing once `isSignedIn` is already false, so this cannot loop.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (signedIn && isPastExpiry()) {
+    if (isSignedIn && isPastExpiry()) {
       clearMintedCredential();
       setTokenExpired(true);
     }
@@ -114,7 +123,6 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
   // would otherwise submit -- clear it immediately rather than leaving it
   // reachable until the next sign-in resolves (or fails).
   const clearMintedCredential = () => {
-    setSignedIn(false);
     expiresAtRef.current = null;
     clearExpiryTimer();
     onTokenChange('');
@@ -180,7 +188,8 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       if (generationRef.current !== generation) return;
       onTokenChange(result.token);
       expiresAtRef.current = result.expires_at;
-      setSignedIn(true);
+      // `isSignedIn` is derived from `token` (now non-empty) and `method`
+      // (still 'signin' here) -- no separate flag to set.
       // The password has finished its one job -- minting the token -- and
       // must not linger in state any longer than that took.
       setPassword('');
@@ -204,7 +213,8 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
       }, delay);
     } catch (err) {
       if (generationRef.current !== generation) return;
-      setSignedIn(false);
+      // No `isSignedIn` to clear: `token` was already cleared at the start
+      // of this attempt, before the request, so it was already false.
       let key = 'sourcePanel.refresh.credential.arcgis.errors.networkError';
       if (err instanceof ApiError) {
         if (err.status === 429) {
@@ -326,7 +336,7 @@ export function ArcgisCredentialBlock({ token, onTokenChange, disabled }: Arcgis
             {signInPending && <Loader2 className="me-2 h-4 w-4 animate-spin" />}
             {t('sourcePanel.refresh.credential.arcgis.signInButton')}
           </Button>
-          {signedIn && !signInError && (
+          {isSignedIn && !signInError && (
             <p className="text-xs text-muted-foreground">
               {t('sourcePanel.refresh.credential.arcgis.signedIn')}
             </p>

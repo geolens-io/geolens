@@ -33,6 +33,15 @@ const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:8080';
 const RAW_SERVICE_TOKEN_MESSAGE =
   "This dataset's source needed a service token the last time it was imported or refreshed, and this request carries none. Send the token again in the request body's `token` field; tokens are request-only and are never stored between runs. If the source is public now, re-import it through the re-upload dialog without a token to clear the requirement.";
 
+// codex #1759 round 3: ArcgisCredentialBlock now schedules a clear for
+// `expires_at` minus a 30s safety margin (round 2), so a mocked `expires_at`
+// fixed to a literal date goes stale the moment that date is in the past --
+// the credential clears itself right after sign-in and the spec can never
+// observe "Signed in". Derived from the run's own clock instead, mirroring
+// the `FAR_FUTURE_EXPIRY` fix applied to the vitest suite for the same
+// reason.
+const FAR_FUTURE_EXPIRY = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
 let seed: SearchSeed;
 let baseDataset: Record<string, unknown>;
 
@@ -139,7 +148,7 @@ test.describe('Refresh-door credential prompt on service_token_required', () => 
 
     await page.route(`**/api/services/arcgis/signin/`, (route: Route) =>
       route.fulfill({
-        json: { token: 'minted-e2e-token', expires_at: '2026-09-01T13:00:00Z' },
+        json: { token: 'minted-e2e-token', expires_at: FAR_FUTURE_EXPIRY },
       }),
     );
 

@@ -597,6 +597,59 @@ describe('SourceRefreshAction', () => {
       });
     });
 
+    // codex #1759 round 3, P2: "Start refresh" clears the parent's `token`
+    // state before awaiting the refresh request, win or lose. Before this
+    // fix, the credential block's own `signedIn` flag did not know that --
+    // a rejected refresh left it still claiming "Signed in" while the next
+    // retry silently submitted no token at all.
+    it('reverts to its own sign-in state, with no token, after a rejected refresh that follows a mint', async () => {
+      const remoteError = new ApiError('Remote service returned an error', 503);
+      mutateAsync
+        .mockRejectedValueOnce(serviceTokenRequiredError())
+        .mockRejectedValueOnce(remoteError)
+        .mockRejectedValue(remoteError);
+      mockArcgisSignIn.mockResolvedValue({
+        token: 'minted-token-xyz',
+        expires_at: FAR_FUTURE_EXPIRY,
+      });
+      const user = userEvent.setup();
+      render(
+        <SourceRefreshAction
+          dataset={makeDataset({ source_format: 'arcgis_featureserver' })}
+          watch={makeWatch()}
+        />,
+      );
+
+      await openDialog(user);
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      const methodSelect = await screen.findByLabelText('Authentication method');
+      await user.selectOptions(methodSelect, 'signin');
+      await user.type(screen.getByLabelText('Portal URL'), 'https://myorg.maps.arcgis.com');
+      await user.type(screen.getByLabelText('Username'), 'alice');
+      await user.type(screen.getByLabelText('Password'), 'hunter2');
+      await user.click(screen.getByRole('button', { name: 'Sign in' }));
+      await screen.findByText('Signed in. The token below is ready to use.');
+
+      // The refresh itself is refused (a transient 503 here; an invalid or
+      // expired token on the origin's own side reads the same way to this
+      // dialog). The dialog stays open on any refusal.
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText('Signed in. The token below is ready to use.'),
+        ).not.toBeInTheDocument();
+      });
+      // Still offering the sign-in method -- not reset to the taxonomy's
+      // default -- but with nothing left to submit.
+      expect(screen.getByLabelText('Authentication method')).toHaveValue('signin');
+
+      await user.click(screen.getByRole('button', { name: 'Start refresh' }));
+      await waitFor(() => {
+        expect(mutateAsync).toHaveBeenLastCalledWith({ datasetId: 'dataset-1', token: undefined });
+      });
+    });
+
     it('maps a rejected ArcGIS sign-in to this component\'s own copy, never the raw response, and never auto-retries', async () => {
       mutateAsync.mockRejectedValue(serviceTokenRequiredError());
       mockArcgisSignIn.mockRejectedValue(
