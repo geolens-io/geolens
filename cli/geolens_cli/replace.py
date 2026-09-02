@@ -116,25 +116,51 @@ def is_raster_dataset(dataset: Any) -> bool:
     return getattr(dataset, "record_type", None) == RASTER_RECORD_TYPE
 
 
+#: Origin kinds the platform defines
+#: (backend/app/platform/dataset_origin.py ORIGIN_KINDS). Mirrored here,
+#: not imported, since the CLI and the API are separate deployables.
+#: Update this set, and the dict `origin_refusal_message` builds below,
+#: together if that one changes.
+KNOWN_ORIGIN_KINDS: frozenset[str] = frozenset(
+    {"upload", "postgis", "service", "stac", "created"}
+)
+
+
 def origin_refusal_message(origin: Optional[str]) -> Optional[str]:
     """Refuse before uploading when the dataset's origin is not a file.
 
     The reupload worker always rebinds a committed dataset to the `upload`
     origin (`platform/dataset_origin.set_dataset_origin`), so replacing a
-    service-bound or registered-table dataset through this door would
-    silently sever its refresh source on the first successful commit.
-    Both are refreshed in place instead of replaced from a file; returns
-    None for every other origin (`upload`, `created`, or none at all).
+    dataset bound to a refreshable remote origin, or to a registered
+    table, through this door would silently sever its refresh source on
+    the first successful commit. `service` and `stac` are both
+    refreshable remote origins (`router_refresh.py`); `postgis` is a
+    registered table refreshed in place. All three are refused in favor
+    of `geolens refresh`.
+
+    Every kind in KNOWN_ORIGIN_KINDS gets an explicit entry below, so a
+    kind the backend adds later is classified here on purpose rather than
+    by silent omission; the assert catches a KNOWN_ORIGIN_KINDS update
+    that forgot to update this dict. `origin=None` (no origin at all,
+    e.g. a collection) and any origin outside KNOWN_ORIGIN_KINDS proceed.
     """
-    if origin == "service":
-        return _REFUSAL_MESSAGES["refresh_not_applicable"]
-    if origin == "postgis":
-        return (
+    by_kind: dict[str, Optional[str]] = {
+        "upload": None,
+        "created": None,
+        "postgis": (
             "This dataset is a registered database table, not an upload. "
             "It is refreshed in place; run `geolens refresh <dataset-id>` "
             "instead of replacing it with a file."
-        )
-    return None
+        ),
+        "service": _REFUSAL_MESSAGES["refresh_not_applicable"],
+        "stac": _REFUSAL_MESSAGES["refresh_not_applicable"],
+    }
+    assert set(by_kind) == KNOWN_ORIGIN_KINDS, (
+        "origin_refusal_message must classify every kind in KNOWN_ORIGIN_KINDS"
+    )
+    if origin not in KNOWN_ORIGIN_KINDS:
+        return None
+    return by_kind[origin]
 
 
 # ---------------------------------------------------------------------------

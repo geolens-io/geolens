@@ -295,11 +295,34 @@ class TestOriginRefusalMessage:
         assert "registered database table" in message
         assert "geolens refresh" in message
 
+    def test_stac_origin_points_at_refresh(self) -> None:
+        from geolens_cli.replace import origin_refusal_message
+
+        message = origin_refusal_message("stac")
+        assert message is not None
+        assert "geolens refresh" in message
+
     @pytest.mark.parametrize("origin", ["upload", "created", None])
     def test_other_origins_are_not_refused(self, origin: str | None) -> None:
         from geolens_cli.replace import origin_refusal_message
 
         assert origin_refusal_message(origin) is None
+
+    def test_enumerates_every_known_origin_kind(self) -> None:
+        """gh#1767 review round 2 P2: every kind the platform defines gets
+        a deliberate answer here, not a silent pass-through."""
+        from geolens_cli.replace import KNOWN_ORIGIN_KINDS, origin_refusal_message
+
+        refused_kinds = {"postgis", "service", "stac"}
+        assert refused_kinds < KNOWN_ORIGIN_KINDS
+
+        for kind in KNOWN_ORIGIN_KINDS:
+            message = origin_refusal_message(kind)
+            if kind in refused_kinds:
+                assert message is not None, kind
+                assert "geolens refresh" in message, kind
+            else:
+                assert message is None, kind
 
 
 class TestFetchDataset:
@@ -676,6 +699,54 @@ class TestReplaceConfirmationPrompt:
         assert result.exit_code == 0, result.output
 
 
+class TestReplaceJsonModeConfirmation:
+    """gh#1767 review round 2 P2: the confirm prompt and its echoed answer
+    must land on stderr, not stdout, so `--json` output stays parseable
+    whether or not `--yes` was passed. `result.stdout` (Click 8.2+) is the
+    pure-stdout stream, distinct from `result.output`'s stdout+stderr mix,
+    so it fails if the prompt leaks onto stdout."""
+
+    def test_confirm_path_json_output_still_parses(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app,
+            ["--json", "replace", str(DATASET_ID), str(sample_geojson)],
+            input="y\n",
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["job_id"] == str(JOB_ID)
+
+    def test_yes_path_json_output_still_parses(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset())
+        _patch_upload(monkeypatch, _ok_upload())
+        _patch_preview(monkeypatch, _ok_preview())
+        _patch_commit(monkeypatch, _ok_commit())
+
+        result = runner.invoke(
+            app, ["--json", "replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["job_id"] == str(JOB_ID)
+
+
 class TestReplace409Hint:
     def test_refresh_not_applicable_hints_at_refresh_command(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
@@ -830,6 +901,26 @@ class TestReplaceOriginGuard:
 
         assert result.exit_code == 1, result.output
         assert "registered database table" in result.output
+        assert "geolens refresh" in result.output
+
+    def test_stac_origin_is_refused_with_no_upload_request(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, sample_geojson
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        _patch_dataset(monkeypatch, _ok_dataset(origin="stac"))
+
+        def must_not_upload(*a, **k):  # pragma: no cover - guard
+            raise AssertionError("upload must not be attempted for a stac origin")
+
+        monkeypatch.setattr("geolens_cli.replace.upload_file", must_not_upload)
+
+        result = runner.invoke(
+            app, ["replace", str(DATASET_ID), str(sample_geojson), "--yes"]
+        )
+
+        assert result.exit_code == 1, result.output
         assert "geolens refresh" in result.output
 
     def test_upload_origin_proceeds(

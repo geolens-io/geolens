@@ -948,7 +948,9 @@ def replace(
             state.output.error("--layer does not apply to raster datasets.")
             raise typer.Exit(EXIT_USAGE)
 
-        # Stage 1: Upload (multipart workaround; BUG-034-style network mapping).
+        # Stage 1: Upload (multipart workaround).
+        # fix(#1739): route through call_sdk so a network failure during
+        # upload maps to EXIT_NETWORK instead of a raw traceback.
         upload_resp = call_sdk(
             _replace.upload_file, client=sdk.client, dataset_id=dataset_uuid, path=file
         )
@@ -990,7 +992,7 @@ def replace(
             )
 
         if not yes and not typer.confirm(
-            f"Replace dataset {dataset_uuid}'s data with {file}?"
+            f"Replace dataset {dataset_uuid}'s data with {file}?", err=True
         ):
             state.output.error("Replace cancelled; no changes were made.")
             raise typer.Exit(EXIT_GENERIC)
