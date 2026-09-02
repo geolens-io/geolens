@@ -387,6 +387,44 @@ describe('ServiceUrlForm ArcGIS sign-in', () => {
     });
   });
 
+  // codex review #1757 P2: the credential inputs stay enabled while a
+  // sign-in is pending, so a user can correct the password before a slow
+  // request settles. That edit bumps the generation (via
+  // invalidateMintedCredential), which already keeps the stale response's
+  // token from applying; this pins that the edit itself survives too,
+  // rather than being unconditionally wiped when the superseded request's
+  // `finally` runs.
+  it('preserves a password edit made while a stale sign-in request is still pending', async () => {
+    const user = await typeArcGisUrl(userEvent.setup());
+    let resolveSignin: (value: { token: string; expires_at: string }) => void = () => {};
+    mockArcgisSignin.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSignin = resolve;
+      }),
+    );
+    await fillSigninForm(user);
+
+    await user.click(screen.getByRole('button', { name: 'Sign in' }));
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Signing in...' })).toBeDisabled();
+    });
+
+    const passwordInput = screen.getByLabelText('Password', { exact: true });
+    await user.clear(passwordInput);
+    await user.type(passwordInput, 'a-newer-password');
+
+    resolveSignin({ token: 'stale-token', expires_at: futureExpiry() });
+
+    // The button un-sticks once the stale request settles...
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Sign in' })).toBeInTheDocument();
+    });
+    // ...but the password edit is untouched, and the stale token never
+    // applied.
+    expect(passwordInput).toHaveValue('a-newer-password');
+    expect(screen.queryByLabelText('Token or API key')).not.toBeInTheDocument();
+  });
+
   it('clears the password and fills the token field on a successful sign-in', async () => {
     const user = await typeArcGisUrl(userEvent.setup());
     mockArcgisSignin.mockResolvedValue({

@@ -246,10 +246,7 @@ export function ServiceUrlForm() {
     // wizard resetting) before this resolves, applying its result would
     // resurrect a token or error message the user already backed away
     // from, so only the token/expiry/error application below is gated on
-    // it. Clearing the password and the loading flag happens unconditionally
-    // in `finally`: this is the only sign-in that can be in flight at once
-    // (the button and the select both disable while signingIn is true), so
-    // there is never a newer request whose loading state this could stomp.
+    // it.
     const generation = signinGenerationRef.current;
     setSigningIn(true);
     setSigninError(null);
@@ -272,11 +269,27 @@ export function ServiceUrlForm() {
         );
       }
     } finally {
-      // Clear the password from state the instant the attempt settles,
-      // success or failure alike, and never retry automatically. ArcGIS
-      // locks an account after five failed sign-ins in fifteen minutes, and
-      // a retry loop here could do that to a real customer's account.
-      setPassword('');
+      // codex review #1757 P2: the credential inputs stay enabled while a
+      // sign-in is pending (only the method select and the Sign in button
+      // disable), so the user can correct the portal URL, username, or
+      // password before this settles. That edit already bumped the
+      // generation via invalidateMintedCredential, and may have put a new
+      // password in state for the next attempt; clearing unconditionally
+      // here would wipe that edit out from under the user when this
+      // superseded request settles. Gate it on the same generation check
+      // the success and error branches use above.
+      if (signinGenerationRef.current === generation) {
+        // Clear the password from state the instant the attempt settles,
+        // success or failure alike, and never retry automatically. ArcGIS
+        // locks an account after five failed sign-ins in fifteen minutes,
+        // and a retry loop here could do that to a real customer's
+        // account.
+        setPassword('');
+      }
+      // Unlike the password, this always runs regardless of generation:
+      // the button and the select both stay disabled while signingIn is
+      // true, and this is the only sign-in that can be in flight at once,
+      // so nothing else will ever flip it back to false if this does not.
       setSigningIn(false);
     }
   };
