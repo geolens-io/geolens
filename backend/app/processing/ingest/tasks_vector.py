@@ -102,37 +102,81 @@ async def _drop_attempt_staging_table(staging_table: str) -> None:
         )
 
 
+async def _service_import_heartbeat_tick(
+    job_uuid: uuid.UUID, attempt_id: uuid.UUID
+) -> bool:
+    """One heartbeat write: open a session, advance progress, commit, close.
+
+    Returns ``False`` when the caller's loop must stop (the job vanished or
+    left the step this heartbeat belongs to), ``True`` otherwise. Split out of
+    ``_heartbeat_service_import_progress`` so that function can ``shield`` the
+    whole tick from cancellation (fix(#1778)) — see that function's docstring.
+    """
+    async with _job_phase_session(
+        job_uuid,
+        phase="service_import_heartbeat",
+        attempt_id=attempt_id,
+    ) as (session, job):
+        if job is None:
+            return False
+        if job.status != "running" or job.current_step != "ogr2ogr":
+            return False
+
+        existing_progress = (
+            job.progress
+            if job.progress is not None
+            else _SERVICE_IMPORT_INITIAL_PROGRESS
+        )
+        next_progress = min(
+            _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
+            existing_progress + _SERVICE_IMPORT_HEARTBEAT_INCREMENT,
+        )
+        if next_progress <= existing_progress:
+            return True
+
+        job.progress = next_progress
+        await session.commit()
+        return True
+
+
 async def _heartbeat_service_import_progress(
     job_uuid: uuid.UUID, attempt_id: uuid.UUID
 ) -> None:
-    """Advance service-ingest progress while GDAL loads remote features."""
+    """Advance service-ingest progress while GDAL loads remote features.
+
+    fix(#1778): each tick is run under ``asyncio.shield`` so the caller's
+    ``.cancel()`` (``ingest_service``'s ``finally: service_progress_task.
+    cancel(); await service_progress_task``) can only ever land at the
+    ``asyncio.sleep`` above, never while a tick's session is mid-connect,
+    mid-write, or mid-close. Without this, a cancel landing inside
+    ``_job_phase_session``'s ``async with async_session()`` left that
+    connection's setup or teardown interrupted, and asyncpg does not always
+    finish tearing itself down in that state — the connection outlived the
+    coroutine that owned it, and its eventual, asynchronous close surfaced
+    later, against unrelated work, as ``ConnectionError: unexpected
+    connection_lost() call``. Shielding costs at most one in-flight tick's
+    worth of extra shutdown latency (a single SELECT + UPDATE + COMMIT), the
+    same trade a clean subprocess kill/reap already makes elsewhere in this
+    package.
+    """
     while True:
         await asyncio.sleep(_SERVICE_IMPORT_HEARTBEAT_INTERVAL_SECONDS)
+        tick = asyncio.ensure_future(
+            _service_import_heartbeat_tick(job_uuid, attempt_id)
+        )
         try:
-            async with _job_phase_session(
-                job_uuid,
-                phase="service_import_heartbeat",
-                attempt_id=attempt_id,
-            ) as (session, job):
-                if job is None:
-                    return
-                if job.status != "running" or job.current_step != "ogr2ogr":
-                    return
-
-                existing_progress = (
-                    job.progress
-                    if job.progress is not None
-                    else _SERVICE_IMPORT_INITIAL_PROGRESS
-                )
-                next_progress = min(
-                    _SERVICE_IMPORT_HEARTBEAT_MAX_PROGRESS,
-                    existing_progress + _SERVICE_IMPORT_HEARTBEAT_INCREMENT,
-                )
-                if next_progress <= existing_progress:
-                    continue
-
-                job.progress = next_progress
-                await session.commit()
+            try:
+                keep_going = await asyncio.shield(tick)
+            except asyncio.CancelledError:
+                # The OUTER await was cancelled, not necessarily `tick` — let
+                # its already-open connection finish and close cleanly before
+                # this coroutine ends.
+                if not tick.done():
+                    try:
+                        await tick
+                    except BaseException:  # broad: draining an already-shielded tick's own connection cleanup; whatever it raises must not replace the pending cancellation `raise` below
+                        pass
+                raise
         except Exception:  # broad: best-effort heartbeat must not fail ingest
             # Heartbeat progress is best-effort and must not mask ingest work.
             structlog.get_logger().warning(
@@ -140,6 +184,10 @@ async def _heartbeat_service_import_progress(
                 job_id=str(job_uuid),
                 exc_info=True,
             )
+            continue
+
+        if not keep_going:
+            return
 
 
 async def _write_service_import_progress(

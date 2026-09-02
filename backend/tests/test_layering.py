@@ -3846,7 +3846,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # redacted message. Net of two hand-rolled UPDATE blocks and two now-unused
     # IngestJob imports removed; the rest is the comment saying which exit owns
     # the unlink decision. Cap 1143 -> 1161, exact.
-    "backend/app/processing/ingest/tasks_vector.py": 1161,
+    # fix(#1778): +48 — `_heartbeat_service_import_progress`'s per-tick session
+    # open/write/commit/close now runs under `asyncio.shield`, split into its
+    # own `_service_import_heartbeat_tick` helper so the loop can shield the
+    # whole thing. A `.cancel()` used to be able to land mid-connect or
+    # mid-commit; asyncpg does not always finish tearing a connection down
+    # cleanly when that happens, and the leftover surfaced later, against
+    # unrelated work, as `ConnectionError: unexpected connection_lost() call`
+    # (test_ingest_progress.py's service-worker-progress test, seen in the
+    # merge queue). Cancellation can now only land at the `asyncio.sleep`
+    # between ticks. Cap 1161 -> 1209, exact.
+    "backend/app/processing/ingest/tasks_vector.py": 1209,
     # --- entered by the inclusion rule ------------------------------------
     # Crossed 1000 lines adding the "unable to open datasource" friendly-
     # message mapping shared by run_ogrinfo and run_ogr2ogr: the pattern
