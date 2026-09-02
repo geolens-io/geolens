@@ -651,10 +651,9 @@ def publish(
     ``--wait`` (default), polls the job-status endpoint to resolve the
     dataset_id; ``--no-wait`` returns immediately with a job-search URL.
 
-    fix(audit 2026-08-30 finding 1): with ``--wait``, a job that fails, is
-    cancelled, or does not finish within the poll window exits non-zero and
-    prints a failure line instead of "Published:"; ``--json`` carries the
-    terminal status.
+    fix(#1778): with ``--wait``, a job that fails, is cancelled, or does not
+    finish within the poll window exits non-zero and prints a failure line
+    instead of "Published:"; ``--json`` carries the terminal status.
 
     Pitfall 6: commit is NOT idempotent. On a duplicate commit (job
     already processed), prints "already committed" and exits 1.
@@ -735,12 +734,12 @@ def publish(
         if wait:
             dataset_id = _publish.resolve_dataset_id(sdk.client, job_id)
             if dataset_id is None:
-                # fix(audit 2026-08-30 finding 1, 8dc529f17): resolve_dataset_id
-                # returns None for a failed/cancelled/fanned-out job AND for a
-                # poll that ran out AND for a non-200 response (a token that
-                # expired mid-poll included) — a caller that asked us to wait
-                # must not read any of those as success. Read the status back
-                # so each gets its own sentence and exit code, mirroring
+                # fix(#1778): resolve_dataset_id returns None for a
+                # failed/cancelled/fanned-out job AND for a poll that ran out
+                # AND for a non-200 response (a token that expired mid-poll
+                # included) — a caller that asked us to wait must not read
+                # any of those as success. Read the status back so each gets
+                # its own sentence and exit code, mirroring
                 # `analysis materialize --wait` (below, ~1150).
                 late_status, late_dataset_id = _analysis.job_snapshot(
                     sdk.client, job_id
@@ -782,17 +781,19 @@ def publish(
         # Stage 5 — fix(#569): apply --tags / --collection now that the
         # dataset id exists. Failures here are PARTIAL: the dataset was
         # created, so report honestly and exit non-zero below.
+        #
+        # fix(#1778): when dataset_id is still None here, wait was True (a
+        # bare --no-wait with tags/collection already exits EXIT_USAGE above)
+        # and publish_failure is already set, explaining why. Tags/collection
+        # were never attempted against a dataset that does not exist, so skip
+        # the block rather than append a second, contradictory "not applied"
+        # line under the terminal failure message.
         extras_failures: list[str] = []
-        if tags or collection:
-            if dataset_id is None:
-                extras_failures.append(
-                    "dataset id could not be resolved — tags/collection not applied"
-                )
-            else:
-                progress.add_task("Applying tags/collection...", total=None)
-                extras_failures = _publish.apply_publish_extras(
-                    sdk.client, dataset_id, tags, collection
-                )
+        if (tags or collection) and dataset_id is not None:
+            progress.add_task("Applying tags/collection...", total=None)
+            extras_failures = _publish.apply_publish_extras(
+                sdk.client, dataset_id, tags, collection
+            )
 
     dataset_url = _publish.construct_dataset_url(
         instance,
@@ -1397,8 +1398,8 @@ def analysis_materialize(
         timeout=_analysis.POLL_FOREVER if timeout is None else timeout,
     )
     if resolved is None:
-        # resolve_dataset_id returns None for a failed/cancelled/fanned-out
-        # job (fix(audit 2026-08-30 finding 2): "cancelled" was previously
+        # fix(#1778): resolve_dataset_id returns None for a
+        # failed/cancelled/fanned-out job ("cancelled" was previously
         # missing from its terminal set, so --wait polled a cancelled job
         # under POLL_FOREVER forever) AND for a poll that ran out, and a
         # script that asked us to wait must not read any of those as
@@ -1418,10 +1419,10 @@ def analysis_materialize(
                 f"GET /jobs/{job_id}."
             )
         elif status == "cancelled":
-            # fix(audit 2026-08-30 finding 2): reachable now that
-            # resolve_dataset_id treats cancelled as terminal — say so
-            # plainly instead of falling into the "still {status}" wording
-            # below, which would wrongly imply the job might still finish.
+            # fix(#1778): reachable now that resolve_dataset_id treats
+            # cancelled as terminal — say so plainly instead of falling into
+            # the "still {status}" wording below, which would wrongly imply
+            # the job might still finish.
             state.output.error(
                 f"Analysis job {job_id} was cancelled. Check GET /jobs/{job_id}."
             )

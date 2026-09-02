@@ -80,13 +80,13 @@ _DUPLICATE_DETAIL_NEEDLE = "already processed"
 _DEFAULT_POLL_INTERVAL_SECONDS: float = 1.0
 _DEFAULT_POLL_TIMEOUT_SECONDS: float = 120.0
 
-#: fix(audit 2026-08-30 finding 2, 8dc529f17): job statuses that mean "this
-#: job will never produce a dataset_id through this endpoint". Previously
-#: only "failed" was terminal here, so --wait polled a cancelled job for the
-#: full timeout. "cancelled" matches refresh.wait_for_refresh's terminal set
-#: ({"failed", "cancelled"}); "fanned_out" is added too because the parent
-#: of a multi-layer commit is marked fanned_out and never gets its own
-#: dataset_id (commit_fan_out, backend/app/processing/ingest/router.py).
+#: fix(#1778): job statuses that mean "this job will never produce a
+#: dataset_id through this endpoint". Previously only "failed" was terminal
+#: here, so --wait polled a cancelled job for the full timeout. "cancelled"
+#: matches refresh.wait_for_refresh's terminal set ({"failed", "cancelled"});
+#: "fanned_out" is added too because the parent of a multi-layer commit is
+#: marked fanned_out and never gets its own dataset_id (commit_fan_out,
+#: backend/app/processing/ingest/router.py).
 _TERMINAL_NO_DATASET_STATUSES = frozenset({"failed", "cancelled", "fanned_out"})
 
 # ---------------------------------------------------------------------------
@@ -290,10 +290,9 @@ def resolve_dataset_id(
         # Terminal success: dataset_id materialized.
         if dataset_id:
             return str(dataset_id)
-        # Terminal failure: the worker will not produce a dataset_id on this
-        # job (fix(audit 2026-08-30 finding 2): "cancelled" and "fanned_out"
-        # were missing here, so --wait kept polling until timeout instead of
-        # stopping as soon as the job's fate was known).
+        # fix(#1778): "cancelled" and "fanned_out" were missing from the
+        # terminal set, so --wait kept polling until timeout instead of
+        # stopping as soon as the job's fate was known.
         if status in _TERMINAL_NO_DATASET_STATUSES:
             return None
         sleep(interval)

@@ -675,10 +675,10 @@ class TestPublishCli:
 
 
 # ---------------------------------------------------------------------------
-# fix(audit 2026-08-30 finding 1, 8dc529f17) — `publish --wait` must not
-# report success (exit 0, "Published: ...") for a job that failed, was
-# cancelled, timed out, or could not be read back because the token expired
-# mid-poll. Mirrors analysis materialize --wait's job_snapshot fallback.
+# fix(#1778) — `publish --wait` must not report success (exit 0,
+# "Published: ...") for a job that failed, was cancelled, timed out, or
+# could not be read back because the token expired mid-poll. Mirrors
+# analysis materialize --wait's job_snapshot fallback.
 # ---------------------------------------------------------------------------
 
 
@@ -707,6 +707,38 @@ class TestPublishWaitTerminalOutcomes:
         assert "Published:" not in result.output
         assert "failed" in result.output
         assert "job record" in result.output
+
+    def test_wait_job_failed_with_tags_does_not_claim_a_dataset_was_created(
+        self,
+        runner,
+        tmp_xdg_home,
+        mock_keyring,
+        monkeypatch,
+        sample_geojson,
+        patch_sdk_for_publish,
+    ) -> None:
+        """fix(#1778, codex round 1 P2): a failed/cancelled/timed-out job
+        never resolves a dataset_id, so --tags/--collection are never
+        attempted against it. The output must carry only the terminal
+        failure line, not a "Dataset created, but: ... not applied" line
+        that contradicts it."""
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com", mock_keyring)
+        patch_sdk_for_publish(
+            upload=_ok_upload(),
+            preview=_ok_preview(),
+            commit=_ok_commit(),
+            job_status=_ok_job_status(dataset_id=None, status="failed"),
+        )
+
+        result = runner.invoke(
+            app, ["publish", str(sample_geojson), "--tags", "hydro"]
+        )
+        assert result.exit_code == 1, result.output
+        assert "failed" in result.output
+        assert "Dataset created" not in result.output
+        assert "not applied" not in result.output
 
     def test_wait_job_failed_json_mode_carries_status_and_null_dataset_id(
         self,

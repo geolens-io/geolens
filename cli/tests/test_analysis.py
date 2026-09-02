@@ -598,11 +598,11 @@ class TestAnalysisMaterializeCli:
     def test_a_cancelled_job_exits_non_zero_and_says_so(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
-        """fix(audit 2026-08-30 finding 2): resolve_dataset_id now treats
-        cancelled as terminal (it previously polled a cancelled job forever
-        under POLL_FOREVER), so this status is reachable here. It must not
-        fall into the "still {status}" wording, which would claim the job
-        might still finish."""
+        """fix(#1778): resolve_dataset_id now treats cancelled as terminal
+        (it previously polled a cancelled job forever under POLL_FOREVER),
+        so this status is reachable here. It must not fall into the
+        "still {status}" wording, which would claim the job might still
+        finish."""
         from geolens_cli.main import app
 
         _seed_login("https://x.example.com/api", mock_keyring)
