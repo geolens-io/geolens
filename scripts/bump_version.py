@@ -263,45 +263,94 @@ def _bump_package_lock(path: Path, version: str) -> None:
     print(f'  {_rel(path)} (.version + packages."".version) -> {version}')
 
 
-# The current `[Unreleased]` compare link. Its own from-tag IS the previous
-# version — reading it back means the bump needs no separate record of what
-# came before (fix(#1716)).
-_UNRELEASED_LINK_RE = re.compile(
-    rf"^\[Unreleased\]: {re.escape(CHANGELOG_REPO_URL)}/compare/"
-    rf"v(\d+\.\d+\.\d+)\.\.\.HEAD$",
-    re.MULTILINE,
-)
+# `[Unreleased]:` in whatever shape it currently reads, so a malformed line
+# gets repaired rather than silently ignored.
+_UNRELEASED_LINE_RE = re.compile(r"^\[Unreleased\]: .*$", re.MULTILINE)
+# A `## [<version>]` section heading, optionally followed by ` - <date>`.
+_CHANGELOG_HEADER_RE = re.compile(r"^## \[([^\]]+)\]")
+
+
+def _changelog_prev_version(text: str, version: str) -> str | None:
+    """The version whose `## [...]` section immediately follows `version`'s.
+
+    None if `version`'s section is the last one in the file — the initial
+    release, with no preceding version to compare from.
+    """
+    found = False
+    for line in text.splitlines():
+        m = _CHANGELOG_HEADER_RE.match(line)
+        if not m:
+            continue
+        label = m.group(1)
+        if found:
+            if label == "Unreleased":
+                continue
+            return label
+        if label == version:
+            found = True
+    return None
 
 
 def _bump_changelog_links(path: Path, version: str) -> None:
-    """Repoint `[Unreleased]` and insert the new `[X.Y.Z]:` compare link.
+    """Repoint `[Unreleased]` and ensure `[X.Y.Z]:` compares from the right tag.
 
-    Idempotent: if `[Unreleased]` already compares from `version`, this bump
-    already ran for this version and nothing is written again — running the
-    script twice for the same version must not insert a second link.
+    The previous version is read from the CHANGELOG's own section structure
+    (the `## [...]` heading immediately below `## [version]`), not from the
+    current `[Unreleased]` link text — check_version_coherence.py verifies
+    the link against that same structural rule, so the two agree by
+    construction. Repairs whichever half is missing or wrong rather than
+    bailing out as soon as `[Unreleased]` already points at `version`: a
+    partial or hand-edited state — `[Unreleased]` repointed but the
+    `[X.Y.Z]:` link missing or stale — used to be left unrepaired
+    (fix(#1716 review)). A true no-op (both lines already correct) still
+    writes nothing.
     """
     text = path.read_text()
-    m = _UNRELEASED_LINK_RE.search(text)
-    if not m:
+
+    unreleased_m = _UNRELEASED_LINE_RE.search(text)
+    if not unreleased_m:
         sys.exit(
-            f"ERROR: no '[Unreleased]: {CHANGELOG_REPO_URL}/compare/vPREV...HEAD'\n"
-            f"line in {_rel(path)}. Add the reference-style link block before bumping."
+            f"ERROR: no '[Unreleased]: ...' line in {_rel(path)}. Add the "
+            f"reference-style link block before bumping."
         )
-    prev_version = m.group(1)
-    if prev_version == version:
-        print(f"  {_rel(path)} (compare links) already point at {version}, skipping.")
-        return
-    new_unreleased = f"[Unreleased]: {CHANGELOG_REPO_URL}/compare/v{version}...HEAD"
-    new_version_link = (
+
+    prev_version = _changelog_prev_version(text, version)
+    if prev_version is None:
+        sys.exit(
+            f"ERROR: {_rel(path)} has no '## [...]' section below '## [{version}]' "
+            f"to read the previous version from. Add the release's CHANGELOG "
+            f"section (and the section for the version before it) before bumping."
+        )
+
+    expected_unreleased = f"[Unreleased]: {CHANGELOG_REPO_URL}/compare/v{version}...HEAD"
+    expected_version_link = (
         f"[{version}]: {CHANGELOG_REPO_URL}/compare/v{prev_version}...v{version}"
     )
-    text = _UNRELEASED_LINK_RE.sub(
-        lambda _: f"{new_unreleased}\n{new_version_link}", text, count=1
-    )
+
+    changed = False
+    if unreleased_m.group(0) != expected_unreleased:
+        text = text[: unreleased_m.start()] + expected_unreleased + text[unreleased_m.end() :]
+        changed = True
+
+    version_line_re = re.compile(rf"^\[{re.escape(version)}\]: .*$", re.MULTILINE)
+    version_m = version_line_re.search(text)
+    if version_m is None:
+        text = text.replace(
+            expected_unreleased, f"{expected_unreleased}\n{expected_version_link}", 1
+        )
+        changed = True
+    elif version_m.group(0) != expected_version_link:
+        text = text[: version_m.start()] + expected_version_link + text[version_m.end() :]
+        changed = True
+
+    if not changed:
+        print(f"  {_rel(path)} (compare links) already correct for {version}, skipping.")
+        return
+
     path.write_text(text)
     print(
         f"  {_rel(path)} ([Unreleased] -> compare/v{version}...HEAD, "
-        f"+ [{version}] -> compare/v{prev_version}...v{version})"
+        f"[{version}] -> compare/v{prev_version}...v{version})"
     )
 
 

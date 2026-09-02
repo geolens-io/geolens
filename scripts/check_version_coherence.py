@@ -215,14 +215,44 @@ def _changelog_links() -> dict[str, str]:
     return dict(_LINK_DEF_RE.findall(CHANGELOG.read_text()))
 
 
+# A `## [<version>]` section heading, optionally followed by ` - <date>`.
+_CHANGELOG_HEADER_RE = re.compile(r"^## \[([^\]]+)\]")
+
+
+def _changelog_prev_version(canonical: str) -> str | None:
+    """The version whose `## [...]` section immediately follows canonical's.
+
+    None if canonical's section is the last one in the file - the initial
+    release, with no preceding version to compare from. bump_version.py
+    derives the previous version the same way, so the two agree by
+    construction.
+    """
+    found = False
+    for line in CHANGELOG.read_text().splitlines():
+        m = _CHANGELOG_HEADER_RE.match(line)
+        if not m:
+            continue
+        label = m.group(1)
+        if found:
+            if label == "Unreleased":
+                continue
+            return label
+        if label == canonical:
+            found = True
+    return None
+
+
 def _check_changelog_links(canonical: str) -> list[str]:
     """FAIL messages for the CHANGELOG's reference-style compare links.
 
-    An empty list means both checks passed: a `[<canonical>]:` compare link
-    exists, and `[Unreleased]:` compares from `v<canonical>...HEAD` rather
-    than an older tag. A CHANGELOG with no link block at all (an empty dict
-    from `_changelog_links()`) fails both checks with a plain message here,
-    not a traceback.
+    An empty list means both checks passed: `[Unreleased]:` compares from
+    `v<canonical>...HEAD` rather than an older tag, and `[<canonical>]:`
+    compares from the version whose `## [...]` section immediately follows
+    canonical's in the file - not merely "some v...v<canonical> link", which
+    would let a stale or self-referential source (e.g.
+    `compare/v<canonical>...v<canonical>`) pass. A CHANGELOG with no link
+    block at all (an empty dict from `_changelog_links()`) fails both checks
+    with a plain message here, not a traceback.
     """
     links = _changelog_links()
     failures: list[str] = []
@@ -248,18 +278,37 @@ def _check_changelog_links(canonical: str) -> list[str]:
             )
 
     version_url = links.get(canonical)
+    prev_version = _changelog_prev_version(canonical)
+
     if version_url is None:
         failures.append(
             f"{_rel(CHANGELOG)} has no '[{canonical}]:' compare link definition. "
-            f"Add '[{canonical}]: {CHANGELOG_REPO_URL}/compare/vPREV...v{canonical}' "
-            f"to the link block (run `make bump VERSION={canonical}` to write it)."
+            f"Add '[{canonical}]: {CHANGELOG_REPO_URL}/compare/v{prev_version or 'PREV'}"
+            f"...v{canonical}' to the link block (run `make bump VERSION={canonical}` "
+            f"to write it)."
         )
-    else:
-        m = _COMPARE_LINK_RE.match(version_url)
-        if not m or m.group("to") != f"v{canonical}":
+    elif prev_version is None:
+        # canonical's section is the first (oldest) one in the file: there is
+        # no preceding '## [...]' section to derive a PREV tag from. Accept
+        # only the conventional initial-release link; anything else can't be
+        # verified against the repository's actual initial tag from the
+        # CHANGELOG alone, so report rather than silently pass.
+        initial_tag_url = f"{CHANGELOG_REPO_URL}/releases/tag/v{canonical}"
+        if version_url != initial_tag_url:
             failures.append(
-                f"{_rel(CHANGELOG)}'s '[{canonical}]:' link does not compare "
-                f"...v{canonical}. Got: {version_url!r}"
+                f"{_rel(CHANGELOG)}'s '[{canonical}]:' section is the first one in "
+                f"the file (no preceding '## [...]' section to compare from), so its "
+                f"link should be '{initial_tag_url}'. Got: {version_url!r}. If "
+                f"v{canonical} is not actually the repository's initial release, add "
+                f"the missing '## [...]' section for the version before it."
+            )
+    else:
+        expected = f"{CHANGELOG_REPO_URL}/compare/v{prev_version}...v{canonical}"
+        if version_url != expected:
+            failures.append(
+                f"{_rel(CHANGELOG)}'s '[{canonical}]:' link should compare "
+                f"v{prev_version}...v{canonical} (the next '## [...]' section below "
+                f"'## [{canonical}]' is '## [{prev_version}]'). Got: {version_url!r}"
             )
 
     return failures
