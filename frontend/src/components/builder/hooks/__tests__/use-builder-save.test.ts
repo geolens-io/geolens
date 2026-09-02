@@ -286,7 +286,7 @@ describe('reconcileLayerDiffWithServer (#1778)', () => {
         updated: [{ id: 'a', opacity: 0.5 }, { id: 'gone', opacity: 0.5 }],
         removed: ['b', 'alsoGone'],
       },
-      new Set(['a', 'b']),
+      ['a', 'b'],
     );
     expect(out.added).toHaveLength(1);
     expect(out.updated).toEqual([{ id: 'a', opacity: 0.5 }]);
@@ -296,13 +296,13 @@ describe('reconcileLayerDiffWithServer (#1778)', () => {
   it('drops order entries the server does not have or is about to remove', () => {
     const out = reconcileLayerDiffWithServer(
       { removed: ['b'], order: ['a', 'b', 'gone'] },
-      new Set(['a', 'b']),
+      ['a', 'b'],
     );
     expect(out.order).toEqual(['a']);
   });
 
   it('omits order entirely when nothing survives, so the server does not renumber', () => {
-    const out = reconcileLayerDiffWithServer({ order: ['gone'] }, new Set(['a']));
+    const out = reconcileLayerDiffWithServer({ order: ['gone'] }, ['a']);
     expect(out.order).toBeUndefined();
   });
 
@@ -311,9 +311,40 @@ describe('reconcileLayerDiffWithServer (#1778)', () => {
     // refetched baseline would emit it as `removed`; reconciling cannot.
     const out = reconcileLayerDiffWithServer(
       { updated: [{ id: 'a', opacity: 0.5 }] },
-      new Set(['a', 'addedByAnotherSession']),
+      ['a', 'addedByAnotherSession'],
     );
     expect(out.removed).toBeUndefined();
+  });
+
+  // fix(#1778 codex round 1): apply_layer_diff numbers the ids it is given from
+  // 0 and appends every surviving layer the order omitted, so sending only the
+  // locally known survivors would push a remotely added layer to the bottom.
+  // Counterfactual: filtering instead of merging yields ['B', 'A'], which the
+  // backend applies as [B, A, X].
+  it('leaves a remotely added layer at its server position when merging the local order', () => {
+    const out = reconcileLayerDiffWithServer(
+      { order: ['B', 'A'] },
+      ['A', 'X', 'B'],
+    );
+    expect(out.order).toEqual(['B', 'X', 'A']);
+  });
+
+  it('merges around a locally deleted layer and several unseen ones', () => {
+    // Server: [A, X, B, Y, C]. This session deleted B and reordered to [C, A].
+    const out = reconcileLayerDiffWithServer(
+      { removed: ['B'], order: ['C', 'A'] },
+      ['A', 'X', 'B', 'Y', 'C'],
+    );
+    // B drops out; X and Y hold positions 1 and 2 of what remains.
+    expect(out.order).toEqual(['C', 'X', 'Y', 'A']);
+  });
+
+  it('leaves an unchanged local order alone when the server has unseen layers', () => {
+    const out = reconcileLayerDiffWithServer(
+      { order: ['A', 'B'] },
+      ['A', 'X', 'B'],
+    );
+    expect(out.order).toEqual(['A', 'X', 'B']);
   });
 });
 
@@ -1158,6 +1189,52 @@ describe('useBuilderSave', () => {
     // The metadata PUT carries NO layers array, so nothing is overwritten.
     expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(1);
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
+  });
+
+  // fix(#1778 codex round 1 P2): the retry must not move a layer this session
+  // never saw. apply_layer_diff numbers the given ids from 0 and appends every
+  // omitted survivor, so sending only [layer-b, layer-a] would leave the
+  // remotely added layer-x at the bottom. Counterfactual: filter instead of
+  // merge and the retried order is ['layer-b', 'layer-a'].
+  it('merges the local reorder into the server sequence around a remotely added layer', async () => {
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
+      new ApiError(
+        'Layer diff references layer ids outside this map',
+        400,
+        'Layer diff references layer ids outside this map',
+      ),
+    );
+    // Another session added layer-x between the two this session knows, and
+    // deleted layer-gone that this session had removed locally too.
+    mockGetMap.mockResolvedValueOnce({
+      id: 'map-1',
+      layers: [{ id: 'layer-a' }, { id: 'layer-x' }, { id: 'layer-b' }],
+    });
+
+    const a = makeLayer({ id: 'layer-a', dataset_id: 'ds-a', sort_order: 0 });
+    const b = makeLayer({ id: 'layer-b', dataset_id: 'ds-b', sort_order: 1 });
+    const goneElsewhere = makeLayer({ id: 'layer-gone', dataset_id: 'ds-gone', sort_order: 2 });
+    let state = makeSaveState({ localLayers: [a, b, goneElsewhere] });
+    const { result, rerender } = renderHook(() => useBuilderSave(state));
+    // This session reorders b above a and deletes layer-gone.
+    state = makeSaveState({
+      localLayers: [
+        makeLayer({ id: 'layer-b', dataset_id: 'ds-b', sort_order: 0 }),
+        makeLayer({ id: 'layer-a', dataset_id: 'ds-a', sort_order: 1 }),
+      ],
+      hasUnsavedChanges: true,
+    });
+    rerender();
+
+    await act(async () => {
+      await result.current.handleSave();
+    });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(2);
+    expect(mockPatchMapLayersMutateAsync.mock.calls[0][0].diff.order).toEqual(['layer-b', 'layer-a']);
+    const retried = mockPatchMapLayersMutateAsync.mock.calls[1][0].diff;
+    expect(retried.order).toEqual(['layer-b', 'layer-x', 'layer-a']);
+    expect(retried.removed).toBeUndefined();
   });
 
   it('skips the retry PATCH when nothing survives the reconcile', async () => {

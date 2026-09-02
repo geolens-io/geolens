@@ -275,6 +275,46 @@ describe('fix(#1778): delete prunes the Save-diff baseline on an already-dirty m
     expect(diff.updated).toEqual([{ id: 'keep', opacity: 0.4 }]);
   });
 
+  // fix(#1778 codex round 1 P2): the baseline prune used to run only when the
+  // WHOLE batch succeeded. On a partial success the confirmed-deleted rows left
+  // local state anyway, so they stayed in both baselines, the next Save
+  // re-emitted them in diff.removed, and the stale-conflict recovery fired (or
+  // the save failed outright when the refetch was unavailable).
+  // Counterfactual: drop the prune from the partial branch and diff.removed
+  // carries bulk-a.
+  it('partial bulk delete prunes only the confirmed-deleted ids from the baselines', async () => {
+    const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
+    const a = makeBuilderLayer({ id: 'bulk-a', dataset_id: 'ds-a', sort_order: 1 });
+    const b = makeBuilderLayer({ id: 'bulk-b', dataset_id: 'ds-b', sort_order: 2 });
+    const { result } = renderCombined(makeBuilderMap([keep, a, b]));
+
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
+    expect(result.current.hasUnsavedChanges).toBe(true);
+
+    mockBulkDeleteLayers.mockResolvedValueOnce({
+      deleted: ['bulk-a'],
+      failed: [{ id: 'bulk-b', reason: 'layer in use' }],
+    });
+    await act(async () => { await result.current.handleBulkDelete(new Set(['bulk-a', 'bulk-b'])); });
+
+    // bulk-b's delete failed, so it is back in local state.
+    expect(result.current.localLayers.map((l) => l.id)).toContain('bulk-b');
+    expect(result.current.localLayers.map((l) => l.id)).not.toContain('bulk-a');
+    // Only the confirmed-deleted id leaves the refetch-resync baseline. Checked
+    // before the save, because a clean map lets the apiLayers resync effect
+    // rehydrate this ref from the (static) mock map payload.
+    expect(result.current.savedLayerBaseline.map((l) => l.id)).toContain('bulk-b');
+    expect(result.current.savedLayerBaseline.map((l) => l.id)).not.toContain('bulk-a');
+
+    await act(async () => { await result.current.handleSave(); });
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    const [{ diff }] = mockPatchMapLayersMutateAsync.mock.calls[0];
+    // bulk-a is gone server-side, so naming it would be the stale diff again.
+    // bulk-b is still on the server and still local, so it is not removed either.
+    expect(diff.removed).toBeUndefined();
+  });
+
   it('bulk delete after an unrelated edit emits no removed ids', async () => {
     const keep = makeBuilderLayer({ id: 'keep', dataset_id: 'ds-keep', sort_order: 0 });
     const a = makeBuilderLayer({ id: 'bulk-a', dataset_id: 'ds-a', sort_order: 1 });

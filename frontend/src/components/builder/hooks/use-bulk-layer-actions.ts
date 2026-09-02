@@ -527,6 +527,17 @@ export function useBulkLayerActions({
       // child is returning.
       const deletedIds = new Set(result.deleted);
       const failedIds = new Set(result.failed.map((f) => f.id));
+      // fix(#1778 codex round 1): the confirmed-deleted rows leave local state
+      // here just as they do on the full-success path, so BOTH baselines need
+      // the same prune. Without it the next Save re-emitted them in
+      // diff.removed, tripped the stale-conflict recovery and its warning, and
+      // failed outright whenever the refetch was unavailable. Only groups whose
+      // every child was actually deleted are pruned: a failed child is not in
+      // deletedIds, so its container still has a member and survives.
+      savedLayerBaselineRef.current = pruneEmptyFolderGroups(
+        savedLayerBaselineRef.current.filter((l) => !deletedIds.has(l.id)),
+      );
+      saveBaselineSyncRef.current?.remove(deletedIds);
       setLocalLayers((current) =>
         restoreFailedLayers(
           current.filter((l) => !deletedIds.has(l.id)),

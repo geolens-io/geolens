@@ -717,25 +717,66 @@ function isStaleLayerDiffError(error: unknown): boolean {
  * already built keeps the recovery strictly additive to server state: ids the
  * server no longer has are simply dropped, and anything this session did not
  * touch is left alone.
+ *
+ * `serverLayerIds` is the refetched map's layer SEQUENCE in server sort order,
+ * not just a membership set, because the order reconciliation below needs
+ * positions.
  */
 export function reconcileLayerDiffWithServer(
   diff: MapLayerDiffRequest,
-  serverLayerIds: Set<string>,
+  serverLayerIds: readonly string[],
 ): MapLayerDiffRequest {
+  const serverIdSet = new Set(serverLayerIds);
   const next: MapLayerDiffRequest = {};
   if (diff.added?.length) next.added = diff.added;
-  const updated = diff.updated?.filter((patch) => serverLayerIds.has(patch.id));
+  const updated = diff.updated?.filter((patch) => serverIdSet.has(patch.id));
   if (updated?.length) next.updated = updated;
-  const removed = diff.removed?.filter((id) => serverLayerIds.has(id));
+  const removed = diff.removed?.filter((id) => serverIdSet.has(id));
   if (removed?.length) next.removed = removed;
   const removedSet = new Set(removed ?? []);
   if (diff.order) {
-    // The backend rejects an order that names an unknown id or one being
-    // removed in the same call, and it only ever orders pre-existing rows.
-    const order = diff.order.filter((id) => serverLayerIds.has(id) && !removedSet.has(id));
+    const order = mergeOrderWithServerSequence(diff.order, serverLayerIds, removedSet);
     if (order.length > 0) next.order = order;
   }
   return next;
+}
+
+/**
+ * fix(#1778 codex round 1): merge this session's relative order into the
+ * server's current sequence instead of sending only the ids this session knows.
+ *
+ * `apply_layer_diff` numbers the ids it is given from 0 and then APPENDS every
+ * surviving layer the order omitted. A bare filter would therefore take server
+ * order [A, X, B] with local order [B, A], send [B, A], and strand the remotely
+ * added X at the end as [B, A, X], moving a layer this session never saw. The
+ * stable merge walks the surviving server sequence and substitutes the next
+ * locally ordered survivor at each position a locally known layer already
+ * occupies, so unseen ids keep their server positions: [B, X, A].
+ *
+ * Ids being removed in the same call are dropped, because the backend rejects
+ * an order that names one, and so are ids the server no longer has.
+ */
+function mergeOrderWithServerSequence(
+  localOrder: readonly string[],
+  serverLayerIds: readonly string[],
+  removedIds: ReadonlySet<string>,
+): string[] {
+  const serverIdSet = new Set(serverLayerIds);
+  const localSurvivors = localOrder.filter(
+    (id) => serverIdSet.has(id) && !removedIds.has(id),
+  );
+  if (localSurvivors.length === 0) return [];
+  const localSurvivorSet = new Set(localSurvivors);
+  const merged: string[] = [];
+  let nextLocal = 0;
+  for (const id of serverLayerIds) {
+    if (removedIds.has(id)) continue;
+    // Every position a locally known survivor occupies is filled from the local
+    // sequence, in order. The counts match because localSurvivors is exactly the
+    // subset of surviving server ids this session ordered.
+    merged.push(localSurvivorSet.has(id) ? localSurvivors[nextLocal++] : id);
+  }
+  return merged;
 }
 
 export interface LayerDiffResult {
@@ -1073,7 +1114,9 @@ export function useBuilderSave(state: SaveState) {
             if (isStaleLayerDiffError(error)) {
               try {
                 const fresh = await getMap(id);
-                const serverLayerIds = new Set((fresh.layers ?? []).map((l) => l.id));
+                // GET /maps/{id} returns layers ordered by sort_order, so this is
+                // the server's current sequence, which the order merge needs.
+                const serverLayerIds = (fresh.layers ?? []).map((l) => l.id);
                 const reconciled = reconcileLayerDiffWithServer(diff, serverLayerIds);
                 if (hasDiff(reconciled)) {
                   await patchMapLayers.mutateAsync({ id, diff: reconciled });
