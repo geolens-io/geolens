@@ -741,6 +741,7 @@ def publish(
         if wait:
             outcome = _publish.resolve_dataset_id(sdk.client, job_id)
             dataset_id = outcome.dataset_id
+            late_status: Optional[str] = None
             if dataset_id is None and outcome.stopped_because in (
                 "timeout",
                 "poll_failed",
@@ -754,29 +755,42 @@ def publish(
                 # false "still running after 120s" timeout. This extra read
                 # is skipped for "terminal" (a terminal status cannot later
                 # gain a dataset_id) and "token_expired" (retrying the same
-                # dead token is pointless); where it does run, only its
-                # dataset_id is trusted — the job can genuinely finish
-                # between resolve_dataset_id's last look and now — and its
-                # own status is discarded rather than used for wording.
-                _, late_dataset_id = _analysis.job_snapshot(sdk.client, job_id)
+                # dead token is pointless).
+                late_status, late_dataset_id = _analysis.job_snapshot(
+                    sdk.client, job_id
+                )
                 if late_dataset_id:
                     dataset_id = late_dataset_id
             if dataset_id is None:
                 wait_outcome_known = True
-                publish_status = outcome.status
-                publish_stopped_because = outcome.stopped_because
-                reason = outcome.stopped_because
-                if reason == "terminal" and outcome.status == "failed":
+                # fix(#1778, codex round 4): the job can finish between
+                # resolve_dataset_id's last look and now (fix(#685 review)),
+                # but it can just as well have reached a DEFINITIVE terminal
+                # status by then — failed, cancelled, or fanned out. That is
+                # real information the original poll didn't have and must
+                # win over the stale timeout/poll_failed wording; only a
+                # pending/running (or unreadable) snapshot leaves the job's
+                # fate genuinely unresolved, so only THAT keeps the original
+                # outcome's wording.
+                if late_status in _publish._TERMINAL_NO_DATASET_STATUSES:
+                    effective_status = late_status
+                    reason = "terminal"
+                else:
+                    effective_status = outcome.status
+                    reason = outcome.stopped_because
+                publish_status = effective_status
+                publish_stopped_because = reason
+                if reason == "terminal" and effective_status == "failed":
                     publish_failure = (
                         f"Publish job {job_id} failed. Its error is on the "
                         f"job record: GET /jobs/{job_id}."
                     )
-                elif reason == "terminal" and outcome.status == "cancelled":
+                elif reason == "terminal" and effective_status == "cancelled":
                     publish_failure = (
                         f"Publish job {job_id} was cancelled. "
                         f"Check GET /jobs/{job_id}."
                     )
-                elif reason == "terminal" and outcome.status == "fanned_out":
+                elif reason == "terminal" and effective_status == "fanned_out":
                     # fanned_out is TERMINAL and a SUCCESS, not a timeout —
                     # the parent job of a multi-layer commit lands here the
                     # moment each layer's own import is queued
@@ -798,7 +812,7 @@ def publish(
                     # wording for yet.
                     publish_failure = (
                         f"Publish job {job_id} reached status "
-                        f"{outcome.status!r}, which will not produce a "
+                        f"{effective_status!r}, which will not produce a "
                         f"dataset. Check GET /jobs/{job_id}."
                     )
                 elif reason == "token_expired":
@@ -814,7 +828,7 @@ def publish(
                     )
                 else:  # "timeout"
                     publish_failure = (
-                        f"Publish job {job_id} was still {outcome.status} "
+                        f"Publish job {job_id} was still {effective_status} "
                         f"after {int(_publish._DEFAULT_POLL_TIMEOUT_SECONDS)}s "
                         f"and has not finished. Check GET /jobs/{job_id}."
                     )
@@ -1449,6 +1463,7 @@ def analysis_materialize(
     materialize_message: Optional[str] = None
     materialize_exit_code = EXIT_GENERIC
     if resolved is None:
+        late_status: Optional[str] = None
         if outcome.stopped_because in ("timeout", "poll_failed"):
             # fix(#1778, codex round 3): resolve_dataset_id now reports WHY
             # it stopped instead of collapsing every reason into None — see
@@ -1456,24 +1471,37 @@ def analysis_materialize(
             # (a transient poll failure followed by a lucky pending/running
             # re-read used to be reported as a false timeout). This extra
             # read is skipped for "terminal" and "token_expired" for the
-            # same reasons as there; where it does run, only its dataset_id
-            # is trusted.
-            _, late_dataset_id = _analysis.job_snapshot(poll_client, job_id)
+            # same reasons as there.
+            late_status, late_dataset_id = _analysis.job_snapshot(
+                poll_client, job_id
+            )
             if late_dataset_id:
                 # The job finished between the poll's last look and this one
                 # (fix(#685 review)). Reporting a completed job as
                 # unfinished would be the worst answer of the bunch.
                 resolved = late_dataset_id
         if resolved is None:
-            materialize_status = outcome.status
-            materialize_stopped_because = outcome.stopped_because
-            reason = outcome.stopped_because
-            if reason == "terminal" and outcome.status == "failed":
+            # fix(#1778, codex round 4): the job can just as well have
+            # reached a DEFINITIVE terminal status by the time of the
+            # follow-up read — failed, cancelled, or fanned out. That real
+            # information must win over the stale timeout/poll_failed
+            # wording; only a pending/running (or unreadable) snapshot
+            # leaves the job's fate genuinely unresolved, so only THAT
+            # keeps the original outcome's wording.
+            if late_status in _publish._TERMINAL_NO_DATASET_STATUSES:
+                effective_status = late_status
+                reason = "terminal"
+            else:
+                effective_status = outcome.status
+                reason = outcome.stopped_because
+            materialize_status = effective_status
+            materialize_stopped_because = reason
+            if reason == "terminal" and effective_status == "failed":
                 materialize_failure = (
                     f"Analysis job {job_id} failed. Its error is on the job "
                     f"record: GET /jobs/{job_id}."
                 )
-            elif reason == "terminal" and outcome.status == "cancelled":
+            elif reason == "terminal" and effective_status == "cancelled":
                 # fix(#1778): reachable now that resolve_dataset_id treats
                 # cancelled as terminal — say so plainly instead of falling
                 # into the "still {status}" wording below, which would
@@ -1482,7 +1510,7 @@ def analysis_materialize(
                     f"Analysis job {job_id} was cancelled. "
                     f"Check GET /jobs/{job_id}."
                 )
-            elif reason == "terminal" and outcome.status == "fanned_out":
+            elif reason == "terminal" and effective_status == "fanned_out":
                 # A fanned-out job is a SUCCESS whose children each carry
                 # their own dataset — see publish()'s equivalent branch.
                 # materialize jobs are never fanned out by the current
@@ -1496,8 +1524,8 @@ def analysis_materialize(
             elif reason == "terminal":
                 materialize_failure = (
                     f"Analysis job {job_id} reached status "
-                    f"{outcome.status!r}, which will not produce a dataset. "
-                    f"Check GET /jobs/{job_id}."
+                    f"{effective_status!r}, which will not produce a "
+                    f"dataset. Check GET /jobs/{job_id}."
                 )
             elif reason == "token_expired":
                 materialize_exit_code = EXIT_AUTH
@@ -1515,8 +1543,8 @@ def analysis_materialize(
                 # waits for a terminal state. Unfinished is not failed, and
                 # the wording says so (fix(#685 review)).
                 materialize_failure = (
-                    f"Analysis job {job_id} was still {outcome.status} after "
-                    f"{int(timeout or 0)}s and has not finished. "
+                    f"Analysis job {job_id} was still {effective_status} "
+                    f"after {int(timeout or 0)}s and has not finished. "
                     f"Check GET /jobs/{job_id}."
                 )
 

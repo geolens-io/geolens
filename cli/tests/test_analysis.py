@@ -847,6 +847,132 @@ class TestAnalysisMaterializeCli:
         assert "fanned out" in result.output
         assert "has not finished" not in result.output
 
+    def test_timeout_then_failed_snapshot_reports_the_failure(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778, codex round 4): the poll timed out, but the follow-up
+        read shows the job has SINCE become failed — that definitive
+        answer must win over the stale "still running" wording, which the
+        previous implementation used to report."""
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                status="running", stopped_because="timeout"
+            ),
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("failed", None)
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "30",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert "failed" in result.output
+        assert "job record" in result.output
+        assert "still running" not in result.output
+        assert "has not finished" not in result.output
+
+    def test_poll_failed_then_cancelled_snapshot_reports_cancellation(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778, codex round 4): the poll itself failed (a transient
+        500), but the follow-up read shows the job has SINCE been
+        cancelled — that definitive answer must win over the "status
+        could not be read" wording."""
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                stopped_because="poll_failed", detail="HTTP 500"
+            ),
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("cancelled", None)
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert "cancelled" in result.output
+        assert "could not be read" not in result.output
+
+    def test_timeout_then_running_snapshot_still_reports_the_timeout(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        """fix(#1778, codex round 4): only a DEFINITIVE terminal snapshot
+        (failed/cancelled/fanned_out) overrides the original outcome — a
+        pending/running snapshot leaves the job's fate genuinely
+        unresolved, so the original timeout wording stands."""
+        from geolens_cli import publish as _publish
+        from geolens_cli.main import app
+
+        _seed_login("https://x.example.com/api", mock_keyring)
+        monkeypatch.setattr(
+            "geolens_cli.analysis.run_materialize", lambda c, d, r: _FakeJob()
+        )
+        monkeypatch.setattr(
+            "geolens_cli.publish.resolve_dataset_id",
+            lambda c, j, **kw: _publish.PollOutcome(
+                status="running", stopped_because="timeout"
+            ),
+        )
+        monkeypatch.setattr(
+            "geolens_cli.analysis.job_snapshot", lambda c, j: ("running", None)
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "analysis",
+                "materialize",
+                "ds-1",
+                "--operation",
+                "centroid",
+                "--title",
+                "Centroids",
+                "--timeout",
+                "30",
+            ],
+        )
+        assert result.exit_code == 1, result.output
+        assert "still running" in result.output
+        assert "has not finished" in result.output
+
     def test_the_default_wait_has_no_deadline(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
