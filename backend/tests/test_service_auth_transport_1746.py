@@ -29,6 +29,7 @@ import base64
 import inspect
 import json
 import pathlib
+import time
 import os
 import uuid
 from types import SimpleNamespace
@@ -1836,6 +1837,22 @@ _SVC_OAPIF = f"{_SVC_ORIGIN}/oapif"
 _FOREIGN = "https://collector.example"
 
 
+def _streamed(body: dict, *, chunk: int = 64) -> httpx.Response:
+    """An items page delivered in chunks, the way a real server delivers one.
+
+    `httpx.Response(json=...)` is fully read at construction, so `aiter_raw`
+    over it raises `StreamConsumed`: a double built that way cannot exercise
+    the bounded streaming read at all (fix #1746 B2b review r17).
+    """
+    raw = json.dumps(body).encode()
+
+    async def _chunks():
+        for start in range(0, len(raw), chunk):
+            yield raw[start : start + chunk]
+
+    return httpx.Response(200, content=_chunks())
+
+
 def _hosts(requests) -> set[str]:
     """The hosts a recorded run actually contacted.
 
@@ -1966,8 +1983,8 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
                     ]
                 return httpx.Response(200, json=body)
             if path.endswith("/items"):
-                return httpx.Response(
-                    200, json={"type": "FeatureCollection", "features": [], "links": []}
+                return _streamed(
+                    {"type": "FeatureCollection", "features": [], "links": []}
                 )
             if "/collections/" in path:
                 index = ids.index(path.rsplit("/", 1)[1])
@@ -2667,7 +2684,7 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
             }
             if page < len(nexts) and nexts[page] is not None:
                 body["links"] = [{"rel": "next", "href": nexts[page]}]
-            return httpx.Response(200, json=body)
+            return _streamed(body)
 
         return handle
 
@@ -2777,13 +2794,12 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
 
         def handle(request: httpx.Request) -> httpx.Response:
             page = int(request.url.params.get("page", 0))
-            return httpx.Response(
-                200,
-                json={
+            return _streamed(
+                {
                     "type": "FeatureCollection",
                     "features": [],
                     "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
-                },
+                }
             )
 
         recorded = self._transport(monkeypatch, handle)
@@ -2839,3 +2855,453 @@ class TestAPagedCollectionCannotWalkOffTheOrigin:
             )
 
         assert list(tmp_path.iterdir()) == []
+
+
+class TestOnePageCannotCostTheWholeProcess:
+    """fix(#1746 B2b review r17): the page is bounded on the way in.
+
+    The whole page is held in memory to be parsed, so a bound applied while
+    writing features measures the wrong thing: the decode has already happened
+    by then. One oversized response from a user-chosen service would exhaust
+    the API preview process or a worker regardless of any total.
+    """
+
+    def _transport(self, monkeypatch, handler):
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return handler(request)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def _materialise(self, tmp_path, **kwargs):
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        return await materialise_oapif_items(
+            _SVC_OAPIF,
+            "c1",
+            credential_line=f"{pair[0]}: {pair[1]}",
+            staging_dir=tmp_path,
+            **kwargs,
+        )
+
+    async def test_the_read_stops_at_the_bound_not_at_the_end_of_the_body(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """The point of the finding: refused DURING the read, before any parse.
+
+        Memory is not what proves it, because a test that only checked the
+        final size would pass just as well against the old buffered read. What
+        proves it is how few bytes the service was ever asked for.
+        """
+        produced = 0
+        chunk = b"x" * 1000
+        parsed: list = []
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                nonlocal produced
+                for _ in range(1000):
+                    produced += len(chunk)
+                    yield chunk
+
+            return httpx.Response(200, content=_chunks())
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGE_BYTES", 4000)
+        monkeypatch.setattr(
+            "app.platform.service_items.json.loads",
+            lambda *args, **kwargs: parsed.append(args) or {},
+        )
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # A megabyte was on offer and five kilobytes were taken.
+        assert produced <= 5000
+        # And nothing was decoded, which is where the memory would have gone.
+        assert parsed == []
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_an_honest_content_length_is_refused_without_reading(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Free when the service declares it; the running count covers the rest."""
+        produced = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            async def _chunks():
+                nonlocal produced
+                produced += 1
+                yield b"{}"
+
+            return httpx.Response(
+                200, headers={"Content-Length": "999999"}, content=_chunks()
+            )
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr("app.platform.service_items.MAX_PAGE_BYTES", 4000)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert produced == 0
+
+    async def test_a_compressed_page_is_refused(self, monkeypatch, tmp_path) -> None:
+        """Identity is asked for, and the answer has to be identity.
+
+        `aiter_raw` hands back the compressed bytes, so the alternative is a
+        JSON error about the wrong thing.
+        """
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Accept-Encoding"] == "identity"
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, json={"features": []}
+            )
+
+        self._transport(monkeypatch, handle)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_the_total_counts_bytes_read_not_bytes_written(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """A chain of honest pages is bounded by what it downloaded.
+
+        The old total counted the output file, so a service returning pages
+        that decoded to almost nothing could be asked for the collection cap
+        many times over.
+        """
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        pages = 0
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            nonlocal pages
+            pages += 1
+            page = int(request.url.params.get("page", 0))
+            return _streamed(
+                {
+                    "type": "FeatureCollection",
+                    # Bulky on the wire, nothing written from it.
+                    "unused": "y" * 4000,
+                    "features": [],
+                    "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
+                }
+            )
+
+        self._transport(monkeypatch, handle)
+        monkeypatch.setattr("app.platform.service_items.MAX_BYTES", 9000)
+
+        with pytest.raises(ItemFetchFailedError):
+            await self._materialise(tmp_path)
+
+        # Three pages of ~4 KB against a 9 KB total: the third is the one the
+        # remaining budget refuses, and the walk stops there rather than
+        # running to MAX_PAGES on an empty output file.
+        assert pages == 3
+        assert list(tmp_path.iterdir()) == []
+
+
+class TestTheCallersClockCoversTheDownload:
+    """fix(#1746 B2b review r17): the walk runs inside the caller's budget.
+
+    It used to run before either caller's clock started, and httpx's read
+    timeout is per inactivity rather than per response, so a service answering
+    slowly but never stopping could hold an API request or an ingest worker for
+    hours across up to ten thousand pages, and then still be handed the full
+    subprocess timeout afterwards.
+    """
+
+    def _slow_transport(self, monkeypatch, delay: float):
+        base = f"{_SVC_OAPIF}/collections/c1/items"
+        recorded: list[httpx.Request] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            page = int(request.url.params.get("page", 0))
+
+            async def _chunks():
+                await asyncio.sleep(delay)
+                yield json.dumps(
+                    {
+                        "type": "FeatureCollection",
+                        "features": [],
+                        "links": [{"rel": "next", "href": f"{base}?page={page + 1}"}],
+                    }
+                ).encode()
+
+            return httpx.Response(200, content=_chunks())
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+        return recorded
+
+    async def test_a_slow_service_is_stopped_at_the_deadline(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Stopped by the clock, not by MAX_PAGES, which is the whole point."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._slow_transport(monkeypatch, 0.05)
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+                deadline=time.monotonic() + 0.2,
+            )
+
+        # A handful of pages in, nowhere near the page cap: the service was
+        # perfectly responsive by httpx's reckoning and would have gone on
+        # answering until the caller gave up.
+        assert 1 <= len(recorded) < 100
+        assert list(tmp_path.iterdir()) == []
+
+    async def test_a_deadline_already_passed_refuses_without_a_request(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        recorded = self._slow_transport(monkeypatch, 0.0)
+
+        with pytest.raises(ItemFetchFailedError):
+            await materialise_oapif_items(
+                _SVC_OAPIF,
+                "c1",
+                credential_line=f"{pair[0]}: {pair[1]}",
+                staging_dir=tmp_path,
+                deadline=time.monotonic() - 1.0,
+            )
+
+        assert recorded == []
+
+    async def test_the_worker_gives_ogr2ogr_what_the_walk_did_not_spend(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """One clock over both halves, so the pair cannot outlast the budget."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        waited: list[float] = []
+
+        async def _fake_materialise(url, collection, **kwargs):
+            assert kwargs["deadline"] is not None
+            await asyncio.sleep(0.05)
+            local = tmp_path / "items.geojson"
+            local.write_text('{"type": "FeatureCollection", "features": []}')
+            return str(local)
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            waited.append(timeout)
+            return (b"", b"")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.materialise_oapif_items", _fake_materialise
+        )
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"OAPIF:{_SVC_OAPIF}",
+            layer_name="c1",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="ogcapi_features",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            timeout=10.0,
+        )
+
+        # Whatever the walk spent came off the subprocess's share. Well clear
+        # of `_SUBPROCESS_FLOOR_SECONDS`, which would otherwise be what the
+        # assertion measured.
+        assert waited and 0.0 < waited[0] < 10.0
+
+    async def test_a_wfs_import_keeps_its_whole_subprocess_budget(
+        self, monkeypatch
+    ) -> None:
+        """The counterfactual half: nothing is deducted where nothing is read."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        waited: list[float] = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            waited.append(timeout)
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            timeout=1800.0,
+        )
+
+        assert waited == [1800.0]
+
+
+class TestAFailedMaterialisationStillDatesTheContact:
+    """fix(#1746 B2b review r17): the origin was reached, so say so.
+
+    `on_spawn` used to fire after the subprocess existed, which was the first
+    outbound moment while GDAL did the fetching. It no longer is: a protected
+    OGC API collection is contacted by the walk, and a walk that fails on its
+    first page has reached the service without any subprocess being created.
+    A caller dating origin contacts would have left `last_checked_at` stale
+    and reported the opposite of what happened.
+    """
+
+    async def test_a_first_page_failure_still_marks_the_origin_contacted(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        contacted: list[int] = []
+
+        def _handle(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(401)
+
+        monkeypatch.setattr(
+            security, "make_safe_transport", lambda: httpx.MockTransport(_handle)
+        )
+        monkeypatch.setattr(
+            "app.platform.service_items.validate_url_for_ssrf", AsyncMock()
+        )
+
+        async def _fake_exec(*cmd, **kwargs):
+            raise AssertionError("no subprocess exists on this path")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+
+        with pytest.raises(ItemFetchFailedError):
+            await run_ogr2ogr_service(
+                gdal_source=f"OAPIF:{_SVC_OAPIF}",
+                layer_name="c1",
+                table_name="t",
+                db_conn_str="PG:dummy",
+                service_type="ogcapi_features",
+                token=f"{pair[0]}: {pair[1]}",
+                schema="data",
+                on_spawn=lambda: contacted.append(1),
+            )
+
+        assert contacted == [1]
+
+    async def test_it_fires_once_when_the_import_succeeds(
+        self, monkeypatch, tmp_path
+    ) -> None:
+        """Not twice: the walk arms it, and the spawn must not arm it again."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        contacted: list[int] = []
+
+        async def _fake_materialise(url, collection, **kwargs):
+            kwargs["on_first_request"]()
+            local = tmp_path / "items.geojson"
+            local.write_text('{"type": "FeatureCollection", "features": []}')
+            return str(local)
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr.materialise_oapif_items", _fake_materialise
+        )
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"OAPIF:{_SVC_OAPIF}",
+            layer_name="c1",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="ogcapi_features",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            on_spawn=lambda: contacted.append(1),
+        )
+
+        assert contacted == [1]
+
+    async def test_a_wfs_import_still_dates_it_at_the_spawn(self, monkeypatch) -> None:
+        """Unchanged where GDAL is still the one making the request."""
+        credential, _value_ = _header_key()
+        pair = build_credential_header(credential)
+        assert pair is not None
+        contacted: list[int] = []
+
+        async def _fake_exec(*cmd, **kwargs):
+            proc = MagicMock()
+            proc.returncode = 0
+            return proc
+
+        async def _fake_communicate(proc, timeout, tool_name):
+            return (b"", b"")
+
+        monkeypatch.setattr(asyncio, "create_subprocess_exec", _fake_exec)
+        monkeypatch.setattr(
+            "app.processing.ingest.ogr._communicate_with_timeout", _fake_communicate
+        )
+
+        await run_ogr2ogr_service(
+            gdal_source=f"WFS:{_SVC_WFS}",
+            layer_name="topp:parcels",
+            table_name="t",
+            db_conn_str="PG:dummy",
+            service_type="wfs",
+            token=f"{pair[0]}: {pair[1]}",
+            schema="data",
+            on_spawn=lambda: contacted.append(1),
+        )
+
+        assert contacted == [1]

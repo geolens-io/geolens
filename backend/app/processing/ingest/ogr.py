@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections.abc import Callable
 from typing import TypedDict
 
@@ -360,6 +361,13 @@ def validate_layer_name_argv(layer_name: str) -> None:
 # Wall-clock limits protect the Procrastinate worker from hanging on a bad
 # file or a slow/hung upstream service. Tune via settings if your datasets
 # are routinely large.
+
+# fix(#1746 B2b review r17): what is left for ogr2ogr when the in-process
+# materialisation used the whole clock. A second rather than zero, so the
+# conversion fails through the ordinary timeout path with the ordinary
+# message rather than through an arithmetic edge; the same floor
+# `export_subprocess_timeout_seconds` keeps, for the same reason.
+_SUBPROCESS_FLOOR_SECONDS = 1.0
 
 OGRINFO_TIMEOUT_SECONDS = 300  # 5 min — metadata probe, should be fast
 OGR2OGR_FILE_TIMEOUT_SECONDS = 3600  # 1 hour — large files legitimately take a while
@@ -1058,6 +1066,11 @@ async def run_ogr2ogr_service(
     # against the endpoint the capabilities advertise, and ignores a `next`
     # attribute outright, which was measured the same way.
     items_path: str | None = None
+    # fix(#1746 B2b review r17): one clock over the materialisation AND the
+    # subprocess. The page walk used to run before `timeout` began, so a
+    # service trickling pages inside the client's per-read timeout could hold a
+    # worker for hours and then still be handed the full half-hour to convert.
+    deadline = time.monotonic() + timeout
     if token and service_type == "ogcapi_features":
         items_path = await materialise_oapif_items(
             gdal_source.split(":", 1)[1],
@@ -1067,8 +1080,17 @@ async def run_ogr2ogr_service(
             )
             or "",
             staging_dir=ensure_staging_ready(settings.upload_staging_dir),
+            deadline=deadline,
+            # fix(#1746 B2b review r17): the origin is contacted by the walk
+            # now rather than by the subprocess, so a materialisation that
+            # fails on its first page has still reached the service and the
+            # caller that dates contacts has to hear about it. Fired at most
+            # once: the spawn below skips it when the walk already did.
+            on_first_request=on_spawn,
         )
         gdal_source, layer_name, token = items_path, "", None
+        on_spawn = None
+        timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
 
     if layer_name:
         validate_layer_name_argv(layer_name)

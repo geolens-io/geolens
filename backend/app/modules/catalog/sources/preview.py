@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import time
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 import structlog
@@ -28,6 +29,8 @@ from app.platform.service_endpoints import (
     EndpointCheckFailedError,
     assert_endpoints_stay_on_origin,
 )
+
+_SUBPROCESS_FLOOR_SECONDS = 1.0
 
 logger = structlog.stdlib.get_logger(__name__)
 IngestionError = get_catalog_port().ingestion_error_class()
@@ -55,6 +58,7 @@ async def _localise_protected_oapif(
     layer_name: str,
     credential: "ServiceCredential | None",
     sample_limit: int,
+    deadline: float,
 ) -> tuple[str, str, "ServiceCredential | None", str | None]:
     """Read a protected OGC API collection locally, and describe the file.
 
@@ -85,6 +89,11 @@ async def _localise_protected_oapif(
             ),
             staging_dir=ensure_staging_ready(settings.upload_staging_dir),
             feature_limit=sample_limit,
+            # fix(#1746 B2b review r17): the preview's budget covers the page
+            # walk as well as ogrinfo now. It used to run before the clock
+            # started, and the client's timeout is per inactivity, so a service
+            # answering slowly forever held the API request open indefinitely.
+            deadline=deadline,
         )
     except ItemFetchFailedError as exc:
         # The same coded answer the description check gives, for the same
@@ -231,9 +240,14 @@ async def run_service_preview(
     # a local file, and ogrinfo is pointed at that. WFS needs none of this; its
     # driver pages by startIndex against the endpoint the capabilities
     # advertise, which the description check validates.
+    deadline = time.monotonic() + timeout
     gdal_source, layer_name, credential, items_path = await _localise_protected_oapif(
-        gdal_source, layer_name, credential, sample_limit
+        gdal_source, layer_name, credential, sample_limit, deadline
     )
+    # What the walk did not spend. Floored so a materialisation that used the
+    # whole budget still fails through the ordinary ogrinfo timeout rather than
+    # through an arithmetic edge.
+    timeout = max(deadline - time.monotonic(), _SUBPROCESS_FLOOR_SECONDS)
 
     cmd = [
         "ogrinfo",
