@@ -5,6 +5,7 @@
 // vector tile source after a successful update.
 import { renderHook, act } from '@testing-library/react';
 import type { Map as MaplibreMap, Point } from 'maplibre-gl';
+import { toast } from 'sonner';
 import { useFeatureEditing } from '@/components/dataset/hooks/use-feature-editing';
 import { useDrawingStore } from '@/stores/drawing-store';
 import { getFeature } from '@/api/features';
@@ -438,6 +439,10 @@ describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 revi
     updateMutateAsync.mockReturnValueOnce(update.promise);
     const map = makeMapWithVectorSource(vi.fn());
     const { result } = renderEditing(map);
+    // Mocks are not auto-cleared between tests in this file; earlier tests
+    // in this describe legitimately call toast.error for their own (non-
+    // stale) failures.
+    vi.mocked(toast.error).mockClear();
 
     const submitting = result.current.handleEditAttributeSubmit({ name: 'new' });
     act(() => {
@@ -485,5 +490,35 @@ describe('useFeatureEditing — handleEditAttributeSubmit result (fix #1761 revi
     });
 
     expect(outcome).toEqual({ applied: true });
+  });
+
+  // fix(#1761 review round 5): the catch path returned applied: true
+  // unconditionally, so when the identity changed while the mutation was
+  // in flight and it then REJECTED, the caller closed a second identity's
+  // own now-open editor and an error toast for the FIRST identity's
+  // failure surfaced to whoever is looking now.
+  it('returns applied: false and suppresses the error toast when the identity changed before the mutation rejected', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+    const map = makeMapWithVectorSource(vi.fn());
+    const { result } = renderEditing(map);
+    // Mocks are not auto-cleared between tests in this file; earlier tests
+    // in this describe legitimately call toast.error for their own (non-
+    // stale) failures.
+    vi.mocked(toast.error).mockClear();
+
+    const submitting = result.current.handleEditAttributeSubmit({ name: 'new' });
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    update.reject(new Error('boom'));
+    let outcome: { applied: boolean } | undefined;
+    await act(async () => {
+      outcome = await submitting;
+    });
+
+    expect(outcome).toEqual({ applied: false });
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });

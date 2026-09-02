@@ -343,6 +343,14 @@ export function useFeatureEditing({
         reloadTiles();
         return { applied: true };
       } catch (err) {
+        // fix(#1761 review round 5): mirror the success path's recheck. If
+        // the identity changed while this request was in flight, the
+        // failure is A's, not whoever is looking now (possibly B, with
+        // their own editor open for their own feature) — reporting it as
+        // an error toast and telling the caller to close would be exactly
+        // the same collateral damage the success path already guards
+        // against, just via the rejection branch instead of the resolve one.
+        if (useDrawingStore.getState().sessionEpoch !== epoch) return { applied: false };
         // fix(#458 E-36): keep the backend detail.
         toast.error(formatMutationError('dataset:map.attributesUpdateFailed', err));
         return { applied: true };
