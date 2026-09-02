@@ -15,6 +15,11 @@ import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { Feature, Geometry } from 'geojson';
 import { MAP_COLORS } from '@/lib/map-colors';
 
+// fix(#1778): bound the undo ring so a long drag/freehand trace (one full
+// store snapshot per `change` event, with no prior cap) cannot grow memory
+// without limit for the duration of a single editing session.
+const MAX_UNDO_HISTORY = 50;
+
 /**
  * Create fresh Terra Draw mode instances. Must be called per-mount because
  * TerraDraw internally registers modes on construction — reusing mode objects
@@ -322,6 +327,11 @@ export function useTerraDraw(
       ) {
         // Existing feature edited — pass to onEditFinish, keep on canvas
         onEditFinishRef.current?.(String(id), feature as Feature);
+        // fix(#1778): reset undo history on a committed edit, same as the
+        // 'draw' branch above — otherwise history keeps accumulating for the
+        // whole select-mode editing session instead of resetting per edit.
+        historyRef.current = [];
+        setCanUndo(false);
       }
     };
 
@@ -343,6 +353,11 @@ export function useTerraDraw(
         (f) => !['select', 'static'].includes(f.properties?.mode as string),
       );
       historyRef.current.push(snapshot);
+      // fix(#1778): drop the oldest entry once the ring exceeds its cap —
+      // still enough undo depth for normal use, without unbounded growth.
+      if (historyRef.current.length > MAX_UNDO_HISTORY) {
+        historyRef.current.shift();
+      }
       setCanUndo(historyRef.current.length > 1);
     };
 
