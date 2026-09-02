@@ -2292,3 +2292,132 @@ class TestAServiceCannotPointTheCredentialSomewhereElse:
         )
 
         assert recorded == []
+
+    # -- the three WFS spellings, together ----------------------------------
+
+    @staticmethod
+    def _capabilities_10(online_resource: str) -> str:
+        """WFS 1.0: `DCPType/HTTP/Get @onlineResource`, and no xlink at all.
+
+        fix(#1746 B2b review r15): reading only `href` let a 1.0 service
+        advertise a cross-origin GetFeature and pass the guard, which is
+        exactly what this check exists to catch.
+        """
+        return f"""<?xml version="1.0"?>
+<WFS_Capabilities version="1.0.0" xmlns="http://www.opengis.net/wfs">
+  <Capability><Request>
+    <GetFeature>
+      <DCPType><HTTP><Get onlineResource="{online_resource}"/></HTTP></DCPType>
+      <DCPType><HTTP><Post onlineResource="{online_resource}"/></HTTP></DCPType>
+    </GetFeature>
+  </Request></Capability>
+  <FeatureTypeList>
+    <FeatureType><Name>topp:parcels</Name><Title>Parcels</Title>
+      <SRS>EPSG:4326</SRS></FeatureType>
+  </FeatureTypeList>
+</WFS_Capabilities>"""
+
+    @pytest.mark.parametrize(
+        ("version", "foreign"),
+        [("1.0", True), ("1.0", False), ("2.0", True), ("2.0", False)],
+        ids=["v1_0_cross", "v1_0_same", "v2_0_cross", "v2_0_same"],
+    )
+    async def test_every_wfs_spelling_of_an_operation_endpoint_is_read(
+        self, client, admin_auth_header: dict, monkeypatch, version, foreign
+    ) -> None:
+        """The two attribute spellings, refused and allowed, in one place.
+
+        1.1 and 2.0 name the endpoint with `xlink:href` under `ows:DCP`; 1.0
+        uses `onlineResource` under `DCPType` and binds no xlink namespace.
+        Both are compared by local name, because the namespaces and the
+        prefixes bound to them differ across the three versions.
+        """
+        endpoint = f"{_FOREIGN}/wfs" if foreign else f"{_SVC_ORIGIN}/geoserver/wfs"
+        document = (
+            self._capabilities_10(endpoint)
+            if version == "1.0"
+            else _capabilities(endpoint)
+        )
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            if "GetCapabilities" in str(request.url):
+                return httpx.Response(200, text=document)
+            return httpx.Response(404)
+
+        value = _value()
+        resp, recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            handle,
+            monkeypatch,
+        )
+
+        if foreign:
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"]["code"] == "cross_origin_endpoint"
+            assert value not in resp.text
+        else:
+            assert resp.status_code == 200, resp.text
+        assert [r for r in recorded if "collector.example" in str(r.url)] == []
+
+    async def test_a_malformed_port_is_refused_without_raising(
+        self, client, admin_auth_header: dict, monkeypatch
+    ) -> None:
+        """fix(#1746 B2b review r15): the refusal must survive being built.
+
+        `same_origin` already answered False for `http://example.com:notaport/`,
+        which is correct. Reporting it then read `parsed.port`, which
+        `urlparse` defers and raises ValueError on, so the clean 422 became a
+        500. The port is dropped rather than echoed: the URL is
+        provider-controlled and the raw value does not belong in a message or
+        a log line.
+        """
+        value = _value()
+        resp, _recorded = await self._probe(
+            client,
+            admin_auth_header,
+            _SVC_WFS,
+            {"auth": self._key_auth(value)},
+            self._wfs_handler("http://example.com:notaport/wfs"),
+            monkeypatch,
+        )
+
+        assert resp.status_code == 422, resp.text
+        detail = resp.json()["detail"]
+        assert detail["code"] == "cross_origin_endpoint"
+        assert "http://example.com" in detail["message"]
+        assert "notaport" not in resp.text
+        assert value not in resp.text
+
+    def test_the_validator_has_exactly_one_request_site(self) -> None:
+        """fix(#1746 B2b review r15): one site, one marker, both counted.
+
+        Every document this module reads goes through one `_fetch`, so the
+        SSRF revalidation cannot be forgotten at a new call site and there is
+        exactly one suppression marker to keep correct. A second request added
+        beside it fails here rather than in a scan weeks later.
+        """
+        import inspect as _inspect
+
+        from app.platform import service_endpoints
+
+        source = _inspect.getsource(service_endpoints)
+        requests = sum(
+            source.count(f"client.{verb}(")
+            for verb in ("get", "post", "put", "patch", "delete", "request", "stream")
+        )
+        assert requests == 1, requests
+        assert source.count("# codeql[py/full-ssrf]") == 1
+        # And the marker binds to the call: the suppression query reads the
+        # line that FOLLOWS it, so prose between the two silently disarms it.
+        lines = source.splitlines()
+        marker = next(
+            index
+            for index, line in enumerate(lines)
+            if "# codeql[py/full-ssrf]" in line
+        )
+        assert "client.get(" in lines[marker + 1]
+        # The revalidation is in the same function, above the call.
+        assert "validate_url_for_ssrf(url)" in "\n".join(lines[marker - 12 : marker])

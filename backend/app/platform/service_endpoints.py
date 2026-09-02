@@ -125,10 +125,23 @@ class EndpointCheckFailedError(Exception):
 
 
 def _origin_of(url: str) -> str:
-    """``scheme://host:port`` for a message, with userinfo and path dropped."""
+    """``scheme://host:port`` for a message, with userinfo and path dropped.
+
+    fix(#1746 B2b review r15): the port read is guarded. ``urlparse`` defers
+    parsing the port until the attribute is read, and raises ValueError on
+    something like ``http://example.com:notaport/wfs`` -- which
+    ``same_origin`` had already correctly refused, so this ran only while
+    BUILDING the refusal and turned a clean 422 into a 500. The URL is
+    provider-controlled, so a malformed port is dropped rather than echoed:
+    the host and scheme are what the operator needs, and the raw value is not
+    something to put in a message or a log line.
+    """
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    port = f":{parsed.port}" if parsed.port else ""
+    try:
+        port = f":{parsed.port}" if parsed.port else ""
+    except ValueError:
+        port = ""
     return f"{(parsed.scheme or '').lower()}://{host}{port}"
 
 
@@ -161,6 +174,16 @@ def _credential_headers(credential_line: str) -> dict[str, str]:
     return {name: value}
 
 
+# The two ways a WFS capabilities document names an operation endpoint.
+# 1.1 and 2.0 use `ows:DCP/ows:HTTP/ows:Get` with `xlink:href`; 1.0 uses
+# `DCPType/HTTP/Get` with an `onlineResource` attribute and no xlink at all
+# (fix(#1746 B2b review r15): reading only `href` let a 1.0 service advertise a
+# cross-origin GetFeature and pass the guard, which is the whole thing this
+# check exists to catch). Compared by LOCAL name, because the namespaces and
+# the prefixes bound to them differ across the three versions.
+_WFS_ENDPOINT_ATTRIBUTES = frozenset({"href", "onlineresource"})
+
+
 def _wfs_operation_hrefs(xml_text: str) -> list[str]:
     """Every operation endpoint a capabilities document advertises.
 
@@ -176,8 +199,8 @@ def _wfs_operation_hrefs(xml_text: str) -> list[str]:
         if tag not in ("Get", "Post"):
             continue
         for name, value in element.attrib.items():
-            # `xlink:href`, whatever prefix the document bound xlink to.
-            if name.split("}")[-1] == "href" and value:
+            local = name.split("}")[-1].lower()
+            if local in _WFS_ENDPOINT_ATTRIBUTES and value:
                 hrefs.append(value)
     return hrefs
 
@@ -221,10 +244,14 @@ def _assert_same_origin(url: str, hrefs: list[str]) -> None:
             raise CrossOriginEndpointError(_origin_of(resolved))
 
 
-async def _fetch_text(
-    client: httpx.AsyncClient, url: str, headers: dict[str, str]
-) -> str:
+async def _fetch(client: httpx.AsyncClient, url: str, headers: dict[str, str]) -> str:
     """One description document, or a refusal.
+
+    THE request site for this module, and deliberately the only one: every
+    document the validator reads goes through here, so the SSRF revalidation
+    below cannot be forgotten at a new call site and there is exactly one
+    suppression marker to keep correct. ``test_service_auth_transport_1746``
+    asserts both counts (fix(#1746 B2b review r15)).
 
     Every URL is revalidated immediately before the request even though it is
     same-origin with one already validated: a host that resolved publicly at
@@ -259,7 +286,7 @@ def _parsed_json(text: str) -> object:
 async def _check_wfs(
     client: httpx.AsyncClient, url: str, headers: dict[str, str]
 ) -> None:
-    xml_text = await _fetch_text(client, _capabilities_url(url), headers)
+    xml_text = await _fetch(client, _capabilities_url(url), headers)
     try:
         hrefs = _wfs_operation_hrefs(xml_text)
     except ET.ParseError as exc:
@@ -274,7 +301,7 @@ async def _check_ogcapi(
     collection: str | None,
 ) -> None:
     _assert_same_origin(
-        url, _ogcapi_link_hrefs(_parsed_json(await _fetch_text(client, url, headers)))
+        url, _ogcapi_link_hrefs(_parsed_json(await _fetch(client, url, headers)))
     )
 
     if collection is not None:
@@ -284,7 +311,7 @@ async def _check_ogcapi(
         # missed exactly the collection a user selected from a later one. This
         # path knows which one it is, so it does not need the listing at all.
         document = _parsed_json(
-            await _fetch_text(
+            await _fetch(
                 client,
                 f"{url.rstrip('/')}/collections/{quote(collection, safe='')}",
                 headers,
@@ -301,7 +328,7 @@ async def _check_ogcapi(
     for _page in range(_MAX_COLLECTION_PAGES):
         if page_url is None:
             return
-        listing = _parsed_json(await _fetch_text(client, page_url, headers))
+        listing = _parsed_json(await _fetch(client, page_url, headers))
         _assert_same_origin(url, _ogcapi_link_hrefs(listing))
         collections = listing.get("collections") if isinstance(listing, dict) else None
         for entry in collections or []:
