@@ -286,7 +286,11 @@ async def _handle_query_data(
         )
     if geojson_result is not None:
         out["geojson"] = geojson_result[0]
-        out["bbox"] = geojson_result[1]
+        # fix(#1778): the bbox is None when no row contributed finite bounds
+        # (all-EMPTY geometries). Omitting the key lets the #392 guard below
+        # drop the overlay for that turn, which is what it was written for.
+        if geojson_result[1] is not None:
+            out["bbox"] = geojson_result[1]
 
     return out
 

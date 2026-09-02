@@ -4,6 +4,7 @@ Phase 276 CODE-02 — extracted from chat_service.py.
 """
 
 import json
+import math
 import re
 from datetime import date, datetime
 from decimal import Decimal
@@ -11,8 +12,11 @@ from uuid import UUID
 
 import shapely
 import sqlglot
+import structlog
 from shapely.geometry import shape as shapely_shape
 from sqlglot import exp
+
+logger = structlog.stdlib.get_logger(__name__)
 
 _GEOM_NAMES = {"geom_4326", "geom", "geometry", "the_geom", "wkb_geometry"}
 _HEX_RE = re.compile(r"^[0-9a-fA-F]{10,}$")
@@ -273,9 +277,19 @@ def _safe_value(v: object) -> object:
     serialized from the parsed payload. Emitting the exact digits as a string
     is the only shape that survives the trip. Every smaller integer stays a
     number, so ordinary ids keep their type.
+
+    fix(#1778): NaN and +/-Infinity are the other values the client cannot
+    represent, and PostgreSQL ``real``/``double precision`` legally hold all
+    three. ``json.dumps`` writes them as the bare tokens ``NaN``/``Infinity``,
+    which ``JSON.parse`` rejects, so one such cell used to make the whole
+    actions frame unparseable: the browser dropped it silently and the
+    non-streaming endpoint returned 500 (Starlette renders with
+    ``allow_nan=False``). They become null, which the client can hold.
     """
-    if v is None or isinstance(v, (str, float, bool)):
+    if v is None or isinstance(v, (str, bool)):
         return v
+    if isinstance(v, float):
+        return v if math.isfinite(v) else None
     if isinstance(v, int):
         # bool is an int subclass and already returned above.
         return str(v) if abs(v) > _JS_MAX_SAFE_INT else v
@@ -284,10 +298,47 @@ def _safe_value(v: object) -> object:
     return str(v)
 
 
+def _parse_row_geometry(raw: object) -> tuple[object, dict] | None:
+    """Parse one row's geometry cell into (shapely geometry, GeoJSON dict).
+
+    Returns None for a cell that is neither GeoJSON text nor WKB hex, so the
+    caller can skip that row.
+    """
+    try:
+        if isinstance(raw, str) and raw.startswith("{"):
+            geom_dict = json.loads(raw)
+            return shapely_shape(geom_dict), geom_dict
+        shape = shapely.from_wkb(bytes.fromhex(raw))  # type: ignore[arg-type]
+        return shape, json.loads(shapely.to_geojson(shape))
+    except Exception:  # broad: per-row geometry parse — JSON/WKB/Shapely can throw varied errors; skip bad rows
+        return None
+
+
+def _row_properties(row: list, prop_indices: list[tuple[int, str]]) -> tuple[dict, int]:
+    """Build one Feature's properties, counting non-finite float cells.
+
+    The count feeds the single warning `_extract_geojson` emits per result
+    (fix(#1778)); logging per cell would be unusable on a wide table.
+    """
+    props: dict = {}
+    non_finite = 0
+    for idx, col_name in prop_indices:
+        raw_prop = row[idx] if idx < len(row) else None
+        if isinstance(raw_prop, float) and not math.isfinite(raw_prop):
+            non_finite += 1
+        props[col_name] = _safe_value(raw_prop)
+    return props, non_finite
+
+
 def _extract_geojson(
     columns: list[str], rows: list[list]
-) -> tuple[dict, list[float]] | None:
-    """Build a GeoJSON FeatureCollection + bbox from query rows."""
+) -> tuple[dict, list[float] | None] | None:
+    """Build a GeoJSON FeatureCollection + bbox from query rows.
+
+    The bbox is ``None`` when no row contributed finite bounds (fix(#1778)).
+    Callers must omit the bbox from their payload in that case rather than
+    forwarding a non-finite one.
+    """
     if not rows:
         return None
 
@@ -297,6 +348,8 @@ def _extract_geojson(
 
     prop_indices = [(i, col) for i, col in enumerate(columns) if i != geom_idx]
     features: list[dict] = []
+    non_finite_props = 0
+    non_finite_bounds = 0
     min_x, min_y, max_x, max_y = (
         float("inf"),
         float("inf"),
@@ -310,21 +363,14 @@ def _extract_geojson(
             continue
 
         # Parse geometry
-        try:
-            if isinstance(raw, str) and raw.startswith("{"):
-                geom_dict = json.loads(raw)
-                shape = shapely_shape(geom_dict)
-                geometry = geom_dict
-            else:
-                shape = shapely.from_wkb(bytes.fromhex(raw))
-                geometry = json.loads(shapely.to_geojson(shape))
-        except Exception:  # broad: per-row geometry parse — JSON/WKB/Shapely can throw varied errors; skip bad rows
+        parsed = _parse_row_geometry(raw)
+        if parsed is None:
             continue
+        shape, geometry = parsed
 
         # Build properties
-        props = {}
-        for idx, col_name in prop_indices:
-            props[col_name] = _safe_value(row[idx] if idx < len(row) else None)
+        props, row_non_finite = _row_properties(row, prop_indices)
+        non_finite_props += row_non_finite
 
         features.append(
             {
@@ -336,6 +382,15 @@ def _extract_geojson(
 
         # Update bbox
         bx = shape.bounds  # (minx, miny, maxx, maxy)
+        # fix(#1778): Shapely returns (nan, nan, nan, nan) for an EMPTY
+        # geometry, and an EMPTY geometry parses, so the row above already
+        # became a Feature while every comparison here is False against NaN.
+        # A result whose geometries are all EMPTY (ST_Buffer(<point>, 0) yields
+        # one for every row, and a dataset may legitimately store them) left
+        # the infinite seeds untouched and shipped [inf, inf, -inf, -inf].
+        if not all(math.isfinite(c) for c in bx):
+            non_finite_bounds += 1
+            continue
         if bx[0] < min_x:
             min_x = bx[0]
         if bx[1] < min_y:
@@ -345,9 +400,21 @@ def _extract_geojson(
         if bx[3] > max_y:
             max_y = bx[3]
 
+    if non_finite_props or non_finite_bounds:
+        logger.warning(
+            "chat.geojson_non_finite_values",
+            non_finite_properties=non_finite_props,
+            non_finite_bounds=non_finite_bounds,
+            row_count=len(rows),
+        )
+
     if not features:
         return None
 
     fc = {"type": "FeatureCollection", "features": features}
+    if not all(math.isfinite(c) for c in (min_x, min_y, max_x, max_y)):
+        # No row contributed finite bounds. Degrade to a table with no overlay
+        # rather than a frame the browser cannot parse.
+        return fc, None
     bbox = [min_x, min_y, max_x, max_y]
     return fc, bbox

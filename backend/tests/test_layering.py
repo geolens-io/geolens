@@ -1869,7 +1869,15 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # survives the browser's JSON.parse intact instead of arriving rounded
         # and being written that way into a saved chat-preview snapshot.
         # Cap 350 → 370 (~17 headroom).
-        "backend/app/processing/ai/chat_geojson.py": 370,
+        # fix(#1778): +50 — non-finite floats now become null and an all-EMPTY
+        # result returns no bbox instead of [inf, inf, -inf, -inf], either of
+        # which used to make the actions frame unparseable (the browser dropped
+        # it silently; the non-streaming endpoint returned 500). Two helpers
+        # were split out to keep _extract_geojson under the complexity gate:
+        # _parse_row_geometry (the per-row parse) and _row_properties (the
+        # property build plus its non-finite count, which feeds one warning per
+        # result rather than one per cell). Cap 370 -> 420, exact.
+        "backend/app/processing/ai/chat_geojson.py": 420,
         # fix(#836): extensions-defaults sub-modules over the 350 default at
         # split time. Caps exact (zero headroom): each class moved verbatim
         # from the 1815-LOC defaults.py, and regrowth toward another god
@@ -4465,7 +4473,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # identifiers (DATA.ROADS → data.roads) before the access check so a
     # PostgreSQL-valid reference is not false-404'd. Most of the added lines are
     # that rationale. Cap at the exact size.
-    "backend/app/platform/sandbox/validator.py": 1871,
+    # fix(#1778): +63 — _BLOCKED_NILADIC_KEYWORDS and _check_niladic_keywords,
+    # which reject PostgreSQL's parenless identity keywords. sqlglot gives only
+    # some of them a Func subclass, so `user`, `current_role` and `system_user`
+    # parsed as columns and slipped the allowlist walk entirely; the comments
+    # record that parse-shape dependency so a sqlglot bump does not quietly
+    # reopen it. The rest is the TokenError note at the parse site. Cap
+    # 1871 -> 1934, exact.
+    "backend/app/platform/sandbox/validator.py": 1934,
     # fix(#1463): crossed the inclusion threshold. The growth is the vector-tile
     # protocol constants and the stale-label repair in generate_distributions,
     # plus the comment recording why the repair has to exist at all: migration
