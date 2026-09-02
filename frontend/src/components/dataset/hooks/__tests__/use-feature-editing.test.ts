@@ -4,9 +4,12 @@
 // does too. This test pins that handleEditAttributeSubmit cache-busts the
 // vector tile source after a successful update.
 import { renderHook, act } from '@testing-library/react';
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { Map as MaplibreMap, Point } from 'maplibre-gl';
 import { useFeatureEditing } from '@/components/dataset/hooks/use-feature-editing';
 import { useDrawingStore } from '@/stores/drawing-store';
+import { getFeature } from '@/api/features';
+import type { GeoJSONFeature } from '@/api/features';
+import type { Feature } from 'geojson';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -17,10 +20,11 @@ vi.mock('sonner', () => ({
 }));
 
 const updateMutateAsync = vi.fn().mockResolvedValue({});
+const deleteMutateAsync = vi.fn().mockResolvedValue({});
 vi.mock('@/hooks/use-features', () => ({
   useCreateFeature: () => ({ mutateAsync: vi.fn() }),
   useUpdateFeature: () => ({ mutateAsync: updateMutateAsync }),
-  useDeleteFeature: () => ({ mutateAsync: vi.fn() }),
+  useDeleteFeature: () => ({ mutateAsync: deleteMutateAsync }),
 }));
 
 vi.mock('@/lib/tile-utils', () => ({
@@ -32,6 +36,25 @@ vi.mock('@/lib/env', () => ({
   getEnvConfig: () => ({ TILE_BASE_URL: '' }),
 }));
 
+// fix(#1761 review round 3 P1): selectFeatureFromMap's identity race needs a
+// controllable getFeature() promise to hold the function paused mid-await.
+vi.mock('@/api/features', () => ({
+  getFeature: vi.fn(),
+}));
+
+const FAKE_POINT = { x: 0, y: 0 } as unknown as Point;
+
+/** Resolves/rejects on demand, so a test can pause an async call mid-flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function makeMapWithVectorSource(setTiles: ReturnType<typeof vi.fn>) {
   return {
     getSource: vi.fn((id: string) =>
@@ -42,22 +65,34 @@ function makeMapWithVectorSource(setTiles: ReturnType<typeof vi.fn>) {
   } as unknown as MaplibreMap;
 }
 
-function renderEditing(map: MaplibreMap) {
+interface EditingOverrides {
+  removeFeatures?: (ids: (string | number)[]) => void;
+  getSnapshotFeature?: (id: string | number) => Feature | undefined;
+  addFeatures?: (features: Feature[]) => { id?: string | number; valid: boolean }[];
+  selectFeature?: (id: string) => void;
+  clear?: () => void;
+}
+
+function renderEditing(map: MaplibreMap, overrides: EditingOverrides = {}) {
   const mapRef = { current: map };
-  return renderHook(() =>
+  const opts = {
+    removeFeatures: overrides.removeFeatures ?? vi.fn(),
+    getSnapshotFeature: overrides.getSnapshotFeature ?? vi.fn(),
+    addFeatures: overrides.addFeatures ?? vi.fn(() => []),
+    selectFeature: overrides.selectFeature ?? vi.fn(),
+    clear: overrides.clear ?? vi.fn(),
+  };
+  const hook = renderHook(() =>
     useFeatureEditing({
       mapRef,
       datasetId: 'ds-1',
       tableName: 'parcels',
       tileConfig: { cdn_base_url: null },
       tileToken: { sig: 's', exp: 1, scope: 'sc' },
-      removeFeatures: vi.fn(),
-      getSnapshotFeature: vi.fn(),
-      addFeatures: vi.fn(() => []),
-      selectFeature: vi.fn(),
-      clear: vi.fn(),
+      ...opts,
     }),
   );
+  return { ...hook, opts };
 }
 
 describe('useFeatureEditing — handleEditAttributeSubmit (BUG-042)', () => {
@@ -96,5 +131,195 @@ describe('useFeatureEditing — handleEditAttributeSubmit (BUG-042)', () => {
     });
 
     expect(setTiles).not.toHaveBeenCalled();
+  });
+});
+
+// fix(#1761 review round 3 P1): a stale selectFeatureFromMap resolution used
+// to install the fetched geometry on the map (clear() + addFeatures()) and
+// select/hide it BEFORE anything checked whether the identity that started
+// the fetch was still current — only the final setSelectedFeature() call was
+// epoch-gated, by which point the map mutations had already happened.
+describe('useFeatureEditing — selectFeatureFromMap identity race (fix #1761 review round 3 P1)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    // An active drawing target is a precondition for selectFeatureFromMap
+    // in real usage (it only runs while activeMode === 'select'), and
+    // matters here so the epoch check below is what refuses the write, not
+    // the separate "no active target" guard.
+    useDrawingStore.getState().setDrawing('ds-1', 'parcels', 'Point');
+    vi.mocked(getFeature).mockReset();
+  });
+
+  function makeSelectableMap() {
+    return {
+      getLayer: vi.fn(() => true),
+      getFilter: vi.fn(() => null),
+      queryRenderedFeatures: vi.fn(() => [{ id: 99, properties: {} }]),
+      getSource: vi.fn(() => undefined),
+      setFilter: vi.fn(),
+    } as unknown as MaplibreMap;
+  }
+
+  it('does not mutate the map or select the feature when identity changes while getFeature is pending', async () => {
+    const fetch = deferred<GeoJSONFeature>();
+    vi.mocked(getFeature).mockReturnValueOnce(fetch.promise);
+
+    const clear = vi.fn();
+    const addFeatures = vi.fn(() => [{ id: 'td-x', valid: true }]);
+    const selectFeature = vi.fn();
+    const map = makeSelectableMap();
+    const { result, opts } = renderEditing(map, { clear, addFeatures, selectFeature });
+
+    const selecting = result.current.selectFeatureFromMap(map, FAKE_POINT);
+
+    // Identity changes (the auth choke point's bumpSessionEpoch) WHILE the
+    // fetch above is still pending.
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+
+    fetch.resolve({
+      type: 'Feature',
+      id: 99,
+      geometry: { type: 'Point', coordinates: [0, 0] },
+      properties: { secret: 'the-previous-identity-should-never-see-this-applied' },
+    });
+    await act(async () => {
+      await selecting;
+    });
+
+    expect(clear).not.toHaveBeenCalled();
+    expect(addFeatures).not.toHaveBeenCalled();
+    expect(opts.selectFeature).not.toHaveBeenCalled();
+    expect(map.setFilter).not.toHaveBeenCalled();
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
+  });
+
+  it('still selects the feature normally when the identity has not changed', async () => {
+    vi.mocked(getFeature).mockResolvedValueOnce({
+      type: 'Feature',
+      id: 99,
+      geometry: { type: 'Point', coordinates: [0, 0] },
+      properties: { name: 'ok' },
+    });
+
+    const addFeatures = vi.fn(() => [{ id: 'td-x', valid: true }]);
+    const map = makeSelectableMap();
+    const { result } = renderEditing(map, { addFeatures });
+
+    await act(async () => {
+      await result.current.selectFeatureFromMap(map, FAKE_POINT);
+    });
+
+    expect(addFeatures).toHaveBeenCalledTimes(1);
+    expect(useDrawingStore.getState().selectedFeature).toEqual({
+      gid: 99,
+      tdId: 'td-x',
+      properties: { name: 'ok' },
+    });
+  });
+});
+
+// fix(#1761 review round 3 P2): handleSaveEdit/handleDeleteFeature applied
+// their success cleanup (removeFeatures, tile reload/restore,
+// clearSelectedFeature) unconditionally. If the identity changed while the
+// mutation was in flight, that cleanup landed on whatever a SECOND identity
+// had since selected — removing their terra draw feature by a colliding
+// tdId and wiping their selection.
+describe('useFeatureEditing — post-mutation cleanup skipped after a stale identity (fix #1761 review round 3 P2)', () => {
+  const baseAuth = useDrawingStore.getState();
+
+  beforeEach(() => {
+    useDrawingStore.setState(baseAuth, true);
+    updateMutateAsync.mockClear();
+    deleteMutateAsync.mockClear();
+  });
+
+  it('handleSaveEdit skips cleanup when the identity changed while the update was in flight', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const update = deferred<unknown>();
+    updateMutateAsync.mockReturnValueOnce(update.promise);
+
+    const removeFeatures = vi.fn();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, getSnapshotFeature });
+
+    const saving = result.current.handleSaveEdit();
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    update.resolve({});
+    await act(async () => {
+      await saving;
+    });
+
+    expect(removeFeatures).not.toHaveBeenCalled();
+    expect(map.setFilter).not.toHaveBeenCalled();
+    // clearSelectedFeature was skipped: the (possibly second identity's)
+    // selectedFeature is untouched.
+    expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: {} });
+  });
+
+  it('handleSaveEdit still cleans up normally when the identity has not changed', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const removeFeatures = vi.fn();
+    const getSnapshotFeature = vi.fn(() => ({
+      type: 'Feature' as const,
+      geometry: { type: 'Point' as const, coordinates: [0, 0] },
+      properties: {},
+    }));
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures, getSnapshotFeature });
+
+    await act(async () => {
+      await result.current.handleSaveEdit();
+    });
+
+    expect(removeFeatures).toHaveBeenCalledWith(['td-7']);
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
+  });
+
+  it('handleDeleteFeature skips cleanup when the identity changed while the delete was in flight', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const del = deferred<unknown>();
+    deleteMutateAsync.mockReturnValueOnce(del.promise);
+
+    const removeFeatures = vi.fn();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures });
+
+    const deleting = result.current.handleDeleteFeature();
+    act(() => {
+      useDrawingStore.getState().bumpSessionEpoch();
+    });
+    del.resolve({});
+    await act(async () => {
+      await deleting;
+    });
+
+    expect(removeFeatures).not.toHaveBeenCalled();
+    expect(map.setFilter).not.toHaveBeenCalled();
+    expect(useDrawingStore.getState().selectedFeature).toEqual({ gid: 7, tdId: 'td-7', properties: {} });
+  });
+
+  it('handleDeleteFeature still cleans up normally when the identity has not changed', async () => {
+    useDrawingStore.setState({ selectedFeature: { gid: 7, tdId: 'td-7', properties: {} } });
+    const removeFeatures = vi.fn();
+    const map = { getLayer: vi.fn(() => true), getFilter: vi.fn(() => null), setFilter: vi.fn(), getSource: vi.fn(() => undefined) } as unknown as MaplibreMap;
+    const { result } = renderEditing(map, { removeFeatures });
+
+    await act(async () => {
+      await result.current.handleDeleteFeature();
+    });
+
+    expect(removeFeatures).toHaveBeenCalledWith(['td-7']);
+    expect(useDrawingStore.getState().selectedFeature).toBeNull();
   });
 });

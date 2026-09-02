@@ -211,12 +211,23 @@ export function useFeatureEditing({
       return;
     }
 
+    // fix(#1761 review round 3 P2): captured before the mutation's
+    // await — see handleDeleteFeature below for the shared rationale.
+    const epoch = useDrawingStore.getState().sessionEpoch;
     try {
       await updateFeatureMutation.mutateAsync({
         datasetId,
         gid: sf.gid,
         geometry: feature.geometry as Geometry,
       });
+      // fix(#1761 review round 3 P2): if the identity changed while this
+      // request was in flight, a second identity may have adopted their
+      // own selection by now. Applying this success's cleanup here would
+      // remove THEIR terra draw feature by a colliding tdId, restore tile
+      // filters out from under them, and clear THEIR selectedFeature. The
+      // write already landed server-side, which is as far as a stale
+      // caller's responsibility goes — skip the rest.
+      if (useDrawingStore.getState().sessionEpoch !== epoch) return;
       toast.success(t('map.featureUpdated'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
       reloadTiles();
@@ -234,8 +245,15 @@ export function useFeatureEditing({
     const sf = useDrawingStore.getState().selectedFeature;
     if (!sf || !datasetId || !tableName) return;
 
+    // fix(#1761 review round 3 P2): captured before the mutation's
+    // await. A second identity can adopt their own selection while this
+    // delete is in flight; applying this success's cleanup then would
+    // remove THEIR terra draw feature by a colliding tdId, restore tile
+    // filters out from under them, and clear THEIR selectedFeature.
+    const epoch = useDrawingStore.getState().sessionEpoch;
     try {
       await deleteFeatureMutation.mutateAsync({ datasetId, gid: sf.gid });
+      if (useDrawingStore.getState().sessionEpoch !== epoch) return;
       toast.success(t('map.featureDeleted'));
       try { removeFeatures([sf.tdId]); } catch { /* already removed */ }
       reloadTiles();
@@ -315,6 +333,13 @@ export function useFeatureEditing({
       const epoch = useDrawingStore.getState().sessionEpoch;
       try {
         const fullFeature = await getFeature(datasetId, gid);
+        // fix(#1761 review round 3 P1): recheck IMMEDIATELY after the
+        // await, before ANY map mutation. setSelectedFeature's own epoch
+        // check refuses the STORE write, but by then clear() and
+        // addFeatures() below would already have installed the stale
+        // geometry on the map, and the rest of this block would go on to
+        // select it and hide its tile.
+        if (useDrawingStore.getState().sessionEpoch !== epoch) return;
         clear();
 
         if (!fullFeature.geometry) {

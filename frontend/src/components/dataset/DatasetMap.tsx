@@ -263,6 +263,7 @@ export const DatasetMap = memo(function DatasetMap({
   const setMode = useDrawingStore((s) => s.setMode);
   const clearDrawing = useDrawingStore((s) => s.clearDrawing);
   const selectedFeature = useDrawingStore((s) => s.selectedFeature);
+  const sessionEpoch = useDrawingStore((s) => s.sessionEpoch);
 
   // Editable columns (non-system) for the attribute form
   const editableColumns = useMemo(
@@ -816,6 +817,24 @@ export const DatasetMap = memo(function DatasetMap({
     setEditingAttributes(false);
     clearDrawing();
   }, [clear, clearDrawing, performDeselect, tdSetMode]);
+
+  // fix(#1761 review round 3 P1): the identity-change choke point
+  // (lib/auth-cache-reset.ts) only resets Zustand state — clearDrawing()
+  // there has no way to reach Terra Draw's locally-drawn geometry,
+  // MapLibre's hidden-tile filters, or this component's own dialog state
+  // (pendingGeometry/editingAttributes), all of which only
+  // finishDrawingSession knows how to tear down. Run it whenever the
+  // session epoch moves so the previous identity's sketch, hidden tiles and
+  // open dialogs are gone for whoever is signed in (or anonymous) next.
+  // Skipped on mount: the epoch hasn't "changed" yet at that point, and
+  // running finishDrawingSession then would spuriously reset a session
+  // someone is legitimately resuming after a route change.
+  const sessionEpochRef = useRef(sessionEpoch);
+  useEffect(() => {
+    if (sessionEpochRef.current === sessionEpoch) return;
+    sessionEpochRef.current = sessionEpoch;
+    finishDrawingSession();
+  }, [sessionEpoch, finishDrawingSession]);
 
   // Handle close / stop drawing
   const handleCloseDrawing = useCallback(() => {
