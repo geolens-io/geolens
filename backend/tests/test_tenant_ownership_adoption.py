@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import uuid
 from contextlib import asynccontextmanager
-from pathlib import Path
 
 import pytest
 import sqlalchemy as sa
@@ -65,10 +64,11 @@ from app.core.db.tenant_adoption_sql import (
     TILE,
 )
 from app.core.db.tenant_adoption_sql import WRITER as WRITER_GATEWAY
+from tests.repo_paths import repo_root
 
 pytestmark = pytest.mark.anyio
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = repo_root(__file__)
 
 
 def _new_tenant() -> tuple[str, str, str, str]:
