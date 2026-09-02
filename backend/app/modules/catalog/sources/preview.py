@@ -17,6 +17,12 @@ from app.core.service_tokens import (
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.extensions import get_catalog_port
 from app.platform.service_auth import credential_input_rejection
+from app.core.config import settings
+from app.core.runtime.staging import ensure_staging_ready
+from app.platform.service_items import (
+    ItemFetchFailedError,
+    materialise_oapif_items,
+)
 from app.platform.service_endpoints import (
     CrossOriginEndpointError,
     EndpointCheckFailedError,
@@ -42,6 +48,81 @@ def _encode_url_for_gdal(url: str) -> str:
 # rather than a stored format, which is why the prefix is the selector here,
 # exactly as it already is for deciding whether to write a header file at all.
 _GDAL_SOURCE_FORMATS = {"WFS:": "wfs", "OAPIF:": "ogcapi_features"}
+
+
+async def _localise_protected_oapif(
+    gdal_source: str,
+    layer_name: str,
+    credential: "ServiceCredential | None",
+    sample_limit: int,
+) -> tuple[str, str, "ServiceCredential | None", str | None]:
+    """Read a protected OGC API collection locally, and describe the file.
+
+    fix(#1746 B2b review r16): its pages choose the next one, GDAL follows that
+    link, and `GDAL_HTTP_HEADER_FILE` applies to every request the process
+    makes, so a collection whose first page is same-origin can hand the
+    credential to any origin it names on page two. GDAL 3.10.3 offers no way to
+    scope the header to one origin, which was measured rather than assumed (see
+    `platform/service_items`), so the credential is kept out of GDAL entirely
+    here: the pages are fetched with the bounded client, streamed to a local
+    file, and ogrinfo is pointed at that.
+
+    WFS needs none of this and is left alone. Its driver pages by `startIndex`
+    against the endpoint the capabilities advertise, which is the endpoint the
+    description check validates, and it ignores a `next` attribute outright.
+
+    Returns the source, layer and credential to use from here, plus the file to
+    delete afterwards.
+    """
+    if credential is None or not gdal_source.startswith("OAPIF:"):
+        return gdal_source, layer_name, credential, None
+    try:
+        path = await materialise_oapif_items(
+            _service_url(gdal_source),
+            layer_name,
+            credential_line=credential_header_line(
+                _required_pair(build_credential_header(credential))
+            ),
+            staging_dir=ensure_staging_ready(settings.upload_staging_dir),
+            feature_limit=sample_limit,
+        )
+    except ItemFetchFailedError as exc:
+        # The same coded answer the description check gives, for the same
+        # reason: the caller named a URL whose collection cannot be read
+        # safely, and the field to change is the URL.
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={"code": exc.code, "message": exc.policy, "field": exc.field},
+        ) from None
+    # A local file, with no credential anywhere in what follows.
+    return path, "", None, path
+
+
+def _remove_quietly(path: str | None) -> None:
+    """Unlink a temp file, treating "already gone" as the outcome it wanted.
+
+    Two of these exist on the preview path and both hold something that should
+    not outlive it: the 0600 credential header, and the local copy of a
+    protected collection. A SIGKILL between the two is what the staging and
+    header sweeps reclaim.
+    """
+    if path is None:
+        return
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _required_pair(pair: tuple[str, str] | None) -> tuple[str, str]:
+    """The builder's pair, where the caller has established there is one.
+
+    `build_credential_header` answers None for a format that carries no header,
+    and this branch runs only for `OAPIF:`, which is one of the two that do.
+    """
+    if pair is None:  # pragma: no cover - unreachable from the OAPIF branch
+        raise IngestionError("no credential header could be composed")
+    return pair
 
 
 def _gdal_source_format(gdal_source: str) -> str | None:
@@ -138,6 +219,21 @@ async def run_service_preview(
         "columns": [],
         "sample_rows": [],
     }
+
+    # fix(#1746 B2b review r16): a protected OGC API collection is read HERE,
+    # not by GDAL. Its pages choose the next one, GDAL follows that link, and
+    # `GDAL_HTTP_HEADER_FILE` applies to every request the process makes, so a
+    # collection whose first page is same-origin can hand the credential to any
+    # origin it names on page two. GDAL 3.10.3 has no way to scope the header to
+    # one origin, which was measured rather than assumed (see
+    # `platform/service_items`), so the credential is kept out of GDAL entirely
+    # for this path: the pages are fetched with the bounded client, streamed to
+    # a local file, and ogrinfo is pointed at that. WFS needs none of this; its
+    # driver pages by startIndex against the endpoint the capabilities
+    # advertise, which the description check validates.
+    gdal_source, layer_name, credential, items_path = await _localise_protected_oapif(
+        gdal_source, layer_name, credential, sample_limit
+    )
 
     cmd = [
         "ogrinfo",
@@ -318,12 +414,10 @@ async def run_service_preview(
                 f"ogrinfo timed out after {timeout:.0f}s for service preview"
             ) from exc
     finally:
-        if header_file_path is not None:
-            try:
-                os.unlink(header_file_path)
-            except OSError:
-                # Already removed; contents were only the bearer + file was 0600.
-                pass
+        # Both are removed on every exit, success or not: one holds a
+        # credential and the other holds data read with it.
+        _remove_quietly(items_path)
+        _remove_quietly(header_file_path)
 
     if proc.returncode != 0:
         error_msg = stderr.decode().strip() if stderr else "unknown error"

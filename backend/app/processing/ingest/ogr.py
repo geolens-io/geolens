@@ -11,7 +11,12 @@ import structlog
 
 from app.core.config import settings
 from app.core.crs_uri import parse_crs_uri
-from app.core.runtime.staging import GDAL_HEADER_FILE_REDIRECT_ENV, gdal_header_dir
+from app.core.runtime.staging import (
+    GDAL_HEADER_FILE_REDIRECT_ENV,
+    ensure_staging_ready,
+    gdal_header_dir,
+)
+from app.platform.service_items import materialise_oapif_items
 from app.platform.service_endpoints import assert_endpoints_stay_on_origin
 from app.core.service_tokens import (
     BEARER_SCHEME,
@@ -1041,6 +1046,30 @@ async def run_ogr2ogr_service(
 
     _validate_table_name(table_name)
     _validate_table_name(schema)
+
+    # fix(#1746 B2b review r16): a protected OGC API collection is read HERE
+    # rather than by GDAL, and the credential never becomes a header file at
+    # all. Its pages choose the next one, GDAL follows that link, and the
+    # header file applies to every request the process makes, so a collection
+    # whose first page is same-origin can hand the credential to any origin it
+    # names on page two. GDAL 3.10.3 offers no way to scope the header to one
+    # origin; that was measured, and `platform/service_items` carries the
+    # result and the command. WFS is untouched: its driver pages by startIndex
+    # against the endpoint the capabilities advertise, and ignores a `next`
+    # attribute outright, which was measured the same way.
+    items_path: str | None = None
+    if token and service_type == "ogcapi_features":
+        items_path = await materialise_oapif_items(
+            gdal_source.split(":", 1)[1],
+            layer_name,
+            credential_line=_sanitize_authorization_token(
+                token, service_format=service_type
+            )
+            or "",
+            staging_dir=ensure_staging_ready(settings.upload_staging_dir),
+        )
+        gdal_source, layer_name, token = items_path, "", None
+
     if layer_name:
         validate_layer_name_argv(layer_name)
     cmd = [
@@ -1228,6 +1257,13 @@ async def run_ogr2ogr_service(
             proc, timeout, tool_name="ogr2ogr (service)"
         )
     finally:
+        if items_path is not None:
+            try:
+                os.unlink(items_path)
+            except OSError:
+                # Already gone is the outcome this wanted; the staging sweep
+                # reclaims one a SIGKILL leaves behind.
+                pass
         if header_file_path is not None:
             try:
                 os.unlink(header_file_path)

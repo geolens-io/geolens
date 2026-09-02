@@ -239,7 +239,16 @@ def _assert_same_origin(url: str, hrefs: list[str]) -> None:
     one to send a credential to.
     """
     for href in hrefs:
-        resolved = urljoin(url, href)
+        try:
+            resolved = urljoin(url, href)
+        except ValueError:
+            # fix(#1746 B2b review r16): `urljoin` raises on some malformed
+            # absolute references, and the href comes out of a document this
+            # check exists to distrust. An address that cannot even be resolved
+            # is not one to send a credential to, so it is refused with the
+            # same coded outcome; the raw href is never echoed, because it is
+            # provider-controlled and reaches a message and a log line.
+            raise CrossOriginEndpointError("unparseable") from None
         if not same_origin(url, resolved):
             raise CrossOriginEndpointError(_origin_of(resolved))
 
